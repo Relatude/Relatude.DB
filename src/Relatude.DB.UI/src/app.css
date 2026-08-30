@@ -755,7 +755,8 @@ a {
 
 .db-table-row {
   display: grid;
-  grid-template-columns: 24px 2fr 110px 130px 1fr;
+  /* the last column is the open/close button, sized so the head and total rows line up with it */
+  grid-template-columns: 24px 2fr 110px 130px 1fr 32px;
   gap: 8px;
   align-items: center;
   padding: 6px 4px;
@@ -1285,4 +1286,709 @@ a.action-button {
 .sidebar.collapsed .nav-item .badge,
 .sidebar.collapsed .sidebar-footer {
   display: none;
+}
+
+/* ---- settings ---- */
+
+/* the page owns its own scrolling: the contents column stays put while the pane scrolls, which is
+   what lets the highlight in the contents follow what is on screen */
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+}
+
+.settings-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.settings-body {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---- table of contents ---- */
+
+.settings-toc {
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.toc-section + .toc-section {
+  margin-top: 6px;
+}
+
+.toc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: left;
+  border-radius: 7px;
+}
+
+.toc-row:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.toc-head {
+  font-weight: 500;
+  color: var(--text-soft);
+}
+
+.toc-head.active {
+  color: var(--text);
+}
+
+.toc-head.active svg {
+  color: var(--accent);
+}
+
+/* the groups of a section, indented under it the way the pane stacks them */
+.toc-child {
+  padding-left: 34px;
+  font-size: 12.5px;
+}
+
+.toc-child.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.toc-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toc-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ---- the scrolling pane ---- */
+
+.settings-pane {
+  overflow-y: auto;
+  padding-right: 4px;
+  scroll-behavior: smooth;
+  /* setting rows stack on the pane's width, not the window's: the contents column and the nav rail
+     both take from it, so the viewport alone is the wrong thing to measure */
+  container-type: inline-size;
+}
+
+.settings-section {
+  max-width: 1100px;
+}
+
+.settings-section + .settings-section {
+  margin-top: 28px;
+}
+
+.settings-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.settings-section-head svg {
+  color: var(--accent);
+}
+
+.settings-section .panel + .panel {
+  margin-top: 16px;
+}
+
+.settings-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
+.settings-search .text-input {
+  width: 240px;
+}
+
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.settings-check input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.settings-source {
+  font-size: 12px;
+  text-align: right;
+}
+
+.settings-message {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-soft);
+  background: var(--accent-soft);
+  border-radius: 8px;
+}
+
+.settings-group-help {
+  margin: -6px 0 14px;
+  max-width: 80ch;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.settings-list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* one setting: what it does on the left, the value on the right */
+.setting {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 16px;
+  align-items: start;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+
+.setting:first-child {
+  border-top: none;
+  padding-top: 2px;
+}
+
+.setting.edited {
+  /* the marker sits in the panel's own padding, so the row itself does not shift */
+  box-shadow: inset 3px 0 0 -1px var(--accent);
+}
+
+.setting-label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.setting-help {
+  margin-top: 3px;
+  max-width: 80ch;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.setting-override {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-top: 6px;
+  padding: 5px 8px;
+  max-width: 80ch;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-soft);
+  background: var(--badge-bg);
+  border-radius: 6px;
+}
+
+.setting-override svg {
+  position: relative;
+  top: 2px;
+  flex: none;
+}
+
+.setting-override code {
+  font-size: 11.5px;
+  word-break: break-all;
+}
+
+.setting-badge {
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--badge-bg);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.setting-badge.faint {
+  color: var(--text-faint);
+  background: none;
+  border: 1px solid var(--border);
+}
+
+.setting-badge.custom,
+.setting-badge.unsaved {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.setting-badge.config {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.setting-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.setting-control .text-input,
+.setting-control .select {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.setting-control .text-input.number {
+  flex: none;
+  width: 120px;
+}
+
+.setting-control .text-input:disabled,
+.setting-control .select:disabled {
+  color: var(--text-muted);
+  background: var(--bg);
+  cursor: not-allowed;
+}
+
+.setting-unit {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.setting-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.setting-toggle input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.setting.locked .setting-toggle,
+.setting.locked .setting-toggle input {
+  cursor: not-allowed;
+  color: var(--text-muted);
+}
+
+/* ---- collections of settings objects: storage providers, file stores ---- */
+
+.setting-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.setting-items-empty {
+  padding: 12px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.setting-item {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg);
+}
+
+.setting-item-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+}
+
+/* the name keeps its room and the usage line is what gives way, since the name is how you tell
+   one card from another */
+.setting-item-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  max-width: 55%;
+  min-width: 0;
+  color: var(--text-muted);
+}
+
+.setting-item-toggle:hover {
+  color: var(--text);
+}
+
+.setting-item-name {
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setting-item-usage {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the fields of an element sit inside its card, indented from the header above them */
+.setting-item .settings-list {
+  padding: 0 12px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.setting-item .setting:first-child {
+  padding-top: 10px;
+}
+
+.setting-items .action-button {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* appears only while there are unsaved edits, below the pane rather than over it */
+.settings-savebar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  flex: none;
+  padding: 12px 16px;
+  font-size: 13px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+
+.settings-invalid {
+  color: var(--danger);
+}
+
+.action-button.primary {
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.action-button.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+@container (max-width: 640px) {
+  .setting {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .setting-control {
+    justify-content: flex-start;
+  }
+}
+
+/* below this the contents column costs more than it gives: the pane keeps the whole width and the
+   sections are reached by scrolling and by search */
+@media (max-width: 820px) {
+  .settings-body {
+    grid-template-columns: 1fr;
+  }
+  .settings-toc {
+    display: none;
+  }
+}
+
+/* ---- conversions ---- */
+
+.conversions {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1100px;
+}
+
+.conv-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.conv-stat {
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: 10px;
+}
+
+.conv-stat.running {
+  border-left-color: var(--accent);
+}
+
+.conv-stat.queued {
+  border-left-color: var(--text-faint);
+}
+
+.conv-stat.done {
+  border-left-color: var(--ok);
+}
+
+.conv-stat.bad {
+  border-left-color: var(--danger);
+}
+
+.conv-stat-value {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.conv-stat-label {
+  margin-top: 2px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.conv-table {
+  font-size: 13px;
+}
+
+.conv-row {
+  display: grid;
+  grid-template-columns: 2fr 150px 1fr 90px 120px 90px 62px;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 4px;
+  border-top: 1px solid var(--border);
+}
+
+/* rows arrive and leave rather than blinking in and out: a conversion finishing is the moment worth
+   seeing, and it is exactly the moment its row would otherwise vanish between two polls */
+.conv-row:not(.conv-head) {
+  animation: conv-enter 240ms ease both;
+}
+
+.conv-row.leaving {
+  overflow: hidden;
+  pointer-events: none;
+  /* keep this in step with leaveMs in ConversionsSection.tsx */
+  animation: conv-leave 420ms ease forwards;
+}
+
+@keyframes conv-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* fades first, then collapses, so the rows below settle after the row has already gone visually.
+   The max-height is a cap to animate from, not a real height - rows are well under it. */
+@keyframes conv-leave {
+  0% {
+    opacity: 1;
+    max-height: 90px;
+  }
+  55% {
+    opacity: 0;
+    max-height: 90px;
+    transform: translateX(12px);
+  }
+  100% {
+    opacity: 0;
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-top-width: 0;
+    transform: translateX(12px);
+  }
+}
+
+.conv-row.conv-head {
+  border-top: none;
+  padding-top: 0;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.conv-row .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.conv-empty {
+  padding: 16px 4px;
+  color: var(--text-muted);
+}
+
+.conv-file,
+.conv-property {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the converter's own message, when it has one: the reason a failed row failed */
+.conv-desc {
+  display: block;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conv-property {
+  color: var(--text-muted);
+}
+
+.conv-format {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-faint);
+}
+
+.conv-chip {
+  padding: 1px 6px;
+  font-size: 11px;
+  color: var(--text-soft);
+  background: var(--badge-bg);
+  border-radius: 4px;
+}
+
+.conv-status {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.conv-status.running {
+  color: var(--accent);
+}
+
+.conv-status.completed {
+  color: var(--ok);
+}
+
+.conv-status.failed,
+.conv-status.canceled {
+  color: var(--danger);
+}
+
+.conv-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.conv-progress-bar {
+  flex: 1;
+  height: 5px;
+  min-width: 0;
+  background: var(--badge-bg);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+/* the bar is driven by a poll a second apart, so it glides for about that long in a straight line
+   rather than easing: the result reads as one continuous movement instead of a step every second.
+   Slightly under the interval, so it settles just before the next sample rather than being cut off. */
+.conv-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 900ms linear;
+}
+
+.conv-progress-text {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.conv-actions {
+  display: flex;
+  gap: 2px;
+  justify-content: flex-end;
+}
+
+@media (max-width: 900px) {
+  .conv-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* motion here is decoration: without it a row still appears and disappears, correctly */
+@media (prefers-reduced-motion: reduce) {
+  .conv-row:not(.conv-head) {
+    animation: none;
+  }
+  .conv-row.leaving {
+    animation: none;
+    display: none;
+  }
+  .conv-progress-fill {
+    transition: none;
+  }
 }

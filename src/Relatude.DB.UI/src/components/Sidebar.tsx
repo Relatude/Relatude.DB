@@ -6,21 +6,25 @@ interface SidebarProps {
   collapsed: boolean;
   onToggleCollapsed: () => void;
   databases: DatabaseInfo[];
-  activeDbName: string | null;
+  activeDb: DatabaseInfo | null;
   activeSectionId: string;
   onSelectSection: (id: string) => void;
 }
 
-export function Sidebar({ collapsed, onToggleCollapsed, databases, activeDbName, activeSectionId, onSelectSection }: SidebarProps) {
+export function Sidebar({ collapsed, onToggleCollapsed, databases, activeDb, activeSectionId, onSelectSection }: SidebarProps) {
   const errors = databases.filter((db) => db.state === "Error").length;
-  // the one live badge so far: the server "Databases" section shows how many databases failed
-  const badgeFor = (s: Section) =>
-    s.id === "server-databases" && errors > 0 ? { text: errors === 1 ? "1 error" : `${errors} errors`, danger: true } : null;
+  const conversions = activeDb?.conversionCount ?? 0;
+  // live badges: how many databases failed, and what the conversion queue still owes
+  const badgeFor = (s: Section) => {
+    if (s.id === "server-databases" && errors > 0) return { text: errors === 1 ? "1 error" : `${errors} errors`, danger: true };
+    if (s.id === "conversions" && conversions > 0) return { text: String(conversions), danger: false };
+    return null;
+  };
   return (
     <div className="sidebar-wrap">
       <aside className={"sidebar" + (collapsed ? " collapsed" : "")}>
         <NavGroup
-          label={activeDbName ? `Database — ${activeDbName}` : "Database"}
+          label={activeDb ? `Database — ${activeDb.name}` : "Database"}
           shortLabel="DB"
           items={sections.filter((s) => s.scope === "database")}
           badgeFor={badgeFor}

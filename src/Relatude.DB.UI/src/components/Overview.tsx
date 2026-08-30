@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
+import { IconPlayerPlayFilled, IconPlayerStopFilled } from "@tabler/icons-react";
+import { showConfirm, showError } from "../dialogs";
 import { subscribe, subscribeResync } from "../server/channel";
-import { collectGarbage, fetchServerOverview, softRestart, stopHost, type ProcessActionResult, type ServerOverview } from "../server/overview";
+import { collectGarbage, fetchServerOverview, softRestart, stopHost, type OverviewContainer, type ProcessActionResult, type ServerOverview } from "../server/overview";
+import { closeStore, openStore } from "../server/storage";
 import { formatBytes, formatCount, formatDuration, formatTime } from "../format";
 
 export function Overview() {
@@ -92,6 +95,7 @@ export function Overview() {
             <span>State</span>
             <span className="num">Nodes</span>
             <span>Provider</span>
+            <span />
           </div>
           {data.containers.map((c) => (
             <div key={c.id} className="db-table-row">
@@ -102,6 +106,7 @@ export function Overview() {
               <span>{c.state}</span>
               <span className="num">{c.nodeCount != null ? formatCount(c.nodeCount) : "—"}</span>
               <span>{c.provider ?? "—"}</span>
+              <StoreToggle db={c} onDone={load} />
             </div>
           ))}
           <div className="db-table-row db-table-total">
@@ -109,6 +114,7 @@ export function Overview() {
             <span>Total</span>
             <span />
             <span className="num">{formatCount(totalNodes)}</span>
+            <span />
             <span />
           </div>
         </div>
@@ -141,6 +147,51 @@ export function Overview() {
         </section>
       </div>
     </div>
+  );
+}
+
+/**
+ * Opens or closes one database from the list. Closing is the disruptive direction - the application
+ * cannot reach the database until it is opened again - so only that side asks first.
+ *
+ * Both commands run to completion on the server before answering, and replaying a large log is not
+ * quick, so the button holds a busy state for as long as that takes. The row itself does not depend
+ * on the answer: the container watch broadcasts every state change, so Opening and Open arrive on
+ * the stream whether or not this request has come back yet.
+ */
+function StoreToggle({ db, onDone }: { db: OverviewContainer; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const settling = db.state === "Opening" || db.state === "Closing";
+  const isOpen = db.state === "Open";
+  async function click() {
+    if (isOpen) {
+      const confirmed = await showConfirm(
+        `Close ${db.name}?`,
+        "The application cannot read or write this database until it is opened again. Anything not yet flushed is written out first, so nothing is lost.",
+        { confirmLabel: "Close", danger: true },
+      );
+      if (!confirmed.ok) return;
+    }
+    setBusy(true);
+    try {
+      await (isOpen ? closeStore(db.id) : openStore(db.id));
+      onDone();
+    } catch (e) {
+      await showError(isOpen ? "Could not close the database" : "Could not open the database", e instanceof Error ? e.message : String(e));
+      onDone(); // a failed open leaves the database in Error, which the row should show
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button
+      className={"icon-button" + (isOpen ? " danger" : "")}
+      disabled={busy || settling}
+      title={settling ? db.state : isOpen ? "Close this database" : "Open this database"}
+      onClick={click}
+    >
+      {isOpen ? <IconPlayerStopFilled size={13} /> : <IconPlayerPlayFilled size={13} />}
+    </button>
   );
 }
 

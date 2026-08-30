@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import { ConversionsSection } from "./components/ConversionsSection";
 import { DialogHost } from "./components/DialogHost";
 import { FilesSection } from "./components/FilesSection";
 import { Header } from "./components/Header";
 import { Login } from "./components/Login";
 import { Overview } from "./components/Overview";
+import { SettingsSection } from "./components/SettingsSection";
 import { Sidebar } from "./components/Sidebar";
 import { StorageSection } from "./components/StorageSection";
 import { sections } from "./navigation";
@@ -108,13 +110,20 @@ export function App() {
           collapsed={!navOpen}
           onToggleCollapsed={() => setNavOpen(!navOpen)}
           databases={databases}
-          activeDbName={activeDb?.name ?? null}
+          activeDb={activeDb}
           activeSectionId={activeSectionId}
           onSelectSection={setActiveSectionId}
         />
         <main className="content">
           {activeSectionId === "server-overview" ? (
             <Overview />
+          ) : section.scope === "server" && (activeSectionId === "server-settings" || section.settingsSection) ? (
+            // an entry that names part of the settings renders the settings page opened there
+            <SettingsSection key={activeSectionId} focusSection={section.settingsSection} />
+          ) : activeSectionId === "db-settings" && activeDb ? (
+            <SettingsSection key={activeDb.id} storeId={activeDb.id} />
+          ) : activeSectionId === "conversions" && activeDb ? (
+            <ConversionsSection key={activeDb.id} db={activeDb} />
           ) : activeSectionId === "files" && activeDb ? (
             <FilesSection key={activeDb.id} db={activeDb} />
           ) : activeSectionId === "storage" && activeDb ? (

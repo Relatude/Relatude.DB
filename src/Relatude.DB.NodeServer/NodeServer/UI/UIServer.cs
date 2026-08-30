@@ -25,6 +25,7 @@ public sealed class UIServer {
         _server = server;
         Commands = new UICommands(server);
         registerBuiltInCommands();
+        new UISettings(server).Register(Commands);
         _containerWatch = new Timer(_ => watchContainers(), null, containerWatchIntervalMs, Timeout.Infinite);
     }
     // broadcasts a "containers" event whenever the container list changes (state, node count, name),
@@ -48,14 +49,23 @@ public sealed class UIServer {
     object[] buildContainers() {
         return [.. _server.GetContainers().Select(c => {
             long? nodeCount = null;
+            var conversionCount = 0;
             if (c.IsOpen()) {
-                try { nodeCount = c.Store!.Count(); } catch { } // a container closing mid-request should not fail the snapshot
+                // a container closing mid-request should not fail the snapshot
+                try { nodeCount = c.Store!.Count(); } catch { }
+                // what the file conversion queue still owes, so the nav badge is live on every page
+                // without a poll of its own. Counting is walking a short in-memory list.
+                try {
+                    var conversions = c.Store!.Datastore.GetConversions();
+                    conversionCount = conversions.Running + conversions.Queued;
+                } catch { }
             }
             return (object)new {
                 c.Settings.Id,
                 Name = string.IsNullOrEmpty(c.Settings.Name) ? c.Settings.Id.ToString() : c.Settings.Name,
                 State = c.HasFailed ? "Error" : c.Store?.State.ToString() ?? "Closed",
                 NodeCount = nodeCount,
+                ConversionCount = conversionCount,
             };
         })];
     }
@@ -228,6 +238,12 @@ public sealed class UIServer {
         }
         sum(await io.GetFolderAsync(folder, true, true));
         return (files, bytes);
+    }
+    // the property a conversion belongs to, by name rather than by id - the id says nothing to
+    // whoever is reading the page, and a datamodel that no longer has it says nothing either
+    static string? propertyName(Datamodels.Datamodel? datamodel, Common.PropertyPath? property) {
+        if (property == null || datamodel == null) return null;
+        return datamodel.Properties.TryGetValue(property.PropertyId, out var model) ? model.CodeName : null;
     }
     NodeStoreContainer getContainer(Guid storeId) {
         if (!_server.Containers.TryGetValue(storeId, out var c)) throw new Exception("Container not found. ");
@@ -586,6 +602,48 @@ public sealed class UIServer {
             FileScanJobs.Get(p.JobId).Cancellation.Cancel();
             return (object?)new { Cancelled = true };
         });
+        // ---- file conversions: the queue behind image resizing, format conversion and text extraction ----
+        // Current holds what is running and queued plus a short tail of finished ones, which is what
+        // makes the page useful: a conversion that failed is the one you came looking for.
+        Commands.Register("conversions", ctx => {
+            var p = ctx.Payload<IoListPayload>();
+            var container = getContainer(p.StoreId);
+            if (!container.IsOpen()) return (object?)new { Open = false, Running = 0, Queued = 0, Completed = 0, Failed = 0, Canceled = 0, Current = Array.Empty<object>() };
+            var conversions = container.Store!.Datastore.GetConversions();
+            var datamodel = container.Datamodel;
+            return (object?)new {
+                Open = true,
+                conversions.Running,
+                conversions.Queued,
+                conversions.Completed,
+                conversions.Failed,
+                conversions.Canceled,
+                Current = conversions.Current.Select(c => new {
+                    c.Id,
+                    c.FileName,
+                    From = c.FromFormat.ToString(),
+                    To = c.ToFormat.ToString(),
+                    FromType = c.FromType.ToString(),
+                    ToType = c.ToType.ToString(),
+                    Property = propertyName(datamodel, c.Property),
+                    Status = c.Status.ToString(),
+                    c.ProgressPercentage,
+                    c.Created,
+                    c.Started,
+                    c.Ended,
+                    c.ProcessedMs,
+                    c.Description,
+                }),
+            };
+        });
+        // Cancelling only stops this run; the next request for the same file starts it over. Cancelling
+        // permanently records the failure against the file, so it is not attempted again either.
+        Commands.Register("conversion-cancel", async ctx => {
+            var p = ctx.Payload<ConversionCancelPayload>();
+            var store = getContainer(p.StoreId).Store ?? throw new Exception("The database must be open. ");
+            await store.Datastore.CancelConversion(p.Id, p.Permanently);
+            return (object?)new { Cancelled = true };
+        });
         Commands.Register("store-open", ctx => {
             var p = ctx.Payload<IoListPayload>();
             getContainer(p.StoreId).Open();
@@ -642,3 +700,4 @@ sealed record ZipRequestPayload(Guid IoId, string[] Keys, string? BasePath);
 sealed record IoDeleteFilesPayload(Guid IoId, string[] Keys);
 sealed record FileScanStartPayload(Guid StoreId, string Scan, bool CountOnly);
 sealed record FileScanJobPayload(Guid JobId);
+sealed record ConversionCancelPayload(Guid StoreId, Guid Id, bool Permanently);

@@ -5,6 +5,9 @@ export interface DatabaseInfo {
   name: string;
   state: string; // Closed | Open | Opening | Closing | Error | Disposed
   nodeCount?: number | null;
+  /** file conversions still owed: running plus queued. Rides the container broadcast, so the nav
+      badge stays live without the Conversions page having to be open. */
+  conversionCount?: number;
 }
 
 export interface ServerInfo {

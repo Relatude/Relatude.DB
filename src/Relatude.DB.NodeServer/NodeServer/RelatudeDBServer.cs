@@ -71,7 +71,19 @@ public partial class RelatudeDBServer {
     public IIOProvider TempIO => Validator.ThrowIfNull(_tempIO);
     ISettingsLoader? _settingsLoader;
     SettingsOverlay? _settingsOverlay;
+    /// <summary>The configuration section merged over the settings file, when there is one. The admin
+    /// UI asks it which settings it may not offer to edit, since configuration wins at every start.</summary>
+    internal SettingsOverlay? ConfigurationOverlay => _settingsOverlay;
     Dictionary<Guid, IIOProvider> _ios = [];
+    /// <summary>
+    /// Drops one cached provider, so the next lookup rebuilds it from its current settings. Editing a
+    /// provider in the admin UI has no effect without this: the instance is built once and kept, and
+    /// even reopening the database would hand back the one pointing at the old folder or container.
+    /// Anything still holding the old instance keeps working off it until it lets go.
+    /// </summary>
+    internal void ForgetIOProvider(Guid ioId) {
+        lock (_ios) _ios.Remove(ioId);
+    }
     public void ResetIOProviders() {
         lock (_ios) _ios.Clear();
         GC.Collect();

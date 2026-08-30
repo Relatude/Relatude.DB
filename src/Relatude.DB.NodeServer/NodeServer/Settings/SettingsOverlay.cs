@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using System.Globalization;
 using System.Reflection;
 using System.Text;
@@ -21,15 +21,21 @@ public sealed class SettingsOverlay {
     public const string DefaultSectionName = "RelatudeDB";
 
     readonly JsonObject _overlay;
+    readonly string _sectionName;
     readonly Action<string> _logInfo;
     readonly Action<string> _logWarning;
     readonly List<Override> _overrides = [];
+    readonly Dictionary<string, JsonNode?> _overriddenByPath = new(StringComparer.OrdinalIgnoreCase);
 
-    SettingsOverlay(JsonObject overlay, Action<string> logInfo, Action<string> logWarning) {
+    SettingsOverlay(JsonObject overlay, string sectionName, Action<string> logInfo, Action<string> logWarning) {
         _overlay = overlay;
+        _sectionName = sectionName;
         _logInfo = logInfo;
         _logWarning = logWarning;
     }
+
+    /// <summary>The configuration section these overrides come from, for messages that name it.</summary>
+    public string SectionName => _sectionName;
 
     /// <summary>Reads the section and validates it against the settings types. Returns null when the
     /// section is absent or holds nothing usable. Unrecognized keys, read-only keys and values that do
@@ -38,7 +44,7 @@ public sealed class SettingsOverlay {
         var section = configuration.GetSection(sectionName);
         if (section.Value == null && !section.GetChildren().Any()) return null;
         var overlay = convertObject(section, typeof(RelatudeDBServerSettings), sectionName, logWarning);
-        return overlay == null ? null : new SettingsOverlay(overlay, logInfo, logWarning);
+        return overlay == null ? null : new SettingsOverlay(overlay, sectionName, logInfo, logWarning);
     }
 
     public bool HasOverrides => _overrides.Count > 0;
@@ -47,6 +53,7 @@ public sealed class SettingsOverlay {
     /// actually changed so it can be stripped again before saving.</summary>
     public RelatudeDBServerSettings Apply(RelatudeDBServerSettings fileSettings) {
         _overrides.Clear();
+        _overriddenByPath.Clear();
         var root = JsonSerializer.SerializeToNode(fileSettings, LocalSettingsLoaderFile.JsonOptions) as JsonObject
             ?? throw new Exception("Could not serialize the server settings.");
         mergeObject(root, _overlay, []);
@@ -85,14 +92,37 @@ public sealed class SettingsOverlay {
         public bool ExistedInFile { get; init; }
     }
 
-    void record(List<Step> path, JsonNode? fileValue, bool existedInFile) {
+    void record(List<Step> path, JsonNode? fileValue, bool existedInFile, JsonNode? overlayValue) {
         _overrides.Add(new Override {
             Path = [.. path],
             Display = display(path),
             FileValue = fileValue?.DeepClone(),
             ExistedInFile = existedInFile,
         });
+        _overriddenByPath[keyPath(path)] = overlayValue?.DeepClone();
     }
+
+    /// <summary>
+    /// True when the configuration section decides this setting, so editing it would have no effect:
+    /// the live value comes from configuration and <see cref="RemoveOverridesBeforeSave"/> keeps the
+    /// file's own value. Paths are built by <see cref="OverridePath"/>. An override recorded on an
+    /// ancestor (configuration supplying a whole object the file did not have) covers everything
+    /// below it, so ancestors are checked too.
+    /// </summary>
+    public bool IsOverridden(string path, out JsonNode? configuredValue) {
+        var candidate = path;
+        while (true) {
+            if (_overriddenByPath.TryGetValue(candidate, out configuredValue)) return true;
+            var cut = candidate.LastIndexOfAny(['.', '[']);
+            if (cut <= 0) return false;
+            candidate = candidate[..cut];
+        }
+    }
+
+    /// <summary>Builds the path <see cref="IsOverridden"/> expects, e.g.
+    /// <c>ContainerSettings[8f1c...].LocalSettings.NodeCacheSizeGb</c>.</summary>
+    public static string OverridePath(Guid? containerId, string propertyPath)
+        => containerId == null ? propertyPath : "ContainerSettings[" + containerId.Value + "]." + propertyPath;
 
     void mergeObject(JsonObject baseObj, JsonObject overlayObj, List<Step> path) {
         foreach (var (key, overlayValue) in overlayObj.ToArray()) {
@@ -101,7 +131,7 @@ public sealed class SettingsOverlay {
             if (overlayValue is JsonObject oo && baseValue is JsonObject bo) mergeObject(bo, oo, path);
             else if (overlayValue is JsonArray oa && baseValue is JsonArray ba) mergeArray(ba, oa, path);
             else if (!JsonNode.DeepEquals(baseValue, overlayValue)) {
-                record(path, baseValue, existed);
+                record(path, baseValue, existed, overlayValue);
                 baseObj[key] = overlayValue?.DeepClone();
             }
             path.RemoveAt(path.Count - 1);
@@ -116,7 +146,7 @@ public sealed class SettingsOverlay {
             if (index < 0) {
                 baseArr.Add(overlayElement?.DeepClone());
                 path.Add(Step.AtElement(id, baseArr.Count - 1));
-                record(path, null, existedInFile: false);
+                record(path, null, existedInFile: false, overlayElement);
                 path.RemoveAt(path.Count - 1);
                 continue;
             }
@@ -125,7 +155,7 @@ public sealed class SettingsOverlay {
             if (overlayElement is JsonObject oo && baseElement is JsonObject bo) mergeObject(bo, oo, path);
             else if (overlayElement is JsonArray oa && baseElement is JsonArray ba) mergeArray(ba, oa, path);
             else if (!JsonNode.DeepEquals(baseElement, overlayElement)) {
-                record(path, baseElement, existedInFile: true);
+                record(path, baseElement, existedInFile: true, overlayElement);
                 baseArr[index] = overlayElement?.DeepClone();
             }
             path.RemoveAt(path.Count - 1);
@@ -171,6 +201,20 @@ public sealed class SettingsOverlay {
         if (element is not JsonObject obj) return null;
         if (!obj.TryGetPropertyValue("Id", out var value) || value is not JsonValue v) return null;
         return v.TryGetValue<string>(out var s) && Guid.TryParse(s, out var id) ? id : null;
+    }
+    // the stable form used by IsOverridden: array elements are addressed by their Id where the
+    // merge knew one, so a path survives elements being reordered in the file
+    static string keyPath(List<Step> path) {
+        var sb = new StringBuilder();
+        foreach (var step in path) {
+            if (step.Property != null) {
+                if (sb.Length > 0) sb.Append('.');
+                sb.Append(step.Property);
+            } else {
+                sb.Append('[').Append(step.ElementId?.ToString() ?? ("#" + step.ElementIndex)).Append(']');
+            }
+        }
+        return sb.ToString();
     }
     static string display(List<Step> path) {
         var sb = new StringBuilder();
