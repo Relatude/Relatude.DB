@@ -71,6 +71,8 @@ export interface Column {
   key: string;
   name: string;
   type: string;
+  /** Whether the result can be ordered by it: a list, a document or an array has no single key to sort on. */
+  sortable: boolean;
 }
 
 export interface SearchResult {
@@ -85,6 +87,12 @@ export interface SearchResult {
   facets: Facet[];
   columns: Column[] | null;
   hits: Hit[];
+  /**
+   * False when a sort was asked for and the result could not be given in that order. Filtering by a
+   * facet is a set intersection and the set that comes out of one is in id order, so a selection and
+   * a sort cannot both hold - the selection wins and the table says the order is not in force.
+   */
+  sortApplied: boolean;
 }
 
 /** A facet selection as it is posted back: the tokens of the buckets that are on. */
@@ -110,6 +118,9 @@ export interface SearchRequest {
    * whether anyone is going to read them. A selection still filters when this is false.
    */
   facets: boolean;
+  /** The property id of the column the table is sorted by, or null for the store's own order. */
+  sortBy: string | null;
+  sortDescending: boolean;
 }
 
 /** How many rows the csv export covers before it stops; the server's own cap, repeated for the UI. */

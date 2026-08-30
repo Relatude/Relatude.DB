@@ -162,13 +162,32 @@ sealed class UIQuery {
             DurationMs = sw.Elapsed.TotalMilliseconds,
             Query = queryString,
             Facets = facets,
-            Columns = columns?.Select(c => (object)new { c.Key, c.Name, Type = c.TypeName }).ToArray(),
+            Columns = columns?.Select(c => (object)new { c.Key, c.Name, Type = c.TypeName, Sortable = c.Property != null && isSortable(c.Property) }).ToArray(),
+            // false when a sort was asked for and could not be given, so the page never claims an order it has not got
+            SortApplied = string.IsNullOrEmpty(p.SortBy) || queryString.Contains(".OrderBy(", StringComparison.Ordinal),
             Hits = hits,
         };
     }
 
     static Guid queriedType(Datamodel dm, Guid? given)
         => given is Guid id && dm.NodeTypes.ContainsKey(id) ? id : NodeConstants.BaseNodeTypeId;
+
+    // Every word the page splits the search text into, with a trailing wildcard. The search runs on
+    // every keystroke, so the word being typed is almost always half a word, and a term the index
+    // has to match whole would find nothing until the moment it is finished - TermSet.Parse reads
+    // the trailing star as a prefix term, which is what makes "cor" find "cork".
+    //
+    // A word already carrying a wildcard or a fuzzy marker is left exactly as written: someone who
+    // types their own search syntax means it. The wildcard stays out of the separator set for the
+    // same reason - splitting on it would hide the very character being looked for. Only the word
+    // index sees any of this; the semantic half is given the plain words (SearchUtil.StripOperators).
+    static readonly char[] searchWordSeparators = [.. SearchConst.DEVIDERS.Where(c => c != SearchConst.WILDCARD)];
+    static string prefixEachWord(string text) {
+        var words = text.Split(searchWordSeparators, StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 0) return text;
+        return string.Join(' ', words.Select(w =>
+            w.Contains(SearchConst.WILDCARD) || w.Contains(SearchConst.FUZZY) ? w : w + SearchConst.WILDCARD));
+    }
 
     /// <summary>
     /// The query string behind the page: the type, the free text search, and the facet selection.
@@ -181,10 +200,11 @@ sealed class UIQuery {
     static string queryFor(NodeStore s, Datamodel dm, SearchPayload p, Guid typeId, int pageIndex, int pageSize) {
         var q = s.QueryType(typeId, adminContext);
         if (!string.IsNullOrWhiteSpace(p.Text)) {
-            q = q.WhereSearch(p.Text, p.SemanticRatio, (float?)p.MinimumSimilarity);
+            q = q.WhereSearch(prefixEachWord(p.Text), p.SemanticRatio, (float?)p.MinimumSimilarity);
         }
         var selections = (p.Selections ?? []).Where(s => dm.Properties.ContainsKey(s.PropertyId) && s.Values?.Length > 0).ToArray();
-        if (!p.Facets && selections.Length == 0) return paged(q, pageIndex, pageSize);
+        var order = selections.Length == 0 ? orderClause(dm, p.SortBy, p.SortDescending) : "";
+        if (!p.Facets && selections.Length == 0) return paged(q, pageIndex, pageSize, order);
         var fq = q.Facets();
         foreach (var selection in selections) {
             foreach (var value in selection.Values!) {
@@ -193,15 +213,43 @@ sealed class UIQuery {
                 else fq = fq.SetFacetRangeValue(selection.PropertyId, value.Value, value.Value2);
             }
         }
-        return fq.Page(pageIndex, pageSize).ToString();
+        var withFacets = fq.Page(pageIndex, pageSize).ToString();
+        if (order.Length == 0) return withFacets;
+        // The ordering has to go on the node query, before the facet clauses, and the facet query
+        // has no way to take it: it renders as the node query's own string followed by its clauses.
+        // So it is spliced in at that seam, which the check below makes sure is where it looks.
+        var baseQuery = q.ToString();
+        if (baseQuery == null || !withFacets.StartsWith(baseQuery, StringComparison.Ordinal)) return withFacets;
+        return baseQuery + order + withFacets[baseQuery.Length..];
     }
+
+    /// <summary>
+    /// An OrderBy clause for the column the table is sorted by, or nothing.
+    ///
+    /// It is dropped as soon as a facet is selected: filtering by one is a set intersection, and the
+    /// set that comes out of an intersection is in id order whatever order went in, so the two
+    /// cannot both hold. The selection wins - it is what the result IS, where the order is only how
+    /// it is read - and the page is told (SortApplied) so it can say so rather than draw an arrow
+    /// over rows that are not in that order. Only a property whose
+    /// values have an order can be sorted on: a relation is a list, an embedded value is a document,
+    /// and an array has no single key to sort by, so none of them are offered.
+    /// </summary>
+    static string orderClause(Datamodel dm, string? sortBy, bool descending) {
+        if (string.IsNullOrEmpty(sortBy) || !Guid.TryParse(sortBy, out var propertyId)) return "";
+        if (!dm.Properties.TryGetValue(propertyId, out var property) || !isSortable(property)) return "";
+        return ".OrderBy(n => n." + property.CodeName + (descending ? ", true)" : ")");
+    }
+    static bool isSortable(PropertyModel property) => property is not RelationPropertyModel && property.PropertyType is
+        PropertyType.String or PropertyType.Integer or PropertyType.Long or PropertyType.Double or PropertyType.Float
+        or PropertyType.Decimal or PropertyType.DateTime or PropertyType.DateTimeOffset or PropertyType.TimeSpan
+        or PropertyType.Boolean or PropertyType.Guid or PropertyType.Reference;
 
     // Paging appended as text rather than through the query object: its Page operator passes the
     // numbers as query parameters, and the parameter list it builds them in is internal to the query
     // API, so the query string on its own would arrive with them unbound. (The facet query's own
     // Page writes literals and needs none of this.)
-    static string paged(IQueryOfNodes<object, object> q, int pageIndex, int pageSize)
-        => q + ".Page(" + pageIndex.ToString(CultureInfo.InvariantCulture) + ", " + pageSize.ToString(CultureInfo.InvariantCulture) + ")";
+    static string paged(IQueryOfNodes<object, object> q, int pageIndex, int pageSize, string order = "")
+        => q + order + ".Page(" + pageIndex.ToString(CultureInfo.InvariantCulture) + ", " + pageSize.ToString(CultureInfo.InvariantCulture) + ")";
 
     // ---- the table: one column per property ----
 
@@ -905,7 +953,7 @@ sealed class UIQuery {
         foreach (var typeId in typeIds) {
             if (found.Count >= take) break;
             var q = s.QueryType(typeId, adminContext);
-            if (!string.IsNullOrWhiteSpace(p.Text)) q = q.WhereSearch(p.Text);
+            if (!string.IsNullOrWhiteSpace(p.Text)) q = q.WhereSearch(prefixEachWord(p.Text));
             if (s.Datastore.Query(paged(q, 0, take), [], adminContext) is not IStoreNodeDataCollection nodes) continue;
             foreach (var n in nodes.NodeValues) {
                 if (found.Count >= take) break;
@@ -980,7 +1028,8 @@ sealed class UIQuery {
     internal sealed record FacetSelectionValue(string? Value, string? Value2);
     internal sealed record FacetSelection(Guid PropertyId, FacetSelectionValue[]? Values);
     internal sealed record SearchPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity,
-        FacetSelection[]? Selections, Guid[]? Expanded, int Page = 0, int PageSize = 25, bool Table = false, bool Facets = true);
+        FacetSelection[]? Selections, Guid[]? Expanded, int Page = 0, int PageSize = 25, bool Table = false, bool Facets = true,
+        string? SortBy = null, bool SortDescending = false);
     sealed record SavePayload(Guid StoreId, Guid Id, Dictionary<string, JsonElement>? Values, Dictionary<string, Guid[]>? Relations);
     sealed record LookupPayload(Guid StoreId, Guid[]? TypeIds, string? Text, int Take = 20);
 }

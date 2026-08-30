@@ -1,5 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { IconChevronLeft, IconChevronRight, IconCode, IconDownload, IconFilter, IconLayoutList, IconSearch, IconTable, IconX } from "@tabler/icons-react";
+import {
+  IconArrowNarrowDown,
+  IconArrowNarrowUp,
+  IconChevronLeft,
+  IconChevronRight,
+  IconCode,
+  IconDownload,
+  IconFilter,
+  IconLayoutList,
+  IconSearch,
+  IconTable,
+  IconX,
+} from "@tabler/icons-react";
 import { NodeEditor } from "./NodeEditor";
 import { showError } from "../dialogs";
 import {
@@ -56,6 +68,7 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(pageSizes[0]);
   const [table, setTable] = useState(false);
+  const [sort, setSort] = useState<{ key: string; descending: boolean } | null>(null);
   const [showFacets, setShowFacets] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
@@ -105,16 +118,30 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
             pageSize,
             table,
             facets: showFacets,
+            sortBy: sort?.key ?? null,
+            sortDescending: sort?.descending ?? false,
           },
-    [model, db.id, typeId, text, semanticRatio, minSimilarity, selectionList, expanded, page, pageSize, table, showFacets],
+    [model, db.id, typeId, text, semanticRatio, minSimilarity, selectionList, expanded, page, pageSize, table, showFacets, sort],
   );
 
   const { result, loading, error, refresh } = useLiveResult(query, runSearch);
 
-  // any change to what is being searched starts the result list over
+  // Any change to what is being searched starts the result list over, and closes the node open
+  // beside it: the form belongs to a hit in the list it came from, and once that list is a
+  // different search it is no longer clear what is being edited or why it is still on screen.
+  // Paging and the view switches do not go through here - they are the same search, still.
   function reset(apply: () => void) {
     setPage(0);
+    setSelected(null);
     apply();
+  }
+
+  // A column header cycles through the three states a sort can be in: up, down, and the order the
+  // store itself returns. Sorting is a different view of the same search, so the open node stays
+  // open - only the page goes back to the first.
+  function toggleSort(key: string) {
+    setPage(0);
+    setSort((prev) => (prev?.key !== key ? { key, descending: false } : prev.descending ? null : { key, descending: true }));
   }
 
   function toggleFacet(facet: Facet, value: FacetValue) {
@@ -162,6 +189,7 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
               setTypeId(e.target.value);
               setSelections({}); // the facets of another type are different properties
               setExpanded([]);
+              setSort(null); // and its columns are different properties too
             });
             if (pickedByPointer.current) searchBox.current?.focus();
             pickedByPointer.current = false;
@@ -206,28 +234,31 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
         </button>
       </div>
 
-      {model.hasAi && (
-        <div className="query-sliders">
-          <Slider
-            label="Semantic ratio"
-            hint="0 is words only, 1 is vectors only"
-            value={semanticRatio}
-            fallback={model.defaultSemanticRatio}
-            disabled={!semanticAvailable || !text}
-            onChange={(v) => reset(() => setSemanticRatio(v))}
-          />
-          <Slider
-            label="Minimum similarity"
-            hint="how close a vector match has to be to count"
-            value={minSimilarity}
-            fallback={model.defaultMinimumSimilarity}
-            disabled={!semanticAvailable || !text}
-            onChange={(v) => reset(() => setMinSimilarity(v))}
-          />
-          {!model.hasSemanticIndex && <span className="query-note">Nothing in this data model is semantically indexed, so both sliders are inert.</span>}
-          {model.hasSemanticIndex && !text && <span className="query-note">The sliders shape a text search; type something to use them.</span>}
-        </div>
-      )}
+      {/* Always here, whatever the database can do: a control that comes and goes is one nobody
+          trusts, and where the two knobs stand is worth reading even when they are not in play.
+          They are live as soon as this database can search semantically - setting the ratio before
+          typing is a perfectly good order to work in - and only greyed when it cannot, with a note
+          saying which half is missing. */}
+      <div className="query-sliders">
+        <Slider
+          label="Semantic ratio"
+          hint="0 is words only, 1 is vectors only"
+          value={semanticRatio}
+          fallback={model.defaultSemanticRatio}
+          disabled={!semanticAvailable}
+          onChange={(v) => reset(() => setSemanticRatio(v))}
+        />
+        <Slider
+          label="Minimum similarity"
+          hint="how close a vector match has to be to count"
+          value={minSimilarity}
+          fallback={model.defaultMinimumSimilarity}
+          disabled={!semanticAvailable}
+          onChange={(v) => reset(() => setMinSimilarity(v))}
+        />
+        {!model.hasAi && <span className="query-note">No AI provider is configured for this database, so a search matches words only.</span>}
+        {model.hasAi && !model.hasSemanticIndex && <span className="query-note">Nothing in this data model is semantically indexed, so both sliders are inert.</span>}
+      </div>
 
       {showQuery && result && <div className="query-string">{result.query}</div>}
       {error && <div className="query-error">{error}</div>}
@@ -345,8 +376,24 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
                 <thead>
                   <tr>
                     {result.columns.map((column) => (
-                      <th key={column.key} title={column.type}>
+                      <th
+                        key={column.key}
+                        className={
+                          (column.sortable ? "sortable" : "") +
+                          (sort?.key === column.key ? (result.sortApplied ? " sorted" : " sorted-inactive") : "")
+                        }
+                        title={
+                          sort?.key === column.key && !result.sortApplied
+                            ? "Sorted by this column, but a facet selection is filtering and the rows come back in the database's own order"
+                            : column.sortable
+                              ? `${column.type} — click to sort`
+                              : `${column.type} — cannot be sorted on`
+                        }
+                        onClick={column.sortable ? () => toggleSort(column.key) : undefined}
+                      >
                         {column.name}
+                        {sort?.key === column.key &&
+                          (sort.descending ? <IconArrowNarrowDown size={13} stroke={2} /> : <IconArrowNarrowUp size={13} stroke={2} />)}
                       </th>
                     ))}
                   </tr>

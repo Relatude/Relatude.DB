@@ -85,17 +85,18 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
     public IdSet SearchForIdSet(string search, double ratioSemantic, float minimumVectorSimilarity, bool orSearch, int maxWordsEval, DataStoreLocal db, QueryContext ctx) {
         ISemanticIndex? semanticIndex = tryGetSemanticIndex(db, ctx);
         var textSearches = TermSet.Parse(search, MinWordLength, MaxWordLength, InfixSearch);
+        var semanticText = SearchUtil.StripOperators(search); // the vector side gets the words, not the syntax
         var wordIndex = IndexedByWords ? GetWordIndex(ctx) : null;
         if (IndexedByWords && IndexedBySemantic && ratioSemantic < 1 && ratioSemantic > 0) {
             var wordHits = wordIndex == null ? IdSet.Empty : wordIndex.SearchForIdSetUnranked(textSearches, orSearch, maxWordsEval);
-            var sematicHits = semanticIndex == null ? IdSet.Empty : semanticIndex.SearchForIdSetUnranked(search, minimumVectorSimilarity);
+            var sematicHits = semanticIndex == null ? IdSet.Empty : semanticIndex.SearchForIdSetUnranked(semanticText, minimumVectorSimilarity);
             return _sets.Union(wordHits, sematicHits);
         } else if (IndexedByWords && (ratioSemantic < 1 || !IndexedBySemantic)) {
             if (wordIndex == null) throw new NullReferenceException(nameof(wordIndex));
             return wordIndex.SearchForIdSetUnranked(textSearches, orSearch, maxWordsEval);
         } else if (IndexedBySemantic && (ratioSemantic > 0 || !IndexedByWords)) {
             if (semanticIndex == null) throw new NullReferenceException(nameof(MemorySemanticIndex));
-            return semanticIndex.SearchForIdSetUnranked(search, minimumVectorSimilarity);
+            return semanticIndex.SearchForIdSetUnranked(semanticText, minimumVectorSimilarity);
         } else {
             return IdSet.Empty;
         }
@@ -104,6 +105,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
         int pageSize, int maxHitsEvaluated, int maxWordsEvaluated, DataStoreLocal db, QueryContext ctx, out int totalHits, out double innerSearchTimeMs) {
         ISemanticIndex? semanticIndex = tryGetSemanticIndex(db, ctx);
         var textSearches = TermSet.Parse(search, MinWordLength, MaxWordLength, InfixSearch);
+        var semanticText = SearchUtil.StripOperators(search); // the vector side gets the words, not the syntax
         if (ratioSemantic > 1) ratioSemantic = 1;
         else if (ratioSemantic < 0) ratioSemantic = 0;
         var useSemantic = ratioSemantic > 0.01 && IndexedBySemantic;
@@ -140,7 +142,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
             wordHits = [];
         }
         if (useSemantic) {
-            semanticHits = semanticIndex!.SearchForHitData(search, top, maxHitsEvaluated, minimumVectorSimilarity, out totalHitsSemantic)
+            semanticHits = semanticIndex!.SearchForHitData(semanticText, top, maxHitsEvaluated, minimumVectorSimilarity, out totalHitsSemantic)
                 .Where(h => baseSet.Has(h.NodeId));
         } else {
             semanticHits = [];

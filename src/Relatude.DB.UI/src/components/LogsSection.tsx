@@ -207,6 +207,7 @@ function SaveBar({ db, info, onSaved }: { db: DatabaseInfo; info: LogsInfo; onSa
  * it is a coarser bucket. The server clamps a range that reaches past what is kept and says so.
  */
 const ranges = [
+  { id: "60s", label: "60 seconds", ms: 60_000, interval: "Second" as IntervalType },
   { id: "3m", label: "3 minutes", ms: 3 * 60_000, interval: "Second" as IntervalType },
   { id: "1h", label: "1 hour", ms: 3_600_000, interval: "Minute" as IntervalType },
   { id: "24h", label: "24 hours", ms: 24 * 3_600_000, interval: "Hour" as IntervalType },
@@ -247,9 +248,12 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
   useEffect(() => setSkip(0), [rangeId, log.key]);
   useEffect(() => {
     if (!live) return;
-    const timer = window.setInterval(() => setTick((t) => t + 1), 5000);
+    // one refresh per bucket: a graph drawn a second at a time that only moved every five seconds
+    // would stand still for five of its points and then jump
+    const everyMs = range.interval === "Second" ? 1000 : 5000;
+    const timer = window.setInterval(() => setTick((t) => t + 1), everyMs);
     return () => clearInterval(timer);
-  }, [live]);
+  }, [live, range.interval]);
 
   // one window for both halves of the page: the graph and the entries under it always cover the
   // same range, so a spike in the graph is in the table below it
@@ -332,7 +336,11 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
         />
         <span className="logs-spacer" />
         <RangePicker value={rangeId} onChange={setRangeId} />
-        <button className={"action-button" + (live ? " armed" : "")} onClick={() => setLive(!live)} title="Refresh every five seconds">
+        <button
+          className={"action-button" + (live ? " armed" : "")}
+          onClick={() => setLive(!live)}
+          title={range.interval === "Second" ? "Refresh every second" : "Refresh every five seconds"}
+        >
           <IconReload size={15} stroke={1.8} /> Live
         </button>
         <button className="action-button" onClick={() => setTick((t) => t + 1)} title="Refresh now">

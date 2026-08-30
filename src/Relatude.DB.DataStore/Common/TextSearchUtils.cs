@@ -21,6 +21,18 @@ public static class SearchConst {
     public static bool Keep(char c) => char.IsLetterOrDigit(c) || SearchConst.KEEP.Contains(c);
 }
 public static class SearchUtil {
+    /// <summary>
+    /// The search text with its operators removed. A wildcard or a fuzzy marker is an instruction to
+    /// the word index; an embedding model has no idea what they mean and only sees noise in the
+    /// middle of the query, so the semantic half of a search is given the plain words instead.
+    /// </summary>
+    public static string StripOperators(string search) {
+        if (string.IsNullOrEmpty(search)) return search;
+        if (!search.Contains(SearchConst.WILDCARD) && !search.Contains(SearchConst.FUZZY)) return search; // by far the common case
+        var sb = new StringBuilder(search.Length);
+        foreach (var c in search) if (c != SearchConst.WILDCARD && c != SearchConst.FUZZY) sb.Append(c);
+        return sb.ToString();
+    }
     public static string Clean(string search, int minWordLength, int maxWordLength) {
         if (string.IsNullOrWhiteSpace(search)) return string.Empty;
         var sb = new StringBuilder();

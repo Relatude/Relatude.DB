@@ -3024,6 +3024,32 @@ a.action-button {
   color: var(--text-muted);
   background: var(--bg);
   border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.query-table th.sortable {
+  cursor: pointer;
+}
+
+.query-table th.sortable:hover {
+  color: var(--text);
+}
+
+.query-table th.sorted {
+  color: var(--accent);
+}
+
+/* sorted by, but the order did not survive the facet filter - the arrow says which column was asked
+   for without claiming the rows are in that order */
+.query-table th.sorted-inactive {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+/* the arrow sits with the name and takes no room from the column when there is none */
+.query-table th svg {
+  vertical-align: -2px;
+  margin-left: 3px;
 }
 
 .query-table td {

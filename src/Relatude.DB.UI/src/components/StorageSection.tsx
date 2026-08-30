@@ -207,9 +207,10 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
     load();
   }
 
-  // Scans the file stores for files no node references anymore. The count run first, so the
-  // deletion is a confirmation of a known number rather than a blind sweep.
-  async function onCountUnreferenced() {
+  // Scans the file stores for files no node references anymore, and offers to delete what it found.
+  // Counting first is the whole point: the deletion is then a confirmation of a known number rather
+  // than a blind sweep, which is why there is no way to start straight at the deletion.
+  async function onUnreferenced() {
     const progress = await runWithProgress(`Unreferenced files in ${db.name}`, (ctl) => runFileScan(ctl, db.id, "unreferenced", true));
     const found = progress?.unreferenced;
     if (!found) return;
@@ -225,15 +226,6 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
     const choice = await showConfirm(
       "Delete unreferenced files",
       `${formatCount(found.totalFilesDeleted)} file${found.totalFilesDeleted === 1 ? "" : "s"} (${formatBytes(found.totalBytesDeleted)}) in the file stores are not referenced by any node. Delete them, and the folders left empty? Everything under a file store counts as this database's, so files put there by anything else go too. This cannot be undone.`,
-      { confirmLabel: "Delete", danger: true },
-    );
-    if (choice.ok) await deleteUnreferenced();
-  }
-
-  async function onDeleteUnreferenced() {
-    const choice = await showConfirm(
-      "Delete unreferenced files",
-      "Scans every file store and deletes the files no node references anymore, along with the folders left empty. Everything under a file store counts as this database's, so files put there by anything else go too; files created in the last 15 minutes are kept, so uploads in flight survive. This cannot be undone.",
       { confirmLabel: "Delete", danger: true },
     );
     if (choice.ok) await deleteUnreferenced();
@@ -524,18 +516,12 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       <section className="panel">
         <h3>File storage</h3>
         <div className="process-action">
-          <button className="action-button" onClick={onCountUnreferenced} disabled={db.state !== "Open"}>
-            <IconListSearch size={14} stroke={1.8} /> Count unreferenced files
+          <button className="action-button" onClick={onUnreferenced} disabled={db.state !== "Open"}>
+            <IconListSearch size={14} stroke={1.8} /> Unreferenced files
           </button>
           <span className="muted">
-            {db.state !== "Open" ? "the database must be open" : "counts the files in the file stores that no node references anymore"}
+            {db.state !== "Open" ? "the database must be open" : "counts the files no node references anymore, and offers to delete them"}
           </span>
-        </div>
-        <div className="process-action">
-          <button className="action-button danger" onClick={onDeleteUnreferenced} disabled={db.state !== "Open"}>
-            <IconTrash size={14} stroke={1.8} /> Delete unreferenced files
-          </button>
-          <span className="muted">deletes them, and the folders left empty; recent uploads are kept</span>
         </div>
         <div className="process-action">
           <button className="action-button" onClick={onCheckMissing} disabled={db.state !== "Open"}>
@@ -544,8 +530,8 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
           <span className="muted">checks every file value in the database against its file store</span>
         </div>
         <div className="process-action">
-          <button className="action-button danger" onClick={onDeleteConverted} disabled={db.state !== "Open"}>
-            <IconPhotoCancel size={14} stroke={1.8} /> Delete converted files
+          <button className="action-button" onClick={onDeleteConverted} disabled={db.state !== "Open"}>
+            <IconPhotoCancel size={14} stroke={1.8} /> Reset converted file cache
           </button>
           <span className="muted">empties the cache of resized images and converted media; they are recreated on demand</span>
         </div>

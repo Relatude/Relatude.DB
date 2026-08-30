@@ -49,6 +49,8 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
   const wrap = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [hover, setHover] = useState<number | null>(null);
+  // what is drawn while the numbers are moving; the tooltip still reads the real ones
+  const drawn = useAnimatedPoints(points);
   // the SVG is drawn in pixels rather than scaled from a viewBox: a stretched viewBox would take
   // the text and the stroke widths with it
   useLayoutEffect(() => {
@@ -63,13 +65,13 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
 
   const plotW = Math.max(0, width - pad.left - pad.right);
   const plotH = height - pad.top - pad.bottom;
-  const band = points.length > 0 ? plotW / points.length : 0;
+  const band = drawn.length > 0 ? plotW / drawn.length : 0;
   const stacked = kind === "groups";
 
   // the top of the scale covers whatever is drawn: the band's max where there is one, the stack
   // total where the values are stacked
   let top = 0;
-  for (const p of points) {
+  for (const p of drawn) {
     if (!p.hasValue) continue;
     if (stacked) {
       let sum = 0;
@@ -80,7 +82,7 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
     }
   }
   let bottom = 0;
-  for (const p of points) {
+  for (const p of drawn) {
     if (!p.hasValue || stacked) continue;
     bottom = Math.min(bottom, p.min ?? p.value ?? 0);
   }
@@ -93,7 +95,7 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
   };
   const xCenter = (index: number) => pad.left + band * (index + 0.5);
 
-  const hasAny = points.some((p) => p.hasValue);
+  const hasAny = drawn.some((p) => p.hasValue);
   const hovered = hover != null && hover >= 0 && hover < points.length ? points[hover] : null;
 
   return (
@@ -108,13 +110,13 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
               </text>
             </g>
           ))}
-          {xLabels(points, interval, band, plotW).map((label) => (
+          {xLabels(drawn, interval, band, plotW).map((label) => (
             <text key={label.index} className="chart-axis" x={xCenter(label.index)} y={height - 6} textAnchor="middle">
               {label.text}
             </text>
           ))}
           {stacked
-            ? points.map((p, i) => {
+            ? drawn.map((p, i) => {
                 if (!p.hasValue) return null;
                 let acc = 0;
                 return (
@@ -130,7 +132,7 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
                   </g>
                 );
               })
-            : segments(points).map((segment, si) => (
+            : segments(drawn).map((segment, si) => (
                 <g key={si}>
                   {(kind === "avgminmax" || kind === "full") && <path className="chart-band" d={bandPath(segment, xCenter, y)} />}
                   <path className="chart-area" d={areaPath(segment, xCenter, y, pad.top + plotH)} />
@@ -141,7 +143,7 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
           {hovered && (
             <g>
               <line className="chart-cursor" x1={xCenter(hover!)} x2={xCenter(hover!)} y1={pad.top} y2={pad.top + plotH} />
-              {!stacked && hovered.hasValue && <circle className="chart-point" cx={xCenter(hover!)} cy={y(hovered.value ?? 0)} r={3.5} />}
+              {!stacked && hovered.hasValue && <circle className="chart-point" cx={xCenter(hover!)} cy={y(drawn[hover!]?.value ?? 0)} r={3.5} />}
             </g>
           )}
           {/* one overlay takes the pointer for the whole plot, so there is nothing to hit or miss */}
@@ -190,6 +192,70 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
       {!hasAny && width > 0 && <div className="chart-empty">Nothing recorded in this range.</div>}
     </div>
   );
+}
+
+// how long a live update takes to settle: long enough to read as movement, short enough that the
+// next one (a second later, at the finest range) is never cut off half way
+const animationMs = 320;
+
+/**
+ * The points as they are drawn while they are changing.
+ *
+ * A live graph gets a fresh set every second or two and swapping one for the other makes the whole
+ * curve jump; easing the values across a few frames turns the same update into the curve sliding
+ * into its new shape, which is also how a scrolling time series reads - each x position takes the
+ * value of the bucket that moved into it.
+ *
+ * Only the numbers move. Which buckets exist, which are gaps and what the tooltip says all come
+ * from the new data at once, so nothing is ever reported as a value it did not have. A change that
+ * is not an update of the same graph - a different range, a different statistic - has a different
+ * number of buckets and is drawn immediately instead.
+ */
+function useAnimatedPoints(points: SeriesPoint[]): SeriesPoint[] {
+  const [drawn, setDrawn] = useState(points);
+  const shown = useRef(points); // what is on screen right now, mid tween included
+  const frame = useRef(0);
+  useEffect(() => {
+    const from = shown.current;
+    if (from === points) return;
+    const canTween = from.length === points.length && from.length > 0 && !prefersReducedMotion();
+    if (!canTween) {
+      shown.current = points;
+      setDrawn(points);
+      return;
+    }
+    const started = performance.now();
+    const step = () => {
+      const t = Math.min(1, (performance.now() - started) / animationMs);
+      const eased = 1 - (1 - t) * (1 - t); // ease out: fastest at the start, so the update reads as immediate
+      const next = t >= 1 ? points : points.map((p, i) => tween(from[i], p, eased));
+      shown.current = next;
+      setDrawn(next);
+      if (t < 1) frame.current = requestAnimationFrame(step);
+    };
+    frame.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame.current);
+  }, [points]);
+  return drawn;
+}
+
+function tween(from: SeriesPoint, to: SeriesPoint, t: number): SeriesPoint {
+  // a value that is missing on either side has nothing to move between, so it takes the new one
+  const mix = (a: number | null | undefined, b: number | null | undefined): number | null =>
+    a == null || b == null ? (b ?? null) : a + (b - a) * t;
+  let values = to.values;
+  if (to.values) {
+    values = {};
+    // every value either side is tweened, so a group that has just appeared grows in from nothing
+    for (const key of new Set([...Object.keys(from.values ?? {}), ...Object.keys(to.values)])) {
+      values[key] = (from.values?.[key] ?? 0) + ((to.values[key] ?? 0) - (from.values?.[key] ?? 0)) * t;
+    }
+  }
+  return { ...to, value: mix(from.value, to.value), min: mix(from.min, to.min), max: mix(from.max, to.max), values };
+}
+
+function prefersReducedMotion(): boolean {
+  return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 function tipRows(kind: SeriesKind, p: SeriesPoint): { k: string; v: number }[] {
