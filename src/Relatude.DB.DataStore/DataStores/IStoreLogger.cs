@@ -17,6 +17,29 @@ public class TraceEntry(DateTime timestamp, SystemLogEntryType type, string text
     public string Text { get; } = text;
     public string? Details { get; } = details;
 }
+/// <summary>
+/// A cheap snapshot of what the store has been doing, for a screen that asks every couple of
+/// seconds: no locks, no file access, and nothing reset - unlike <see cref="IDataStore.DequeMetrics"/>,
+/// which empties the counters it reads and belongs to the metrics log alone.
+///
+/// The counts are cumulative since the caches were last cleared, which the store does on its own
+/// schedule. A reader turning them into rates therefore has to treat a drop as a reset rather than
+/// as negative traffic.
+/// </summary>
+public class StoreCounters {
+    public int NodeCount { get; set; }
+    public int RelationCount { get; set; }
+    public long Queries { get; set; }
+    public long Transactions { get; set; }
+    public long Actions { get; set; }
+    public long NodeReads { get; set; }
+    public int NodeCacheCount { get; set; }
+    public long NodeCacheSize { get; set; }
+    public int SetCacheCount { get; set; }
+    public long SetCacheSize { get; set; }
+    public int TasksQueued { get; set; }
+    public int TasksQueuedPersisted { get; set; }
+}
 public class StoreMetrics {
     public long MemUsage { get; set; }
     public double CpuUsage { get; set; }

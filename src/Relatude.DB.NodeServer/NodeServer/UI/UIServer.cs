@@ -27,6 +27,7 @@ public sealed class UIServer {
         registerBuiltInCommands();
         new UISettings(server).Register(Commands);
         new UILogs(server).Register(Commands);
+        new UIDashboard(server).Register(Commands);
         _containerWatch = new Timer(_ => watchContainers(), null, containerWatchIntervalMs, Timeout.Infinite);
     }
     // broadcasts a "containers" event whenever the container list changes (state, node count, name),

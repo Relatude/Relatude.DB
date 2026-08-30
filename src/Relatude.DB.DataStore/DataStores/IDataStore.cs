@@ -222,6 +222,11 @@ public interface IDataStore : IDisposable {
     NodeVersionData[] FindOlderVersions(Guid nodeId, int maxCount = 100, QueryContext? ctx = null);
     TextExtract[] GetTextExtract(IEnumerable<int> ids, TextIndexType indexType);
     /// <summary>
+    /// What the store has been doing, cheaply enough to ask every few seconds - see
+    /// <see cref="StoreCounters"/> for what the numbers count and what resets them.
+    /// </summary>
+    StoreCounters PeekCounters();
+    /// <summary>
     /// Queues text extraction and indexing for every node of a text indexed type, and returns how
     /// many were queued. The work itself runs as background tasks: nothing is deleted, each node's
     /// search text is extracted again and rewritten as its task runs. What this repairs is a text

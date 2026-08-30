@@ -2432,3 +2432,154 @@ a.action-button {
 .logs-savebar .action-button {
   min-width: 0;
 }
+
+/* ---- dashboard ---- */
+
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.dash-tiles {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+}
+
+.dash-tile {
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.dash-tile.ok .dash-tile-value {
+  color: var(--ok);
+}
+
+.dash-tile.bad .dash-tile-value {
+  color: var(--danger);
+}
+
+.dash-tile-value {
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-tile-label {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* what the database is doing this second */
+.dash-now {
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.dash-activity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 44px;
+  gap: 8px;
+  align-items: center;
+  padding: 3px 0;
+}
+
+.dash-types {
+  font-size: 12px;
+}
+
+.dash-type {
+  display: grid;
+  /* the name earns its width first: a bar with no label next to it says nothing */
+  grid-template-columns: minmax(90px, 1.2fr) minmax(40px, 1fr) 60px;
+  gap: 10px;
+  align-items: center;
+  padding: 3px 0;
+}
+
+.dash-type-more {
+  padding-top: 6px;
+}
+
+.dash-cache {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) minmax(60px, 1fr) 70px;
+  gap: 10px;
+  align-items: center;
+  padding: 5px 0;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dash-cache:last-child {
+  border-bottom: none;
+}
+
+.dash-cache-label {
+  font-weight: 600;
+}
+
+@media (max-width: 1100px) {
+  .dash-tiles {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* the panels sit two to a row, so their own columns are half the page wide: a label that would be
+   cut short wraps instead. minmax(0, 1fr) rather than 1fr, or a long label pushes its column wider
+   than the track and overflows the panel instead of wrapping inside it */
+.dashboard .facts-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.dashboard .fact-k {
+  white-space: normal;
+}
+
+@media (max-width: 1100px) {
+  .dashboard .facts-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .dash-type {
+    grid-template-columns: minmax(90px, 1fr) 60px;
+  }
+  .dash-type .scan-bar {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .dashboard .overview-columns,
+  .dashboard .overview-columns:last-child {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .dash-tiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .dash-cache {
+    grid-template-columns: 80px minmax(0, 1fr) 60px;
+  }
+  .dash-cache .scan-bar {
+    display: none;
+  }
+}
+
+/* watching a database open: the one time this page is the most interesting one */
+.dash-opening {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 50px auto;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 12px;
+}

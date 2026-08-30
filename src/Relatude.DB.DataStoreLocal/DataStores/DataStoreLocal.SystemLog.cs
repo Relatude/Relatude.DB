@@ -143,6 +143,25 @@ public sealed partial class DataStoreLocal : IDataStore {
     public TraceEntry[] GetSystemTrace(int skip, int take) => _tracer.GetEntries(skip, take);
     public DateTime GetLatestSystemTraceTimestamp() => _tracer.GetLatest();
     CpuMonitor _cpuMonitorMetrics = new();
+    public StoreCounters PeekCounters() {
+        // deliberately not DequeMetrics: that one resets what it reads, and the metrics log is the
+        // only thing allowed to do that. Everything here is a field read or a count already kept.
+        if (_state != DataStoreState.Open) return new();
+        return new StoreCounters {
+            NodeCount = _nodes.Count,
+            RelationCount = _relations.TotalCount(),
+            Queries = _noQueriesSinceClearCache,
+            Transactions = _noTransactionsSinceClearCache,
+            Actions = _noPrimitiveActionsSinceClearCache,
+            NodeReads = _noNodeGetsSinceClearCache,
+            NodeCacheCount = _nodes.CacheCount,
+            NodeCacheSize = _nodes.CacheSize,
+            SetCacheCount = _sets.CacheCount,
+            SetCacheSize = _sets.CacheSize,
+            TasksQueued = TaskQueue.Count([BatchState.Pending, BatchState.Running]),
+            TasksQueuedPersisted = TaskQueuePersisted?.Count([BatchState.Pending, BatchState.Running]) ?? 0,
+        };
+    }
     public StoreMetrics DequeMetrics() {
         var metrics = new StoreMetrics() {
             MemUsage = Process.GetCurrentProcess().WorkingSet64,

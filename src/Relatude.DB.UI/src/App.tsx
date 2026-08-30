@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ConversionsSection } from "./components/ConversionsSection";
+import { DashboardSection } from "./components/DashboardSection";
 import { DialogHost } from "./components/DialogHost";
 import { FilesSection } from "./components/FilesSection";
 import { Header } from "./components/Header";
@@ -116,7 +117,9 @@ export function App() {
           onSelectSection={setActiveSectionId}
         />
         <main className="content">
-          {activeSectionId === "server-overview" ? (
+          {activeSectionId === "dashboard" && activeDb ? (
+            <DashboardSection key={activeDb.id} db={activeDb} />
+          ) : activeSectionId === "server-overview" ? (
             <Overview />
           ) : section.scope === "server" && (activeSectionId === "server-settings" || section.settingsSection) ? (
             // an entry that names part of the settings renders the settings page opened there
