@@ -7,7 +7,7 @@
 		<OutputType>Library</OutputType>
 		<IsPackable>true</IsPackable>
 		<RootNamespace>Relatude.DB</RootNamespace>
-		<Version>0.2.0.151</Version>
+		<Version>0.2.0.152</Version>
 	</PropertyGroup>
 	<ItemGroup>
 	  <None Remove="NodeServer\ClientUI\**" />
@@ -28,7 +28,6 @@
 	     embedded above. It is the whole admin UI: a build made without it serves an explanatory 501 on
 	     the admin url instead of the UI, so it is called out here rather than discovered in a browser. -->
 	<Target Name="WarnWhenAdminUINotBuilt" BeforeTargets="CoreCompile">
-		<Warning Condition="!Exists('$(MSBuildProjectDirectory)\NodeServer\ClientUI\index.html') Or !Exists('$(MSBuildProjectDirectory)\NodeServer\ClientUI\index.js') Or !Exists('$(MSBuildProjectDirectory)\NodeServer\ClientUI\index.css')"
-				 Text="The admin UI is missing from NodeServer\ClientUI and will not be embedded in this build. Run &quot;npm install&quot; and &quot;npm run build&quot; in src\Relatude.DB.UI, then build again." />
+		<Warning Condition="!Exists('$(MSBuildProjectDirectory)\NodeServer\ClientUI\index.html') Or !Exists('$(MSBuildProjectDirectory)\NodeServer\ClientUI\index.js') Or !Exists('$(MSBuildProjectDirectory)\NodeServer\ClientUI\index.css')" Text="The admin UI is missing from NodeServer\ClientUI and will not be embedded in this build. Run &quot;npm install&quot; and &quot;npm run build&quot; in src\Relatude.DB.UI, then build again." />
 	</Target>
 </Project>
