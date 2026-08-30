@@ -1,8 +1,18 @@
+import { memo, useState } from "react";
+
 // The animated Relatude logo (network draw-in intro), copied from
 // Relatude.DB.ServerUI (sections/main/logoBig.tsx, getLogoHtml). Injected as raw
 // HTML because the animation lives in a <style> block inside the SVG itself.
 // Meant for the login screen; render only one instance at a time (the SVG uses fixed ids).
-export function AnimatedLogo({
+//
+// The intro is meant to be seen once per visit, which takes two things. React 19 re-applies
+// dangerouslySetInnerHTML on every render without comparing it, so any state change on the
+// login screen (a keystroke, the sign-in click) would re-inject the SVG and restart its CSS
+// animations: memo keeps the component from re-rendering at all. And if the screen is mounted
+// again later — after a logout, say — introPlayed skips the intro to its finished state.
+let introPlayed = false;
+
+export const AnimatedLogo = memo(function AnimatedLogo({
   color = "var(--accent)",
   speed = 0.75,
   height = "120px",
@@ -13,8 +23,15 @@ export function AnimatedLogo({
   height?: string;
   padding?: string;
 }) {
-  return <div dangerouslySetInnerHTML={{ __html: getLogoHtml(padding, color, speed, height) }} />;
-}
+  const [replay] = useState(() => {
+    const already = introPlayed;
+    introPlayed = true;
+    return already;
+  });
+  return (
+    <div className={replay ? "logo-played" : undefined} dangerouslySetInnerHTML={{ __html: getLogoHtml(padding, color, speed, height) }} />
+  );
+});
 
 const getLogoHtml = (padding: string, color: string, speed: number, height: string) => (`
     <svg id="relatude-anim" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340.7 85.5" height="${height}" style="padding: ${padding};">

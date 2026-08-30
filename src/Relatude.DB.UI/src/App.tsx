@@ -5,6 +5,7 @@ import { Header } from "./components/Header";
 import { Login } from "./components/Login";
 import { Overview } from "./components/Overview";
 import { Sidebar } from "./components/Sidebar";
+import { StorageSection } from "./components/StorageSection";
 import { sections } from "./navigation";
 import { isLoggedIn, logout } from "./server/auth";
 import { disconnect, subscribe, subscribeResync, subscribeUnauthorized } from "./server/channel";
@@ -116,6 +117,8 @@ export function App() {
             <Overview />
           ) : activeSectionId === "files" && activeDb ? (
             <FilesSection key={activeDb.id} db={activeDb} />
+          ) : activeSectionId === "storage" && activeDb ? (
+            <StorageSection key={activeDb.id} db={activeDb} />
           ) : (
             <div className="placeholder">
               <span>{section.label} — not implemented yet</span>

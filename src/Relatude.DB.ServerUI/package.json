@@ -1,13 +1,11 @@
 {
   "name": "relatude.db.serverui",
   "version": "1.0.0",
-  "description": "",
+  "description": "The previous Relatude.DB admin UI, replaced by src/Relatude.DB.UI. Kept for reference only: it is no longer built into Relatude.DB.NodeServer, and the server no longer serves it.",
   "scripts": {
     "start": "parcel src/start/index.html --no-cache",
-    "build": "npm run clean_dist && npm run clean_wwwroot && parcel build src/start/index.html --no-source-maps --no-content-hash --public-url . && npm run copy_to_server",
-    "clean_dist": "rimraf dist && rimraf .parcel-cache",
-    "clean_wwwroot": "rimraf ../Relatude.DB.NodeServer/NodeServer/ClientUI/*.* --glob",
-    "copy_to_server": "copyfiles -u 1 dist/**/* ../Relatude.DB.NodeServer/NodeServer/ClientUI/"
+    "build": "npm run clean_dist && parcel build src/start/index.html --no-source-maps --no-content-hash --public-url .",
+    "clean_dist": "rimraf dist && rimraf .parcel-cache"
   },
   "author": "Ole Gulbrandsen",
   "license": "ISC",

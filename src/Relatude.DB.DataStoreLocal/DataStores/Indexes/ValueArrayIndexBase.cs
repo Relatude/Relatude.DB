@@ -85,51 +85,38 @@ public abstract class ValueArrayIndexBase<T> : IValueArrayIndex<T> where T : not
     public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
         // appending a stamp is only sound when the persisted body equals the in-memory state: the
         // stamp is trusted on the next open, so changes missing from a stale body would be skipped
-        // by the log replay and silently lost — and a never-persisted index would get a body-less,
-        // unreadable file. Persist the full state whenever the body may be behind:
-        if (_changedSinceLastSave) {
+        // by the log replay and silently lost — and with no persisted body there is nothing to
+        // stamp. Persist the full state whenever the body may be behind or is missing:
+        if (_changedSinceLastSave || !IndexStateFiles.TryAppendNewTimestamp(_io, UniqueKey, newTimestamp, walFileId)) {
             SaveStateForMemoryIndexes(newTimestamp, walFileId);
             return;
         }
-        var fileName = FileKeyUtility.Index_GetFileKey(UniqueKey);
-        using var stream = _io.OpenAppend(fileName);
-        stream.WriteVerifiedLong(newTimestamp);
-        stream.WriteGuid(walFileId);
         PersistedTimestamp = newTimestamp;
     }
     public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) {
-        var fileName = FileKeyUtility.Index_GetFileKey(UniqueKey);
-        _io.DeleteFileIfItExists(fileName); // could be optimized to keep old file
-        using var stream = _io.OpenAppend(fileName);
-        // same on-disk format as before normalization (one nodeId + array per node), so existing
-        // index files stay readable and no migration is needed; ReadState re-interns on load
-        stream.WriteVerifiedInt(_arrays.Count);
-        foreach (var (nodeId, array) in _arrays.All) {
-            stream.WriteUInt((uint)nodeId);
-            WriteArray(stream, array);
-        }
-        stream.WriteVerifiedLong(logTimestamp);
-        stream.WriteGuid(walFileId);
+        IndexStateFiles.Save(_io, UniqueKey, logTimestamp, walFileId, stream => {
+            // same on-disk format as before normalization (one nodeId + array per node), so existing
+            // index files stay readable and no migration is needed; ReadState re-interns on load
+            stream.WriteVerifiedInt(_arrays.Count);
+            foreach (var (nodeId, array) in _arrays.All) {
+                stream.WriteUInt((uint)nodeId);
+                WriteArray(stream, array);
+            }
+        });
         PersistedTimestamp = logTimestamp;
         _changedSinceLastSave = false;
     }
     public void ReadStateForMemoryIndexes(Guid walFileId) {
         PersistedTimestamp = 0;
-        var fileName = FileKeyUtility.Index_GetFileKey(UniqueKey);
-        if (_io.DoesNotExistsOrIsEmpty(fileName)) return;
-        using var stream = _io.OpenRead(fileName, 0);
-        var count_valueByNodeId = stream.ReadVerifiedInt();
-        for (var i = 0; i < count_valueByNodeId; i++) {
-            var k = (int)stream.ReadUInt();
-            var v = ReadArray(stream);
-            Add(k, v);
-        }
-        Guid walId = Guid.Empty;
-        while (stream.More()) {
-            PersistedTimestamp = stream.ReadVerifiedLong();
-            walId = stream.ReadGuid();
-        }
-        if (walId != walFileId) throw new Exception("WAL file ID mismatch when reading index state. ");
+        if (!IndexStateFiles.TryRead(_io, UniqueKey, walFileId, stream => {
+            var count_valueByNodeId = stream.ReadVerifiedInt();
+            for (var i = 0; i < count_valueByNodeId; i++) {
+                var k = (int)stream.ReadUInt();
+                var v = ReadArray(stream);
+                Add(k, v);
+            }
+        }, out var persistedTimestamp)) return;
+        PersistedTimestamp = persistedTimestamp;
         _changedSinceLastSave = false; // memory now equals the body just read
     }
     public void CompressMemory() { }

@@ -86,7 +86,7 @@ The public documentation is thin and the API is pre-1.0. **When something disagr
 | Attributes | `src/Relatude.DB.NodeStore/Nodes/Attributes.cs` |
 | How types, inheritance and properties are built | `src/Relatude.DB.NodeStore/Datamodels/BuildUtils.cs`, `BuildUtilsProperties.cs` |
 | Proxy / interface generation | `src/Relatude.DB.NodeStore/CodeGeneration/InterfaceGen.cs`, `ModelGen.cs` |
-| Server wiring and the admin UI | `src/Relatude.DB.NodeServer/`, `src/Relatude.DB.ServerUI/` |
+| Server wiring and the admin UI | `src/Relatude.DB.NodeServer/`, `src/Relatude.DB.UI/` |
 | `ServerOptions`, startup order, lifecycle events | `src/Relatude.DB.NodeServer/NodeServer/RelatudeDBServer.cs` |
 | `relatude.db.json` shape and loading | `src/Relatude.DB.NodeServer/NodeServer/Settings/`, `ISettingsLoader.cs`, `Defaults.cs` |
 | Engine knobs per store | `src/Relatude.DB.DataStoreLocal/DataStores/SettingsLocal.cs` |

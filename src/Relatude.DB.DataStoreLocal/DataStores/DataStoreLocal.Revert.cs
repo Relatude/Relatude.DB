@@ -147,7 +147,8 @@ public sealed partial class DataStoreLocal : IDataStore {
             var walFileKey = _wal.FileKey;
             var walFileSize = _wal.FileSize;
             var stateHeaderOk = tryReadStateFileHeader(out var stateTimestamp, out var statePosition);
-            var stateFileExists = IOIndex.ExistsAndIsNotEmpty(FileKeyUtility.StateFileKey);
+            var newestStateFileKey = FileKeyUtility.State_GetNewestFileKey(IOIndex);
+            var stateFileExists = newestStateFileKey != null && IOIndex.ExistsAndIsNotEmpty(newestStateFileKey);
 
             // find where to truncate, and count what falls off. The log streams must be closed
             // while an independent reader scans the file (and stay closed for the truncation):
@@ -290,8 +291,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         timestamp = 0;
         positionAfterLastTransaction = 0;
         try {
-            if (IOIndex.DoesNotExistOrIsEmpty(FileKeyUtility.StateFileKey)) return false;
-            using var stream = IOIndex.OpenRead(FileKeyUtility.StateFileKey, 0);
+            var stateFileKey = FileKeyUtility.State_GetNewestFileKey(IOIndex);
+            if (stateFileKey == null || IOIndex.DoesNotExistOrIsEmpty(stateFileKey)) return false;
+            using var stream = IOIndex.OpenRead(stateFileKey, 0);
             var version = stream.ReadVerifiedInt();
             if (version != _stateFileVersion) return false;
             timestamp = stream.ReadVerifiedLong();

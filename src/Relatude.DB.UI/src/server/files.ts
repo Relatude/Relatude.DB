@@ -1,4 +1,5 @@
 import { send } from "./channel";
+import { adminBase } from "./base";
 import { formatBytes } from "../format";
 import type { ProgressController } from "../dialogs";
 
@@ -87,7 +88,7 @@ export async function deleteFolderWithProgress(ctl: ProgressController, ioId: st
 
 // the existing (authenticated) download endpoint of the admin API
 export function downloadUrl(storeId: string, ioId: string, key: string): string {
-  return `/relatude.db/maintenance/download-file?storeId=${storeId}&ioId=${ioId}&fileName=${encodeURIComponent(key)}`;
+  return `${adminBase}/maintenance/download-file?storeId=${storeId}&ioId=${ioId}&fileName=${encodeURIComponent(key)}`;
 }
 
 // XMLHttpRequest instead of fetch: it reports upload progress and can be aborted
@@ -100,7 +101,7 @@ export function uploadFile(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `/relatude.db/ui/upload?ioId=${ioId}&key=${encodeURIComponent(key)}`);
+    xhr.open("POST", `${adminBase}/ui/upload?ioId=${ioId}&key=${encodeURIComponent(key)}`);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(e.loaded, e.total);
     };
@@ -146,6 +147,135 @@ export async function uploadEntries(ctl: ProgressController, ioId: string, baseP
   return failed;
 }
 
+// the zip-a-folder endpoint; used as the DownloadURL behind dragging a folder to the desktop
+export function zipFolderUrl(ioId: string, path: string): string {
+  return `${adminBase}/ui/zip?ioId=${ioId}&folder=${encodeURIComponent(path)}`;
+}
+
+// test-opens every file on the server; returns the ones that are locked (or unreadable)
+export function checkLocks(ioId: string, keys: string[]): Promise<{ locked: string[] }> {
+  return send<{ locked: string[] }>("io-check-locks", { ioId, keys });
+}
+
+// where the zip bytes go: a picked file on disk, or an in-memory collector as fallback
+export interface ZipSink {
+  write(chunk: Uint8Array): Promise<void>;
+  close(): Promise<void>;
+  abort(): Promise<void>;
+}
+
+// Checks every file for locks first — if any are locked nothing is downloaded and the locked
+// list is returned — then streams the zip into the sink with byte progress and cancellation.
+// basePath is stripped from the entry names inside the zip.
+export async function downloadZipToSink(
+  ctl: ProgressController,
+  ioId: string,
+  keys: string[],
+  basePath: string,
+  sink: ZipSink,
+): Promise<{ locked: string[] } | { bytes: number }> {
+  ctl.set({ label: `Checking ${keys.length} file${keys.length === 1 ? "" : "s"}…`, total: null });
+  try {
+    const check = await checkLocks(ioId, keys);
+    if (check.locked.length > 0) {
+      await sink.abort();
+      return { locked: check.locked };
+    }
+    ctl.set({ label: "Creating zip…" });
+    const response = await fetch(`${adminBase}/ui/zip`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ioId, keys, basePath }),
+      signal: ctl.signal,
+    });
+    if (response.status === 423) {
+      // a file got locked between the check and the zip
+      await sink.abort();
+      return { locked: ((await response.json()) as { locked?: string[] }).locked ?? [] };
+    }
+    if (!response.ok || !response.body) throw new Error(`Zip download failed (HTTP ${response.status}).`);
+    const reader = response.body.getReader();
+    let bytes = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      await sink.write(value);
+      ctl.set({ label: `${formatBytes(bytes)} received…` });
+    }
+    await sink.close();
+    return { bytes };
+  } catch (error) {
+    await sink.abort().catch(() => {});
+    throw error;
+  }
+}
+
+// A file or folder dragged in from the OS; folders arrive as FileSystemEntry trees.
+export type DroppedItem = FileSystemEntry | File;
+
+// Grabs the dropped files and folders of a drop event. Must be called synchronously in
+// the drop handler — the DataTransferItemList is gone once the handler returns.
+export function itemsFromDrop(data: DataTransfer): DroppedItem[] {
+  const result: DroppedItem[] = [];
+  for (const item of data.items) {
+    if (item.kind !== "file") continue;
+    const entry = typeof item.webkitGetAsEntry === "function" ? item.webkitGetAsEntry() : null;
+    if (entry) {
+      result.push(entry);
+    } else {
+      const file = item.getAsFile();
+      if (file) result.push(file);
+    }
+  }
+  if (result.length === 0) result.push(...data.files); // browsers without DataTransferItem entries
+  return result;
+}
+
+// Expands dropped items into a flat upload list — folders recursively, keeping their
+// relative paths — with progress and cancellation.
+export async function resolveDroppedItems(ctl: ProgressController, items: DroppedItem[]): Promise<UploadEntry[]> {
+  ctl.set({ label: "Reading dropped items…", total: null });
+  const result: UploadEntry[] = [];
+  for (const item of items) {
+    throwIfAborted(ctl.signal);
+    if (item instanceof File) {
+      result.push({ file: item, relativePath: item.name });
+    } else {
+      await collectDroppedEntry(ctl, item, "", result);
+    }
+  }
+  return result;
+}
+
+async function collectDroppedEntry(ctl: ProgressController, entry: FileSystemEntry, prefix: string, into: UploadEntry[]): Promise<void> {
+  throwIfAborted(ctl.signal);
+  if (entry.isFile) {
+    const file = await new Promise<File>((resolve, reject) => (entry as FileSystemFileEntry).file(resolve, reject));
+    into.push({ file, relativePath: prefix + entry.name });
+    if (into.length % 50 === 0) ctl.set({ label: `Reading dropped items… ${into.length} files` });
+  } else if (entry.isDirectory) {
+    const reader = (entry as FileSystemDirectoryEntry).createReader();
+    for (;;) {
+      // readEntries returns batches (Chromium caps them at 100) until an empty one
+      const batch = await new Promise<FileSystemEntry[]>((resolve, reject) => reader.readEntries(resolve, reject));
+      if (batch.length === 0) break;
+      for (const child of batch) await collectDroppedEntry(ctl, child, prefix + entry.name + "/", into);
+    }
+  }
+}
+
+// Asks the browser for a local directory to write into. Null when the API is missing (only
+// Chromium based browsers have it) or the picker was dismissed.
+export async function pickDirectory(): Promise<FileSystemDirectoryHandle | null | "unsupported"> {
+  if (!window.showDirectoryPicker) return "unsupported";
+  try {
+    return await window.showDirectoryPicker({ mode: "readwrite" });
+  } catch {
+    return null; // picker dismissed
+  }
+}
+
 // Downloads the folder at path (recursively) into the given directory handle, using the
 // File System Access API. Returns the files that failed (e.g. locked by the engine).
 export async function downloadFolderToDirectory(
@@ -159,13 +289,25 @@ export async function downloadFolderToDirectory(
   const root = await fetchFolderRecursive(ioId, path);
   const all: FileInfo[] = [];
   collectFiles(root, all);
+  return downloadFilesToDirectory(ctl, storeId, ioId, all, path === "" ? "" : path + "/", directory);
+}
+
+// Downloads the given files into the directory handle, one at a time, recreating the folders
+// below basePath. Returns the files that failed (e.g. locked by the engine).
+export async function downloadFilesToDirectory(
+  ctl: ProgressController,
+  storeId: string,
+  ioId: string,
+  all: { key: string; size: number }[],
+  basePath: string,
+  directory: FileSystemDirectoryHandle,
+): Promise<string[]> {
   ctl.set({ total: all.length, done: 0 });
   const failed: string[] = [];
-  const prefix = path === "" ? "" : path + "/";
   for (let i = 0; i < all.length; i++) {
     throwIfAborted(ctl.signal);
     const file = all[i];
-    const relative = file.key.startsWith(prefix) ? file.key.slice(prefix.length) : file.key;
+    const relative = file.key.startsWith(basePath) ? file.key.slice(basePath.length) : file.key;
     ctl.set({ label: `${relative} (${formatBytes(file.size)})`, done: i });
     try {
       const response = await fetch(downloadUrl(storeId, ioId, file.key), { signal: ctl.signal });

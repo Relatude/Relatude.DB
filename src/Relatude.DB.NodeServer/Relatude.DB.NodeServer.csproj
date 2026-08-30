@@ -10,9 +10,7 @@
 		<Version>0.2.0.151</Version>
 	</PropertyGroup>
 	<ItemGroup>
-	  <None Remove="NodeServer\ClientUI\Images\favicon.ico" />
-	  <None Remove="NodeServer\ClientUI\start.html" />
-	  <None Remove="NodeServer\ClientUI2\**" />
+	  <None Remove="NodeServer\ClientUI\**" />
 	</ItemGroup>
 	<ItemGroup>
 		<ProjectReference Include="..\Relatude.DB.DataStoreLocal\Relatude.DB.DataStoreLocal.csproj" />
@@ -23,11 +21,14 @@
 		<ProjectReference Include="..\Relatude.DB.VectorIndex\Relatude.DB.VectorIndex.csproj" />
 	</ItemGroup>
 	<ItemGroup>
-		<EmbeddedResource Include="NodeServer\ClientUI\Images\favicon.ico" />
-		<EmbeddedResource Include="NodeServer\ClientUI\index.30b17246.js" />
-		<EmbeddedResource Include="NodeServer\ClientUI\index.5246294a.css" />
-		<EmbeddedResource Include="NodeServer\ClientUI\index.html" />
 		<EmbeddedResource Include="NodeServer\ClientStart\start.html" />
-		<EmbeddedResource Include="NodeServer\ClientUI2\**" />
+		<EmbeddedResource Include="NodeServer\ClientUI\**" />
 	</ItemGroup>
+	<!-- NodeServer\ClientUI is the vite output of src\Relatude.DB.UI (see its vite.config.ts) and is
+	     embedded above. It is the whole admin UI: a build made without it serves an explanatory 501 on
+	     the admin url instead of the UI, so it is called out here rather than discovered in a browser. -->
+	<Target Name="WarnWhenAdminUINotBuilt" BeforeTargets="CoreCompile">
+		<Warning Condition="!Exists('$(MSBuildProjectDirectory)\NodeServer\ClientUI\index.html') Or !Exists('$(MSBuildProjectDirectory)\NodeServer\ClientUI\index.js') Or !Exists('$(MSBuildProjectDirectory)\NodeServer\ClientUI\index.css')"
+				 Text="The admin UI is missing from NodeServer\ClientUI and will not be embedded in this build. Run &quot;npm install&quot; and &quot;npm run build&quot; in src\Relatude.DB.UI, then build again." />
+	</Target>
 </Project>

@@ -33,6 +33,10 @@ public static class FileKeyUtility {
     public const string StateFolderName = "state";
     public const string BackupFolderName = "backup";
     public const string LogFolderName = "log";
+    /// <summary>The folder the file conversion engine caches its converted files in. Not a system
+    /// folder: like the index and file store folders it owns its content and is not listed by
+    /// <see cref="IIOProvider.GetFiles"/>.</summary>
+    public const string ConvertedFolderName = "converted";
     public static readonly string[] SystemFolderNames = [DataFolderName, StateFolderName, BackupFolderName, LogFolderName];
 
     static readonly HashSet<string> storeNames = ["db", "files", "index", "ai", "log", "mapper", "queue"]; // starting with these are reserved
@@ -49,8 +53,16 @@ public static class FileKeyUtility {
 
     const string dateTimeTemplate = "yyyy-MM-dd-HH-mm-ss";
     const string dateOnlyTemplate = "yyyy-MM-dd";
-    static readonly string[] stateFilePattern = [StateFolderName, "state.bin"];
-    static readonly string[] indexFilePattern = [StateFolderName, "index.*.bin"];
+    // State snapshots and index states are numbered like the log files (state.00000001.bin,
+    // index.[id].00000001.bin): every save writes a NEW numbered file ending with the completion
+    // marker, and the older files are deleted only after the new one is complete, so a shutdown
+    // mid-write cannot lose the last good state. Numbered names rather than write-and-rename,
+    // because some IO providers cannot rename files. The unnumbered legacy name below was written
+    // by older versions; legacy files are not read but deleted at open (the store then rebuilds
+    // from the log and saves fresh numbered files).
+    static readonly string[] stateFileLegacyPattern = [StateFolderName, "state.bin"];
+    static readonly string[] stateFilePattern = [StateFolderName, "state.*.bin"];
+    static readonly string[] indexFilePattern = [StateFolderName, "index.*.bin"]; // matches numbered and legacy index state files
 
     // the ai cache lives in the indexes folder; that folder is already prefixed, so like the index
     // engine files below it the file name itself carries no prefix
@@ -95,7 +107,53 @@ public static class FileKeyUtility {
     const string tempExtension = ".tmp";
 
     public static string MultiFileStoreFolderKey => multiFileStoreFolderPattern;
-    public static string[] StateFileKey => stateFilePattern;
+
+    /// <summary>
+    /// Hardcoded marker written as the very last 16 bytes of every numbered state and index state
+    /// file. It is the last thing written, so a numbered file that does not end with it was
+    /// interrupted mid-write and is deleted at the next store open, which then falls back to the
+    /// previous complete file (older files are only deleted once a new file is complete).
+    /// </summary>
+    public static readonly Guid StateFileCompletionMarker = new("f3a97d2c-51b6-4b8e-9d04-7e2c8a61b5f9");
+    /// <summary>Whether the file ends with <see cref="StateFileCompletionMarker"/>, i.e. was completely written.</summary>
+    public static bool EndsWithStateFileCompletionMarker(IIOProvider io, string[] fileKey) {
+        var size = io.GetFileSizeOrZeroIfUnknown(fileKey);
+        if (size < 16) return false;
+        using var stream = io.OpenRead(fileKey, size - 16);
+        return stream.ReadGuid() == StateFileCompletionMarker;
+    }
+    /// <summary>The number part of a numbered file name: digits only, between the last two dots.</summary>
+    static bool hasNumberedFileName(string[] key, int nameParts) {
+        var parts = key.FileName().Split('.');
+        if (parts.Length != nameParts) return false;
+        var number = parts[^2];
+        return number.Length > 0 && number.All(char.IsAsciiDigit);
+    }
+
+    /// <summary>The unnumbered state snapshot written by older versions. Not read anymore: it is
+    /// deleted at open, and the store rebuilds from the log and saves fresh numbered files.</summary>
+    public static string[] State_LegacyFileKey => stateFileLegacyPattern;
+    public static string[] State_GetFileKey(int n) => fill(stateFilePattern, n.ToString("00000000"));
+    public static bool State_IsNumberedFileKey(string[] key) => key.MatchesPattern(stateFilePattern) && hasNumberedFileName(key, 3);
+    /// <summary>Whether the key names a state snapshot file, numbered or legacy.</summary>
+    public static bool State_IsStateFileKey(string[] key) => key.IsSameKey(stateFileLegacyPattern) || State_IsNumberedFileKey(key);
+    public static string[][] State_GetNumberedFileKeys(IIOProvider io) => [.. io.Search(stateFilePattern).Where(k => hasNumberedFileName(k, 3))];
+    /// <summary>All state snapshot files, oldest first: the legacy unnumbered file (if present), then the numbered files.</summary>
+    public static string[][] State_GetAllFileKeys(IIOProvider io) {
+        List<string[]> keys = [];
+        if (io.Exists(stateFileLegacyPattern)) keys.Add(stateFileLegacyPattern);
+        keys.AddRange(State_GetNumberedFileKeys(io));
+        return [.. keys];
+    }
+    public static string[]? State_GetNewestFileKey(IIOProvider io) => State_GetNumberedFileKeys(io).LastOrDefault();
+    public static string[] State_NextFileKey(IIOProvider io) => State_NextFileKey(State_GetAllFileKeys(io));
+    public static string[] State_NextFileKey(string[][] existingKeys) {
+        var lastNumbered = existingKeys.LastOrDefault(State_IsNumberedFileKey);
+        return lastNumbered == null ? State_GetFileKey(1) : nextFileKey(lastNumbered, State_GetFileKey);
+    }
+    public static void State_DeleteAll(IIOProvider io) {
+        foreach (var key in State_GetAllFileKeys(io)) io.DeleteFileIfItExists(key);
+    }
     public static string[]? GetAiCacheFileKey(AIProviderCacheType? cacheProvider) {
         if (cacheProvider == null) return null;
         return cacheProvider.Value switch {
@@ -116,12 +174,31 @@ public static class FileKeyUtility {
         return DateOnly.ParseExact(dtSection, dateOnlyTemplate, System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    public static string[] Index_GetFileKey(string indexId) {
-        return fill(indexFilePattern, indexId);
+    /// <summary>The unnumbered index state file written by older versions. Not read anymore: it is
+    /// deleted at open, and the index rebuilds from the log. An index id never contains a dot
+    /// (guid + optional culture/sub key, '_'-separated), which is what keeps the numbered and
+    /// legacy names distinguishable.</summary>
+    public static string[] Index_GetLegacyFileKey(string indexId) => fill(indexFilePattern, indexId);
+    public static string[] Index_GetFileKey(string indexId, int n) => fill(indexFilePattern, indexId + "." + n.ToString("00000000"));
+    public static bool Index_IsNumberedFileKey(string[] key) => key.MatchesPattern(indexFilePattern) && hasNumberedFileName(key, 4);
+    /// <summary>All state files of one index, oldest first: the legacy unnumbered file (if present), then the numbered files.</summary>
+    public static string[][] Index_GetAllFileKeys(IIOProvider io, string indexId) {
+        List<string[]> keys = [];
+        var legacy = Index_GetLegacyFileKey(indexId);
+        if (io.Exists(legacy)) keys.Add(legacy);
+        keys.AddRange(io.Search(fill(indexFilePattern, indexId + ".*")).Where(k => hasNumberedFileName(k, 4)));
+        return [.. keys];
     }
+    public static string[]? Index_GetNewestFileKey(IIOProvider io, string indexId) => Index_GetAllFileKeys(io, indexId).Where(Index_IsNumberedFileKey).LastOrDefault();
+    public static string[] Index_NextFileKey(string indexId, string[][] existingKeys) {
+        var lastNumbered = existingKeys.LastOrDefault(Index_IsNumberedFileKey);
+        return lastNumbered == null ? Index_GetFileKey(indexId, 1) : nextFileKey(lastNumbered, n => Index_GetFileKey(indexId, n));
+    }
+    /// <summary>Every index state file of every index, numbered and legacy.</summary>
     public static string[][] Index_GetAll(IIOProvider io) {
         return [.. io.Search(indexFilePattern)];
     }
+    public static string[][] Index_GetAllNumbered(IIOProvider io) => [.. io.Search(indexFilePattern).Where(k => hasNumberedFileName(k, 4))];
 
 
     public static string[] WAL_GetFileKey(int n) => fill(walFilePattern, n.ToString("00000000"));
@@ -197,7 +274,7 @@ public static class FileKeyUtility {
         => [.. io.Search(["db.*.bkup"]), .. io.Search(["files.*.bkup"])];
     /// <summary>State snapshot, index states, mapper dlls and queue files in the storage root; they now live in the state folder.</summary>
     public static string[][] Legacy_GetRootStateFileKeys(IIOProvider io)
-        => [.. io.Search(["state.bin"]), .. io.Search(["index.*.bin"]), .. io.Search(["mapper.*.dll"]), .. io.Search(["queue.*"])];
+        => [.. io.Search(["state.bin"]), .. io.Search(["state.*.bin"]), .. io.Search(["index.*.bin"]), .. io.Search(["mapper.*.dll"]), .. io.Search(["queue.*"])];
     /// <summary>Logger files and the critical error log in the storage root; they now live in the log folder.</summary>
     public static string[][] Legacy_GetRootLoggerFileKeys(IIOProvider io)
         => [.. io.Search(["log.*"]), .. io.Search(["critical.error.txt"])];
@@ -282,7 +359,7 @@ public static class FileKeyUtility {
         if (key.MatchesPattern(criticalErrorLogFilePattern)) return "Critical error log";
         if (key.MatchesPattern(mapperDllFilePattern)) return "Mapper DLL";
         if (key.MatchesPattern(fileStorePattern)) return "Filestore";
-        if (key.MatchesPattern(stateFilePattern)) return "State";
+        if (key.MatchesPattern(stateFilePattern) || key.MatchesPattern(stateFileLegacyPattern)) return "State";
         if (key.MatchesPattern([indexStoreFolderPattern])) return "Index Store";
         if (key.MatchesPattern(queueFileKeyPattern)) return "Task queue";
         if (key.MatchesPattern(loggerAllFilePattern)) return "Log file";
@@ -306,7 +383,7 @@ public static class FileKeyUtility {
             DataFolderName => "[Primary data files]",
             StateFolderName => "State cache",
             BackupFolderName => "Backups",
-            "converted" => "Converted file cache",
+            ConvertedFolderName => "Converted file cache",
             "files" => "[Primary file store]",
             LogFolderName => "Logs",
             var s when s.MatchesWildcard(indexStoreFolderPattern) => "Indexes",
@@ -317,7 +394,9 @@ public static class FileKeyUtility {
         };
     }
 
-    public const int MaxFileNameLength = 64; // leaving ample room for folder paths and extensions
+    // leaving ample room for folder paths and extensions; a numbered index state file name (guid,
+    // culture, sub key and an 8 digit number) can reach ~70 characters
+    public const int MaxFileNameLength = 100;
     static HashSet<char> _legalFileKeyCharacters = "abcdefghijklmnopqrstuvwxyz0123456789()-–_. ".ToHashSet();
     public static bool IsFileKeyValid(string fileKey) {
         if (string.IsNullOrEmpty(fileKey)) return false;

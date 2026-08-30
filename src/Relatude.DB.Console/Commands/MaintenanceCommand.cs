@@ -109,7 +109,7 @@ public static class MaintenanceCommand {
                 throw new CliException("Could not open the storage provider \"" + ioSettings.Name + "\": " + err.Message, err);
             }
             io.DeleteFolderIfItExists([FileKeyUtility.IndexStoreFolderKey]);
-            foreach (var key in new[] { FileKeyUtility.StateFileKey }.Concat(FileKeyUtility.MapperDll_GetAllFileKeys(io)).Concat(FileKeyUtility.Index_GetAll(io))) {
+            foreach (var key in FileKeyUtility.State_GetAllFileKeys(io).Concat(FileKeyUtility.MapperDll_GetAllFileKeys(io)).Concat(FileKeyUtility.Index_GetAll(io))) {
                 if (io.DoesNotExistOrIsEmpty(key)) continue;
                 io.DeleteFileIfItExists(key);
                 deleted++;

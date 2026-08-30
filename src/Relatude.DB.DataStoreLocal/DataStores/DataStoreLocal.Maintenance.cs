@@ -29,7 +29,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             TaskQueuePersisted?.FlushDisk();
             if (Engines.Any) {
                 // Persisted indexes commit only in memory at transaction execution and are made
-                // durable here, AFTER the WAL flush — so the durable indexes can never contain
+                // durable here, AFTER the WAL flush ï¿½ so the durable indexes can never contain
                 // transactions the durable log is missing. The write lock (briefly, the lock
                 // supports recursion) excludes executes, and the final drain covers transactions
                 // that executed while the flush above was writing, so at the durable write the
@@ -136,7 +136,8 @@ public sealed partial class DataStoreLocal : IDataStore {
                 FlushToDisk(true, activityId); // ensuring all writes are flushed after locking, should be quick since flushed before lock ( inside try so the write lock is released if it throws )
                 validateDatabaseState();
                 var anyOutOfSyncIndexes = _definition.GetAllIndexes().Where(i => i.PersistedTimestamp < _wal.LastTimestamp).Any();
-                if (IOIndex.DoesNotExistOrIsEmpty(FileKeyUtility.StateFileKey) || _noPrimitiveActionsSinceLastStateSnapshot > 0 || anyOutOfSyncIndexes || forceRefresh) {
+                var newestStateFileKey = FileKeyUtility.State_GetNewestFileKey(IOIndex);
+                if (newestStateFileKey == null || IOIndex.DoesNotExistOrIsEmpty(newestStateFileKey) || _noPrimitiveActionsSinceLastStateSnapshot > 0 || anyOutOfSyncIndexes || forceRefresh) {
                     var sw = Stopwatch.StartNew();
                     LogInfo("Initiating index state write.");
                     saveMainState(activityId); // requires WriteLock after flush due to node segments
@@ -154,8 +155,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     void resetStateAndIndexes() {
-        var stateFileExisted = IOIndex.ExistsAndIsNotEmpty(FileKeyUtility.StateFileKey);
-        IOIndex.DeleteFileIfItExists(FileKeyUtility.StateFileKey);
+        var stateFileKeys = FileKeyUtility.State_GetAllFileKeys(IOIndex);
+        var stateFileExisted = stateFileKeys.Any(k => IOIndex.ExistsAndIsNotEmpty(k));
+        foreach (var k in stateFileKeys) IOIndex.DeleteFileIfItExists(k);
         var indexesFiles = FileKeyUtility.Index_GetAll(IOIndex);
         foreach (var i in indexesFiles) IOIndex.DeleteFileIfItExists(i);
         if (stateFileExisted) {
@@ -328,7 +330,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
 
             _sets.AddInfo(info);
-            info.LogStateFileSize = IOIndex.GetFileSizeOrZeroIfUnknown(FileKeyUtility.StateFileKey);
+            info.LogStateFileSize = FileKeyUtility.State_GetAllFileKeys(IOIndex).Sum(k => IOIndex.GetFileSizeOrZeroIfUnknown(k));
         } finally {
             _lock.ExitWriteLock();
         }

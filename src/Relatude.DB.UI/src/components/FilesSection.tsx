@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import {
   IconChevronDown,
   IconChevronRight,
   IconDownload,
   IconFile,
+  IconFileZip,
   IconFolder,
   IconFolderDown,
   IconFolderOpen,
@@ -19,18 +20,25 @@ import {
   deleteFolderWithProgress,
   downloadFolderToDirectory,
   downloadUrl,
+  downloadZipToSink,
   fetchFolder,
   fetchFolderSize,
   fetchIoList,
+  itemsFromDrop,
+  pickDirectory,
+  resolveDroppedItems,
   uploadEntries,
+  zipFolderUrl,
+  type FileInfo,
   type FolderListing,
   type FolderSize,
   type IoInfo,
   type UploadEntry,
+  type ZipSink,
 } from "../server/files";
 import type { DatabaseInfo } from "../server/serverInfo";
 import { formatBytes, formatTime } from "../format";
-import { runWithProgress, showError } from "../dialogs";
+import { runWithProgress, showConfirm, showError } from "../dialogs";
 
 export function FilesSection({ db }: { db: DatabaseInfo }) {
   const [ios, setIos] = useState<IoInfo[]>([]);
@@ -92,10 +100,11 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
       .catch(() => setTreeSizes((prev) => ({ ...prev, [folderPath]: { size: -1, fileCount: 0, folderCount: 0 } })));
   }
 
+  // selects the folder (its files show in the list) without expanding its tree node;
+  // expanding and collapsing is the chevron's job
   function openFolder(folderPath: string) {
     setPath(folderPath);
     setSelected(new Set());
-    setExpanded((prev) => new Set(prev).add(folderPath));
     if (ioId) loadFolder(ioId, folderPath);
   }
 
@@ -155,8 +164,11 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
       file: f,
       relativePath: useRelativePaths && f.webkitRelativePath ? f.webkitRelativePath : f.name,
     }));
-    const io = ioId;
-    const failed = await runWithProgress(`Upload to ${path || "storage root"}`, (ctl) => uploadEntries(ctl, io, path, entries));
+    await uploadWithDialog(ioId, path, entries);
+  }
+
+  async function uploadWithDialog(io: string, target: string, entries: UploadEntry[]) {
+    const failed = await runWithProgress(`Upload to ${target || "storage root"}`, (ctl) => uploadEntries(ctl, io, target, entries));
     if (failed) {
       if (failed.length > 0) {
         showError("Upload incomplete", `${entries.length - failed.length} of ${entries.length} files were uploaded.`, failed);
@@ -164,7 +176,129 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
         setMessage(`Uploaded ${entries.length} file${entries.length === 1 ? "" : "s"}.`);
       }
     }
-    loadFolder(io, path); // also after a cancel: some files may have landed
+    loadFolder(io, target); // also after a cancel: some files may have landed
+  }
+
+  // drag and drop from the OS: any mix of files and folders, dropped anywhere in the section
+  const [dropActive, setDropActive] = useState(false);
+  const dragDepth = useRef(0);
+
+  function dragHasFiles(e: DragEvent) {
+    return ioId !== null && e.dataTransfer.types.includes("Files");
+  }
+
+  function onDragEnter(e: DragEvent) {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDropActive(true);
+  }
+
+  function onDragOver(e: DragEvent) {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }
+
+  function onDragLeave(e: DragEvent) {
+    if (!dragHasFiles(e)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDropActive(false);
+  }
+
+  // drag a file row OUT to the desktop: Chromium's DownloadURL type makes the browser
+  // download the file (cookie-authed) to wherever it is dropped; other browsers ignore it
+  function onFileDragStart(e: DragEvent, file: FileInfo) {
+    if (!ioId) return;
+    const url = location.origin + downloadUrl(db.id, ioId, file.key);
+    e.dataTransfer.setData("DownloadURL", `application/octet-stream:${fileName(file.key)}:${url}`);
+    e.dataTransfer.effectAllowed = "copy";
+  }
+
+  // drag a FOLDER out to the desktop: it arrives as a zip (a drag-out can only carry one
+  // file); the endpoint checks all files for locks before streaming a single byte
+  function onFolderDragStart(e: DragEvent, folderPath: string) {
+    if (!ioId) return;
+    const name = (folderPath === "" ? "storage-root" : folderPath.split("/").pop()) + ".zip";
+    const url = location.origin + zipFolderUrl(ioId, folderPath);
+    e.dataTransfer.setData("DownloadURL", `application/zip:${name}:${url}`);
+    e.dataTransfer.effectAllowed = "copy";
+  }
+
+  // downloads the selected files as one zip: lock check first (stops with the locked list),
+  // then the stream goes to a picked file (Chromium) or through memory to a normal download
+  async function onDownloadSelectionZip() {
+    if (!ioId || selected.size === 0) return;
+    const io = ioId;
+    const target = path;
+    const keys = files.filter((f) => selected.has(f.key)).map((f) => f.key);
+    const zipName = (target === "" ? "storage-root" : target.split("/").pop()) + "-files.zip";
+    let sink: ZipSink;
+    let finish: (() => void) | null = null;
+    if (window.showSaveFilePicker) {
+      let writable: FileSystemWritableFileStream;
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: zipName,
+          types: [{ description: "Zip archive", accept: { "application/zip": [".zip"] } }],
+        });
+        writable = await handle.createWritable();
+      } catch {
+        return; // picker dismissed
+      }
+      sink = { write: (chunk) => writable.write(chunk as Uint8Array<ArrayBuffer>), close: () => writable.close(), abort: () => writable.abort() };
+    } else {
+      const chunks: Uint8Array[] = [];
+      sink = {
+        write: async (chunk) => {
+          chunks.push(chunk);
+        },
+        close: async () => {},
+        abort: async () => {
+          chunks.length = 0;
+        },
+      };
+      finish = () => {
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(new Blob(chunks as BlobPart[], { type: "application/zip" }));
+        link.download = zipName;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
+      };
+    }
+    const result = await runWithProgress(`Zip ${keys.length} file${keys.length === 1 ? "" : "s"}`, (ctl) => downloadZipToSink(ctl, io, keys, target, sink));
+    if (!result) return; // cancelled or failed (the dialog showed it); the sink was aborted
+    if ("locked" in result) {
+      showError("Files are in use", "The zip was not created because some files are locked.", result.locked);
+    } else {
+      finish?.();
+      setMessage(`Zip created (${formatBytes(result.bytes)}).`);
+    }
+  }
+
+  async function onDrop(e: DragEvent) {
+    dragDepth.current = 0;
+    setDropActive(false);
+    if (!dragHasFiles(e) || !ioId) return;
+    e.preventDefault();
+    const items = itemsFromDrop(e.dataTransfer); // must run synchronously in the drop handler
+    if (items.length === 0) return;
+    const io = ioId;
+    const target = path;
+    const entries = await runWithProgress("Reading dropped items", (ctl) => resolveDroppedItems(ctl, items));
+    if (!entries) return; // cancelled or failed
+    if (entries.length === 0) {
+      setMessage("The dropped items contained no files.");
+      return;
+    }
+    const totalBytes = entries.reduce((sum, entry) => sum + entry.file.size, 0);
+    const { ok } = await showConfirm(
+      "Upload dropped items",
+      `Upload ${entries.length} file${entries.length === 1 ? "" : "s"} (${formatBytes(totalBytes)}) to ${target || "the storage root"}? Existing files with the same names are overwritten.`,
+      { confirmLabel: "Upload" },
+    );
+    if (!ok) return;
+    await uploadWithDialog(io, target, entries);
   }
 
   const [deleteFolderArmed, setDeleteFolderArmed] = useState(false);
@@ -197,16 +331,12 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
 
   async function onDownloadFolder() {
     if (!ioId) return;
-    if (!window.showDirectoryPicker) {
+    const directory = await pickDirectory();
+    if (directory === "unsupported") {
       setMessage("Folder download requires a Chromium based browser (File System Access API).");
       return;
     }
-    let directory: FileSystemDirectoryHandle;
-    try {
-      directory = await window.showDirectoryPicker({ mode: "readwrite" });
-    } catch {
-      return; // picker dismissed
-    }
+    if (!directory) return;
     const io = ioId;
     const failed = await runWithProgress(`Download ${path || "storage root"}`, (ctl) => downloadFolderToDirectory(ctl, db.id, io, path, directory));
     if (failed) {
@@ -219,7 +349,13 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   }
 
   return (
-    <div className="files">
+    <div className="files" onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
+      {dropActive && (
+        <div className="drop-overlay">
+          <IconFolderUp size={20} stroke={1.8} />
+          <span>Drop to upload to {path || "the storage root"}</span>
+        </div>
+      )}
       <div className="files-toolbar">
         <select className="select" value={ioId ?? ""} onChange={(e) => setIoId(e.target.value)} disabled={ios.length === 0}>
           {ios.length === 0 && <option value="">No IO providers</option>}
@@ -271,6 +407,11 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
         />
         <div className="header-spacer" />
         {message && <span className="muted files-message">{message}</span>}
+        {selected.size > 0 && (
+          <button className="action-button" onClick={onDownloadSelectionZip}>
+            <IconFileZip size={14} stroke={1.8} /> Download {selected.size} as zip
+          </button>
+        )}
         {selected.size > 0 && <DeleteSelectedButton count={selected.size} onDelete={deleteSelected} />}
       </div>
       {error && <div className="login-error">{error}</div>}
@@ -288,6 +429,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
             onComputeSize={computeTreeSize}
             onOpen={openFolder}
             onToggle={toggleExpand}
+            onDragOut={onFolderDragStart}
           />
         </section>
         <section className="panel files-list">
@@ -301,7 +443,12 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
               <span />
             </div>
             {files.map((f) => (
-              <div key={f.key} className={"file-row" + (selected.has(f.key) ? " selected" : "")}>
+              <div
+                key={f.key}
+                className={"file-row" + (selected.has(f.key) ? " selected" : "")}
+                draggable={!!ioId}
+                onDragStart={(e) => onFileDragStart(e, f)}
+              >
                 <input type="checkbox" checked={selected.has(f.key)} onChange={() => toggleOne(f.key)} />
                 <span className="file-name">
                   <IconFile size={14} stroke={1.6} />
@@ -349,6 +496,7 @@ interface FolderNodeProps {
   onComputeSize: (path: string) => void;
   onOpen: (path: string) => void;
   onToggle: (path: string) => void;
+  onDragOut: (e: DragEvent, path: string) => void;
 }
 
 function FolderNode(p: FolderNodeProps) {
@@ -357,7 +505,12 @@ function FolderNode(p: FolderNodeProps) {
   const size = p.sizes[p.path];
   return (
     <>
-      <div className={"tree-row" + (p.currentPath === p.path ? " active" : "")} style={{ paddingLeft: 4 + p.depth * 14 }}>
+      <div
+        className={"tree-row" + (p.currentPath === p.path ? " active" : "")}
+        style={{ paddingLeft: 4 + p.depth * 14 }}
+        draggable
+        onDragStart={(e) => p.onDragOut(e, p.path)}
+      >
         <button
           className="tree-chevron"
           onClick={() => p.onToggle(p.path)}
@@ -403,6 +556,7 @@ function FolderNode(p: FolderNodeProps) {
             onComputeSize={p.onComputeSize}
             onOpen={p.onOpen}
             onToggle={p.onToggle}
+            onDragOut={p.onDragOut}
           />
         ))}
     </>

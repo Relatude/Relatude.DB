@@ -1,4 +1,4 @@
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 using Relatude.DB.DataStores;
 using Relatude.DB.IO;
 using System.Diagnostics;
@@ -7,7 +7,7 @@ using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.FileConversion;
 
 public class FileConversionEngine : IDisposable {
-    const string _cacheBaseFolder = "converted";
+    const string _cacheBaseFolder = FileKeyUtility.ConvertedFolderName;
     static string[] _tempBaseFolder = [_cacheBaseFolder, "temp"];
     readonly FileConverterLibrary _fileConverters;
     readonly RunningConversions _conversions;

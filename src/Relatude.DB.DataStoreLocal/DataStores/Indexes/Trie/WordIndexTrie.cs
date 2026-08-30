@@ -63,54 +63,23 @@ internal class WordIndexTrie : IWordIndex {
     public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
         // appending a stamp is only sound when the persisted body equals the in-memory state: the
         // stamp is trusted on the next open, so changes missing from a stale body would be skipped
-        // by the log replay and silently lost — and a never-persisted index would get a body-less,
-        // unreadable file. Persist the full state whenever the body may be behind:
-        if (_changedSinceLastSave) {
+        // by the log replay and silently lost — and with no persisted body there is nothing to
+        // stamp. Persist the full state whenever the body may be behind or is missing:
+        if (_changedSinceLastSave || !IndexStateFiles.TryAppendNewTimestamp(_io, UniqueKey, newTimestamp, walFileId)) {
             SaveStateForMemoryIndexes(newTimestamp, walFileId);
             return;
         }
-        var fileName = FileKeyUtility.Index_GetFileKey(UniqueKey);
-        using var stream = _io.OpenAppend(fileName);
-        stream.WriteVerifiedLong(newTimestamp);
-        stream.WriteGuid(walFileId);
         PersistedTimestamp = newTimestamp;
     }
     public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) {
-        var fileName = FileKeyUtility.Index_GetFileKey(UniqueKey);
-        if (_io.CanRenameFile) {
-            // write to a temp file and swap, so a crash during save does not also lose the previous good state
-            // swapping the extension keeps the key length unchanged (file keys have a max length) and keeps it out of the index.*.bin pattern
-            var tempFileName = FileKeyUtility.TempFileKey(fileName);
-            _io.DeleteFileIfItExists(tempFileName);
-            using (var stream = _io.OpenAppend(tempFileName)) {
-                _trie.WriteState(stream);
-                stream.WriteVerifiedLong(logTimestamp);
-                stream.WriteGuid(walFileId);
-            }
-            _io.DeleteFileIfItExists(fileName);
-            _io.RenameFile(tempFileName, fileName);
-        } else {
-            _io.DeleteFileIfItExists(fileName);
-            using var stream = _io.OpenAppend(fileName);
-            _trie.WriteState(stream);
-            stream.WriteVerifiedLong(logTimestamp);
-            stream.WriteGuid(walFileId);
-        }
+        IndexStateFiles.Save(_io, UniqueKey, logTimestamp, walFileId, _trie.WriteState);
         PersistedTimestamp = logTimestamp;
         _changedSinceLastSave = false;
     }
     public void ReadStateForMemoryIndexes(Guid walFileId) {
         PersistedTimestamp = 0;
-        var fileName = FileKeyUtility.Index_GetFileKey(UniqueKey);
-        if (_io.DoesNotExistsOrIsEmpty(fileName)) return;
-        using var stream = _io.OpenRead(fileName, 0);
-        _trie.ReadState(stream);
-        Guid walId = Guid.Empty;
-        while (stream.More()) {
-            PersistedTimestamp = stream.ReadVerifiedLong();
-            walId = stream.ReadGuid();
-        }
-        if (walId != walFileId) throw new Exception("WAL file ID mismatch when reading index state. ");
+        if (!IndexStateFiles.TryRead(_io, UniqueKey, walFileId, _trie.ReadState, out var persistedTimestamp)) return;
+        PersistedTimestamp = persistedTimestamp;
         newSetState();
         _changedSinceLastSave = false; // memory now equals the body just read
     }

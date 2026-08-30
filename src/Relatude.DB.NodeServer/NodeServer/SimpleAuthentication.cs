@@ -39,13 +39,14 @@ public class SimpleAuthentication(RelatudeDBServer server) {
     // Authentication
     bool authenticationIsValid(HttpContext context) {
         //Stopwatch sw = Stopwatch.StartNew();
-        var isLocal = ServerAPIMapper.IsLocalConnection(context.Connection);
+        var isLocal = LocalRequest.IsLocalhost(context);
         if (settings.NoLoginRequiredForLocalhost && isLocal) {
             return true; // allow localhost access without login
         }
         if (settings.TokenCookieName == null) return false;
         var requestIP = context.Connection.RemoteIpAddress + "";
         if (!settings.AllowMasterLoginOutsideLocalhost && !isLocal) {
+            warnOnceIfLockedOut();
             return false; // block login attempts from outside localhost
         }
         var token = context.Request.Cookies[settings.TokenCookieName];
@@ -129,6 +130,7 @@ public class SimpleAuthentication(RelatudeDBServer server) {
     public async Task<bool> AreCredentialsValid(string username, string password, string requestIP, bool isLocal) {
         await Task.Delay(new Random().Next(300, 400)); // time delay to slow down brute force attacks and random to not hint valid usernames by response time        
         if (!settings.AllowMasterLoginOutsideLocalhost && !isLocal) {
+            warnOnceIfLockedOut();
             return false; // block login attempts from outside localhost
         }
         if (_ipWall.IsBlocked(requestIP)) {
@@ -146,6 +148,18 @@ public class SimpleAuthentication(RelatudeDBServer server) {
         } else {
             return true;
         }
+    }
+    // Every admin request is being refused because none of them look local and remote logins are
+    // off. The usual cause is a reverse proxy in front of the server: the peer is then the proxy,
+    // so nothing is ever "localhost" and there is no way in at all. Said once, with the fix, because
+    // the alternative is an admin UI that answers 401 forever without explaining why.
+    static int _lockoutWarned;
+    void warnOnceIfLockedOut() {
+        if (Interlocked.Exchange(ref _lockoutWarned, 1) != 0) return;
+        RelatudeDBServer.Trace("Admin access refused: the request did not come from this machine, and"
+            + " AllowMasterLoginOutsideLocalhost is false, so no one can log in. If this server is behind a"
+            + " reverse proxy, set \"AllowMasterLoginOutsideLocalhost\": true and a master user name and"
+            + " password in " + Defaults.SettingsFileName + ". ");
     }
     public bool IsLoggedIn(HttpContext context) {
         return authenticationIsValid(context);

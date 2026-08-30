@@ -1,6 +1,8 @@
 // The public authentication endpoints ({ApiUrlRoot}/auth/...) — the only part of the
 // admin API reachable without a login cookie. Everything else goes over the channel.
-const base = "/relatude.db/auth";
+import { publicBase } from "./base";
+
+const base = publicBase;
 
 async function post<T>(action: string, body?: unknown): Promise<T> {
   const response = await postRaw(action, body);

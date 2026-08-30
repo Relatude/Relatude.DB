@@ -21,8 +21,16 @@ public class FolderLayoutTests {
     public void FileKeys_UseTheFolderLayout() {
         Assert.AreEqual("data/db.00000001.bin", FileKeyUtility.WAL_GetFileKey(1).AsKeyString());
         Assert.AreEqual("data/db.log", FileKeyUtility.WAL_GetSecondaryFileKey().AsKeyString());
-        Assert.AreEqual("state/state.bin", FileKeyUtility.StateFileKey.AsKeyString());
-        Assert.AreEqual("state/index.abc.bin", FileKeyUtility.Index_GetFileKey("abc").AsKeyString());
+        Assert.AreEqual("state/state.bin", FileKeyUtility.State_LegacyFileKey.AsKeyString());
+        Assert.AreEqual("state/state.00000007.bin", FileKeyUtility.State_GetFileKey(7).AsKeyString());
+        Assert.AreEqual("state/index.abc.bin", FileKeyUtility.Index_GetLegacyFileKey("abc").AsKeyString());
+        Assert.AreEqual("state/index.abc.00000007.bin", FileKeyUtility.Index_GetFileKey("abc", 7).AsKeyString());
+        Assert.IsTrue(FileKeyUtility.State_IsNumberedFileKey(FileKeyUtility.State_GetFileKey(7)));
+        Assert.IsFalse(FileKeyUtility.State_IsNumberedFileKey(FileKeyUtility.State_LegacyFileKey));
+        Assert.IsTrue(FileKeyUtility.State_IsStateFileKey(FileKeyUtility.State_LegacyFileKey));
+        Assert.IsTrue(FileKeyUtility.State_IsStateFileKey(FileKeyUtility.State_GetFileKey(7)));
+        Assert.IsTrue(FileKeyUtility.Index_IsNumberedFileKey(FileKeyUtility.Index_GetFileKey("abc", 7)));
+        Assert.IsFalse(FileKeyUtility.Index_IsNumberedFileKey(FileKeyUtility.Index_GetLegacyFileKey("abc")));
         Assert.AreEqual("state/mapper.5.dll", FileKeyUtility.MapperDll_GetFileKey(5).AsKeyString());
         Assert.AreEqual("state/queue.bin", FileKeyUtility.Queue_GetFileKey("bin").AsKeyString());
         var dt = new DateTime(2026, 8, 23, 10, 30, 0, DateTimeKind.Utc);
@@ -36,7 +44,7 @@ public class FolderLayoutTests {
         Assert.AreEqual("files", FileKeyUtility.MultiFileStoreFolderKey);
         Assert.AreEqual(dt, FileKeyUtility.WAL_GetBackUpDateTimeFromFileKey(FileKeyUtility.WAL_GetFileKeyForBackup(dt, false)));
         Assert.IsTrue(FileKeyUtility.WAL_KeepForever(FileKeyUtility.WAL_GetFileKeyForBackup(dt, true)));
-        Assert.AreEqual("state/index.abc.tmp", FileKeyUtility.TempFileKey(FileKeyUtility.Index_GetFileKey("abc")).AsKeyString());
+        Assert.AreEqual("state/index.abc.tmp", FileKeyUtility.TempFileKey(FileKeyUtility.Index_GetLegacyFileKey("abc")).AsKeyString());
     }
 
     [TestMethod]
@@ -141,7 +149,7 @@ public class FolderLayoutTests {
         io.WriteAllBytes(["queue.bin"], []);
         openAndAssertIntact(io, articles.Count);
         Assert.IsTrue(io.Exists(FileKeyUtility.WAL_GetFileKey(1)));
-        Assert.IsTrue(io.Exists(FileKeyUtility.StateFileKey), "the migrated state snapshot must be used, not rebuilt");
+        Assert.IsNotNull(FileKeyUtility.State_GetNewestFileKey(io), "the migrated state snapshot must be used, not rebuilt");
         Assert.AreEqual(1, FileKeyUtility.MapperDll_GetAllFileKeys(io).Length, "the mapper dll must be back in the state folder");
         Assert.IsTrue(FileKeyUtility.Index_GetAll(io).Length > 0, "the index states must be back in the state folder");
         Assert.IsTrue(io.Exists(["backup", "db.2026-01-01-00-00-00.bkup"]));
@@ -171,11 +179,11 @@ public class FolderLayoutTests {
         foreach (var chunk in articles.Chunk(10)) store.Insert(chunk);
         storeData.Maintenance(MaintenanceAction.SaveIndexStates);
         store.Dispose();
-        var folderStateSize = io.GetFileSizeOrZeroIfUnknown(FileKeyUtility.StateFileKey);
-        io.WriteAllBytes([FileKeyUtility.StateFileKey.FileName()], [1, 2, 3]); // a stale root leftover with a different size
+        var folderStateKey = FileKeyUtility.State_GetNewestFileKey(io)!;
+        io.WriteAllBytes([folderStateKey.FileName()], [1, 2, 3]); // a stale root leftover with a different size
         openAndAssertIntact(io, articles.Count);
-        Assert.IsFalse(io.Exists([FileKeyUtility.StateFileKey.FileName()]), "the stale root state file must be removed");
-        Assert.IsTrue(io.Exists(FileKeyUtility.StateFileKey));
+        Assert.IsFalse(io.Exists([folderStateKey.FileName()]), "the stale root state file must be removed");
+        Assert.IsTrue(io.Exists(folderStateKey));
     }
 
     [TestMethod]
@@ -215,7 +223,7 @@ public class FolderLayoutTests {
         newKey = FileKeyUtility.WAL_GetFileKey(1);
         legacyKey = ["db.00000001.bin"];
         io.RenameFile(newKey, legacyKey);
-        io.DeleteFileIfItExists(FileKeyUtility.StateFileKey);
+        FileKeyUtility.State_DeleteAll(io);
         foreach (var f in FileKeyUtility.Index_GetAll(io)) io.DeleteFileIfItExists(f);
         return articles.Count;
     }

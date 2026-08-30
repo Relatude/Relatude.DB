@@ -1,4 +1,7 @@
 :root {
+  /* native controls (checkboxes, select dropdowns, scrollbars) follow the theme */
+  color-scheme: light;
+  accent-color: var(--accent);
   --bg: #f5f4f2;
   --panel: #ffffff;
   --border: #e2e0dc;
@@ -8,14 +11,19 @@
   --accent-soft: rgba(9, 96, 178, 0.1);
   --accent-contrast: #ffffff;
   --hover: rgba(0, 0, 0, 0.045);
+  --button-bg: #f9f8f6;
+  --text-soft: #45433f;
   --text-faint: #a6a39d;
   --danger: #b3261e;
   --danger-soft: rgba(179, 38, 30, 0.12);
   --ok: #2f7a44;
   --badge-bg: rgba(0, 0, 0, 0.07);
+  --backdrop-ink: #1d1c1a;
+  --backdrop-opacity: 0.16;
 }
 
 [data-theme="dark"] {
+  color-scheme: dark;
   --bg: #191919;
   --panel: #212121;
   --border: #383838;
@@ -25,11 +33,15 @@
   --accent-soft: rgba(109, 179, 245, 0.14);
   --accent-contrast: #15181d;
   --hover: rgba(255, 255, 255, 0.06);
+  --button-bg: #2a2a2a;
+  --text-soft: #c4c2be;
   --text-faint: #767370;
   --danger: #f2887f;
   --danger-soft: rgba(242, 136, 127, 0.14);
   --ok: #6fbf85;
   --badge-bg: rgba(255, 255, 255, 0.09);
+  --backdrop-ink: #a8cdf2;
+  --backdrop-opacity: 0.18;
 }
 
 * {
@@ -59,6 +71,12 @@ button {
   cursor: pointer;
 }
 
+/* links never use the browser's blue/violet; they take the surrounding text color */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
 /* ---- shell ---- */
 
 .shell {
@@ -71,6 +89,23 @@ button {
   display: grid;
   grid-template-columns: auto 1fr;
   min-height: 0;
+}
+
+/* ---- backdrop ---- */
+
+/* the animated node graph / starfield behind the login form (Backdrop.tsx paints it).
+   z-index -1 keeps it under the form while still painting on top of the body background.
+   The canvas reads both tokens back off this rule: the colour as its ink, and
+   --backdrop-opacity folded into every alpha it draws rather than applied here, so the
+   viewport-sized layer never needs blending on top of the page */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  color: var(--backdrop-ink);
+  pointer-events: none;
 }
 
 /* ---- header ---- */
@@ -221,6 +256,7 @@ button {
   gap: 10px;
   width: 250px;
   padding: 5px 10px;
+  background: var(--button-bg);
   border: 1px solid var(--border);
   border-radius: 7px;
   text-align: left;
@@ -349,7 +385,7 @@ button {
   justify-content: center;
   width: 24px;
   height: 24px;
-  background: var(--panel);
+  background: var(--button-bg);
   border: 1px solid var(--border);
   border-radius: 50%;
   color: var(--text-muted);
@@ -405,6 +441,15 @@ button {
 
 .nav-item svg {
   flex: none;
+  color: var(--text-soft); /* icons a step stronger than the labels */
+}
+
+.nav-item:hover svg {
+  color: var(--text);
+}
+
+.nav-item.active svg {
+  color: var(--accent);
 }
 
 .nav-item .label {
@@ -485,15 +530,48 @@ button {
   gap: 14px;
   width: 360px;
   padding: 32px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
 }
 
 .login-logo {
   display: flex;
   justify-content: center;
   margin-bottom: 12px;
+}
+
+/* A second mount of the logo (after a logout) should not replay the intro. Every animation in
+   the injected SVG runs under 6s and holds its end state, so a delay well past that lands them
+   all on their final frame with no motion — far less invasive than restating the finished
+   look rule by rule. */
+.logo-played * {
+  animation-delay: -10s !important;
+}
+
+/* the controls arrive just after the logo starts drawing: a slow fade with a barely-there zoom */
+.login-card > *:not(.login-logo) {
+  animation: login-enter 0.7s ease-out 0.25s both;
+}
+
+@keyframes login-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-card > *:not(.login-logo) {
+    animation: none;
+  }
+
+  .logo-played *,
+  .login-logo * {
+    animation-delay: -10s !important;
+  }
 }
 
 .login-field {
@@ -511,7 +589,7 @@ button {
   font-size: 14px;
   font-weight: 400;
   color: var(--text);
-  background: var(--bg);
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 7px;
 }
@@ -537,7 +615,9 @@ button {
 }
 
 .login-submit {
-  padding: 9px;
+  align-self: flex-end;
+  padding: 7px 18px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--accent-contrast);
   background: var(--accent);
@@ -583,12 +663,17 @@ button {
 
 .panel h3 {
   margin: 0 0 12px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 .panel-sub {
   font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
   color: var(--text-muted);
 }
 
@@ -629,9 +714,20 @@ button {
   flex: none;
   min-width: 150px;
   padding: 6px 12px;
+  background: var(--button-bg);
   border: 1px solid var(--border);
   border-radius: 7px;
   font-weight: 600;
+  color: var(--text-soft); /* a touch softer than body text, icons follow via currentColor */
+}
+
+.action-button:hover:not(:disabled):not(.danger):not(.armed) {
+  color: var(--text);
+}
+
+/* stacked action rows share one button width, so columns of buttons line up */
+.process-action .action-button {
+  width: 220px;
 }
 
 .action-button:hover:not(:disabled) {
@@ -724,11 +820,31 @@ button {
 /* ---- files & storage ---- */
 
 .files {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 12px;
   height: 100%;
   min-height: 0;
+}
+
+/* shown while dragging files over the section; pointer-events none so the
+   underlying element keeps receiving the drag events */
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 2px dashed var(--accent);
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  pointer-events: none;
 }
 
 .files-toolbar {
@@ -747,7 +863,7 @@ button {
   font: inherit;
   font-size: 13px;
   color: var(--text);
-  background: var(--panel);
+  background: var(--button-bg);
   border: 1px solid var(--border);
   border-radius: 7px;
 }
@@ -950,6 +1066,52 @@ button {
   border-top: 1px solid var(--border);
 }
 
+/* ---- storage ---- */
+
+.storage {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1100px;
+}
+
+.storage-refresh {
+  display: inline-flex; /* stays on the heading's line, to the right of the text */
+  width: 22px;
+  height: 22px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.backup-row {
+  display: grid;
+  grid-template-columns: 1.6fr 90px 170px 30px 30px 30px;
+  gap: 8px;
+  align-items: center;
+  padding: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.backup-row.db-table-head {
+  border-top: none;
+  padding-top: 0;
+}
+
+.storage-facts {
+  margin-bottom: 12px;
+}
+
+.action-button svg {
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+
+a.action-button {
+  display: inline-block;
+  text-decoration: none;
+  text-align: center;
+}
+
 /* ---- dialogs ---- */
 
 .dialog-backdrop {
@@ -1047,7 +1209,47 @@ button {
 .dialog-row {
   display: flex;
   align-items: center;
+  gap: 8px;
   margin-top: 12px;
+}
+
+.dialog-option {
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.dialog-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.dialog-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.dialog-choice:hover {
+  border-color: var(--accent);
+}
+
+.dialog-choice .muted {
+  font-size: 12px;
+}
+
+.dialog-confirm.danger {
+  border-color: var(--danger);
 }
 
 .dialog-meta {

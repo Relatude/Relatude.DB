@@ -31,7 +31,7 @@ internal class LogRewriter {
         var allLogFiles = FileKeyUtility.WAL_GetAllFileKeys(io);
         var flaggedFileIsOnlyLogFile = allLogFiles.Length == 1 && allLogFiles[0].IsSameKey(fileKey);
         if (!flaggedFileIsOnlyLogFile) io.DeleteFileIfItExists(fileKey);
-        io.DeleteFileIfItExists(FileKeyUtility.StateFileKey); // delete state file as well it may contain references to an old log file
+        FileKeyUtility.State_DeleteAll(io); // delete state files as well, they may contain references to an old log file
         io.DeleteFileIfItExists(_logRewriterStartFile);
     }
     public static bool LogRewriterAlreadyInprogress(IIOProvider io) {

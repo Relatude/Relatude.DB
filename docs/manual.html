@@ -2041,7 +2041,7 @@ own users.</p>
 <tr>
 <td><code>NoLoginRequiredForLocalhost</code></td>
 <td><code>true</code></td>
-<td>A request from localhost reaches the admin UI with no login at all. This is why it just works in development.</td>
+<td>A request that really came from a browser on this machine reaches the admin UI with no login at all. This is why it just works in development. "Really came from this machine" is decided narrowly — see below — so this does <strong>not</strong> hold once anything proxies for the server.</td>
 </tr>
 <tr>
 <td><code>AllowMasterLoginOutsideLocalhost</code></td>
@@ -2972,8 +2972,19 @@ your way around it early.</p>
 </code></pre></div>
 
 <p>It has its own authentication, and <strong>nothing creates an admin user for you</strong> — but locally you do
-not need one. <code>NoLoginRequiredForLocalhost</code> defaults to <code>true</code>, so a request from localhost reaches
-the admin UI without logging in at all; that is why it just works in development.</p>
+not need one. <code>NoLoginRequiredForLocalhost</code> defaults to <code>true</code>, so a request that really came from a
+browser on this machine reaches the admin UI without logging in at all; that is why it just works in
+development.</p>
+<p>"Really came from this machine" is decided narrowly, and it is worth knowing where the line is. The
+connection's peer must be loopback, <strong>and</strong> the request must carry no sign of a reverse proxy —
+neither forwarded headers (<code>X-Forwarded-For</code>, <code>Forwarded</code>, <code>X-Real-IP</code>, <code>X-ARR-LOG-ID</code> and the
+platform-specific variants) nor a hosting environment that is always fronted, such as Azure App
+Service, IIS or Kubernetes. The reason is that a proxy on the same host makes <em>every</em> request arrive
+from loopback, so a loopback peer on its own cannot tell a local browser apart from the whole
+internet. Deployed behind a proxy, then, nothing is ever "localhost" and this setting stops applying
+— which is the point, but it means such a deployment needs real credentials and
+<code>AllowMasterLoginOutsideLocalhost</code>, or no one can get in at all. The server says so in its log the
+first time it refuses a request for that reason.</p>
 <p>Away from localhost it is the opposite: <code>AllowMasterLoginOutsideLocalhost</code> defaults to <strong><code>false</code></strong>,
 which refuses both the login and any existing session cookie from a remote address. Turn it on
 deliberately, over HTTPS, and only after setting credentials. Set <code>MasterUserName</code> and
@@ -4797,7 +4808,7 @@ your build, read the source — it is small and well commented:</p>
 </tr>
 <tr>
 <td>Server wiring and the admin UI</td>
-<td><code>src/Relatude.DB.NodeServer/</code>, <code>src/Relatude.DB.ServerUI/</code></td>
+<td><code>src/Relatude.DB.NodeServer/</code>, <code>src/Relatude.DB.UI/</code></td>
 </tr>
 <tr>
 <td>Relation bases and <code>One</code>/<code>Many</code> properties</td>

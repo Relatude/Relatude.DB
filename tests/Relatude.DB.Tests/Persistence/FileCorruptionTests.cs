@@ -49,8 +49,9 @@ namespace Relatude.Persistence {
             storeData.Maintenance(MaintenanceAction.SaveIndexStates);
             store.Dispose();
 
-            // add corruption to the state file:
-            io.AddCorruption(FileKeyUtility.StateFileKey, 1000, 1000);
+            // add corruption to the state file (mid-file, so the completion marker at the end stays
+            // intact and the file is not simply deleted by the incomplete-file cleanup at open):
+            io.AddCorruption(FileKeyUtility.State_GetNewestFileKey(io)!, 1000, 1000);
 
             // will throw exception because the index state file is corrupted
             try {

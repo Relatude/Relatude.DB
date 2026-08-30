@@ -9,8 +9,9 @@
 // and a resync notification after every reconnect since events sent while down are lost.
 
 import { isLoggedIn } from "./auth";
+import { adminBase } from "./base";
 
-const base = "/relatude.db/ui"; // must match ApiUrlRoot + "/ui" on the server
+const base = adminBase + "/ui"; // must match ApiUrlRoot + "/ui" on the server
 
 export type ConnectionState = "connecting" | "open" | "closed";
 

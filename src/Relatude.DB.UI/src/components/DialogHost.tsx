@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { IconAlertTriangle } from "@tabler/icons-react";
-import { cancelProgress, closeDialog, getDialogState, subscribeDialogs } from "../dialogs";
+import { acceptChoice, acceptConfirm, cancelProgress, closeDialog, getDialogState, subscribeDialogs, toggleConfirmOption } from "../dialogs";
 
 // Renders whatever dialog is active (a running task's progress, or a message). Mounted once in App.
 export function DialogHost() {
@@ -32,6 +32,58 @@ export function DialogHost() {
       </div>
     );
   }
+  if (dialog.kind === "choice") {
+    return (
+      <div className="dialog-backdrop">
+        <div className="dialog">
+          <h3>{dialog.title}</h3>
+          <div className="dialog-body">{dialog.body}</div>
+          <div className="dialog-choices">
+            {dialog.options.map((option, i) => (
+              <button key={i} className="dialog-choice" onClick={() => acceptChoice(i)}>
+                <span>{option.label}</span>
+                {option.hint && <span className="muted">{option.hint}</span>}
+              </button>
+            ))}
+          </div>
+          <div className="dialog-row">
+            <div className="header-spacer" />
+            <button className="action-button" onClick={closeDialog}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (dialog.kind === "confirm") {
+    return (
+      <div className="dialog-backdrop">
+        <div className="dialog">
+          <h3 className={dialog.danger ? "dialog-title-error" : ""}>
+            {dialog.danger && <IconAlertTriangle size={16} stroke={2} />}
+            {dialog.title}
+          </h3>
+          <div className="dialog-body">{dialog.body}</div>
+          {dialog.option && (
+            <label className="login-remember dialog-option">
+              <input type="checkbox" checked={dialog.option.checked} onChange={toggleConfirmOption} />
+              {dialog.option.label}
+            </label>
+          )}
+          <div className="dialog-row">
+            <div className="header-spacer" />
+            <button className="action-button" onClick={closeDialog}>
+              Cancel
+            </button>
+            <button className={"action-button dialog-confirm" + (dialog.danger ? " danger" : "")} onClick={acceptConfirm}>
+              {dialog.confirmLabel}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   const running = dialog.status === "running";
   const pct = dialog.total != null && dialog.total > 0 ? Math.min(100, Math.round((dialog.done / dialog.total) * 100)) : null;
   return (
@@ -46,8 +98,12 @@ export function DialogHost() {
         </div>
         <div className="dialog-row">
           <span className="dialog-meta muted">
-            {dialog.total != null ? `${dialog.done} / ${dialog.total}` : ""}
-            {pct != null && running ? ` · ${pct}%` : ""}
+            {dialog.meta ?? (
+              <>
+                {dialog.total != null ? `${dialog.done} / ${dialog.total}` : ""}
+                {pct != null && running ? ` · ${pct}%` : ""}
+              </>
+            )}
           </span>
           <div className="header-spacer" />
           {running ? (

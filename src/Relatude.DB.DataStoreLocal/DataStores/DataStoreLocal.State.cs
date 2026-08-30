@@ -39,30 +39,39 @@ public sealed partial class DataStoreLocal : IDataStore {
         //return g;
     }
     void saveMainState(long activityId) {
-        IOIndex.DeleteFileIfItExists(FileKeyUtility.StateFileKey);
-        UpdateActivity(activityId, "Opening " + FileKeyUtility.StateFileKey + "...");
-        using var stream = IOIndex.OpenAppend(FileKeyUtility.StateFileKey);
-        stream.WriteVerifiedInt(_stateFileVersion); // fileversion
-        stream.WriteVerifiedLong(_wal.LastTimestamp);
-        stream.WriteVerifiedLong(_wal.GetPositionAfterLastTransaction());
-        stream.WriteGuid(getCheckSumForStateFileAndIndexes()); // must last checksum of dm
-        stream.WriteVerifiedLong(_wal.FileSize);
-        stream.WriteGuid(_wal.FileId); // must match log file
-        UpdateActivity(activityId, "Saving guids");
-        _guids.SaveState(stream);
-        UpdateActivity(activityId, "Saving addresses");
-        _addresses.SaveState(stream);
-        UpdateActivity(activityId, "Saving segments");
-        _nodes.SaveState(stream);
-        UpdateActivity(activityId, "Saving native models");
-        _nativeModelStore.SaveState(stream);
-        UpdateActivity(activityId, "Saving relations");
-        _relations.SaveState(stream);
-        UpdateActivity(activityId, "Saving node type index");
-        _definition.NodeTypeIndex.SaveState(stream);
-        stream.WriteLong(_noPrimitiveActionsInLogThatCanBeTruncated);
-        UpdateActivity(activityId, "Saving version chains");
-        _wal.SaveChainState(stream); // secondary log version-chain heads; primary heads equal the node segments saved above
+        var oldStateFileKeys = FileKeyUtility.State_GetAllFileKeys(IOIndex);
+        var stateFileKey = FileKeyUtility.State_NextFileKey(oldStateFileKeys);
+        UpdateActivity(activityId, "Opening " + stateFileKey.AsKeyString() + "...");
+        IOIndex.DeleteFileIfItExists(stateFileKey); // safety, the state must never be appended to an existing file
+        using (var stream = IOIndex.OpenAppend(stateFileKey)) {
+            stream.WriteVerifiedInt(_stateFileVersion); // fileversion
+            stream.WriteVerifiedLong(_wal.LastTimestamp);
+            stream.WriteVerifiedLong(_wal.GetPositionAfterLastTransaction());
+            stream.WriteGuid(getCheckSumForStateFileAndIndexes()); // must last checksum of dm
+            stream.WriteVerifiedLong(_wal.FileSize);
+            stream.WriteGuid(_wal.FileId); // must match log file
+            UpdateActivity(activityId, "Saving guids");
+            _guids.SaveState(stream);
+            UpdateActivity(activityId, "Saving addresses");
+            _addresses.SaveState(stream);
+            UpdateActivity(activityId, "Saving segments");
+            _nodes.SaveState(stream);
+            UpdateActivity(activityId, "Saving native models");
+            _nativeModelStore.SaveState(stream);
+            UpdateActivity(activityId, "Saving relations");
+            _relations.SaveState(stream);
+            UpdateActivity(activityId, "Saving node type index");
+            _definition.NodeTypeIndex.SaveState(stream);
+            stream.WriteLong(_noPrimitiveActionsInLogThatCanBeTruncated);
+            UpdateActivity(activityId, "Saving version chains");
+            _wal.SaveChainState(stream); // secondary log version-chain heads; primary heads equal the node segments saved above
+            // must be the very last bytes of the file: a numbered state file that does not end with
+            // the marker was interrupted mid-write and is deleted at the next open
+            stream.WriteGuid(FileKeyUtility.StateFileCompletionMarker);
+        }
+        // the previous state files (including a legacy unnumbered one) are deleted only after the
+        // new file is completely written, so a shutdown mid-write cannot lose the last good state
+        foreach (var oldKey in oldStateFileKeys) IOIndex.DeleteFileIfItExists(oldKey);
         _noPrimitiveActionsSinceLastStateSnapshot = 0;
         _noTransactionsSinceLastStateSnapshot = 0;
     }
@@ -80,6 +89,27 @@ public sealed partial class DataStoreLocal : IDataStore {
             DeRegisterActivity(activityId);
         }
     }
+    // State and index snapshots are written to a NEW numbered file on every save, ending with the
+    // completion marker, and the previous files are deleted only after the marker is written. A
+    // numbered file that does not end with the marker was interrupted by a shutdown mid-write:
+    // deleting it here, before anything reads state, makes the reads below fall back to the
+    // previous complete file instead of failing and rebuilding everything from the start of the
+    // log. Unnumbered files in the old naming format (state.bin, index.[id].bin) carry no marker
+    // and cannot be trusted the same way; they are deleted too, so the first open after an upgrade
+    // rebuilds from the log and saves fresh numbered files.
+    void deleteIncompleteAndLegacyStateFiles() {
+        foreach (var fileKey in FileKeyUtility.State_GetNumberedFileKeys(IOIndex).Concat(FileKeyUtility.Index_GetAllNumbered(IOIndex))) {
+            if (FileKeyUtility.EndsWithStateFileCompletionMarker(IOIndex, fileKey)) continue;
+            IOIndex.DeleteFileIfItExists(fileKey);
+            LogInfo("Deleted incomplete state file " + fileKey.AsKeyString() + ", falling back to an older state if available. ");
+        }
+        string[][] legacyKeys = [FileKeyUtility.State_LegacyFileKey, .. FileKeyUtility.Index_GetAll(IOIndex).Where(k => !FileKeyUtility.Index_IsNumberedFileKey(k))];
+        foreach (var fileKey in legacyKeys) {
+            if (!IOIndex.Exists(fileKey)) continue;
+            IOIndex.DeleteFileIfItExists(fileKey);
+            LogInfo("Deleted state file " + fileKey.AsKeyString() + " in the old naming format; the state is rebuilt from the log. ");
+        }
+    }
     void readStateInner(bool throwOnErrors, Guid currentModelHash, long activityId) {
 
         // throwing IndexReadException will cause a delete of all state files and a new try of reload
@@ -94,6 +124,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var walFileSize = _wal.FileSize; // while it is open...
         _wal.Close();
         var walFileId = LogReader.ReadFileId(_wal.FileKey, _io);
+        deleteIncompleteAndLegacyStateFiles(); // before any state or index file is opened
         LogInfo("Reading indexes:"); // progress 0-50%
         try {
             var lastIndexReadStart = sw.ElapsedMilliseconds;
@@ -121,16 +152,17 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
         }
         // reading statefile progress 50-55%
-        if (IOIndex.DoesNotExistOrIsEmpty(FileKeyUtility.StateFileKey)) { // no state file, so read from beginning of log file
+        var stateFileKey = FileKeyUtility.State_GetNewestFileKey(IOIndex); // incomplete files are already deleted above
+        if (stateFileKey == null || IOIndex.DoesNotExistOrIsEmpty(stateFileKey)) { // no state file, so read from beginning of log file
             stateFileTimestamp = 0;
-            LogInfo("Index state file empty. ");
+            LogInfo("No state file. ");
         } else { // read state, before reading rest from log file
             try {
-                LogInfo("Reading state file");
+                LogInfo("Reading state file " + stateFileKey.AsKeyString());
                 UpdateActivity(activityId, "Reading state file", 0);
                 setStartupProgressEstimate(50);
                 byte[] stateBytes;
-                using (var fileStream = IOIndex.OpenRead(FileKeyUtility.StateFileKey, 0)) {
+                using (var fileStream = IOIndex.OpenRead(stateFileKey, 0)) {
                     stateBytes = new byte[fileStream.Length];
                     var off = 0;
                     while (off < stateBytes.Length) {
@@ -167,7 +199,11 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _relations.ReadState(stream, (d, p) => UpdateActivity(activityId, d, (int)(10 + p! * 0.05))); // 10-15%
                 _definition.NodeTypeIndex.ReadState(stream);
                 _noPrimitiveActionsInLogThatCanBeTruncated = stream.ReadLong();
-                if (stream.More()) persistedChainState = WALFile.ReadChainState(stream); // absent in state files written before version chains
+                persistedChainState = WALFile.ReadChainState(stream);
+                // written as the very last bytes of the file; the cleanup above only verifies the
+                // file end, this confirms the body parsed up to exactly that point
+                if (stream.ReadGuid() != FileKeyUtility.StateFileCompletionMarker)
+                    throw new Exception("State file does not end with the completion marker. ");
                 var bytesPerSecond = stream.Length / (Math.Max(sw.ElapsedMilliseconds, 1) / 1000D); // a small state file reads in under 1ms
 
                 setStartupProgressEstimate(55);

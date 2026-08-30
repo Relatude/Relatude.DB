@@ -38,6 +38,8 @@ export function Login({ onLoggedIn, theme, onToggleTheme }: LoginProps) {
       setBusy(false);
     }
   }
+  // No animated background here any more. Backdrop.tsx is still in the tree and still works;
+  // rendering <Backdrop /> as the first child below brings it back.
   return (
     <div className="login">
       <button

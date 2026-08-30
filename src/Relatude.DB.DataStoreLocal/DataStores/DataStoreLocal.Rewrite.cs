@@ -36,7 +36,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         // written to minimize locking while rewriting store
         validateDatabaseState();
         // a hot swap replaces the log file the revert window's position and file id refer to, and
-        // rebinds every engine to the new file — rolling back would then be impossible:
+        // rebinds every engine to the new file ï¿½ rolling back would then be impossible:
         if (hotSwapToNewFile && RevertWindowIsActive)
             throw new Exception("Log rewrite is not possible while a revert window is active. Commit or roll back the revert window first. ");
         if (destinationIO == null) destinationIO = _io;
@@ -88,7 +88,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             logError("Error during log rewrite. ", err, null, false);
             throw new Exception("Error during log rewrite. ", err);
         }
-        IOIndex.DeleteFileIfItExists(FileKeyUtility.StateFileKey);
+        FileKeyUtility.State_DeleteAll(IOIndex);
         try {
             _lock.EnterWriteLock();
             try {

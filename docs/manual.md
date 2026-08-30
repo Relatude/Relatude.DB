@@ -1535,7 +1535,7 @@ own users.
 | `MasterUserName` | null | The single admin user name. **Store it lowercase** — the login lowercases the input before comparing. Null means no one can log in ("No master user configured on the server."). |
 | `MasterPassword` | null | Compared verbatim, stored in plain text. Supply it through the `RelatudeDB` configuration section, not this file. |
 | `TokenEncryptionSecret` | null | Key the session cookie is encrypted with. Without it the server generates a random key per process, so every restart invalidates every session. Set it to a long random string, unique per installation. |
-| `NoLoginRequiredForLocalhost` | `true` | A request from localhost reaches the admin UI with no login at all. This is why it just works in development. |
+| `NoLoginRequiredForLocalhost` | `true` | A request that really came from a browser on this machine reaches the admin UI with no login at all. This is why it just works in development. "Really came from this machine" is decided narrowly — see below — so this does **not** hold once anything proxies for the server. |
 | `AllowMasterLoginOutsideLocalhost` | `false` | Until this is `true`, both the login endpoint and any existing session cookie are refused from a remote address. Turn it on deliberately, over HTTPS, after setting credentials. |
 | `TokenCookieName` | `"RelatudeDBToken"` | Name of the session cookie. Change it when two apps share a host name. |
 | `TokenCookieMaxAgeInSec` | `864000` (10 days) | Lifetime of a "remember me" cookie, and the age at which any token is rejected. |
@@ -1928,8 +1928,20 @@ app.UseRelatudeDB("/admin/db");
 ```
 
 It has its own authentication, and **nothing creates an admin user for you** — but locally you do
-not need one. `NoLoginRequiredForLocalhost` defaults to `true`, so a request from localhost reaches
-the admin UI without logging in at all; that is why it just works in development.
+not need one. `NoLoginRequiredForLocalhost` defaults to `true`, so a request that really came from a
+browser on this machine reaches the admin UI without logging in at all; that is why it just works in
+development.
+
+"Really came from this machine" is decided narrowly, and it is worth knowing where the line is. The
+connection's peer must be loopback, **and** the request must carry no sign of a reverse proxy —
+neither forwarded headers (`X-Forwarded-For`, `Forwarded`, `X-Real-IP`, `X-ARR-LOG-ID` and the
+platform-specific variants) nor a hosting environment that is always fronted, such as Azure App
+Service, IIS or Kubernetes. The reason is that a proxy on the same host makes *every* request arrive
+from loopback, so a loopback peer on its own cannot tell a local browser apart from the whole
+internet. Deployed behind a proxy, then, nothing is ever "localhost" and this setting stops applying
+— which is the point, but it means such a deployment needs real credentials and
+`AllowMasterLoginOutsideLocalhost`, or no one can get in at all. The server says so in its log the
+first time it refuses a request for that reason.
 
 Away from localhost it is the opposite: `AllowMasterLoginOutsideLocalhost` defaults to **`false`**,
 which refuses both the login and any existing session cookie from a remote address. Turn it on
@@ -3668,7 +3680,7 @@ your build, read the source — it is small and well commented:
 | Attributes | `src/Relatude.DB.NodeStore/Nodes/Attributes.cs` |
 | How types, inheritance and properties are built | `src/Relatude.DB.NodeStore/Datamodels/BuildUtils.cs`, `BuildUtilsProperties.cs` |
 | Proxy / interface generation | `src/Relatude.DB.NodeStore/CodeGeneration/InterfaceGen.cs`, `ModelGen.cs` |
-| Server wiring and the admin UI | `src/Relatude.DB.NodeServer/`, `src/Relatude.DB.ServerUI/` |
+| Server wiring and the admin UI | `src/Relatude.DB.NodeServer/`, `src/Relatude.DB.UI/` |
 | Relation bases and `One`/`Many` properties | `src/Relatude.DB.NodeStore/Nodes/Relation.cs` |
 | `Reference<T>` / `References<T>` | `src/Relatude.DB.NodeStore/Nodes/Reference.cs`, `References.cs` |
 | Full query surface | `src/Relatude.DB.NodeStore/Query/IQueryOfNodes.cs` |

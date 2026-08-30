@@ -1,16 +1,18 @@
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
+using Relatude.DB.DataStores;
 using Relatude.DB.IO;
 using Relatude.DB.NodeServer.API;
 using Relatude.DB.NodeServer.Json;
 using System.Text.Json;
 namespace Relatude.DB.NodeServer.UI;
 /// <summary>
-/// The backend of the new admin UI. All communication runs over two routes:
+/// The backend of the admin UI. All communication runs over two routes:
 ///   GET  {ApiUrlRoot}/ui/stream   - one SSE connection carrying all server-to-client push (UIEventStream)
 ///   POST {ApiUrlRoot}/ui/command  - all client-to-server requests, dispatched on command type (UICommands)
 /// Both live under ApiUrlRoot, so the standard admin authentication middleware covers them.
-/// The UI itself (built from src/Relatude.DB.UI into the embedded ClientUI2 resources) is served
-/// at {ApiUrlRoot}2, next to the old admin UI at {ApiUrlRoot}.
+/// The UI itself (built from src/Relatude.DB.UI into the embedded ClientUI resources) is served
+/// at {ApiUrlRoot}, with its files under the public {ApiUrlRoot}/auth/ so a browser can load them
+/// before anyone has logged in.
 /// </summary>
 public sealed class UIServer {
     const int containerWatchIntervalMs = 1000;
@@ -69,7 +71,7 @@ public sealed class UIServer {
             if (fileKey.Length == 0 || fileKey.Any(segment => !FileKeyUtility.IsFileKeyValid(segment))) {
                 return Results.BadRequest(new { error = "Invalid file key. " });
             }
-            if (FileKeyUtility.StateFileKey.IsSameKey(fileKey)) return Results.BadRequest(new { error = "Uploading the state file is not allowed. " });
+            if (FileKeyUtility.State_IsStateFileKey(fileKey)) return Results.BadRequest(new { error = "Uploading the state file is not allowed. " });
             var io = _server.GetIO(ioId);
             io.DeleteFileIfItExists(fileKey);
             try {
@@ -82,42 +84,160 @@ public sealed class UIServer {
             }
             return Results.Ok();
         });
+        // zip downloads (binary, so not commands): GET zips a whole folder (also the url behind
+        // dragging a folder out to the desktop), POST zips a set of selected files
+        app.MapGet(path + "zip", async (HttpContext ctx, Guid ioId, string? folder) => {
+            return await zipToResponse(ctx, ioId, null, folder);
+        });
+        app.MapPost(path + "zip", async (HttpContext ctx, ZipRequestPayload p) => {
+            return await zipToResponse(ctx, p.IoId, p.Keys, p.BasePath);
+        });
         mapStaticUI(app);
     }
+    // Streams a zip of the given files (or of a whole folder when keys is null). Every file is
+    // test-opened first: a locked file stops the request with 423 before any zip bytes are
+    // written, so the client never receives a broken archive.
+    async Task<IResult> zipToResponse(HttpContext ctx, Guid ioId, string[]? keys, string? folderPath) {
+        var io = _server.GetIO(ioId);
+        List<string> fileKeys;
+        string zipName, prefixToStrip;
+        if (keys == null) {
+            var folder = splitFolderPath(folderPath);
+            var meta = await io.GetFolderAsync(folder, true, true);
+            fileKeys = [];
+            void collect(FolderMeta f) {
+                foreach (var file in f.Files) fileKeys.Add(file.Key);
+                foreach (var sub in f.SubFolders) collect(sub);
+            }
+            collect(meta);
+            zipName = (folder.Length == 0 ? "storage-root" : folder[^1]) + ".zip";
+            // entries keep the folder's own name, so extracting gives one folder, not loose files
+            prefixToStrip = folder.Length <= 1 ? "" : string.Join('/', folder[..^1]) + "/";
+        } else {
+            fileKeys = [.. keys];
+            zipName = "files.zip";
+            prefixToStrip = string.IsNullOrEmpty(folderPath) ? "" : folderPath + "/";
+        }
+        if (fileKeys.Count == 0) return Results.BadRequest(new { error = "No files to zip. " });
+        var locked = await lockedFilesAsync(io, fileKeys);
+        if (locked.Count > 0) return Results.Json(new { error = "Some files are locked. ", locked }, RelatudeDBJsonOptions.Default, statusCode: 423);
+        // ZipArchive writes synchronously when entries and the archive close
+        var bodyControl = ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpBodyControlFeature>();
+        if (bodyControl != null) bodyControl.AllowSynchronousIO = true;
+        ctx.Response.ContentType = "application/zip";
+        ctx.Response.Headers.ContentDisposition = "attachment; filename=\"" + zipName + "\"";
+        using var zip = new System.IO.Compression.ZipArchive(ctx.Response.Body, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true);
+        foreach (var key in fileKeys) {
+            var entryName = prefixToStrip.Length > 0 && key.StartsWith(prefixToStrip) ? key[prefixToStrip.Length..] : key;
+            var entry = zip.CreateEntry(entryName, System.IO.Compression.CompressionLevel.Fastest);
+            using var entryStream = entry.Open();
+            using var source = ReadStreamWrapper.Wrap(io.OpenRead(key.SplitKey(), 0));
+            await source.CopyToAsync(entryStream, ctx.RequestAborted);
+        }
+        return Results.Empty;
+    }
+    // Metadata based, NOT test-opening: opening a held file goes through FileOpenRetry, which
+    // waits up to 30s for the lock to clear - the wrong behavior for a quick pre-check. A file
+    // with an open write stream cannot be copied consistently, so it counts as locked. Folder
+    // listings carry the lock counts (GetFiles only covers the system folders), one per parent.
+    static async Task<List<string>> lockedFilesAsync(IIOProvider io, IEnumerable<string> keys) {
+        var blocked = new List<string>();
+        foreach (var group in keys.GroupBy(key => string.Join('/', key.SplitKey()[..^1]), StringComparer.OrdinalIgnoreCase)) {
+            var folder = await io.GetFolderAsync(group.Key.SplitKey(), false, true);
+            var byKey = folder.Files.ToDictionary(f => f.Key, StringComparer.OrdinalIgnoreCase);
+            foreach (var key in group) {
+                if (!byKey.TryGetValue(key, out var meta)) blocked.Add(key + " (not found)");
+                else if (meta.Writers > 0) blocked.Add(key + " (being written)");
+            }
+        }
+        return blocked;
+    }
     void mapStaticUI(WebApplication app) {
+        // The page itself sits on the admin root, which the authentication middleware lets through
+        // unauthenticated (it is the login screen). Its files have to be readable before the login as
+        // well, so they go under {ApiUrlRoot}/auth/, the public segment. Everything the UI calls once
+        // it is running ({ApiUrlRoot}/ui/...) requires authentication as usual.
+        var root = _server.ApiUrlRoot;
+        var files = _server.ApiUrlPublic; // ends with '/'
         string html, js, css;
         try {
-            html = ServerAPIMapper.GetResource("ClientUI2.index.html");
-            js = ServerAPIMapper.GetResource("ClientUI2.index.js");
-            css = ServerAPIMapper.GetResource("ClientUI2.index.css");
+            html = ServerAPIMapper.GetResource("ClientUI.index.html");
+            js = ServerAPIMapper.GetResource("ClientUI.index.js");
+            css = ServerAPIMapper.GetResource("ClientUI.index.css");
         } catch (Exception error) {
-            RelatudeDBServer.Trace("New admin UI not mapped, resources missing (build src/Relatude.DB.UI first): " + error.Message);
+            // The UI is embedded when this assembly is compiled, so a build made before the vite output
+            // existed - or one made while vite had emptied NodeServer/ClientUI - has nothing to serve.
+            // The url is mapped anyway: a bare 404 here sends everyone looking for a routing problem
+            // that is not there, so the response says what is actually missing instead.
+            var message = "The admin UI is not part of this build of Relatude.DB.NodeServer (" + error.Message
+                + "). Build it with \"npm install\" and \"npm run build\" in src/Relatude.DB.UI, then rebuild"
+                + " Relatude.DB.NodeServer in the configuration you are running (Debug and Release embed it"
+                + " separately). ";
+            RelatudeDBServer.Trace(message);
+            _server.Log(message);
+            app.MapGet(root, (HttpContext ctx) => {
+                ctx.Response.StatusCode = StatusCodes.Status501NotImplemented;
+                ctx.Response.ContentType = "text/html";
+                return "<html><body><h3>The admin UI is not built into this server. </h3><p>"
+                    + System.Net.WebUtility.HtmlEncode(message) + "</p></body></html>";
+            });
             return;
         }
-        // urls are segment based in the authentication middleware, so {ApiUrlRoot}2 is public
-        // while the api the UI calls ({ApiUrlRoot}/ui/...) still requires authentication
-        var root = _server.ApiUrlRoot + "2";
         // a unique url per version: unchanged UI stays cached by the browser, new versions bypass the cache
         var hash = js.XXH64Hash() ^ css.XXH64Hash();
         html = html
-            .Replace("./index.js", root + "/" + hash + ".js")
-            .Replace("./index.css", root + "/" + hash + ".css");
+            .Replace("./index.js", files + hash + ".js")
+            .Replace("./index.css", files + hash + ".css")
+            .Replace("./favicon.ico", files + "favicon.ico");
         app.MapGet(root, (HttpContext ctx) => {
             ctx.Response.ContentType = "text/html";
             return html;
         });
-        app.MapGet(root + "/" + hash + ".js", (HttpContext ctx) => {
+        app.MapGet(files + hash + ".js", (HttpContext ctx) => {
             ctx.Response.ContentType = "text/javascript";
             ctx.Response.Headers.Append("Cache-Control", "public, max-age=315360000");
             return js;
         });
-        app.MapGet(root + "/" + hash + ".css", (HttpContext ctx) => {
+        app.MapGet(files + hash + ".css", (HttpContext ctx) => {
             ctx.Response.ContentType = "text/css";
             ctx.Response.Headers.Append("Cache-Control", "public, max-age=315360000");
             return css;
         });
+        var favicon = ServerAPIMapper.GetBinaryResourceOrNull("ClientUI.favicon.ico");
+        if (favicon != null) {
+            app.MapGet(files + "favicon.ico", (HttpContext ctx) => {
+                ctx.Response.Headers.Append("Cache-Control", "public, max-age=86400");
+                return Results.File(favicon, "image/x-icon", "favicon.ico");
+            });
+        }
     }
     static string[] splitFolderPath(string? folderPath) => folderPath?.Split('/', StringSplitOptions.RemoveEmptyEntries) ?? [];
+    /// <summary>Where the file conversion engine keeps its cache: the "converted" folder of the
+    /// index IO provider, falling back to the database one when no separate index provider is
+    /// configured (the same fallback DataStoreLocal makes for its converter IO provider).</summary>
+    (IIOProvider Io, string[] Folder) convertedCache(NodeStoreContainer c) {
+        var ioId = c.Settings.IoIndexes is Guid indexes && indexes != Guid.Empty ? indexes : c.Settings.IoDatabase;
+        if (ioId is not Guid id || id == Guid.Empty) throw new Exception("No IO provider configured, so there is no converted file cache. ");
+        return (_server.GetIO(id), [FileKeyUtility.ConvertedFolderName]);
+    }
+    static async Task<(long Files, long Bytes)> folderTotals(IIOProvider io, string[] folder) {
+        long files = 0, bytes = 0;
+        void sum(FolderMeta f) {
+            foreach (var file in f.Files) { bytes += file.Size; files++; }
+            foreach (var sub in f.SubFolders) sum(sub);
+        }
+        sum(await io.GetFolderAsync(folder, true, true));
+        return (files, bytes);
+    }
+    NodeStoreContainer getContainer(Guid storeId) {
+        if (!_server.Containers.TryGetValue(storeId, out var c)) throw new Exception("Container not found. ");
+        return c;
+    }
+    Guid getBackupIoId(NodeStoreContainer c) {
+        var s = c.Settings;
+        if (s.IoBackup.HasValue && s.IoBackup != Guid.Empty) return s.IoBackup.Value;
+        return s.IoDatabase ?? throw new Exception("No backup or database IO provider configured. ");
+    }
     void registerBuiltInCommands() {
         Commands.Register("ping", ctx => new { Pong = true, ServerTimeUtc = DateTime.UtcNow });
         Commands.Register("server-info", ctx => new {
@@ -165,10 +285,10 @@ public sealed class UIServer {
                 }),
             };
         });
-        // the IO providers of one database container, for the files & storage section
+        // the IO providers of one database container, for the files section
         Commands.Register("io-list", ctx => {
             var p = ctx.Payload<IoListPayload>();
-            if (!_server.Containers.TryGetValue(p.StoreId, out var c)) throw new Exception("Container not found. ");
+            var c = getContainer(p.StoreId);
             return (object?)(c.Settings.IOSettings ?? []).Select(io => new {
                 io.Id,
                 Name = string.IsNullOrEmpty(io.Name) ? io.IOType.ToString() : io.Name,
@@ -201,6 +321,12 @@ public sealed class UIServer {
             _server.GetIO(p.IoId).DeleteFolderIfItExists(folderPath);
             return (object?)new { Deleted = true };
         });
+        // checks each file for open write streams, so the client can stop a zip download
+        // before it starts instead of failing halfway through a stream
+        Commands.Register("io-check-locks", async ctx => {
+            var p = ctx.Payload<IoDeleteFilesPayload>();
+            return (object?)new { Locked = await lockedFilesAsync(_server.GetIO(p.IoId), p.Keys) };
+        });
         Commands.Register("io-delete-files", ctx => {
             var p = ctx.Payload<IoDeleteFilesPayload>();
             var io = _server.GetIO(p.IoId);
@@ -215,6 +341,261 @@ public sealed class UIServer {
                 }
             }
             return (object?)new { Deleted = deleted, Errors = errors };
+        });
+        // ---- storage section: backups, database download / upload ----
+        Commands.Register("backup-list", ctx => {
+            var p = ctx.Payload<IoListPayload>();
+            var c = getContainer(p.StoreId);
+            var ioId = getBackupIoId(c);
+            var io = _server.GetIO(ioId);
+            return (object?)new {
+                IoId = ioId,
+                Files = FileKeyUtility.WAL_GetAllBackUpFileKeys(io).Select(key => new {
+                    Key = key.AsKeyString(),
+                    Name = key.FileName(),
+                    Size = io.GetFileSizeOrZeroIfUnknown(key),
+                    TimeUtc = FileKeyUtility.WAL_GetBackUpDateTimeFromFileKey(key),
+                    KeepForever = FileKeyUtility.WAL_KeepForever(key),
+                }).OrderByDescending(f => f.TimeUtc),
+            };
+        });
+        Commands.Register("backup-now", ctx => {
+            var p = ctx.Payload<BackupNowPayload>();
+            var c = getContainer(p.StoreId);
+            var store = c.Store ?? throw new Exception("The database must be open to create a backup. ");
+            if (store.State != DataStoreState.Open) throw new Exception("The database must be open to create a backup. ");
+            store.Datastore.BackUpNow(p.Truncate, p.KeepForever, _server.GetIO(getBackupIoId(c)));
+            return (object?)new { Done = true };
+        });
+        // copies a backup into place as the next WAL file key (the old current file is kept)
+        // and clears the state file; the database must be closed, the UI reopens it after
+        Commands.Register("backup-restore", ctx => {
+            var p = ctx.Payload<BackupRestorePayload>();
+            var c = getContainer(p.StoreId);
+            if (c.IsOpenOrOpening()) throw new Exception("The database must be closed first. ");
+            var backupIo = _server.GetIO(getBackupIoId(c));
+            var dbIo = _server.GetIO(c.Settings.IoDatabase ?? throw new Exception("No database IO provider configured. "));
+            var sourceKey = p.Key.SplitKey();
+            if (backupIo.DoesNotExistOrIsEmpty(sourceKey)) throw new Exception("Backup not found. ");
+            var destKey = FileKeyUtility.WAL_NextFileKey(dbIo);
+            using (var source = backupIo.OpenRead(sourceKey, 0))
+            using (var dest = dbIo.OpenAppend(destKey)) {
+                using var readStream = ReadStreamWrapper.Wrap(source);
+                using var writeStream = new WriteStreamWrapper(dest);
+                readStream.CopyTo(writeStream);
+            }
+            FileKeyUtility.State_DeleteAll(dbIo); // an old state must never pair with the restored log
+            return (object?)new { NewKey = destKey.AsKeyString() };
+        });
+        // log size, snapshot staleness and truncation potential, plus old WAL files no longer in use
+        Commands.Register("db-maintenance-info", async ctx => {
+            var p = ctx.Payload<IoListPayload>();
+            var c = getContainer(p.StoreId);
+            long unusedFiles = 0, unusedBytes = 0;
+            if (c.Settings.IoDatabase is Guid dbIoId) {
+                var io = _server.GetIO(dbIoId);
+                var latest = FileKeyUtility.WAL_GetLatestFileKey(io);
+                foreach (var key in FileKeyUtility.WAL_GetAllFileKeys(io)) {
+                    if (key.IsSameKey(latest)) continue;
+                    unusedFiles++;
+                    unusedBytes += io.GetFileSizeOrZeroIfUnknown(key);
+                }
+            }
+            var store = c.Store;
+            if (store == null || store.State != DataStoreState.Open) {
+                return (object?)new { Open = false, UnusedFiles = unusedFiles, UnusedBytes = unusedBytes };
+            }
+            var info = await store.Datastore.GetInfoAsync();
+            return (object?)new {
+                Open = true,
+                UnusedFiles = unusedFiles,
+                UnusedBytes = unusedBytes,
+                ActionsNotInState = info.LogActionsNotItInStatefile,
+                TransactionsNotInState = info.LogTransactionsNotItInStatefile,
+                TruncatableActions = info.LogTruncatableActions,
+                LogFileSize = info.LogFileSize,
+                StateFileSize = info.LogStateFileSize,
+                RunningRewrite = info.RunningRewriteFile,
+            };
+        });
+        Commands.Register("db-delete-unused", ctx => {
+            var p = ctx.Payload<IoListPayload>();
+            var c = getContainer(p.StoreId);
+            var io = _server.GetIO(c.Settings.IoDatabase ?? throw new Exception("No database IO provider configured. "));
+            var latest = FileKeyUtility.WAL_GetLatestFileKey(io);
+            long deleted = 0, freed = 0;
+            var errors = new List<string>();
+            foreach (var key in FileKeyUtility.WAL_GetAllFileKeys(io)) {
+                if (key.IsSameKey(latest)) continue;
+                try {
+                    var size = io.GetFileSizeOrZeroIfUnknown(key);
+                    io.DeleteFileIfItExists(key);
+                    deleted++;
+                    freed += size;
+                } catch (Exception error) {
+                    errors.Add(key.AsKeyString() + ": " + error.Message);
+                }
+            }
+            return (object?)new { Deleted = deleted, Freed = freed, Errors = errors };
+        });
+        Commands.Register("db-truncate", async ctx => {
+            var p = ctx.Payload<TruncatePayload>();
+            var c = getContainer(p.StoreId);
+            var store = c.Store ?? throw new Exception("The database must be open. ");
+            if (store.State != DataStoreState.Open) throw new Exception("The database must be open. ");
+            var options = MaintenanceAction.TruncateLog;
+            if (!p.KeepOld) options |= MaintenanceAction.DeleteOldLogs;
+            await store.MaintenanceAsync(options);
+            return (object?)new { Done = true };
+        });
+        Commands.Register("db-save-state", ctx => {
+            var p = ctx.Payload<IoListPayload>();
+            var c = getContainer(p.StoreId);
+            var store = c.Store ?? throw new Exception("The database must be open. ");
+            if (store.State != DataStoreState.Open) throw new Exception("The database must be open. ");
+            store.Datastore.SaveIndexStates();
+            return (object?)new { Done = true };
+        });
+        // the database is a single WAL file; downloading it is a copy of the database,
+        // uploading one (as the next file key, with the state file cleared) is a restore
+        Commands.Register("db-file-info", ctx => {
+            var p = ctx.Payload<IoListPayload>();
+            var c = getContainer(p.StoreId);
+            var ioId = c.Settings.IoDatabase ?? throw new Exception("No database IO provider configured. ");
+            var io = _server.GetIO(ioId);
+            var current = FileKeyUtility.WAL_GetLatestFileKey(io);
+            return (object?)new {
+                IoId = ioId,
+                CurrentKey = current.AsKeyString(),
+                NextKey = FileKeyUtility.WAL_NextFileKey(io).AsKeyString(),
+                Size = io.GetFileSizeOrZeroIfUnknown(current),
+                State = c.HasFailed ? "Error" : c.Store?.State.ToString() ?? "Closed",
+                CanUpload = c.Store == null || c.Store.State == DataStoreState.Closed,
+            };
+        });
+        Commands.Register("db-upload-finalize", ctx => {
+            var p = ctx.Payload<IoListPayload>();
+            var c = getContainer(p.StoreId);
+            if (c.IsOpenOrOpening()) throw new Exception("The database must be closed before uploading. ");
+            var ioId = c.Settings.IoDatabase ?? throw new Exception("No database IO provider configured. ");
+            // an old state file must never be paired with a newer log file
+            FileKeyUtility.State_DeleteAll(_server.GetIO(ioId));
+            return (object?)new { Done = true };
+        });
+        // ---- the converted file cache: the resized images and transcoded media the conversion
+        // engine derives from stored files. Everything in it is rebuilt on demand, so deleting it
+        // costs nothing but the work of converting again. Measuring walks the whole tree, so it is
+        // asked for on demand rather than reported with the rest of the maintenance numbers.
+        Commands.Register("db-converted-info", async ctx => {
+            var p = ctx.Payload<IoListPayload>();
+            var (io, folder) = convertedCache(getContainer(p.StoreId));
+            var (files, bytes) = await folderTotals(io, folder);
+            return (object?)new { Files = files, Bytes = bytes };
+        });
+        Commands.Register("db-delete-converted", async ctx => {
+            var p = ctx.Payload<IoListPayload>();
+            var c = getContainer(p.StoreId);
+            var store = c.Store ?? throw new Exception("The database must be open. ");
+            if (store.State != DataStoreState.Open) throw new Exception("The database must be open. ");
+            var (io, folder) = convertedCache(c);
+            var (filesBefore, bytesBefore) = await folderTotals(io, folder);
+            // the store's own call, so the engine drops its in memory copies of the small files too
+            store.Datastore.ClearAllCachedConversions();
+            var (filesAfter, bytesAfter) = await folderTotals(io, folder);
+            return (object?)new { Deleted = filesBefore - filesAfter, Freed = bytesBefore - bytesAfter, Remaining = filesAfter };
+        });
+        // Where a database keeps its uploaded files, so the UI can download a file storage the way
+        // it downloads a storage folder. Read from the settings rather than the open store, so the
+        // list is there while the database is closed as well. A MultiFile store is one folder in
+        // its IO provider; a SingleFile store is a file at the provider root instead, so its file
+        // keys travel along and the client downloads those.
+        Commands.Register("file-store-list", ctx => {
+            var p = ctx.Payload<IoListPayload>();
+            var c = getContainer(p.StoreId);
+            var found = new List<(Guid Id, Guid IoId, FileStoreEngine Type, bool IsDefault)>();
+            void add(Guid id, Guid ioId, FileStoreEngine type, bool isDefault) {
+                // stores of the same type on the same provider keep their files in the same place,
+                // so the implicit default next to an identical configured one is one storage, not two
+                var existing = found.FindIndex(f => f.IoId == ioId && f.Type == type);
+                if (existing >= 0) {
+                    if (isDefault) found[existing] = found[existing] with { IsDefault = true };
+                    return;
+                }
+                found.Add((id, ioId, type, isDefault));
+            }
+            var configured = c.Settings.FileStoreSettings ?? [];
+            var defaultId = c.Settings.LocalSettings?.DefaultFileStore;
+            foreach (var fs in configured) add(fs.Id, fs.IoProviderId, fs.StoreType, defaultId == fs.Id);
+            // the database falls back to an implicit default file store on its own IO provider
+            // whenever no configured store is named as the default one
+            if (!configured.Any(fs => fs.Id == defaultId) && c.Settings.IoDatabase is Guid dbIo && dbIo != Guid.Empty)
+                add(Guid.Empty, dbIo, c.Settings.LocalSettings?.DefaultFileStoreEngine ?? FileStoreEngine.MultiFile, true);
+            var ioNames = (c.Settings.IOSettings ?? []).ToDictionary(s => s.Id, s => string.IsNullOrEmpty(s.Name) ? s.IOType.ToString() : s.Name);
+            return (object?)found.Select(store => {
+                var io = _server.GetIO(store.IoId);
+                var files = new List<object>();
+                if (store.Type == FileStoreEngine.SingleFile) {
+                    foreach (var key in FileKeyUtility.FileStore_GetAllFileKeys(io))
+                        files.Add(new { Key = key.AsKeyString(), Size = io.GetFileSizeOrZeroIfUnknown(key) });
+                }
+                return (object)new {
+                    store.Id,
+                    Name = ioNames.TryGetValue(store.IoId, out var ioName) ? ioName : store.IoId.ToString(),
+                    store.IoId,
+                    Type = store.Type.ToString(),
+                    Folder = store.Type == FileStoreEngine.MultiFile ? FileKeyUtility.MultiFileStoreFolderKey : null,
+                    Files = files,
+                    store.IsDefault,
+                };
+            }).ToList();
+        });
+        // ---- file store audits: unreferenced files (files no node points at anymore) and the
+        // reverse, missing files (file values whose file is gone from the store). Both walk every
+        // node, so they run as background jobs the UI polls and can cancel. The job registry is
+        // shared with the old admin UI, so the same scan cannot run twice on one database.
+        Commands.Register("files-scan-start", ctx => {
+            var p = ctx.Payload<FileScanStartPayload>();
+            var store = getContainer(p.StoreId).Store ?? throw new Exception("The database must be open. ");
+            if (store.State != DataStoreState.Open) throw new Exception("The database must be open. ");
+            if (store.Datastore is not DataStoreLocal local) throw new Exception("Only supported for local databases. ");
+            var job = p.Scan switch {
+                "unreferenced" => FileScanJobs.Start(p.StoreId, "unreferenced files", async j =>
+                    (object)await local.DeleteUnreferencedFilesAsync(p.CountOnly, j.SetProgress, j.Cancellation.Token)),
+                "missing" => FileScanJobs.Start(p.StoreId, "missing files", async j =>
+                    (object)await local.FindMissingFilesAsync(j.SetProgress, j.Cancellation.Token)),
+                _ => throw new Exception("Unknown file scan: " + p.Scan),
+            };
+            return (object?)new { JobId = job.Id };
+        });
+        Commands.Register("files-scan-progress", ctx => {
+            var p = ctx.Payload<FileScanJobPayload>();
+            var job = FileScanJobs.Get(p.JobId);
+            // the results are only set once the job is done, so the (potentially long) missing
+            // file list travels once instead of on every poll
+            return (object?)new {
+                job.State,
+                job.Description,
+                job.Percent,
+                job.Error,
+                Unreferenced = job.Result as DataStores.Files.DeleteUnReferenceResult,
+                Missing = job.Result as DataStores.Files.MissingFilesResult,
+            };
+        });
+        Commands.Register("files-scan-cancel", ctx => {
+            var p = ctx.Payload<FileScanJobPayload>();
+            FileScanJobs.Get(p.JobId).Cancellation.Cancel();
+            return (object?)new { Cancelled = true };
+        });
+        Commands.Register("store-open", ctx => {
+            var p = ctx.Payload<IoListPayload>();
+            getContainer(p.StoreId).Open();
+            return (object?)new { Done = true };
+        });
+        Commands.Register("store-close", ctx => {
+            var p = ctx.Payload<IoListPayload>();
+            getContainer(p.StoreId).CloseIfOpen();
+            if (!_server.GetContainers().Any(c => c.IsOpenOrOpening())) _server.ResetIOProviders();
+            return (object?)new { Done = true };
         });
         Commands.Register("collect-garbage", ctx => {
             static string mb(long bytes) => (bytes / (1024.0 * 1024.0)).ToString("N1") + " MB";
@@ -253,5 +634,11 @@ public sealed class UIServer {
     }
 }
 sealed record IoListPayload(Guid StoreId);
+sealed record BackupNowPayload(Guid StoreId, bool Truncate, bool KeepForever);
+sealed record BackupRestorePayload(Guid StoreId, string Key);
+sealed record TruncatePayload(Guid StoreId, bool KeepOld);
 sealed record IoFolderPayload(Guid IoId, string? Path, bool Recursive = false);
+sealed record ZipRequestPayload(Guid IoId, string[] Keys, string? BasePath);
 sealed record IoDeleteFilesPayload(Guid IoId, string[] Keys);
+sealed record FileScanStartPayload(Guid StoreId, string Scan, bool CountOnly);
+sealed record FileScanJobPayload(Guid JobId);

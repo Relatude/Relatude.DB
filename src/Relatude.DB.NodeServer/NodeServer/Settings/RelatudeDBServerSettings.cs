@@ -13,6 +13,10 @@ public class RelatudeDBServerSettings {
     public string? MasterPassword { get; set; }
     public string? TokenEncryptionSecret { get; set; } // No default, should be unique and secret for each installation
     public bool AllowMasterLoginOutsideLocalhost { get; set; } = false;
+    /// <summary>Skips the login entirely for a request that really came from a browser on this
+    /// machine. What counts as "this machine" is decided narrowly, and deliberately so: see
+    /// <see cref="LocalRequest.IsLocalhost"/>. A loopback peer alone is not enough, because any
+    /// reverse proxy in front of the server makes every request arrive from loopback.</summary>
     public bool NoLoginRequiredForLocalhost { get; set; } = true;
     public int TokenCookieMaxAgeInSec { get; set; } = 60 * 60 * 24 * 10; // 10 days
 

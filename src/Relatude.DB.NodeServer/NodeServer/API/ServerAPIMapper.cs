@@ -11,13 +11,23 @@ using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer.Models;
 using Relatude.DB.NodeServer.Settings;
 using System.Diagnostics;
-using System.Net;
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.Runtime;
 using System.Text.Json;
 namespace Relatude.DB.NodeServer.API;
 
+/// <summary>
+/// The REST admin API: one route per action, grouped in sections under {ApiUrlRoot}.
+/// <para>Only three sections are mapped now, because the admin UI (src/Relatude.DB.UI) does its
+/// work over the two routes of <see cref="UI.UIServer"/> instead: the public authentication
+/// endpoints under {ApiUrlRoot}/auth/, the public startup status route, and the file and database
+/// downloads, which a browser has to fetch as urls rather than as commands.</para>
+/// <para>The other sections are what the previous admin UI (src/Relatude.DB.ServerUI, no longer
+/// built or served) called. Their mapping is commented out in <see cref="MapSimpleAPI"/> so none
+/// of it is reachable, but the code is kept as the starting point for the UI sections that are
+/// still to be built.</para>
+/// </summary>
 public partial class ServerAPIMapper(RelatudeDBServer server) {
     string ApiUrlPublic => server.ApiUrlPublic;
     string ApiUrlRoot => server.ApiUrlRoot;
@@ -32,20 +42,30 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
     public void MapSimpleAPI(WebApplication app) {
 
         // Public API, NOT requiring authentication:
-        mapRoot(app, action => ApiUrlPublic + action + "/");  // static files, index.html, css, js, favicon.ico for admin UI
+        mapPublicStatus(app);                                 // startup progress, polled by the startup page
         mapAuth(app, action => ApiUrlPublic + action + "/");  // authentication, login, ping, version, logout, etc.
+
+        // The admin UI itself is mapped by UIServer: the page on ApiUrlRoot, its files under
+        // ApiUrlPublic, and the two routes it talks over under ApiUrlRoot + "/ui/".
 
         // Private API, requiring authentication:
         var path = (string section) => ApiUrlRoot + "/" + section + "/";
-        mapStatus(app, action => path("status") + action);
-        mapSettings(app, action => path("settings") + action);
-        mapMaintenance(app, action => path("maintenance") + action);
-        mapServer(app, action => path("server") + action);
-        mapData(app, action => path("data") + action);
+        mapDownloads(app, action => path("maintenance") + action);
+
+        // The sections below are the retired admin UI's API and are deliberately NOT mapped: no
+        // client calls them any more (the current UI works over UIServer's command channel), so
+        // leaving them reachable would be authenticated surface no one is using. The methods are
+        // kept, not deleted - they are the fastest starting point for the UI sections that are
+        // still to be built, and re-enabling one is a matter of uncommenting its line.
+        //mapStatus(app, action => path("status") + action);         // SSE hub of the retired UI
+        //mapSettings(app, action => path("settings") + action);
+        //mapMaintenance(app, action => path("maintenance") + action); // minus mapDownloads above
+        //mapServer(app, action => path("server") + action);
+        //mapData(app, action => path("data") + action);
         //mapTasks(app, action => path("tasks") + action);
-        mapDatamodel(app, action => path("datamodel") + action);
-        mapLog(app, action => path("log") + action);
-        mapDemo(app, action => path("demo") + action);
+        //mapDatamodel(app, action => path("datamodel") + action);
+        //mapLog(app, action => path("log") + action);
+        //mapDemo(app, action => path("demo") + action);
 
     }
 
@@ -57,48 +77,25 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
     }
-    static ulong getHash(string name) => GetResource(name).XXH64Hash();
-    static ulong uiHash = getHash("ClientUI.index.5246294a.css") ^ getHash("ClientUI.index.30b17246.js");
+    /// <summary>An embedded binary resource, or null when this build does not carry it. Used for
+    /// optional assets of the admin UI, which is built separately (see UIServer.mapStaticUI).</summary>
+    public static byte[]? GetBinaryResourceOrNull(string name) {
+        var assembly = Assembly.GetExecutingAssembly();
+        var prefix = assembly.GetName().Name + ".";
+        using var stream = assembly.GetManifestResourceStream(prefix + name);
+        if (stream == null) return null;
+        using var ms = new MemoryStream();
+        stream.CopyTo(ms);
+        return ms.ToArray();
+    }
     public static string GlobalPublicStatusUrl = "relatude.db-public-status";
 
     // PUBLIC API and with no authentication (controlled by urlpath in middleware):
-    void mapRoot(WebApplication app, Func<string, string> path) {
-        // a unique hash to ensure a new url for each new version of the client
-        // but also to make sure unchanged ui is cached by the browser
-        // not a secret, just a unique string so string replace works
-        byte[] getBinaryResource(string name) {
-            var assembly = Assembly.GetExecutingAssembly();
-            var prefix = assembly.GetName().Name + ".";
-            using var stream = assembly.GetManifestResourceStream(prefix + name);
-            if (stream == null) throw new Exception("Resource not found: " + name);
-            using var ms = new MemoryStream();
-            stream.CopyTo(ms);
-            return ms.ToArray();
-        }
-        app.MapGet(ApiUrlRoot, (HttpContext ctx) => { // index.html
-            ctx.Response.ContentType = "text/html";
-            return GetResource("ClientUI.index.html")
-            .Replace("index.5246294a.css", path(uiHash + ".css"))
-            .Replace("index.30b17246.js", path(uiHash + ".js"))
-            .Replace("https://replace.me/favicon.ico", path("favicon.ico"))
-            ;
-        });
-        app.MapGet(path(uiHash + ".css"), (HttpContext ctx) => {
-            ctx.Response.ContentType = "text/css";
-            ctx.Response.Headers.Append("Cache-Control", "public, max-age=315360000");
-            return GetResource("ClientUI.index.5246294a.css");
-        });
-        app.MapGet(path(uiHash + ".js"), (HttpContext ctx) => {
-            ctx.Response.ContentType = "text/javascript";
-            ctx.Response.Headers.Append("Cache-Control", "public, max-age=315360000");
-            return GetResource("ClientUI.index.30b17246.js");
-        });
+    // The startup page (ClientStart/start.html, served by the middleware while databases are still
+    // opening) polls this from outside the admin url, so it sits on its own global path.
+    void mapPublicStatus(WebApplication app) {
         app.MapPost(GlobalPublicStatusUrl, () => {
             return StatusResponse(server);
-        });
-        app.MapGet(path("favicon.ico"), (HttpContext ctx) => {
-            var data = getBinaryResource("ClientUI.Images.favicon.ico");
-            return Results.File(data, "image/x-icon", "favicon.ico");
         });
     }
     static DateTime _startUp = DateTime.UtcNow;
@@ -132,21 +129,12 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         public string Password { get; set; } = "";
         public bool Remember { get; set; } = false;
     }
-    public static bool IsLocalConnection(ConnectionInfo connection) {
-        if (connection.RemoteIpAddress != null) {
-            if (connection.LocalIpAddress != null) {
-                return connection.RemoteIpAddress.Equals(connection.LocalIpAddress);
-            }
-            return IPAddress.IsLoopback(connection.RemoteIpAddress);
-        }
-        return true;
-    }
     void mapAuth(WebApplication app, Func<string, string> path) {
         app.MapGet(path("ping"), () => "pong");
         app.MapPost(path("ping"), () => "pong");
         app.MapPost(path("login"), async (HttpContext context, Credentials c) => {
             var requestIP = context.Connection.RemoteIpAddress + "";
-            var isLocal = IsLocalConnection(context.Connection);
+            var isLocal = LocalRequest.IsLocalhost(context);
             var valid = await server.Authentication.AreCredentialsValid(c.UserName, c.Password, requestIP, isLocal);
             if (valid) {
                 server.Authentication.LogIn(context, c.Remember);
@@ -241,30 +229,6 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             if (settings.IoDatabase != ioId) return string.Empty;
             return FileKeyUtility.WAL_NextFileKey(server.GetIO(ioId)).AsKeyString();
         });
-        app.MapGet(path("download-file"), (HttpContext ctx, Guid storeId, Guid ioId, string fileName) => {
-            var fileKey = fileName.SplitKey();
-            var io = server.GetIO(ioId);
-            var contentType = MediaTypeHeaderValue.Parse("application/octet-stream").ToString();
-            // Disk backed files are opened directly: engine owned files (e.g. the index stores) can be
-            // OS locked without the provider knowing, and the provider's OpenRead retries such files
-            // for minutes while holding the provider lock, stalling every other file operation. A
-            // locked file fails fast as 423 instead, so a folder download can warn and keep going.
-            if (io.TryGetLocalFilePath(fileKey, out var localFilePath)) {
-                try {
-                    var fileStream = new FileStream(localFilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    return Results.File(fileStream, contentType, fileKey.FileName(), null, null, true);
-                } catch (FileNotFoundException) {
-                    return Results.NotFound();
-                } catch (DirectoryNotFoundException) {
-                    return Results.NotFound();
-                } catch (IOException) {
-                    return Results.StatusCode(StatusCodes.Status423Locked);
-                }
-            }
-            var ioStream = io.OpenRead(fileKey, 0);
-            var stream = ReadStreamWrapper.Wrap(ioStream);
-            return Results.File(stream, contentType, fileKey.FileName(), null, null, true);
-        });
         app.MapPost(path("delete-file"), (HttpContext ctx, Guid storeId, Guid ioId, string fileName) => {
             server.GetIO(ioId).DeleteFileIfItExists(fileName.SplitKey());
         });
@@ -284,11 +248,11 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             if (server.TempIO.DoesNotExistsOrIsEmpty(uploadKey)) throw new Exception("Upload not found");
             var destIo = server.GetIO(ioId);
             var fileKey = fileName.SplitKey();
-            if (FileKeyUtility.StateFileKey.IsSameKey(fileKey)) {
+            if (FileKeyUtility.State_IsStateFileKey(fileKey)) {
                 server.TempIO.DeleteFileIfItExists(uploadKey);
                 throw new Exception("Uploading state file is not allowed. ");
             }
-            destIo.DeleteFileIfItExists(FileKeyUtility.StateFileKey); // delete the state file to avoid old statefile and newer log file!
+            FileKeyUtility.State_DeleteAll(destIo); // delete the state files to avoid old statefile and newer log file!
             if (destIo is IOProviderDisk diskIO && server.TempIO is IOProviderDisk tempDiskIO) {
                 diskIO.MoveFile(tempDiskIO, uploadKey, fileKey, overwrite);
                 return;
@@ -321,6 +285,90 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         });
         app.MapPost(path("clean-temp-files"), () => server.TempIO.GetFiles().ForEach(file => { try { server.TempIO.DeleteFileIfItExists(file.KeyOf()); } catch { } }));
         app.MapPost(path("get-size-temp-files"), () => new { TotalSize = server.TempIO.GetFiles().Sum(file => file.Size) });
+        app.MapPost(path("copy-file"), (Guid storeId, Guid fromIoId, string fromFileName, Guid toIoId, string toIoFileName) => {
+            var io = server.GetIO(toIoId);
+            io.CopyFile(fromFileName.SplitKey(), toIoFileName.SplitKey());
+        });
+
+        // scanning the file stores can take a while on big databases, so these run as background
+        // jobs the client polls for progress and can cancel
+        app.MapPost(path("delete-unreferenced-files-start"), (Guid storeId, bool countOnly) => {
+            if (db(storeId).Datastore is not DataStoreLocal local) throw new Exception("Only supported for local data stores. ");
+            var job = FileScanJobs.Start(storeId, "unreferenced files", async j =>
+                (object)await local.DeleteUnreferencedFilesAsync(countOnly, j.SetProgress, j.Cancellation.Token));
+            return new { JobId = job.Id };
+        });
+        app.MapPost(path("delete-unreferenced-files-progress"), (Guid storeId, Guid jobId) => {
+            var job = FileScanJobs.Get(jobId);
+            var result = job.Result as DataStores.Files.DeleteUnReferenceResult;
+            return new {
+                job.State,
+                job.Description,
+                job.Percent,
+                job.Error,
+                TotalBytesDeleted = result?.TotalBytesDeleted ?? 0,
+                TotalFilesDeleted = result?.TotalFilesDeleted ?? 0,
+                TotalFoldersDeleted = result?.TotalFoldersDeleted ?? 0,
+            };
+        });
+        app.MapPost(path("delete-unreferenced-files-cancel"), (Guid storeId, Guid jobId) => FileScanJobs.Get(jobId).Cancellation.Cancel());
+
+        // the other direction: every file value in the database checked against the store it points at
+        app.MapPost(path("find-missing-files-start"), (Guid storeId) => {
+            if (db(storeId).Datastore is not DataStoreLocal local) throw new Exception("Only supported for local data stores. ");
+            var job = FileScanJobs.Start(storeId, "missing files", async j =>
+                (object)await local.FindMissingFilesAsync(j.SetProgress, j.Cancellation.Token));
+            return new { JobId = job.Id };
+        });
+        app.MapPost(path("find-missing-files-progress"), (Guid storeId, Guid jobId) => {
+            var job = FileScanJobs.Get(jobId);
+            var result = job.Result as DataStores.Files.MissingFilesResult;
+            return new {
+                job.State,
+                job.Description,
+                job.Percent,
+                job.Error,
+                NodesScanned = result?.NodesScanned ?? 0,
+                FilesChecked = result?.FilesChecked ?? 0,
+                MissingCount = result?.MissingCount ?? 0,
+                MissingBytes = result?.MissingBytes ?? 0,
+                ListTruncated = result?.ListTruncated ?? false,
+                // the result, and with it the list, is only set once the job is done, so the entries
+                // are sent once instead of being repeated on every poll
+                Missing = result?.Missing ?? Array.Empty<DataStores.Files.MissingFileInfo>(),
+            };
+        });
+        app.MapPost(path("find-missing-files-cancel"), (Guid storeId, Guid jobId) => FileScanJobs.Get(jobId).Cancellation.Cancel());
+    }
+    /// <summary>The part of the maintenance section that is still mapped: file and database
+    /// downloads. They stay because a browser has to fetch a download as a url, which the admin
+    /// UI's command channel cannot express. The urls are unchanged, so they are still
+    /// {ApiUrlRoot}/maintenance/download-... </summary>
+    void mapDownloads(WebApplication app, Func<string, string> path) {
+        app.MapGet(path("download-file"), (HttpContext ctx, Guid storeId, Guid ioId, string fileName) => {
+            var fileKey = fileName.SplitKey();
+            var io = server.GetIO(ioId);
+            var contentType = MediaTypeHeaderValue.Parse("application/octet-stream").ToString();
+            // Disk backed files are opened directly: engine owned files (e.g. the index stores) can be
+            // OS locked without the provider knowing, and the provider's OpenRead retries such files
+            // for minutes while holding the provider lock, stalling every other file operation. A
+            // locked file fails fast as 423 instead, so a folder download can warn and keep going.
+            if (io.TryGetLocalFilePath(fileKey, out var localFilePath)) {
+                try {
+                    var fileStream = new FileStream(localFilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    return Results.File(fileStream, contentType, fileKey.FileName(), null, null, true);
+                } catch (FileNotFoundException) {
+                    return Results.NotFound();
+                } catch (DirectoryNotFoundException) {
+                    return Results.NotFound();
+                } catch (IOException) {
+                    return Results.StatusCode(StatusCodes.Status423Locked);
+                }
+            }
+            var ioStream = io.OpenRead(fileKey, 0);
+            var stream = ReadStreamWrapper.Wrap(ioStream);
+            return Results.File(stream, contentType, fileKey.FileName(), null, null, true);
+        });
         app.MapGet(path("download-truncated-db"), (Guid storeId, string namePrefix) => {
             namePrefix = string.Concat(namePrefix.Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == ' ' || c == '.'));
             if (namePrefix.Length > 100) namePrefix = namePrefix.Substring(0, 100);
@@ -350,113 +398,6 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             //var fileName = FileKeyUtility.Log_NextFileKey(datastore.IO);
             return Results.File(stream, MediaTypeHeaderValue.Parse("application/octet-stream").ToString(), namePrefix + fileName);
         });
-        app.MapPost(path("copy-file"), (Guid storeId, Guid fromIoId, string fromFileName, Guid toIoId, string toIoFileName) => {
-            var io = server.GetIO(toIoId);
-            io.CopyFile(fromFileName.SplitKey(), toIoFileName.SplitKey());
-        });
-
-        // scanning the file stores can take a while on big databases, so these run as background
-        // jobs the client polls for progress and can cancel
-        app.MapPost(path("delete-unreferenced-files-start"), (Guid storeId, bool countOnly) => {
-            if (db(storeId).Datastore is not DataStoreLocal local) throw new Exception("Only supported for local data stores. ");
-            var job = startFileScanJob(storeId, "unreferenced files", async j =>
-                (object)await local.DeleteUnreferencedFilesAsync(countOnly, j.SetProgress, j.Cancellation.Token));
-            return new { JobId = job.Id };
-        });
-        app.MapPost(path("delete-unreferenced-files-progress"), (Guid storeId, Guid jobId) => {
-            var job = getFileScanJob(jobId);
-            var result = job.Result as DataStores.Files.DeleteUnReferenceResult;
-            return new {
-                job.State,
-                job.Description,
-                job.Percent,
-                job.Error,
-                TotalBytesDeleted = result?.TotalBytesDeleted ?? 0,
-                TotalFilesDeleted = result?.TotalFilesDeleted ?? 0,
-                TotalFoldersDeleted = result?.TotalFoldersDeleted ?? 0,
-            };
-        });
-        app.MapPost(path("delete-unreferenced-files-cancel"), (Guid storeId, Guid jobId) => getFileScanJob(jobId).Cancellation.Cancel());
-
-        // the other direction: every file value in the database checked against the store it points at
-        app.MapPost(path("find-missing-files-start"), (Guid storeId) => {
-            if (db(storeId).Datastore is not DataStoreLocal local) throw new Exception("Only supported for local data stores. ");
-            var job = startFileScanJob(storeId, "missing files", async j =>
-                (object)await local.FindMissingFilesAsync(j.SetProgress, j.Cancellation.Token));
-            return new { JobId = job.Id };
-        });
-        app.MapPost(path("find-missing-files-progress"), (Guid storeId, Guid jobId) => {
-            var job = getFileScanJob(jobId);
-            var result = job.Result as DataStores.Files.MissingFilesResult;
-            return new {
-                job.State,
-                job.Description,
-                job.Percent,
-                job.Error,
-                NodesScanned = result?.NodesScanned ?? 0,
-                FilesChecked = result?.FilesChecked ?? 0,
-                MissingCount = result?.MissingCount ?? 0,
-                MissingBytes = result?.MissingBytes ?? 0,
-                ListTruncated = result?.ListTruncated ?? false,
-                // the result, and with it the list, is only set once the job is done, so the entries
-                // are sent once instead of being repeated on every poll
-                Missing = result?.Missing ?? Array.Empty<DataStores.Files.MissingFileInfo>(),
-            };
-        });
-        app.MapPost(path("find-missing-files-cancel"), (Guid storeId, Guid jobId) => getFileScanJob(jobId).Cancellation.Cancel());
-    }
-    class FileScanJob {
-        public const string Running = "running";
-        public const string Done = "done";
-        public const string Cancelled = "cancelled";
-        public const string Failed = "failed";
-        public Guid Id { get; } = Guid.NewGuid();
-        public Guid StoreId;
-        public string Kind = string.Empty;
-        public DateTime StartedUtc { get; } = DateTime.UtcNow;
-        public CancellationTokenSource Cancellation { get; } = new();
-        // written by the job task, read by polling requests; torn values are harmless for display
-        public volatile string State = Running;
-        public volatile string Description = "";
-        public volatile int Percent;
-        public volatile string? Error;
-        // assigned before State turns to Done, so a poll that sees Done also sees the result
-        public object? Result;
-        public void SetProgress(string description, int percent) {
-            Description = description;
-            Percent = percent;
-        }
-    }
-    static readonly Dictionary<Guid, FileScanJob> _fileScanJobs = [];
-    static FileScanJob getFileScanJob(Guid jobId) {
-        lock (_fileScanJobs) {
-            if (_fileScanJobs.TryGetValue(jobId, out var job)) return job;
-            throw new Exception("File scan job not found. ");
-        }
-    }
-    /// <summary>Runs one file store scan in the background, at most one of each kind per store.
-    /// Finished jobs are kept for an hour, so a client can still pick up the result.</summary>
-    static FileScanJob startFileScanJob(Guid storeId, string kind, Func<FileScanJob, Task<object>> run) {
-        var job = new FileScanJob { StoreId = storeId, Kind = kind };
-        lock (_fileScanJobs) {
-            if (_fileScanJobs.Values.Any(j => j.StoreId == storeId && j.Kind == kind && j.State == FileScanJob.Running))
-                throw new Exception("A " + kind + " job is already running for this store. ");
-            foreach (var old in _fileScanJobs.Values.Where(j => j.State != FileScanJob.Running && DateTime.UtcNow - j.StartedUtc > TimeSpan.FromHours(1)).ToArray())
-                _fileScanJobs.Remove(old.Id);
-            _fileScanJobs[job.Id] = job;
-        }
-        _ = Task.Run(async () => {
-            try {
-                job.Result = await run(job);
-                job.State = FileScanJob.Done;
-            } catch (OperationCanceledException) {
-                job.State = FileScanJob.Cancelled;
-            } catch (Exception e) {
-                job.Error = e.Message;
-                job.State = FileScanJob.Failed;
-            }
-        });
-        return job;
     }
     void mapServer(WebApplication app, Func<string, string> path) {
         app.MapPost(path("get-store-containers"), () => {
