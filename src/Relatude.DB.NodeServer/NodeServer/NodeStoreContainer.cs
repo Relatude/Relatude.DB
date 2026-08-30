@@ -34,7 +34,14 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     public IStoreLogger GetLogger() {
         lock (_lock) {
             if (IsOpenOrOpening()) return Store!.Datastore.Logger;
-            if (_logger == null) _logger = new StoreLogger(getLoggerIO(), null);
+            if (_logger == null) {
+                _logger = new StoreLogger(getLoggerIO(), null);
+                // the same switches the open database would start with, so a closed one reports what
+                // it will record rather than what an empty logger happens to hold
+                var local = settings.LocalSettings;
+                if (local?.LogRecording != null) _logger.ApplyRecordingSettings(local.LogRecording);
+                if (local != null) _logger.MinDurationMsBeforeLogging = local.MinQueryDurationMsBeforeLogging;
+            }
             return _logger;
         }
     }

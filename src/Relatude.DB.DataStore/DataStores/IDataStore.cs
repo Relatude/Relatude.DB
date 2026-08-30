@@ -221,6 +221,14 @@ public interface IDataStore : IDisposable {
     /// </summary>
     NodeVersionData[] FindOlderVersions(Guid nodeId, int maxCount = 100, QueryContext? ctx = null);
     TextExtract[] GetTextExtract(IEnumerable<int> ids, TextIndexType indexType);
+    /// <summary>
+    /// Queues text extraction and indexing for every node of a text indexed type, and returns how
+    /// many were queued. The work itself runs as background tasks: nothing is deleted, each node's
+    /// search text is extracted again and rewritten as its task runs. What this repairs is a text
+    /// index that no longer matches the data - after index files were lost, after text indexing was
+    /// turned on for more types or properties, or after a change of text index engine.
+    /// </summary>
+    int ReIndexAllText();
 }
 
 public static class IDataStoreExtensions {

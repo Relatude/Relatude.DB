@@ -44,6 +44,16 @@ export interface MaintenanceInfo {
   logFileSize?: number;
   stateFileSize?: number;
   runningRewrite?: string | null;
+  /** Background tasks waiting or running - a text index rebuild is watched through this. */
+  tasksQueued?: number;
+}
+
+/**
+ * Queues text extraction for every text indexed node, which is what rebuilds the search index.
+ * Returns how many nodes were queued; the work itself runs as background tasks.
+ */
+export function rebuildTextIndex(storeId: string): Promise<{ queued: number }> {
+  return send<{ queued: number }>("db-rebuild-text-index", { storeId });
 }
 
 export function fetchDbFileInfo(storeId: string): Promise<DbFileInfo> {

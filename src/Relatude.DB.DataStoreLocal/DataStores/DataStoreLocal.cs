@@ -120,6 +120,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         // before the WAL opens; the messages are buffered and logged once the logger exists
         var migrationLog = moveLegacyFilesIntoFolders();
         _logger = new(_ioLog, datamodel);
+        // a fresh logger records nothing: the settings are what a log turned on in the admin UI and
+        // saved there is restored from
+        if (_settings.LogRecording != null) _logger.ApplyRecordingSettings(_settings.LogRecording);
+        _logger.MinDurationMsBeforeLogging = _settings.MinQueryDurationMsBeforeLogging;
         foreach (var line in migrationLog) LogInfo(line);
         if (converterIoProvider == null) converterIoProvider = _ioIndex;
         _fileConversionEngine = new(this, fileConverters, converterIoProvider);

@@ -8,6 +8,7 @@ import {
   IconFolderDown,
   IconPhotoCancel,
   IconListSearch,
+  IconTextRecognition,
   IconRefresh,
   IconRestore,
   IconTrash,
@@ -25,6 +26,7 @@ import {
   fetchDbFileInfo,
   fetchFileStorages,
   fetchMaintenanceInfo,
+  rebuildTextIndex,
   revertToBackup,
   runFileScan,
   saveStateSnapshot,
@@ -71,6 +73,17 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       .catch(() => {});
   }, [db.id]);
   useEffect(load, [load]);
+  // a queued rebuild drains over minutes: while tasks are outstanding the panel follows them, and
+  // stops asking the moment the queues are empty
+  useEffect(() => {
+    if (!maintenance?.tasksQueued) return;
+    const timer = window.setInterval(() => {
+      fetchMaintenanceInfo(db.id)
+        .then(setMaintenance)
+        .catch(() => {});
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [db.id, maintenance?.tasksQueued]);
 
   async function onBackupNow() {
     const beforeKeys = new Set((backups?.files ?? []).map((f) => f.key));
@@ -132,6 +145,32 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
     } catch (e) {
       showError("Delete failed", e instanceof Error ? e.message : String(e));
     }
+    load();
+  }
+
+  /**
+   * Re-extracts the search text of every text indexed node. The work itself is background tasks,
+   * so what takes time here is only queueing them - on a large database that is still a wait worth
+   * showing, and the count it comes back with is what says the queueing actually covered anything.
+   */
+  async function onRebuildTextIndex() {
+    const choice = await showConfirm(
+      "Rebuild the text index",
+      "Every text indexed node has its search text extracted again and written back, one background task per node."
+        + " Searching keeps working while it runs, on the index as it is now.",
+      { confirmLabel: "Rebuild" },
+    );
+    if (!choice.ok) return;
+    const result = await runWithProgress(`Rebuild the text index of ${db.name}`, async (ctl) => {
+      ctl.set({ label: "Queueing every indexed node…" });
+      return await rebuildTextIndex(db.id);
+    });
+    if (!result) return;
+    setMaintenanceMessage(
+      result.queued === 0
+        ? "No node type has text indexing turned on, so there was nothing to queue."
+        : `Queued ${formatCount(result.queued)} node${result.queued === 1 ? "" : "s"}. The tasks run in the background.`,
+    );
     load();
   }
 
@@ -466,7 +505,18 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
               <button className="action-button" onClick={onDeleteUnused} disabled={maintenance.unusedFiles === 0}>
                 Delete unused database files
               </button>
-              <span className="muted">{maintenanceMessage ?? "removes old database log files that are no longer in use"}</span>
+              <span className="muted">removes old database log files that are no longer in use</span>
+            </div>
+            <div className="process-action">
+              <button className="action-button" onClick={onRebuildTextIndex} disabled={!maintenance.open}>
+                <IconTextRecognition size={14} stroke={1.8} /> Rebuild text index
+              </button>
+              <span className="muted">
+                {maintenanceMessage ??
+                  (maintenance.tasksQueued
+                    ? `${formatCount(maintenance.tasksQueued)} background task${maintenance.tasksQueued === 1 ? "" : "s"} still to run`
+                    : "extracts the searchable text of every indexed node again and rewrites the search index")}
+              </span>
             </div>
           </>
         )}

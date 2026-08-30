@@ -4,6 +4,7 @@ import { DialogHost } from "./components/DialogHost";
 import { FilesSection } from "./components/FilesSection";
 import { Header } from "./components/Header";
 import { Login } from "./components/Login";
+import { LogsSection } from "./components/LogsSection";
 import { Overview } from "./components/Overview";
 import { SettingsSection } from "./components/SettingsSection";
 import { Sidebar } from "./components/Sidebar";
@@ -122,6 +123,8 @@ export function App() {
             <SettingsSection key={activeSectionId} focusSection={section.settingsSection} />
           ) : activeSectionId === "db-settings" && activeDb ? (
             <SettingsSection key={activeDb.id} storeId={activeDb.id} />
+          ) : activeSectionId === "logs" && activeDb ? (
+            <LogsSection key={activeDb.id} db={activeDb} />
           ) : activeSectionId === "conversions" && activeDb ? (
             <ConversionsSection key={activeDb.id} db={activeDb} />
           ) : activeSectionId === "files" && activeDb ? (

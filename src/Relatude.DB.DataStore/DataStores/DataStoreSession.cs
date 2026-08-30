@@ -176,6 +176,7 @@ public class DataStoreSession : IDataStore {
 
     public TextExtract[] GetTextExtract(IEnumerable<int> ids, TextIndexType indexType)
         => _datastore.GetTextExtract(ids, indexType);
+    public int ReIndexAllText() => _datastore.ReIndexAllText();
 
     public int GetId(Guid guid) => _datastore.GetId(guid);
     public Guid GetGuid(int id) => _datastore.GetGuid(id);

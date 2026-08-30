@@ -1992,3 +1992,443 @@ a.action-button {
     transition: none;
   }
 }
+
+/* ---- logs ---- */
+
+.logs {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 14px;
+}
+
+.logs-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.logs-tab {
+  position: relative;
+  padding: 7px 12px 9px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.logs-tab:hover {
+  color: var(--text);
+}
+
+.logs-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+/* a log that is recording right now, so the tabs say where the data is coming from */
+.logs-rec {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  vertical-align: 1px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.logs-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.logs-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.logs-toolbar .action-button {
+  min-width: 0;
+}
+
+/* the live toggle is not a destructive action: it takes the accent, not the danger colour */
+.logs-toolbar .action-button.armed {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.logs-spacer {
+  flex: 1;
+}
+
+.logs-note-inline {
+  flex: 1 1 320px;
+  max-width: 640px;
+  color: var(--text-muted);
+}
+
+.logs-note {
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--hover);
+  border-radius: 7px;
+}
+
+.logs-warn {
+  color: var(--danger);
+}
+
+.logs-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--button-bg);
+  font-weight: 600;
+  color: var(--text-soft);
+  cursor: pointer;
+}
+
+.logs-switch.disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.logs-switch input {
+  margin: 0;
+}
+
+/* the graphs a log can draw, one chip each */
+.logs-series {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.logs-chip {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  color: var(--text-muted);
+}
+
+.logs-chip:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.logs-chip.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.logs-chart-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.logs-chart-foot .action-button {
+  margin-left: auto;
+  min-width: 0;
+}
+
+.link-button {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.link-button svg {
+  vertical-align: -2px;
+  margin-right: 3px;
+}
+
+.logs-paging {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.logs-paging .action-button {
+  min-width: 110px;
+}
+
+/* ---- log tables ---- */
+
+.log-table {
+  font-size: 12px;
+  overflow-x: auto;
+}
+
+.log-table-row {
+  display: grid;
+  gap: 10px;
+  align-items: center;
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+
+.log-table-row:not(.log-table-head):hover {
+  background: var(--hover);
+}
+
+.log-table-head {
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+}
+
+.log-table-total {
+  font-weight: 600;
+  border-bottom: none;
+}
+
+.log-table-row .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.log-table-empty {
+  padding: 14px 6px;
+  color: var(--text-muted);
+}
+
+/* every cell is one line: the whole entry is one click away, so nothing needs to wrap here */
+.log-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.log-cell.bad,
+.log-cell.error {
+  color: var(--danger);
+}
+
+.log-cell.warn,
+.log-cell.warning {
+  color: #b8860b;
+}
+
+[data-theme="dark"] .log-cell.warn,
+[data-theme="dark"] .log-cell.warning {
+  color: #d9b04a;
+}
+
+.trace-row {
+  grid-template-columns: 150px 90px minmax(0, 1fr);
+  cursor: default;
+}
+
+.trace-row.clickable {
+  cursor: pointer;
+}
+
+.scan-row {
+  grid-template-columns: minmax(0, 2fr) 90px minmax(120px, 1fr);
+}
+
+.scan-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--badge-bg);
+  overflow: hidden;
+}
+
+.scan-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.overview-row {
+  grid-template-columns: minmax(0, 1.4fr) 80px 90px 130px 130px 90px 90px minmax(0, 1fr);
+}
+
+/* ---- charts ---- */
+
+.chart {
+  position: relative;
+  width: 100%;
+}
+
+.chart svg {
+  display: block;
+  overflow: visible;
+}
+
+.chart-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.chart-axis {
+  fill: var(--text-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart-area {
+  fill: var(--accent-soft);
+  stroke: none;
+}
+
+/* the spread the average was taken from, behind the line that reports it */
+.chart-band {
+  fill: var(--accent-soft);
+  stroke: none;
+  opacity: 0.6;
+}
+
+.chart-point {
+  fill: var(--accent);
+}
+
+.chart-cursor {
+  stroke: var(--text-faint);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.chart-tip {
+  position: absolute;
+  top: 8px;
+  z-index: 2;
+  min-width: 130px;
+  padding: 7px 9px;
+  font-size: 11px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+}
+
+.chart-tip-time {
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.chart-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-tip-k {
+  color: var(--text-muted);
+}
+
+.chart-tip-v {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.chart-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+@media (max-width: 900px) {
+  .overview-row {
+    grid-template-columns: minmax(0, 1.4fr) 70px 80px 100px 100px 80px 80px;
+  }
+}
+
+/* the one recording rule with a number rather than a switch */
+.logs-threshold {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.logs-threshold .text-input {
+  width: 90px;
+  text-align: right;
+}
+
+/* what is live but not written down yet: a switch here stops at the next close unless it is saved */
+.logs-savebar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+}
+
+.logs-savebar.saved {
+  background: var(--hover);
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
+.logs-savebar .action-button {
+  min-width: 0;
+}

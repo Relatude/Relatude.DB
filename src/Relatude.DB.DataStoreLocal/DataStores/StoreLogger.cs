@@ -121,8 +121,8 @@ public class StoreLogger : IDisposable, IStoreLogger {
                 Name = "Tasks",
                 Key = _taskLogKey,
                 FileInterval = FileInterval.Day,
-                EnableLog = true,
-                EnableStatistics = true,
+                EnableLog = _enableTaskLog,
+                EnableStatistics = _enableTaskLogStatistics,
                 EnableLogTextFormat = false,
                 ResolutionRowStats = 4,
                 FirstDayOfWeek = DayOfWeek.Monday,
@@ -138,7 +138,7 @@ public class StoreLogger : IDisposable, IStoreLogger {
                 },
             },
             new() {
-                Name = "TaskBatches",
+                Name = "Task batches",
                 Key = _taskbatchLogKey,
                 FileInterval = FileInterval.Day,
                 EnableLog = _enableTaskBatchLog,
@@ -406,6 +406,40 @@ public class StoreLogger : IDisposable, IStoreLogger {
         return _settings.Select(s => new KeyValuePair<string, string>(s.Key, s.Name)).ToArray();
     }
     public void EnableLog(string logKey, bool enable) {
+        setLog(logKey, enable);
+        reloadLogsWithNewSettings();
+    }
+    public void EnableStatistics(string logKey, bool enable) {
+        setStatistics(logKey, enable);
+        reloadLogsWithNewSettings();
+    }
+    /// <summary>
+    /// Applies a whole set of switches at once. Every switch rebuilds the log store, which reopens
+    /// every log file, so settings restored at start-up go in as one change rather than fourteen.
+    /// </summary>
+    public void ApplyRecordingSettings(IEnumerable<LogRecordingSettings> logs) {
+        var known = false;
+        foreach (var setting in logs) {
+            if (setting == null || string.IsNullOrEmpty(setting.Key)) continue;
+            if (!IsKnownLogKey(setting.Key)) continue; // a log that no longer exists is not an error
+            setLog(setting.Key, setting.Log);
+            setStatistics(setting.Key, setting.Statistics);
+            known = true;
+        }
+        if (known) reloadLogsWithNewSettings();
+    }
+    public LogRecordingSettings[] GetRecordingSettings() {
+        return [.. GetLogKeysAndNames().Select(kv => new LogRecordingSettings {
+            Key = kv.Key,
+            Log = IsLogEnabled(kv.Key),
+            Statistics = IsStatisticsEnabled(kv.Key),
+        })];
+    }
+    public static bool IsKnownLogKey(string logKey) {
+        return logKey == _systemLogKey || logKey == _queryLogKey || logKey == _transactionLogKey || logKey == _actionLogKey
+            || logKey == _taskLogKey || logKey == _taskbatchLogKey || logKey == _metricsLogKey;
+    }
+    void setLog(string logKey, bool enable) {
         if (logKey == _systemLogKey) _enableSystemLog = enable;
         else if (logKey == _queryLogKey) _enableSystemQueryLog = enable;
         else if (logKey == _transactionLogKey) _enableTransactionLog = enable;
@@ -414,9 +448,8 @@ public class StoreLogger : IDisposable, IStoreLogger {
         else if (logKey == _taskbatchLogKey) _enableTaskBatchLog = enable;
         else if (logKey == _metricsLogKey) _enableMetricsLog = enable;
         else throw new Exception($"Unknown log key: {logKey}");
-        reloadLogsWithNewSettings();
     }
-    public void EnableStatistics(string logKey, bool enable) {
+    void setStatistics(string logKey, bool enable) {
         if (logKey == _systemLogKey) _enableSystemLogStatistics = enable;
         else if (logKey == _queryLogKey) _enableSystemQueryLogStatistics = enable;
         else if (logKey == _transactionLogKey) _enableTransactionLogStatistics = enable;
@@ -425,7 +458,6 @@ public class StoreLogger : IDisposable, IStoreLogger {
         else if (logKey == _taskbatchLogKey) _enableTaskBatchLogStatistics = enable;
         else if (logKey == _metricsLogKey) _enableMetricsLogStatistics = enable;
         else throw new Exception($"Unknown log key: {logKey}");
-        reloadLogsWithNewSettings();
     }
     public bool IsLogEnabled(string logKey) {
         if (logKey == _systemLogKey) return _enableSystemLog;

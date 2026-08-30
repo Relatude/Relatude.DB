@@ -112,6 +112,9 @@ public class SettingsCatalogTests {
             "IOSettings", "FileStoreSettings",
             // completion model map and the url tree: collections, not single values
             "AISettings.CompletionModelsByKey", "LocalSettings.UrlOptions.Parents", "LocalSettings.UrlOptions.Domains",
+            // what each log records and the query threshold: switched in the Logs section, which
+            // writes them here with "Save and remember changes"
+            "LocalSettings.LogRecording", "LocalSettings.MinQueryDurationMsBeforeLogging",
         ];
         var covered = SettingsCatalog.Server.Concat(SettingsCatalog.Database)
             .SelectMany(section => section.Groups).SelectMany(g => g.Settings).Select(s => s.Path)

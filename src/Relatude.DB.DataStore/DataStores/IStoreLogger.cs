@@ -32,6 +32,16 @@ public class StoreMetrics {
     public int TasksQueued { get; set; }
     public int TasksPersistedQueued { get; set; }
 }
+/// <summary>
+/// Whether one log records, remembered across restarts. The logger builds itself with every log off,
+/// so without this a log turned on in the admin UI stops recording the moment the database closes.
+/// Keyed by log key, which is what the logger names its logs by.
+/// </summary>
+public class LogRecordingSettings {
+    public string Key { get; set; } = string.Empty;
+    public bool Log { get; set; }
+    public bool Statistics { get; set; }
+}
 public interface IStoreLogger {
     bool LoggingActions { get; }
     bool LoggingAny { get; }
@@ -60,6 +70,11 @@ public interface IStoreLogger {
     void Dispose();
     void EnableLog(string logKey, bool enable);
     void EnableStatistics(string logKey, bool enable);
+    /// <summary>Turns the given logs on or off in one pass, rebuilding the log store once rather
+    /// than once per switch. Logs the settings do not mention are left as they are.</summary>
+    void ApplyRecordingSettings(IEnumerable<LogRecordingSettings> logs);
+    /// <summary>What every log is recording right now: what a caller saves to get it back.</summary>
+    LogRecordingSettings[] GetRecordingSettings();
     LogEntry[] ExtractLog(string logKey, DateTime from, DateTime to, int skip, int take, bool orderByDescendingDates, out int total);
     void FlushToDiskNow();
     KeyValuePair<string, string>[] GetLogKeysAndNames();

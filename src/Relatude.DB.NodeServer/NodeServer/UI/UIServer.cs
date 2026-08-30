@@ -26,6 +26,7 @@ public sealed class UIServer {
         Commands = new UICommands(server);
         registerBuiltInCommands();
         new UISettings(server).Register(Commands);
+        new UILogs(server).Register(Commands);
         _containerWatch = new Timer(_ => watchContainers(), null, containerWatchIntervalMs, Timeout.Infinite);
     }
     // broadcasts a "containers" event whenever the container list changes (state, node count, name),
@@ -245,6 +246,16 @@ public sealed class UIServer {
         if (property == null || datamodel == null) return null;
         return datamodel.Properties.TryGetValue(property.PropertyId, out var model) ? model.CodeName : null;
     }
+    // Tasks waiting or running, across the memory queue and the persisted one - a text index
+    // rebuild lands in the persisted queue, everything else may be in either.
+    static int queuedTasks(DataStores.IDataStore datastore) {
+        static int count(Tasks.TaskQueue? queue) {
+            if (queue == null) return 0;
+            return queue.CountTasks(Tasks.BatchState.Pending) + queue.CountTasks(Tasks.BatchState.Running);
+        }
+        return count(datastore.TaskQueue) + count(datastore.TaskQueuePersisted);
+    }
+
     NodeStoreContainer getContainer(Guid storeId) {
         if (!_server.Containers.TryGetValue(storeId, out var c)) throw new Exception("Container not found. ");
         return c;
@@ -426,6 +437,9 @@ public sealed class UIServer {
                 Open = true,
                 UnusedFiles = unusedFiles,
                 UnusedBytes = unusedBytes,
+                // what the background queues still owe, so a rebuild that has just been queued can
+                // be watched from the same panel that started it
+                TasksQueued = queuedTasks(store.Datastore),
                 ActionsNotInState = info.LogActionsNotItInStatefile,
                 TransactionsNotInState = info.LogTransactionsNotItInStatefile,
                 TruncatableActions = info.LogTruncatableActions,
@@ -433,6 +447,15 @@ public sealed class UIServer {
                 StateFileSize = info.LogStateFileSize,
                 RunningRewrite = info.RunningRewriteFile,
             };
+        });
+        // Re-extracts the search text of every text indexed node and writes it back, which is what
+        // rebuilds the index. One background task per node, so this returns once they are queued -
+        // the queue count in db-maintenance-info is what says when the work is done.
+        Commands.Register("db-rebuild-text-index", ctx => {
+            var p = ctx.Payload<IoListPayload>();
+            var store = getContainer(p.StoreId).Store ?? throw new Exception("The database must be open. ");
+            if (store.State != DataStoreState.Open) throw new Exception("The database must be open. ");
+            return (object?)new { Queued = store.Datastore.ReIndexAllText() };
         });
         Commands.Register("db-delete-unused", ctx => {
             var p = ctx.Payload<IoListPayload>();
