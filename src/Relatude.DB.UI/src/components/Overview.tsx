@@ -4,6 +4,7 @@ import { showConfirm, showError } from "../dialogs";
 import { subscribe, subscribeResync } from "../server/channel";
 import { collectGarbage, fetchServerOverview, softRestart, stopHost, type OverviewContainer, type ProcessActionResult, type ServerOverview } from "../server/overview";
 import { closeStore, openStore } from "../server/storage";
+import { usePoll } from "../refresh";
 import { formatBytes, formatCount, formatDuration, formatTime } from "../format";
 
 export function Overview() {
@@ -19,15 +20,16 @@ export function Overview() {
   }, []);
   useEffect(() => {
     load();
-    const timer = window.setInterval(load, 10000); // uptime and memory drift, refresh at a slow pace
     const unsubscribeResync = subscribeResync(load);
     const unsubscribeContainers = subscribe("containers", load); // any database change refreshes the page
     return () => {
-      clearInterval(timer);
       unsubscribeResync();
       unsubscribeContainers();
     };
   }, [load]);
+  // uptime and memory drift rather than change: never worth asking more often than this, however
+  // fast the refresh rate is set
+  usePoll(load, { minMs: 10000 });
   if (error) return <div className="placeholder">{error}</div>;
   if (!data) return null;
   const open = data.containers.filter((c) => c.state === "Open").length;

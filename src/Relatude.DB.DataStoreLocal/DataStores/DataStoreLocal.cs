@@ -52,6 +52,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     QueryContext _defaultQueryCtx;
     public TaskQueue TaskQueue { get; }
     public TaskQueue TaskQueuePersisted { get; }
+    public int TaskQueueThrottle { get => _scheduler.GetTaskQueuesThrottle(); set => _scheduler.ThrottleTaskQueue(value); }
     internal readonly AIEngine? _ai;
     LogRewriter? _rewriter = null;
     NodeWriteLocks _nodeWriteLocks = default!;

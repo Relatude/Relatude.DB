@@ -40,6 +40,7 @@ import {
   type UnreferencedResult,
 } from "../server/storage";
 import type { DatabaseInfo } from "../server/serverInfo";
+import { usePoll } from "../refresh";
 import { formatBytes, formatCount, formatTime } from "../format";
 
 export function StorageSection({ db }: { db: DatabaseInfo }) {
@@ -75,15 +76,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   useEffect(load, [load]);
   // a queued rebuild drains over minutes: while tasks are outstanding the panel follows them, and
   // stops asking the moment the queues are empty
-  useEffect(() => {
-    if (!maintenance?.tasksQueued) return;
-    const timer = window.setInterval(() => {
-      fetchMaintenanceInfo(db.id)
-        .then(setMaintenance)
-        .catch(() => {});
-    }, 3000);
-    return () => clearInterval(timer);
-  }, [db.id, maintenance?.tasksQueued]);
+  usePoll(() => fetchMaintenanceInfo(db.id).then(setMaintenance).catch(() => {}), { enabled: !!maintenance?.tasksQueued });
 
   async function onBackupNow() {
     const beforeKeys = new Set((backups?.files ?? []).map((f) => f.key));

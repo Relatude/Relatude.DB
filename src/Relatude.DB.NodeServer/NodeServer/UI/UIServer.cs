@@ -29,6 +29,7 @@ public sealed class UIServer {
         new UISettings(server).Register(Commands);
         new UILogs(server).Register(Commands);
         new UIDashboard(server).Register(Commands);
+        new UITasks(server).Register(Commands);
         _query = new UIQuery(server);
         _query.Register(Commands);
         _containerWatch = new Timer(_ => watchContainers(), null, containerWatchIntervalMs, Timeout.Infinite);
@@ -55,6 +56,7 @@ public sealed class UIServer {
         return [.. _server.GetContainers().Select(c => {
             long? nodeCount = null;
             var conversionCount = 0;
+            var taskCount = 0;
             if (c.IsOpen()) {
                 // a container closing mid-request should not fail the snapshot
                 try { nodeCount = c.Store!.Count(); } catch { }
@@ -64,6 +66,9 @@ public sealed class UIServer {
                     var conversions = c.Store!.Datastore.GetConversions();
                     conversionCount = conversions.Running + conversions.Queued;
                 } catch { }
+                // and what the background task queues still owe, for the same reason: the Tasks badge
+                // has to be live on every page, not only on the one that polls the queues
+                try { taskCount = queuedTasks(c.Store!.Datastore); } catch { }
             }
             return (object)new {
                 c.Settings.Id,
@@ -71,6 +76,7 @@ public sealed class UIServer {
                 State = c.HasFailed ? "Error" : c.Store?.State.ToString() ?? "Closed",
                 NodeCount = nodeCount,
                 ConversionCount = conversionCount,
+                TaskCount = taskCount,
             };
         })];
     }

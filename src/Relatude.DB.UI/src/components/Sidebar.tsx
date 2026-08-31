@@ -14,10 +14,12 @@ interface SidebarProps {
 export function Sidebar({ collapsed, onToggleCollapsed, databases, activeDb, activeSectionId, onSelectSection }: SidebarProps) {
   const errors = databases.filter((db) => db.state === "Error").length;
   const conversions = activeDb?.conversionCount ?? 0;
-  // live badges: how many databases failed, and what the conversion queue still owes
+  const tasks = activeDb?.taskCount ?? 0;
+  // live badges: how many databases failed, and what the two background queues still owe
   const badgeFor = (s: Section) => {
     if (s.id === "server-databases" && errors > 0) return { text: errors === 1 ? "1 error" : `${errors} errors`, danger: true };
     if (s.id === "conversions" && conversions > 0) return { text: String(conversions), danger: false };
+    if (s.id === "tasks" && tasks > 0) return { text: tasks > 9999 ? Math.round(tasks / 1000) + "k" : String(tasks), danger: false };
     return null;
   };
   return (

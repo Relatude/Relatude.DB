@@ -15,7 +15,8 @@ namespace Relatude.DB.Query.Data {
             var propsWithSelection = new List<Property>();
             foreach (var prop in relevantProps) {
                 var facets = prop.GetDefaultFacets(givenById.TryGetValue(prop.Id, out var g) ? g : null, ctx);
-                facets.Sort();
+                // no sort here: the buckets are ordered by ApplyOptions once they have been counted,
+                // which is the only place that knows whether a sort was asked for
                 result.Add(prop.Id, facets);
                 if (selection.TryGetValue(prop.Id, out var selected))
                     facets.SetSelected(selected.HasValues() ? selected.Values : null);

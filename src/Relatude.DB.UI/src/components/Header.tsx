@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { IconChevronDown, IconDotsVertical, IconLogout, IconMoon, IconSun } from "@tabler/icons-react";
+import { IconChevronDown, IconDotsVertical, IconLogout, IconMoon, IconPlayerPause, IconRefresh, IconSun } from "@tabler/icons-react";
 import { sections } from "../navigation";
+import { describeInterval, refreshSteps, setRefreshInterval, useRefreshInterval } from "../refresh";
 import type { DatabaseInfo } from "../server/serverInfo";
 import type { Theme } from "../theme";
 import { Logo, LogoMark } from "./Logo";
@@ -40,12 +41,41 @@ export function Header(p: HeaderProps) {
         <h2>{section?.label}</h2>
       </div>
       <div className="header-spacer" />
+      <RefreshRate />
       <button className="icon-button" onClick={p.onToggleTheme} title={p.theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}>
         {p.theme === "dark" ? <IconSun size={18} stroke={1.8} /> : <IconMoon size={18} stroke={1.8} />}
       </button>
       <DbSwitcher databases={p.databases} activeDb={p.activeDb} onSelectDb={p.onSelectDb} />
       <MoreMenu onLogout={p.onLogout} />
     </header>
+  );
+}
+
+/**
+ * How often the whole UI refreshes itself. It sits in the top bar because it is not a property of any
+ * one page: every page that follows something live polls on this cadence, and the reason to turn it
+ * down - a busy database, a remote connection, a laptop on battery - is never about one page either.
+ * All the way to the left is off, which leaves the pages exactly as they are until something is
+ * refreshed by hand.
+ */
+function RefreshRate() {
+  const interval = useRefreshInterval();
+  const index = Math.max(0, refreshSteps.indexOf(interval as (typeof refreshSteps)[number]));
+  const paused = interval === 0;
+  return (
+    <div className={"refresh-rate" + (paused ? " paused" : "")} title={paused ? "Live updates are off" : `Pages refresh every ${describeInterval(interval)}`}>
+      {paused ? <IconPlayerPause size={15} stroke={1.8} /> : <IconRefresh size={15} stroke={1.8} />}
+      <input
+        type="range"
+        min={0}
+        max={refreshSteps.length - 1}
+        step={1}
+        value={index}
+        aria-label="Refresh rate"
+        onChange={(e) => setRefreshInterval(refreshSteps[Number(e.target.value)])}
+      />
+      <span className="refresh-rate-value">{describeInterval(interval)}</span>
+    </div>
   );
 }
 

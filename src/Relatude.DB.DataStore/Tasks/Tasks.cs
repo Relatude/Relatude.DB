@@ -31,6 +31,19 @@ public class BatchMeta(Guid batchId, string typeId, BatchState state, BatchTaskP
     public DateTime CreatedUtc { get; set; } = created;
     public DateTime? Completed { get; set; }
     public string? JobId { get; set; }
+    /// <summary>True once a batch has stopped being in flight, whether it got there by running or by
+    /// being taken out of the queue.</summary>
+    public static bool IsFinished(BatchState state)
+        => state is BatchState.Completed or BatchState.Failed or BatchState.Cancelled or BatchState.AbortedOnStartup;
+    /// <summary>
+    /// Moves the batch to a state and keeps <see cref="Completed"/> in step: a batch that has finished
+    /// records when, and one put back in the queue is not finished any more and must not keep the time
+    /// it finished the last time round.
+    /// </summary>
+    public void SetState(BatchState state) {
+        State = state;
+        Completed = IsFinished(state) ? DateTime.UtcNow : null;
+    }
     public string? ErrorType { get; set; }
     public string? ErrorMessage { get; set; }
     public byte[] ToBytes() {

@@ -36,6 +36,7 @@ import {
   type TraceInfo,
 } from "../server/logs";
 import type { DatabaseInfo } from "../server/serverInfo";
+import { usePoll } from "../refresh";
 import { formatBytes, formatCount, formatTime } from "../format";
 
 /**
@@ -246,14 +247,9 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
   const selected = log.series.find((s) => seriesId(s) === seriesKey) ?? log.series[0];
 
   useEffect(() => setSkip(0), [rangeId, log.key]);
-  useEffect(() => {
-    if (!live) return;
-    // one refresh per bucket: a graph drawn a second at a time that only moved every five seconds
-    // would stand still for five of its points and then jump
-    const everyMs = range.interval === "Second" ? 1000 : 5000;
-    const timer = window.setInterval(() => setTick((t) => t + 1), everyMs);
-    return () => clearInterval(timer);
-  }, [live, range.interval]);
+  // one refresh per bucket at the fastest: a graph drawn a second at a time that only moved every
+  // five seconds would stand still for five of its points and then jump
+  usePoll(() => setTick((t) => t + 1), { enabled: live, minMs: range.interval === "Second" ? 1000 : 5000 });
 
   // one window for both halves of the page: the graph and the entries under it always cover the
   // same range, so a spike in the graph is in the table below it
@@ -560,11 +556,7 @@ function TraceTab({ db }: { db: DatabaseInfo }) {
     };
   }, [db.id, tick]);
   // the trace is what the database is saying right now, so it follows by default
-  useEffect(() => {
-    if (!live) return;
-    const timer = window.setInterval(() => setTick((t) => t + 1), 2000);
-    return () => clearInterval(timer);
-  }, [live]);
+  usePoll(() => setTick((t) => t + 1), { enabled: live });
 
   if (error) return <div className="placeholder">{error}</div>;
   if (!trace) return null;
@@ -647,11 +639,7 @@ function ScansTab({ db }: { db: DatabaseInfo }) {
       cancelled = true;
     };
   }, [db.id, tick]);
-  useEffect(() => {
-    if (!scans?.recording) return;
-    const timer = window.setInterval(() => setTick((t) => t + 1), 3000);
-    return () => clearInterval(timer);
-  }, [scans?.recording]);
+  usePoll(() => setTick((t) => t + 1), { enabled: !!scans?.recording });
 
   async function record(enable: boolean) {
     try {

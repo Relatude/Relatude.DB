@@ -66,6 +66,7 @@ export function SettingsSection({
   const [message, setMessage] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [onlyChanged, setOnlyChanged] = useState(false);
+  const [showComments, setShowComments] = useState(readShowComments);
   const [reopen, setReopen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
@@ -266,6 +267,17 @@ export function SettingsSection({
           <input type="checkbox" checked={onlyChanged} onChange={(e) => setOnlyChanged(e.target.checked)} />
           Only settings that differ from their default
         </label>
+        <label className="settings-check" title="The line under each setting saying what it does. Turning it off fits far more settings on the screen.">
+          <input
+            type="checkbox"
+            checked={showComments}
+            onChange={(e) => {
+              setShowComments(e.target.checked);
+              writeShowComments(e.target.checked);
+            }}
+          />
+          Show comments
+        </label>
         <span className="header-spacer" />
         <span className="muted settings-source" title={page.configSection ? `Any of these can be overridden from the ${page.configSection} configuration section` : undefined}>
           {page.settingsFile}
@@ -322,7 +334,7 @@ export function SettingsSection({
                     }}
                   >
                     <h3>{group.title}</h3>
-                    {group.help && <p className="settings-group-help">{group.help}</p>}
+                    {showComments && group.help && <p className="settings-group-help">{group.help}</p>}
                     {group.list && storeId && (
                       <ListEditor
                         list={group.list}
@@ -330,6 +342,7 @@ export function SettingsSection({
                         edits={edits}
                         onChange={setValue}
                         onRevert={revert}
+                        showComments={showComments}
                         onAdd={() => changeList(() => addListItem(storeId, group.list!.path))}
                         onRemove={(id) => changeList(() => removeListItem(storeId, group.list!.path, id), group.list!.path + "[" + id + "].")}
                       />
@@ -342,6 +355,7 @@ export function SettingsSection({
                           pickers={page.pickers}
                           edit={edits[setting.path]}
                           edited={edits[setting.path] !== undefined}
+                          showComment={showComments}
                           onChange={(value) => setValue(setting.path, value)}
                           onRevert={() => revert(setting.path)}
                         />
@@ -405,10 +419,32 @@ function sectionIcon(name: string): ComponentType<{ size?: number; stroke?: numb
  * Adding and removing are not staged the way field edits are: the shape of the collection is written
  * through immediately, because a half-added element is not a thing the settings file should hold.
  */
+// A reading preference rather than a setting of the server: it belongs to whoever is looking at the
+// page, so it is kept in the browser and never travels with relatude.db.json. Comments are on unless
+// they have been turned off - someone who has never seen this page needs them most.
+const showCommentsKey = "settingsShowComments";
+
+function readShowComments(): boolean {
+  try {
+    return localStorage.getItem(showCommentsKey) !== "false";
+  } catch {
+    return true; // storage unavailable
+  }
+}
+
+function writeShowComments(value: boolean): void {
+  try {
+    localStorage.setItem(showCommentsKey, String(value));
+  } catch {
+    // storage unavailable, the choice just won't outlive the tab
+  }
+}
+
 function ListEditor({
   list,
   pickers,
   edits,
+  showComments,
   onChange,
   onRevert,
   onAdd,
@@ -417,6 +453,7 @@ function ListEditor({
   list: SettingList;
   pickers: Record<string, SettingChoice[] | undefined>;
   edits: SettingValues;
+  showComments: boolean;
   onChange: (path: string, value: unknown) => void;
   onRevert: (path: string) => void;
   onAdd: () => void;
@@ -492,6 +529,7 @@ function ListEditor({
                       pickers={pickers}
                       edit={edits[setting.path]}
                       edited={edits[setting.path] !== undefined}
+                      showComment={showComments}
                       onChange={(value) => onChange(setting.path, value)}
                       onRevert={() => onRevert(setting.path)}
                     />
@@ -534,6 +572,7 @@ function SettingRow({
   pickers,
   edit,
   edited,
+  showComment,
   onChange,
   onRevert,
 }: {
@@ -541,6 +580,7 @@ function SettingRow({
   pickers: Record<string, SettingChoice[] | undefined>;
   edit: unknown;
   edited: boolean;
+  showComment: boolean;
   onChange: (value: unknown) => void;
   onRevert: () => void;
 }) {
@@ -555,7 +595,7 @@ function SettingRow({
           <span>{setting.label}</span>
           <Badges setting={setting} edited={edited} clearsSecret={clearsSecret} />
         </div>
-        <div className="setting-help">{setting.help}</div>
+        {showComment && setting.help && <div className="setting-help">{setting.help}</div>}
         {setting.overridden && (
           <div className="setting-override">
             <IconLock size={13} stroke={1.8} />

@@ -8,6 +8,8 @@ export interface DatabaseInfo {
   /** file conversions still owed: running plus queued. Rides the container broadcast, so the nav
       badge stays live without the Conversions page having to be open. */
   conversionCount?: number;
+  /** background tasks still owed: pending plus running, across both queues. Rides the same broadcast. */
+  taskCount?: number;
 }
 
 export interface ServerInfo {

@@ -11,6 +11,7 @@ import { QuerySection } from "./components/QuerySection";
 import { SettingsSection } from "./components/SettingsSection";
 import { Sidebar } from "./components/Sidebar";
 import { StorageSection } from "./components/StorageSection";
+import { TasksSection } from "./components/TasksSection";
 import { sections } from "./navigation";
 import { isLoggedIn, logout } from "./server/auth";
 import { disconnect, subscribe, subscribeResync, subscribeUnauthorized } from "./server/channel";
@@ -137,6 +138,8 @@ export function App() {
             <FilesSection key={activeDb.id} db={activeDb} />
           ) : activeSectionId === "storage" && activeDb ? (
             <StorageSection key={activeDb.id} db={activeDb} />
+          ) : activeSectionId === "tasks" && activeDb ? (
+            <TasksSection key={activeDb.id} db={activeDb} />
           ) : (
             <div className="placeholder">
               <span>{section.label} — not implemented yet</span>

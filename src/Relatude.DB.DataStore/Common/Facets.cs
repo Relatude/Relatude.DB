@@ -55,7 +55,11 @@ public class Facets {
     }
     public void ApplyOptions() { // called after counting; must never remove or hide selected values
         if (MinCount > 0) _values.RemoveAll(v => !v.Selected && v.Count < MinCount);
+        // SortByCount is the caller asking for an order; without it the buckets take their natural
+        // one (see Sort). Either way this runs before the trim below, which keeps whatever order it
+        // finds - it only decides which buckets survive.
         if (SortByCount) _values.Sort((a, b) => b.Count.CompareTo(a.Count));
+        else Sort();
         if (MaxValues > 0 && _values.Count > MaxValues) {
             var keep = _values.OrderByDescending(v => v.Selected).ThenByDescending(v => v.Count).Take(MaxValues).ToHashSet();
             _values.RemoveAll(v => !keep.Contains(v));
@@ -157,8 +161,27 @@ public class Facets {
     }
     override public string ToString() { return DisplayName; }
 
+    /// <summary>
+    /// The order the buckets are in when the caller has not asked for one (<see cref="SortByCount"/>
+    /// is what asks). Range facets keep the order their buckets were generated in - they are a scale,
+    /// and a scale out of order is not a scale.
+    ///
+    /// Everything else sorts by what the bucket is read as. A bucket that carries a name sorts by the
+    /// name, because the value behind it is an enum number or the guid of a referenced node and
+    /// nobody reads those; a bucket without one sorts by its value, which keeps numbers and dates in
+    /// their own order rather than in the order their formatted text happens to fall in. The
+    /// missing-value bucket sorts last either way.
+    /// </summary>
     public void Sort() {
         if (IsRangeFacet == true) return; // range values keep their given/generated order
+        if (_values.Any(v => v.ExplicitDisplayName != null)) {
+            _values.Sort((a, b) => {
+                if (a.Value == null) return b.Value == null ? 0 : 1;
+                if (b.Value == null) return -1;
+                return string.Compare(a.DisplayName, b.DisplayName, StringComparison.CurrentCultureIgnoreCase);
+            });
+            return;
+        }
         // only sort when every non-null value shares one comparable type: mixed types would
         // give List.Sort an inconsistent comparison (nulls, e.g. the missing-value bucket, sort last)
         var type = _values.FirstOrDefault(v => v.Value != null)?.Value?.GetType();

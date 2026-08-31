@@ -30,6 +30,8 @@ public class TaskQueue : IDisposable {
         }
     }
     public string QueueStoreTypeName => _queue.GetType().Name.ToString();
+    /// <summary>The runners registered for this queue: what kinds of task it can hold, and how each behaves.</summary>
+    public IEnumerable<ITaskRunner> Runners => _runners.Values;
     public int CountBatch(BatchState state) {
         lock (_lock) {
             emptyBuffer();

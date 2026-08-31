@@ -114,10 +114,13 @@ public class DefaultQueueStore : IQueueStore {
         }
     }
     public IBatch? DequeueAndSetRunning(Dictionary<string, ITaskRunner> runners) {
+        // ThenBy, not a second OrderBy: a second OrderBy re-sorts from scratch and drops the
+        // priority, which is the whole reason a batch carries one (SqliteQueueStore orders the same
+        // way, "ORDER BY priority DESC, created ASC")
         IBatch? task = _batchesById.Values
             .Where(b => b.Meta.State == BatchState.Pending)
             .OrderByDescending(b => b.Meta.Priority)
-            .OrderBy(b => b.Meta.CreatedUtc)
+            .ThenBy(b => b.Meta.CreatedUtc)
             .FirstOrDefault();
         if (task == null) return null; // no pending tasks
         _batchesById[task.Meta.BatchId].Meta.State = BatchState.Running;
@@ -143,7 +146,7 @@ public class DefaultQueueStore : IQueueStore {
     public void Set(Guid[] batchIds, BatchState state) {
         foreach (var batchId in batchIds) {
             if (_batchesById.TryGetValue(batchId, out var batch)) {
-                batch.Meta.State = state;
+                batch.Meta.SetState(state);
                 if (_persistToDisk) writeBatchToDisk(batch, _runners[batch.Meta.TaskTypeId]);
             }
         }
@@ -151,14 +154,14 @@ public class DefaultQueueStore : IQueueStore {
     public void Set(string jobId, BatchState state) {
         foreach (var batch in _batchesById.Values) {
             if (batch.Meta.JobId == jobId) {
-                batch.Meta.State = state;
+                batch.Meta.SetState(state);
                 if (_persistToDisk) writeBatchToDisk(batch, _runners[batch.Meta.TaskTypeId]);
             }
         }
     }
     public void Set(Guid batchId, Exception error) {
         var batch = _batchesById[batchId];
-        batch.Meta.State = BatchState.Failed;
+        batch.Meta.SetState(BatchState.Failed);
         batch.Meta.ErrorType = error.GetType().FullName ?? "Unknown";
         batch.Meta.ErrorMessage = error.Message;
         if (_persistToDisk) writeBatchToDisk(batch, _runners[batch.Meta.TaskTypeId]);

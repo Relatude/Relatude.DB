@@ -5,7 +5,10 @@ namespace Relatude.DB.Tasks;
 // Not threadsafe, handled by outer TaskQueue
 public class SqliteQueueStore : IQueueStore {
     readonly SqliteConnection _connection;
-    int? _cachedNoPendingTasks = null;
+    // pending is the count every pulse of the scheduler asks for, so it is worth caching - but batches
+    // and tasks are different numbers and need a cache each, or one answers for the other
+    int? _cachedPendingBatchCount = null;
+    int? _cachedPendingTaskCount = null;
     readonly string _queueDbPath;
     public SqliteQueueStore(string queueDbPath) {
         _queueDbPath = queueDbPath;
@@ -61,17 +64,18 @@ public class SqliteQueueStore : IQueueStore {
         }
         var value = cmd.ExecuteScalar();
         if (value == null || DBNull.Value == value) return default;
-        return (T)cmd.ExecuteScalar()!;
+        return (T)value;
     }
     public void Delete(Guid[] batchIds) {
-        _cachedNoPendingTasks = null; // invalidate cache
+        invalidatePendingCache();
         // can be optimized to use IN clause
+        if (batchIds.Length == 0) return;
         foreach (var batchId in batchIds) {
             executeNonQuery("DELETE FROM tasks WHERE id = @id", P("@id", batchId.ToString()));
         }
     }
     public void Enqueue(IBatch batch, ITaskRunner runner) {
-        _cachedNoPendingTasks = null; // invalidate cache
+        invalidatePendingCache();
         if (batch.Meta.State != BatchState.Pending) throw new Exception("Only pending batches can be enqueued.");
         executeNonQuery("INSERT INTO tasks (id, type_id, job_id, priority, state, created, completed, task_count, task_data)"
             + " VALUES (@id, @type_id, @job_id, @priority, @state, @created, @completed, @taskCount, @taskData)",
@@ -86,7 +90,7 @@ public class SqliteQueueStore : IQueueStore {
             P("@taskData", batch.TasksToBytes(runner)));
     }
     public IBatch? DequeueAndSetRunning(Dictionary<string, ITaskRunner> runners) {
-        _cachedNoPendingTasks = null; // invalidate cache
+        invalidatePendingCache();
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = @"
             SELECT id, type_id, job_id, priority, state, created, completed, error_type, error_message, task_count, task_data
@@ -133,40 +137,52 @@ public class SqliteQueueStore : IQueueStore {
         //executeNonQuery("PRAGMA wal_checkpoint(TRUNCATE);"); // force checkpoint to flush WAL to disk
     }
     public void Set(Guid[] batchIds, BatchState state) {
-        _cachedNoPendingTasks = null; // invalidate cache
+        invalidatePendingCache();
+        if (batchIds.Length == 0) return; // an empty IN () is a syntax error, and there is nothing to set
         var idList = string.Join(",", batchIds.Select(id => $"'{id}'"));
-        executeNonQuery($"UPDATE tasks SET state = @state WHERE id IN ({idList})", P("@state", (int)state));
+        executeNonQuery($"UPDATE tasks SET state = @state, completed = @completed WHERE id IN ({idList})",
+            P("@state", (int)state), P("@completed", finished(state)));
     }
     public void Set(string jobId, BatchState state) {
-        _cachedNoPendingTasks = null; // invalidate cache
-        executeNonQuery("UPDATE tasks SET state = @state WHERE job_id = @jobId", P("@state", (int)state), P("@jobId", jobId ?? (object)DBNull.Value));
+        invalidatePendingCache();
+        executeNonQuery("UPDATE tasks SET state = @state, completed = @completed WHERE job_id = @jobId",
+            P("@state", (int)state), P("@completed", finished(state)), P("@jobId", jobId ?? (object)DBNull.Value));
     }
+    // a batch that has finished records when; one put back in the queue drops the time it finished
+    // the last time round (BatchMeta.SetState does the same for the in-memory store)
+    static object finished(BatchState state) => BatchMeta.IsFinished(state) ? DateTime.UtcNow.ToString("o") : DBNull.Value;
     public void Set(Guid batchId, Exception error) {
-        _cachedNoPendingTasks = null; // invalidate cache
-        executeNonQuery("UPDATE tasks SET state = @state, error_type = @errorType, error_message = @errorMessage WHERE id = @id",
+        invalidatePendingCache();
+        executeNonQuery("UPDATE tasks SET state = @state, completed = @completed, error_type = @errorType, error_message = @errorMessage WHERE id = @id",
             P("@state", (int)BatchState.Failed),
+            P("@completed", finished(BatchState.Failed)),
             P("@errorType", error.GetType().FullName ?? "Unknown"),
             P("@errorMessage", error.Message),
             P("@id", batchId.ToString()));
     }
+    void invalidatePendingCache() {
+        _cachedPendingBatchCount = null;
+        _cachedPendingTaskCount = null;
+    }
     public int CountBatch(BatchState state) {
-        if (state == BatchState.Pending && _cachedNoPendingTasks.HasValue) return _cachedNoPendingTasks.Value;
+        if (state == BatchState.Pending && _cachedPendingBatchCount.HasValue) return _cachedPendingBatchCount.Value;
         var cnt = (int)executeScalar<long>("SELECT COUNT(*) FROM tasks WHERE state = @state", P("@state", (int)state));
-        if (state == BatchState.Pending) _cachedNoPendingTasks = cnt;
+        if (state == BatchState.Pending) _cachedPendingBatchCount = cnt;
         return cnt;
     }
     public int CountTasks(BatchState state) {
-        if (state == BatchState.Pending && _cachedNoPendingTasks.HasValue) return _cachedNoPendingTasks.Value;
+        if (state == BatchState.Pending && _cachedPendingTaskCount.HasValue) return _cachedPendingTaskCount.Value;
         var cnt = (int)executeScalar<long>("SELECT SUM(task_count) FROM tasks WHERE state = @state", P("@state", (int)state));
-        if (state == BatchState.Pending) _cachedNoPendingTasks = cnt;
+        if (state == BatchState.Pending) _cachedPendingTaskCount = cnt;
         return cnt;
     }
     public bool AnyPendingOrRunning() {
-        if (_cachedNoPendingTasks.HasValue) return _cachedNoPendingTasks.Value > 0;
+        // deliberately not cached into either count above: this asks about two states at once, and a
+        // pending count of zero with a batch still running is a different answer
+        if (_cachedPendingBatchCount > 0) return true;
         var cnt = (int)executeScalar<long>("SELECT COUNT(*) FROM tasks WHERE state IN (@state1, @state2)",
             P("@state1", (int)BatchState.Pending),
             P("@state2", (int)BatchState.Running));
-        _cachedNoPendingTasks = cnt;
         return cnt > 0;
     }
     // simple SQL injection prevention
@@ -176,13 +192,13 @@ public class SqliteQueueStore : IQueueStore {
         var typeIdList = string.Join(",", typeIds.Select(sqlSafeString));
         var jobIdList = string.Join(",", jobIds.Select(sqlSafeString));
         var offset = page * pageSize;
-        string where = string.Empty;
         var conditions = new List<string>();
         if (states.Length > 0) conditions.Add($"state IN ({stateList})");
         if (typeIds.Length > 0) conditions.Add($"type_id IN ({typeIdList})");
         if (jobIds.Length > 0) conditions.Add($"job_id IN ({jobIdList})");
-        where = "WHERE " + string.Join(" AND ", conditions);
-        string sql = $@"SELECT id, type_id, priority, state, created, completed, error_type, error_message, task_count 
+        // no filter at all means every batch, so the WHERE has to go with it
+        string where = conditions.Count == 0 ? string.Empty : "WHERE " + string.Join(" AND ", conditions);
+        string sql = $@"SELECT id, type_id, priority, state, created, completed, error_type, error_message, task_count, job_id
             FROM tasks {where} ORDER BY created ASC LIMIT {pageSize} OFFSET {offset}";
         using var reader = executeReader(sql);
 
@@ -200,7 +216,8 @@ public class SqliteQueueStore : IQueueStore {
             var info = new BatchMeta(batchId, typeId, state, priority, created) {
                 Completed = completed,
                 ErrorType = errorType,
-                ErrorMessage = errorMessage
+                ErrorMessage = errorMessage,
+                JobId = reader.IsDBNull(9) ? null : reader.GetString(9),
             };
             batches.Add(new(info, taskCount));
         }
@@ -209,15 +226,14 @@ public class SqliteQueueStore : IQueueStore {
         return [.. batches];
     }
     public void Delete(BatchState[] states, string[] typeIds) {
-        _cachedNoPendingTasks = null; // invalidate cache
-        if (states.Length == 0 && typeIds.Length == 0) return; // nothing to delete
-
+        invalidatePendingCache();
         var stateList = string.Join(",", states.Select(s => (int)s));
         var typeIdList = string.Join(",", typeIds.Select(sqlSafeString));
         string where = string.Empty;
         if (states.Length > 0 && typeIds.Length > 0) where = $"WHERE state IN ({stateList}) AND type_id IN ({typeIdList})";
         else if (states.Length > 0) where = $"WHERE state IN ({stateList})";
         else if (typeIds.Length > 0) where = $"WHERE type_id IN ({typeIdList})";
+        // and no filter at all empties the queue, which is what TaskQueue.DeleteAll asks for
 
         executeNonQuery($"DELETE FROM tasks {where}");
     }

@@ -699,8 +699,8 @@ public static class SettingsCatalog {
                             Help = "Writes each backup as the current state instead of the full history, which makes the files far smaller. The cost is that those backups can no longer be reverted to a point in time before they were taken.",
                         },
                         new() {
-                            Path = "LocalSettings.SecondaryBackupLog", Label = "Back up the secondary log",
-                            Help = "Also backs up the mirrored log from the secondary storage provider. Only meaningful when a secondary log copy is configured above.",
+                            Path = "LocalSettings.SecondaryBackupLog", Label = "Enable secondary db log",
+                            Help = "This log is never truncated and provides a passive and complete record of all transactions since it was enabled.",
                         },
                     ],
                 },

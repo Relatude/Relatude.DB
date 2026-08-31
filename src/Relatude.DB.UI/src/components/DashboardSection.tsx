@@ -4,6 +4,7 @@ import { Chart } from "./Chart";
 import { showError, showInfo } from "../dialogs";
 import { fetchDashboard, fetchDashboardLive, type DashboardInfo, type DashboardLive } from "../server/dashboard";
 import { fetchTrace, type TraceInfo } from "../server/logs";
+import { useMeasuredEvery, usePoll } from "../refresh";
 import { openStore } from "../server/storage";
 import type { DatabaseInfo } from "../server/serverInfo";
 import type { SeriesPoint } from "../server/logs";
@@ -20,9 +21,10 @@ import { formatBytes, formatCount, formatDuration, formatTime } from "../format"
  * are cleared, which the store does on its own schedule - a drop is therefore a gap in the graph,
  * never a negative rate.
  */
-const liveIntervalMs = 2000;
+// the full picture takes the store's write lock and counts every type, backup and state file: worth
+// it when the page opens, never worth it on the refresh rate, however fast that is set
 const infoIntervalMs = 60000;
-// three minutes of history at the live interval: enough to see a burst arrive and drain
+// three minutes of history at the default rate: enough to see a burst arrive and drain
 const maxSamples = 90;
 
 interface Sample {
@@ -52,6 +54,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   const [openBusy, setOpenBusy] = useState(false);
   const samples = useRef<Sample[]>([]);
   const [, setSampleTick] = useState(0);
+  const measuredEvery = useMeasuredEvery();
 
   const loadInfo = useCallback(async () => {
     try {
@@ -65,62 +68,47 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   useEffect(() => {
     samples.current = [];
     loadInfo();
-    const timer = window.setInterval(loadInfo, infoIntervalMs);
-    return () => clearInterval(timer);
   }, [loadInfo]);
+  usePoll(loadInfo, { minMs: infoIntervalMs });
 
-  useEffect(() => {
-    let stopped = false;
-    const tick = async () => {
-      try {
-        const sample = await fetchDashboardLive(db.id);
-        if (stopped) return;
-        setLive((previous) => {
-          // the full picture is fetched once and would otherwise describe a database that has since
-          // opened or closed - the live sample is what notices
-          if (previous && previous.state !== sample.state) loadInfo();
-          return sample;
-        });
-        if (sample.open) {
-          samples.current = [
-            ...samples.current,
-            {
-              at: new Date(sample.sampledUtc).getTime(),
-              iso: sample.sampledUtc,
-              queries: sample.queries ?? 0,
-              transactions: sample.transactions ?? 0,
-              actions: sample.actions ?? 0,
-              nodeReads: sample.nodeReads ?? 0,
-            },
-          ].slice(-maxSamples);
-          setSampleTick((t) => t + 1);
-        }
-      } catch {
-        // a failed sample is a gap, not an error worth taking the page over
+  const sampleLive = useCallback(async () => {
+    try {
+      const sample = await fetchDashboardLive(db.id);
+      setLive((previous) => {
+        // the full picture is fetched once and would otherwise describe a database that has since
+        // opened or closed - the live sample is what notices
+        if (previous && previous.state !== sample.state) loadInfo();
+        return sample;
+      });
+      if (sample.open) {
+        samples.current = [
+          ...samples.current,
+          {
+            at: new Date(sample.sampledUtc).getTime(),
+            iso: sample.sampledUtc,
+            queries: sample.queries ?? 0,
+            transactions: sample.transactions ?? 0,
+            actions: sample.actions ?? 0,
+            nodeReads: sample.nodeReads ?? 0,
+          },
+        ].slice(-maxSamples);
+        setSampleTick((t) => t + 1);
       }
-    };
-    tick();
-    const timer = window.setInterval(tick, liveIntervalMs);
-    return () => {
-      stopped = true;
-      clearInterval(timer);
-    };
+    } catch {
+      // a failed sample is a gap, not an error worth taking the page over
+    }
   }, [db.id, loadInfo]);
+  useEffect(() => {
+    sampleLive();
+  }, [sampleLive]);
+  usePoll(sampleLive);
 
   // the last messages the database wrote, refreshed at the same pace as everything else here
+  const loadTrace = useCallback(() => fetchTrace(db.id, 12).then(setTrace).catch(() => {}), [db.id]);
   useEffect(() => {
-    let stopped = false;
-    const load = () =>
-      fetchTrace(db.id, 12)
-        .then((t) => !stopped && setTrace(t))
-        .catch(() => {});
-    load();
-    const timer = window.setInterval(load, 5000);
-    return () => {
-      stopped = true;
-      clearInterval(timer);
-    };
-  }, [db.id]);
+    loadTrace();
+  }, [loadTrace]);
+  usePoll(loadTrace);
 
   async function onOpen() {
     setOpenBusy(true);
@@ -235,7 +223,8 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
             <Chart kind="sum" points={points} groups={[]} interval="Second" format={formatRate} height={180} />
             <div className="logs-chart-foot">
               <span className="muted">
-                measured here, every {liveIntervalMs / 1000} seconds, from counters the database keeps anyway — no logging needed
+                measured here, {measuredEvery === "Off" ? "when the page is refreshed" : "every " + measuredEvery}, from counters the database keeps anyway — no
+                logging needed
               </span>
             </div>
           </section>

@@ -3,12 +3,9 @@ import { IconArrowRight, IconBan, IconX } from "@tabler/icons-react";
 import { showConfirm, showError } from "../dialogs";
 import { cancelConversion, fetchConversions, type ConversionsInfo, type FileConversion } from "../server/conversions";
 import type { DatabaseInfo } from "../server/serverInfo";
+import { usePoll } from "../refresh";
 import { formatCount, formatTime } from "../format";
 
-// A conversion runs for seconds, so the page has to poll to be worth looking at. It backs off once
-// nothing is running: an idle database should not answer a request every second forever.
-const busyIntervalMs = 1000;
-const idleIntervalMs = 5000;
 // long enough to read as "that one is done and gone" rather than a flicker; must match conv-leave
 const leaveMs = 420;
 
@@ -26,7 +23,6 @@ export function ConversionsSection({ db }: { db: DatabaseInfo }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState<Record<string, boolean>>({});
-  const timer = useRef<number | null>(null);
   // the list the component shows, which is the server's plus whatever is still animating out
   const shown = useRef<Row[]>([]);
   const leaveTimers = useRef<number[]>([]);
@@ -78,24 +74,14 @@ export function ConversionsSection({ db }: { db: DatabaseInfo }) {
     }
   }, [db.id, applyRows]);
 
-  // one timer that reschedules itself, so the interval can follow what the queue is doing instead of
-  // being fixed at mount
   useEffect(() => {
-    let stopped = false;
-    const tick = async () => {
-      const info = await load();
-      if (stopped) return;
-      const busy = (info?.running ?? 0) + (info?.queued ?? 0) > 0;
-      timer.current = window.setTimeout(tick, busy ? busyIntervalMs : idleIntervalMs);
-    };
-    tick();
+    load();
     return () => {
-      stopped = true;
-      if (timer.current !== null) clearTimeout(timer.current);
       for (const id of leaveTimers.current) clearTimeout(id);
       leaveTimers.current = [];
     };
   }, [load]);
+  usePoll(load);
 
   async function cancel(conversion: FileConversion, permanently: boolean): Promise<void> {
     if (permanently) {

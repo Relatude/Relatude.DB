@@ -55,6 +55,7 @@ public class DataStoreSession : IDataStore {
 
     public TaskQueue TaskQueue => _datastore.TaskQueue;
     public TaskQueue? TaskQueuePersisted => _datastore.TaskQueuePersisted;
+    public int TaskQueueThrottle { get => _datastore.TaskQueueThrottle; set => _datastore.TaskQueueThrottle = value; }
     public void EnqueueTask(TaskData task, string? jobId = null) => _datastore.EnqueueTask(task, jobId);
     public void RegisterRunner(ITaskRunner runner) => _datastore.RegisterRunner(runner);
 

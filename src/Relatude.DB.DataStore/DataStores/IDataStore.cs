@@ -125,6 +125,12 @@ public interface IDataStore : IDisposable {
     IStoreLogger Logger { get; }
     TaskQueue TaskQueue { get; }
     TaskQueue? TaskQueuePersisted { get; }
+    /// <summary>
+    /// 0-100: how much of the machine background task processing is allowed to take. It sets how long
+    /// a dequeue pulse may run, how often pulses happen, and how busy the database has to be before a
+    /// pulse steps aside. Runtime only - it goes back to the server default when the database reopens.
+    /// </summary>
+    int TaskQueueThrottle { get; set; }
     void EnqueueTask(TaskData task, string? jobId = null);
     void RegisterRunner(ITaskRunner runner);
 
