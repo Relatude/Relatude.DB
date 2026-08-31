@@ -117,6 +117,17 @@ public sealed class UIServer {
             }
             return Results.Empty;
         });
+        // the previews and the full size view of a file property in the query form (binary, so not a
+        // command, and a GET so an <img> or a <video> can point straight at it): "p" is the property
+        // path the file sits at, "v" its version, which is only there to keep a replaced file from
+        // being served out of the browser cache
+        app.MapGet(path + "media", async (HttpContext ctx, Guid storeId, string? p, int? w, int? h, bool? original) => {
+            try {
+                return await _query.WriteMedia(ctx, storeId, p, w, h, original == true);
+            } catch (Exception error) when (!ctx.Response.HasStarted) {
+                return Results.Json(new { error = error.Message }, RelatudeDBJsonOptions.Default, statusCode: 500);
+            }
+        });
         // zip downloads (binary, so not commands): GET zips a whole folder (also the url behind
         // dragging a folder out to the desktop), POST zips a set of selected files
         app.MapGet(path + "zip", async (HttpContext ctx, Guid ioId, string? folder) => {

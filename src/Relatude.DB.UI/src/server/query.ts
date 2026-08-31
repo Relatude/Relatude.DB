@@ -161,6 +161,8 @@ export interface TypeRef {
   name: string;
 }
 
+export type FileKind = "Unknown" | "Document" | "Image" | "Video" | "Audio" | "Meta";
+
 export interface FileValueView {
   name: string;
   size: number;
@@ -169,6 +171,14 @@ export interface FileValueView {
   height: number;
   fileId: string;
   storageId: string;
+  /** What the file is, which is what decides whether it can be shown at all. */
+  fileType: FileKind;
+  /** The detailed format ("Png", "Mp4", "Svg", ...), as the store reads it off the file name. */
+  format: string;
+  /** The property path the file sits at: the token the media route reads the bytes back from. */
+  path: string;
+  /** The file's own hash, short. Only in the url, so replacing a file cannot show the old one. */
+  version: string;
 }
 
 export interface GeoValue {
@@ -179,7 +189,8 @@ export interface GeoValue {
 export interface InnerNodeView {
   id: string;
   typeName: string;
-  values: { codeName: string; value: string }[];
+  /** `file` is set on the values that are files, and is what a preview of one is built from. */
+  values: { codeName: string; value: string; file: FileValueView | null }[];
 }
 
 export interface PropertyView {
@@ -245,6 +256,23 @@ export function saveNode(
 
 export function lookupNodes(storeId: string, typeIds: string[], text: string, take = 20): Promise<NodeRef[]> {
   return send<NodeRef[]>("query-lookup", { storeId, typeIds, text, take });
+}
+
+/**
+ * Where the bytes of a file property are served (a url rather than a command, so an <img> or a
+ * <video> can point straight at it; the login cookie authenticates it like everything else).
+ *
+ * Without a size the file is served as it was uploaded. With one it is an image adjusted to fit
+ * inside it - and for a video, a frame taken out of it, which is how a clip gets a picture at all.
+ * The conversion may not be done: the answer then carries the store's status image and the header
+ * `X-Relatude-Ready: 0`, and asking again is what waits for it.
+ */
+export function mediaUrl(storeId: string, file: FileValueView, size?: { width?: number; height?: number }): string {
+  const query = new URLSearchParams({ storeId, p: file.path, v: file.version });
+  if (!size) query.set("original", "true");
+  if (size?.width) query.set("w", String(Math.round(size.width)));
+  if (size?.height) query.set("h", String(Math.round(size.height)));
+  return `${adminBase}/ui/media?${query}`;
 }
 
 /**
