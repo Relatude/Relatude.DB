@@ -255,6 +255,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public ILogStore LogStore => _logger.LogStore;
     public AIEngine AI => _ai ?? throw new Exception("No AI provider configured for this datastore.");
+    public bool HasAIEngine => _ai != null;
     public IStoreLogger Logger => _logger;
     public IIOProvider IO => _io;
     public IIOProvider IOIndex => _ioIndex;
