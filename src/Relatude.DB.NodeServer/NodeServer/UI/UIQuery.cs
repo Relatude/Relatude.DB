@@ -2,9 +2,12 @@ using Relatude.DB.Common;
 using Relatude.DB.DataStores;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
+using Relatude.DB.FileConversion;
+using Relatude.DB.NodeServer.Json;
 using Relatude.DB.Nodes;
 using Relatude.DB.Query;
 using Relatude.DB.Query.Data;
+using Relatude.DB.Web;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
@@ -41,6 +44,8 @@ sealed class UIQuery {
     const int maxTableCellLength = 300;
     const int maxReferencesInCell = 5;
     internal const int maxCsvRows = 50_000;
+    const int maxPreviewSize = 4000; // the largest image the media route will render, per side
+    const double videoThumbnailAt = 10; // percent into a clip: the first frame of one is often black
 
     readonly RelatudeDBServer _server;
     internal UIQuery(RelatudeDBServer server) => _server = server;
@@ -353,6 +358,45 @@ sealed class UIQuery {
             }
         }
     }
+    // ---- the bytes behind a file property: what the form previews ----
+
+    /// <summary>
+    /// Serves a file property: the file as it was uploaded, or an image adjusted to the asked for
+    /// size - which for a video is a frame taken out of it. The form reads its previews from here
+    /// rather than from the public url of the file, because the admin UI has to work on a database
+    /// whose files are not published at all, and because it already knows who is asking.
+    ///
+    /// Conversions are not waited for beyond what the store itself waits: a variant that is not
+    /// converted yet answers with the conversion engine's own status image and says so in
+    /// X-Relatude-Ready, and the caller asks again until it is ready.
+    /// </summary>
+    internal async Task<IResult> WriteMedia(HttpContext http, Guid storeId, string? pathText, int? width, int? height, bool original) {
+        var s = store(storeId);
+        if (string.IsNullOrEmpty(pathText) || !PropertyPath.TryParse(pathText, out var path)) {
+            return Results.Json(new { error = "Not a property path. " }, RelatudeDBJsonOptions.Default, statusCode: 400);
+        }
+        if (!s.Datastore.Datamodel.Properties.TryGetValue(path.PropertyId, out var property) || property is not FilePropertyModel) {
+            return Results.Json(new { error = "The path does not point at a file property. " }, RelatudeDBJsonOptions.Default, statusCode: 400);
+        }
+        if (!s.Datastore.TryGetValue<FileValue>(path, out var file, adminContext) || file.IsEmpty) {
+            return Results.Json(new { error = "The property holds no file. " }, RelatudeDBJsonOptions.Default, statusCode: 404);
+        }
+        if (original) { // what a video plays from, and what a format no converter reads is shown as
+            var stream = await s.Datastore.GetFileStream(path, adminContext);
+            return await FileHandler.HandleFileAsync(http, stream, file.Name, false, file.ContentType, true);
+        }
+        var adj = new FileAdjustmentImage {
+            Width = width is > 0 ? Math.Min(width.Value, maxPreviewSize) : null,
+            Height = height is > 0 ? Math.Min(height.Value, maxPreviewSize) : null,
+        };
+        if (file.FileType == FileType.Video) adj.TimeOffsetPercentage = videoThumbnailAt;
+        adj.BasicSanitization();
+        var state = await s.Datastore.GetFileStreamAndState(path, adj, -1, adminContext);
+        http.Response.Headers["X-Relatude-Ready"] = state.IsReady ? "1" : "0";
+        var name = Path.GetFileNameWithoutExtension(file.Name) + FileFormatUtil.GetExtensionWithDot(state.RequestedFormat);
+        return await FileHandler.HandleFileAsync(http, state.Stream, name, false, FileFormatUtil.GetContentType(state.RequestedFormat), state.IsReady);
+    }
+
     static string csvRow(IEnumerable<string> cells) {
         var sb = new System.Text.StringBuilder();
         var first = true;
@@ -570,10 +614,13 @@ sealed class UIQuery {
                     var map = value as IInnerNodeDataMap;
                     view.Info = map == null || map.Count == 0 ? "empty"
                         : map.Count + (map.Count == 1 ? " inner node" : " inner nodes");
+                    var embedded = new PropertyPath(n.Id, property.Id);
                     view.Value = map == null ? [] : map.Take(maxInnerNodesShown).Select(inner => (object)new {
                         inner.Id,
                         TypeName = typeName(dm, inner),
-                        Values = innerValues(dm, inner),
+                        // an inner node is addressed through the property it hangs off, so a file
+                        // inside one is previewable in the same way as a file on the node itself
+                        Values = innerValues(dm, inner, embedded.CreatePathToInnerNode(inner.Id)),
                     }).ToArray();
                     break;
                 }
@@ -581,15 +628,7 @@ sealed class UIQuery {
                     view.Editor = "file";
                     view.ReadOnly = true; // uploads belong to the files section, not to a property form
                     var file = value as FileValue;
-                    view.Value = file == null || file.IsEmpty ? null : new {
-                        file.Name,
-                        file.Size,
-                        file.ContentType,
-                        file.Width,
-                        file.Height,
-                        file.FileId,
-                        file.StorageId,
-                    };
+                    view.Value = file == null || file.IsEmpty ? null : fileView(file, new PropertyPath(n.Id, property.Id));
                     break;
                 }
             case ByteArrayPropertyModel: {
@@ -777,13 +816,40 @@ sealed class UIQuery {
             }
         }
     }
-    static object[] innerValues(Datamodel dm, INodeData inner) {
+    static object[] innerValues(Datamodel dm, INodeData inner, NodePath path) {
         if (!dm.NodeTypes.TryGetValue(inner.NodeType, out var type)) return [];
         return [.. type.AllProperties.Values
             .Where(p => !p.Internal)
             .OrderBy(p => p.CodeName, StringComparer.OrdinalIgnoreCase)
-            .Select(p => (object)new { p.CodeName, Value = inner.TryGetValue(p.Id, out var v) ? truncate(display(p, v), summaryValueLength) : "" })];
+            .Select(p => {
+                var has = inner.TryGetValue(p.Id, out var v);
+                return (object)new {
+                    p.CodeName,
+                    Value = has ? truncate(display(p, v), summaryValueLength) : "",
+                    File = v is FileValue file && !file.IsEmpty ? fileView(file, path.CreatePropertyPath(p.Id)) : null,
+                };
+            })];
     }
+
+    /// <summary>
+    /// A file value as the form shows it. Beyond what the file is, it carries the property path it
+    /// sits at: that is what the media route reads the bytes back from, and it addresses a file on an
+    /// inner node exactly as it addresses one on the node itself. The version is the file's own hash,
+    /// so replacing a file changes every preview url of it and no browser serves the old picture.
+    /// </summary>
+    static object fileView(FileValue file, PropertyPath path) => new {
+        file.Name,
+        file.Size,
+        file.ContentType,
+        file.Width,
+        file.Height,
+        file.FileId,
+        file.StorageId,
+        FileType = file.FileType.ToString(),
+        Format = file.Format.ToString(),
+        Path = path.ToUrlString(),
+        Version = file.Hash.Length > 8 ? file.Hash[..8] : file.Hash,
+    };
 
     // ---- saving the form ----
 

@@ -13,7 +13,8 @@ import {
 } from "../server/query";
 import { showError } from "../dialogs";
 import { useLiveResult } from "../server/hooks";
-import { formatBytes, formatCount, formatTime } from "../format";
+import { formatCount, formatTime } from "../format";
+import { FilePreview } from "./MediaPreview";
 
 /**
  * One node as a form, built from the data model rather than from a class: every property of the
@@ -371,15 +372,7 @@ function Editor({
     case "file": {
       const file = (value ?? null) as FileValueView | null;
       if (!file) return <span className="muted">No file.</span>;
-      return (
-        <span className="node-file">
-          <strong>{file.name}</strong>
-          <span className="muted">
-            {formatBytes(file.size)} · {file.contentType}
-            {file.width > 0 ? ` · ${file.width}×${file.height}` : ""}
-          </span>
-        </span>
-      );
+      return <FilePreview storeId={storeId} file={file} />;
     }
     case "embedded": {
       const inner = Array.isArray(value) ? (value as InnerNodeView[]) : [];
@@ -392,7 +385,7 @@ function Editor({
               <span className="node-inner-type">{n.typeName}</span>
               {n.values.map((v) => (
                 <span key={v.codeName}>
-                  <em>{v.codeName}</em> {v.value}
+                  <em>{v.codeName}</em> {v.file ? <FilePreview storeId={storeId} file={v.file} compact /> : v.value}
                 </span>
               ))}
             </div>
