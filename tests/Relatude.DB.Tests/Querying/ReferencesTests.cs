@@ -2,6 +2,7 @@ using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 using Relatude.DB.Nodes;
 using Relatude.DB.Query;
+using Relatude.Utils;
 
 namespace Relatude.Querying;
 
@@ -50,9 +51,8 @@ public class ReferencesTests {
         var dm = buildDatamodel();
         var store = persistedIndexes
             ? new NodeStore(DataStoreLocal.Open(dm, new SettingsLocal() {
-                UsePersistedValueIndexesByDefault = true,
-                PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
-            }, null, null, null, null, null, () => new DB.DataStores.Indexes.IndexEngines(new DB.DataStores.Indexes.KvStore.NativeKvIndexStore(null))))
+                ValueIndexes = [TestEngines.NativeValue], DefaultValueIndex = TestEngines.ValueId,
+            }, null, null, null, null, null, () => DB.DataStores.Indexes.IndexEngines.Single(TestEngines.ValueId, new DB.DataStores.Indexes.KvStore.NativeKvIndexStore(null))))
             : new NodeStore(DataStoreLocal.Open(dm));
         brands = [
             new RefBrand { Id = Guid.NewGuid(), Name = "Acme" },
@@ -271,11 +271,10 @@ public class ReferencesTests {
         var dm = buildDatamodel();
         if (persistedIndexes) {
             var settings = new SettingsLocal {
-                UsePersistedValueIndexesByDefault = true,
-                PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
+                ValueIndexes = [TestEngines.NativeValue], DefaultValueIndex = TestEngines.ValueId,
             };
             return new NodeStore(DataStoreLocal.Open(dm, settings, new Relatude.DB.IO.IOProviderDisk(dir), null, null, null, null,
-                () => new DB.DataStores.Indexes.IndexEngines(new DB.DataStores.Indexes.KvStore.NativeKvIndexStore(dir))));
+                () => DB.DataStores.Indexes.IndexEngines.Single(TestEngines.ValueId, new DB.DataStores.Indexes.KvStore.NativeKvIndexStore(dir))));
         }
         return new NodeStore(DataStoreLocal.Open(dm, new SettingsLocal(), new Relatude.DB.IO.IOProviderDisk(dir), null, null, null, null, null));
     }

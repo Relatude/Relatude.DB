@@ -63,12 +63,9 @@ public class FacetPerfHarness {
         var settings = new SettingsLocal {
             NodeCacheSizeGb = 1,
             SetCacheSizeGb = 1,
-            UsePersistedValueIndexesByDefault = false, // like Website.Simple: memory value indexes (bit set backed)
-            PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
-            UsePersistedTextIndexesByDefault = false, // memory word index keeps the harness self-contained
         };
         Directory.CreateDirectory(_dir);
-        var storeData = DataStoreLocal.Open(dm, settings, new DB.IO.IOProviderDisk(_dir), null, null, null, null, () => new IndexEngines(new NativeKvIndexStore(null)));
+        var storeData = DataStoreLocal.Open(dm, settings, new DB.IO.IOProviderDisk(_dir), null, null, null, null, null /* memory indexes throughout */);
         var store = new NodeStore(storeData);
         try {
             seedIfEmpty(store);

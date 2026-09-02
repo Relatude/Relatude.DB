@@ -155,24 +155,24 @@ public class SettingsOverlayTests {
     [TestMethod]
     public void AiSettingsOverride_AppliesPerContainerAndIsStrippedOnSave() {
         var file = fileSettings();
-        file.ContainerSettings![0].AISettings = new AIProviderSettings { IndexType = AIIndexType.Memory };
+        file.ContainerSettings![0].AISettings = new AIProviderSettings { EmbeddingModel = "from-file" };
         var (overlay, _, warnings) = create(new() {
             ["RelatudeDB:ContainerSettings:0:AISettings:ApiKey"] = "configsecret",
-            ["RelatudeDB:ContainerSettings:0:AISettings:IndexType"] = "HNSW",
-            ["RelatudeDB:ContainerSettings:0:AISettings:IndexCacheSizeInMb"] = "64",
+            ["RelatudeDB:ContainerSettings:0:AISettings:EmbeddingModel"] = "from-configuration",
+            ["RelatudeDB:ContainerSettings:0:AISettings:MaxOutputTokens"] = "64",
         });
         var applied = overlay!.Apply(file);
         var ai = applied.ContainerSettings![0].AISettings!;
         Assert.AreEqual("configsecret", ai.ApiKey);
-        Assert.AreEqual(AIIndexType.HNSW, ai.IndexType);
-        Assert.AreEqual(64d, ai.IndexCacheSizeInMb);
+        Assert.AreEqual("from-configuration", ai.EmbeddingModel);
+        Assert.AreEqual(64, ai.MaxOutputTokens);
         Assert.AreEqual(0, warnings.Count);
 
         var stripped = overlay.RemoveOverridesBeforeSave(applied);
         var strippedAi = stripped.ContainerSettings![0].AISettings!;
         Assert.IsNull(strippedAi.ApiKey, "a configuration-supplied secret must not reach the file");
-        Assert.AreEqual(AIIndexType.Memory, strippedAi.IndexType);
-        Assert.IsNull(strippedAi.IndexCacheSizeInMb);
+        Assert.AreEqual("from-file", strippedAi.EmbeddingModel);
+        Assert.IsNull(strippedAi.MaxOutputTokens);
     }
 
     [TestMethod]

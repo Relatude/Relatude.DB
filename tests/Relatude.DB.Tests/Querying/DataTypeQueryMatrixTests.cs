@@ -154,9 +154,8 @@ internal static class ScalarData {
         dm.Add<ScalarNode>();
         var store = persistedIndexes
             ? new NodeStore(DataStoreLocal.Open(dm, new SettingsLocal() {
-                UsePersistedValueIndexesByDefault = true,
-                PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
-            }, null, null, null, null, null, () => new IndexEngines(new NativeKvIndexStore(null))))
+                ValueIndexes = [TestEngines.NativeValue], DefaultValueIndex = TestEngines.ValueId,
+            }, null, null, null, null, null, () => IndexEngines.Single(TestEngines.ValueId, new NativeKvIndexStore(null))))
             : new NodeStore(DataStoreLocal.Open(dm));
         store.Insert(Generate());
         all = store.Query<ScalarNode>().ToList();

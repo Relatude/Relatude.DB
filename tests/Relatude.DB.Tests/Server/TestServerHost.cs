@@ -74,8 +74,6 @@ sealed class TestServerHost(WebApplication app, RelatudeDBServer server, List<No
             FileStoreSettings = [],
             DatamodelSources = template.DatamodelSources,
             LocalSettings = new SettingsLocal {
-                PersistedValueIndexEngine = PersistedValueIndexEngine.Memory,
-                PersistedTextIndexEngine = PersistedTextIndexEngine.Memory,
                 AutoBackUp = false,
                 AutoTruncate = false,
                 AutoSaveIndexStates = false,

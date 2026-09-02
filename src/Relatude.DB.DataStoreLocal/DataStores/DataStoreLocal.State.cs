@@ -25,10 +25,15 @@ public sealed partial class DataStoreLocal : IDataStore {
         // count while moving a type between datamodel sources or renaming a source does not)
         var s = Datamodels.DatamodelJson.SerializeForChecksum(Datamodel);
         s += System.Text.Json.JsonSerializer.Serialize(_stateFileVersion);
-        s += System.Text.Json.JsonSerializer.Serialize(_settings.PersistedTextIndexEngine);
-        s += System.Text.Json.JsonSerializer.Serialize(_settings.PersistedValueIndexEngine);
-        s += System.Text.Json.JsonSerializer.Serialize(_settings.UsePersistedTextIndexesByDefault);
-        s += System.Text.Json.JsonSerializer.Serialize(_settings.UsePersistedValueIndexesByDefault);
+        // which engine each index kind defaults to, by id and by type: pointing a default at another
+        // engine (or at memory) changes where the indexes live, so the state and every index start
+        // over. An engine's memory budget is deliberately left out - tuning it must not force that.
+        s += System.Text.Json.JsonSerializer.Serialize(_settings.DefaultValueIndex);
+        s += System.Text.Json.JsonSerializer.Serialize(_settings.DefaultValueEngine?.TypeName);
+        s += System.Text.Json.JsonSerializer.Serialize(_settings.DefaultTextIndex);
+        s += System.Text.Json.JsonSerializer.Serialize(_settings.DefaultTextEngine?.TypeName);
+        s += System.Text.Json.JsonSerializer.Serialize(_settings.DefaultVectorIndex);
+        s += System.Text.Json.JsonSerializer.Serialize(_settings.DefaultVectorEngine?.TypeName);
         s += System.Text.Json.JsonSerializer.Serialize(_settings.EnableTextIndexByDefault);
         s += System.Text.Json.JsonSerializer.Serialize(_settings.PersistedValueIndexFolderPath);
         s += System.Text.Json.JsonSerializer.Serialize(_settings.EnableSemanticIndexByDefault);

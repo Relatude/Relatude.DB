@@ -160,8 +160,6 @@ public class GeoCoordinateQueryTests {
         var dm = new Datamodel();
         dm.Add<Place>();
         var settings = new SettingsLocal {
-            UsePersistedValueIndexesByDefault = true,
-            PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
         };
         var store = new NodeStore(DataStoreLocal.Open(dm, settings, io));
         var all = new List<Place>();

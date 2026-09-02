@@ -5,6 +5,7 @@ using Relatude.DB.NodeServer.Settings;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
+using Relatude.DB.DataStores;
 
 namespace Relatude.Server;
 
@@ -78,16 +79,43 @@ public class LateBindingsTests {
         }
     }
 
+    /// <summary>
+    /// The engine names the settings page suggests are resolved by name when the database opens, the
+    /// same way a typed one is, so a suggestion the bindings do not recognise would be taken as the
+    /// type name of a custom engine and fail then. Every suggestion is created here, with a budget,
+    /// and the built-in list each suggests is the one <see cref="IndexEngineTypes"/> declares.
+    /// </summary>
     [TestMethod]
-    public void SemanticIndexEnginesCanBeCreated() {
+    public void EverySuggestedIndexEngineTypeCanBeCreated() {
         var folder = Path.Combine(Path.GetTempPath(), "relatude.db.tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         try {
-            var ivs = LateBindings.CreateSemanticIndexEngine(AIIndexType.IVS, folder, 64);
-            Assert.IsInstanceOfType(ivs, typeof(ISemanticIndexEngine));
-            var hnsw = LateBindings.CreateSemanticIndexEngine(AIIndexType.HNSW, folder, 64);
-            Assert.IsInstanceOfType(hnsw, typeof(ISemanticIndexEngine));
-            Assert.ThrowsException<Exception>(() => LateBindings.CreateSemanticIndexEngine(AIIndexType.Memory, folder, null));
+            var lists = SettingsCatalog.Database.SelectMany(s => s.Groups).Select(g => g.List).OfType<SettingListDefinition>().ToArray();
+            foreach (var (path, known, create) in new (string, string[], Func<IndexEngineSettings, string, IDisposable>)[] {
+                ("LocalSettings.ValueIndexes", IndexEngineTypes.ValueEngines, (e, f) => LateBindings.CreateValueIndexEngine(e, f)),
+                ("LocalSettings.TextIndexes", IndexEngineTypes.TextEngines, (e, f) => LateBindings.CreateTextIndexEngine(e, f)),
+                ("LocalSettings.VectorIndexes", IndexEngineTypes.VectorEngines, (e, f) => LateBindings.CreateVectorIndexEngine(e, f)),
+            }) {
+                var suggested = lists.Single(l => l.Path == path).Fields.Single(f => f.Path == "TypeName").Suggestions;
+                Assert.IsNotNull(suggested, path + " suggests no engine types, so nothing is being checked.");
+                CollectionAssert.AreEquivalent(known, suggested!.Select(s => s.Value).ToArray(), path + " and IndexEngineTypes disagree.");
+                foreach (var name in known) {
+                    var engine = new IndexEngineSettings { Id = Guid.NewGuid(), TypeName = name, MaxMemoryUsageInMb = 64 };
+                    var engineFolder = NodeStoreContainer.EngineFolderPath(folder, engine);
+                    using var created = create(engine, engineFolder);
+                    Assert.IsNotNull(created, name + " could not be created.");
+                    Assert.IsTrue(Directory.Exists(engineFolder), name + " did not claim its folder " + engineFolder + ".");
+                    // the smallest budget must be a legal one for every engine
+                    using var minimal = create(new IndexEngineSettings { Id = Guid.NewGuid(), TypeName = name, MaxMemoryUsageInMb = 0 }, Path.Combine(folder, "min-" + name));
+                }
+            }
+            // names are matched without regard to case, so a hand-edited file is not tripped up by one
+            using var lower = LateBindings.CreateValueIndexEngine(new IndexEngineSettings { Id = Guid.NewGuid(), TypeName = "native" }, Path.Combine(folder, "lower"));
+            // and an unknown name fails with the name in the message, not with a reflection error
+            var bogus = new IndexEngineSettings { Id = Guid.NewGuid(), TypeName = "No.Such.Engine" };
+            var error = Assert.ThrowsException<Exception>(() => LateBindings.CreateValueIndexEngine(bogus, Path.Combine(folder, "bogus")));
+            StringAssert.Contains(error.Message, "No.Such.Engine");
+            StringAssert.Contains(error.Message, IndexEngineTypes.Sqlite);
         } finally {
             try { Directory.Delete(folder, true); } catch { }
         }

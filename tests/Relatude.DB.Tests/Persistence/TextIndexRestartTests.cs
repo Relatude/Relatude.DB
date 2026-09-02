@@ -4,6 +4,7 @@ using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.Query;
+using Relatude.Utils;
 
 namespace Relatude.Persistence;
 
@@ -40,12 +41,9 @@ public class TextIndexRestartTests {
     static NodeStore openStore(string dir, bool persistedText = true) {
         var dm = new Datamodel();
         dm.Add<DiskTextArticle>();
-        var settings = new SettingsLocal {
-            UsePersistedTextIndexesByDefault = persistedText,
-            PersistedTextIndexEngine = persistedText ? PersistedTextIndexEngine.Native : PersistedTextIndexEngine.Memory,
-        };
+        var settings = TestEngines.Settings(text: persistedText ? IndexEngineTypes.Native : null);
         return new NodeStore(DataStoreLocal.Open(dm, settings, new IOProviderDisk(dir), null, null, null, null,
-            persistedText ? () => new IndexEngines(null, new TextIndexEngine(dir)) : null));
+            persistedText ? () => IndexEngines.Single(textId: TestEngines.TextId, text: new TextIndexEngine(dir)) : null));
     }
     static void insertNodes(NodeStore store) {
         for (int i = 0; i < NodeCount; i++) {

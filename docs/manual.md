@@ -1472,8 +1472,9 @@ An `IOSettings` entry is a storage backend (`Memory`, `LocalDisk` or `AzureBlobS
 fields point at one by id. That indirection is what lets the log, the indexes and the file bytes
 live in different places without repeating connection details.
 
-`LocalSettings` is the per-store engine configuration — `PersistedValueIndexEngine` /
-`PersistedTextIndexEngine`, the disk-flush policy, cache sizes, auto-backup retention,
+`LocalSettings` is the per-store engine configuration — the index engines (`ValueIndexes`,
+`TextIndexes`, `VectorIndexes` and the `Default…Index` ids that pick among them), the disk-flush
+policy, cache sizes, auto-backup retention,
 `EnableTextIndexByDefault`, `DefaultCultureCode`, and so on. Every field has a working default;
 leave it out until you need it. [§12.1](#121-every-setting-in-relatudedbjson) documents every key in
 the file, object by object, with its default.
@@ -1487,11 +1488,9 @@ to install: `AzureAIProvider` (Azure OpenAI, the default) with
 `https://api.openai.com/v1` — point it at Mistral, Groq, Ollama or similar); and
 `AnthropicAIProvider` for Claude completions, which pairs with an OpenAI-compatible
 `EmbeddingServiceUrl`/`EmbeddingApiKey`/`EmbeddingModel` since Anthropic has no embeddings API.
-`IndexType` picks the vector index engine (`Memory`, `IVS` or `HNSW`) and
-`IndexCacheSizeInMb` sets the disk engines' memory budget (unset = engine default). For `HNSW` the
-graph itself always stays in memory — the budget dials whether the full-precision vectors are
-mirrored beside it; a budget smaller than the graph is exceeded (with a log warning), never traded
-for per-hop disk reads.
+The vector index engine itself is not an AI setting: it is chosen in `LocalSettings` like the
+other index kinds (`VectorIndexes` and `DefaultVectorIndex`, see below), and only exists on a
+container that has `AISettings`.
 
 ### 12.1 Every setting in relatude.db.json
 
@@ -1626,9 +1625,7 @@ Leave the array empty and the store creates an implicit default store on `IoData
   "ServiceUrl": "https://my-resource.openai.azure.com",
   "ApiKey": "…",
   "EmbeddingModel": "text-embedding-3-small",
-  "CompletionModel": "gpt-4o-mini",
-  "IndexType": "HNSW",
-  "IndexCacheSizeInMb": 512
+  "CompletionModel": "gpt-4o-mini"
 }
 ```
 
@@ -1651,8 +1648,6 @@ Leave the array empty and the store creates an implicit default store on `IoData
 | `MaxCountInBatch` | 500 | paragraphs per request, and |
 | `MaxCharsOfEach` | 20 000 | the point at which a single paragraph is truncated. |
 | `CacheType` | `Native` | Where computed embeddings are cached so a reindex does not pay for them twice: `Native` (a local KV file), `Sqlite`, `Memory`, or `None`. |
-| `IndexType` | `Memory` | The vector index engine: `Memory` (everything resident, rebuilt on open), `IVS` or `HNSW` (both disk-backed). Measured against each other in the [vector index benchmarks](vector-matrix.html). |
-| `IndexCacheSizeInMb` | engine default | Memory budget for the disk engines. For `HNSW` the graph itself is always resident and the budget dials whether the full-precision vectors are mirrored beside it; a budget smaller than the graph is exceeded with a log warning rather than traded for per-hop disk reads. |
 | `FilePath` | the index folder | Folder for the provider's own files (the embedding cache). Relative paths resolve against the root data folder. |
 
 #### `LocalSettings` — the engine
@@ -1660,18 +1655,31 @@ Leave the array empty and the store creates an implicit default store on `IoData
 Every key here has a working default. The groups below are ordered by how often you actually touch
 them.
 
-**Indexing.** What gets indexed at all, and by which engine.
+**Indexing.** What gets indexed at all, and by which engine. A fresh `relatude.db.json` comes with one
+`Native` value engine and one `Native` text engine, and the defaults pointing at them:
+
+```jsonc
+"LocalSettings": {
+  "ValueIndexes":  [ { "Id": "4d1f…", "TypeName": "Native", "MaxMemoryUsageInMb": 256 } ],
+  "TextIndexes":   [ { "Id": "9b2c…", "TypeName": "Native", "MaxMemoryUsageInMb": 256 } ],
+  "VectorIndexes": [ { "Id": "e7a0…", "TypeName": "HNSW",   "MaxMemoryUsageInMb": 512 } ],
+  "DefaultValueIndex":  "4d1f…",
+  "DefaultTextIndex":   "9b2c…",
+  "DefaultVectorIndex": "00000000-0000-0000-0000-000000000000"   // the memory index; the HNSW engine is ready to be chosen
+}
+```
 
 | Key | Default | What it does |
 |---|---|---|
 | `EnableTextIndexByDefault` | `false` | Include every node type in the BM25 index unless it opts out. Off means only types with `[Node(TextIndex = BoolValue.True)]` and properties with `IndexedByWords = true` are searchable. Turning it on is the usual first change to this file. |
 | `EnableSemanticIndexByDefault` | `false` | The same for the vector index. Costs an embedding call per node, so opt in per property unless you mean it. |
 | `EnableInstantTextIndexingByDefault` | `false` | Index text inside the transaction instead of queueing it. A node is searchable the instant the write returns, at the cost of write latency. |
-| `PersistedTextIndexEngine` | `Native` | `Native` (the built-in disk index), `Lucene` (needs `Relatude.DB.Plugins.Lucene`), `Sqlite` (needs `Relatude.DB.Plugins.Sqlite`), or `Memory`. |
-| `PersistedValueIndexEngine` | `Native` | Engine for the value indexes (`Indexed = true`): `Native`, `Sqlite` or `Memory`. |
-| `UsePersistedTextIndexesByDefault` | `true` | Whether a text index that does not state a storage type is persisted or memory-only. |
-| `UsePersistedValueIndexesByDefault` | `true` | The same for value indexes. Memory-only indexes are rebuilt from the log on every open — fine for small databases, slow for large ones. |
-| `PersistedValueIndexFolderPath` | beside the index IO provider | Where the persisted index engines write. Each engine claims its own subfolder, so they can share one path. |
+| `ValueIndexes` | `null` | The disk engines the value indexes (`Indexed = true`) may run on: an array of `{ "Id", "TypeName", "MaxMemoryUsageInMb" }`. `TypeName` is `Native` (the built-in key-value engine) or `Sqlite` (needs `Relatude.DB.Plugins.Sqlite`), or the full type name of a custom `IValueIndexEngine`. An entry is configuration only until a default points at it. |
+| `TextIndexes` | `null` | The same for the BM25 word indexes: `Native` (the built-in disk text index), `Lucene` (needs `Relatude.DB.Plugins.Lucene`) or `Sqlite` (FTS5 tables; with `Sqlite` value indexes too, one database serves both and every index change commits in one transaction). |
+| `VectorIndexes` | `null` | The same for the semantic indexes: `IVS` (clustered, cheap to build) or `HNSW` (graph, higher recall; the graph always stays resident, so a budget below it is exceeded with a warning). Compared in the [vector index benchmarks](vector-matrix.html). Only used on a container with `AISettings`. |
+| `DefaultValueIndex`, `DefaultTextIndex`, `DefaultVectorIndex` | `00000000-…` | The `Id` of the engine behind every index of that kind that does not say otherwise. The empty guid is the memory index: everything resident, saved with the state snapshot and otherwise rebuilt from the log at every open — fine for small databases, slow for large ones. Changing a default moves every index of that kind, so they are rebuilt at the next open. |
+| `MaxMemoryUsageInMb` (per engine) | `256` | What the engine may spend on caches and buffers. A bound, not an allocation: `0` makes it use as little as it can. Changing it never invalidates the engine's files. |
+| `PersistedValueIndexFolderPath` | beside the index IO provider | Where the disk engines write. Each engine gets its own folder there, named by its `Id`, so two engines of the same type can share one path. |
 
 **Culture, access and files.**
 

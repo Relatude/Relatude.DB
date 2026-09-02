@@ -61,11 +61,10 @@ public class KvArrayIndexLayoutTests {
 
     static NodeStore openStore(string dir) {
         var settings = new SettingsLocal {
-            UsePersistedValueIndexesByDefault = true,
-            PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
+            ValueIndexes = [TestEngines.NativeValue], DefaultValueIndex = TestEngines.ValueId,
         };
         return new NodeStore(DataStoreLocal.Open(datamodel(), settings, new IOProviderDisk(dir), null, null, null, null,
-            () => new IndexEngines(new NativeKvIndexStore(dir))));
+            () => IndexEngines.Single(TestEngines.ValueId, new NativeKvIndexStore(dir))));
     }
 
     static void insertItems(NodeStore store, int count) {

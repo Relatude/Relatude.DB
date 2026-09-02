@@ -63,13 +63,15 @@ public class RelatudeDBTester : ITester {
         Func<IndexEngines>? createIndex = null;
 
         if (_indexType == RelatudeIndexType.Sqlite) {
-            settings.PersistedValueIndexEngine = PersistedValueIndexEngine.Sqlite;
-            settings.UsePersistedValueIndexesByDefault = true;
-            createIndex = () => new IndexEngines(new SqliteIndexStore(_dataFolderPath!));
+            var engine = new IndexEngineSettings { Id = Guid.NewGuid(), TypeName = IndexEngineTypes.Sqlite };
+            settings.ValueIndexes = [engine];
+            settings.DefaultValueIndex = engine.Id;
+            createIndex = () => IndexEngines.Single(engine.Id, new SqliteIndexStore(_dataFolderPath!));
         } else if (_indexType == RelatudeIndexType.Native) {
-            settings.PersistedValueIndexEngine = PersistedValueIndexEngine.Native;
-            settings.UsePersistedValueIndexesByDefault = true;
-            createIndex = () => new IndexEngines(new NativeKvIndexStore(_dataFolderPath));
+            var engine = new IndexEngineSettings { Id = Guid.NewGuid(), TypeName = IndexEngineTypes.Native };
+            settings.ValueIndexes = [engine];
+            settings.DefaultValueIndex = engine.Id;
+            createIndex = () => IndexEngines.Single(engine.Id, new NativeKvIndexStore(_dataFolderPath));
         }
 
         var io = new IOProviderDisk(_dataFolderPath!);

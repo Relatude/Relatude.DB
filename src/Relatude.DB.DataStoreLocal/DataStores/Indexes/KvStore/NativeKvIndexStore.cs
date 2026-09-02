@@ -15,7 +15,13 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
         WalId = 1,
     }
     readonly Action<string>? _log;
-    public NativeKvIndexStore(string? folderPath, Action<string>? log = null) {
+    /// <summary>
+    /// <paramref name="maxMemoryBytes"/> bounds what the engine spends on its page cache and on
+    /// published-but-not-durable pages, two thirds to one; negative keeps the built-in sizes. It is
+    /// a budget, not an allocation: a small store never grows into it, and 0 asks for the smallest
+    /// caches the pager runs with.
+    /// </summary>
+    public NativeKvIndexStore(string? folderPath, Action<string>? log = null, long maxMemoryBytes = -1) {
         string? filePath;
         if (log == null) {
             log = (msg) => {
@@ -30,11 +36,18 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
         } else {
             filePath = null;// memory only
         }
-        var options = new BPlusTreeEngineOptions() {
-            PageCacheBytes = 16L * 1024 * 1024, // 16 MB
-            PendingWriteBytes = 32L * 1024 * 1024, // 32 MB
-            ValueCacheEntries = 0,
-        };
+        const long minBytes = 256L * 1024; // a handful of pages: the pager needs some room to work in at all
+        var options = maxMemoryBytes < 0
+            ? new BPlusTreeEngineOptions() {
+                PageCacheBytes = 16L * 1024 * 1024, // 16 MB
+                PendingWriteBytes = 32L * 1024 * 1024, // 32 MB
+                ValueCacheEntries = 0,
+            }
+            : new BPlusTreeEngineOptions() {
+                PageCacheBytes = Math.Max(minBytes, maxMemoryBytes / 3 * 2),
+                PendingWriteBytes = Math.Max(minBytes, maxMemoryBytes / 3),
+                ValueCacheEntries = 0,
+            };
         _fileStorage = new BPlusTreeStorageEngine(filePath, options);
         _settings = _fileStorage.OpenOrCreateSortedIntIndex<string>("settings");
         if (_kvFolder != null) _pendingFacetSets = FacetSetsFile.TryRead(Path.Combine(_kvFolder, FileKeyUtility.IndexEngine_FacetSetsFileKey), _fileStorage.GetTimestamp(), _log, out _lastPersistedCacheTimestamp);

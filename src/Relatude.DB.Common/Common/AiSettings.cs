@@ -6,8 +6,3 @@ public enum AIProviderCacheType {
     Memory = 2,
     Sqlite = 3,
 }
-public enum AIIndexType {
-    Memory = 0,
-    IVS = 1,
-    HNSW = 2,
-}

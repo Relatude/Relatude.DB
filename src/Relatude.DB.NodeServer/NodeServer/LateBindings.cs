@@ -1,4 +1,4 @@
-﻿using Relatude.DB.AI;
+using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Indexes;
@@ -33,48 +33,57 @@ public static class LateBindings {
         throw new Exception($"The type {typeName} does not implement the interface {typeof(T).FullName} " +
             $"or the constructor parameters do not match. Make sure the nuget package {nugetName} is correctly referenced.");
     }
-    public static IValueIndexEngine CreateValueIndexEngine(PersistedValueIndexEngine engine, string indexPath) {
-        switch (engine) {
-            case PersistedValueIndexEngine.Memory:
-                throw new Exception("The Memory engine is not a persisted value index engine. Please use Sqlite or Native.");
-            case PersistedValueIndexEngine.Native:
-                return new NativeKvIndexStore(indexPath);
-            case PersistedValueIndexEngine.Sqlite:
-                return create<IValueIndexEngine>("Relatude.DB.DataStores.Indexes.SqliteIndexStore", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [indexPath]);
-            default:
-                throw new Exception("Unknown PersistedValueIndexEngine: " + engine);
+
+    // ---- index engines, resolved by IndexEngineSettings.TypeName ------------------------------
+    // The built-in engines are known by the short names in IndexEngineTypes; anything else is taken
+    // as the full type name of a custom engine, constructed with the engine folder as its only
+    // argument (so a custom engine gets no memory budget). LateBindingsTests checks that every
+    // name the settings page suggests is recognised here.
+
+    /// <summary>The engine behind a value index engine entry, writing below <paramref name="engineFolder"/>.</summary>
+    public static IValueIndexEngine CreateValueIndexEngine(IndexEngineSettings engine, string engineFolder) {
+        var bytes = engine.MaxMemoryUsageInBytes;
+        if (IndexEngineTypes.Is(engine.TypeName, IndexEngineTypes.Native)) return new NativeKvIndexStore(engineFolder, null, bytes);
+        if (IndexEngineTypes.Is(engine.TypeName, IndexEngineTypes.Sqlite)) return CreateSqliteIndexStore(engineFolder, bytes);
+        return createCustom<IValueIndexEngine>(engine, engineFolder, "value", IndexEngineTypes.ValueEngines);
+    }
+    /// <summary>The engine behind a text index engine entry, writing below <paramref name="engineFolder"/>.
+    /// For SQLite, prefer <see cref="CreateSqliteIndexStore"/> shared with the value engine when both are
+    /// SQLite, so all index data commits in one SQLite transaction (see <see cref="NodeStoreContainer"/>).</summary>
+    public static ITextIndexEngine CreateTextIndexEngine(IndexEngineSettings engine, string engineFolder) {
+        var bytes = engine.MaxMemoryUsageInBytes;
+        if (IndexEngineTypes.Is(engine.TypeName, IndexEngineTypes.Native)) return new TextIndexEngine(engineFolder, new TextIndexOptions { MaxCacheBytes = bytes });
+        if (IndexEngineTypes.Is(engine.TypeName, IndexEngineTypes.Sqlite)) return (ITextIndexEngine)CreateSqliteIndexStore(engineFolder, bytes);
+        if (IndexEngineTypes.Is(engine.TypeName, IndexEngineTypes.Lucene)) {
+            return create<ITextIndexEngine>("Relatude.DB.DataStores.Indexes.LuceneTextIndexEngine", "Relatude.DB.Lucene", "Relatude.DB.Plugins.Lucene", [engineFolder, bytes]);
+        }
+        return createCustom<ITextIndexEngine>(engine, engineFolder, "text", IndexEngineTypes.TextEngines);
+    }
+    /// <summary>The engine behind a vector index engine entry, writing below <paramref name="engineFolder"/>.</summary>
+    public static ISemanticIndexEngine CreateVectorIndexEngine(IndexEngineSettings engine, string engineFolder) {
+        var bytes = engine.MaxMemoryUsageInBytes;
+        if (IndexEngineTypes.Is(engine.TypeName, IndexEngineTypes.IVS)) {
+            return new ISVEngine(engineFolder, new Relatude.DB.AI.ISV.VectorIndexOptions { MaxCacheBytes = bytes });
+        }
+        if (IndexEngineTypes.Is(engine.TypeName, IndexEngineTypes.HNSW)) {
+            return new HnswEngine(engineFolder, new Relatude.DB.AI.HNSW.VectorIndexOptions { MaxMemoryBytes = bytes });
+        }
+        return createCustom<ISemanticIndexEngine>(engine, engineFolder, "vector", IndexEngineTypes.VectorEngines);
+    }
+    /// <summary>The SQLite engine, which serves value indexes and FTS5 word indexes from one database.</summary>
+    public static IValueIndexEngine CreateSqliteIndexStore(string engineFolder, long maxMemoryBytes) {
+        return create<IValueIndexEngine>("Relatude.DB.DataStores.Indexes.SqliteIndexStore", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [engineFolder, maxMemoryBytes]);
+    }
+    static T createCustom<T>(IndexEngineSettings engine, string engineFolder, string kind, string[] known) {
+        if (string.IsNullOrWhiteSpace(engine.TypeName)) throw new Exception("The " + kind + " index engine " + engine.Id + " has no TypeName. Use one of " + string.Join(", ", known) + " or the full type name of a custom engine. ");
+        try {
+            return create<T>(engine.TypeName, null, null, [engineFolder]);
+        } catch (Exception err) {
+            throw new Exception("The " + kind + " index engine " + engine.Id + " names the type \"" + engine.TypeName + "\", which is neither a built-in engine ("
+                + string.Join(", ", known) + ") nor a custom engine type that could be created: " + err.Message, err);
         }
     }
-    public static ITextIndexEngine CreateLuceneTextIndexEngine(string indexPath) {
-        return create<ITextIndexEngine>("Relatude.DB.DataStores.Indexes.LuceneTextIndexEngine", "Relatude.DB.Lucene", "Relatude.DB.Plugins.Lucene", [indexPath]);
-    }
-    public static ITextIndexEngine CreateNativeTextIndexEngine(string indexPath) {
-        return new TextIndexEngine(indexPath);
-    }
-    public static ISemanticIndexEngine CreateSemanticIndexEngine(AIIndexType indexType, string indexPath, double? cacheSizeInMb) {
-        switch (indexType) {
-            case AIIndexType.IVS: {
-                    var options = new Relatude.DB.AI.ISV.VectorIndexOptions();
-                    if (cacheSizeInMb.HasValue) options.MaxCacheBytes = (long)(cacheSizeInMb.Value * 1024 * 1024);
-                    return new ISVEngine(indexPath, options);
-                }
-            case AIIndexType.HNSW: {
-                    var options = new Relatude.DB.AI.HNSW.VectorIndexOptions();
-                    if (cacheSizeInMb.HasValue) options.MaxMemoryBytes = (long)(cacheSizeInMb.Value * 1024 * 1024);
-                    return new HnswEngine(indexPath, options);
-                }
-            default:
-                throw new Exception("The " + indexType + " index type is not a persisted semantic index engine.");
-        }
-    }
-    /// <summary>
-    /// A SQLite engine serving only the FTS5 word indexes, for a configuration whose value indexes
-    /// use another engine. When the value indexes are SQLite too, do not call this: pass that
-    /// instance as the text engine as well, so all index data commits in one SQLite transaction.
-    /// </summary>
-    public static ITextIndexEngine CreateSqliteTextIndexEngine(string indexPath) {
-        return create<ITextIndexEngine>("Relatude.DB.DataStores.Indexes.SqliteIndexStore", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [indexPath]);
-    }
+
     public static IQueueStore CreateSqliteQueueStore(string queuePath) {
         return create<IQueueStore>("Relatude.DB.Tasks.SqliteQueueStore", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [queuePath]);
     }

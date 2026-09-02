@@ -1,6 +1,7 @@
 using Relatude.DB.Common;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
+using Relatude.Utils;
 
 namespace Relatude.Persistence;
 
@@ -172,22 +173,22 @@ public class TextIndexEngineTests {
         var logB = Guid.NewGuid();
         try {
             // mirrors WalFileBindingTests, for this engine: indexes open first, binding check after
-            using (var engines = new IndexEngines(null, new TextIndexEngine(dir))) {
-                var idx = openIndex((TextIndexEngine)engines.Text!);
+            using (var engines = IndexEngines.Single(textId: TestEngines.TextId, text: new TextIndexEngine(dir))) {
+                var idx = openIndex((TextIndexEngine)engines.TextEngine(TestEngines.TextId)!);
                 engines.BindToWalFile(logA, _ => { });
                 engines.BeginTransaction();
                 idx.Add(1, "hello world 1");
                 engines.CommitTransaction(1000);
                 engines.MakeDurable(1000);
-                Assert.AreEqual(1000, engines.Text!.GetTimestamp());
+                Assert.AreEqual(1000, engines.TextEngine(TestEngines.TextId)!.GetTimestamp());
             }
             // the log is now a different file: the engine must reset (timestamp 0 forces the
             // rebuild), adopt the new id, and stay usable afterwards
-            using (var engines = new IndexEngines(null, new TextIndexEngine(dir))) {
-                var idx = openIndex((TextIndexEngine)engines.Text!);
+            using (var engines = IndexEngines.Single(textId: TestEngines.TextId, text: new TextIndexEngine(dir))) {
+                var idx = openIndex((TextIndexEngine)engines.TextEngine(TestEngines.TextId)!);
                 engines.BindToWalFile(logB, _ => { });
-                Assert.AreEqual(logB, engines.Text!.GetWalFileId());
-                Assert.AreEqual(0, engines.Text!.GetTimestamp());
+                Assert.AreEqual(logB, engines.TextEngine(TestEngines.TextId)!.GetWalFileId());
+                Assert.AreEqual(0, engines.TextEngine(TestEngines.TextId)!.GetTimestamp());
                 Assert.AreEqual(0, unrankedIds(idx, "hello").Length, "reset index must be empty");
                 engines.BeginTransaction();
                 idx.Add(2, "hello world 2");
@@ -195,10 +196,10 @@ public class TextIndexEngineTests {
                 engines.MakeDurable(2000);
             }
             // next startup against the same log: the adopted binding holds, nothing resets again
-            using (var engines = new IndexEngines(null, new TextIndexEngine(dir))) {
-                var idx = openIndex((TextIndexEngine)engines.Text!);
+            using (var engines = IndexEngines.Single(textId: TestEngines.TextId, text: new TextIndexEngine(dir))) {
+                var idx = openIndex((TextIndexEngine)engines.TextEngine(TestEngines.TextId)!);
                 engines.BindToWalFile(logB, _ => { });
-                Assert.AreEqual(2000, engines.Text!.GetTimestamp());
+                Assert.AreEqual(2000, engines.TextEngine(TestEngines.TextId)!.GetTimestamp());
                 CollectionAssert.AreEqual(new[] { 2 }, unrankedIds(idx, "world"));
             }
         } finally {

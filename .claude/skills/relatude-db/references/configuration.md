@@ -78,9 +78,7 @@ One server, N containers (databases), each with its own IO providers, file store
         "ApiKey": "…",
         "EmbeddingModel": "text-embedding-3-small",
         "ModelDimensions": 1536,
-        "DefaultSemanticRatio": 0.5,
-        "IndexType": "Memory",             // Memory | IVS | HNSW — the semantic (vector) index engine
-        "IndexCacheSizeInMb": null         // memory budget for IVS/HNSW; null = engine default
+        "DefaultSemanticRatio": 0.5        // the vector index engine is chosen in LocalSettings, see below
       },
 
       "FileStoreSettings": [               // where FileValue bytes live
@@ -139,19 +137,32 @@ For `AzureBlobStorage`, the entry carries `BlobConnectionString`, `BlobContainer
 | `DefaultReadAccess` / `DefaultWriteAccess` | `Everyone` | ACL default |
 | `DefaultFileStoreEngine` / `DefaultFileStore` | `MultiFile` / unset | Where `FileValue` bytes go |
 
-**Index engines** — each index kind picks its own, and the combinations are independent:
+**Index engines** — each index kind has a list of engines it may run on and a default id that picks one; the empty guid is the memory index (resident, saved with the state snapshot, otherwise rebuilt from the log at every open):
+
+```jsonc
+"LocalSettings": {
+  "ValueIndexes":  [ { "Id": "4d1f…", "TypeName": "Native", "MaxMemoryUsageInMb": 256 } ],
+  "TextIndexes":   [ { "Id": "9b2c…", "TypeName": "Native", "MaxMemoryUsageInMb": 256 } ],
+  "VectorIndexes": [ { "Id": "e7a0…", "TypeName": "HNSW",   "MaxMemoryUsageInMb": 512 } ],
+  "DefaultValueIndex":  "4d1f…",
+  "DefaultTextIndex":   "9b2c…",
+  "DefaultVectorIndex": "00000000-0000-0000-0000-000000000000"
+}
+```
 
 | Field | Values | Default |
 |---|---|---|
-| `PersistedValueIndexEngine` | `Memory`, `Sqlite`, `Native` | `Native` |
-| `PersistedTextIndexEngine` | `Memory`, `Sqlite`, `Lucene`, `Native` | `Native` |
+| `ValueIndexes[].TypeName` | `Native`, `Sqlite`, or a custom `IValueIndexEngine` type name | — |
+| `TextIndexes[].TypeName` | `Native`, `Sqlite`, `Lucene`, or a custom `ITextIndexEngine` type name | — |
+| `VectorIndexes[].TypeName` | `IVS`, `HNSW`, or a custom `ISemanticIndexEngine` type name | — |
+| `…[].MaxMemoryUsageInMb` | int; `0` = as little as the engine can | `256` |
+| `DefaultValueIndex` / `DefaultTextIndex` / `DefaultVectorIndex` | an engine `Id`, or the empty guid for memory | empty (memory) |
 | `PersistedQueueStoreEngine` | `Memory`, `Native`, `Sqlite` | `Native` |
-| `UsePersisted…IndexesByDefault` | bool | `true` |
 | `PersistedValueIndexFolderPath` | path | beside the data |
 
-A persisted default combined with a `Memory` engine silently leaves that index in memory — the store logs a note when it spots the combination, and it is worth reading, because an unexpectedly in-memory index only shows up later as a slow start.
+Only the engines the defaults point at are created; the other entries wait to be chosen. Each engine writes to its own folder below the index folder, named by its `Id`, so two `Native` engines with different budgets can coexist. `Sqlite` in both the value and text default means one database serving both, committing every index change in one transaction. A property that asks for `IndexStorageType.Persisted` while its kind defaults to memory stays in memory — the store logs a note at open. A fresh `relatude.db.json` (from the server or `relatude init`) seeds one `Native` value engine and one `Native` text engine; a plain `new SettingsLocal()` in code has no engines and keeps everything in memory. Files from before this shape (`PersistedValueIndexEngine`, `UsePersisted…ByDefault`, `AISettings.IndexType`/`IndexCacheSizeInMb`) are migrated once by the loader, and the old per-type engine folders under `indexes/` are deleted at the first open, so those indexes rebuild from the log once.
 
-The semantic (vector) index engine is not chosen here but on the container's `AISettings`: `IndexType` picks `Memory` (in-memory flat index, persisted through state files), `IVS` (disk-based IVF index) or `HNSW` (disk-based HNSW graph index), and `IndexCacheSizeInMb` sets the engine's memory budget (unset = engine default: 256 MB for IVS, 100 MB for HNSW). For HNSW the routing graph always stays resident in memory (that is the budget's floor — a smaller budget is exceeded, with a log warning); the budget dials whether the full-precision float vectors are mirrored in memory too or read from disk only to re-score final candidates. Semantic indexes exist only when `AISettings` is configured.
+The memory budget is per engine and applies to what the engine can bound: the Native value engine's page cache and write buffers, the Native text index's decoded-block cache, IVS's cluster cache, HNSW's float mirror (the graph is always resident — a budget below it is exceeded with a log warning), SQLite's page cache, Lucene's writer buffer. Changing it never invalidates an engine's files.
 
 **Durability and flushing** — the defaults favour throughput; raise them for stricter durability:
 
@@ -365,7 +376,7 @@ Failed logins are rate limited per IP (30 per minute). Only the admin UI and its
 - **Lifecycle callbacks never crash the server** — exceptions are logged to the startup log and swallowed.
 - **Seeding in `OnStoreOpen` blocks the store from opening.** Use `OnStoreOpenBackground`.
 - **`WaitUntilOpen: false` means requests can arrive before the store is open**, answered with a 503 progress page. Gate your own middleware on `RelatudeDBRuntime.IsReady`.
-- **A `Memory` index engine plus `UsePersisted…IndexesByDefault: true` silently keeps that index in memory.** The startup log says so; nothing else will.
+- **A `Default…Index` of the empty guid keeps that whole index kind in memory, whatever engines are listed** — and a property asking for `IndexStorageType.Persisted` then stays in memory too. The startup log says so; nothing else will. A `Default…Index` naming an id that is not in its list stops the database from opening, by name.
 - **File converters are code-only.** No JSON setting adds them.
 - **A key overridden from configuration cannot be changed in the admin UI** — the edit is stripped before the save and configuration wins on the next load. The startup log lists the overridden paths.
 - **Configuration overlays cannot remove array elements or set a value to null.** Change the file itself for that.

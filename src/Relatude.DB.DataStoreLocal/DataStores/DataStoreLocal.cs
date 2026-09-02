@@ -111,7 +111,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         _ai = ai;
         if (_ai != null) _ai.LogCallback = (string text) => Log(SystemLogEntryType.Info, text);
         _settings = settings ?? new();
-        
+        _settings.ValidateIndexEngines(); // a default naming an engine its list lacks fails here, by name, not inside index creation
+
         var treeUrlOptions = settings?.UrlOptions ?? new DefaultUrlManagerOptions();
         urlManager ??= new DefaultUrlManager(treeUrlOptions); // without a parent relation the built-in manager runs flat: every node at "/{address}"
         _urls = new UrlSystem(this, urlManager);

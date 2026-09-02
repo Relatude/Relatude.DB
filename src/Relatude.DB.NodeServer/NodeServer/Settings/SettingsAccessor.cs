@@ -209,6 +209,9 @@ public static class SettingsAccessor {
                 // arrays and lists are collections of things, not settings: the UI edits them elsewhere
                 if (valueType.IsArray || (valueType.IsGenericType && typeof(System.Collections.IEnumerable).IsAssignableFrom(valueType))) continue;
                 if (!valueType.IsClass) continue;
+                // a computed object (the engine a default id resolves to) is a view of other settings, not a
+                // container of its own: nothing below it can be written, so nothing below it is a setting
+                if (property.SetMethod?.IsPublic != true) continue;
                 foreach (var nested in walk(valueType, prefix + property.Name + ".", depth - 1, seen)) yield return nested;
             }
             seen.Remove(type);

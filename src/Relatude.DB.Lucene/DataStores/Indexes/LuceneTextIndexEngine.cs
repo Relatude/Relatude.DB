@@ -26,12 +26,21 @@ public class LuceneTextIndexEngine : IndexEngineBase, ITextIndexEngine {
     readonly Dictionary<string, (WordIndexLucene index, IWordIndex wrapped)> _indexes = [];
     Guid _walFileId;
     long _currentTimestamp; // last published (committed) transaction; made durable in MakeDurableCore
-    public LuceneTextIndexEngine(string baseIndexFolderPath) {
+    public LuceneTextIndexEngine(string baseIndexFolderPath) : this(baseIndexFolderPath, -1) { }
+    /// <summary>
+    /// <paramref name="maxMemoryBytes"/> caps each word index's writer RAM buffer, the memory knob
+    /// Lucene offers; negative keeps Lucene's default. Lucene refuses a buffer below 1 MB, so that is
+    /// the floor a budget of 0 lands on.
+    /// </summary>
+    public LuceneTextIndexEngine(string baseIndexFolderPath, long maxMemoryBytes) {
         _luceneFolderPath = Path.Combine(baseIndexFolderPath, FileKeyUtility.IndexEngine_LuceneFolderKey);
         if (!Directory.Exists(_luceneFolderPath)) Directory.CreateDirectory(_luceneFolderPath);
+        if (maxMemoryBytes >= 0) RamBufferSizeMb = Math.Max(1.0, maxMemoryBytes / (1024.0 * 1024.0));
         _walFileId = readMarkerFile();
     }
     public override string Name => "Lucene";
+    /// <summary>The writer RAM buffer every index of this engine is created with; null for Lucene's default.</summary>
+    internal double? RamBufferSizeMb { get; }
 
     /// <summary>The WAL file id the engine's indexes belong to; the indexes read it when they
     /// validate their commit data on open and stamp it on every commit.</summary>

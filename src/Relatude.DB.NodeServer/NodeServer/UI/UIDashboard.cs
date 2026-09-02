@@ -216,11 +216,14 @@ sealed class UIDashboard {
     static object engines(Settings.NodeStoreContainerSettings settings) {
         var local = settings.LocalSettings;
         return new {
-            TextIndex = local?.PersistedTextIndexEngine.ToString() ?? "-",
-            ValueIndex = local?.PersistedValueIndexEngine.ToString() ?? "-",
+            TextIndex = local == null ? "-" : describe(local.DefaultTextEngine),
+            ValueIndex = local == null ? "-" : describe(local.DefaultValueEngine),
             Queue = local?.PersistedQueueStoreEngine.ToString() ?? "-",
-            SemanticIndex = settings.AISettings?.IndexType.ToString(),
+            // semantic indexes only exist with an AI provider; null reads as "off" in the UI
+            SemanticIndex = settings.AISettings == null || local == null ? null : describe(local.DefaultVectorEngine),
         };
+        // the default engine of a kind, or the memory index when the default names none
+        static string describe(IndexEngineSettings? engine) => engine == null ? "Memory" : engine.ToString();
     }
 
     /// <summary>What the files take while the database is closed, read straight off the providers.</summary>

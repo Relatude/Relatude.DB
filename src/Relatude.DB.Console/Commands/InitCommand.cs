@@ -34,7 +34,7 @@ public static class InitCommand {
             Name = args.Get("name") ?? "MyDatabase",
             AutoOpen = true,
             WaitUntilOpen = false,
-            LocalSettings = new SettingsLocal(),
+            LocalSettings = SettingsLocal.CreateWithNativeEngines(),
             IOSettings = [io],
             IoDatabase = io.Id,
             IoBackup = io.Id,

@@ -1,3 +1,4 @@
+﻿using Relatude.DB.DataStores;
 using Relatude.DB.IO;
 using Relatude.DB.NodeServer;
 using Relatude.DB.NodeServer.Settings;
@@ -62,9 +63,9 @@ public static class SettingsCommand {
             if (local != null) {
                 Output.WriteLine("  engines");
                 Output.Table([
-                    ("value index", local.PersistedValueIndexEngine + (local.UsePersistedValueIndexesByDefault ? ", persisted by default" : ", memory by default")),
-                    ("text index", local.PersistedTextIndexEngine + (local.EnableTextIndexByDefault ? ", enabled by default" : ", off by default")),
-                    ("semantic index", (c.AISettings?.IndexType ?? Relatude.DB.Common.AIIndexType.Memory) + (local.EnableSemanticIndexByDefault ? ", enabled by default" : ", off by default")),
+                    ("value index", engine(local.DefaultValueEngine)),
+                    ("text index", engine(local.DefaultTextEngine) + (local.EnableTextIndexByDefault ? ", enabled by default" : ", off by default")),
+                    ("semantic index", (c.AISettings == null ? "no AI provider" : engine(local.DefaultVectorEngine)) + (local.EnableSemanticIndexByDefault ? ", enabled by default" : ", off by default")),
                     ("task queue", local.PersistedQueueStoreEngine + (local.AutoDequeTasks ? ", running" : ", not running")),
                     ("file store", local.DefaultFileStoreEngine.ToString()),
                     ("index folder", local.PersistedValueIndexFolderPath ?? "(with the index provider)"),
@@ -72,6 +73,14 @@ public static class SettingsCommand {
                     ("auto truncate", local.AutoTruncate ? "on" : "off"),
                     ("default culture", local.DefaultCultureCode ?? "(none)"),
                 ], "    ");
+                var engines = (local.ValueIndexes ?? []).Select(e => ("value", e, e.Id == local.DefaultValueIndex))
+                    .Concat((local.TextIndexes ?? []).Select(e => ("text", e, e.Id == local.DefaultTextIndex)))
+                    .Concat((local.VectorIndexes ?? []).Select(e => ("vector", e, e.Id == local.DefaultVectorIndex)))
+                    .ToArray();
+                if (engines.Length > 0) {
+                    Output.WriteLine("  index engines");
+                    Output.Table(engines.Select(x => (x.Item1, x.Item2 + "  " + x.Item2.Id + (x.Item3 ? "  (default)" : string.Empty))), "    ");
+                }
             }
             if (c.FileStoreSettings is { Length: > 0 }) {
                 Output.WriteLine("  file stores");
@@ -85,8 +94,6 @@ public static class SettingsCommand {
                     ("type", ai.TypeName ?? "-"),
                     ("embedding model", ai.EmbeddingModel ?? "-"),
                     ("key", string.IsNullOrEmpty(ai.ApiKey) ? "not set" : "set (not shown)"),
-                    ("index type", ai.IndexType.ToString()),
-                    ("index cache", ai.IndexCacheSizeInMb.HasValue ? ai.IndexCacheSizeInMb.Value + " MB" : "(engine default)"),
                 ], "    ");
             }
             Output.WriteLine("  datamodel sources");
@@ -150,11 +157,12 @@ public static class SettingsCommand {
             AISettings = ai == null ? null : new {
                 ai.Name, ai.TypeName, ai.EmbeddingModel,
                 ApiKeySet = !string.IsNullOrEmpty(ai.ApiKey),
-                IndexType = ai.IndexType.ToString(),
-                ai.IndexCacheSizeInMb,
             },
         };
     }
+
+    // the default engine of a kind as one line, or the memory index when the default names none
+    static string engine(IndexEngineSettings? e) => e == null ? "Memory" : e.ToString();
 
     static string provider(NodeStoreContainerSettings c, Guid? id, Target target) {
         if (id == null || id == Guid.Empty) return "(not set)";

@@ -5,6 +5,7 @@ using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.Query;
+using Relatude.Utils;
 
 namespace Relatude.Persistence;
 
@@ -43,39 +44,17 @@ public class IndexEngineCombinationTests {
         return dir;
     }
 
-    // Deliberately mirrors NodeStoreContainer.getIndexEngineFactory: same slot assignment, and the
-    // same rule that SQLite text reuses the SQLite value engine instance instead of opening the
-    // database twice (IndexEngines then de-duplicates its lifecycle calls by reference).
-    static Func<IndexEngines>? engineFactory(PersistedValueIndexEngine v, PersistedTextIndexEngine t, string dir) {
-        if (v == PersistedValueIndexEngine.Memory && t == PersistedTextIndexEngine.Memory) return null;
-        return () => {
-            IValueIndexEngine? value = v switch {
-                PersistedValueIndexEngine.Memory => null,
-                PersistedValueIndexEngine.Native => new NativeKvIndexStore(dir),
-                PersistedValueIndexEngine.Sqlite => new SqliteIndexStore(dir),
-                _ => throw new NotSupportedException(v.ToString()),
-            };
-            ITextIndexEngine? text = t switch {
-                PersistedTextIndexEngine.Memory => null,
-                PersistedTextIndexEngine.Lucene => new LuceneTextIndexEngine(dir),
-                PersistedTextIndexEngine.Sqlite => v == PersistedValueIndexEngine.Sqlite
-                    ? (ITextIndexEngine)value! // dual role: one database, one connection, one transaction
-                    : new SqliteIndexStore(dir),
-                _ => throw new NotSupportedException(t.ToString()),
-            };
-            return new IndexEngines(value, text);
-        };
+    // Runs the factory the server host uses, so the slot assignment and the SQLite dual-role rule
+    // (one instance serving value and text indexes when both are Sqlite) are the production ones.
+    // "Memory" stands for no engine: the default id stays Guid.Empty.
+    static Func<IndexEngines>? engineFactory(string v, string t, string dir) {
+        return TestEngines.Factory(dir, TestEngines.Settings(value: v, text: t));
     }
 
-    static NodeStore openStore(string dir, PersistedValueIndexEngine v, PersistedTextIndexEngine t) {
+    static NodeStore openStore(string dir, string v, string t) {
         var dm = new Datamodel();
         dm.Add<CombiDoc>();
-        var settings = new SettingsLocal {
-            PersistedValueIndexEngine = v,
-            PersistedTextIndexEngine = t,
-            UsePersistedValueIndexesByDefault = v != PersistedValueIndexEngine.Memory,
-            UsePersistedTextIndexesByDefault = t != PersistedTextIndexEngine.Memory,
-        };
+        var settings = TestEngines.Settings(value: v, text: t);
         return new NodeStore(DataStoreLocal.Open(dm, settings, new IOProviderDisk(dir), null, null, null, null,
             engineFactory(v, t, dir)));
     }
@@ -103,16 +82,16 @@ public class IndexEngineCombinationTests {
     }
 
     [DataTestMethod]
-    [DataRow(PersistedValueIndexEngine.Memory, PersistedTextIndexEngine.Memory)]
-    [DataRow(PersistedValueIndexEngine.Memory, PersistedTextIndexEngine.Lucene)]
-    [DataRow(PersistedValueIndexEngine.Memory, PersistedTextIndexEngine.Sqlite)]
-    [DataRow(PersistedValueIndexEngine.Native, PersistedTextIndexEngine.Memory)]
-    [DataRow(PersistedValueIndexEngine.Native, PersistedTextIndexEngine.Lucene)]
-    [DataRow(PersistedValueIndexEngine.Native, PersistedTextIndexEngine.Sqlite)]
-    [DataRow(PersistedValueIndexEngine.Sqlite, PersistedTextIndexEngine.Memory)]
-    [DataRow(PersistedValueIndexEngine.Sqlite, PersistedTextIndexEngine.Lucene)]
-    [DataRow(PersistedValueIndexEngine.Sqlite, PersistedTextIndexEngine.Sqlite)]
-    public void EngineCombination_AnswersQueriesAndSurvivesRestart(PersistedValueIndexEngine v, PersistedTextIndexEngine t) {
+    [DataRow("Memory", "Memory")]
+    [DataRow("Memory", "Lucene")]
+    [DataRow("Memory", "Sqlite")]
+    [DataRow("Native", "Memory")]
+    [DataRow("Native", "Lucene")]
+    [DataRow("Native", "Sqlite")]
+    [DataRow("Sqlite", "Memory")]
+    [DataRow("Sqlite", "Lucene")]
+    [DataRow("Sqlite", "Sqlite")]
+    public void EngineCombination_AnswersQueriesAndSurvivesRestart(string v, string t) {
         var dir = tempDir();
         var combination = "(values=" + v + ", text=" + t + ")";
         try {

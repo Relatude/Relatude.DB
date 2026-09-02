@@ -47,8 +47,7 @@ public class RelatudeDBServerSettings {
             Path = Defaults.DataFolderPath,
             IOType = IOTypes.LocalDisk,
         };
-        var local = new SettingsLocal() {
-        };
+        var local = SettingsLocal.CreateWithNativeEngines();
         var c = new NodeStoreContainerSettings() {
             Id = Guid.NewGuid(),
             Name = "MyDatabase",

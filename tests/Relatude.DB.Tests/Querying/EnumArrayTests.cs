@@ -34,9 +34,8 @@ public class EnumArrayTests {
         dm.Add<EnumArrayProduct>();
         var store = persistedIndexes
             ? new NodeStore(DataStoreLocal.Open(dm, new SettingsLocal() {
-                UsePersistedValueIndexesByDefault = true,
-                PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
-            }, null, null, null, null, null, () => new DB.DataStores.Indexes.IndexEngines(new DB.DataStores.Indexes.KvStore.NativeKvIndexStore(null))))
+                ValueIndexes = [TestEngines.NativeValue], DefaultValueIndex = TestEngines.ValueId,
+            }, null, null, null, null, null, () => DB.DataStores.Indexes.IndexEngines.Single(TestEngines.ValueId, new DB.DataStores.Indexes.KvStore.NativeKvIndexStore(null))))
             : new NodeStore(DataStoreLocal.Open(dm));
         products = new List<EnumArrayProduct>();
         for (var i = 1; i <= 30; i++) {
@@ -161,11 +160,10 @@ public class EnumArrayTests {
         dm.Add<EnumArrayProduct>();
         if (persistedIndexes) {
             var settings = new SettingsLocal {
-                UsePersistedValueIndexesByDefault = true,
-                PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
+                ValueIndexes = [TestEngines.NativeValue], DefaultValueIndex = TestEngines.ValueId,
             };
             return new NodeStore(DataStoreLocal.Open(dm, settings, new Relatude.DB.IO.IOProviderDisk(dir), null, null, null, null,
-                () => new DB.DataStores.Indexes.IndexEngines(new DB.DataStores.Indexes.KvStore.NativeKvIndexStore(dir))));
+                () => DB.DataStores.Indexes.IndexEngines.Single(TestEngines.ValueId, new DB.DataStores.Indexes.KvStore.NativeKvIndexStore(dir))));
         }
         return new NodeStore(DataStoreLocal.Open(dm, new SettingsLocal(), new Relatude.DB.IO.IOProviderDisk(dir), null, null, null, null, null));
     }

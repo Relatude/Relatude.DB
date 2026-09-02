@@ -30,7 +30,13 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
     readonly Dictionary<string, IWordIndex> _wordIndexes = []; // opened word indexes, for idempotent re-open
     public string GetTableName(string id) => _idxs[id].Table;
     readonly string _sqliteFolder;
-    public SqliteIndexStore(string indexPath) {
+    public SqliteIndexStore(string indexPath) : this(indexPath, -1) { }
+    /// <summary>
+    /// <paramref name="maxMemoryBytes"/> is the page cache budget of the connection, applied through
+    /// the cache_size pragma: 0 asks for the smallest cache SQLite runs with, a negative value keeps
+    /// SQLite's own default. It is a suggestion to SQLite, not a hard limit.
+    /// </summary>
+    public SqliteIndexStore(string indexPath, long maxMemoryBytes) {
         // own subfolder below the shared index folder: other engines (nativekv, lucene) claim theirs
         var sqlLiteFolder = _sqliteFolder = Path.Combine(indexPath, FileKeyUtility.IndexEngine_SqliteFolderKey);
         if (!Directory.Exists(sqlLiteFolder)) Directory.CreateDirectory(sqlLiteFolder);
@@ -41,6 +47,11 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
         var cmd = _connection.CreateCommand();
         cmd.CommandText = "PRAGMA journal_mode=WAL";
         cmd.ExecuteNonQuery();
+        if (maxMemoryBytes >= 0) {
+            // negative cache_size is a size in KiB rather than a page count; 1 KiB is the floor since 0 would fall back to the default
+            cmd.CommandText = "PRAGMA cache_size=-" + Math.Max(1, maxMemoryBytes / 1024);
+            cmd.ExecuteNonQuery();
+        }
         if (!doesTableExist(_settingsTableName)) createSettingsTable();
     }
     bool doesTableExist(string tableName) {

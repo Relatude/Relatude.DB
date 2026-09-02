@@ -2,6 +2,7 @@
 using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
+using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Files;
 using Relatude.DB.DataStores.Indexes;
@@ -87,19 +88,11 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         // The index engines own their files on the local disk, in a folder that is not necessarily
         // below any of the IO providers above (PersistedValueIndexFolderPath can point anywhere),
         // so the loop alone can leave engine data behind - and this method exists to force a full
-        // rebuild from the log. Deleting the whole folder covers every engine subfolder at once.
-        if (usesPersistedIndexEngines(settingsLocal, semanticIndexType())) {
-            var indexFolder = resolveIndexFolderPath(settingsLocal, getLocalDiskFolder(ioIndexes, ioDatabase));
-            if (Directory.Exists(indexFolder)) Directory.Delete(indexFolder, true);
-        }
+        // rebuild from the log. Deleting the whole folder covers every engine's folder at once,
+        // those of engines no default points at any more included.
+        var indexFolder = resolveIndexFolderPath(settingsLocal, getLocalDiskFolder(ioIndexes, ioDatabase));
+        if (Directory.Exists(indexFolder)) Directory.Delete(indexFolder, true);
     }
-
-    AIIndexType semanticIndexType() => settings.AISettings?.IndexType ?? AIIndexType.Memory;
-
-    static bool usesPersistedIndexEngines(SettingsLocal local, AIIndexType semanticIndexType)
-        => local.PersistedValueIndexEngine != PersistedValueIndexEngine.Memory
-        || local.PersistedTextIndexEngine != PersistedTextIndexEngine.Memory
-        || semanticIndexType != AIIndexType.Memory;
 
     /// <summary>
     /// The local disk folder for the plugins that own their storage: the index engines, the sqlite
@@ -116,8 +109,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     /// <summary>
     /// The folder the persisted index engines write to: <see cref="SettingsLocal.PersistedValueIndexFolderPath"/>
     /// when set, otherwise <paramref name="localDiskFolder"/>; a relative path is rooted against the
-    /// server data folder, as for the queue store. Every engine claims its own subfolder below the
-    /// returned path (nativekv, sqlite, lucene), which is what lets them share one index folder.
+    /// server data folder, as for the queue store. Every engine gets its own folder below the
+    /// returned path, named by its id (<see cref="EngineFolderPath"/>), which is what lets two
+    /// engines of the same type share one index folder.
     /// </summary>
     string resolveIndexFolderPath(SettingsLocal local, string localDiskFolder) {
         var path = local.PersistedValueIndexFolderPath;
@@ -125,19 +119,41 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         if (!Path.IsPathRooted(path)) path = server.RootDataFolderPath.SuperPathCombine(path);
         return Path.Combine(path, FileKeyUtility.IndexStoreFolderKey);
     }
+    /// <summary>The folder one engine writes to: its id, below the index folder. The engine keeps its
+    /// own subfolder inside (nativekv, sqlite, lucene, textindex, vectorindex), as it always did.</summary>
+    public static string EngineFolderPath(string indexPath, IndexEngineSettings engine) => Path.Combine(indexPath, engine.Id.ToString("N"));
+
+    /// <summary>
+    /// The folders the engines wrote to before each engine had a folder of its own: their subfolders
+    /// sat directly below the index folder, one per engine type. Nothing reads them any more, and
+    /// a folder that is never read still holds the whole index on disk, so they are deleted at the
+    /// first open after the change. The indexes they held are rebuilt from the log - once.
+    /// </summary>
+    static readonly string[] legacyEngineFolders = [
+        FileKeyUtility.IndexEngine_NativeKvFolderKey, FileKeyUtility.IndexEngine_SqliteFolderKey, FileKeyUtility.IndexEngine_LuceneFolderKey,
+        FileKeyUtility.IndexEngine_TextIndexFolderKey, FileKeyUtility.IndexEngine_VectorIndexFolderKey, "vectorindex-hnsw",
+    ];
+    internal static void DeleteLegacyEngineFolders(string indexPath, List<string> toLog) {
+        if (!Directory.Exists(indexPath)) return;
+        foreach (var name in legacyEngineFolders) {
+            var folder = Path.Combine(indexPath, name);
+            if (!Directory.Exists(folder)) continue;
+            Directory.Delete(folder, true);
+            toLog.Add("Deleted the index engine folder \"" + name + "\" left from before each engine had its own folder; the indexes it held are rebuilt from the log. ");
+        }
+    }
 
     /// <summary>
     /// Builds the factory for this container's persisted index engines, or null when every index
     /// kind stays in memory (memory indexes persist themselves through state files).
     ///
-    /// <para>The engines are independent: each index kind picks its own, and every combination of
-    /// <see cref="SettingsLocal.PersistedValueIndexEngine"/>,
-    /// <see cref="SettingsLocal.PersistedTextIndexEngine"/> and the AI settings' index type is
-    /// supported. The one case that is not simply "one engine per kind" is SQLite text: the word
-    /// indexes are FTS5 tables inside a SQLite database, so when the values are SQLite too, a single
-    /// instance fills both roles and all index data commits in one SQLite transaction
-    /// (<see cref="IndexEngines"/> de-duplicates the lifecycle calls by reference); otherwise a
-    /// standalone SQLite engine holds the word index tables on its own.</para>
+    /// <para>Only the engines the three defaults name are created: an entry in the engine lists that
+    /// nothing points at is configuration, not a running engine. The one case that is not simply "one
+    /// engine per default" is SQLite text: the word indexes are FTS5 tables inside a SQLite database,
+    /// so when the value default is SQLite too, a single instance fills both roles - registered under
+    /// both ids - and all index data commits in one SQLite transaction (<see cref="IndexEngines"/>
+    /// de-duplicates the lifecycle calls by reference); otherwise a standalone SQLite engine holds
+    /// the word index tables on its own.</para>
     ///
     /// <para>The returned factory runs once per data-store initialization — which happens again when
     /// a bad state file forces a reload — so it must build fresh engine instances every time.
@@ -145,38 +161,49 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     /// misconfigured path is reported by <see cref="Initialize"/> rather than from deep inside the
     /// data store constructor.</para>
     /// </summary>
-    Func<IndexEngines>? getIndexEngineFactory(SettingsLocal local, string indexPath, List<string> toLog, AIProviderSettings? aiSettings) {
-        var valueEngine = local.PersistedValueIndexEngine;
-        var textEngine = local.PersistedTextIndexEngine;
-        var semanticEngine = aiSettings?.IndexType ?? AIIndexType.Memory;
-        var semanticCacheSizeInMb = aiSettings?.IndexCacheSizeInMb;
-        if (!usesPersistedIndexEngines(local, semanticEngine)) {
+    public static Func<IndexEngines>? CreateIndexEngineFactory(SettingsLocal local, string indexPath, bool hasAiProvider, Datamodel? datamodel, List<string> toLog) {
+        local.ValidateIndexEngines(); // the data store checks too, but the message is better read here, before anything is created
+        DeleteLegacyEngineFolders(indexPath, toLog);
+        var value = local.DefaultValueEngine;
+        var text = local.DefaultTextEngine;
+        var vector = hasAiProvider ? local.DefaultVectorEngine : null;
+        if (local.DefaultVectorIndex != Guid.Empty && !hasAiProvider)
+            toLog.Add("Note: DefaultVectorIndex names an engine, but without AI settings there are no semantic indexes to put in it.");
+        // a property asking to be persisted while its kind defaults to memory has no engine to go to
+        // and stays in memory. That is a valid configuration, but silent - and an unexpectedly
+        // in-memory index is hard to spot later:
+        if (value == null && datamodel != null && datamodel.Properties.Values.Any(p => p.IndexType == IndexStorageType.Persisted))
+            toLog.Add("Note: properties ask for a persisted value index while DefaultValueIndex is the memory index, so those indexes stay in memory.");
+        if (text == null && datamodel != null && datamodel.Properties.Values.Any(p => p is StringPropertyModel s && s.TextIndexType == IndexStorageType.Persisted))
+            toLog.Add("Note: properties ask for a persisted text index while DefaultTextIndex is the memory index, so those indexes stay in memory.");
+        if (value == null && text == null && vector == null) {
             toLog.Add("Index engines: none. All indexes are in memory, persisted through state files.");
             return null;
         }
-        toLog.Add("Index engines: " + valueEngine + ", " + textEngine + ", " + semanticEngine);
-        // A persisted default that no engine can serve falls back to memory indexes. That is a valid
-        // configuration, but silent - and an unexpectedly in-memory index is hard to spot later:
-        if (local.UsePersistedValueIndexesByDefault && valueEngine == PersistedValueIndexEngine.Memory)
-            toLog.Add("Note: UsePersistedValueIndexesByDefault is on while PersistedValueIndexEngine is Memory, so value indexes stay in memory.");
-        if (local.UsePersistedTextIndexesByDefault && textEngine == PersistedTextIndexEngine.Memory)
-            toLog.Add("Note: UsePersistedTextIndexesByDefault is on while PersistedTextIndexEngine is Memory, so word indexes stay in memory.");
+        toLog.Add("Index engines: value " + describe(value) + "; text " + describe(text) + "; vector " + (hasAiProvider ? describe(vector) : "none, no AI provider"));
+        var sharedSqlite = value != null && text != null
+            && IndexEngineTypes.Is(value.TypeName, IndexEngineTypes.Sqlite) && IndexEngineTypes.Is(text.TypeName, IndexEngineTypes.Sqlite);
+        if (sharedSqlite && value!.MaxMemoryUsageInMb != text!.MaxMemoryUsageInMb)
+            toLog.Add("Note: the value and text indexes share one SQLite database, which runs on the value engine's memory budget; the text engine's is not used.");
         return () => {
-            var value = valueEngine == PersistedValueIndexEngine.Memory ? null
-                : LateBindings.CreateValueIndexEngine(valueEngine, indexPath);
-            ITextIndexEngine? text = textEngine switch {
-                PersistedTextIndexEngine.Memory => null,
-                PersistedTextIndexEngine.Sqlite => valueEngine == PersistedValueIndexEngine.Sqlite
-                    ? (ITextIndexEngine)value! // dual role: one database, one connection, one transaction
-                    : LateBindings.CreateSqliteTextIndexEngine(indexPath),
-                PersistedTextIndexEngine.Lucene => LateBindings.CreateLuceneTextIndexEngine(indexPath),
-                PersistedTextIndexEngine.Native => LateBindings.CreateNativeTextIndexEngine(indexPath),
-                _ => throw new Exception("Unknown PersistedTextIndexEngine: " + textEngine),
-            };
-            var semantic = semanticEngine == AIIndexType.Memory ? null
-                : LateBindings.CreateSemanticIndexEngine(semanticEngine, indexPath, semanticCacheSizeInMb);
-            return new IndexEngines(value, text, semantic);
+            var valueEngines = new List<(Guid, IValueIndexEngine)>();
+            var textEngines = new List<(Guid, ITextIndexEngine)>();
+            var vectorEngines = new List<(Guid, ISemanticIndexEngine)>();
+            IValueIndexEngine? valueEngine = null;
+            if (value != null) {
+                valueEngine = LateBindings.CreateValueIndexEngine(value, EngineFolderPath(indexPath, value));
+                valueEngines.Add((value.Id, valueEngine));
+            }
+            if (text != null) {
+                var textEngine = sharedSqlite
+                    ? (ITextIndexEngine)valueEngine! // dual role: one database, one connection, one transaction
+                    : LateBindings.CreateTextIndexEngine(text, EngineFolderPath(indexPath, text));
+                textEngines.Add((text.Id, textEngine));
+            }
+            if (vector != null) vectorEngines.Add((vector.Id, LateBindings.CreateVectorIndexEngine(vector, EngineFolderPath(indexPath, vector))));
+            return new IndexEngines(valueEngines, textEngines, vectorEngines);
         };
+        static string describe(IndexEngineSettings? engine) => engine == null ? "memory" : engine + " (" + engine.Id.ToString("N") + ")";
     }
 
     private IIOProvider getLoggerIO() {
@@ -236,7 +263,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             }
 
             List<string> toLog = new();
-            var createIndexEngines = getIndexEngineFactory(local, resolveIndexFolderPath(local, localDiskFolder), toLog, settings.AISettings);
+            var createIndexEngines = CreateIndexEngineFactory(local, resolveIndexFolderPath(local, localDiskFolder), ai != null, Datamodel, toLog);
 
             IQueueStore? queueStore = null;
             if (local.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Sqlite) {

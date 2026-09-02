@@ -2,6 +2,7 @@ using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.DataStores.Sets;
+using Relatude.Utils;
 
 namespace Relatude.Persistence;
 
@@ -19,11 +20,11 @@ public class WalFileBindingTests {
         Directory.CreateDirectory(dir);
         return dir;
     }
-    static IndexEngines openEngines(string dir) => new(new NativeKvIndexStore(dir), new LuceneTextIndexEngine(dir));
+    static IndexEngines openEngines(string dir) => IndexEngines.Single(TestEngines.ValueId, new NativeKvIndexStore(dir), TestEngines.TextId, new LuceneTextIndexEngine(dir));
     // mirrors the real startup order: indexes open first, the WAL binding check runs afterwards
     static (IValueIndex<string> value, IWordIndex word) openIndexes(IndexEngines engines) {
-        var value = engines.Value!.OpenValueIndex<string>(new SetRegister(100), "v-test", "value test", PropertyType.String);
-        var word = engines.Text!.OpenWordIndex(new SetRegister(100), "w-test", "word test", new WordIndexOptions(2, 64, true, false));
+        var value = engines.ValueEngine(TestEngines.ValueId)!.OpenValueIndex<string>(new SetRegister(100), "v-test", "value test", PropertyType.String);
+        var word = engines.TextEngine(TestEngines.TextId)!.OpenWordIndex(new SetRegister(100), "w-test", "word test", new WordIndexOptions(2, 64, true, false));
         return (value, word);
     }
     static void addData(IndexEngines engines, (IValueIndex<string> value, IWordIndex word) idx, int id, long timestamp) {
@@ -34,10 +35,10 @@ public class WalFileBindingTests {
         engines.MakeDurable(timestamp);
     }
     static void assertBinding(IndexEngines engines, Guid walFileId, long timestamp) {
-        Assert.AreEqual(walFileId, engines.Value!.GetWalFileId(), "value engine WAL id");
-        Assert.AreEqual(walFileId, engines.Text!.GetWalFileId(), "text engine WAL id");
-        Assert.AreEqual(timestamp, engines.Value!.GetTimestamp(), "value engine timestamp");
-        Assert.AreEqual(timestamp, engines.Text!.GetTimestamp(), "text engine timestamp");
+        Assert.AreEqual(walFileId, engines.ValueEngine(TestEngines.ValueId)!.GetWalFileId(), "value engine WAL id");
+        Assert.AreEqual(walFileId, engines.TextEngine(TestEngines.TextId)!.GetWalFileId(), "text engine WAL id");
+        Assert.AreEqual(timestamp, engines.ValueEngine(TestEngines.ValueId)!.GetTimestamp(), "value engine timestamp");
+        Assert.AreEqual(timestamp, engines.TextEngine(TestEngines.TextId)!.GetTimestamp(), "text engine timestamp");
     }
 
     [TestMethod]

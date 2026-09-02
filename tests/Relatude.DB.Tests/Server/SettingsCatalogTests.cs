@@ -4,6 +4,7 @@ using Relatude.DB.DataStores;
 using Relatude.DB.NodeServer;
 using Relatude.DB.NodeServer.Settings;
 using System.Text.Json;
+using System.Reflection;
 
 namespace Relatude.Server;
 
@@ -26,7 +27,7 @@ public class SettingsCatalogTests {
                     foreach (var setting in group.Settings) yield return (group, setting, root);
                     // a list group's fields belong to one element, so they resolve against its type
                     if (group.List == null) continue;
-                    var elementType = root.GetProperty(group.List.Path)!.PropertyType.GetElementType()!;
+                    var elementType = listProperty(root, group.List.Path).PropertyType.GetElementType()!;
                     foreach (var field in group.List.Fields) yield return (group, field, elementType);
                 }
             }
@@ -40,9 +41,8 @@ public class SettingsCatalogTests {
         }) {
             foreach (var group in sections.SelectMany(s => s.Groups)) {
                 if (group.List == null) continue;
-                var property = root.GetProperty(group.List.Path);
-                Assert.IsNotNull(property, group.Id + " edits \"" + group.List.Path + "\", which does not exist.");
-                Assert.IsTrue(property!.PropertyType.IsArray, group.List.Path + " is not an array.");
+                var property = listProperty(root, group.List.Path);
+                Assert.IsTrue(property.PropertyType.IsArray, group.List.Path + " is not an array.");
                 yield return (group, group.List, property.PropertyType.GetElementType()!);
             }
         }
@@ -134,10 +134,10 @@ public class SettingsCatalogTests {
         Assert.AreEqual(new SettingsLocal().NodeCacheSizeGb, cache.DefaultValue!.GetValue<double>());
         Assert.AreEqual(SettingEditor.Number, cache.Editor);
 
-        var engine = SettingsAccessor.Describe(typeof(NodeStoreContainerSettings), "LocalSettings.PersistedTextIndexEngine");
+        var engine = SettingsAccessor.Describe(typeof(NodeStoreContainerSettings), "LocalSettings.PersistedQueueStoreEngine");
         Assert.AreEqual(SettingEditor.Choice, engine.Editor);
-        CollectionAssert.AreEqual(Enum.GetNames<PersistedTextIndexEngine>(), engine.EnumNames);
-        Assert.AreEqual(new SettingsLocal().PersistedTextIndexEngine.ToString(), engine.DefaultValue!.GetValue<string>());
+        CollectionAssert.AreEqual(Enum.GetNames<PersistedQueueStoreEngine>(), engine.EnumNames);
+        Assert.AreEqual(new SettingsLocal().PersistedQueueStoreEngine.ToString(), engine.DefaultValue!.GetValue<string>());
 
         var autoOpen = SettingsAccessor.Describe(typeof(NodeStoreContainerSettings), "AutoOpen");
         Assert.AreEqual(SettingEditor.Toggle, autoOpen.Editor);
@@ -181,8 +181,8 @@ public class SettingsCatalogTests {
         Assert.AreEqual(2.5, container.LocalSettings!.NodeCacheSizeGb);
 
         // enums arrive as their names, numbers may arrive as strings from a number input
-        Assert.IsTrue(SettingsAccessor.Write(container, "LocalSettings.PersistedTextIndexEngine", json("\"Lucene\"")));
-        Assert.AreEqual(PersistedTextIndexEngine.Lucene, container.LocalSettings.PersistedTextIndexEngine);
+        Assert.IsTrue(SettingsAccessor.Write(container, "LocalSettings.PersistedQueueStoreEngine", json("\"Sqlite\"")));
+        Assert.AreEqual(PersistedQueueStoreEngine.Sqlite, container.LocalSettings.PersistedQueueStoreEngine);
         Assert.IsTrue(SettingsAccessor.Write(container, "LocalSettings.ImageDefaultQuality", json("\"70\"")));
         Assert.AreEqual(70, container.LocalSettings.ImageDefaultQuality);
 
@@ -300,7 +300,7 @@ public class SettingsCatalogTests {
             (SettingsCatalog.Database, typeof(NodeStoreContainerSettings)),
         }) {
             foreach (var group in sections.SelectMany(s => s.Groups)) {
-                var elementType = group.List == null ? null : root.GetProperty(group.List.Path)!.PropertyType.GetElementType()!;
+                var elementType = group.List == null ? null : listProperty(root, group.List.Path).PropertyType.GetElementType()!;
                 foreach (var (owner, field) in group.Settings.Select(f => (root, f)).Concat((group.List?.Fields ?? []).Select(f => (elementType!, f)))) {
                     if (field.ExcludedChoices == null) continue;
                     var type = SettingsAccessor.Describe(owner, field.Path).ValueType;
@@ -383,6 +383,59 @@ public class SettingsCatalogTests {
         Assert.IsTrue(overlay.IsOverridden(SettingsOverlay.OverridePath(container.Id, "IOSettings[" + ioId + "].Path"), out var folder));
         Assert.AreEqual("from-configuration", folder!.GetValue<string>());
         Assert.IsFalse(overlay.IsOverridden(SettingsOverlay.OverridePath(container.Id, "IOSettings[" + ioId + "].Name"), out _));
+    }
+
+    // a list may sit on a nested settings object ("LocalSettings.ValueIndexes"), so its path is walked
+    static PropertyInfo listProperty(Type root, string path) {
+        var type = root;
+        PropertyInfo? property = null;
+        foreach (var segment in path.Split('.')) {
+            property = type.GetProperty(segment);
+            Assert.IsNotNull(property, "\"" + path + "\" does not exist: " + type.Name + " has no " + segment + ".");
+            type = property!.PropertyType;
+        }
+        return property!;
+    }
+
+    /// <summary>
+    /// The engines a default can point at are edited in three list groups below the defaults, one per
+    /// index kind. Each offers the built-in engines of its kind as suggestions - the same names
+    /// <c>IndexEngineTypes</c> knows, and LateBindingsTests checks they all resolve - and starts a new
+    /// engine on one of them, so an added engine is usable as added.
+    /// </summary>
+    [TestMethod]
+    public void IndexEngineListsOfferTheBuiltInEnginesOfTheirKind() {
+        var lists = SettingsCatalog.Database.SelectMany(s => s.Groups).Select(g => g.List).OfType<SettingListDefinition>().ToArray();
+        foreach (var (path, known, defaultSetting) in new[] {
+            ("LocalSettings.ValueIndexes", IndexEngineTypes.ValueEngines, "LocalSettings.DefaultValueIndex"),
+            ("LocalSettings.TextIndexes", IndexEngineTypes.TextEngines, "LocalSettings.DefaultTextIndex"),
+            ("LocalSettings.VectorIndexes", IndexEngineTypes.VectorEngines, "LocalSettings.DefaultVectorIndex"),
+        }) {
+            var list = lists.SingleOrDefault(l => l.Path == path);
+            Assert.IsNotNull(list, path + " has no list group.");
+            var type = list!.Fields.Single(f => f.Path == "TypeName");
+            CollectionAssert.AreEquivalent(known, type.Suggestions!.Select(s => s.Value).ToArray(), path + " suggests other engines than IndexEngineTypes knows.");
+            Assert.IsTrue(list.Fields.Single(f => f.Path == "Id").ReadOnly, path + ": the id must not be editable, the default and the folder refer to it.");
+            CollectionAssert.Contains(known, list.NewItem!["TypeName"], path + ": a new engine must start on a built-in one.");
+            // the default that chooses among the list's engines is a picker, so Guid.Empty is offered as "Memory"
+            var setting = SettingsCatalog.Database.SelectMany(s => s.Groups).SelectMany(g => g.Settings).Single(s => s.Path == defaultSetting);
+            Assert.IsFalse(string.IsNullOrEmpty(setting.Picker), defaultSetting + " should pick from the configured engines.");
+        }
+    }
+
+    /// <summary>The settings page reaches an engine's fields through the nested LocalSettings object
+    /// and the element's id, the same way it reaches a top level list's elements.</summary>
+    [TestMethod]
+    public void IndexEngineElementsAreReachedThroughLocalSettings() {
+        var engine = new IndexEngineSettings { Id = Guid.NewGuid(), TypeName = IndexEngineTypes.Native };
+        var container = new NodeStoreContainerSettings { Id = Guid.NewGuid(), LocalSettings = new SettingsLocal { ValueIndexes = [engine] } };
+        var path = "LocalSettings.ValueIndexes[" + engine.Id + "].MaxMemoryUsageInMb";
+        Assert.AreEqual(new IndexEngineSettings().MaxMemoryUsageInMb, SettingsAccessor.Read(container, path)!.GetValue<int>());
+        Assert.IsTrue(SettingsAccessor.Write(container, path, json("\"64\"")));
+        Assert.AreEqual(64, engine.MaxMemoryUsageInMb);
+        var described = SettingsAccessor.Describe(typeof(NodeStoreContainerSettings), "LocalSettings.ValueIndexes[" + engine.Id + "].TypeName");
+        Assert.AreEqual(SettingEditor.Text, described.Editor); // free text: a custom engine's type name saves too
+        Assert.IsTrue(SettingsAccessor.Describe(typeof(NodeStoreContainerSettings), "LocalSettings.ValueIndexes[" + engine.Id + "].Id").Property.CanRead);
     }
 
     static JsonElement json(string raw) => JsonDocument.Parse(raw).RootElement.Clone();

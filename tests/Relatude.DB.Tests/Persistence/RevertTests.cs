@@ -4,6 +4,7 @@ using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
+using Relatude.Utils;
 
 namespace Relatude.Persistence;
 
@@ -43,37 +44,17 @@ public class RevertTests {
         return dir;
     }
 
-    // same slot assignment as NodeStoreContainer.getIndexEngineFactory, see IndexEngineCombinationTests
-    static Func<IndexEngines>? engineFactory(PersistedValueIndexEngine v, PersistedTextIndexEngine t, string dir) {
-        if (v == PersistedValueIndexEngine.Memory && t == PersistedTextIndexEngine.Memory) return null;
-        return () => {
-            IValueIndexEngine? value = v switch {
-                PersistedValueIndexEngine.Memory => null,
-                PersistedValueIndexEngine.Native => new NativeKvIndexStore(dir),
-                PersistedValueIndexEngine.Sqlite => new SqliteIndexStore(dir),
-                _ => throw new NotSupportedException(v.ToString()),
-            };
-            ITextIndexEngine? text = t switch {
-                PersistedTextIndexEngine.Memory => null,
-                PersistedTextIndexEngine.Lucene => new LuceneTextIndexEngine(dir),
-                PersistedTextIndexEngine.Sqlite => v == PersistedValueIndexEngine.Sqlite
-                    ? (ITextIndexEngine)value! // dual role: one database, one connection, one transaction
-                    : new SqliteIndexStore(dir),
-                _ => throw new NotSupportedException(t.ToString()),
-            };
-            return new IndexEngines(value, text);
-        };
+    // Runs the factory the server host uses, so the slot assignment and the SQLite dual-role rule
+    // (one instance serving value and text indexes when both are Sqlite) are the production ones.
+    // "Memory" stands for no engine: the default id stays Guid.Empty.
+    static Func<IndexEngines>? engineFactory(string v, string t, string dir) {
+        return TestEngines.Factory(dir, TestEngines.Settings(value: v, text: t));
     }
 
-    static NodeStore openStore(string dir, PersistedValueIndexEngine v, PersistedTextIndexEngine t) {
+    static NodeStore openStore(string dir, string v, string t) {
         var dm = new Datamodel();
         dm.Add<RevArticle>();
-        var settings = new SettingsLocal {
-            PersistedValueIndexEngine = v,
-            PersistedTextIndexEngine = t,
-            UsePersistedValueIndexesByDefault = v != PersistedValueIndexEngine.Memory,
-            UsePersistedTextIndexesByDefault = t != PersistedTextIndexEngine.Memory,
-        };
+        var settings = TestEngines.Settings(value: v, text: t);
         return new NodeStore(DataStoreLocal.Open(dm, settings, new IOProviderDisk(dir), null, null, null, null,
             engineFactory(v, t, dir)));
     }
@@ -162,11 +143,11 @@ public class RevertTests {
     }
 
     [DataTestMethod]
-    [DataRow(PersistedValueIndexEngine.Memory, PersistedTextIndexEngine.Memory)]
-    [DataRow(PersistedValueIndexEngine.Native, PersistedTextIndexEngine.Memory)]
-    [DataRow(PersistedValueIndexEngine.Native, PersistedTextIndexEngine.Lucene)]
-    [DataRow(PersistedValueIndexEngine.Sqlite, PersistedTextIndexEngine.Sqlite)]
-    public void RevertWindow_Rollback_EngineCombinations(PersistedValueIndexEngine v, PersistedTextIndexEngine t) {
+    [DataRow("Memory", "Memory")]
+    [DataRow("Native", "Memory")]
+    [DataRow("Native", "Lucene")]
+    [DataRow("Sqlite", "Sqlite")]
+    public void RevertWindow_Rollback_EngineCombinations(string v, string t) {
         var dir = tempDir();
         try {
             Guid updateId;
@@ -177,7 +158,7 @@ public class RevertTests {
                 verifyMutatedState(store);
                 var result = store.RollbackRevertWindow();
                 verifyBaseState(store, updateId, "after rollback (" + v + "/" + t + ")");
-                if (v == PersistedValueIndexEngine.Sqlite) {
+                if (v == "Sqlite") {
                     // SQLite is durable per transaction, so it must have been reset and rebuilt
                     Assert.AreEqual(1, result.EnginesReset.Length, "sqlite engine reset");
                 } else {
@@ -203,7 +184,7 @@ public class RevertTests {
         var dir = tempDir();
         try {
             Guid updateId;
-            using (var store = openStore(dir, PersistedValueIndexEngine.Native, PersistedTextIndexEngine.Memory)) {
+            using (var store = openStore(dir, "Native", "Memory")) {
                 updateId = insertBaseNodes(store);
                 store.BeginRevertWindow();
                 mutate(store, updateId);
@@ -211,7 +192,7 @@ public class RevertTests {
                 Assert.IsNull(store.RevertWindow);
                 verifyMutatedState(store);
             }
-            using (var store = openStore(dir, PersistedValueIndexEngine.Native, PersistedTextIndexEngine.Memory)) {
+            using (var store = openStore(dir, "Native", "Memory")) {
                 verifyMutatedState(store);
                 Assert.AreEqual("changed", store.Get<RevArticle>(updateId).Category, "update kept after reopen");
             }
@@ -226,12 +207,12 @@ public class RevertTests {
         try {
             Guid updateId;
             long timestamp;
-            using (var store = openStore(dir, PersistedValueIndexEngine.Native, PersistedTextIndexEngine.Memory)) {
+            using (var store = openStore(dir, "Native", "Memory")) {
                 updateId = insertBaseNodes(store);
                 timestamp = store.Timestamp; // remembered "before the changes", as the workflow prescribes
                 mutate(store, updateId);
             } // dispose makes everything durable, including the engines at the new head
-            using (var store = openStore(dir, PersistedValueIndexEngine.Native, PersistedTextIndexEngine.Memory)) {
+            using (var store = openStore(dir, "Native", "Memory")) {
                 verifyMutatedState(store);
                 var result = store.DeleteTransactionsAfter(timestamp);
                 Assert.AreEqual(12, result.TransactionsDeleted); // 10 inserts + 1 update + 1 delete
@@ -239,7 +220,7 @@ public class RevertTests {
                 Assert.AreEqual(1, result.EnginesReset.Length, "kv engine reset");
                 verifyBaseState(store, updateId, "after DeleteTransactionsAfter");
             }
-            using (var store = openStore(dir, PersistedValueIndexEngine.Native, PersistedTextIndexEngine.Memory)) {
+            using (var store = openStore(dir, "Native", "Memory")) {
                 verifyBaseState(store, updateId, "after reopen");
             }
         } finally {

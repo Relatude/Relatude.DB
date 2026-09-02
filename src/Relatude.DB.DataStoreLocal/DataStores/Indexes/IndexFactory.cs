@@ -18,6 +18,26 @@ internal static class IndexFactory {
             + (string.IsNullOrEmpty(subKey) ? "" : "_" + subKey);
     }
 
+    /// <summary>
+    /// The engine id a property's index storage choice resolves to. Default follows the store's
+    /// default engine; Memory is always the memory index. Persisted also follows the default: when
+    /// that is the memory index there is no engine to persist to, and the index stays in memory -
+    /// the host logs a note about that combination at open, since it is legal but easy to miss.
+    /// </summary>
+    static Guid resolveEngineId(IndexStorageType storage, Guid defaultEngine, string settingName) {
+        return storage switch {
+            IndexStorageType.Default => defaultEngine,
+            IndexStorageType.Memory => Guid.Empty,
+            IndexStorageType.Persisted => defaultEngine,
+            _ => throw new NotSupportedException(settingName + " not supported. "),
+        };
+    }
+    /// <summary>The value engine a property's indexes go to, or null for the memory index.</summary>
+    static IValueIndexEngine? valueEngine(DataStoreLocal store, Property property) {
+        var id = resolveEngineId(property.Model.IndexType, store.Settings.DefaultValueIndex, "IndexType");
+        return store.Engines.ValueEngine(id);
+    }
+
     public static Dictionary<string, IStringArrayIndex> CreateStringArrayIndexes(DataStoreLocal store, Property property, string? subKey) {
         Dictionary<string, IStringArrayIndex> indexes = new();
         if (property.Model.CultureSensitive) {
@@ -32,20 +52,14 @@ internal static class IndexFactory {
         return indexes;
     }
     static IStringArrayIndex createStringArrayIndex(DataStoreLocal store, string? cultureCode, Property property, string? subKey) {
-        var settings = store.Settings;
         var sets = store._definition.Sets;
         var uniqueKey = getUniqueKey(property, cultureCode, subKey);
-        var useProvider = property.Model.IndexType switch {
-            IndexStorageType.Default => settings.UsePersistedValueIndexesByDefault,
-            IndexStorageType.Memory => false,
-            IndexStorageType.Persisted => true,
-            _ => throw new NotSupportedException("IndexType not supported. "),
-        };
+        var engine = valueEngine(store, property);
         IStringArrayIndex index;
         var classDef = store.Datamodel.NodeTypes[property.Model.NodeType];
-        if (useProvider && store.Engines.Value != null) {
-            var name = store.Engines.Value.Name + " String Array Index " + classDef.CodeName + "." + property.CodeName;
-            index = store.Engines.Value.OpenStringArrayIndex(sets, uniqueKey, name, property.PropertyType);
+        if (engine != null) {
+            var name = engine.Name + " String Array Index " + classDef.CodeName + "." + property.CodeName;
+            index = engine.OpenStringArrayIndex(sets, uniqueKey, name, property.PropertyType);
         } else {
             var name = "Memory String Array Index " + classDef.CodeName + "." + property.CodeName;
             index = new StringArrayIndex(store._definition, uniqueKey, name, store.IOIndex, property.Id);
@@ -67,20 +81,14 @@ internal static class IndexFactory {
         return indexes;
     }
     static IGuidArrayIndex createGuidArrayIndex(DataStoreLocal store, string? cultureCode, Property property, string? subKey) {
-        var settings = store.Settings;
         var sets = store._definition.Sets;
         var uniqueKey = getUniqueKey(property, cultureCode, subKey);
-        var useProvider = property.Model.IndexType switch {
-            IndexStorageType.Default => settings.UsePersistedValueIndexesByDefault,
-            IndexStorageType.Memory => false,
-            IndexStorageType.Persisted => true,
-            _ => throw new NotSupportedException("IndexType not supported. "),
-        };
+        var engine = valueEngine(store, property);
         IGuidArrayIndex index;
         var classDef = store.Datamodel.NodeTypes[property.Model.NodeType];
-        if (useProvider && store.Engines.Value != null) {
-            var name = store.Engines.Value.Name + " Guid Array Index " + classDef.CodeName + "." + property.CodeName;
-            index = store.Engines.Value.OpenGuidArrayIndex(sets, uniqueKey, name, property.PropertyType);
+        if (engine != null) {
+            var name = engine.Name + " Guid Array Index " + classDef.CodeName + "." + property.CodeName;
+            index = engine.OpenGuidArrayIndex(sets, uniqueKey, name, property.PropertyType);
         } else {
             var name = "Memory Guid Array Index " + classDef.CodeName + "." + property.CodeName;
             index = new GuidArrayIndex(store._definition, uniqueKey, name, store.IOIndex, property.Id);
@@ -102,20 +110,14 @@ internal static class IndexFactory {
         return indexes;
     }
     static IIntArrayIndex createIntArrayIndex(DataStoreLocal store, string? cultureCode, Property property, string? subKey) {
-        var settings = store.Settings;
         var sets = store._definition.Sets;
         var uniqueKey = getUniqueKey(property, cultureCode, subKey);
-        var useProvider = property.Model.IndexType switch {
-            IndexStorageType.Default => settings.UsePersistedValueIndexesByDefault,
-            IndexStorageType.Memory => false,
-            IndexStorageType.Persisted => true,
-            _ => throw new NotSupportedException("IndexType not supported. "),
-        };
+        var engine = valueEngine(store, property);
         IIntArrayIndex index;
         var classDef = store.Datamodel.NodeTypes[property.Model.NodeType];
-        if (useProvider && store.Engines.Value != null) {
-            var name = store.Engines.Value.Name + " Int Array Index " + classDef.CodeName + "." + property.CodeName;
-            index = store.Engines.Value.OpenIntArrayIndex(sets, uniqueKey, name, property.PropertyType);
+        if (engine != null) {
+            var name = engine.Name + " Int Array Index " + classDef.CodeName + "." + property.CodeName;
+            index = engine.OpenIntArrayIndex(sets, uniqueKey, name, property.PropertyType);
         } else {
             var name = "Memory Int Array Index " + classDef.CodeName + "." + property.CodeName;
             index = new IntArrayIndex(store._definition, uniqueKey, name, store.IOIndex, property.Id);
@@ -138,21 +140,15 @@ internal static class IndexFactory {
         return indexes;
     }
     static IValueIndex<T> createValueIndex<T>(DataStoreLocal store, string? cultureCode, SetRegister sets, Property property, string? subKey, Action<T, IAppendStream> writeValue, Func<IReadStream, T> readValue) where T : notnull {
-        var settings = store.Settings;
         var uniqueKey = getUniqueKey(property, cultureCode, subKey);
-        var useProvider = property.Model.IndexType switch {
-            IndexStorageType.Default => settings.UsePersistedValueIndexesByDefault,
-            IndexStorageType.Memory => false,
-            IndexStorageType.Persisted => true,
-            _ => throw new NotSupportedException("IndexType not supported. "),
-        };
+        var engine = valueEngine(store, property);
         IValueIndex<T> index;
         var classDef = store.Datamodel.NodeTypes[property.Model.NodeType];
-        if (useProvider && store.Engines.Value != null) {
-            var name = store.Engines.Value.Name + " Value Index " + classDef.CodeName + "." + property.CodeName;
+        if (engine != null) {
+            var name = engine.Name + " Value Index " + classDef.CodeName + "." + property.CodeName;
             // already wrapped in OptimizedValueIndex by the engine, which flushes the wrapper's
             // queued remove into the backend on every commit
-            index = store.Engines.Value.OpenValueIndex<T>(sets, uniqueKey, name, property.PropertyType);
+            index = engine.OpenValueIndex<T>(sets, uniqueKey, name, property.PropertyType);
         } else {
             var name = "Memory Value Index " + classDef.CodeName + "." + property.CodeName;
             index = new ValueIndex<T>(sets, uniqueKey, name, store.IOIndex, writeValue, readValue);
@@ -177,21 +173,16 @@ internal static class IndexFactory {
 
     }
     static IWordIndex createWordIndex(DataStoreLocal store, string? cultureCode, SetRegister sets, StringProperty p, string? subKey) {
-        var settings = store.Settings;
         var uniqueKey = getUniqueKey(p, cultureCode, subKey);
-        var useProvider = ((StringPropertyModel)p.Model).TextIndexType switch {
-            IndexStorageType.Default => settings.UsePersistedTextIndexesByDefault,
-            IndexStorageType.Memory => false,
-            IndexStorageType.Persisted => true,
-            _ => throw new NotSupportedException("TextIndexType not supported. "),
-        };
+        var engineId = resolveEngineId(((StringPropertyModel)p.Model).TextIndexType, store.Settings.DefaultTextIndex, "TextIndexType");
+        var engine = store.Engines.TextEngine(engineId);
         IWordIndex index;
         var classDef = store.Datamodel.NodeTypes[p.Model.NodeType];
-        if (useProvider && store.Engines.Text != null) {
-            var name = store.Engines.Text.Name + " Word Index " + classDef.CodeName + "." + p.CodeName;
+        if (engine != null) {
+            var name = engine.Name + " Word Index " + classDef.CodeName + "." + p.CodeName;
             // already wrapped in OptimizedWordIndex by the engine, which flushes the wrapper's
             // queued remove into the backend on every commit
-            return store.Engines.Text.OpenWordIndex(sets, uniqueKey, name, new WordIndexOptions(p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch));
+            return engine.OpenWordIndex(sets, uniqueKey, name, new WordIndexOptions(p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch));
         } else {
             var name = "Memory Word Index " + classDef.CodeName + "." + p.CodeName;
             index = new WordIndexTrie(sets, uniqueKey, name, store.IOIndex, p.MinWordLength, p.MaxWordLength, p.PrefixSearch, p.InfixSearch, (t, e) => store.LogError(t, e));
@@ -219,9 +210,11 @@ internal static class IndexFactory {
         var def = store._definition;
         var classDef = def.Datamodel.NodeTypes[p.Model.NodeType];
         var uniqueKey = getUniqueKey(p, cultureCode, subKey);
-        if (store.Engines.Semantic != null) {
-            var name = store.Engines.Semantic.Name + " Semantic Index " + classDef.CodeName + "." + p.Model.CodeName;
-            return store.Engines.Semantic.OpenSemanticIndex(sets, uniqueKey, name, ai, t => store.LogInfo(t));
+        // semantic indexes have no per-property storage choice yet: every one follows the default
+        var engine = store.Engines.VectorEngine(store.Settings.DefaultVectorIndex);
+        if (engine != null) {
+            var name = engine.Name + " Semantic Index " + classDef.CodeName + "." + p.Model.CodeName;
+            return engine.OpenSemanticIndex(sets, uniqueKey, name, ai, t => store.LogInfo(t));
         }
         return new MemorySemanticIndex(def.Sets, uniqueKey, "Semantic " + classDef.CodeName + "." + p.Model.CodeName,
             store.IOIndex, ai);

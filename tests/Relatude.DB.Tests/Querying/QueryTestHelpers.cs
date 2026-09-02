@@ -11,10 +11,9 @@ internal static class QueryTestHelpers {
     internal static NodeStore OpenStoreWithArticles(int count) {
         var datamodel = Helper.GetDatamodel();
         var storeData = DataStoreLocal.Open(datamodel, new SettingsLocal() {
-            UsePersistedValueIndexesByDefault = true,
-            PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
+            ValueIndexes = [TestEngines.NativeValue], DefaultValueIndex = TestEngines.ValueId,
         }, null, null, null, null, null,
-        () => new IndexEngines(new NativeKvIndexStore(null))
+        () => IndexEngines.Single(TestEngines.ValueId, new NativeKvIndexStore(null))
 
         );
         var store = new NodeStore(storeData);

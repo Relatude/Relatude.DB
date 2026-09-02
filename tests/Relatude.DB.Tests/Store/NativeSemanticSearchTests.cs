@@ -18,12 +18,11 @@ public class NativeSemanticSearchTests {
         var folder = Path.Combine(Path.GetTempPath(), "RelatudeDB_NativeSemanticSearchTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         try {
-            var settings = new SettingsLocal() {
-                EnableSemanticIndexByDefault = true,
-            };
+            var settings = TestEngines.Settings(vector: IndexEngineTypes.IVS);
+            settings.EnableSemanticIndexByDefault = true;
             var io = new IOProviderDisk(Path.Combine(folder, "db"));
             var engineFolder = Path.Combine(folder, "indexes");
-            Func<IndexEngines> engines = () => new IndexEngines(semantic: new ISVEngine(engineFolder));
+            Func<IndexEngines> engines = () => IndexEngines.Single(vectorId: TestEngines.VectorId, vector: new ISVEngine(engineFolder));
 
             var storeData = DataStoreLocal.Open(Helper.GetDatamodel(), settings, io, null, null, null, AIEngine.CreateDummy(), engines);
             var store = new NodeStore(storeData);
@@ -61,9 +60,8 @@ public class NativeSemanticSearchTests {
         var folder = Path.Combine(Path.GetTempPath(), "RelatudeDB_NativeSemanticSearchTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         try {
-            var settings = new SettingsLocal() {
-                EnableSemanticIndexByDefault = true,
-            };
+            // no vector engine configured: DefaultVectorIndex stays Guid.Empty, the memory index
+            var settings = new SettingsLocal { EnableSemanticIndexByDefault = true };
             var storeData = DataStoreLocal.Open(Helper.GetDatamodel(), settings, new IOProviderDisk(Path.Combine(folder, "db")), null, null, null, AIEngine.CreateDummy(), null);
             var store = new NodeStore(storeData);
             var articles = Helper.GenerateArticles(10);

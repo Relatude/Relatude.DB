@@ -37,6 +37,4 @@ public class AIProviderSettings {
     public int GetMaxCharsOfEach() => MaxCharsOfEach ?? 20000;
 
     public AIProviderCacheType? CacheType { get; set; } = AIProviderCacheType.Native;
-    public AIIndexType IndexType { get; set; } = AIIndexType.Memory;
-    public double? IndexCacheSizeInMb { get; set; }
 }

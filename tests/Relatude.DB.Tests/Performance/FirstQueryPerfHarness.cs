@@ -5,6 +5,7 @@ using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.Nodes;
+using Relatude.Utils;
 
 namespace Relatude.Performance;
 
@@ -49,13 +50,11 @@ public class FirstQueryPerfHarness {
         var settings = new SettingsLocal {
             NodeCacheSizeGb = 3,
             SetCacheSizeGb = 10,
-            UsePersistedValueIndexesByDefault = true,
-            PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
-            UsePersistedTextIndexesByDefault = false,
+            ValueIndexes = [TestEngines.NativeValue], DefaultValueIndex = TestEngines.ValueId,
         };
         Directory.CreateDirectory(dir);
         var swOpen = Stopwatch.StartNew();
-        var storeData = DataStoreLocal.Open(dm, settings, new DB.IO.IOProviderDisk(dir), null, null, null, null, () => new IndexEngines(new NativeKvIndexStore(dir)));
+        var storeData = DataStoreLocal.Open(dm, settings, new DB.IO.IOProviderDisk(dir), null, null, null, null, () => IndexEngines.Single(TestEngines.ValueId, new NativeKvIndexStore(dir)));
         var store = new NodeStore(storeData);
         swOpen.Stop();
         try {

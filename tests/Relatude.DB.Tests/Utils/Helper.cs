@@ -24,8 +24,6 @@ namespace Relatude.Utils {
 
             SettingsLocal settings = new() {
                 NodeCacheSizeGb = 0.5,
-                PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
-                UsePersistedValueIndexesByDefault = true,
             };
 
             var storeData = DataStoreLocal.Open(datamodel, settings, io);

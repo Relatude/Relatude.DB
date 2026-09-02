@@ -5,6 +5,7 @@ using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.Query;
+using Relatude.Utils;
 
 namespace Relatude.Persistence;
 
@@ -44,13 +45,11 @@ public class LuceneTextIndexRestartTests {
         var dm = new Datamodel();
         dm.Add<LuceneArticle>();
         var settings = new SettingsLocal {
-            UsePersistedValueIndexesByDefault = true,
-            UsePersistedTextIndexesByDefault = true,
-            PersistedValueIndexEngine = PersistedValueIndexEngine.Native,
-            PersistedTextIndexEngine = PersistedTextIndexEngine.Lucene,
+            ValueIndexes = [TestEngines.NativeValue], DefaultValueIndex = TestEngines.ValueId,
+            TextIndexes = [TestEngines.LuceneText], DefaultTextIndex = TestEngines.TextId,
         };
         return new NodeStore(DataStoreLocal.Open(dm, settings, new IOProviderDisk(dir), null, null, null, null,
-            () => new IndexEngines(new NativeKvIndexStore(dir), new LuceneTextIndexEngine(dir))));
+            () => IndexEngines.Single(TestEngines.ValueId, new NativeKvIndexStore(dir), TestEngines.TextId, new LuceneTextIndexEngine(dir))));
     }
     static void insertNodes(NodeStore store) {
         for (int i = 0; i < NodeCount; i++) {

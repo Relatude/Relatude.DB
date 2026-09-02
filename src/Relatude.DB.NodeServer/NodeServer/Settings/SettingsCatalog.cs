@@ -1,4 +1,6 @@
-﻿namespace Relatude.DB.NodeServer.Settings;
+﻿using Relatude.DB.DataStores;
+
+namespace Relatude.DB.NodeServer.Settings;
 
 /// <summary>When a changed setting starts to matter.</summary>
 public enum SettingApplies {
@@ -123,6 +125,37 @@ public sealed class SettingSectionDefinition {
 /// editable from the UI - <c>SettingsCatalogTests</c> lists those, so new ones are noticed.
 /// </summary>
 public static class SettingsCatalog {
+
+    /// <summary>
+    /// The three index engine lists differ only in which engines they offer and how the memory budget
+    /// reads for those, so one shape serves all of them. Fields are the three properties of
+    /// <see cref="IndexEngineSettings"/>: the type name with the built-in engines suggested (the field
+    /// stays free text so a custom engine's type name saves too - LateBindingsTests checks every
+    /// suggestion is recognised), the memory budget, and the id that the defaults refer to.
+    /// </summary>
+    static SettingGroupDefinition indexEngineList(string id, string title, string path, string help, string emptyHelp,
+        string newItemType, SettingSuggestion[] types, string typeHelp, string memoryHelp) {
+        return new() {
+            Id = id,
+            Title = title,
+            Help = help,
+            List = new() {
+                Path = path,
+                ItemName = "index engine",
+                LabelField = "TypeName",
+                EmptyHelp = emptyHelp,
+                NewItem = new() { ["TypeName"] = newItemType, ["MaxMemoryUsageInMb"] = new IndexEngineSettings().MaxMemoryUsageInMb.ToString() },
+                Fields = [
+                    new() { Path = "TypeName", Label = "Engine", Suggestions = types, Help = typeHelp },
+                    new() { Path = "MaxMemoryUsageInMb", Label = "Memory budget", Unit = "MB", Help = memoryHelp },
+                    new() {
+                        Path = "Id", Label = "Engine id", ReadOnly = true,
+                        Help = "What the default above refers to, and the name of the engine's folder below the index folder. Generated when the engine is added, and never reused.",
+                    },
+                ],
+            },
+        };
+    }
 
     public static SettingSectionDefinition[] Server { get; } = [
         new() {
@@ -679,31 +712,27 @@ public static class SettingsCatalog {
                 new() {
                     Id = "indexes",
                     Title = "Indexes",
-                    Help = "Which engine backs each kind of index. Memory engines are rebuilt from the log at every open - fastest to query, slowest to start, and bounded by RAM. Persisted engines keep their data on disk.",
+                    Help = "Which engine backs each kind of index, chosen from the engines configured in the three groups below. The memory index is rebuilt from the log at every open - fastest to query, slowest to start, and bounded by RAM. A disk engine keeps its data on disk between opens. Changing a default moves every index of that kind, so the database rebuilds them at the next open.",
                     Settings = [
                         new() {
-                            Path = "LocalSettings.UsePersistedValueIndexesByDefault", Label = "Persist value indexes",
-                            Help = "Applies to properties that do not state otherwise. Off keeps every value index in memory, so opening a large database has to rebuild all of them.",
+                            Path = "LocalSettings.DefaultValueIndex", Label = "Value index engine", Picker = "valueIndexes",
+                            Help = "The engine behind every value index that does not state otherwise. Memory keeps them all in RAM, so opening a large database has to rebuild every one of them. Add engines to choose from under Value index engines.",
                         },
                         new() {
-                            Path = "LocalSettings.PersistedValueIndexEngine", Label = "Value index engine",
-                            Help = "Native is the built-in disk engine and the default. Sqlite stores indexes in SQLite files, which are easy to inspect with other tools. Memory forces value indexes to be rebuilt at every open.",
+                            Path = "LocalSettings.DefaultTextIndex", Label = "Text index engine", Picker = "textIndexes",
+                            Help = "The engine behind the full-text word indexes. Text indexes are the expensive ones to rebuild, so keeping them on a disk engine matters most on large databases. Add engines to choose from under Text index engines.",
+                        },
+                        new() {
+                            Path = "LocalSettings.DefaultVectorIndex", Label = "Vector index engine", Picker = "vectorIndexes",
+                            Help = "The engine behind the semantic indexes, which only exist with an AI provider configured. Memory scans every vector - exact, and fine up to tens of thousands; the disk engines are approximate and stay fast into the millions. Add engines to choose from under Vector index engines.",
                         },
                         new() {
                             Path = "LocalSettings.PersistedValueIndexFolderPath", Label = "Index folder", Placeholder = "next to the database files",
-                            Help = "Where the disk engines put their files; each claims a subfolder. A relative path is resolved against the server data folder. Empty follows the index storage provider, then the database one. Point it at fast local disk when the database lives on network storage.",
+                            Help = "Where the disk engines put their files; each engine gets a folder of its own, named by its id. A relative path is resolved against the server data folder. Empty follows the index storage provider, then the database one. Point it at fast local disk when the database lives on network storage.",
                         },
                         new() {
                             Path = "LocalSettings.EnableTextIndexByDefault", Label = "Index text by default",
                             Help = "Whether string properties are full-text indexed unless they say otherwise. Indexing everything makes WhereSearch work everywhere, at the cost of index size and write throughput.",
-                        },
-                        new() {
-                            Path = "LocalSettings.UsePersistedTextIndexesByDefault", Label = "Persist text indexes",
-                            Help = "Keeps the full-text index on disk instead of rebuilding it from the log at every open. Text indexes are the expensive ones to rebuild, so this matters most on large databases.",
-                        },
-                        new() {
-                            Path = "LocalSettings.PersistedTextIndexEngine", Label = "Text index engine",
-                            Help = "Native is the built-in disk engine. Lucene and Sqlite need their plug-in package referenced and bring their own file layout and behavior. Memory rebuilds the index at every open.",
                         },
                         new() {
                             Path = "LocalSettings.EnableInstantTextIndexingByDefault", Label = "Index text immediately",
@@ -715,6 +744,34 @@ public static class SettingsCatalog {
                         },
                     ],
                 },
+                indexEngineList("value-index-engines", "Value index engines", "LocalSettings.ValueIndexes",
+                    "The disk engines the value indexes can run on. Only the engine chosen as Value index engine above actually runs; the others are ready to be chosen. Two engines of the same kind with different memory budgets are how one database can be tuned differently later.",
+                    "No value index engine is configured, so the value indexes can only live in memory.",
+                    IndexEngineTypes.Native, [
+                        new() { Value = IndexEngineTypes.Native, Hint = "the built-in disk engine" },
+                        new() { Value = IndexEngineTypes.Sqlite, Hint = "SQLite tables, needs Relatude.DB.Plugins.Sqlite" },
+                    ],
+                    "Native is the built-in key-value engine and needs nothing installed. Sqlite stores the indexes in a SQLite database that other tools can inspect and needs its plug-in package referenced. Anything else is taken as the full type name of a custom engine.",
+                    "How much the engine may spend on its page cache and write buffers. It is a bound, not an allocation: a small index never grows into it. 0 makes the engine use as little as it can and read everything from disk."),
+                indexEngineList("text-index-engines", "Text index engines", "LocalSettings.TextIndexes",
+                    "The disk engines the full-text word indexes can run on. Only the engine chosen as Text index engine above actually runs. When both the value and the text engine are Sqlite, one database serves both and every index change commits in one SQLite transaction.",
+                    "No text index engine is configured, so the word indexes can only live in memory - and are rebuilt from the log at every open.",
+                    IndexEngineTypes.Native, [
+                        new() { Value = IndexEngineTypes.Native, Hint = "the built-in disk text index" },
+                        new() { Value = IndexEngineTypes.Sqlite, Hint = "FTS5 tables, needs Relatude.DB.Plugins.Sqlite" },
+                        new() { Value = IndexEngineTypes.Lucene, Hint = "needs Relatude.DB.Plugins.Lucene" },
+                    ],
+                    "Native is the built-in disk text index and needs nothing installed. Lucene and Sqlite need their plug-in package referenced and bring their own file layout and behavior. Anything else is taken as the full type name of a custom engine.",
+                    "How much the engine may hold in memory for searching: decoded dictionary blocks and postings for Native, the writer buffer for Lucene, the page cache for Sqlite. 0 makes it read everything from disk."),
+                indexEngineList("vector-index-engines", "Vector index engines", "LocalSettings.VectorIndexes",
+                    "The disk engines the semantic (vector) indexes can run on. Only the engine chosen as Vector index engine above actually runs, and only on a database with an AI provider.",
+                    "No vector index engine is configured, so the semantic indexes can only live in memory, where every search scans every vector.",
+                    IndexEngineTypes.HNSW, [
+                        new() { Value = IndexEngineTypes.HNSW, Hint = "graph index, higher recall" },
+                        new() { Value = IndexEngineTypes.IVS, Hint = "clustered index, cheaper to build" },
+                    ],
+                    "HNSW keeps a navigation graph in memory and reaches high recall at a higher build cost. IVS clusters the vectors and reads the nearest clusters from disk, which is cheaper to build and to hold. Anything else is taken as the full type name of a custom engine.",
+                    "How much memory the engine may use. For HNSW the graph itself always stays resident - that is the floor, and a smaller budget is exceeded with a warning - and the budget decides whether the full vectors are mirrored beside it. For IVS it is the cluster cache. 0 keeps only what the engine cannot do without."),
                 new() {
                     Id = "ai",
                     Title = "AI provider",
@@ -761,14 +818,6 @@ public static class SettingsCatalog {
                         new() {
                             Path = "AISettings.MaxOutputTokens", Label = "Max output tokens",
                             Help = "Upper bound on a completion's length. Sent only when set; providers that require it default to 4096.",
-                        },
-                        new() {
-                            Path = "AISettings.IndexType", Label = "Vector index",
-                            Help = "How vectors are searched. Memory scans them all - exact, and fine up to tens of thousands. IVS and HNSW are approximate disk-backed indexes that stay fast into the millions, HNSW at higher recall and higher build cost.",
-                        },
-                        new() {
-                            Path = "AISettings.IndexCacheSizeInMb", Label = "Vector index cache", Unit = "MB",
-                            Help = "How much memory the disk-backed vector indexes may hold. Below what the graph itself needs, the index warns and uses more anyway; above it, more of the vectors stay resident and searches stop hitting disk.",
                         },
                         new() {
                             Path = "AISettings.CacheType", Label = "Embedding cache",

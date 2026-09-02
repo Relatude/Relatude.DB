@@ -7,7 +7,7 @@ namespace TextIndexBenchmarks.Engines;
 
 /// <summary>
 /// The built-in in-memory index (<see cref="WordIndexTrie"/>) — the reference implementation, and
-/// what a store with <c>UsePersistedTextIndexesByDefault = false</c> runs. It has no transaction
+/// what a store with a memory text index (<c>DefaultTextIndex = Guid.Empty</c>) runs. It has no transaction
 /// protocol of its own: writes are immediately visible, and durability is a full state file written
 /// by <see cref="IIndex.SaveStateForMemoryIndexes"/>, which the store schedules periodically rather
 /// than per transaction.

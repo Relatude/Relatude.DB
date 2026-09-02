@@ -62,6 +62,14 @@ public class WordIndexLucene : IWordIndex {
     public string UniqueKey => _indexId;
     public string FriendlyName { get; }
 
+    // the engine's memory budget caps the writer's RAM buffer - the one memory knob Lucene offers per
+    // index; the buffer is flushed by every commit anyway, so this bounds the write side between them
+    IndexWriter createWriter() {
+        var config = new IndexWriterConfig(_version, _analyzer);
+        if (_engine.RamBufferSizeMb.HasValue) config.RAMBufferSizeMB = _engine.RamBufferSizeMb.Value;
+        return new IndexWriter(_directory, config);
+    }
+
     /// <summary>The timestamp of the last durable Lucene commit; 0 for a fresh (or reset) index,
     /// which makes the startup loader rebuild it from the whole WAL.</summary>
     public long PersistedTimestamp => _persistedTimestamp;
@@ -174,7 +182,7 @@ public class WordIndexLucene : IWordIndex {
         _directory = FSDirectory.Open(_path);
         _analyzer = new StandardAnalyzer(_version);
         try {
-            _writer = new IndexWriter(_directory, new(_version, _analyzer));
+            _writer = createWriter();
         } catch (Exception err) {
             throw new Exception("Failed to open Lucene index writer for path: " + _path, err);
         }
@@ -213,7 +221,7 @@ public class WordIndexLucene : IWordIndex {
         System.IO.Directory.CreateDirectory(_path);
         _directory = FSDirectory.Open(_path);
         _analyzer = new StandardAnalyzer(_version);
-        _writer = new IndexWriter(_directory, new(_version, _analyzer));
+        _writer = createWriter();
         _persistedTimestamp = 0;
         _persistedWalFileId = Guid.Empty;
     }

@@ -1,3 +1,4 @@
+﻿using Relatude.DB.DataStores;
 using Relatude.DB.NodeServer.Settings;
 using System.Globalization;
 using System.Reflection;
@@ -83,8 +84,24 @@ sealed class UISettings {
                     Hint = (string?)fs.StoreType.ToString(),
                 }),
                 Cultures = cultures(),
+                ValueIndexes = indexEnginePicker(settings.LocalSettings?.ValueIndexes),
+                TextIndexes = indexEnginePicker(settings.LocalSettings?.TextIndexes),
+                VectorIndexes = indexEnginePicker(settings.LocalSettings?.VectorIndexes),
             },
         };
+    }
+
+    // the memory index comes first, under the id that means it, so a default of Guid.Empty is a named
+    // choice rather than an unknown value; the short id tells two engines of the same kind apart
+    static object[] indexEnginePicker(IndexEngineSettings[]? engines) {
+        return [
+            new { Value = Guid.Empty.ToString(), Label = "Memory", Hint = "in RAM, rebuilt from the log at every open" },
+            .. (engines ?? []).Select(e => new {
+                Value = e.Id.ToString(),
+                Label = (e.TypeName ?? "?") + " · " + e.MaxMemoryUsageInMb + " MB",
+                Hint = e.Id.ToString("N")[..8],
+            }),
+        ];
     }
 
     object[] buildSections(SettingSectionDefinition[] catalog, object root, Guid? containerId) {
@@ -198,8 +215,26 @@ sealed class UISettings {
         "IOSettings" => ioProviderUsage(id, containerId),
         "FileStoreSettings" => fileStoreUsage(id, containerId),
         "DatamodelSources" => datamodelSourceUsage(),
+        "LocalSettings.ValueIndexes" => indexEngineUsage(id, containerId, "value", local => local.DefaultValueIndex),
+        "LocalSettings.TextIndexes" => indexEngineUsage(id, containerId, "text", local => local.DefaultTextIndex),
+        "LocalSettings.VectorIndexes" => indexEngineUsage(id, containerId, "vector", local => local.DefaultVectorIndex),
         _ => new Usage([], [], null),
     };
+
+    /// <summary>
+    /// An index engine is referred to by one thing: the default of its kind on the same database
+    /// (properties cannot name an engine yet). That reference blocks removal, since a default naming
+    /// an engine its list lacks stops the database from opening. Removing an engine nothing points at
+    /// costs nothing at once - its files stay where they are - so that only gets a warning.
+    /// </summary>
+    Usage indexEngineUsage(Guid id, Guid? containerId, string kind, Func<SettingsLocal, Guid> defaultOf) {
+        var used = new List<string>();
+        var local = containerId == null ? null : getContainer(containerId.Value).Settings.LocalSettings;
+        if (local != null && defaultOf(local) == id) used.Add("the default " + kind + " index engine");
+        var warning = "The engine's folder below the index folder is left on disk; delete it by hand if the engine is not coming back."
+            + " An index that lived in it is rebuilt in the engine the default names when the database is next opened.";
+        return new Usage([.. used], [.. used], warning);
+    }
 
     /// <summary>
     /// Everything pointing at a storage provider, across every database - not only the one being
@@ -265,8 +300,8 @@ sealed class UISettings {
         + " same effect on the model and keeps the definition here.");
 
     static IEnumerable<object> elements(object root, string path) {
-        var property = root.GetType().GetProperty(path, BindingFlags.Public | BindingFlags.Instance);
-        if (property?.GetValue(root) is not System.Collections.IEnumerable items) yield break;
+        var (owner, property) = arrayProperty(root, path, create: false);
+        if (owner == null || property.GetValue(owner) is not System.Collections.IEnumerable items) yield break;
         foreach (var item in items) if (item != null) yield return item;
     }
 
@@ -344,11 +379,11 @@ sealed class UISettings {
             var settings = getContainer(payload.StoreId).Settings;
             var list = findList(payload.Path);
             requireUnlockedList(list, payload.StoreId);
-            var property = arrayProperty(settings, list.Path);
+            var (owner, property) = arrayProperty(settings, list.Path, create: true);
             var elementType = property.PropertyType.GetElementType()!;
             var item = Activator.CreateInstance(elementType) ?? throw new Exception("Could not create a " + list.ItemName + ".");
             elementType.GetProperty("Id")!.SetValue(item, SecureGuid.New());
-            append(settings, property, item);
+            append(owner!, property, item);
             var id = idOf(item);
             var prefix = list.Path + "[" + id + "].";
             var rejected = new List<RejectedSetting>();
@@ -394,21 +429,41 @@ sealed class UISettings {
                 throw new Exception("This " + list.ItemName + " is still used as " + string.Join(", ", blocking)
                     + ". Point those somewhere else first. ");
             }
-            var property = arrayProperty(settings, list.Path);
-            var before = existing(settings, property);
+            var (owner, property) = arrayProperty(settings, list.Path, create: false);
+            var before = owner == null ? [] : existing(owner, property);
             var after = before.Where(item => idOf(item) != payload.Id).ToArray();
             if (after.Length == before.Length) throw new Exception("That " + list.ItemName + " is already gone. ");
-            property.SetValue(settings, toArray(property.PropertyType.GetElementType()!, after));
+            property.SetValue(owner, toArray(property.PropertyType.GetElementType()!, after));
             if (string.Equals(list.Path, "IOSettings", StringComparison.OrdinalIgnoreCase)) _server.ForgetIOProvider(payload.Id);
             _server.UpdateWAFServerSettingsFile();
             return new { Removed = payload.Id, Settings = buildDatabase(payload.StoreId) };
         }
     }
 
-    static PropertyInfo arrayProperty(object owner, string path) {
-        var property = owner.GetType().GetProperty(path, BindingFlags.Public | BindingFlags.Instance);
+    /// <summary>
+    /// The object holding a list and the array property on it. A list path may reach into a nested
+    /// settings object ("LocalSettings.ValueIndexes"); with <paramref name="create"/> the objects on
+    /// the way are made when missing - adding the first engine to a database whose LocalSettings is
+    /// null - and without it a missing one comes back as a null owner, meaning an empty list.
+    /// </summary>
+    static (object? Owner, PropertyInfo Property) arrayProperty(object root, string path, bool create) {
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase;
+        var segments = path.Split('.');
+        object? owner = root;
+        var type = root.GetType();
+        for (var i = 0; i < segments.Length - 1; i++) {
+            var step = type.GetProperty(segments[i], flags) ?? throw new Exception("\"" + path + "\" is not an editable list.");
+            var next = owner == null ? null : step.GetValue(owner);
+            if (next == null && create && owner != null) {
+                next = Activator.CreateInstance(step.PropertyType) ?? throw new Exception("Could not create " + step.Name + ".");
+                step.SetValue(owner, next);
+            }
+            owner = next;
+            type = step.PropertyType;
+        }
+        var property = type.GetProperty(segments[^1], flags);
         if (property?.PropertyType.IsArray != true) throw new Exception("\"" + path + "\" is not an editable list.");
-        return property;
+        return (owner, property);
     }
     static object[] existing(object owner, PropertyInfo property) =>
         ((System.Collections.IEnumerable?)property.GetValue(owner))?.Cast<object>().ToArray() ?? [];
