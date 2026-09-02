@@ -92,7 +92,8 @@ public static class SettingsCommand {
             Output.WriteLine("  datamodel sources");
             if (c.DatamodelSources is { Length: > 0 }) {
                 Output.Table(c.DatamodelSources.Select(s => (s.Name ?? s.Id.ToString(),
-                    s.Type + "  " + (s.Reference ?? "(entry assembly)") + (s.Namespace == null ? string.Empty : "  namespace " + s.Namespace))), "    ");
+                    s.Type + "  " + (s.Reference ?? "(entry assembly)") + (s.Namespace == null ? string.Empty : "  namespace " + s.Namespace)
+                    + (s.Enabled ? string.Empty : "  (turned off, not loaded)"))), "    ");
             } else {
                 Output.WriteLine("    none - the database has no datamodel");
             }
@@ -144,7 +145,7 @@ public static class SettingsCommand {
             }).ToArray(),
             c.LocalSettings,
             DatamodelSources = (c.DatamodelSources ?? []).Select(s => new {
-                s.Id, s.Name, Type = s.Type.ToString(), s.Reference, s.Namespace, s.AutoDeduceRelations,
+                s.Id, s.Name, Type = s.Type.ToString(), s.Reference, s.Namespace, s.Enabled, s.AutoDeduceRelations,
             }).ToArray(),
             AISettings = ai == null ? null : new {
                 ai.Name, ai.TypeName, ai.EmbeddingModel,

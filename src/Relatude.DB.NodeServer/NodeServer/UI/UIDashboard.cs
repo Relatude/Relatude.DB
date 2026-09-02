@@ -1,3 +1,4 @@
+﻿using System.Diagnostics;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores;
 using Relatude.DB.IO;
@@ -28,6 +29,7 @@ sealed class UIDashboard {
     internal void Register(UICommands commands) {
         commands.Register("dashboard", async ctx => await full(ctx.Payload<StorePayload>().StoreId));
         commands.Register("dashboard-live", ctx => live(ctx.Payload<StorePayload>().StoreId));
+        commands.Register("dashboard-clear-cache", async ctx => await clearCache(ctx.Payload<StorePayload>().StoreId));
     }
 
     NodeStoreContainer container(Guid storeId) {
@@ -115,6 +117,37 @@ sealed class UIDashboard {
                 settings.AISettings.EmbeddingModel,
             },
             RelationTypes = datamodel.Relations.Count,
+        };
+    }
+
+    // ---- throwing the warm caches away ----
+
+    /// <summary>
+    /// Empties the node, result set and index caches of one database, which is what the page offers
+    /// when a measurement should start from cold - and the only way to see what the caches are
+    /// actually holding, since the store frees and compacts on its way out of
+    /// <see cref="MaintenanceAction.ClearCache"/>. Two things follow that the page has to expect:
+    /// the counters the activity graph is built from start over (drawn as a gap, never a negative
+    /// rate), and the indexes warm again in the background, so the numbers keep moving afterwards.
+    /// </summary>
+    async Task<object> clearCache(Guid storeId) {
+        var c = container(storeId);
+        var store = c.Store ?? throw new Exception("The database must be open. ");
+        if (store.State != DataStoreState.Open) throw new Exception("The database must be open. ");
+        // read before, not after: after the clear there is nothing left to count
+        var counters = store.Datastore.PeekCounters();
+        var watch = Stopwatch.StartNew();
+        var before = GC.GetTotalMemory(false);
+        await store.MaintenanceAsync(MaintenanceAction.ClearCache);
+        var after = GC.GetTotalMemory(false);
+        watch.Stop();
+        return new {
+            EntriesCleared = (long)counters.NodeCacheCount + counters.SetCacheCount,
+            // another thread allocating during the clear can leave this negative, which reads as
+            // nonsense; nothing freed is the honest floor
+            FreedBytes = Math.Max(0, before - after),
+            ManagedBytes = after,
+            ElapsedMs = watch.ElapsedMilliseconds,
         };
     }
 

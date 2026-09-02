@@ -29,6 +29,12 @@ public class DatamodelSource {
     public string? Reference { get; set; }
     public Guid? FileIO { get; set; }
     /// <summary>
+    /// When false the source is skipped entirely: nothing it defines reaches the datamodel, and it is
+    /// not registered on it either. A source added from the admin UI starts turned off, so a settings
+    /// file is never left holding a half configured source that would stop the database from opening.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+    /// <summary>
     /// When true, plain node-typed properties (and collections of node types) without an
     /// explicit relation are turned into auto-created relations, matching the old behavior.
     /// When false (default), such properties become Reference/References properties instead.

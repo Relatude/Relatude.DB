@@ -247,3 +247,61 @@ export async function runFileScan(
     ctl.signal.removeEventListener("abort", cancelJob);
   }
 }
+
+// ---- demo content ----
+// Generated articles for an empty database. Only databases whose datamodel has the demo node type
+// can take them, and the wikipedia generator only exists where its dump file happens to be, so the
+// panel asks the server what is possible before offering anything.
+
+export interface DemoContentInfo {
+  open: boolean;
+  available: boolean; // the datamodel has the demo node type
+  nodeType: string;
+  existing: number; // demo articles already stored; a run continues from there
+  wikipedia: boolean; // a wikipedia dump is present on the server
+  wikipediaPath: string;
+}
+
+export interface DemoResult {
+  created: number;
+  elapsedMs: number;
+}
+
+export interface DemoProgress {
+  state: "running" | "done" | "cancelled" | "failed";
+  description: string;
+  percent: number;
+  error: string | null;
+  result: DemoResult | null;
+}
+
+export function fetchDemoInfo(storeId: string): Promise<DemoContentInfo> {
+  return send<DemoContentInfo>("demo-info", { storeId });
+}
+
+// Generates and inserts demo articles behind a progress dialog. Like the file scans this is a server
+// job that is polled: the insert of a million articles outlives any request. Cancelling stops the
+// server job too, and keeps what it had already inserted.
+export async function addDemoContent(ctl: ProgressController, storeId: string, count: number, wikipedia: boolean): Promise<DemoProgress> {
+  ctl.set({ label: "Starting…", total: 100, done: 0, meta: "0%" }); // the job reports percent, so the bar counts to 100
+  const { jobId } = await send<{ jobId: string }>("demo-start", { storeId, count, wikipedia });
+  const cancelJob = () => {
+    void send("demo-cancel", { jobId }).catch(() => {}); // a job that already finished is not an error worth showing
+  };
+  ctl.signal.addEventListener("abort", cancelJob, { once: true });
+  try {
+    for (;;) {
+      const progress = await send<DemoProgress>("demo-progress", { jobId });
+      ctl.set({ label: progress.description || "Generating…", done: progress.percent, meta: progress.percent + "%" });
+      if (progress.state === "running") {
+        await new Promise((r) => setTimeout(r, 400));
+        continue;
+      }
+      if (progress.state === "failed") throw new Error(progress.error ?? "Adding demo content failed.");
+      if (progress.state === "cancelled") throw new DOMException("Aborted", "AbortError");
+      return progress;
+    }
+  } finally {
+    ctl.signal.removeEventListener("abort", cancelJob);
+  }
+}

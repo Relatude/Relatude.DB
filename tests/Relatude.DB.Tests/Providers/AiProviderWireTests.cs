@@ -64,7 +64,7 @@ public class AiProviderWireTests {
     [TestMethod]
     public async Task OpenAICompletionSendsBearerAuthAndModelAndParsesContent() {
         await using var stub = await AiServiceStub.StartAsync();
-        using var provider = new OpenAIProvider(new AIProviderSettings {
+        using var provider = new NativeOpenAIProvider(new AIProviderSettings {
             ServiceUrl = stub.BaseUrl + "/v1",
             ApiKey = "sk-test",
             CompletionModel = "gpt-4o",
@@ -86,7 +86,7 @@ public class AiProviderWireTests {
     [TestMethod]
     public async Task OpenAICompletionResolvesModelKeysAndSendsMaxTokensWhenConfigured() {
         await using var stub = await AiServiceStub.StartAsync();
-        using var provider = new OpenAIProvider(new AIProviderSettings {
+        using var provider = new NativeOpenAIProvider(new AIProviderSettings {
             ServiceUrl = stub.BaseUrl + "/v1",
             ApiKey = "sk-test",
             CompletionModel = "gpt-4o",
@@ -104,7 +104,7 @@ public class AiProviderWireTests {
     [TestMethod]
     public async Task OpenAIEmbeddingsAreOrderedByIndexNotByResponseOrder() {
         await using var stub = await AiServiceStub.StartAsync();
-        using var provider = new OpenAIProvider(new AIProviderSettings {
+        using var provider = new NativeOpenAIProvider(new AIProviderSettings {
             ServiceUrl = stub.BaseUrl + "/v1",
             ApiKey = "sk-test",
             EmbeddingModel = "text-embedding-3-small",
@@ -125,7 +125,7 @@ public class AiProviderWireTests {
     [TestMethod]
     public async Task TransientErrorsAreRetriedAndRealErrorsSurfaceStatusAndBody() {
         await using var stub = await AiServiceStub.StartAsync();
-        using var provider = new OpenAIProvider(new AIProviderSettings {
+        using var provider = new NativeOpenAIProvider(new AIProviderSettings {
             ServiceUrl = stub.BaseUrl + "/v1",
             ApiKey = "sk-test",
             CompletionModel = "gpt-4o",
@@ -145,7 +145,7 @@ public class AiProviderWireTests {
     [TestMethod]
     public async Task AzureOpenAIUsesDeploymentPathApiVersionAndApiKeyHeader() {
         await using var stub = await AiServiceStub.StartAsync();
-        using var provider = new AzureAIProvider(new AIProviderSettings {
+        using var provider = new NativeAzureAIProvider(new AIProviderSettings {
             ServiceUrl = stub.BaseUrl,
             ApiKey = "azure-key",
             CompletionModel = "my-gpt4o-deployment",
@@ -170,7 +170,7 @@ public class AiProviderWireTests {
     [TestMethod]
     public async Task AnthropicCompletionSendsMessagesRequestAndConcatenatesTextBlocks() {
         await using var stub = await AiServiceStub.StartAsync();
-        using var provider = new AnthropicAIProvider(new AIProviderSettings {
+        using var provider = new NativeAnthropicAIProvider(new AIProviderSettings {
             ServiceUrl = stub.BaseUrl,
             ApiKey = "sk-ant-test",
             CompletionModel = "claude-opus-5",
@@ -191,7 +191,7 @@ public class AiProviderWireTests {
     [TestMethod]
     public async Task AnthropicRefusalStopReasonThrowsInsteadOfReturningEmptyText() {
         await using var stub = await AiServiceStub.StartAsync();
-        using var provider = new AnthropicAIProvider(new AIProviderSettings {
+        using var provider = new NativeAnthropicAIProvider(new AIProviderSettings {
             ServiceUrl = stub.BaseUrl,
             ApiKey = "sk-ant-test",
         });
@@ -204,10 +204,10 @@ public class AiProviderWireTests {
     [TestMethod]
     public async Task AnthropicEmbeddingsRequireAndUseTheSeparateEmbeddingEndpoint() {
         await using var stub = await AiServiceStub.StartAsync();
-        using var withoutEndpoint = new AnthropicAIProvider(new AIProviderSettings { ApiKey = "sk-ant-test" });
+        using var withoutEndpoint = new NativeAnthropicAIProvider(new AIProviderSettings { ApiKey = "sk-ant-test" });
         await Assert.ThrowsExceptionAsync<NotSupportedException>(() => withoutEndpoint.GetEmbeddingsAsync(["text"]));
 
-        using var provider = new AnthropicAIProvider(new AIProviderSettings {
+        using var provider = new NativeAnthropicAIProvider(new AIProviderSettings {
             ServiceUrl = stub.BaseUrl,
             ApiKey = "sk-ant-test",
             EmbeddingServiceUrl = stub.BaseUrl + "/v1",

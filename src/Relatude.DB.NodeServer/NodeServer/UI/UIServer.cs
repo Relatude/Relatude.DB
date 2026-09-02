@@ -30,6 +30,7 @@ public sealed class UIServer {
         new UILogs(server).Register(Commands);
         new UIDashboard(server).Register(Commands);
         new UITasks(server).Register(Commands);
+        new UIDemo(server).Register(Commands);
         _query = new UIQuery(server);
         _query.Register(Commands);
         _containerWatch = new Timer(_ => watchContainers(), null, containerWatchIntervalMs, Timeout.Infinite);

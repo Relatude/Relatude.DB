@@ -36,6 +36,11 @@ export interface SettingView {
   /** The value may be cleared; a required setting falls back to its zero value instead. */
   optional: boolean;
   choices?: SettingChoice[] | null;
+  /**
+   * The choices are suggestions, not the legal values: the field stays free text with the list one
+   * click away. Set from `Suggestions` on the setting's catalog entry.
+   */
+  allowCustom: boolean;
   /** null for secrets, which are never sent back to the browser. */
   value: unknown;
   default: unknown;

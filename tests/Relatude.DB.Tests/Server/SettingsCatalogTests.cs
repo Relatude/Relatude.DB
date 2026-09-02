@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Configuration;
+using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 using Relatude.DB.NodeServer;
 using Relatude.DB.NodeServer.Settings;
@@ -81,11 +82,12 @@ public class SettingsCatalogTests {
                         Assert.IsTrue(setting.Help.Length > 30, setting.Path + " has no real explanation.");
                     }
                     // a list group's field paths live in the element's own namespace, so they are
-                    // checked among themselves rather than against the page
+                    // checked among themselves rather than against the page. A path is allowed to
+                    // repeat there; RepeatedListFieldsAreNeverVisibleTogether is what bounds that
                     if (group.List == null) continue;
                     var fieldPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var field in group.List.Fields) {
-                        Assert.IsTrue(fieldPaths.Add(field.Path), "Duplicate field in " + group.Id + ": " + field.Path);
+                        fieldPaths.Add(field.Path);
                         Assert.IsFalse(string.IsNullOrWhiteSpace(field.Label), field.Path + " has no label.");
                         Assert.IsTrue(field.Help.Length > 30, group.Id + "/" + field.Path + " has no real explanation.");
                     }
@@ -105,11 +107,9 @@ public class SettingsCatalogTests {
         string[] editedElsewhere = [
             // server identity and the container list itself: the Databases section owns these
             "ContainerSettings", "Id",
-            // the model sources are edited from the Data model section, not as settings
-            "DatamodelSources",
-            // the storage provider and file store lists are edited by their own list groups, whose
-            // element fields NoListFieldIsSilentlyMissing covers
-            "IOSettings", "FileStoreSettings",
+            // the model source, storage provider and file store lists are edited by their own list
+            // groups, whose element fields NoListFieldIsSilentlyMissing covers
+            "DatamodelSources", "IOSettings", "FileStoreSettings",
             // completion model map and the url tree: collections, not single values
             "AISettings.CompletionModelsByKey", "LocalSettings.UrlOptions.Parents", "LocalSettings.UrlOptions.Domains",
             // what each log records and the query threshold: switched in the Logs section, which
@@ -146,6 +146,31 @@ public class SettingsCatalogTests {
         // an optional reference is clearable, a non-optional one is not
         Assert.IsTrue(SettingsAccessor.Describe(typeof(RelatudeDBServerSettings), "Name").Optional);
         Assert.IsFalse(SettingsAccessor.Describe(typeof(RelatudeDBServerSettings), "TokenCookieName").Optional);
+    }
+
+    /// <summary>
+    /// A catalog entry may name the values a free text setting usually holds. They are a shortcut in
+    /// the UI and nothing more: the editor stays a text field, so anything else typed in its place
+    /// still saves. A setting that really is closed belongs on an enum, whose members come from the
+    /// type - which is why suggestions on one are a mistake rather than a combination.
+    /// </summary>
+    [TestMethod]
+    public void SuggestedValuesStayFreeText() {
+        var providerType = SettingsCatalog.Database.SelectMany(s => s.Groups).SelectMany(g => g.Settings)
+            .Single(s => s.Path == "AISettings.TypeName");
+        Assert.AreEqual(SettingEditor.Text, SettingsAccessor.Describe(typeof(NodeStoreContainerSettings), providerType.Path).Editor);
+        CollectionAssert.Contains(providerType.Suggestions?.Select(s => s.Value).ToArray(), "OpenAI");
+
+        foreach (var (group, setting, root) in all()) {
+            if (setting.Suggestions == null) continue;
+            var where = group.Id + "/" + setting.Path;
+            var description = SettingsAccessor.Describe(root, setting.Path);
+            Assert.AreEqual(SettingEditor.Text, description.Editor, where + " suggests values but is not a text setting.");
+            Assert.IsTrue(setting.Suggestions.Length > 0, where + " carries an empty suggestion list.");
+            Assert.IsFalse(setting.Suggestions.Any(s => string.IsNullOrWhiteSpace(s.Value)), where + " suggests a blank value.");
+            Assert.AreEqual(setting.Suggestions.Length, setting.Suggestions.Select(s => s.Value).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                where + " suggests the same value twice.");
+        }
     }
 
     [TestMethod]
@@ -231,6 +256,85 @@ public class SettingsCatalogTests {
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// One property may appear as more than one field - a model source's Reference names an assembly,
+    /// a type or a file depending on its kind - so each kind can label and explain it as its own. That
+    /// only holds while at most one copy is ever shown: two visible at once would render the same
+    /// value twice, and the second would shadow the first in every map keyed by path.
+    /// </summary>
+    [TestMethod]
+    public void RepeatedListFieldsAreNeverVisibleTogether() {
+        var repeated = 0;
+        foreach (var (group, list, _) in lists()) {
+            foreach (var same in list.Fields.GroupBy(f => f.Path, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1)) {
+                var copies = same.ToArray();
+                repeated++;
+                foreach (var copy in copies) {
+                    Assert.IsNotNull(copy.VisibleWhen, group.Id + "/" + same.Key + " appears more than once but one copy is always visible.");
+                }
+                for (var i = 0; i < copies.Length; i++) {
+                    for (var j = i + 1; j < copies.Length; j++) {
+                        var a = copies[i].VisibleWhen!;
+                        var b = copies[j].VisibleWhen!;
+                        Assert.IsTrue(StringComparer.OrdinalIgnoreCase.Equals(a.Path, b.Path),
+                            group.Id + "/" + same.Key + " has copies depending on different fields, so nothing keeps them apart.");
+                        var overlap = a.Values.Intersect(b.Values, StringComparer.OrdinalIgnoreCase).ToArray();
+                        Assert.AreEqual(0, overlap.Length, group.Id + "/" + same.Key + " shows two copies at once for " + string.Join(", ", overlap) + ".");
+                    }
+                }
+            }
+        }
+        Assert.IsTrue(repeated > 0, "No field repeats any more - the test no longer covers anything.");
+    }
+
+    /// <summary>A choice the settings file may not hold is not offered at all. The datamodel source
+    /// type Code is the one: it belongs to model types registered from application code, and the
+    /// loader refuses a configured source carrying it.</summary>
+    [TestMethod]
+    public void ExcludedChoicesNameRealEnumMembers() {
+        var found = 0;
+        foreach (var (sections, root) in new (SettingSectionDefinition[], Type)[] {
+            (SettingsCatalog.Server, typeof(RelatudeDBServerSettings)),
+            (SettingsCatalog.Database, typeof(NodeStoreContainerSettings)),
+        }) {
+            foreach (var group in sections.SelectMany(s => s.Groups)) {
+                var elementType = group.List == null ? null : root.GetProperty(group.List.Path)!.PropertyType.GetElementType()!;
+                foreach (var (owner, field) in group.Settings.Select(f => (root, f)).Concat((group.List?.Fields ?? []).Select(f => (elementType!, f)))) {
+                    if (field.ExcludedChoices == null) continue;
+                    var type = SettingsAccessor.Describe(owner, field.Path).ValueType;
+                    Assert.IsTrue(type.IsEnum, group.Id + "/" + field.Path + " excludes choices but is not a fixed set of values.");
+                    foreach (var name in field.ExcludedChoices) {
+                        Assert.IsTrue(Enum.GetNames(type).Contains(name), name + " is not a " + type.Name + ".");
+                        found++;
+                    }
+                }
+            }
+        }
+        Assert.IsTrue(found > 0, "Nothing excludes a choice any more - the test no longer covers anything.");
+    }
+
+    /// <summary>A model source added from the admin UI starts turned off, so the settings file is
+    /// never left holding a half configured source - which, unlike a half configured storage provider,
+    /// nothing has to point at to break: every source is loaded, and one that fails stops the open.</summary>
+    [TestMethod]
+    public void ANewModelSourceStartsTurnedOff() {
+        var list = SettingsCatalog.Database.SelectMany(s => s.Groups).Select(g => g.List)
+            .Single(l => l?.Path == "DatamodelSources")!;
+        CollectionAssert.Contains(list.Fields.First(f => f.Path == "Type").ExcludedChoices, nameof(DatamodelSourceType.Code));
+        Assert.IsTrue(new DatamodelSource().Enabled, "A source in a settings file written before the flag existed has to keep loading.");
+
+        // the seeded values are written through the same conversion as any edit, booleans included
+        var source = new DatamodelSource { Id = Guid.NewGuid() };
+        var container = new NodeStoreContainerSettings { Id = Guid.NewGuid(), DatamodelSources = [source] };
+        var prefix = "DatamodelSources[" + source.Id + "].";
+        foreach (var (field, value) in list.NewItem!) {
+            SettingsAccessor.Write(container, prefix + field, JsonSerializer.SerializeToElement(value));
+        }
+        Assert.IsFalse(source.Enabled);
+        Assert.AreEqual(DatamodelSourceType.AssemblyNameReference, source.Type);
+        Assert.AreEqual("New model source", source.Name);
     }
 
     /// <summary>An element's fields are reached on a path that addresses the element by Id, which is

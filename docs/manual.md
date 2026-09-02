@@ -1870,6 +1870,7 @@ deployments of the same binary:
     "Reference": "VenueApp",           // assembly name; null means the entry assembly
     "Filepath": null,                  // file or folder, for the file-based types
     "FileIO": null,                    // legacy: read a JsonFile through an IO provider instead
+    "Enabled": true,                   // false skips the source entirely
     "AutoDeduceRelations": false
   }
 ]
@@ -1886,6 +1887,14 @@ deployments of the same binary:
 Relative `Filepath` values resolve against the root data folder. Every source must carry a unique
 `Id` — it is what tags each type with its provenance, which is how the admin UI knows which source a
 type came from and which sources it may edit.
+
+`Enabled` (`true` when absent) is a switch rather than a setting: a source turned off contributes
+nothing and is not registered on the model at all, so nothing it defines survives the next open, and
+nodes already stored under those types come back without the properties the types declared. Turning
+it back on restores the model exactly. Sources are edited from the admin UI under
+**Settings → Data model → Model sources**, and one added there starts turned off — an unfinished
+source would otherwise stop the database from opening, since every configured source is loaded and
+one that throws fails the open.
 
 **From `Program.cs`**, which is the common case when the model ships with the app — refactor-safe,
 and it fails at compile time rather than at boot:

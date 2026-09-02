@@ -1,4 +1,4 @@
-namespace Relatude.DB.NodeServer.Settings;
+﻿namespace Relatude.DB.NodeServer.Settings;
 
 /// <summary>When a changed setting starts to matter.</summary>
 public enum SettingApplies {
@@ -30,6 +30,16 @@ public sealed class SettingDefinition {
     /// <summary>Fills the field from a runtime list instead of free text: "databases",
     /// "ioProviders", "fileStores" or "cultures". See <c>UISettings.buildPickers</c>.</summary>
     public string? Picker { get; init; }
+    /// <summary>Enum members not offered as choices, for values the settings file may not hold - the
+    /// datamodel source type <c>Code</c>, which only model types added from code carry. A value already
+    /// stored is still shown, so an excluded one is visible rather than silently replaced.</summary>
+    public string[]? ExcludedChoices { get; init; }
+    /// <summary>The values a free text setting usually holds, for one that names a few known things -
+    /// an AI provider - but stays open. They are offered beside the field and nothing more: the editor
+    /// is still a text field, so a value not listed here saves exactly as a listed one does. A setting
+    /// whose values really are closed belongs on an enum, which becomes a drop-down without any of
+    /// this. Only meaningful on a text setting; an enum's members come from the type.</summary>
+    public SettingSuggestion[]? Suggestions { get; init; }
     /// <summary>Shown after the input, e.g. "GB", "minutes".</summary>
     public string? Unit { get; init; }
     /// <summary>Never sent to the browser in clear text, and only written when a new value is typed.</summary>
@@ -37,6 +47,13 @@ public sealed class SettingDefinition {
     /// <summary>Shown, but not editable from here.</summary>
     public bool ReadOnly { get; init; }
     public string? Placeholder { get; init; }
+}
+
+/// <summary>One of the values a free text setting offers. <see cref="Hint"/> is a few words shown
+/// beside it - what picking it needs or costs - for a reader choosing between them.</summary>
+public sealed class SettingSuggestion {
+    public required string Value { get; init; }
+    public string? Hint { get; init; }
 }
 
 /// <summary>Hides a field until a sibling field holds one of these values, so an element only shows
@@ -52,6 +69,11 @@ public sealed class SettingVisibility {
 /// showing <see cref="Fields"/>, and elements can be added and removed. Field paths are relative to
 /// one element; the server turns them into full paths ("IOSettings[8f1c...].Path"), so an element's
 /// fields save, mark defaults and report configuration overrides exactly like any other setting.
+///
+/// A field path may appear more than once as long as the <see cref="SettingDefinition.VisibleWhen"/>
+/// values of the copies do not overlap, so one property that means different things to different
+/// kinds of element - what a datamodel source's Reference names - can be labelled and explained as
+/// the kind at hand rather than as all of them at once. At most one copy is ever visible.
 /// </summary>
 public sealed class SettingListDefinition {
     /// <summary>The collection property on the settings object, e.g. "IOSettings".</summary>
@@ -237,6 +259,93 @@ public static class SettingsCatalog {
                             Help = "Makes incoming requests wait behind the opening database instead of failing. Replaying a large log can take a while, so the first requests after a start are slow rather than broken.",
                         },
                     ],
+                },
+            ],
+        },
+        new() {
+            Id = "datamodel", Title = "Data model", Icon = "model",
+            Groups = [
+                new() {
+                    Id = "datamodel-sources",
+                    Title = "Model sources",
+                    Help = "Where this database's node types and relations come from. Every source is loaded into one model, "
+                        + "in the order listed, so a type is defined by the first source that has it. The model is built while the "
+                        + "database opens: a source that has just been added or changed does nothing until the database is closed "
+                        + "and opened again. A source added here starts turned off, because an unfinished one would stop the "
+                        + "database from opening - fill it in, then turn it on. Model types registered from application code "
+                        + "(OnDatamodelInit) are always loaded and are not listed here.",
+                    List = new() {
+                        Path = "DatamodelSources",
+                        ItemName = "model source",
+                        LabelField = "Name",
+                        EmptyHelp = "No model source is configured, so this database only has the types application code registers itself. "
+                            + "Without either it has no model, and everything stored in it is a bare node.",
+                        // an assembly namespace: the code first case, and the only kind needing nothing on disk
+                        NewItem = new() { ["Name"] = "New model source", ["Type"] = "AssemblyNameReference", ["Enabled"] = "false" },
+                        Fields = [
+                            new() {
+                                Path = "Name", Label = "Name",
+                                Help = "What this source is called here and in the error message when it fails to load. A label only - the model refers to it by id.",
+                            },
+                            new() {
+                                Path = "Enabled", Label = "Loaded",
+                                Help = "Off skips the source entirely: its types leave the model at the next open, and nodes stored under them come back without the properties those types declared. It is how a source is taken out of the model without losing what it says.",
+                            },
+                            new() {
+                                Path = "Type", Label = "Kind", ExcludedChoices = ["Code"],
+                                Help = "Where the types are read from. An assembly namespace or a single type name uses classes compiled into the application. C# files are compiled while the database opens, so the model can change without rebuilding. JSON files hold the model itself, but every type in one still needs a plain backing class in the application for queries to map onto.",
+                            },
+                            new() {
+                                Path = "Reference", Label = "Assembly", Placeholder = "the entry assembly",
+                                VisibleWhen = new() { Path = "Type", Values = ["AssemblyNameReference"] },
+                                Help = "The assembly holding the model classes, by name and without \".dll\". Empty uses the application's own entry assembly. The assembly has to be referenced by, or copied next to, the application - naming one that is not there fails when the database opens.",
+                            },
+                            new() {
+                                Path = "Namespace", Label = "Namespace", Placeholder = "MyApp.Models",
+                                VisibleWhen = new() { Path = "Type", Values = ["AssemblyNameReference"] },
+                                Help = "The namespace the model classes live in. Required, and everything in it and under it is added. A namespace that yields no model types is treated as a mistake rather than as an empty model, so a typo is reported instead of quietly ignored.",
+                            },
+                            new() {
+                                Path = "Reference", Label = "Type name", Placeholder = "MyApp.Models.Person, MyApp",
+                                VisibleWhen = new() { Path = "Type", Values = ["TypeNameReference"] },
+                                Help = "One model class by its full name, assembly qualified unless it lives in the entry assembly. The types it refers to are pulled in with it, so this is how to add a single class rather than a whole namespace.",
+                            },
+                            new() {
+                                Path = "Filepath", Label = "C# file or folder", Placeholder = "Models/CSharp",
+                                VisibleWhen = new() { Path = "Type", Values = ["CSharpCodeFile"] },
+                                Help = "A .cs file, or a folder whose .cs files are compiled together as one assembly (bin and obj are skipped). Relative paths resolve against the folder holding this settings file. Empty uses \"Models/CSharp\".",
+                            },
+                            new() {
+                                Path = "Namespace", Label = "Namespace filter", Placeholder = "every namespace",
+                                VisibleWhen = new() { Path = "Type", Values = ["CSharpCodeFile"] },
+                                Help = "Limits what is taken from the compiled files to one namespace. Empty adds every top level class in them, which is what a folder written for this database alone usually wants.",
+                            },
+                            new() {
+                                Path = "Filepath", Label = "JSON file or folder", Placeholder = "Models/Json",
+                                VisibleWhen = new() { Path = "Type", Values = ["JsonFile"] },
+                                Help = "A .json model file, or a folder whose .json files are all loaded. Relative paths resolve against the folder holding this settings file, and empty uses \"Models/Json\". Ignored when a storage provider is named below.",
+                            },
+                            new() {
+                                Path = "FileIO", Label = "Read through provider", Picker = "ioProviders",
+                                VisibleWhen = new() { Path = "Type", Values = ["JsonFile"] },
+                                Help = "Reads the model from one of the storage providers instead of from the file system, which is how a model kept in blob storage is loaded. Setting it takes over from the path above and makes the file name below the one that is read.",
+                            },
+                            new() {
+                                Path = "Reference", Label = "File name",
+                                VisibleWhen = new() { Path = "Type", Values = ["JsonFile"] },
+                                Help = "The model file to read from the storage provider above. Only used when a provider is set - the path above is what names the file otherwise.",
+                            },
+                            new() {
+                                Path = "AutoDeduceRelations", Label = "Node properties become relations",
+                                VisibleWhen = new() { Path = "Type", Values = ["AssemblyNameReference", "TypeNameReference", "CSharpCodeFile"] },
+                                Help = "Turns a plain property whose type is another node - or a collection of them - into an automatically created relation, the way earlier versions did. Off, such a property becomes a Reference or References property stored on the node itself. The two keep the links in different places, so this is a decision to make before there is content rather than after.",
+                            },
+                            new() {
+                                Path = "Id", Label = "Source id", ReadOnly = true,
+                                Help = "Stamped on every node type and relation this source adds, which is how the model knows what came from where. Generated when the source is added.",
+                            },
+                        ],
+                    },
                 },
             ],
         },
@@ -612,8 +721,15 @@ public static class SettingsCatalog {
                     Help = "The service behind embeddings (semantic search) and completions. Leave it empty on a database that uses neither.",
                     Settings = [
                         new() {
-                            Path = "AISettings.TypeName", Label = "Provider type", Placeholder = "OpenAI",
-                            Help = "Selects the provider implementation, e.g. OpenAI, AzureOpenAI or Anthropic. It is resolved by name when the database opens, so a typo shows up as a start-up error.",
+                            Path = "AISettings.TypeName", Label = "Provider type", Placeholder = "AzureAI",
+                            Help = "Selects the provider implementation. The built-in ones are listed; anything else is taken as the full type name of a custom provider. It is resolved by name when the database opens, so a typo shows up as a start-up error.",
+                            // the names LateBindings.CreateAiProvider knows; LateBindingsTests checks they stay in step
+                            Suggestions = [
+                                new() { Value = "AzureAI", Hint = "the default" },
+                                new() { Value = "OpenAI", Hint = "api.openai.com" },
+                                new() { Value = "Anthropic", Hint = "needs a separate embedding endpoint" },
+                                new() { Value = "Dummy", Hint = "fixed vectors, for tests" },
+                            ],
                         },
                         new() { Path = "AISettings.Name", Label = "Display name", Help = "A label for this configuration in the admin UI. Not sent to the service." },
                         new() {

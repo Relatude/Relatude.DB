@@ -83,21 +83,20 @@ public static class LateBindings {
     }
     internal static IAIProvider CreateAiProvider(AIProviderSettings aiSettings) {
         switch (aiSettings.TypeName) {
-            case null or "" or "AzureAIProvider":
-                return new AzureAIProvider(aiSettings);
-                //return create<IAIProvider>("Relatude.DB.AI.AzureAIProvider", "Relatude.DB.Providers", "Relatude.DB.Plugins.Providers", [aiSettings]);
-            case "OpenAIProvider" or "OpenAI":
-                return create<IAIProvider>("Relatude.DB.AI.OpenAIProvider", "Relatude.DB.Providers", "Relatude.DB.Plugins.Providers", [aiSettings]);
-            case "AnthropicAIProvider" or "Anthropic":
-                return create<IAIProvider>("Relatude.DB.AI.AnthropicAIProvider", "Relatude.DB.Providers", "Relatude.DB.Plugins.Providers", [aiSettings]);
-            case nameof(DummyAIProvider):
+            case null or "" or nameof(NativeAzureAIProvider) or "AzureAI":
+                return new NativeAzureAIProvider(aiSettings);
+            case nameof(NativeOpenAIProvider) or "OpenAI":
+                return new NativeOpenAIProvider(aiSettings);
+            case nameof(NativeAnthropicAIProvider) or "Anthropic":
+                return new NativeAnthropicAIProvider(aiSettings);
+            case nameof(DummyAIProvider) or "Dummy":
                 return new DummyAIProvider();
             default:
                 return create<IAIProvider>(aiSettings.TypeName, null, null, [aiSettings]);
         }
     }
     internal static IIOProvider CreateAzureBlobIOProvider(IOSettings ioSettings) {
-        if(ioSettings.BlobContainerName ==null) throw new Exception("BlobContainerName is required for AzureBlobIOProvider.");
+        if (ioSettings.BlobContainerName == null) throw new Exception("BlobContainerName is required for AzureBlobIOProvider.");
         if (ioSettings.BlobConnectionString == null) throw new Exception("BlobConnectionString is required for AzureBlobIOProvider.");
         return new AzureBlobIOProvider(ioSettings.BlobContainerName, ioSettings.BlobConnectionString, ioSettings.LockBlob);
         //return create<IIOProvider>("Relatude.DB.IO.AzureBlobIOProvider", "Relatude.DB.Providers", "Relatude.DB.Plugins.Providers", [ioSettings.BlobContainerName, ioSettings.BlobConnectionString, ioSettings.LockBlob]);

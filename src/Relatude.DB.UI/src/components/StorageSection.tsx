@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   IconDatabaseExport,
   IconDatabaseImport,
+  IconDatabasePlus,
   IconDeviceFloppy,
   IconDownload,
   IconFileSearch,
@@ -16,6 +17,7 @@ import {
 import { runWithProgress, showChoice, showConfirm, showError, showInfo } from "../dialogs";
 import { deleteFiles, downloadUrl, pickDirectory } from "../server/files";
 import {
+  addDemoContent,
   backupNow,
   databaseDownloadUrl,
   deleteConvertedFiles,
@@ -23,6 +25,7 @@ import {
   downloadFileStorage,
   fetchBackupList,
   fetchConvertedInfo,
+  fetchDemoInfo,
   fetchDbFileInfo,
   fetchFileStorages,
   fetchMaintenanceInfo,
@@ -35,6 +38,7 @@ import {
   type BackupFile,
   type BackupList,
   type DbFileInfo,
+  type DemoContentInfo,
   type FileStorageInfo,
   type MaintenanceInfo,
   type UnreferencedResult,
@@ -48,6 +52,10 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const [dbFile, setDbFile] = useState<DbFileInfo | null>(null);
   const [maintenance, setMaintenance] = useState<MaintenanceInfo | null>(null);
   const [fileStorages, setFileStorages] = useState<FileStorageInfo[]>([]);
+  const [demo, setDemo] = useState<DemoContentInfo | null>(null);
+  const [demoCount, setDemoCount] = useState("1000");
+  const [demoWikipedia, setDemoWikipedia] = useState(false);
+  const [demoMessage, setDemoMessage] = useState<string | null>(null);
   const [truncate, setTruncate] = useState(false);
   const [keepForever, setKeepForever] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -71,6 +79,9 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       .catch(() => {});
     fetchFileStorages(db.id)
       .then(setFileStorages)
+      .catch(() => {});
+    fetchDemoInfo(db.id)
+      .then(setDemo)
       .catch(() => {});
   }, [db.id]);
   useEffect(load, [load]);
@@ -322,6 +333,34 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
     }
   }
 
+  /**
+   * Fills the database with generated demo articles - what makes an empty installation searchable
+   * enough to try the query page on. The count is how many to add on top of what is already there:
+   * the generator continues where the last run stopped, so a second run does not repeat the first.
+   */
+  async function onAddDemoContent() {
+    const count = Math.floor(Number(demoCount));
+    if (!Number.isFinite(count) || count < 1) {
+      showError("Demo content", "Enter how many articles to create.");
+      return;
+    }
+    setDemoMessage(null); // a cancelled or failed run must not leave the last run's line standing
+    const progress = await runWithProgress(`Add demo content to ${db.name}`, (ctl) =>
+      addDemoContent(ctl, db.id, count, demoWikipedia && !!demo?.wikipedia),
+    );
+    const result = progress?.result;
+    if (result) {
+      const seconds = result.elapsedMs / 1000;
+      const perSecond = seconds > 0 ? Math.round(result.created / seconds) : result.created;
+      setDemoMessage(
+        `Created ${formatCount(result.created)} article${result.created === 1 ? "" : "s"} in ${seconds.toFixed(1)} s`
+          + ` (${formatCount(perSecond)}/s). Indexing them runs as background tasks.`,
+      );
+    }
+    // a cancelled or failed run keeps what it managed to insert, so the stored count is read back either way
+    load();
+  }
+
   async function onDownloadDatabase() {
     const choice = await showConfirm(
       "Download database",
@@ -544,6 +583,56 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
           <div className="process-action">
             <span className="muted">{filesMessage}</span>
           </div>
+        )}
+      </section>
+      <section className="panel">
+        <h3>Demo content</h3>
+        {demo && (
+          <>
+            <div className="facts-grid storage-facts">
+              <div className="fact">
+                <div className="fact-k">Node type</div>
+                <div className="fact-v" title={demo.nodeType}>
+                  {demo.available ? demo.nodeType : "not in this datamodel"}
+                </div>
+              </div>
+              <div className="fact">
+                <div className="fact-k">Demo articles stored</div>
+                <div className="fact-v">{demo.available ? formatCount(demo.existing) : "—"}</div>
+              </div>
+            </div>
+            <label className="login-remember">
+              Articles to add
+              <input
+                className="text-input demo-count"
+                type="number"
+                min={1}
+                step={1000}
+                value={demoCount}
+                disabled={!demo.available}
+                onChange={(e) => setDemoCount(e.target.value)}
+              />
+            </label>
+            {demo.wikipedia && (
+              <label className="login-remember">
+                <input type="checkbox" checked={demoWikipedia} onChange={(e) => setDemoWikipedia(e.target.checked)} disabled={!demo.available} />
+                Use real articles from {demo.wikipediaPath}
+              </label>
+            )}
+            <div className="process-action">
+              <button className="action-button" onClick={onAddDemoContent} disabled={!demo.available}>
+                <IconDatabasePlus size={14} stroke={1.8} /> Add demo content
+              </button>
+              <span className="muted">
+                {demoMessage ??
+                  (!demo.open
+                    ? "the database must be open"
+                    : !demo.available
+                      ? `this datamodel has no ${demo.nodeType} node type to fill in`
+                      : "inserts generated articles, continuing from the ones already stored")}
+              </span>
+            </div>
+          </>
         )}
       </section>
     </div>

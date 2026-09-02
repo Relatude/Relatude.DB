@@ -5,14 +5,14 @@ namespace Relatude.DB.AI;
 /// CompletionModel/EmbeddingModel and the CompletionModelsByKey values are deployment names.
 /// ApiVersion overrides the api-version query parameter (defaults to a stable GA version).
 /// </summary>
-public class AzureAIProvider : IAIProvider {
+public class NativeAzureAIProvider : IAIProvider {
     const string _defaultApiVersion = "2024-10-21";
     readonly HttpClient _http;
     readonly string _baseUrl;
     readonly string _apiVersion;
     readonly string _apiKey;
     readonly AIProviderSettings _settings;
-    public AzureAIProvider(AIProviderSettings settings) {
+    public NativeAzureAIProvider(AIProviderSettings settings) {
         if (string.IsNullOrEmpty(settings.ServiceUrl)) throw new ArgumentException("ServiceUrl is required in AIProviderSettings");
         if (string.IsNullOrEmpty(settings.ApiKey)) throw new ArgumentException("ApiKey is required in AIProviderSettings");
         _settings = settings;
