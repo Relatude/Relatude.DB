@@ -112,5 +112,14 @@ public class FacetMethod : IExpression {
         var facets = facetSource.EvaluateFacetsAndFilter(_given, _selected, out var newSource, _pageIndex, _pageSize, vars.Context);
         return new FacetQueryResultData(facets, facetSource.TotalCount, newSource, _dm);
     }
+    /// <summary>
+    /// The nodes the selection leaves, with no buckets built or counted. This is what a clause
+    /// chained onto the facet clause (Pivot) evaluates against.
+    /// </summary>
+    public IStoreNodeDataCollection EvaluateSelection(IVariables vars) {
+        var set = _input.Evaluate(vars);
+        if (set is not IFacetSource facetSource) throw new Exception("Collection does not implement " + nameof(IFacetSource));
+        return facetSource.FilterBySelection(_given, _selected, vars.Context);
+    }
     override public string ToString() => _input + ".Facets(...)";
 }

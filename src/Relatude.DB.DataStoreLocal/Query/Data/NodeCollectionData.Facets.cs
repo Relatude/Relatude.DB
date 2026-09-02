@@ -87,6 +87,21 @@ namespace Relatude.DB.Query.Data {
             }
             return result;
         }
+        // the selection part of EvaluateFacetsAndFilter on its own: what a clause chained onto the
+        // facet clause (Pivot) evaluates against. Every selection is applied, whether or not its
+        // property was named with AddFacet - a selection is a filter the caller asked for
+        public IFacetSource FilterBySelection(Dictionary<Guid, Facets> givenById, Dictionary<Guid, Facets> selection, QueryContext ctx) {
+            var innerSet = _ids;
+            foreach (var (propId, selected) in selection) {
+                if (innerSet.Count == 0) break; // empty stays empty: skip the remaining filters
+                if (!_def.Properties.TryGetValue(propId, out var prop) || !prop.CanBeFacet()) continue;
+                var facets = prop.GetDefaultFacets(givenById.TryGetValue(propId, out var g) ? g : null, ctx);
+                facets.SetSelected(selected.HasValues() ? selected.Values : null);
+                if (!facets.HasSelected()) continue;
+                innerSet = prop.FilterFacets(facets, innerSet, ctx);
+            }
+            return new NodeCollectionData(_db, _ctx, _metrics, innerSet, _nodeType, _includeBranches);
+        }
         IEnumerable<Property> findRelevantProperties(Dictionary<Guid, Facets> givenById, bool addAllFacets, Definition def, IdSet nodeIds, QueryContext ctx) {
             if (givenById.Count > 0 || !addAllFacets) { // if any given, only look at these:
                 return givenById.Keys.Where(def.Properties.ContainsKey).Select(pId => def.Properties[pId]).Where(p => p.CanBeFacet());

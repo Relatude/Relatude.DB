@@ -104,6 +104,7 @@ Part III — Querying  ->  #part-iii-querying
   28. Faceted search  ->  #28-faceted-search
     Applying the user's selection  ->  #applying-the-users-selection
     Facet declaration methods  ->  #facet-declaration-methods
+    28.1 Pivot tables  ->  #281-pivot-tables
   29. Cultures, visibility and scoped stores  ->  #29-cultures-visibility-and-scoped-stores
   30. Pitfalls and gotchas  ->  #30-pitfalls-and-gotchas
 Part IV — Tooling  ->  #part-iv-tooling

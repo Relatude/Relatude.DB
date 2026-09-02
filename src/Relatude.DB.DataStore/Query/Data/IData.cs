@@ -56,7 +56,12 @@ public interface IGraphPathResultData : IIncludeBranches, ICollectionBase {
 }
 public interface IFacetSource : IStoreNodeDataCollection {
     Dictionary<Guid, Facets> EvaluateFacetsAndFilter(Dictionary<Guid, Facets> given, Dictionary<Guid, Facets> set, out IFacetSource filteredSource, int pageIndex, int? pageSize, QueryContext ctx);
+    /// <summary>Applies the facet selection as a filter and nothing else: no buckets are built or counted.</summary>
+    IFacetSource FilterBySelection(Dictionary<Guid, Facets> given, Dictionary<Guid, Facets> set, QueryContext ctx);
     Datamodel Datamodel { get; }
+}
+public interface IPivotSource : IStoreNodeDataCollection {
+    PivotQueryResultData EvaluatePivot(PivotSpec spec, QueryContext ctx);
 }
 public interface ISearchCollection : IStoreNodeDataCollection {
     ISearchQueryResultData Search(string search, Guid searchPropertyId, double? ratioSemantic, float? minimumVectorSimilarity, bool? orSearch, int pageIndex, int pageSize, int? maxHitsEvaluated, int? maxWordsEvaluated);

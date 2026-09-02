@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Query.Expressions;
 using Relatude.DB.Query.Methods;
 using Relatude.DB.Query.Parsing.Tokens;
@@ -553,6 +554,123 @@ sealed class WhereHiddenMethodDef : MethodDef {
     protected override IExpression Create(MethodCallToken e, Datamodel dm) => new WhereHiddenMethod(BuildSource(e, dm), e.Arguments[0].ToString());
 }
 
+// ── Pivot ────────────────────────────────────────────────────────────────────
+// The pivot clauses mirror the facet clauses: every method chains onto the PivotMethod opened by
+// pivot() and mutates its spec. Property arguments arrive as "guid|CodeName" strings, values as raw
+// token text typed later by the property (same as facet values), enums by name.
+
+static class PivotArgs {
+    public static PivotMethod Source(MethodCallToken e, Datamodel dm) {
+        if (e.Subject == null) throw new NullReferenceException($"Subject of '{e.Name}' must not be null.");
+        return ExpressionTreeBuilder.Build(e.Subject, dm) as PivotMethod ?? throw new Exception($"'{e.Name}' can only follow Pivot().");
+    }
+    public static ValueConstantToken Const(MethodCallToken e, int i) =>
+        e.Arguments[i] as ValueConstantToken ?? throw new Exception($"Parameter {i} of '{e.Name}' must be a constant value.");
+    public static string Str(MethodCallToken e, int i) => Const(e, i).GetRawStringValue();
+    public static string? StrOrNull(MethodCallToken e, int i) => e.Arguments.Count > i && Const(e, i).DirectValue != null ? Const(e, i).GetRawStringValue() : null;
+    public static int Int(MethodCallToken e, int i) => int.Parse(Str(e, i), System.Globalization.CultureInfo.InvariantCulture);
+    public static bool Bool(MethodCallToken e, int i) => bool.Parse(Str(e, i));
+    public static TEnum EnumValue<TEnum>(MethodCallToken e, int i) where TEnum : struct, System.Enum {
+        var text = Str(e, i);
+        if (System.Enum.TryParse<TEnum>(text, true, out var value)) return value;
+        throw new Exception($"'{text}' is not a valid {typeof(TEnum).Name}. Expected one of: {string.Join(", ", System.Enum.GetNames<TEnum>())}.");
+    }
+}
+
+sealed class PivotMethodDef : MethodDef {
+    public override string[] Names => ["pivot"];
+    public override int MinArgs => 0;
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) => new PivotMethod(BuildSource(e, dm), dm);
+}
+
+/// <summary>addrow(property[, interval]) / addrowvalues(property) / addrowranges(property[, bucketCount]) and the addcolumn* twins</summary>
+sealed class PivotGroupMethodDef(string name, bool rows, bool? isRange) : MethodDef {
+    public override string[] Names => [name];
+    public override int MinArgs => 1;
+    public override int MaxArgs => 2;
+    public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Optional(MethodParamKind.Constant)];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        var pivot = PivotArgs.Source(e, dm);
+        var interval = DateInterval.None;
+        var bucketCount = 0;
+        if (e.Arguments.Count > 1) {
+            if (isRange == null) interval = PivotArgs.EnumValue<DateInterval>(e, 1);
+            else if (isRange == true) bucketCount = PivotArgs.Int(e, 1);
+            else throw new Exception($"'{name}' accepts at most 1 argument.");
+        }
+        pivot.AddGroup(rows, PivotArgs.Str(e, 0), isRange, interval, bucketCount);
+        return pivot;
+    }
+}
+
+/// <summary>addrowrange(property, from, to[, displayName]) / addcolumnrange(...)</summary>
+sealed class PivotRangeMethodDef(string name, bool rows) : MethodDef {
+    public override string[] Names => [name];
+    public override int MinArgs => 3;
+    public override int MaxArgs => 4;
+    public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Optional(MethodParamKind.Constant)];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        var pivot = PivotArgs.Source(e, dm);
+        pivot.AddRange(rows, PivotArgs.Str(e, 0), PivotArgs.Str(e, 1), PivotArgs.Str(e, 2), PivotArgs.StrOrNull(e, 3));
+        return pivot;
+    }
+}
+
+/// <summary>addcount([name]) / addcountdistinct|addsum|addaverage|addmin|addmax(property[, name]) / addmeasure(function, property[, name])</summary>
+sealed class PivotMeasureMethodDef(string name, PivotFunction? function) : MethodDef {
+    public override string[] Names => [name];
+    public override int MinArgs => function == PivotFunction.Count ? 0 : function == null ? 2 : 1;
+    public override int MaxArgs => MinArgs + 1;
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        var pivot = PivotArgs.Source(e, dm);
+        if (function == PivotFunction.Count) pivot.AddMeasure(PivotFunction.Count, null, PivotArgs.StrOrNull(e, 0));
+        else if (function == null) pivot.AddMeasure(PivotArgs.EnumValue<PivotFunction>(e, 0), PivotArgs.Str(e, 1), PivotArgs.StrOrNull(e, 2));
+        else pivot.AddMeasure(function.Value, PivotArgs.Str(e, 0), PivotArgs.StrOrNull(e, 1));
+        return pivot;
+    }
+}
+
+/// <summary>setrowoptions(property, maxGroups, minCount, includeMissing, sortByMeasure, descending, otherGroup) / setcolumnoptions(...)</summary>
+sealed class PivotOptionsMethodDef(string name, bool rows) : MethodDef {
+    public override string[] Names => [name];
+    public override int MinArgs => 7;
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        var pivot = PivotArgs.Source(e, dm);
+        pivot.SetOptions(rows, PivotArgs.Str(e, 0), PivotArgs.Int(e, 1), PivotArgs.Int(e, 2), PivotArgs.Bool(e, 3), PivotArgs.StrOrNull(e, 4), PivotArgs.Bool(e, 5), PivotArgs.Bool(e, 6));
+        return pivot;
+    }
+}
+
+sealed class PivotTotalsMethodDef : MethodDef {
+    public override string[] Names => ["settotals"];
+    public override int MinArgs => 3;
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        var pivot = PivotArgs.Source(e, dm);
+        pivot.SetTotals(PivotArgs.Bool(e, 0), PivotArgs.Bool(e, 1), PivotArgs.Bool(e, 2));
+        return pivot;
+    }
+}
+
+sealed class PivotLimitsMethodDef : MethodDef {
+    public override string[] Names => ["setlimits"];
+    public override int MinArgs => 2;
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        var pivot = PivotArgs.Source(e, dm);
+        pivot.SetLimits(PivotArgs.Int(e, 0), PivotArgs.Bool(e, 1));
+        return pivot;
+    }
+}
+
+sealed class PivotRowPagingMethodDef : MethodDef {
+    public override string[] Names => ["setrowpaging"];
+    public override int MinArgs => 2;
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        var pivot = PivotArgs.Source(e, dm);
+        pivot.SetRowPaging(PivotArgs.Int(e, 0), PivotArgs.Int(e, 1));
+        return pivot;
+    }
+}
+
 // ── Dispatcher ───────────────────────────────────────────────────────────────
 
 internal class BuildMethod {
@@ -568,7 +686,15 @@ internal class BuildMethod {
         new TraverseMethodDef(), new ShortestPathMethodDef(),
         new IncludeMethodDef(), new InRangeMethodDef(), new ContainsMethodDef(), new StartsWithMethodDef(),
         new MatchesSearchMethodDef(), new IsWithinMethodDef(), new DistanceToMethodDef(),
-        new WhereCultureMethodDef(), new WhereCultureFallbackMethodDef(), new WhereHiddenMethodDef()
+        new WhereCultureMethodDef(), new WhereCultureFallbackMethodDef(), new WhereHiddenMethodDef(),
+        new PivotMethodDef(),
+        new PivotGroupMethodDef("addrow", true, null), new PivotGroupMethodDef("addrowvalues", true, false), new PivotGroupMethodDef("addrowranges", true, true), new PivotRangeMethodDef("addrowrange", true),
+        new PivotGroupMethodDef("addcolumn", false, null), new PivotGroupMethodDef("addcolumnvalues", false, false), new PivotGroupMethodDef("addcolumnranges", false, true), new PivotRangeMethodDef("addcolumnrange", false),
+        new PivotMeasureMethodDef("addcount", PivotFunction.Count), new PivotMeasureMethodDef("addcountdistinct", PivotFunction.CountDistinct),
+        new PivotMeasureMethodDef("addsum", PivotFunction.Sum), new PivotMeasureMethodDef("addaverage", PivotFunction.Average),
+        new PivotMeasureMethodDef("addmin", PivotFunction.Min), new PivotMeasureMethodDef("addmax", PivotFunction.Max), new PivotMeasureMethodDef("addmeasure", null),
+        new PivotOptionsMethodDef("setrowoptions", true), new PivotOptionsMethodDef("setcolumnoptions", false),
+        new PivotTotalsMethodDef(), new PivotLimitsMethodDef(), new PivotRowPagingMethodDef()
     );
 
     private static Dictionary<string, MethodDef> BuildRegistry(params MethodDef[] defs)

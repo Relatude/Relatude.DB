@@ -336,6 +336,60 @@ namespace Relatude.DB.DataStores.Definitions {
             }
             return GetValueIndex(ctx).FilterInValues(ids, typedValues);
         }
+
+        // ── pivot support ──
+        static readonly Func<T, double>? _toDouble = PivotNumeric.TryGetConverter<T>();
+        internal override bool CanAggregate => Indexed;
+        internal override bool IsNumeric => _toDouble != null;
+        internal override bool TryGetMinMax(QueryContext ctx, out object? min, out object? max) {
+            min = max = null;
+            if (!TryValueGetIndex(ctx, out var index) || index.IdCount == 0) return false;
+            min = index.MinValue();
+            max = index.MaxValue();
+            return min != null && max != null;
+        }
+        // one pass over the set with per-id value lookups: no node is read, only the index. On the
+        // memory index a lookup is an array read; on a persisted index a tree/disk probe, so the
+        // optimized wrapper is flushed once and bypassed, as CountFacets does for its counting loops
+        internal override PivotAggregate Aggregate(IdSet set, QueryContext ctx, bool distinct) {
+            var index = GetValueIndex(ctx);
+            if (index is OptimizedValueIndex<T> optimized) index = optimized.DequeueAndGetInner();
+            var agg = new PivotAggregate { Min = double.PositiveInfinity, Max = double.NegativeInfinity };
+            HashSet<T>? seen = distinct ? new() : null;
+            var toDouble = _toDouble;
+            foreach (var id in set.Enumerate()) {
+                if (!index.TryGetValue(id, out var v)) continue;
+                agg.CountWithValue++;
+                seen?.Add(v);
+                if (toDouble == null) continue;
+                var d = toDouble(v);
+                agg.Sum += d;
+                if (d < agg.Min) agg.Min = d;
+                if (d > agg.Max) agg.Max = d;
+            }
+            agg.DistinctCount = seen?.Count ?? 0;
+            return agg;
+        }
+    }
+    /// <summary>What one pass over a set gives a pivot cell for one property (see Property.Aggregate).</summary>
+    internal struct PivotAggregate {
+        public int CountWithValue;
+        public double Sum;
+        public double Min;
+        public double Max;
+        public int DistinctCount;
+    }
+    internal static class PivotNumeric {
+        // the numeric property types a Sum/Average/Min/Max measure accepts, each read as a double
+        internal static Func<T, double>? TryGetConverter<T>() {
+            if (typeof(T) == typeof(int)) return (Func<T, double>)(object)(Func<int, double>)(v => v);
+            if (typeof(T) == typeof(long)) return (Func<T, double>)(object)(Func<long, double>)(v => v);
+            if (typeof(T) == typeof(double)) return (Func<T, double>)(object)(Func<double, double>)(v => v);
+            if (typeof(T) == typeof(float)) return (Func<T, double>)(object)(Func<float, double>)(v => v);
+            if (typeof(T) == typeof(decimal)) return (Func<T, double>)(object)(Func<decimal, double>)(v => (double)v);
+            if (typeof(T) == typeof(byte)) return (Func<T, double>)(object)(Func<byte, double>)(v => v);
+            return null;
+        }
     }
     internal abstract class Property : IProperty {
         static int _idCnt = 0;
@@ -414,6 +468,12 @@ namespace Relatude.DB.DataStores.Definitions {
             Definition.Datamodel.NodeTypes.TryGetValue(Model.NodeType, out var declaring) && declaring.ThisAndAllInheritedTypes.ContainsKey(queryTypeId);
         public virtual IdSet FilterFacets(Facets facets, IdSet nodeIds, QueryContext ctx) => throw new NotSupportedException();
         public virtual Facets GetDefaultFacets(Facets? given, QueryContext ctx) => throw new NotSupportedException();
+        // pivot measures: only indexed scalar value properties can be aggregated (see ValueProperty<T>);
+        // Sum/Average/Min/Max need a numeric one, CountDistinct any of them
+        internal virtual bool CanAggregate => false;
+        internal virtual bool IsNumeric => false;
+        internal virtual bool TryGetMinMax(QueryContext ctx, out object? min, out object? max) { min = max = null; return false; }
+        internal virtual PivotAggregate Aggregate(IdSet set, QueryContext ctx, bool distinct) => throw new NotSupportedException("The property " + CodeName + " of type " + PropertyType + " cannot be aggregated. ");
 
         readonly public Definition Definition;
         readonly public Guid Id;

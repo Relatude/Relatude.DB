@@ -9,5 +9,6 @@
         IStoreNodeData = 6,
         IStoreNodeDataCollection = 7,
         FacetData = 8,
+        PivotData = 9,
     }
 }

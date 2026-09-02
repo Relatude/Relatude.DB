@@ -134,6 +134,9 @@ public class QueryOfNodes<TNode, TInclude> : IQueryOfNodes<TNode, TInclude> {
     public QueryOfFacets<TNode, TInclude> Facets() {
         return new QueryOfFacets<TNode, TInclude>(this);
     }
+    public QueryOfPivot<TNode, TInclude> Pivot() {
+        return new QueryOfPivot<TNode, TInclude>(this);
+    }
     public IQueryOfNodes<TNode, TInclude> WhereSearch(string? text, double? semanticRatio = null, float? minimumVectorSimilarity = null, bool? orSearch = null, int? maxWordsEvaluatedWhenFuzzy = null)
         => fork(q => q.WhereSearch(text, semanticRatio, minimumVectorSimilarity, orSearch, maxWordsEvaluatedWhenFuzzy));
     public QueryOfSearch<TNode, TInclude> Search(string text, double? semanticRatio = null, float? minimumVectorSimilarity = null, bool? orSearch = null, int? maxWordsEvaluatedWhenFuzzy = null, int? maxHitsEvaluatedBeforeRanked = null) {

@@ -21,6 +21,10 @@ internal sealed class QueryStringEvaluater {
     }
     internal async Task<object?> EvaluateForJsonAsync() {
         var data = await toDataAsync();
+        if (data is PivotQueryResultData pivot) { // before the collection branch: a pivot has no rows to enumerate
+            PivotNodeValueMapper.MapNodeDataValues(pivot.Result, _store); // relation group values: node data -> typed node objects
+            return pivot.Result;
+        }
         if (data is ICollectionData coll) {
             var values = toEnumerable<object?>(coll);
             if (data is FacetQueryResultData facet) {

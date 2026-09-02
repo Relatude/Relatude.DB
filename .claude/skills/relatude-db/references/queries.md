@@ -16,6 +16,7 @@ The full query surface. Examples use the venue-and-events model from `modelling-
 - [Sorting, paging and result sets](#sorting-paging-and-result-sets)
 - [Aggregates](#aggregates)
 - [Faceted search](#faceted-search)
+- [Pivot tables](#pivot-tables)
 - [Cultures, visibility and scoped stores](#cultures-visibility-and-scoped-stores)
 
 ## Query anatomy
@@ -599,6 +600,121 @@ The returned `ResultSetFacets<T>` is a normal `ResultSet<T>` plus `Facets` and `
 Every method has expression, property-name and `Guid` overloads, plus `<TChild>` variants for subtypes.
 
 **Faceting requires `Indexed = true`.** `NotFacet = true` excludes an indexed property from faceting. Relation properties need `[RelationProperty(Facet = true)]` to opt in. Numeric range bucketing is tuned by `FacetRangePowerBase` and `FacetRangeCount` on the property attribute.
+
+## Pivot tables
+
+A pivot summarises the matching nodes as a table, the way a spreadsheet pivot table does: the rows
+and the columns are groups of nodes by property value, and every cell holds measures computed over
+the nodes in it — count, sum, average, min, max, distinct count. Call `.Pivot()` to switch the
+builder into pivot mode, declare the groups and the measures, and execute. The nodes themselves are
+not returned; a pivot is aggregate-only.
+
+```csharp
+var pivot = db.Query<IEvent>()
+              .Where(e => e.Status == EventStatus.Published)
+              .Pivot()
+              .AddRow(e => e.Venue)                              // one row per related venue
+              .AddColumn(e => e.StartsUtc, DateInterval.Month)   // one column per calendar month
+              .AddCount("events")
+              .AddSum(e => e.Price, "revenue")
+              .AddAverage(e => e.Price)                          // named "Price.Average" unless you name it
+              .SetRowOptions(e => e.Venue, maxGroups: 20, sortByMeasure: "revenue", otherGroup: true)
+              .Execute();
+
+foreach (var row in pivot.EnumerateRows()) {
+    Console.Write(row.Group.DisplayName);                        // the venue's display name
+    foreach (var cell in row.Cells) Console.Write("\t" + (cell?.Get("revenue") ?? 0));
+    Console.WriteLine("\t" + row.Total!.Get("revenue"));         // the row total
+}
+```
+
+With no `AddColumn` the pivot is a plain group-by: one column, `(all)`, so every row has one cell
+equal to its total. With no `AddRow` and no `AddColumn` it is one cell holding the measures over
+everything.
+
+### Groups
+
+Every `AddRow` / `AddColumn` call adds a nesting level to its axis, in call order — two row levels
+give one row per distinct combination, grouped under the first level. The bucketing follows the
+facet rules, and the same properties are groupable: indexed scalars, string/guid/enum arrays,
+references, and relations that opted in with `[RelationProperty(Facet = true)]`.
+
+| Method | Groups by |
+|---|---|
+| `AddRow(expr)` / `AddColumn(expr)` | The property, engine picks value buckets or ranges (the `AddFacet` rule) |
+| `AddRow(expr, DateInterval.Month)` | A date property by calendar interval: `Year`, `Quarter`, `Month`, `Week` (ISO, Monday first), `Day`, `Hour` |
+| `AddRowValues(expr)` | One group per distinct value |
+| `AddRowRanges(expr, bucketCount)` | Auto-generated numeric/date ranges |
+| `AddRowRange(expr, from, to, "label")` | One explicit range; consecutive ranges on the same property form one level |
+| `SetRowOptions(expr, …)` / `SetColumnOptions(expr, …)` | `maxGroups`, `minCount`, `includeMissing`, `sortByMeasure`, `descending`, `otherGroup` |
+
+`sortByMeasure` orders the groups of that level by a measure name (`"Count"` always works, even
+without a count measure); without it groups come in their natural order — values sorted, ranges in
+range order, enum and relation groups by name. `maxGroups` keeps the first N after sorting and
+`minCount` drops groups with fewer nodes; with `otherGroup: true` what was trimmed is collected
+into one `(other)` group, aggregated over the union of the trimmed nodes. `includeMissing` adds a
+`(none)` group for nodes without a value. Every method has expression, property-name, `Guid` and
+`<TChild>` overloads, like the facet API.
+
+### Measures
+
+`AddCount(name?)`, `AddCountDistinct(expr, name?)`, `AddSum`, `AddAverage`, `AddMin`, `AddMax`,
+and `AddMeasure(PivotFunction, expr, name?)`. Sum, average, min and max need a numeric property
+(`int`, `long`, `double`, `float`, `decimal`, `byte`); distinct count works on any indexed scalar
+property. Every measure value is a `double?` — `null` when it is undefined for the cell, that is a
+sum, average, min or max over nodes that have no value for the property. An average divides by the
+nodes that *have* a value, not by the cell count. The default name is `Count` or
+`<Property>.<Function>`; name measures yourself when you look them up by name.
+
+### The result
+
+`PivotResult` has `Rows` and `Columns` (each `Levels` and `Groups`, plus `TotalGroupCount`),
+`Measures`, and `Cells` — sparse, a row/column pair with no nodes has no cell. Read a cell with
+`pivot[row, column]` (null when empty) or by `Row` / `Column` on the cell, and a value with
+`cell.Get("revenue")` or `cell.Get(measureIndex)`; `cell.Count` is always there. `RowTotals`,
+`ColumnTotals` and `GrandTotal` are aggregated over their own node sets, never added up from cells,
+so averages are right and a node that sits in two groups of an array-valued property (two tags) is
+counted once in the totals. `EnumerateRows()` gives a dense row-by-row view for rendering,
+`ToTable()` a flat table with one line per cell.
+
+A group's `Values` holds one entry per level: the bucket value (a relation group carries the related
+node object, an enum group its int), `Values2` the upper bound of a range bucket, `DisplayNames`
+the labels — enum names, related node names, `2026-03` for a month, `(none)`, `(other)`. Those
+values are exactly what `SetFacetValue` / `SetFacetRangeValue` take, so a cell can be turned back
+into the nodes behind it with a facet query.
+
+### Totals, limits and paging
+
+```csharp
+.SetTotals(rows: true, columns: true, subTotals: true)   // sub-totals: every group above the leaf level
+.SetLimits(maxCells: 10_000, throwWhenExceeded: false)   // default 250 000; past it the row axis is cut and Capped is set
+.SetRowPaging(pageIndex: 0, pageSize: 50)                // rows are the long axis; Rows.TotalGroupCount has the full count
+```
+
+Sub-totals come back as `RowSubTotals` / `ColumnSubTotals`: the group, its cells against the other
+axis and its total. The grand total is always computed, over the whole source.
+
+### After a facet selection
+
+A pivot can be opened on a facet query, where it summarises the nodes the selection leaves — the
+sidebar filter, pivoted:
+
+```csharp
+var byMonth = db.Query<IEvent>()
+                .Facets()
+                .SetFacetValue(e => e.Status, EventStatus.Published)
+                .SetFacetRangeValue(e => e.Price, 0m, 250m)
+                .Pivot()
+                .AddRow(e => e.StartsUtc, DateInterval.Month)
+                .AddCount()
+                .Execute();
+```
+
+Only the selection filters apply: the facet buckets are not counted and the facet page is ignored.
+
+Like every query, a pivot travels to the store as a query string, which is what a REST client sends:
+`IEvent.Pivot().AddRow("IEvent.Venue").AddColumn("IEvent.StartsUtc", "Month").AddSum("IEvent.Price", "revenue")`.
+`QueryOfPivot.ToString()` gives the string for a typed pivot.
 
 ## Cultures, visibility and scoped stores
 

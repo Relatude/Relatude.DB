@@ -19,6 +19,12 @@ public interface IQueryOfNodes<TNode, TInclude> : IQueryCollection<ResultSet<TNo
     Task<int> CountAsync();
     [Pure] QueryOfFacets<TNode, TInclude> Facets();
     //QueryOfFacets<TNode, TInclude> Facets(params string[] propertyNames);
+    /// <summary>
+    /// Switches to a pivot: group the matching nodes into rows and columns by property values and
+    /// compute measures (count, sum, average, min, max, distinct count) per cell, like a spreadsheet
+    /// pivot table. The nodes themselves are not returned; see <see cref="QueryOfPivot{T, TInclude}"/>.
+    /// </summary>
+    [Pure] QueryOfPivot<TNode, TInclude> Pivot();
     [Pure] IQueryOfNodes<TNode, TInclude> Page(int pageIndex0based, int pageSize);
     [Pure] IQueryOfNodes<TNode, TInclude> Take(int maxCount);
     [Pure] IQueryOfNodes<TNode, TInclude> Skip(int offset);

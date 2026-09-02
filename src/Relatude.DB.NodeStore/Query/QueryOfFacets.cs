@@ -32,6 +32,14 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
         _pageIndex = source._pageIndex;
         _pageSize = source._pageSize;
     }
+    internal QueryOfNodes<T, TInclude> Query => _query;
+    /// <summary>
+    /// Pivots the nodes the facet selection leaves (SetFacetValue / SetFacetRangeValue /
+    /// SetFacetMissingValue): the drill-down of a filter sidebar, summarized as a table. The facet
+    /// buckets are not counted and the page is ignored - only the selection filters apply.
+    /// </summary>
+    [Pure]
+    public QueryOfPivot<T, TInclude> Pivot() => new(this);
     Guid getPropertyId<TChild>(Expression<Func<TChild, object?>> expression) where TChild : T {
         return _query.Store.Mapper.GetProperty<TChild>(expression).Id;
     }
@@ -198,7 +206,9 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
         return c;
     }
 
-    public override string ToString() {
+    public override string ToString() => ToQueryString(includePaging: true);
+    // without paging: what a clause chained onto the facet query (Pivot) is built on
+    internal string ToQueryString(bool includePaging) {
         var dm = _query.Store.Datastore.Datamodel;
         var sb = new StringBuilder();
         sb.Append(_query.ToString());
@@ -215,12 +225,12 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
             foreach (var facetValue in facet.Values) {
                 if (facetValue.Value2 == null) {
                     sb.Append("." + nameof(this.AddValueFacet) + "(" + pn(facet.PropertyId) + ", ");
-                    sb.Append(QueryOfFacets<T, TInclude>.valueToString(facetValue.Value!));
+                    sb.Append(QueryOfFacets<T, TInclude>.ValueToString(facetValue.Value!));
                 } else {
                     sb.Append("." + nameof(this.AddRangeFacet) + "(" + pn(facet.PropertyId) + ", ");
-                    sb.Append(QueryOfFacets<T, TInclude>.valueToString(facetValue.Value!));
+                    sb.Append(QueryOfFacets<T, TInclude>.ValueToString(facetValue.Value!));
                     sb.Append(", ");
-                    sb.Append(QueryOfFacets<T, TInclude>.valueToString(facetValue.Value2));
+                    sb.Append(QueryOfFacets<T, TInclude>.ValueToString(facetValue.Value2));
                 }
                 sb.Append(')');
             }
@@ -241,17 +251,17 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
                 }
                 if (facetValue.Value2 == null) {
                     sb.Append("." + nameof(this.SetFacetValue) + "(" + pn(facet.PropertyId) + ", ");
-                    sb.Append(QueryOfFacets<T, TInclude>.valueToString(facetValue.Value));
+                    sb.Append(QueryOfFacets<T, TInclude>.ValueToString(facetValue.Value));
                 } else {
                     sb.Append("." + nameof(this.SetFacetRangeValue) + "(" + pn(facet.PropertyId) + ", ");
-                    sb.Append(QueryOfFacets<T, TInclude>.valueToString(facetValue.Value));
+                    sb.Append(QueryOfFacets<T, TInclude>.ValueToString(facetValue.Value));
                     sb.Append(", ");
-                    sb.Append(QueryOfFacets<T, TInclude>.valueToString(facetValue.Value2));
+                    sb.Append(QueryOfFacets<T, TInclude>.ValueToString(facetValue.Value2));
                 }
                 sb.Append(')');
             }
         }
-        if (_pageIndex > 0 || _pageSize > 0) {
+        if (includePaging && (_pageIndex > 0 || _pageSize > 0)) {
             sb.Append("." + nameof(this.Page) + "(");
             sb.Append(_pageIndex);
             sb.Append(", ");
@@ -265,7 +275,7 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
         var dm = _query.Store.Datastore.Datamodel;
         return "\"" + propertyId + "|" + dm.Properties[propertyId].CodeName + "\"";
     }
-    static string valueToString(object? v) {
+    internal static string ValueToString(object? v) {
         if (v is int i) return i.ToString();
         if (v is Enum e) return Convert.ToInt32(e).ToString(); // before IFormattable, which would emit the NAME and never match an int bucket (same rule as QueryStringBuilder.writeValue)
         if (v is double d) return d.ToString(CultureInfo.InvariantCulture);
