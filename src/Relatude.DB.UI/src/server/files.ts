@@ -47,6 +47,36 @@ export function fetchIoList(storeId: string): Promise<IoInfo[]> {
   return send<IoInfo[]>("io-list", { storeId });
 }
 
+// What the guids inside file and folder names stand for - index files and the folders holding them
+// are named after the property they index, and the folders below indexes/ after the engine. Keyed by
+// the "N" form (32 lower case hex, no dashes).
+export type NameMap = Record<string, string>;
+
+export function fetchNameMap(storeId: string): Promise<NameMap> {
+  return send<NameMap>("name-map", { storeId });
+}
+
+// a guid in either form: 8-4-4-4-12 hex, dashes optional
+const guidInName = /[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}/gi;
+
+/**
+ * The name with every guid the map knows replaced by what it is called. Only a display form: the
+ * real name is what every request keeps using. Guids the map has nothing for (a file store's own
+ * ids, a property from a datamodel that has moved on) are left exactly as they are, so a name is
+ * never made up - at worst it stays as unreadable as it was.
+ */
+export function friendlyName(name: string, names: NameMap): string {
+  return name.replace(guidInName, (guid) => names[guid.replaceAll("-", "").toLowerCase()] ?? guid);
+}
+
+// the same over a '/'-separated path
+export function friendlyPath(path: string, names: NameMap): string {
+  return path
+    .split("/")
+    .map((segment) => friendlyName(segment, names))
+    .join("/");
+}
+
 export function fetchFolder(ioId: string, path: string): Promise<FolderListing> {
   return send<FolderListing>("io-folder", { ioId, path });
 }

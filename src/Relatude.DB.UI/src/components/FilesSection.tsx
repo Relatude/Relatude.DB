@@ -25,7 +25,10 @@ import {
   fetchFolder,
   fetchFolderSize,
   fetchIoList,
+  fetchNameMap,
   folderNote,
+  friendlyName,
+  friendlyPath,
   itemsFromDrop,
   pickDirectory,
   resolveDroppedItems,
@@ -35,6 +38,7 @@ import {
   type FolderListing,
   type FolderSize,
   type IoInfo,
+  type NameMap,
   type UploadEntry,
   type ZipSink,
 } from "../server/files";
@@ -52,6 +56,18 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   const [treeSizes, setTreeSizes] = useState<Record<string, FolderSize | "pending">>({});
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // index files are named after the property they index, so most of the tree reads as guids until
+  // this is on; the map comes from the database and the substitution is display only
+  const [names, setNames] = useState<NameMap>({});
+  const [friendly, setFriendly] = useState(() => localStorage.getItem(friendlyNamesKey) === "true");
+  const show = useCallback((name: string) => (friendly ? friendlyName(name, names) : name), [friendly, names]);
+  const showPath = useCallback((p: string) => (friendly ? friendlyPath(p, names) : p), [friendly, names]);
+
+  function toggleFriendly() {
+    const next = !friendly;
+    setFriendly(next);
+    localStorage.setItem(friendlyNamesKey, String(next));
+  }
 
   // the providers of the active database; reset everything when the database changes
   useEffect(() => {
@@ -63,12 +79,17 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     setSelected(new Set());
     setTreeSizes({});
     setError(null);
+    setNames({});
     fetchIoList(db.id)
       .then((list) => {
         setIos(list);
         setIoId(list[0]?.id ?? null);
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    // names are a nicety: a database that cannot answer just keeps showing guids
+    fetchNameMap(db.id)
+      .then(setNames)
+      .catch(() => setNames({}));
   }, [db.id]);
 
   const loadFolder = useCallback(
@@ -147,10 +168,11 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     if (!ioId) return;
     const count = selected.size;
     const label = `${count} file${count === 1 ? "" : "s"}`;
-    if (primaryData && !(await confirmPrimaryData(`Deleting ${label} from ${path || "the storage root"}.`))) return;
+    const where = showPath(path) || "the storage root";
+    if (primaryData && !(await confirmPrimaryData(`Deleting ${label} from ${where}.`))) return;
     const { ok } = await showConfirm(
       `Delete ${label}?`,
-      `${label} in ${path || "the storage root"} ${count === 1 ? "is" : "are"} deleted from the storage. This cannot be undone.`,
+      `${label} in ${where} ${count === 1 ? "is" : "are"} deleted from the storage. This cannot be undone.`,
       { confirmLabel: "Delete", danger: true },
     );
     if (!ok) return;
@@ -181,7 +203,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   }
 
   async function uploadWithDialog(io: string, target: string, entries: UploadEntry[]) {
-    const failed = await runWithProgress(`Upload to ${target || "storage root"}`, (ctl) => uploadEntries(ctl, io, target, entries));
+    const failed = await runWithProgress(`Upload to ${showPath(target) || "storage root"}`, (ctl) => uploadEntries(ctl, io, target, entries));
     if (failed) {
       if (failed.length > 0) {
         showError("Upload incomplete", `${entries.length - failed.length} of ${entries.length} files were uploaded.`, failed);
@@ -307,7 +329,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     const totalBytes = entries.reduce((sum, entry) => sum + entry.file.size, 0);
     const { ok } = await showConfirm(
       "Upload dropped items",
-      `Upload ${entries.length} file${entries.length === 1 ? "" : "s"} (${formatBytes(totalBytes)}) to ${target || "the storage root"}? Existing files with the same names are overwritten.`,
+      `Upload ${entries.length} file${entries.length === 1 ? "" : "s"} (${formatBytes(totalBytes)}) to ${showPath(target) || "the storage root"}? Existing files with the same names are overwritten.`,
       { confirmLabel: "Upload" },
     );
     if (!ok) return;
@@ -316,9 +338,9 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
 
   async function onDeleteFolder() {
     if (!ioId || path === "") return;
-    if (primaryData && !(await confirmPrimaryData(`Deleting ${path} and everything below it.`))) return;
+    if (primaryData && !(await confirmPrimaryData(`Deleting ${showPath(path)} and everything below it.`))) return;
     const { ok } = await showConfirm(
-      `Delete ${path}?`,
+      `Delete ${showPath(path)}?`,
       "The folder is deleted with every file in it and every folder below it. This cannot be undone.",
       { confirmLabel: "Delete", danger: true },
     );
@@ -326,12 +348,12 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     const io = ioId;
     const folder = path;
     const parent = folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";
-    const failed = await runWithProgress(`Delete ${folder}`, (ctl) => deleteFolderWithProgress(ctl, io, folder));
+    const failed = await runWithProgress(`Delete ${showPath(folder)}`, (ctl) => deleteFolderWithProgress(ctl, io, folder));
     if (failed) {
       if (failed.length > 0) {
         showError("Could not delete the folder", `${failed.length} file${failed.length === 1 ? "" : "s"} could not be deleted, so the folder was kept.`, failed);
       } else {
-        setMessage(`Deleted ${folder}.`);
+        setMessage(`Deleted ${showPath(folder)}.`);
       }
     }
     openFolder(parent); // also after cancel or failures: shows what is left
@@ -346,7 +368,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     }
     if (!directory) return;
     const io = ioId;
-    const failed = await runWithProgress(`Download ${path || "storage root"}`, (ctl) => downloadFolderToDirectory(ctl, db.id, io, path, directory));
+    const failed = await runWithProgress(`Download ${showPath(path) || "storage root"}`, (ctl) => downloadFolderToDirectory(ctl, db.id, io, path, directory));
     if (failed) {
       if (failed.length > 0) {
         showError("Download incomplete", `${failed.length} file${failed.length === 1 ? "" : "s"} could not be downloaded.`, failed);
@@ -361,7 +383,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
       {dropActive && (
         <div className="drop-overlay">
           <IconFolderUp size={20} stroke={1.8} />
-          <span>Drop to upload to {path || "the storage root"}</span>
+          <span>Drop to upload to {showPath(path) || "the storage root"}</span>
         </div>
       )}
       <div className="files-toolbar">
@@ -413,6 +435,10 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
             e.target.value = "";
           }}
         />
+        <label className="files-friendly" title="Show what the guids in file and folder names stand for - index files are named after the property they index">
+          <input type="checkbox" checked={friendly} onChange={toggleFriendly} />
+          Friendly names
+        </label>
         <div className="header-spacer" />
         {message && <span className="muted files-message">{message}</span>}
         {selected.size > 0 && (
@@ -443,6 +469,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
             onOpen={openFolder}
             onToggle={toggleExpand}
             onDragOut={onFolderDragStart}
+            show={show}
           />
         </section>
         <section className="panel files-list">
@@ -472,9 +499,9 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
                 onDragStart={(e) => onFileDragStart(e, f)}
               >
                 <input type="checkbox" checked={selected.has(f.key)} onChange={() => toggleOne(f.key)} />
-                <span className="file-name">
+                <span className="file-name" title={fileName(f.key)}>
                   <IconFile size={14} stroke={1.6} />
-                  {fileName(f.key)}
+                  {show(fileName(f.key))}
                   {(f.readers > 0 || f.writers > 0) && (
                     <span className="badge" title={`${f.readers} readers, ${f.writers} writers`}>
                       in use
@@ -521,6 +548,7 @@ interface FolderNodeProps {
   onOpen: (path: string) => void;
   onToggle: (path: string) => void;
   onDragOut: (e: DragEvent, path: string) => void;
+  show: (name: string) => string; // the folder name as the user has asked to see it
 }
 
 function FolderNode(p: FolderNodeProps) {
@@ -529,6 +557,7 @@ function FolderNode(p: FolderNodeProps) {
   const children = listing?.subFolders ?? [];
   const size = p.sizes[p.path];
   const note = folderNote(listing) ?? p.note;
+  const name = p.show(p.name);
   return (
     <>
       <div
@@ -550,8 +579,7 @@ function FolderNode(p: FolderNodeProps) {
           title={p.isPrimaryData ? `${p.name} — ${note ?? "the database's own data"}. ${primaryDataTip}` : note ? `${p.name} — ${note}` : p.name}
         >
           {p.currentPath === p.path ? <IconFolderOpen size={15} stroke={1.7} /> : <IconFolder size={15} stroke={1.7} />}
-          <span>{p.name}</span>
-          {p.isPrimaryData && note && <span className="badge data">actual data</span>}
+          <span>{name}</span>
         </button>
         {size === undefined || size === "pending" ? (
           <button
@@ -590,11 +618,14 @@ function FolderNode(p: FolderNodeProps) {
             onOpen={p.onOpen}
             onToggle={p.onToggle}
             onDragOut={p.onDragOut}
+            show={p.show}
           />
         ))}
     </>
   );
 }
+
+const friendlyNamesKey = "filesFriendlyNames";
 
 const primaryDataTip = "Nothing can generate it again, so deleting anything here loses data for good.";
 

@@ -17,6 +17,9 @@
   --danger: #b3261e;
   --danger-soft: rgba(179, 38, 30, 0.12);
   --ok: #2f7a44;
+  /* the database's own data: important enough to mark, but not an error - never the danger red */
+  --data: #8a5a09;
+  --data-soft: rgba(138, 90, 9, 0.12);
   --badge-bg: rgba(0, 0, 0, 0.07);
   --backdrop-ink: #1d1c1a;
   --backdrop-opacity: 0.16;
@@ -39,6 +42,8 @@
   --danger: #f2887f;
   --danger-soft: rgba(242, 136, 127, 0.14);
   --ok: #6fbf85;
+  --data: #e0a45c;
+  --data-soft: rgba(224, 164, 92, 0.14);
   --badge-bg: rgba(255, 255, 255, 0.09);
   --backdrop-ink: #a8cdf2;
   --backdrop-opacity: 0.18;
@@ -253,12 +258,6 @@ a {
   font-size: 11px;
   font-weight: 500;
   color: var(--text-muted);
-}
-
-/* the folders holding the database's own data: what is in them cannot be generated again */
-.badge.data {
-  background: var(--danger-soft);
-  color: var(--danger);
 }
 
 /* ---- database switcher ---- */
@@ -941,6 +940,22 @@ a {
   font-size: 12px;
 }
 
+/* swaps the guids in file and folder names for what they stand for; sits with the toolbar buttons */
+.files-friendly {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.files-friendly:hover {
+  color: var(--text);
+}
+
 .files-body {
   display: grid;
   grid-template-columns: 260px 1fr;
@@ -971,9 +986,9 @@ a {
   color: var(--accent);
 }
 
-/* the database's own data folders: the badge carries the message, the icon just picks it up */
+/* the database's own data folders: the coloured folder is the marking, the notice explains it */
 .tree-row.primary-data .tree-label svg {
-  color: var(--danger);
+  color: var(--data);
 }
 
 .tree-chevron {
@@ -1067,18 +1082,18 @@ a {
   padding: 8px 10px;
   font-size: 12px;
   color: var(--text-soft);
-  background: var(--danger-soft);
+  background: var(--data-soft);
   border-radius: 7px;
 }
 
 .files-notice svg {
   flex: none;
   margin-top: 1px;
-  color: var(--danger);
+  color: var(--data);
 }
 
 .files-notice b {
-  color: var(--danger);
+  color: var(--data);
 }
 
 .file-table {

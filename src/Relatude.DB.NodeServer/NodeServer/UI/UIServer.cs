@@ -276,6 +276,16 @@ public sealed class UIServer {
     }
     // the property a conversion belongs to, by name rather than by id - the id says nothing to
     // whoever is reading the page, and a datamodel that no longer has it says nothing either
+    // An engine folder is named by the engine's id, and several engines of the same type can sit in
+    // the same list, so the role (and a number, when there is more than one) keeps them apart.
+    static void addEngineNames(Dictionary<string, string> map, DataStores.IndexEngineSettings[]? engines, string role) {
+        if (engines == null) return;
+        for (var i = 0; i < engines.Length; i++) {
+            if (engines[i].Id == Guid.Empty) continue;
+            var name = role + "-" + (engines[i].TypeName ?? "index").ToLowerInvariant();
+            map[engines[i].Id.ToString("N")] = engines.Length > 1 ? name + "-" + (i + 1) : name;
+        }
+    }
     static string? propertyName(Datamodels.Datamodel? datamodel, Common.PropertyPath? property) {
         if (property == null || datamodel == null) return null;
         return datamodel.Properties.TryGetValue(property.PropertyId, out var model) ? model.CodeName : null;
@@ -345,6 +355,38 @@ public sealed class UIServer {
                     TimeUtc = c.StartUpExceptionDateTimeUTC,
                 }),
             };
+        });
+        // What the guids inside file and folder names stand for, so the files section can offer to
+        // show names instead: property, node type and relation ids (index files and their folders are
+        // named after the property they index) and the index engine ids naming the folders below
+        // indexes/. Keyed by the "N" form (32 hex, no dashes) - the same id appears both ways.
+        Commands.Register("name-map", ctx => {
+            var p = ctx.Payload<IoListPayload>();
+            var c = getContainer(p.StoreId);
+            var map = new Dictionary<string, string>();
+            void add(Guid id, string? name) {
+                if (id != Guid.Empty && !string.IsNullOrWhiteSpace(name)) map[id.ToString("N")] = name.ToLowerInvariant();
+            }
+            var datamodel = c.Datamodel;
+            if (datamodel != null) {
+                foreach (var type in datamodel.NodeTypes.Values) add(type.Id, type.CodeName);
+                foreach (var relation in datamodel.Relations.Values) add(relation.Id, relation.CodeName);
+                // a property name is only unique within its node type, and the same index folder
+                // listing can hold two of them, so the ambiguous ones carry their type
+                foreach (var group in datamodel.Properties.Values.GroupBy(prop => prop.CodeName, StringComparer.OrdinalIgnoreCase)) {
+                    var ambiguous = group.Count() > 1;
+                    foreach (var prop in group) {
+                        add(prop.Id, ambiguous && datamodel.NodeTypes.TryGetValue(prop.NodeType, out var owner)
+                            ? owner.CodeName + "." + prop.CodeName
+                            : prop.CodeName);
+                    }
+                }
+            }
+            var local = c.Settings.LocalSettings;
+            addEngineNames(map, local?.ValueIndexes, "value");
+            addEngineNames(map, local?.TextIndexes, "text");
+            addEngineNames(map, local?.VectorIndexes, "vector");
+            return (object?)map;
         });
         // the IO providers of one database container, for the files section
         Commands.Register("io-list", ctx => {
