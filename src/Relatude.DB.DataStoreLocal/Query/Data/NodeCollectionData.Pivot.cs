@@ -14,10 +14,10 @@ internal partial class NodeCollectionData : IPivotSource {
 /// <summary>
 /// Computes a pivot over an id set with the facet primitives: every group level is bucketed by the
 /// property the way a facet is (GetDefaultFacets), each bucket becomes an id set (FilterFacets), nested
-/// levels and cells are set intersections, and measures are one pass over a cell's ids against the
-/// measure property's index (Property.Aggregate). No node is ever read. Totals are aggregated over
-/// their own sets, never added up from cells - that keeps averages right, and counts right when an
-/// array-valued group property puts one node in several groups.
+/// levels and cells are set intersections, and the numeric measures of every cell and total come out
+/// of ONE pass over the ids per measure property (Property.AggregateGrid). No node is ever read.
+/// Totals are aggregated over their own sets, never added up from cells - that keeps averages right,
+/// and counts right when an array-valued group property puts one node in several groups.
 /// </summary>
 internal sealed class PivotEvaluator {
     readonly Definition _def;
@@ -27,7 +27,7 @@ internal sealed class PivotEvaluator {
     readonly SetRegister _sets;
     // measures, resolved
     readonly List<Measure> _measures = [];
-    readonly List<(Property prop, bool distinct)> _aggregated = []; // one index pass per distinct property, shared by its measures
+    readonly List<(Property prop, bool distinct)> _aggregated = []; // one pass per distinct property, shared by its measures
     string[] _measureNames = [];
     bool _capped;
 
@@ -47,7 +47,7 @@ internal sealed class PivotEvaluator {
         public IdSet Set = set;
         public bool IsOther = isOther;
         public List<Group>? Children;
-        public double?[]? Total; // measures over Set, computed when needed
+        public double?[]? Total; // measures over Set, computed when a level is sorted by a measure
         public int Index = -1;   // leaf index in the final axis, -1 when not a leaf on the page
     }
     sealed class Axis(List<Level> levels) {
@@ -88,7 +88,20 @@ internal sealed class PivotEvaluator {
         for (var i = 0; i < rowLeaves.Count; i++) rowLeaves[i].Index = i;
         for (var i = 0; i < colLeaves.Count; i++) colLeaves[i].Index = i;
 
-        // cells
+        // the grid pass: the leaves of both axes, with the sub-total groups riding along as extra rows
+        // and columns; the last row and column of every grid are the totals
+        var rowSubGroups = _spec.SubTotals && rows.Levels.Count > 1 ? subTotalGroups(rows) : [];
+        var colSubGroups = _spec.SubTotals && columns.Levels.Count > 1 ? subTotalGroups(columns) : [];
+        var rowSets = rowLeaves.Concat(rowSubGroups).Select(g => g.Set).ToArray();
+        var colSets = colLeaves.Concat(colSubGroups).Select(g => g.Set).ToArray();
+        var grids = computeGrids(_source, rowSets, colSets);
+        var R = rowLeaves.Count;
+        var C = colLeaves.Count;
+        var totalRow = rowSets.Length;
+        var totalCol = colSets.Length;
+        PivotCell cellAt(int gridRow, int gridCol, IdSet set, int row, int column)
+            => new(row, column, set.Count, values(i => grids[i] is { } grid ? grid[gridRow, gridCol] : aggregateSet(i, set), set.Count), _measureNames);
+
         var noRowLevels = rows.Levels.Count == 0;
         var noColLevels = columns.Levels.Count == 0;
         var cells = new List<PivotCell>();
@@ -96,15 +109,32 @@ internal sealed class PivotEvaluator {
             foreach (var col in colLeaves) {
                 var set = noColLevels ? row.Set : noRowLevels ? col.Set : _sets.Intersection(row.Set, col.Set);
                 if (set.Count == 0) continue;
-                cells.Add(cell(set, row.Index, col.Index));
+                cells.Add(cellAt(row.Index, col.Index, set, row.Index, col.Index));
             }
         }
-        // totals
-        var rowTotals = _spec.RowTotals ? rowLeaves.Select(g => cell(g.Set, g.Index, -1, g.Total)).ToArray() : [];
-        var colTotals = _spec.ColumnTotals ? colLeaves.Select(g => cell(g.Set, -1, g.Index, g.Total)).ToArray() : [];
-        var grandTotal = cell(_source, -1, -1);
-        var rowSubTotals = _spec.SubTotals && rows.Levels.Count > 1 ? subTotals(rows, colLeaves, true) : [];
-        var colSubTotals = _spec.SubTotals && columns.Levels.Count > 1 ? subTotals(columns, rowLeaves, false) : [];
+        var rowTotals = _spec.RowTotals ? rowLeaves.Select(g => cellAt(g.Index, totalCol, g.Set, g.Index, -1)).ToArray() : [];
+        var colTotals = _spec.ColumnTotals ? colLeaves.Select(g => cellAt(totalRow, g.Index, g.Set, -1, g.Index)).ToArray() : [];
+        var grandTotal = cellAt(totalRow, totalCol, _source, -1, -1);
+        var rowSubTotals = new PivotSubTotal[rowSubGroups.Count];
+        for (var i = 0; i < rowSubGroups.Count; i++) {
+            var g = rowSubGroups[i];
+            var subCells = new PivotCell?[C];
+            foreach (var col in colLeaves) {
+                var set = noColLevels ? g.Set : _sets.Intersection(g.Set, col.Set);
+                if (set.Count > 0) subCells[col.Index] = cellAt(R + i, col.Index, set, -1, col.Index);
+            }
+            rowSubTotals[i] = new PivotSubTotal(toGroup(g), subCells, cellAt(R + i, totalCol, g.Set, -1, -1));
+        }
+        var colSubTotals = new PivotSubTotal[colSubGroups.Count];
+        for (var j = 0; j < colSubGroups.Count; j++) {
+            var g = colSubGroups[j];
+            var subCells = new PivotCell?[R];
+            foreach (var row in rowLeaves) {
+                var set = noRowLevels ? g.Set : _sets.Intersection(g.Set, row.Set);
+                if (set.Count > 0) subCells[row.Index] = cellAt(row.Index, C + j, set, row.Index, -1);
+            }
+            colSubTotals[j] = new PivotSubTotal(toGroup(g), subCells, cellAt(totalRow, C + j, g.Set, -1, -1));
+        }
 
         var result = new PivotResult(
             _measures.Select(m => new PivotMeasure(m.Name, m.Function, m.Property?.Id ?? Guid.Empty, m.Property?.CodeName)).ToArray(),
@@ -134,18 +164,25 @@ internal sealed class PivotEvaluator {
         }
         _measureNames = _measures.Select(m => m.Name).ToArray();
     }
-    double?[] aggregate(IdSet set) {
-        var values = new double?[_measures.Count];
-        PivotAggregate[]? aggs = null;
-        if (_aggregated.Count > 0) {
-            aggs = new PivotAggregate[_aggregated.Count];
-            for (var i = 0; i < aggs.Length; i++) aggs[i] = _aggregated[i].prop.Aggregate(set, _ctx, _aggregated[i].distinct);
+    // one grid per aggregated numeric property: every cell and total of the pass in one walk. A
+    // distinct count has no grid (it would need a value set per cell) and is answered per set instead
+    PivotAggregate[,]?[] computeGrids(IdSet source, IdSet[] rowSets, IdSet[] colSets) {
+        var grids = new PivotAggregate[,]?[_aggregated.Count];
+        for (var i = 0; i < _aggregated.Count; i++) {
+            var (prop, distinct) = _aggregated[i];
+            if (!distinct && prop.IsNumeric) grids[i] = prop.AggregateGrid(source, rowSets, colSets, _ctx);
         }
+        return grids;
+    }
+    PivotAggregate aggregateSet(int aggregateIndex, IdSet set) => _aggregated[aggregateIndex].prop.Aggregate(set, _ctx, _aggregated[aggregateIndex].distinct);
+    // the measure values of one cell, from whatever holds its aggregates
+    double?[] values(Func<int, PivotAggregate> aggregateOf, int count) {
+        var result = new double?[_measures.Count];
         for (var i = 0; i < _measures.Count; i++) {
             var m = _measures[i];
-            if (m.Function == PivotFunction.Count) { values[i] = set.Count; continue; }
-            var a = aggs![m.AggregateIndex];
-            values[i] = m.Function switch {
+            if (m.Function == PivotFunction.Count) { result[i] = count; continue; }
+            var a = aggregateOf(m.AggregateIndex);
+            result[i] = m.Function switch {
                 PivotFunction.CountDistinct => a.DistinctCount,
                 _ when a.CountWithValue == 0 => null, // no node in the cell has a value: undefined, not 0
                 PivotFunction.Sum => a.Sum,
@@ -155,9 +192,8 @@ internal sealed class PivotEvaluator {
                 _ => throw new NotSupportedException(m.Function.ToString()),
             };
         }
-        return values;
+        return result;
     }
-    PivotCell cell(IdSet set, int row, int column, double?[]? precomputed = null) => new(row, column, set.Count, precomputed ?? aggregate(set), _measureNames);
 
     // ── levels and buckets ──
     List<Level> resolveLevels(List<PivotGroupSpec> specs, string axisName) {
@@ -269,7 +305,7 @@ internal sealed class PivotEvaluator {
             if (set.Count == 0) continue;
             groups.Add(new Group([.. prefix, bucket.Value], set, false));
         }
-        applyOptions(groups, level.Spec, prefix);
+        applyOptions(groups, level.Spec, prefix, parentSet);
         if (isLeafLevel) {
             // the leaf budget: an axis never grows past the cell limit, whatever the other axis holds
             var room = _spec.MaxCells - axis.LeafCount;
@@ -288,16 +324,22 @@ internal sealed class PivotEvaluator {
         return groups;
     }
     // MinCount / MaxGroups / SortByMeasure / OtherGroup, within one parent
-    void applyOptions(List<Group> groups, PivotGroupSpec spec, FacetValue?[] prefix) {
+    void applyOptions(List<Group> groups, PivotGroupSpec spec, FacetValue?[] prefix, IdSet parentSet) {
         if (spec.SortByMeasure != null) {
             var byCount = string.Equals(spec.SortByMeasure, "Count", StringComparison.OrdinalIgnoreCase) && _measures.All(m => !string.Equals(m.Name, spec.SortByMeasure, StringComparison.OrdinalIgnoreCase));
             var index = byCount ? -1 : Array.FindIndex(_measureNames, n => string.Equals(n, spec.SortByMeasure, StringComparison.OrdinalIgnoreCase));
             if (!byCount && index < 0) throw new Exception("Cannot sort groups by \"" + spec.SortByMeasure + "\": there is no such measure. Measures: " + string.Join(", ", _measureNames) + (_measureNames.Length == 0 ? "(none)" : "") + ". \"Count\" always works. ");
-            double? key(Group g) {
-                if (byCount) return g.Set.Count;
-                g.Total ??= aggregate(g.Set);
-                return g.Total[index];
+            if (!byCount) {
+                // the totals of every candidate group, in one pass over the parent (the groups are its subsets)
+                var sets = groups.Select(g => g.Set).ToArray();
+                var grids = computeGrids(parentSet, sets, []);
+                for (var gi = 0; gi < groups.Count; gi++) {
+                    var g = groups[gi];
+                    var row = gi;
+                    g.Total = values(i => grids[i] is { } grid ? grid[row, 0] : aggregateSet(i, g.Set), g.Set.Count);
+                }
             }
+            double? key(Group g) => byCount ? g.Set.Count : g.Total![index];
             // stable, with undefined values last whatever the direction
             var ordered = groups.OrderBy(g => key(g).HasValue ? 0 : 1);
             ordered = spec.Descending ? ordered.ThenByDescending(g => key(g) ?? 0) : ordered.ThenBy(g => key(g) ?? 0);
@@ -326,24 +368,18 @@ internal sealed class PivotEvaluator {
             else collectLeaves(g.Children, leaves);
         }
     }
-    PivotSubTotal[] subTotals(Axis axis, List<Group> otherLeaves, bool isRowAxis) {
-        var result = new List<PivotSubTotal>();
+    // the groups above the leaf level that have a leaf on the page below them, in display order
+    static List<Group> subTotalGroups(Axis axis) {
+        var result = new List<Group>();
         collect(axis.Roots);
-        return result.ToArray();
-        // a sub-total for every group above the leaf level that has a leaf on the page below it
+        return result;
         bool collect(List<Group> groups) {
             var any = false;
             foreach (var g in groups) {
                 if (g.Children == null) { any |= g.Index >= 0; continue; }
                 if (!collect(g.Children)) continue;
                 any = true;
-                var cells = new PivotCell?[otherLeaves.Count];
-                for (var i = 0; i < otherLeaves.Count; i++) {
-                    var set = otherLeaves[i].Path.Length == 0 ? g.Set : _sets.Intersection(g.Set, otherLeaves[i].Set);
-                    if (set.Count == 0) continue;
-                    cells[i] = isRowAxis ? cell(set, -1, otherLeaves[i].Index) : cell(set, otherLeaves[i].Index, -1);
-                }
-                result.Add(new PivotSubTotal(toGroup(g), cells, cell(g.Set, -1, -1, g.Total)));
+                result.Add(g);
             }
             return any;
         }

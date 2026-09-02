@@ -4044,3 +4044,153 @@ a.action-button {
     flex-wrap: wrap;
   }
 }
+
+/* ---- pivot view ---- */
+
+.pivot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* the definition: one line per axis, one for the measures, chips for the levels */
+.pivot-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.pivot-builder-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-height: 26px;
+}
+
+.pivot-builder-label {
+  width: 64px;
+  flex: none;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.pivot-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 2px 2px 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.pivot-chip .select,
+.pivot-options .select {
+  padding: 2px 4px;
+  font-size: 12px;
+}
+
+.pivot-chip .icon-button {
+  padding: 2px;
+}
+
+/* the options of an axis sit at the end of its line */
+.pivot-options {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  color: var(--text-muted);
+}
+
+.pivot-options label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pivot-number {
+  width: 52px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+
+.pivot-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* the table: numbers right aligned, groups centred over their measures, totals set apart */
+.pivot-table tbody tr {
+  cursor: default;
+}
+
+.pivot-table tbody tr:hover {
+  background: transparent;
+}
+
+.pivot-table th.pivot-group {
+  text-align: center;
+  border-left: 1px solid var(--border);
+}
+
+.pivot-table th.pivot-measure {
+  top: 29px; /* under the group row, which is sticky too */
+  font-weight: 500;
+  color: var(--text-faint);
+}
+
+.pivot-table td.pivot-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.pivot-table td.pivot-label {
+  font-weight: 500;
+}
+
+.pivot-table td.pivot-other {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.pivot-table td.pivot-empty {
+  color: var(--text-faint);
+}
+
+.pivot-table td.pivot-cell {
+  cursor: pointer;
+}
+
+.pivot-table td.pivot-cell:hover {
+  color: var(--accent);
+  background: var(--hover);
+}
+
+.pivot-table .pivot-total-col {
+  border-left: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.pivot-table tr.pivot-subtotal td {
+  background: var(--hover);
+  font-weight: 600;
+}
+
+.pivot-table tr.pivot-total td {
+  background: var(--accent-soft);
+  border-top: 2px solid var(--border);
+  font-weight: 600;
+}

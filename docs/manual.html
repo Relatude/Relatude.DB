@@ -4660,6 +4660,9 @@ sidebar filter, pivoted:</p>
 </code></pre></div>
 
 <p>Only the selection filters apply: the facet buckets are not counted and the facet page is ignored.</p>
+<p>The admin UI has this as the third view of the Query section (list, table, pivot): the same search and
+facet selection, a builder for the groups and measures, and a click on any cell that turns its groups
+back into a facet selection showing the nodes behind the number.</p>
 <p>Like every query, a pivot travels to the store as a query string, which is what a REST client sends:
 <code>IEvent.Pivot().AddRow("IEvent.Venue").AddColumn("IEvent.StartsUtc", "Month").AddSum("IEvent.Price", "revenue")</code>.
 <code>QueryOfPivot.ToString()</code> gives the string for a typed pivot.</p>

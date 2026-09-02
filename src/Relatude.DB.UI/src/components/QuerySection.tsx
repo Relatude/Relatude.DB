@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   IconArrowNarrowDown,
   IconArrowNarrowUp,
+  IconChartBar,
   IconChevronLeft,
   IconChevronRight,
   IconCode,
@@ -13,6 +14,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { NodeEditor } from "./NodeEditor";
+import { PivotView, type PivotBase } from "./PivotView";
 import { showError } from "../dialogs";
 import {
   csvRowLimit,
@@ -67,7 +69,10 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
   const [expanded, setExpanded] = useState<string[]>([]);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(pageSizes[0]);
-  const [table, setTable] = useState(false);
+  // list and table show the hits; the pivot summarizes them, and is a view of the same search
+  const [view, setView] = useState<"list" | "table" | "pivot">("list");
+  const table = view === "table";
+  const pivot = view === "pivot";
   const [sort, setSort] = useState<{ key: string; descending: boolean } | null>(null);
   const [showFacets, setShowFacets] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -125,6 +130,28 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
   );
 
   const { result, loading, error, refresh } = useLiveResult(query, runSearch);
+
+  // the pivot's source: the search as this page has it, without the paging and the view switches
+  const pivotBase = useMemo<PivotBase | null>(
+    () =>
+      typeId === null
+        ? null
+        : { storeId: db.id, typeId, text, semanticRatio, minimumSimilarity: minSimilarity, selections: selectionList },
+    [db.id, typeId, text, semanticRatio, minSimilarity, selectionList],
+  );
+
+  // a pivot cell clicked: its groups become the facet selection, and the list shows the nodes behind
+  // the number. A selection on a property the rail already filters by is replaced, not added to.
+  function drill(from: FacetSelection[]) {
+    reset(() => {
+      setSelections((prev) => {
+        const next = { ...prev };
+        for (const s of from) next[s.propertyId] = s.values;
+        return next;
+      });
+      setView("list");
+    });
+  }
 
   // Any change to what is being searched starts the result list over, and closes the node open
   // beside it: the form belongs to a hit in the list it came from, and once that list is a
@@ -260,8 +287,8 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
         {model.hasAi && !model.hasSemanticIndex && <span className="query-note">Nothing in this data model is semantically indexed, so both sliders are inert.</span>}
       </div>
 
-      {showQuery && result && <div className="query-string">{result.query}</div>}
-      {error && <div className="query-error">{error}</div>}
+      {showQuery && result && !pivot && <div className="query-string">{result.query}</div>}
+      {error && !pivot && <div className="query-error">{error}</div>}
 
       <div className={"query-body" + (selected ? " with-editor" : "") + (showFacets ? "" : " no-facets")}>
         {showFacets && (
@@ -329,34 +356,41 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
               <IconFilter size={16} stroke={1.8} />
             </button>
             <div className="query-view">
-              <button className={table ? "" : "active"} title="Show the hits as a list" onClick={() => setTable(false)}>
+              <button className={view === "list" ? "active" : ""} title="Show the hits as a list" onClick={() => setView("list")}>
                 <IconLayoutList size={15} stroke={1.8} />
               </button>
-              <button className={table ? "active" : ""} title={`Show the hits as a table, one column per property`} onClick={() => setTable(true)}>
+              <button className={table ? "active" : ""} title={`Show the hits as a table, one column per property`} onClick={() => setView("table")}>
                 <IconTable size={15} stroke={1.8} />
               </button>
+              <button className={pivot ? "active" : ""} title="Summarize the hits as a pivot table: groups by property, a count or sum per cell" onClick={() => setView("pivot")}>
+                <IconChartBar size={15} stroke={1.8} />
+              </button>
             </div>
-            <select
-              className="select compact"
-              value={pageSize}
-              title="Rows per page"
-              onChange={(e) => reset(() => setPageSize(Number(e.target.value)))}
-            >
-              {pageSizes.map((size) => (
-                <option key={size} value={size}>
-                  {size} / page
-                </option>
-              ))}
-            </select>
-            <button
-              className="icon-button"
-              disabled={exporting || !result || result.total === 0}
-              title={`Download the whole result set as csv (up to ${formatCount(csvRowLimit)} rows)`}
-              onClick={download}
-            >
-              <IconDownload size={16} stroke={1.8} />
-            </button>
-            {result && result.total > pageSize && (
+            {!pivot && (
+              <select
+                className="select compact"
+                value={pageSize}
+                title="Rows per page"
+                onChange={(e) => reset(() => setPageSize(Number(e.target.value)))}
+              >
+                {pageSizes.map((size) => (
+                  <option key={size} value={size}>
+                    {size} / page
+                  </option>
+                ))}
+              </select>
+            )}
+            {!pivot && (
+              <button
+                className="icon-button"
+                disabled={exporting || !result || result.total === 0}
+                title={`Download the whole result set as csv (up to ${formatCount(csvRowLimit)} rows)`}
+                onClick={download}
+              >
+                <IconDownload size={16} stroke={1.8} />
+              </button>
+            )}
+            {!pivot && result && result.total > pageSize && (
               <div className="query-paging">
                 <button className="icon-button" disabled={page === 0} title="Previous page" onClick={() => setPage(page - 1)}>
                   <IconChevronLeft size={15} stroke={1.8} />
@@ -370,7 +404,10 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
               </div>
             )}
           </div>
-          {table && result?.columns ? (
+          {pivot && pivotBase ? (
+            // keyed by type: another type has other properties, so the definition starts over with it
+            <PivotView key={pivotBase.typeId} base={pivotBase} showQuery={showQuery} onDrill={drill} />
+          ) : table && result?.columns ? (
             <div className={"query-table-wrap" + (loading ? " loading" : "")}>
               <table className="query-table">
                 <thead>

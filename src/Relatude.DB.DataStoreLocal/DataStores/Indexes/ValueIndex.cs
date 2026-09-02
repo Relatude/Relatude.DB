@@ -198,6 +198,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     public T GetValue(int nodeId) => _valueById[nodeId];
     public bool TryGetValue(int nodeId, out T value) => _valueById.TryGetValue(nodeId, out value!);
     public bool HasFastPointLookup => true;
+    public IEnumerable<KeyValuePair<int, T>> Entries => _valueById;
     public bool ContainsValue(T value) => _idByValue.ContainsValue(value);
     public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
         // appending a stamp is only sound when the persisted body equals the in-memory state: the

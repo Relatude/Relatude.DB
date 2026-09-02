@@ -348,36 +348,148 @@ namespace Relatude.DB.DataStores.Definitions {
             max = index.MaxValue();
             return min != null && max != null;
         }
-        // one pass over the set with per-id value lookups: no node is read, only the index. On the
-        // memory index a lookup is an array read; on a persisted index a tree/disk probe, so the
-        // optimized wrapper is flushed once and bypassed, as CountFacets does for its counting loops
+        // A pivot aggregates the same set more than once (a group's total while sorting, then again
+        // as its row total; the source as the grand total of every pivot over the same search), so
+        // the answers are kept per (index state, set state). Both state ids move on every write, so
+        // a stale entry cannot be read; an uncachable set (StateId long.MaxValue) is never stored.
+        readonly Cache<(long index, long set, bool distinct), PivotAggregate> _aggregates = new(4096);
         internal override PivotAggregate Aggregate(IdSet set, QueryContext ctx, bool distinct) {
             var index = GetValueIndex(ctx);
-            if (index is OptimizedValueIndex<T> optimized) index = optimized.DequeueAndGetInner();
+            if (index is OptimizedValueIndex<T> optimized) index = optimized.DequeueAndGetInner(); // flushed once; the raw index for the loops below, as CountFacets does
+            var cachable = set.StateId != long.MaxValue;
+            var key = (index.StateId, set.StateId, distinct);
+            if (cachable && _aggregates.TryGet(key, out var cached)) return cached;
+            var agg = aggregate(index, set, distinct);
+            if (cachable) _aggregates.Set(key, agg, 1);
+            return agg;
+        }
+        // One pass over the set with per-id value lookups: no node is read, only the index. On the
+        // memory index a lookup is an array read and a million of them is tens of milliseconds; on a
+        // persisted index each is a tree probe, so a big set is split into slices aggregated on all
+        // cores with local accumulators and merged (see CountFacets.countRangesAndMissingInOnePass
+        // for why that is safe: snapshot state, and the store's read lock holds for the whole query).
+        const int _minIdsPerAggregateSlice = 65_536;
+        PivotAggregate aggregate(IValueIndex<T> index, IdSet set, bool distinct) {
+            var slices = set.Partition((int)Math.Min(Environment.ProcessorCount, (long)set.Count / _minIdsPerAggregateSlice));
+            if (slices.Length <= 1) return aggregateSlice(index, set.Enumerate(), distinct ? new HashSet<T>() : null);
+            var parts = new PivotAggregate[slices.Length];
+            var seen = distinct ? new HashSet<T>[slices.Length] : null;
+            Parallel.For(0, slices.Length, i => {
+                var local = distinct ? new HashSet<T>() : null;
+                parts[i] = aggregateSlice(index, slices[i], local);
+                if (seen != null) seen[i] = local!;
+            });
             var agg = new PivotAggregate { Min = double.PositiveInfinity, Max = double.NegativeInfinity };
-            HashSet<T>? seen = distinct ? new() : null;
+            foreach (var part in parts) {
+                agg.CountWithValue += part.CountWithValue;
+                agg.Sum += part.Sum;
+                if (part.Min < agg.Min) agg.Min = part.Min;
+                if (part.Max > agg.Max) agg.Max = part.Max;
+            }
+            if (seen != null) {
+                var all = seen[0];
+                for (var i = 1; i < seen.Length; i++) all.UnionWith(seen[i]);
+                agg.DistinctCount = all.Count;
+            }
+            return agg;
+        }
+        static PivotAggregate aggregateSlice(IValueIndex<T> index, IEnumerable<int> ids, HashSet<T>? seen) {
+            var agg = PivotAggregate.Empty;
             var toDouble = _toDouble;
-            foreach (var id in set.Enumerate()) {
+            foreach (var id in ids) {
                 if (!index.TryGetValue(id, out var v)) continue;
-                agg.CountWithValue++;
                 seen?.Add(v);
-                if (toDouble == null) continue;
-                var d = toDouble(v);
-                agg.Sum += d;
-                if (d < agg.Min) agg.Min = d;
-                if (d > agg.Max) agg.Max = d;
+                if (toDouble == null) agg.CountWithValue++;
+                else agg.Add(toDouble(v));
             }
             agg.DistinctCount = seen?.Count ?? 0;
             return agg;
         }
+
+        // The grid form of Aggregate: every cell of a pivot in ONE pass over the ids, for a numeric
+        // property. rows and cols are the group sets of the two axes; the answer has one extra row and
+        // column for the totals - [r, C] is the total of row r whatever its column, [R, c] of column c,
+        // [R, C] of the whole source. An id in several groups of an axis (an array-valued property) is
+        // accumulated into each of them, and an id in no column group still counts in its row total,
+        // which is what keeps the totals equal to an aggregate over the group's own set. On the memory
+        // index the pass probes the source ids (on all cores when there are many); on a persisted index
+        // a probe is a tree read each, so a source holding most of the index is answered from the
+        // index's own sequential walk instead (Entries), skipping the ids outside the source.
+        internal override PivotAggregate[,] AggregateGrid(IdSet source, IdSet[] rows, IdSet[] cols, QueryContext ctx) {
+            var toDouble = _toDouble ?? throw new NotSupportedException("The property " + CodeName + " of type " + PropertyType + " is not numeric. ");
+            var index = GetValueIndex(ctx);
+            if (index is OptimizedValueIndex<T> optimized) index = optimized.DequeueAndGetInner();
+            // membership tests below may run on several threads: let every set build its lookup form now
+            foreach (var s in rows) s.Has(int.MinValue);
+            foreach (var s in cols) s.Has(int.MinValue);
+            if (index.HasFastPointLookup || (long)source.Count * 8 < index.IdCount) {
+                var slices = source.Partition((int)Math.Min(Environment.ProcessorCount, (long)source.Count / _minIdsPerAggregateSlice));
+                if (slices.Length <= 1) return probeGrid(index, source.Enumerate(), rows, cols, toDouble);
+                var parts = new PivotAggregate[slices.Length][,];
+                Parallel.For(0, slices.Length, i => parts[i] = probeGrid(index, slices[i], rows, cols, toDouble));
+                var merged = parts[0];
+                for (var i = 1; i < parts.Length; i++) {
+                    for (var r = 0; r <= rows.Length; r++) for (var c = 0; c <= cols.Length; c++) merged[r, c].Merge(parts[i][r, c]);
+                }
+                return merged;
+            }
+            var grid = newGrid(rows.Length, cols.Length);
+            var hits = new List<int>();
+            foreach (var e in index.Entries) {
+                if (!source.Has(e.Key)) continue;
+                accumulate(grid, rows, cols, e.Key, toDouble(e.Value), hits);
+            }
+            return grid;
+        }
+        static PivotAggregate[,] probeGrid(IValueIndex<T> index, IEnumerable<int> ids, IdSet[] rows, IdSet[] cols, Func<T, double> toDouble) {
+            var grid = newGrid(rows.Length, cols.Length);
+            var hits = new List<int>();
+            foreach (var id in ids) if (index.TryGetValue(id, out var v)) accumulate(grid, rows, cols, id, toDouble(v), hits);
+            return grid;
+        }
+        static PivotAggregate[,] newGrid(int rows, int cols) {
+            var grid = new PivotAggregate[rows + 1, cols + 1];
+            for (var r = 0; r <= rows; r++) for (var c = 0; c <= cols; c++) grid[r, c] = PivotAggregate.Empty;
+            return grid;
+        }
+        // colHits is a scratch list reused across ids, so the pass allocates nothing per id
+        static void accumulate(PivotAggregate[,] grid, IdSet[] rows, IdSet[] cols, int id, double d, List<int> colHits) {
+            var R = rows.Length;
+            var C = cols.Length;
+            grid[R, C].Add(d);
+            colHits.Clear();
+            for (var c = 0; c < C; c++) {
+                if (!cols[c].Has(id)) continue;
+                colHits.Add(c);
+                grid[R, c].Add(d);
+            }
+            for (var r = 0; r < R; r++) {
+                if (!rows[r].Has(id)) continue;
+                grid[r, C].Add(d);
+                foreach (var c in colHits) grid[r, c].Add(d);
+            }
+        }
     }
-    /// <summary>What one pass over a set gives a pivot cell for one property (see Property.Aggregate).</summary>
+    /// <summary>What a pass over a set gives a pivot cell for one property (see Property.Aggregate / AggregateGrid).</summary>
     internal struct PivotAggregate {
         public int CountWithValue;
         public double Sum;
         public double Min;
         public double Max;
         public int DistinctCount;
+        public static PivotAggregate Empty => new() { Min = double.PositiveInfinity, Max = double.NegativeInfinity };
+        public void Add(double d) {
+            CountWithValue++;
+            Sum += d;
+            if (d < Min) Min = d;
+            if (d > Max) Max = d;
+        }
+        public void Merge(PivotAggregate other) {
+            CountWithValue += other.CountWithValue;
+            Sum += other.Sum;
+            if (other.Min < Min) Min = other.Min;
+            if (other.Max > Max) Max = other.Max;
+        }
     }
     internal static class PivotNumeric {
         // the numeric property types a Sum/Average/Min/Max measure accepts, each read as a double
@@ -474,6 +586,7 @@ namespace Relatude.DB.DataStores.Definitions {
         internal virtual bool IsNumeric => false;
         internal virtual bool TryGetMinMax(QueryContext ctx, out object? min, out object? max) { min = max = null; return false; }
         internal virtual PivotAggregate Aggregate(IdSet set, QueryContext ctx, bool distinct) => throw new NotSupportedException("The property " + CodeName + " of type " + PropertyType + " cannot be aggregated. ");
+        internal virtual PivotAggregate[,] AggregateGrid(IdSet source, IdSet[] rows, IdSet[] cols, QueryContext ctx) => throw new NotSupportedException("The property " + CodeName + " of type " + PropertyType + " cannot be aggregated. ");
 
         readonly public Definition Definition;
         readonly public Guid Id;

@@ -61,6 +61,7 @@ public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T> where
     public int MaxCount(IndexOperator op, T value) { _o.Dequeue(); return _i.MaxCount(op, value); }
     public T? MaxValue() { _o.Dequeue(); return _i.MaxValue(); }
     public T? MinValue() { _o.Dequeue(); return _i.MinValue(); }
+    public IEnumerable<KeyValuePair<int, T>> Entries { get { _o.Dequeue(); return _i.Entries; } }
     public IEnumerable<int> RangeSearch(T from, T to, bool fromInclusive, bool toInclusive) { _o.Dequeue(); return _i.RangeSearch(from, to, fromInclusive, toInclusive); }
     public ICollection<int> CollectGreaterThan(T value, bool inclusive) { _o.Dequeue(); return _i.CollectGreaterThan(value, inclusive); }
     public ICollection<int> CollectLessThan(T value, bool inclusive) { _o.Dequeue(); return _i.CollectLessThan(value, inclusive); }

@@ -18,6 +18,9 @@ public interface IValueIndex<T> : IIndex, IRangeIndex where T : notnull {
     T GetValue(int nodeId);
     bool TryGetValue(int nodeId, out T value);
     bool HasFastPointLookup { get; } // true when TryGetValue is a memory read rather than a tree/disk lookup
+    // every (id, value) of the index in one sequential walk, for passes over most of the index where a
+    // probe per id would be a tree read each (see Property.AggregateGrid); the default is that probe
+    IEnumerable<KeyValuePair<int, T>> Entries { get { foreach (var id in Ids) if (TryGetValue(id, out var v)) yield return new(id, v); } }
     int InSetRangeCount(IdSet ids, T from, T to, bool fromInclusive, bool toInclusive);
     T? MaxValue();
     T? MinValue();

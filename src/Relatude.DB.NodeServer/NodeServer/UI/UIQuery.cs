@@ -56,6 +56,8 @@ sealed class UIQuery {
         commands.Register("query-node", ctx => node(ctx.Payload<NodePayload>()));
         commands.Register("query-save", async ctx => await save(ctx.Payload<SavePayload>()));
         commands.Register("query-lookup", ctx => lookup(ctx.Payload<LookupPayload>()));
+        commands.Register("query-pivot-model", ctx => pivotModel(ctx.Payload<PivotModelPayload>()));
+        commands.Register("query-pivot", async ctx => await pivot(ctx.Payload<PivotPayload>()));
     }
 
     // Reading and writing as an administrator: hidden and unpublished nodes are part of what this
@@ -1086,8 +1088,178 @@ sealed class UIQuery {
         return value.ToString(CultureInfo.InvariantCulture);
     }
 
+    // ---- the pivot view: the same search, summarized as groups x measures ----
+
+    /// <summary>
+    /// The properties of a type the pivot builder can offer, with what each can do: group (the facet
+    /// rules - indexed and not opted out, relations opted in), aggregate (an indexed scalar: distinct
+    /// count), and sum/average (a numeric one). Dates are marked so the builder can offer calendar
+    /// intervals for them.
+    /// </summary>
+    object pivotModel(PivotModelPayload p) {
+        var s = store(p.StoreId);
+        var dm = s.Datastore.Datamodel;
+        var typeId = queriedType(dm, p.TypeId);
+        var type = dm.NodeTypes[typeId];
+        var properties = type.AllProperties.Values
+            .Where(property => !property.Internal)
+            .Select(property => new {
+                Id = property.Id,
+                Name = property.CodeName,
+                Type = property.PropertyType.ToString(),
+                Groupable = isGroupable(property),
+                Aggregatable = isAggregatable(property),
+                Numeric = isNumeric(property),
+                IsDate = property.PropertyType is PropertyType.DateTime or PropertyType.DateTimeOffset,
+                DeclaredBy = property.NodeType == typeId ? null : dm.NodeTypes.TryGetValue(property.NodeType, out var declaring) ? declaring.CodeName : null,
+            })
+            .Where(property => property.Groupable || property.Aggregatable)
+            .OrderBy(property => property.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return new { TypeId = typeId, TypeName = type.CodeName, Properties = properties };
+    }
+    // mirrors Property.CanBeFacet in the engine, which is what decides at query time
+    static bool isGroupable(PropertyModel property) {
+        if (property is RelationPropertyModel relation) return relation.Facet;
+        if (!property.Indexed || property.NotFacet) return false;
+        return property.PropertyType is PropertyType.Boolean or PropertyType.Integer or PropertyType.String or PropertyType.StringArray
+            or PropertyType.Double or PropertyType.Float or PropertyType.Decimal or PropertyType.DateTime or PropertyType.DateTimeOffset
+            or PropertyType.TimeSpan or PropertyType.Guid or PropertyType.Long or PropertyType.GuidArray or PropertyType.EnumArray
+            or PropertyType.Reference or PropertyType.References;
+    }
+    // mirrors ValueProperty<T>.CanAggregate / IsNumeric
+    static bool isAggregatable(PropertyModel property) => property.Indexed && property is not RelationPropertyModel && property.PropertyType is
+        PropertyType.Boolean or PropertyType.Integer or PropertyType.String or PropertyType.Double or PropertyType.Float or PropertyType.Decimal
+        or PropertyType.DateTime or PropertyType.DateTimeOffset or PropertyType.TimeSpan or PropertyType.Guid or PropertyType.Long or PropertyType.Reference;
+    static bool isNumeric(PropertyModel property) => property.Indexed && property.PropertyType is
+        PropertyType.Integer or PropertyType.Long or PropertyType.Double or PropertyType.Float or PropertyType.Decimal;
+
+    /// <summary>
+    /// Runs the pivot: the page's search and facet selection as the source, the groups and measures
+    /// the builder asked for on top. Built with the typed pivot API on Guid overloads and executed as
+    /// a query string against the datastore, like the search, so relation groups arrive as node data
+    /// and are named by the engine.
+    /// </summary>
+    async Task<object> pivot(PivotPayload p) {
+        var s = store(p.StoreId);
+        var dm = s.Datastore.Datamodel;
+        var typeId = queriedType(dm, p.TypeId);
+        var nodeType = dm.NodeTypes[typeId];
+        var q = s.QueryType(typeId, adminContext);
+        if (!string.IsNullOrWhiteSpace(p.Text)) q = q.WhereSearch(prefixEachWord(p.Text), p.SemanticRatio, (float?)p.MinimumSimilarity);
+        var selections = (p.Selections ?? []).Where(sel => dm.Properties.ContainsKey(sel.PropertyId) && sel.Values?.Length > 0).ToArray();
+        QueryOfPivot<object, object> pq;
+        if (selections.Length == 0) {
+            pq = q.Pivot();
+        } else { // the selection is the filter; its buckets are neither asked for nor counted
+            var fq = q.Facets();
+            foreach (var selection in selections) {
+                foreach (var value in selection.Values!) {
+                    if (value.Value == null) fq = fq.SetFacetMissingValue(selection.PropertyId);
+                    else if (value.Value2 == null) fq = fq.SetFacetValue(selection.PropertyId, value.Value);
+                    else fq = fq.SetFacetRangeValue(selection.PropertyId, value.Value, value.Value2);
+                }
+            }
+            pq = fq.Pivot();
+        }
+        pq = addLevels(pq, dm, p.Rows, p.RowOptions, rows: true);
+        pq = addLevels(pq, dm, p.Columns, p.ColumnOptions, rows: false);
+        // measures get explicit, unique names: the page reads cells by them, and two of a kind
+        // (say two counts) must not be an error here
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var m in p.Measures ?? []) {
+            var function = Enum.TryParse<PivotFunction>(m.Function, true, out var f) ? f : PivotFunction.Count;
+            if (function != PivotFunction.Count && (m.PropertyId is not Guid propertyId || !dm.Properties.ContainsKey(propertyId))) continue; // half-built measure: skip it, the page is still being edited
+            var property = function == PivotFunction.Count ? null : dm.Properties[m.PropertyId!.Value];
+            var name = property == null ? "Count" : property.CodeName + "." + function;
+            var unique = name;
+            for (var i = 2; !names.Add(unique); i++) unique = name + " (" + i + ")";
+            pq = function == PivotFunction.Count ? pq.AddCount(unique) : pq.AddMeasure(function, property!.Id, unique);
+        }
+        pq = pq.SetTotals(rows: true, columns: true, subTotals: p.SubTotals);
+        pq = pq.SetLimits(Math.Clamp(p.MaxCells <= 0 ? maxPivotCells : p.MaxCells, 1, maxPivotCells));
+        if (p.RowPageSize > 0) pq = pq.SetRowPaging(Math.Max(0, p.RowPage), Math.Min(p.RowPageSize, maxPivotRows));
+        var queryString = pq.ToString();
+
+        var sw = Stopwatch.StartNew();
+        var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
+        sw.Stop();
+        if (data is not PivotQueryResultData pivotData) throw new Exception("The query did not return a pivot. ");
+        var r = pivotData.Result;
+        return new {
+            TypeId = typeId,
+            TypeName = nodeType.CodeName,
+            Query = queryString,
+            DurationMs = sw.Elapsed.TotalMilliseconds,
+            r.SourceCount,
+            r.Capped,
+            Measures = r.Measures.Select(m => (object)new { m.Name, Function = m.Function.ToString(), m.PropertyName }).ToArray(),
+            Rows = pivotAxisView(r.Rows),
+            Columns = pivotAxisView(r.Columns),
+            Cells = r.Cells.Select(pivotCellView).ToArray(),
+            RowTotals = r.RowTotals.Select(pivotCellView).ToArray(),
+            ColumnTotals = r.ColumnTotals.Select(pivotCellView).ToArray(),
+            GrandTotal = pivotCellView(r.GrandTotal),
+            RowSubTotals = r.RowSubTotals.Select(pivotSubTotalView).ToArray(),
+            ColumnSubTotals = r.ColumnSubTotals.Select(pivotSubTotalView).ToArray(),
+        };
+    }
+    const int maxPivotCells = 20_000; // a browser table; the engine's own default is far above this
+    const int maxPivotRows = 1_000;
+    static QueryOfPivot<object, object> addLevels(QueryOfPivot<object, object> pq, Datamodel dm, PivotLevelPayload[]? levels, PivotAxisOptionsPayload? options, bool rows) {
+        foreach (var level in levels ?? []) {
+            if (!dm.Properties.TryGetValue(level.PropertyId, out var property)) continue; // a level whose property is not chosen yet
+            var mode = (level.Mode ?? "auto").ToLowerInvariant();
+            var isDate = property.PropertyType is PropertyType.DateTime or PropertyType.DateTimeOffset;
+            pq = mode switch {
+                "values" => rows ? pq.AddRowValues(property.Id) : pq.AddColumnValues(property.Id),
+                "ranges" => rows ? pq.AddRowRanges(property.Id) : pq.AddColumnRanges(property.Id),
+                _ when isDate && Enum.TryParse<DateInterval>(mode, true, out var interval) && interval != DateInterval.None
+                    => rows ? pq.AddRow(property.Id, interval) : pq.AddColumn(property.Id, interval),
+                _ => rows ? pq.AddRow(property.Id) : pq.AddColumn(property.Id),
+            };
+            if (options != null && (options.MaxGroups > 0 || options.SortByMeasure != null || options.OtherGroup || options.IncludeMissing || !options.Descending)) {
+                pq = rows
+                    ? pq.SetRowOptions(property.Id, options.MaxGroups, 0, options.IncludeMissing, options.SortByMeasure, options.Descending, options.OtherGroup)
+                    : pq.SetColumnOptions(property.Id, options.MaxGroups, 0, options.IncludeMissing, options.SortByMeasure, options.Descending, options.OtherGroup);
+            }
+        }
+        return pq;
+    }
+    static object pivotAxisView(PivotAxisResult axis) => new {
+        Levels = axis.Levels.Select(l => (object)new { l.PropertyId, l.CodeName, ValueType = l.ValueType.ToString(), l.IsRange, Interval = l.Interval.ToString() }).ToArray(),
+        Groups = axis.Groups.Select(pivotGroupView).ToArray(),
+        axis.TotalGroupCount,
+        axis.PageIndex,
+        axis.PageSize,
+    };
+    // the group's values travel in the facet selection form (see wire), so a cell can be turned into
+    // the selection that shows the nodes behind it
+    static object pivotGroupView(PivotGroup g) => new {
+        Labels = g.DisplayNames,
+        Values = g.Values.Select(wire).ToArray(),
+        Values2 = g.Values2.Select(wire).ToArray(),
+        g.Count,
+        g.IsOther,
+        g.Depth,
+    };
+    static object pivotCellView(PivotCell c) => new { c.Row, c.Column, c.Count, c.Values };
+    static object pivotSubTotalView(PivotSubTotal s) => new {
+        Group = pivotGroupView(s.Group),
+        Cells = s.Cells.Select(c => c == null ? null : pivotCellView(c)).ToArray(),
+        Total = pivotCellView(s.Total),
+    };
+
     sealed record StorePayload(Guid StoreId);
     sealed record NodePayload(Guid StoreId, Guid Id);
+    internal sealed record PivotModelPayload(Guid StoreId, Guid? TypeId);
+    /// <summary>Mode: auto | values | ranges, or a calendar interval (year, quarter, month, week, day, hour) on a date property.</summary>
+    internal sealed record PivotLevelPayload(Guid PropertyId, string? Mode);
+    internal sealed record PivotMeasurePayload(string Function, Guid? PropertyId);
+    internal sealed record PivotAxisOptionsPayload(int MaxGroups = 0, string? SortByMeasure = null, bool Descending = true, bool OtherGroup = false, bool IncludeMissing = false);
+    internal sealed record PivotPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity, FacetSelection[]? Selections,
+        PivotLevelPayload[]? Rows, PivotLevelPayload[]? Columns, PivotMeasurePayload[]? Measures,
+        PivotAxisOptionsPayload? RowOptions, PivotAxisOptionsPayload? ColumnOptions, bool SubTotals = false, int MaxCells = 0, int RowPage = 0, int RowPageSize = 0);
     internal sealed record FacetSelectionValue(string? Value, string? Value2);
     internal sealed record FacetSelection(Guid PropertyId, FacetSelectionValue[]? Values);
     internal sealed record SearchPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity,

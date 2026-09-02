@@ -189,6 +189,7 @@ internal class NativeKvValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCa
     }
     public bool TryGetValue(int nodeId, out T value) => _index.TryGetValue(nodeId, out value);
     public bool HasFastPointLookup => false;
+    public IEnumerable<KeyValuePair<int, T>> Entries => _index.Entries; // one walk of the id -> value tree, in id order
     public IEnumerable<int> GreaterThan(T value, bool inclusive) {
         return _index.GetIdsGreaterThan(value, inclusive);
     }

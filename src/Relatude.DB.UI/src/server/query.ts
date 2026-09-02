@@ -228,6 +228,155 @@ export interface NodeView {
   properties: PropertyView[];
 }
 
+// ---- the pivot view: the same search, summarized as groups x measures ----
+
+/** A property of the queried type as the pivot builder sees it: what it can be used for. */
+export interface PivotProperty {
+  id: string;
+  name: string;
+  type: string; // PropertyType
+  /** Can be a row or column grouping (indexed and facetable; relations that opted in). */
+  groupable: boolean;
+  /** Can carry a distinct count (an indexed scalar). */
+  aggregatable: boolean;
+  /** Can be summed and averaged. */
+  numeric: boolean;
+  /** A date: the grouping can be by calendar interval. */
+  isDate: boolean;
+  /** The type that declares it, when inherited. */
+  declaredBy: string | null;
+}
+
+export interface PivotModel {
+  typeId: string;
+  typeName: string;
+  properties: PivotProperty[];
+}
+
+export type PivotFunction = "Count" | "CountDistinct" | "Sum" | "Average" | "Min" | "Max";
+
+/** One grouping level. `mode` is auto | values | ranges, or a calendar interval (year … hour) on a date. */
+export interface PivotLevelSpec {
+  propertyId: string;
+  mode: string;
+}
+
+export interface PivotMeasureSpec {
+  function: PivotFunction;
+  /** Null for Count, which needs no property. */
+  propertyId: string | null;
+}
+
+/** Options applied to every level of one axis. */
+export interface PivotAxisOptions {
+  /** Keep the first N groups (after sorting); 0 = all. */
+  maxGroups: number;
+  /** A measure name, or "Count"; null keeps the natural bucket order. */
+  sortByMeasure: string | null;
+  descending: boolean;
+  /** Collect the trimmed groups into one "(other)" group. */
+  otherGroup: boolean;
+  /** A "(none)" group for the nodes without a value. */
+  includeMissing: boolean;
+}
+
+export interface PivotRequest {
+  storeId: string;
+  typeId: string | null;
+  text: string;
+  semanticRatio: number | null;
+  minimumSimilarity: number | null;
+  selections: FacetSelection[];
+  rows: PivotLevelSpec[];
+  columns: PivotLevelSpec[];
+  measures: PivotMeasureSpec[];
+  rowOptions: PivotAxisOptions;
+  columnOptions: PivotAxisOptions;
+  subTotals: boolean;
+  rowPage: number;
+  rowPageSize: number;
+}
+
+export interface PivotLevel {
+  propertyId: string;
+  codeName: string;
+  valueType: string;
+  isRange: boolean;
+  interval: string;
+}
+
+/**
+ * A group on an axis: one label per level. `values`/`values2` are the facet selection tokens of the
+ * buckets (see the note at the top of this file), so a cell can be turned into the search that
+ * shows the nodes behind it. Null in `values` is the "(none)" bucket - or the "(other)" group, which
+ * `isOther` marks and which no selection can express.
+ */
+export interface PivotGroup {
+  labels: string[];
+  values: (string | null)[];
+  values2: (string | null)[];
+  count: number;
+  isOther: boolean;
+  depth: number;
+}
+
+export interface PivotAxis {
+  levels: PivotLevel[];
+  groups: PivotGroup[];
+  totalGroupCount: number;
+  pageIndex: number;
+  pageSize: number;
+}
+
+/** The aggregates of one cell; `values` is aligned with the result's measures, null = undefined. */
+export interface PivotCell {
+  row: number;
+  column: number;
+  count: number;
+  values: (number | null)[];
+}
+
+export interface PivotMeasure {
+  name: string;
+  function: PivotFunction;
+  propertyName: string | null;
+}
+
+export interface PivotSubTotal {
+  group: PivotGroup;
+  /** Aligned with the other axis' groups; null = empty. */
+  cells: (PivotCell | null)[];
+  total: PivotCell;
+}
+
+export interface PivotResult {
+  typeId: string;
+  typeName: string;
+  query: string;
+  durationMs: number;
+  sourceCount: number;
+  /** The cell limit was hit and the row axis cut short. */
+  capped: boolean;
+  measures: PivotMeasure[];
+  rows: PivotAxis;
+  columns: PivotAxis;
+  /** Sparse: a row/column pair with no nodes has no cell. */
+  cells: PivotCell[];
+  rowTotals: PivotCell[];
+  columnTotals: PivotCell[];
+  grandTotal: PivotCell;
+  rowSubTotals: PivotSubTotal[];
+  columnSubTotals: PivotSubTotal[];
+}
+
+export function fetchPivotModel(storeId: string, typeId: string | null): Promise<PivotModel> {
+  return send<PivotModel>("query-pivot-model", { storeId, typeId });
+}
+
+export function runPivot(request: PivotRequest): Promise<PivotResult> {
+  return send<PivotResult>("query-pivot", request);
+}
+
 export function fetchQueryModel(storeId: string): Promise<QueryModel> {
   return send<QueryModel>("query-model", { storeId });
 }

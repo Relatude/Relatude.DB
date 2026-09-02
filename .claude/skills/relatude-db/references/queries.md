@@ -712,6 +712,10 @@ var byMonth = db.Query<IEvent>()
 
 Only the selection filters apply: the facet buckets are not counted and the facet page is ignored.
 
+The admin UI has this as the third view of the Query section (list, table, pivot): the same search and
+facet selection, a builder for the groups and measures, and a click on any cell that turns its groups
+back into a facet selection showing the nodes behind the number.
+
 Like every query, a pivot travels to the store as a query string, which is what a REST client sends:
 `IEvent.Pivot().AddRow("IEvent.Venue").AddColumn("IEvent.StartsUtc", "Month").AddSum("IEvent.Price", "revenue")`.
 `QueryOfPivot.ToString()` gives the string for a typed pivot.
