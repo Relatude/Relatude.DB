@@ -122,6 +122,7 @@ public interface IDataStore : IDisposable {
     void UpdateActivityProgress(long activityId, int? percentageProgress = null);
     void DeRegisterActivity(long activityId);
     AIEngine AI { get; }
+    bool HasAIEngine { get; }
     IStoreLogger Logger { get; }
     TaskQueue TaskQueue { get; }
     TaskQueue? TaskQueuePersisted { get; }

@@ -117,11 +117,8 @@ sealed class UIQuery {
         }
     }
     static AI.AIProviderSettings? aiSettings(NodeStore s) {
-        try {
-            return s.Datastore.AI.Settings;
-        } catch {
-            return null; // no AI provider configured for this database
-        }
+        if (!s.Datastore.HasAIEngine) return null;
+        return s.Datastore.AI.Settings;
     }
 
     // ---- the search itself ----

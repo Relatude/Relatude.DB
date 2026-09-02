@@ -51,6 +51,7 @@ public class DataStoreSession : IDataStore {
     public bool FileStoreSupportsMultipartUploads(PropertyPath propertyPath) => _datastore.FileStoreSupportsMultipartUploads(propertyPath);
 
     public AIEngine AI => _datastore.AI;
+    public bool HasAIEngine => _datastore.HasAIEngine;
     public IStoreLogger Logger => _datastore.Logger;
 
     public TaskQueue TaskQueue => _datastore.TaskQueue;
