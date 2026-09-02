@@ -2,14 +2,23 @@
 
 public class FolderMeta {
     public static FolderMeta FromDirInfo(DirectoryInfo dirInfo, string relpath) {
-        return new() {
+        var folder = new FolderMeta {
             Name = dirInfo.Name,
             CreationTimeUtc = dirInfo.CreationTimeUtc,
             LastModifiedUtc = dirInfo.LastWriteTimeUtc,
-            Description= FileKeyUtility.FolderTypeDescription(relpath),
             HasFiles = dirInfo.EnumerateFiles().Any(),
-            HasSubFolders = dirInfo.EnumerateDirectories().Any(),            
+            HasSubFolders = dirInfo.EnumerateDirectories().Any(),
         };
+        folder.Describe(relpath);
+        return folder;
+    }
+    /// <summary>Fills in what the folder holds from its path below the storage root. Providers
+    /// that build folders from virtual paths (memory, blob storage) call this themselves so every
+    /// listing describes and marks the well known folders the same way.</summary>
+    public FolderMeta Describe(string relpath) {
+        Description = FileKeyUtility.FolderTypeDescription(relpath);
+        IsPrimaryData = FileKeyUtility.IsPrimaryDataFolder(relpath);
+        return this;
     }
     public FolderMeta[] SubFolders { get; set; } = [];
     public FileMeta[] Files{ get; set; } = [];
@@ -20,7 +29,10 @@ public class FolderMeta {
     public long Size { get; set; }
     public DateTime CreationTimeUtc { get; set; } = DateTime.UtcNow;
     public DateTime LastModifiedUtc { get; set; } = DateTime.UtcNow;
-    public string? Description { get; set; } 
+    public string? Description { get; set; }
+    /// <summary>This folder is, or is below, one of <see cref="FileKeyUtility.PrimaryDataFolderNames"/>:
+    /// what it holds exists nowhere else and cannot be rebuilt.</summary>
+    public bool IsPrimaryData { get; set; }
     public override string ToString() {
         return $"{Name} ({Description}), {Size} bytes, Created: {CreationTimeUtc:u}, Modified: {LastModifiedUtc:u}";
     }

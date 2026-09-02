@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.IO;
 
@@ -191,7 +191,7 @@ public class IOProviderDisk : IIOProvider {
             FileKeyUtility.ValidateFileKeyPath(path);
             var relativePath = string.Join('/', path);
             var dirInfo = new DirectoryInfo(Path.Combine([BaseFolder, .. path]));
-            if (!dirInfo.Exists) return Task.FromResult(new FolderMeta { Name = path.Length > 0 ? path[^1] : "" });
+            if (!dirInfo.Exists) return Task.FromResult(new FolderMeta { Name = path.Length > 0 ? path[^1] : "" }.Describe(relativePath));
             var folderMeta = FolderMeta.FromDirInfo(dirInfo, relativePath);
             addAllSubFolders(dirInfo, folderMeta, relativePath, recursive, withFiles);
             return Task.FromResult(folderMeta);

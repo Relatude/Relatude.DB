@@ -199,10 +199,13 @@ public class AzureBlobIOProvider : IIOProvider {
     public Task<FolderMeta> GetFolderAsync(string[] path, bool recursive, bool withFiles) {
         var prefix = path.Length > 0 ? getAndValidateBlobName(path) + _virtualFolderChar : "";
         var blobs = Client.ListBlobs(prefix.Length > 0 ? prefix : null).ToArray();
-        var root = new FolderMeta { Name = path.Length > 0 ? path[^1] : "" };
+        var root = new FolderMeta { Name = path.Length > 0 ? path[^1] : "" }.Describe(relPathOfPrefix(prefix));
         addAzureSubFolders(root, prefix, blobs, recursive, withFiles);
         return Task.FromResult(root);
     }
+    // a blob name is the file key, so the prefix (minus its trailing delimiter) is the folder's
+    // path below the storage root: what the well known folder descriptions are keyed on
+    static string relPathOfPrefix(string prefix) => prefix.TrimEnd(_virtualFolderChar[0]);
     void addAzureSubFolders(FolderMeta folder, string prefix, BlobListItem[] blobs, bool recursive, bool withFiles) {
         var directChildren = blobs
             .Select(b => b.Name[prefix.Length..])
@@ -234,10 +237,9 @@ public class AzureBlobIOProvider : IIOProvider {
             var subBlobs = blobs.Where(b => b.Name.StartsWith(subPrefix, StringComparison.OrdinalIgnoreCase)).ToArray();
             var sub = new FolderMeta {
                 Name = name,
-                Description = null,
                 HasFiles = subBlobs.Any(b => !b.Name[subPrefix.Length..].Contains(_virtualFolderChar)),
                 HasSubFolders = subBlobs.Any(b => b.Name[subPrefix.Length..].Contains(_virtualFolderChar)),
-            };
+            }.Describe(relPathOfPrefix(subPrefix));
             if (recursive) addAzureSubFolders(sub, subPrefix, subBlobs, recursive, withFiles);
             return sub;
         })];

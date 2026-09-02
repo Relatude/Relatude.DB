@@ -39,6 +39,21 @@ public static class FileKeyUtility {
     public const string ConvertedFolderName = "converted";
     public static readonly string[] SystemFolderNames = [DataFolderName, StateFolderName, BackupFolderName, LogFolderName];
 
+    /// <summary>
+    /// The folders below the storage root holding data that exists nowhere else: the database log
+    /// files and the multi file store. Everything else under the root is either a copy of these
+    /// (backup) or derived from them and rebuilt on demand (state, indexes, converted, log), so
+    /// only these two cannot be regenerated once they are gone.
+    /// </summary>
+    public static readonly string[] PrimaryDataFolderNames = [DataFolderName, multiFileStoreFolderPattern];
+
+    /// <summary>Whether the folder at this relative path is a primary data folder or sits below
+    /// one; see <see cref="PrimaryDataFolderNames"/>. The path is relative to the storage root.</summary>
+    public static bool IsPrimaryDataFolder(string relpath) {
+        var key = relpath.SplitKey();
+        return key.Length > 0 && PrimaryDataFolderNames.Contains(key[0], StringComparer.OrdinalIgnoreCase);
+    }
+
     static readonly HashSet<string> storeNames = ["db", "files", "index", "ai", "log", "mapper", "queue"]; // starting with these are reserved
     // patterns are file keys with wildcards in their segments, matched segment by segment
     static readonly string[] walSecondaryFilePattern = [DataFolderName, "db.log"];
@@ -376,15 +391,21 @@ public static class FileKeyUtility {
     }
 
     /// <summary>The description of a folder, from its relative path in the joined form.</summary>
+    /// <summary>What the folder at this relative path holds, in a few words, for listings. The
+    /// primary data folders are named as such here as well; <see cref="IsPrimaryDataFolder"/> is
+    /// what a caller should test to treat them differently.</summary>
     internal static string FolderTypeDescription(string relpath) {
         var key = relpath.SplitKey();
         if (key.Length == 0) return "-";
+        // a primary data folder only carries the description at its own level: below it the names
+        // are the store's own (hash folders in the file store), not something to describe
+        if (key.Length > 1 && IsPrimaryDataFolder(relpath)) return "-";
         return key.FileName() switch {
-            DataFolderName => "[Primary data files]",
+            DataFolderName => "Database log files",
             StateFolderName => "State cache",
             BackupFolderName => "Backups",
             ConvertedFolderName => "Converted file cache",
-            "files" => "[Primary file store]",
+            multiFileStoreFolderPattern => "File store",
             LogFolderName => "Logs",
             var s when s.MatchesWildcard(indexStoreFolderPattern) => "Indexes",
             indexEngineNativeKvFolder => "Native index engine",

@@ -203,8 +203,11 @@ public class IOProviderMemory : IIOProvider {
             return Task.FromResult(buildVirtualFolder(path.Length > 0 ? path[^1] : "", prefix, recursive, withFiles));
         }
     }
+    // prefix is the folder's relative path with a trailing delimiter, so trimming it gives the
+    // path the well known folder descriptions are keyed on
+    static string relPathOfPrefix(string prefix) => prefix.TrimEnd(_virtualFolderChar[0]);
     FolderMeta buildVirtualFolder(string name, string prefix, bool recursive, bool withFiles) {
-        var folder = new FolderMeta { Name = name };
+        var folder = new FolderMeta { Name = name }.Describe(relPathOfPrefix(prefix));
         var directChildren = _disk.Keys
             .Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             .Select(k => k[prefix.Length..])
@@ -225,7 +228,7 @@ public class IOProviderMemory : IIOProvider {
                 Name = sf,
                 HasFiles = _disk.Keys.Any(k => k.StartsWith(subPrefix, StringComparison.OrdinalIgnoreCase) && !k[subPrefix.Length..].Contains(_virtualFolderChar)),
                 HasSubFolders = _disk.Keys.Any(k => k.StartsWith(subPrefix, StringComparison.OrdinalIgnoreCase) && k[subPrefix.Length..].Contains(_virtualFolderChar)),
-            };
+            }.Describe(relPathOfPrefix(subPrefix));
         })];
         return folder;
     }

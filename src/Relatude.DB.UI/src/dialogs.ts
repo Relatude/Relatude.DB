@@ -31,7 +31,9 @@ export interface ConfirmState {
   body: string;
   confirmLabel: string;
   danger: boolean;
-  option: { label: string; checked: boolean } | null;
+  // required = the confirm button stays disabled until it is ticked; used by the extra dialog in
+  // front of deleting primary data, where the point is that the choice cannot be made absently
+  option: { label: string; checked: boolean; required: boolean } | null;
 }
 
 export interface ConfirmResult {
@@ -151,7 +153,7 @@ function show(message: MessageState): Promise<void> {
 export function showConfirm(
   title: string,
   body: string,
-  options?: { confirmLabel?: string; danger?: boolean; option?: { label: string; checked?: boolean } },
+  options?: { confirmLabel?: string; danger?: boolean; option?: { label: string; checked?: boolean; required?: boolean } },
 ): Promise<ConfirmResult> {
   return new Promise((resolve) => {
     whenIdle(() => {
@@ -161,7 +163,9 @@ export function showConfirm(
         body,
         confirmLabel: options?.confirmLabel ?? "OK",
         danger: options?.danger ?? false,
-        option: options?.option ? { label: options.option.label, checked: options.option.checked ?? false } : null,
+        option: options?.option
+          ? { label: options.option.label, checked: options.option.checked ?? false, required: options.option.required ?? false }
+          : null,
       };
       confirmResolve = resolve;
       emit();
@@ -198,6 +202,7 @@ export function toggleConfirmOption(): void {
 
 export function acceptConfirm(): void {
   if (state?.kind !== "confirm") return;
+  if (state.option?.required && !state.option.checked) return;
   const resolve = confirmResolve;
   const option = state.option?.checked ?? false;
   confirmResolve = null;

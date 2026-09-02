@@ -244,6 +244,23 @@ a {
   color: var(--danger);
 }
 
+/* a small pill after a name, saying something about the thing it follows */
+.badge {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: var(--badge-bg);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* the folders holding the database's own data: what is in them cannot be generated again */
+.badge.data {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 /* ---- database switcher ---- */
 
 /* the refresh rate, in the top bar: one cadence for every page that follows something live */
@@ -954,6 +971,11 @@ a {
   color: var(--accent);
 }
 
+/* the database's own data folders: the badge carries the message, the icon just picks it up */
+.tree-row.primary-data .tree-label svg {
+  color: var(--danger);
+}
+
 .tree-chevron {
   flex: none;
   display: flex;
@@ -1034,6 +1056,29 @@ a {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+}
+
+/* above the file list, whenever the open folder holds data nothing can rebuild */
+.files-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-soft);
+  background: var(--danger-soft);
+  border-radius: 7px;
+}
+
+.files-notice svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--danger);
+}
+
+.files-notice b {
+  color: var(--danger);
 }
 
 .file-table {

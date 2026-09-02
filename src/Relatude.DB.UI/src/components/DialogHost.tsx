@@ -57,6 +57,7 @@ export function DialogHost() {
     );
   }
   if (dialog.kind === "confirm") {
+    const blocked = dialog.option?.required === true && !dialog.option.checked;
     return (
       <div className="dialog-backdrop">
         <div className="dialog">
@@ -76,7 +77,11 @@ export function DialogHost() {
             <button className="action-button" onClick={closeDialog}>
               Cancel
             </button>
-            <button className={"action-button dialog-confirm" + (dialog.danger ? " danger" : "")} onClick={acceptConfirm}>
+            <button
+              className={"action-button dialog-confirm" + (dialog.danger ? " danger" : "")}
+              disabled={blocked}
+              onClick={acceptConfirm}
+            >
               {dialog.confirmLabel}
             </button>
           </div>

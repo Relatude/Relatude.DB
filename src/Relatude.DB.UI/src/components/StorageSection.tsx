@@ -112,9 +112,15 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
     load();
   }
 
-  async function onDeleteBackup(key: string) {
+  async function onDeleteBackup(backup: BackupFile) {
     if (!backups) return;
-    const result = await deleteFiles(backups.ioId, [key]);
+    const { ok } = await showConfirm(
+      "Delete backup",
+      `Delete "${backup.name}" (${formatBytes(backup.size)})? The database itself is untouched, but this copy of it is gone for good.`,
+      { confirmLabel: "Delete", danger: true },
+    );
+    if (!ok) return;
+    const result = await deleteFiles(backups.ioId, [backup.key]);
     if (result.errors.length > 0) showError("Could not delete the backup", result.errors[0]);
     load();
   }
@@ -421,7 +427,9 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
                 <a className="icon-button" href={backups ? downloadUrl(db.id, backups.ioId, b.key) : "#"} title="Download" download>
                   <IconDownload size={15} stroke={1.8} />
                 </a>
-                <DeleteBackupButton onDelete={() => onDeleteBackup(b.key)} />
+                <button className="icon-button danger" title="Delete this backup" onClick={() => onDeleteBackup(b)}>
+                  <IconTrash size={15} stroke={1.8} />
+                </button>
               </div>
             ))}
             {backups && backups.files.length === 0 && <div className="muted files-empty">No backups yet.</div>}
@@ -648,27 +656,3 @@ function storageHint(storage: FileStorageInfo): string {
   return storage.type + (where ? " · " + where : "");
 }
 
-function DeleteBackupButton({ onDelete }: { onDelete: () => void }) {
-  const [armed, setArmed] = useState(false);
-  useEffect(() => {
-    if (!armed) return;
-    const t = setTimeout(() => setArmed(false), 4000);
-    return () => clearTimeout(t);
-  }, [armed]);
-  return (
-    <button
-      className={"icon-button danger" + (armed ? " armed" : "")}
-      title={armed ? "Click again to delete this backup" : "Delete this backup"}
-      onClick={() => {
-        if (!armed) {
-          setArmed(true);
-          return;
-        }
-        setArmed(false);
-        onDelete();
-      }}
-    >
-      <IconTrash size={15} stroke={1.8} />
-    </button>
-  );
-}

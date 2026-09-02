@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import {
+  IconAlertTriangle,
   IconChevronDown,
   IconChevronRight,
   IconDownload,
@@ -24,6 +25,7 @@ import {
   fetchFolder,
   fetchFolderSize,
   fetchIoList,
+  folderNote,
   itemsFromDrop,
   pickDirectory,
   resolveDroppedItems,
@@ -125,6 +127,8 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   const files = listing?.files ?? [];
   const listedSize = files.reduce((sum, f) => sum + f.size, 0);
   const allSelected = files.length > 0 && files.every((f) => selected.has(f.key));
+  // the open folder belongs to the database's own storage: everything in it is the real data
+  const primaryData = listing?.isPrimaryData === true;
 
   function toggleAll() {
     setSelected(allSelected ? new Set() : new Set(files.map((f) => f.key)));
@@ -141,6 +145,15 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
 
   async function deleteSelected() {
     if (!ioId) return;
+    const count = selected.size;
+    const label = `${count} file${count === 1 ? "" : "s"}`;
+    if (primaryData && !(await confirmPrimaryData(`Deleting ${label} from ${path || "the storage root"}.`))) return;
+    const { ok } = await showConfirm(
+      `Delete ${label}?`,
+      `${label} in ${path || "the storage root"} ${count === 1 ? "is" : "are"} deleted from the storage. This cannot be undone.`,
+      { confirmLabel: "Delete", danger: true },
+    );
+    if (!ok) return;
     try {
       const result = await deleteFiles(ioId, [...selected]);
       if (result.errors.length > 0) {
@@ -301,20 +314,15 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     await uploadWithDialog(io, target, entries);
   }
 
-  const [deleteFolderArmed, setDeleteFolderArmed] = useState(false);
-  useEffect(() => {
-    if (!deleteFolderArmed) return;
-    const t = setTimeout(() => setDeleteFolderArmed(false), 4000);
-    return () => clearTimeout(t);
-  }, [deleteFolderArmed]);
-
   async function onDeleteFolder() {
     if (!ioId || path === "") return;
-    if (!deleteFolderArmed) {
-      setDeleteFolderArmed(true);
-      return;
-    }
-    setDeleteFolderArmed(false);
+    if (primaryData && !(await confirmPrimaryData(`Deleting ${path} and everything below it.`))) return;
+    const { ok } = await showConfirm(
+      `Delete ${path}?`,
+      "The folder is deleted with every file in it and every folder below it. This cannot be undone.",
+      { confirmLabel: "Delete", danger: true },
+    );
+    if (!ok) return;
     const io = ioId;
     const folder = path;
     const parent = folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";
@@ -378,8 +386,8 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
           <IconFolderDown size={16} stroke={1.8} />
         </button>
         <button
-          className={"icon-button danger" + (deleteFolderArmed ? " armed" : "")}
-          title={path === "" ? "The storage root cannot be deleted" : deleteFolderArmed ? "Click again to delete the folder" : "Delete this folder and everything in it"}
+          className="icon-button danger"
+          title={path === "" ? "The storage root cannot be deleted" : "Delete this folder and everything in it"}
           onClick={onDeleteFolder}
           disabled={!ioId || path === ""}
         >
@@ -412,7 +420,11 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
             <IconFileZip size={14} stroke={1.8} /> Download {selected.size} as zip
           </button>
         )}
-        {selected.size > 0 && <DeleteSelectedButton count={selected.size} onDelete={deleteSelected} />}
+        {selected.size > 0 && (
+          <button className="action-button danger" onClick={deleteSelected}>
+            <IconTrash size={14} stroke={1.8} /> Delete {selected.size} selected
+          </button>
+        )}
       </div>
       {error && <div className="login-error">{error}</div>}
       <div className="files-body">
@@ -421,6 +433,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
             path=""
             name="Storage root"
             hasSubFolders
+            isPrimaryData={false}
             depth={0}
             listings={listings}
             expanded={expanded}
@@ -433,6 +446,15 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
           />
         </section>
         <section className="panel files-list">
+          {primaryData && (
+            <div className="files-notice">
+              <IconAlertTriangle size={15} stroke={1.8} />
+              <span>
+                <b>{folderNote(listing) ?? "The database's own data"}.</b> This is the actual data, not a cache and not a copy: nothing here can be
+                generated again. Deleting any of it loses data for good.
+              </span>
+            </div>
+          )}
           <div className="file-table">
             <div className="file-row file-head">
               <input type="checkbox" checked={allSelected} onChange={toggleAll} disabled={files.length === 0} />
@@ -488,6 +510,8 @@ interface FolderNodeProps {
   path: string;
   name: string;
   hasSubFolders: boolean;
+  isPrimaryData: boolean;
+  note?: string | null; // from the stub in the parent's listing, until this folder's own is loaded
   depth: number;
   listings: Record<string, FolderListing>;
   expanded: Set<string>;
@@ -501,12 +525,14 @@ interface FolderNodeProps {
 
 function FolderNode(p: FolderNodeProps) {
   const isExpanded = p.expanded.has(p.path);
-  const children = p.listings[p.path]?.subFolders ?? [];
+  const listing = p.listings[p.path];
+  const children = listing?.subFolders ?? [];
   const size = p.sizes[p.path];
+  const note = folderNote(listing) ?? p.note;
   return (
     <>
       <div
-        className={"tree-row" + (p.currentPath === p.path ? " active" : "")}
+        className={"tree-row" + (p.currentPath === p.path ? " active" : "") + (p.isPrimaryData ? " primary-data" : "")}
         style={{ paddingLeft: 4 + p.depth * 14 }}
         draggable
         onDragStart={(e) => p.onDragOut(e, p.path)}
@@ -518,9 +544,14 @@ function FolderNode(p: FolderNodeProps) {
         >
           {isExpanded ? <IconChevronDown size={13} stroke={2} /> : <IconChevronRight size={13} stroke={2} />}
         </button>
-        <button className="tree-label" onClick={() => p.onOpen(p.path)} title={p.name}>
+        <button
+          className="tree-label"
+          onClick={() => p.onOpen(p.path)}
+          title={p.isPrimaryData ? `${p.name} — ${note ?? "the database's own data"}. ${primaryDataTip}` : note ? `${p.name} — ${note}` : p.name}
+        >
           {p.currentPath === p.path ? <IconFolderOpen size={15} stroke={1.7} /> : <IconFolder size={15} stroke={1.7} />}
           <span>{p.name}</span>
+          {p.isPrimaryData && note && <span className="badge data">actual data</span>}
         </button>
         {size === undefined || size === "pending" ? (
           <button
@@ -548,6 +579,8 @@ function FolderNode(p: FolderNodeProps) {
             path={p.path === "" ? sub.name : `${p.path}/${sub.name}`}
             name={sub.name}
             hasSubFolders={sub.hasSubFolders}
+            isPrimaryData={sub.isPrimaryData === true}
+            note={folderNote(sub)}
             depth={p.depth + 1}
             listings={p.listings}
             expanded={p.expanded}
@@ -563,27 +596,24 @@ function FolderNode(p: FolderNodeProps) {
   );
 }
 
-// same two-step confirmation pattern as the overview's process actions
-function DeleteSelectedButton({ count, onDelete }: { count: number; onDelete: () => void }) {
-  const [armed, setArmed] = useState(false);
-  useEffect(() => {
-    if (!armed) return;
-    const t = setTimeout(() => setArmed(false), 4000);
-    return () => clearTimeout(t);
-  }, [armed]);
-  return (
-    <button
-      className={"action-button danger" + (armed ? " armed" : "")}
-      onClick={() => {
-        if (!armed) {
-          setArmed(true);
-          return;
-        }
-        setArmed(false);
-        onDelete();
-      }}
-    >
-      <IconTrash size={14} stroke={1.8} /> {armed ? "Click again to confirm" : `Delete ${count} selected`}
-    </button>
+const primaryDataTip = "Nothing can generate it again, so deleting anything here loses data for good.";
+
+/**
+ * The extra dialog in front of deleting anything inside the database's own data folders - the log
+ * files and the file store. Everything else below the storage root is a copy (backups) or rebuilt
+ * on demand (state, indexes, converted files, logs); these two are the data itself, so this asks
+ * before the normal delete confirmation does, and its acknowledgement has to be ticked: the point
+ * is that it cannot be clicked through the way a second confirmation can.
+ */
+async function confirmPrimaryData(what: string): Promise<boolean> {
+  const { ok } = await showConfirm(
+    "This is the actual data",
+    `${what} These files are the database's own storage - not a cache and not a copy. ${primaryDataTip} The database may end up missing content, or fail to open at all.`,
+    {
+      confirmLabel: "Continue",
+      danger: true,
+      option: { label: "I understand this data cannot be recovered", required: true },
+    },
   );
+  return ok;
 }

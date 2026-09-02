@@ -23,9 +23,18 @@ export interface FolderListing {
   name: string;
   hasFiles: boolean;
   hasSubFolders: boolean;
-  description?: string | null;
+  description?: string | null; // what the folder holds; "-" (or absent) for folders we know nothing about
+  // this folder is, or is below, one of the database's own data folders (the log files and the file
+  // store): what it holds exists nowhere else and nothing can rebuild it
+  isPrimaryData?: boolean;
   subFolders: FolderListing[]; // stubs when not recursive, full trees when recursive
   files: FileInfo[];
+}
+
+// the server sends "-" for a folder it has no description for
+export function folderNote(folder: FolderListing | undefined): string | null {
+  const description = folder?.description;
+  return description && description !== "-" ? description : null;
 }
 
 export interface FolderSize {

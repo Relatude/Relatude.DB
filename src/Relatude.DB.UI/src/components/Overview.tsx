@@ -65,21 +65,32 @@ export function Overview() {
         </section>
         <section className="panel actions-panel">
           <h3>Process actions</h3>
-          <ProcessAction
-            label="Garbage collection"
-            hint="deep, blocking, compacting collection"
-            confirm={false}
-            disabled={false}
-            run={collectGarbage}
-            onDone={load}
-          />
+          <ProcessAction label="Garbage collection" hint="deep, blocking, compacting collection" disabled={false} run={collectGarbage} onDone={load} />
           <ProcessAction
             label="Soft restart"
             hint="re-reads settings, closes and reopens every database"
             disabled={!data.restart.canSoftRestart}
+            confirm={{
+              title: "Soft restart?",
+              body:
+                "The settings file is read again and every database is closed and reopened. Requests are drained first, so nothing in flight is lost, but no database can be reached until it has reopened - replaying a large log is not quick.",
+              confirmLabel: "Restart",
+            }}
             run={softRestart}
           />
-          <ProcessAction label="Stop application" hint="stops the host process" danger disabled={!data.restart.canStopHost} run={stopHost} />
+          <ProcessAction
+            label="Stop application"
+            hint="stops the host process"
+            danger
+            disabled={!data.restart.canStopHost}
+            confirm={{
+              title: "Stop the application?",
+              body:
+                "The host process stops. Every database is closed and flushed first, so nothing is lost, but the server - this admin UI included - stays down until something starts it again.",
+              confirmLabel: "Stop",
+            }}
+            run={stopHost}
+          />
         </section>
       </div>
       <section className="panel">
@@ -197,13 +208,14 @@ function StoreToggle({ db, onDone }: { db: OverviewContainer; onDone: () => void
   );
 }
 
-// destructive actions use a two-step confirmation: first click arms the button, second runs it
+// An action on the process itself. The disruptive ones ask first, in a confirm dialog that spells
+// out what the action does to a running server; the harmless ones (a collection) just run.
 function ProcessAction({
   label,
   hint,
   danger,
   disabled,
-  confirm = true,
+  confirm,
   run,
   onDone,
 }: {
@@ -211,35 +223,32 @@ function ProcessAction({
   hint: string;
   danger?: boolean;
   disabled: boolean;
-  confirm?: boolean;
+  confirm?: { title: string; body: string; confirmLabel: string };
   run: () => Promise<ProcessActionResult>;
   onDone?: () => void;
 }) {
-  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  useEffect(() => {
-    if (!armed) return;
-    const t = setTimeout(() => setArmed(false), 4000);
-    return () => clearTimeout(t);
-  }, [armed]);
   async function click() {
-    if (confirm && !armed) {
-      setArmed(true);
-      return;
+    if (confirm) {
+      const { ok } = await showConfirm(confirm.title, confirm.body, { confirmLabel: confirm.confirmLabel, danger: danger ?? true });
+      if (!ok) return;
     }
-    setArmed(false);
+    setBusy(true);
     try {
       const result = await run();
       setMessage(result.message);
       onDone?.();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
     }
   }
   return (
     <div className="process-action">
-      <button className={"action-button" + (danger ? " danger" : "") + (armed ? " armed" : "")} onClick={click} disabled={disabled}>
-        {armed ? "Click again to confirm" : label}
+      <button className={"action-button" + (danger ? " danger" : "")} onClick={click} disabled={disabled || busy}>
+        {label}
       </button>
       <span className="muted">{disabled ? "not available on this server" : (message ?? hint)}</span>
     </div>
