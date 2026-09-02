@@ -8,8 +8,8 @@ public class SettingsLocal {
     public string? DefaultCultureCode { get; set; } = null;  // culture code if culture ID is Guid.Empty or Null
     public SystemGroupType DefaultReadAccess { get; set; } = SystemGroupType.Everyone;
     public SystemGroupType DefaultWriteAccess { get; set; } = SystemGroupType.Everyone;
-    public FileStoreEngine DefaultFileStoreEngine { get; set; } = FileStoreEngine.MultiFile;
-
+    /// <summary>The file store new uploads go to when the code names none. Null means the implicit
+    /// store: a MultiFile store on the database's own IO provider, created on demand.</summary>
     public Guid? DefaultFileStore { get; set; }
     public bool ThrowOnBadLogFile { get; set; } = false;
     public bool ThrowOnBadStateFile { get; set; } = false;

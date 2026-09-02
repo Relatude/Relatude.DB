@@ -135,7 +135,7 @@ For `AzureBlobStorage`, the entry carries `BlobConnectionString`, `BlobContainer
 | `EnableInstantTextIndexingByDefault` | `false` | Text index written in the transaction instead of by the background queue |
 | `DefaultCultureCode` | `null` | Culture for the empty culture id |
 | `DefaultReadAccess` / `DefaultWriteAccess` | `Everyone` | ACL default |
-| `DefaultFileStoreEngine` / `DefaultFileStore` | `MultiFile` / unset | Where `FileValue` bytes go |
+| `DefaultFileStore` | unset | Which `FileStoreSettings` entry `FileValue` bytes go to; unset = an implicit `MultiFile` store on `IoDatabase` |
 
 **Index engines** — each index kind has a list of engines it may run on and a default id that picks one; the empty guid is the memory index (resident, saved with the state snapshot, otherwise rebuilt from the log at every open):
 

@@ -67,7 +67,6 @@ public static class SettingsCommand {
                     ("text index", engine(local.DefaultTextEngine) + (local.EnableTextIndexByDefault ? ", enabled by default" : ", off by default")),
                     ("semantic index", (c.AISettings == null ? "no AI provider" : engine(local.DefaultVectorEngine)) + (local.EnableSemanticIndexByDefault ? ", enabled by default" : ", off by default")),
                     ("task queue", local.PersistedQueueStoreEngine + (local.AutoDequeTasks ? ", running" : ", not running")),
-                    ("file store", local.DefaultFileStoreEngine.ToString()),
                     ("index folder", local.PersistedValueIndexFolderPath ?? "(with the index provider)"),
                     ("auto backup", local.AutoBackUp ? "on" : "off"),
                     ("auto truncate", local.AutoTruncate ? "on" : "off"),

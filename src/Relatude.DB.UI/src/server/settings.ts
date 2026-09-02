@@ -27,6 +27,8 @@ export interface SettingView {
   placeholder?: string | null;
   /** Names a runtime list in `pickers` to choose from instead of typing a value. */
   picker?: string | null;
+  /** Offers a button that fills the field with a freshly made value; "guid" is the one kind so far. */
+  generate?: string | null;
   /** Set on the fields of a list element whose relevance depends on another field. */
   visibleWhen?: SettingVisibility | null;
   secret: boolean;

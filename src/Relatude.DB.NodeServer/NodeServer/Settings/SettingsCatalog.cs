@@ -44,11 +44,22 @@ public sealed class SettingDefinition {
     public SettingSuggestion[]? Suggestions { get; init; }
     /// <summary>Shown after the input, e.g. "GB", "minutes".</summary>
     public string? Unit { get; init; }
+    /// <summary>Offers a button that fills the field with a freshly made value, for a setting whose
+    /// value should be random rather than chosen - a signing key, a token secret. The one kind so far
+    /// is <see cref="SettingGenerators.Guid"/>. The button only fills the field; saving is still a
+    /// separate step, so a slip is undone like any other edit. Only meaningful on a text setting.</summary>
+    public string? Generate { get; init; }
     /// <summary>Never sent to the browser in clear text, and only written when a new value is typed.</summary>
     public bool Secret { get; init; }
     /// <summary>Shown, but not editable from here.</summary>
     public bool ReadOnly { get; init; }
     public string? Placeholder { get; init; }
+}
+
+/// <summary>The kinds of value the settings page can make up on the spot, see <see cref="SettingDefinition.Generate"/>.</summary>
+public static class SettingGenerators {
+    /// <summary>A new random guid, written in its usual dashed form.</summary>
+    public const string Guid = "guid";
 }
 
 /// <summary>One of the values a free text setting offers. <see cref="Hint"/> is a few words shown
@@ -233,8 +244,8 @@ public static class SettingsCatalog {
                     Help = "How an admin session is carried between requests once someone has logged in.",
                     Settings = [
                         new() {
-                            Path = "TokenEncryptionSecret", Label = "Token secret", Secret = true, Applies = SettingApplies.Restart,
-                            Help = "Signs and encrypts session tokens. It has no default: set a long random value, unique per installation, or tokens minted by one server are readable by another. Changing it logs everyone out.",
+                            Path = "TokenEncryptionSecret", Label = "Token secret", Secret = true, Applies = SettingApplies.Restart, Generate = SettingGenerators.Guid,
+                            Help = "Signs and encrypts session tokens. It has no default: set a long random value, unique per installation, or tokens minted by one server are readable by another. The button makes one. Changing it logs everyone out.",
                         },
                         new() {
                             Path = "TokenCookieName", Label = "Cookie name", Applies = SettingApplies.Live,
@@ -516,18 +527,15 @@ public static class SettingsCatalog {
                         },
                         new() {
                             Path = "LocalSettings.DefaultFileStore", Label = "Default file store", Picker = "fileStores",
-                            Help = "The file store new uploads land in when the code does not name one. Empty uses the first configured store.",
-                        },
-                        new() {
-                            Path = "LocalSettings.DefaultFileStoreEngine", Label = "Default file store engine",
-                            Help = "How a file store created on demand lays out its data. MultiFile writes one file per stored file, which is easy to inspect and back up piecemeal; SingleFile packs everything into one container, which is faster with very many small files and kinder to file-count limits.",
+                            Help = "The file store new uploads land in when the code does not name one. Empty uses an implicit MultiFile store on this database's own storage provider, one file per upload.",
                         },
                     ],
                 },
                 new() {
                     Id = "urls",
                     Title = "URLs",
-                    Help = "How this database renders URLs for pages and for files. The parent relations and host mappings that shape the tree are part of the data model, not editable here.",
+                    Help = "How this database renders URLs for pages and for files. Everything in this section belongs to the built-in url manager, which is the one that runs unless code says otherwise. "
+                        + "A url manager of your own, returned from CreateUrlManager in AddRelatudeDB, reads whatever it chooses: it may honour all of these, some of them or none, and nothing here can tell you which.",
                     Settings = [
                         new() {
                             Path = "LocalSettings.UrlOptions.UrlFormat", Label = "Page URL format",
@@ -582,10 +590,72 @@ public static class SettingsCatalog {
                             Help = "How resize and crop instructions appear. Encrypted keeps them opaque, so only URLs your code produced are valid; readable forms let anyone request any size, which is a resource cost worth weighing.",
                         },
                         new() {
-                            Path = "LocalSettings.UrlOptions.AssetUrlSignatureKey", Label = "File URL signing key",
-                            Help = "Set a value here and file tokens are signed, so a tampered or guessed file URL stops resolving. Empty leaves tokens unsigned. Changing it invalidates every file URL already handed out.",
+                            Path = "LocalSettings.UrlOptions.AssetUrlSignatureKey", Label = "File URL signing key", Generate = SettingGenerators.Guid,
+                            Help = "Set a value here and file tokens are signed, so a tampered or guessed file URL stops resolving. The button makes a new random key. Empty leaves tokens unsigned. Changing it invalidates every file URL already handed out.",
                         },
                     ],
+                },
+                new() {
+                    Id = "url-parents",
+                    Title = "URL parent relations",
+                    Help = "The relations the built-in url manager follows from a node up to its parent, which is what gives a page URL its path. "
+                        + "They are consulted in order: the first entry whose child side accepts the node's type, and that actually finds a parent for it, is the one followed. "
+                        + "That is how a single tree can be held together by more than one relation. Read by the built-in manager only, like the rest of this section.",
+                    List = new() {
+                        Path = "LocalSettings.UrlOptions.Parents",
+                        ItemName = "parent relation",
+                        LabelField = "ParentRelationName",
+                        EmptyHelp = "No parent relation is configured, so the manager runs flat: every node is top level and its URL is its own address.",
+                        // the source side is where the parent sits in a parent-to-children relation, which is
+                        // the common direction; the property defaults to it, and saying so here keeps a new
+                        // entry from depending on that default staying put
+                        NewItem = new() { ["ParentIsRelationSource"] = "true" },
+                        Fields = [
+                            new() {
+                                Path = "ParentRelationName", Label = "Relation", Placeholder = "PageTree",
+                                Help = "CodeName or full name of the relation to follow. It is resolved against the data model when the database opens, and a name no relation answers to stops it from opening - a typo here is loud rather than quietly flat.",
+                            },
+                            new() {
+                                Path = "ParentRelationId", Label = "Relation id",
+                                Help = "The same relation named by id instead, for a model whose names may still move. Set it and the name above is ignored. One of the two has to be given.",
+                            },
+                            new() {
+                                Path = "ParentIsRelationSource", Label = "Parent is the source side",
+                                Help = "Which end of the relation the parent occupies. On means a node reaches its parent by following the relation from target back to source, which is how a parent-to-children relation reads. Turn it off for a relation that points from the child to its parent.",
+                            },
+                            new() {
+                                Path = "Id", Label = "Entry id", ReadOnly = true,
+                                Help = "Identifies this entry in the settings file so this page can edit and remove it. Generated when the entry is added, and nothing else refers to it.",
+                            },
+                        ],
+                    },
+                },
+                new() {
+                    Id = "url-domains",
+                    Title = "URL domains",
+                    Help = "Maps hosts to the node whose subtree each one serves, so the same path can mean different nodes on different hosts. "
+                        + "A root answers at \"/\" and its own address never appears in a URL. Nothing about the domain is stored on any node, which is what lets the same content run unchanged on localhost. "
+                        + "Read by the built-in manager only, like the rest of this section.",
+                    List = new() {
+                        Path = "LocalSettings.UrlOptions.Domains",
+                        ItemName = "domain",
+                        LabelField = "Host",
+                        EmptyHelp = "No host is mapped, so every node is reachable on any host and the top of the tree is part of the path.",
+                        Fields = [
+                            new() {
+                                Path = "Host", Label = "Host", Placeholder = "www.example.com",
+                                Help = "The host this mapping answers for. Compared without the port and without regard to case. A request whose host matches no mapping here uses the fallback root above.",
+                            },
+                            new() {
+                                Path = "RootId", Label = "Root node",
+                                Help = "The node whose subtree this host serves. Both it and the host are required: a mapping missing either one stops the database from opening rather than being skipped.",
+                            },
+                            new() {
+                                Path = "Id", Label = "Mapping id", ReadOnly = true,
+                                Help = "Identifies this mapping in the settings file so this page can edit and remove it. Generated when the mapping is added, and nothing else refers to it.",
+                            },
+                        ],
+                    },
                 },
                 new() {
                     Id = "images",

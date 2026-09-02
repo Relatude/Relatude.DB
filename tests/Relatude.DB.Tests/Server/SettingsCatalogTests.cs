@@ -107,11 +107,12 @@ public class SettingsCatalogTests {
         string[] editedElsewhere = [
             // server identity and the container list itself: the Databases section owns these
             "ContainerSettings", "Id",
-            // the model source, storage provider and file store lists are edited by their own list
-            // groups, whose element fields NoListFieldIsSilentlyMissing covers
+            // the model source, storage provider, file store, url parent and url domain lists are
+            // edited by their own list groups, whose element fields NoListFieldIsSilentlyMissing covers
             "DatamodelSources", "IOSettings", "FileStoreSettings",
-            // completion model map and the url tree: collections, not single values
-            "AISettings.CompletionModelsByKey", "LocalSettings.UrlOptions.Parents", "LocalSettings.UrlOptions.Domains",
+            "LocalSettings.UrlOptions.Parents", "LocalSettings.UrlOptions.Domains",
+            // the completion model map: a collection, not a single value
+            "AISettings.CompletionModelsByKey",
             // what each log records and the query threshold: switched in the Logs section, which
             // writes them here with "Save and remember changes"
             "LocalSettings.LogRecording", "LocalSettings.MinQueryDurationMsBeforeLogging",
@@ -383,6 +384,25 @@ public class SettingsCatalogTests {
         Assert.IsTrue(overlay.IsOverridden(SettingsOverlay.OverridePath(container.Id, "IOSettings[" + ioId + "].Path"), out var folder));
         Assert.AreEqual("from-configuration", folder!.GetValue<string>());
         Assert.IsFalse(overlay.IsOverridden(SettingsOverlay.OverridePath(container.Id, "IOSettings[" + ioId + "].Name"), out _));
+    }
+
+    /// <summary>A generated value only makes sense in a free text field that holds a random key or
+    /// secret: a choice, a picker or a number has nothing random to offer.</summary>
+    [TestMethod]
+    public void GeneratedValuesBelongToFreeTextSettings() {
+        var found = 0;
+        foreach (var (group, setting, root) in all()) {
+            if (setting.Generate == null) continue;
+            found++;
+            var where = group.Id + "/" + setting.Path;
+            Assert.AreEqual(SettingGenerators.Guid, setting.Generate, where + " asks for a kind of generated value the page cannot make.");
+            var description = SettingsAccessor.Describe(root, setting.Path);
+            Assert.AreEqual(SettingEditor.Text, description.Editor, where + " offers a generated value but is not a text setting.");
+            Assert.IsNull(setting.Picker, where + " offers a generated value but picks from a list.");
+            Assert.IsNull(setting.Suggestions, where + " offers a generated value and suggestions at once.");
+            Assert.IsFalse(setting.ReadOnly, where + " offers a generated value but cannot be edited.");
+        }
+        Assert.IsTrue(found >= 2, "The token secret and the file URL signing key should offer a generated value; found " + found + ".");
     }
 
     // a list may sit on a nested settings object ("LocalSettings.ValueIndexes"), so its path is walked

@@ -162,6 +162,7 @@ sealed class UISettings {
             definition.Unit,
             definition.Placeholder,
             definition.Picker,
+            definition.Generate,
             // the sibling is named relative to the element, so it needs the same prefix to be found
             VisibleWhen = definition.VisibleWhen == null ? null
                 : new { Path = prefix + definition.VisibleWhen.Path, definition.VisibleWhen.Values },

@@ -1614,8 +1614,8 @@ colliding.
 | `StoreType` | `SingleFile` | `SingleFile` packs everything into one append-only container file — fewer file handles, and cheap on blob storage. `MultiFile` writes one file per upload, which is what you want when something outside the engine also reads the files. |
 | `MultiFileFolderDepth` | 2 | `MultiFile` only: how many levels of hashed subfolders to spread files over, so no directory grows unmanageably large. |
 
-Leave the array empty and the store creates an implicit default store on `IoDatabase`, shaped by
-`LocalSettings.DefaultFileStoreEngine`.
+Leave the array empty and the store creates an implicit default store on `IoDatabase`: a `MultiFile`
+store, one file per upload.
 
 #### `AISettings` — embeddings, completions and the vector index
 
@@ -1688,8 +1688,7 @@ them.
 | `DefaultCultureCode` | null | Culture assumed when a node or query names none. Null means culture is not in play. |
 | `DefaultReadAccess` | `Everyone` | ACL group applied to a node whose `ReadAccess` is unset and whose type does not name one: `Everyone`, `Member` or `Admins`. |
 | `DefaultWriteAccess` | `Everyone` | Present in the settings object; not read by the current build — write access comes from the type and the node's metadata. |
-| `DefaultFileStore` | null | Which `FileStoreSettings` entry `FileValue` properties use when they do not name one. Must match an entry, or the open throws. |
-| `DefaultFileStoreEngine` | `MultiFile` | The engine used for the implicit default store when `FileStoreSettings` is empty. |
+| `DefaultFileStore` | null | Which `FileStoreSettings` entry `FileValue` properties use when they do not name one. Must match an entry, or the open throws. Null means the implicit `MultiFile` store on `IoDatabase`. |
 | `ImageDefaultFormat` | `Jpeg` | Format an adaptive image variant resolves to (`FileFormat.Image`, the default `RequestedFormat`): `Jpeg`, `WebP` or `Png`. A site-wide switch to WebP is this one key — see [§18.1](#181-asset-urls-files-variants-and-deeplinks). |
 | `ImageDefaultQuality` | 85 | Quality used when the request does not name one. |
 | `UrlOptions` | flat `DefaultUrlManager` | The URL manager's configuration — [§18](#18-urls-and-the-url-manager). |

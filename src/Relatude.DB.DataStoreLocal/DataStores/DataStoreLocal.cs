@@ -155,13 +155,10 @@ public sealed partial class DataStoreLocal : IDataStore {
                 throw new Exception("Default file store with ID " + _settings.DefaultFileStore.Value + " not found among provided file stores.");
             }
         }
-        if (_defaultFileStore == null) {
-            _defaultFileStore = _settings.DefaultFileStoreEngine switch {
-                FileStoreEngine.MultiFile => new MultiFileStore(Guid.Empty, _io, 2),
-                FileStoreEngine.SingleFile => new SingleFileStore(Guid.Empty, _io, FileKeyUtility.FileStore_GetLatestFileKey(_io)),
-                _ => throw new Exception("Unsupported file store engine: " + _settings.DefaultFileStoreEngine)
-            };
-        }
+        // no configured store named as the default: the implicit one, a MultiFile store on the
+        // database's own provider. Files record Guid.Empty as their store id, so this is not a choice
+        // that can change once files exist - which is why it is not a setting
+        _defaultFileStore ??= new MultiFileStore(Guid.Empty, _io, 2);
         LogRewriter.CleanupOldPartiallyCompletedLogRewriteIfAny(_io);
         _scheduler = new(this);
         _uploads = new(this);

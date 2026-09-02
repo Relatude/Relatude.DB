@@ -2271,8 +2271,8 @@ colliding.</p>
 </tr>
 </tbody>
 </table>
-<p>Leave the array empty and the store creates an implicit default store on <code>IoDatabase</code>, shaped by
-<code>LocalSettings.DefaultFileStoreEngine</code>.</p>
+<p>Leave the array empty and the store creates an implicit default store on <code>IoDatabase</code>: a <code>MultiFile</code>
+store, one file per upload.</p>
 <h4 id="aisettings-embeddings-completions-and-the-vector-index"><code>AISettings</code> — embeddings, completions and the vector index<a class="anchor" href="#aisettings-embeddings-completions-and-the-vector-index" aria-label="Link to this section">#</a></h4>
 <div class="codehilite"><pre><span></span><code>&quot;AISettings&quot;: {
   &quot;TypeName&quot;: &quot;AzureAIProvider&quot;,
@@ -2483,12 +2483,7 @@ them.</p>
 <tr>
 <td><code>DefaultFileStore</code></td>
 <td>null</td>
-<td>Which <code>FileStoreSettings</code> entry <code>FileValue</code> properties use when they do not name one. Must match an entry, or the open throws.</td>
-</tr>
-<tr>
-<td><code>DefaultFileStoreEngine</code></td>
-<td><code>MultiFile</code></td>
-<td>The engine used for the implicit default store when <code>FileStoreSettings</code> is empty.</td>
+<td>Which <code>FileStoreSettings</code> entry <code>FileValue</code> properties use when they do not name one. Must match an entry, or the open throws. Null means the implicit <code>MultiFile</code> store on <code>IoDatabase</code>.</td>
 </tr>
 <tr>
 <td><code>ImageDefaultFormat</code></td>

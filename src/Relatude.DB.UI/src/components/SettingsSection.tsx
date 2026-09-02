@@ -27,6 +27,7 @@ import {
   IconShieldLock,
   IconSparkles,
   IconStethoscope,
+  IconWand,
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
@@ -628,6 +629,12 @@ function SettingRow({
       <div className="setting-control">
         <Editor setting={setting} value={value} pickers={pickers} disabled={locked} onChange={onChange} />
         {setting.unit && <span className="setting-unit">{setting.unit}</span>}
+        {/* a random value is made here and only filled in: it is saved with the rest, and undone like any edit */}
+        {!locked && setting.generate === "guid" && (
+          <button className="icon-button" title="Generate a new random value" onClick={() => onChange(newGuid())}>
+            <IconWand size={15} stroke={1.8} />
+          </button>
+        )}
         {edited ? (
           <button className="icon-button" title="Undo this change" onClick={onRevert}>
             <IconArrowBackUp size={15} stroke={1.8} />
@@ -886,6 +893,17 @@ function Combo({
       )}
     </div>
   );
+}
+
+// crypto.randomUUID needs a secure context; a plain http admin host on the LAN is not one, so fall
+// back to the same shape built from getRandomValues, which is available everywhere
+function newGuid(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const hex = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function asText(value: unknown): string {

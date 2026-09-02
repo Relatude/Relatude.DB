@@ -602,7 +602,7 @@ public sealed class UIServer {
             // the database falls back to an implicit default file store on its own IO provider
             // whenever no configured store is named as the default one
             if (!configured.Any(fs => fs.Id == defaultId) && c.Settings.IoDatabase is Guid dbIo && dbIo != Guid.Empty)
-                add(Guid.Empty, dbIo, c.Settings.LocalSettings?.DefaultFileStoreEngine ?? FileStoreEngine.MultiFile, true);
+                add(Guid.Empty, dbIo, FileStoreEngine.MultiFile, true); // the implicit store is always MultiFile
             var ioNames = (c.Settings.IOSettings ?? []).ToDictionary(s => s.Id, s => string.IsNullOrEmpty(s.Name) ? s.IOType.ToString() : s.Name);
             return (object?)found.Select(store => {
                 var io = _server.GetIO(store.IoId);

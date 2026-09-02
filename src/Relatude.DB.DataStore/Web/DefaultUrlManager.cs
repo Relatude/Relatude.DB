@@ -7,6 +7,8 @@ namespace Relatude.DB.Web;
 
 /// <summary>One host served by a <see cref="DefaultUrlManager"/>, mapped to the root node of its tree.</summary>
 public class UrlDomain {
+    /// <summary>Identifies this mapping in the settings file so the admin UI can edit and remove it. Generated when the mapping is added there; nothing resolves by it.</summary>
+    public Guid Id { get; set; }
     /// <summary>Host name, e.g. "www.domain1.no". Compared case-insensitively, without port.</summary>
     public string Host { get; set; } = string.Empty;
     /// <summary>The node whose subtree this host serves. The root itself is served at "/", and its address is not part of any URL.</summary>
@@ -61,6 +63,8 @@ public enum AssetUrlStyle {
 /// held together by more than one relation.
 /// </summary>
 public class UrlParentRelation {
+    /// <summary>Identifies this entry in the settings file so the admin UI can edit and remove it. Generated when the entry is added there; nothing resolves by it.</summary>
+    public Guid Id { get; set; }
     /// <summary>The relation to follow. Alternatively set <see cref="ParentRelationName"/>.</summary>
     public Guid ParentRelationId { get; set; }
     /// <summary>CodeName or full name of the relation, resolved against the datamodel when the store initializes.</summary>
@@ -77,9 +81,9 @@ public class DefaultUrlManagerOptions {
     /// when an earlier one has no parent for that node. When the list is empty the manager runs
     /// flat: every node is top level and its URL is "/{address}".
     /// </summary>
-    public List<UrlParentRelation> Parents { get; set; } = [];
+    public UrlParentRelation[] Parents { get; set; } = [];
     /// <summary>Host to root mappings. When empty, every node is routable and the top of the tree is part of the path.</summary>
-    public List<UrlDomain> Domains { get; set; } = [];
+    public UrlDomain[] Domains { get; set; } = [];
     /// <summary>Root used for requests with an unknown or missing host (local development, staging). Defaults to the first configured domain's root.</summary>
     public Guid? FallbackRootId { get; set; }
     /// <summary>Scheme used for absolute URLs.</summary>
@@ -187,7 +191,7 @@ public class DefaultUrlManager : UrlManagerBase {
             _rootByHost[domain.Host.Trim()] = domain.RootId;
             if (!_hostByRoot.ContainsKey(domain.RootId)) _hostByRoot[domain.RootId] = domain.Host.Trim();
         }
-        _fallbackRootId = _o.FallbackRootId ?? (_o.Domains.Count > 0 ? _o.Domains[0].RootId : Guid.Empty);
+        _fallbackRootId = _o.FallbackRootId ?? (_o.Domains.Length > 0 ? _o.Domains[0].RootId : Guid.Empty);
     }
     bool isFlat => _parents.Count == 0;
 

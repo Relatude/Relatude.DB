@@ -65,14 +65,14 @@ public class SettingsOverlayTests {
             ["RelatudeDB:ContainerSettings:0:LocalSettings:AutoBackUp"] = "true",
             ["RelatudeDB:ContainerSettings:0:LocalSettings:NodeCacheSizeGb"] = "2.5",
             ["RelatudeDB:ContainerSettings:0:LocalSettings:NoHourlyBackUps"] = "3",
-            ["RelatudeDB:ContainerSettings:0:LocalSettings:DefaultFileStoreEngine"] = "singlefile",
+            ["RelatudeDB:ContainerSettings:0:LocalSettings:PersistedQueueStoreEngine"] = "sqlite",
         });
         var applied = overlay!.Apply(fileSettings());
         var local = applied.ContainerSettings![0].LocalSettings!;
         Assert.IsTrue(local.AutoBackUp);
         Assert.AreEqual(2.5, local.NodeCacheSizeGb);
         Assert.AreEqual(3, local.NoHourlyBackUps);
-        Assert.AreEqual(DB.DataStores.FileStoreEngine.SingleFile, local.DefaultFileStoreEngine);
+        Assert.AreEqual(DB.DataStores.PersistedQueueStoreEngine.Sqlite, local.PersistedQueueStoreEngine);
         Assert.AreEqual(0, warnings.Count);
     }
 
