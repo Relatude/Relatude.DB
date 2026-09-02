@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import {
   IconArchive,
   IconArrowBackUp,
@@ -11,6 +20,7 @@ import {
   IconLock,
   IconPlus,
   IconRefresh,
+  IconSchema,
   IconSearch,
   IconServer,
   IconSettings,
@@ -399,6 +409,7 @@ const sectionIcons: Record<string, ComponentType<{ size?: number; stroke?: numbe
   server: IconServer,
   security: IconShieldLock,
   database: IconDatabase,
+  model: IconSchema,
   storage: IconFolders,
   content: IconFileText,
   performance: IconGauge,
@@ -522,9 +533,9 @@ function ListEditor({
               <div className="settings-list">
                 {item.settings
                   .filter((setting) => visible(setting, valueOf))
-                  .map((setting) => (
+                  .map((setting, index) => (
                     <SettingRow
-                      key={setting.path}
+                      key={setting.path + "#" + index}
                       setting={setting}
                       pickers={pickers}
                       edit={edits[setting.path]}
@@ -674,6 +685,11 @@ function Editor({
     );
   }
   const options = setting.choices ?? (setting.picker ? pickers[setting.picker] : undefined);
+  // suggestions rather than choices: the known values are one click away, but the field is still
+  // free text, so a value the server has never heard of can be typed in
+  if (options && setting.allowCustom) {
+    return <Combo setting={setting} options={options} value={value} disabled={disabled} onChange={onChange} />;
+  }
   // a long list (cultures) is a type-ahead field, a short one a plain drop-down
   if (options && options.length > 40) {
     return (
@@ -745,6 +761,130 @@ function Editor({
       spellCheck={false}
       onChange={(e) => onChange(e.target.value)}
     />
+  );
+}
+
+/**
+ * A text field that knows the values it usually holds: typing works exactly as it did before, and
+ * the arrow opens the known ones. It is not a drop-down with an "other..." entry, because the
+ * setting genuinely is free text - the list is a shortcut and a spelling reference, so nothing here
+ * ever refuses a value or rewrites one.
+ *
+ * Typing narrows the list to what matches, and a value that matches nothing simply leaves it empty
+ * rather than closing the list on a keystroke; the arrow always shows everything.
+ */
+function Combo({
+  setting,
+  options,
+  value,
+  disabled,
+  onChange,
+}: {
+  setting: SettingView;
+  options: SettingChoice[];
+  value: unknown;
+  disabled: boolean;
+  onChange: (value: unknown) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  // set while typing, so the list narrows to what is being typed but reopens whole from the arrow
+  const [filtering, setFiltering] = useState(false);
+  const [active, setActive] = useState(-1);
+  const input = useRef<HTMLInputElement>(null);
+  const current = asText(value);
+  const matches =
+    filtering && current ? options.filter((o) => o.value.toLowerCase().includes(current.toLowerCase())) : options;
+
+  // a list with nothing in it is not shown at all, so "open" on its own is not the state anything
+  // else should key off: a typed value matching no suggestion must still open the whole list
+  const visible = open && matches.length > 0;
+  const show = (filtered: boolean) => {
+    setFiltering(filtered);
+    setActive(-1);
+    setOpen(true);
+    input.current?.focus(); // opening from the arrow still leaves the caret where typing works
+  };
+  const pick = (choice: string) => {
+    onChange(choice);
+    setOpen(false);
+    input.current?.focus();
+  };
+
+  function onKeyDown(e: ReactKeyboardEvent) {
+    if (e.key === "Escape") {
+      setOpen(false);
+      return;
+    }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!visible) return show(false);
+      const step = e.key === "ArrowDown" ? 1 : -1;
+      setActive((i) => (i < 0 ? (step > 0 ? 0 : matches.length - 1) : (i + step + matches.length) % matches.length));
+      return;
+    }
+    if (e.key === "Enter" && visible && active >= 0 && active < matches.length) {
+      e.preventDefault();
+      pick(matches[active].value);
+    }
+  }
+
+  return (
+    <div
+      className="setting-combo"
+      // closing on blur rather than behind a backdrop: a click straight into the next field should
+      // land there, not be spent dismissing this list
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false);
+      }}
+    >
+      <input
+        ref={input}
+        className="text-input"
+        value={current}
+        placeholder={setting.placeholder ?? ""}
+        disabled={disabled}
+        spellCheck={false}
+        autoComplete="off"
+        role="combobox"
+        aria-expanded={visible}
+        onChange={(e) => {
+          onChange(e.target.value);
+          show(true);
+        }}
+        onKeyDown={onKeyDown}
+      />
+      <button
+        type="button"
+        className="setting-combo-toggle"
+        tabIndex={-1}
+        disabled={disabled}
+        title={"Known values for " + setting.label}
+        aria-label={"Known values for " + setting.label}
+        onClick={() => (visible ? setOpen(false) : show(false))}
+      >
+        <IconChevronDown size={14} />
+      </button>
+      {visible && (
+        <div className="setting-combo-list">
+          {matches.map((o, i) => (
+            <button
+              type="button"
+              key={o.value}
+              className={
+                "setting-combo-option" +
+                (i === active ? " active" : "") +
+                (o.value.toLowerCase() === current.toLowerCase() ? " current" : "")
+              }
+              onMouseEnter={() => setActive(i)}
+              onClick={() => pick(o.value)}
+            >
+              <span>{o.label}</span>
+              {o.hint && <span className="hint">{o.hint}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

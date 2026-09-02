@@ -82,3 +82,20 @@ export function fetchDashboard(storeId: string): Promise<DashboardInfo> {
 export function fetchDashboardLive(storeId: string): Promise<DashboardLive> {
   return send<DashboardLive>("dashboard-live", { storeId });
 }
+
+export interface ClearCacheResult {
+  /** What the node and result set caches held when they were emptied. */
+  entriesCleared: number;
+  freedBytes: number;
+  managedBytes: number;
+  elapsedMs: number;
+}
+
+/**
+ * Empties this database's node, result set and index caches, and collects what they held. The
+ * counters above start over, so the rate graph shows a gap rather than a drop, and the indexes
+ * warm again in the background.
+ */
+export function clearCaches(storeId: string): Promise<ClearCacheResult> {
+  return send<ClearCacheResult>("dashboard-clear-cache", { storeId });
+}

@@ -17,6 +17,9 @@ public static class DatamodelSourceLoader {
     /// <param name="rootFolder">The folder relative file paths resolve against — the folder holding the settings file.</param>
     /// <param name="resolveIO">Resolves an IO provider by id, only needed for legacy JsonFile sources using FileIO.</param>
     public static void Load(Datamodel dm, DatamodelSource source, string rootFolder, Func<Guid, IIOProvider?>? resolveIO = null) {
+        // a turned off source is not a source at all: it is not registered either, so nothing on the
+        // model claims to come from it
+        if (!source.Enabled) return;
         if (source.Id == Guid.Empty) throw new Exception("The datamodel source has no Id. Every datamodel source must have a unique id. ");
         if (source.Type == DatamodelSourceType.Code) throw new Exception(
             "The datamodel source type Code is reserved for model types added directly from code at startup and cannot be configured as a source. ");

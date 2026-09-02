@@ -153,7 +153,10 @@ sealed class UISettings {
             Applies = definition.Applies.ToString().ToLowerInvariant(),
             Editor = description.Editor.ToString().ToLowerInvariant(),
             description.Optional,
-            Choices = description.EnumNames?.Select(name => new { Value = name, Label = name }),
+            Choices = choices(description, definition, value),
+            // the choices of a suggested-values setting are a starting point, not the set of legal
+            // values, so the field stays a text field with the list beside it
+            AllowCustom = description.EnumNames == null && definition.Suggestions != null,
             // a secret is never handed back to the browser: the field shows whether one is set, and
             // a save only carries it when someone actually typed a new one
             Value = isSecret ? null : value,
@@ -165,6 +168,28 @@ sealed class UISettings {
         };
     }
 
+    /// <summary>
+    /// The choices of an enum setting, minus the members the catalog excludes - a value the settings
+    /// file is not allowed to hold. The value the setting currently has is kept regardless, so an
+    /// excluded one that is already stored is visible instead of silently reading as unset.
+    ///
+    /// A free text setting whose catalog entry carries <see cref="SettingDefinition.Suggestions"/>
+    /// reports them the same way, together with <c>AllowCustom</c>; nothing is excluded there, since
+    /// the list does not bound the value in the first place.
+    /// </summary>
+    static object[]? choices(SettingsAccessor.PropertyDescription description, SettingDefinition definition, JsonNode? value) {
+        if (description.EnumNames == null) {
+            if (definition.Suggestions == null) return null;
+            return [.. definition.Suggestions.Select(s => (object)new { s.Value, Label = s.Value, s.Hint })];
+        }
+        var excluded = definition.ExcludedChoices;
+        var current = value is JsonValue v && v.TryGetValue<string>(out var name) ? name : null;
+        return [.. description.EnumNames
+            .Where(n => excluded == null || !excluded.Contains(n, StringComparer.OrdinalIgnoreCase)
+                     || string.Equals(n, current, StringComparison.OrdinalIgnoreCase))
+            .Select(n => (object)new { Value = n, Label = n })];
+    }
+
     // ---- what points at a collection element, and what that means for removing it ----
 
     sealed record Usage(string[] UsedBy, string[] Blocking, string? RemoveWarning);
@@ -172,6 +197,7 @@ sealed class UISettings {
     Usage describeUsage(string listPath, Guid id, Guid? containerId) => listPath switch {
         "IOSettings" => ioProviderUsage(id, containerId),
         "FileStoreSettings" => fileStoreUsage(id, containerId),
+        "DatamodelSources" => datamodelSourceUsage(),
         _ => new Usage([], [], null),
     };
 
@@ -224,6 +250,19 @@ sealed class UISettings {
             + " The missing-file scan under Files is what tells you whether it holds any.";
         return new Usage([.. used], [.. used], warning);
     }
+
+    /// <summary>
+    /// Nothing in the settings points at a model source, so nothing blocks removing one - but what it
+    /// costs is not visible from the settings file either. The types it defines leave the model, and
+    /// the nodes already stored under them are read back as bare nodes, since a node whose type the
+    /// model no longer has falls back to the base type and loses the properties that type declared.
+    /// Turning the source off does exactly the same thing while keeping what it says, so the warning
+    /// names that as the way back.
+    /// </summary>
+    static Usage datamodelSourceUsage() => new([], [],
+        "The node types and relations it defines leave the model when the database is next opened, and nodes already"
+        + " stored under them are read back without the properties those types declared. Turning it off instead has the"
+        + " same effect on the model and keeps the definition here.");
 
     static IEnumerable<object> elements(object root, string path) {
         var property = root.GetType().GetProperty(path, BindingFlags.Public | BindingFlags.Instance);
@@ -329,8 +368,11 @@ sealed class UISettings {
                 }
             }
             // a new element that has to name a storage provider starts on the one holding the database,
-            // so it is usable as added rather than pointing at nothing
+            // so it is usable as added rather than pointing at nothing. Only a field that cannot be left
+            // empty: an optional one - a model source's file provider - means something by being unset,
+            // and filling it in would pick a behaviour nobody asked for
             foreach (var field in list.Fields.Where(f => f.Picker == "ioProviders")) {
+                if (SettingsAccessor.Describe(elementType, field.Path).Optional) continue;
                 var current = SettingsAccessor.Read(settings, prefix + field.Path)?.GetValue<string>();
                 if (!string.IsNullOrEmpty(current) && current != Guid.Empty.ToString()) continue;
                 if (settings.IoDatabase is Guid database && database != Guid.Empty) {

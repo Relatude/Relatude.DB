@@ -296,5 +296,36 @@ namespace Relatude.Datamodels {
             var read = store.Get(id);
             Assert.AreEqual("Ada", read.GetType().GetProperty("Name")!.GetValue(read));
         }
+
+        /// <summary>
+        /// A source that is turned off contributes nothing and is not registered on the model either,
+        /// so a half configured one - what the admin UI writes the moment a source is added - cannot
+        /// stop the database from opening. Even a source that would throw is simply skipped, since the
+        /// flag is read before anything else about it is.
+        /// </summary>
+        [TestMethod]
+        public void DisabledSource_IsSkippedEntirely() {
+            var folder = Path.Combine(_root, "models");
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder, "library.json"), buildJsonModel());
+
+            var off = jsonSource("models/library.json");
+            off.Enabled = false;
+            var dm = new Datamodel();
+            DatamodelSourceLoader.Load(dm, off, _root);
+            Assert.AreEqual(0, dm.Sources.Count, "A source that is not loaded must not be registered on the model. ");
+            Assert.IsFalse(dm.NodeTypesByFullName.ContainsKey("Relatude.SourceLoaderModels.SlAuthor"));
+
+            // unfinished and pointing nowhere: exactly what "Add model source" leaves behind
+            var unfinished = new DatamodelSource() { Id = Guid.NewGuid(), Type = DatamodelSourceType.AssemblyNameReference, Enabled = false };
+            DatamodelSourceLoader.Load(dm, unfinished, _root);
+            Assert.AreEqual(0, dm.Sources.Count);
+
+            // and turning it back on loads it, so nothing about the definition was lost
+            off.Enabled = true;
+            DatamodelSourceLoader.Load(dm, off, _root);
+            dm.EnsureInitalization();
+            Assert.IsTrue(dm.NodeTypesByFullName.ContainsKey("Relatude.SourceLoaderModels.SlAuthor"));
+        }
     }
 }

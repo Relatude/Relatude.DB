@@ -5,14 +5,14 @@ namespace Relatude.DB.AI;
 /// ServiceUrl is the API base, defaulting to https://api.openai.com/v1.
 /// Set EmbeddingServiceUrl/EmbeddingApiKey to source embeddings from a different endpoint than completions.
 /// </summary>
-public class OpenAIProvider : IAIProvider {
+public class NativeOpenAIProvider : IAIProvider {
     readonly HttpClient _http;
     readonly string _chatUrl;
     readonly string _embeddingsUrl;
     readonly string? _apiKey;
     readonly string? _embeddingApiKey;
     readonly AIProviderSettings _settings;
-    public OpenAIProvider(AIProviderSettings settings) {
+    public NativeOpenAIProvider(AIProviderSettings settings) {
         _settings = settings;
         var baseUrl = string.IsNullOrEmpty(settings.ServiceUrl) ? "https://api.openai.com/v1" : settings.ServiceUrl.TrimEnd('/');
         var embeddingBaseUrl = string.IsNullOrEmpty(settings.EmbeddingServiceUrl) ? baseUrl : settings.EmbeddingServiceUrl.TrimEnd('/');

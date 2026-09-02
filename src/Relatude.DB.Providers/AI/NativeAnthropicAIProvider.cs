@@ -9,7 +9,7 @@ namespace Relatude.DB.AI;
 /// Anthropic has no embeddings endpoint, so embeddings require EmbeddingServiceUrl pointing at an
 /// OpenAI-compatible endpoint (OpenAI, Voyage AI, a local model, ...) with EmbeddingApiKey/EmbeddingModel.
 /// </summary>
-public class AnthropicAIProvider : IAIProvider {
+public class NativeAnthropicAIProvider : IAIProvider {
     const string _defaultModel = "claude-opus-5";
     const string _apiVersion = "2023-06-01";
     const int _defaultMaxOutputTokens = 4096;
@@ -19,7 +19,7 @@ public class AnthropicAIProvider : IAIProvider {
     readonly string _apiKey;
     readonly string? _embeddingApiKey;
     readonly AIProviderSettings _settings;
-    public AnthropicAIProvider(AIProviderSettings settings) {
+    public NativeAnthropicAIProvider(AIProviderSettings settings) {
         if (string.IsNullOrEmpty(settings.ApiKey)) throw new ArgumentException("ApiKey is required in AIProviderSettings");
         _settings = settings;
         var baseUrl = string.IsNullOrEmpty(settings.ServiceUrl) ? "https://api.anthropic.com" : settings.ServiceUrl.TrimEnd('/');

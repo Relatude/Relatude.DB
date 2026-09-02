@@ -38,7 +38,21 @@ public static class SettingsAccessor {
             NumberHandling = JsonNumberHandling.AllowReadingFromString, // number inputs post strings
         };
         options.Converters.Add(new JsonStringEnumConverter());
+        options.Converters.Add(new BoolFromStringConverter());
         return options;
+    }
+
+    /// <summary>Reads a toggle from "true"/"false" as well as from a JSON boolean, so a value that has
+    /// travelled as text - what <see cref="SettingListDefinition.NewItem"/> holds - lands the same way
+    /// a number written as a string does.</summary>
+    sealed class BoolFromStringConverter : JsonConverter<bool> {
+        public override bool Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options) {
+            if (reader.TokenType != JsonTokenType.String) return reader.GetBoolean();
+            var text = reader.GetString();
+            if (bool.TryParse(text, out var value)) return value;
+            throw new JsonException("\"" + text + "\" is not true or false.");
+        }
+        public override void Write(Utf8JsonWriter writer, bool value, JsonSerializerOptions options) => writer.WriteBooleanValue(value);
     }
 
     /// <summary>What a settings property is, without any of the text around it.</summary>

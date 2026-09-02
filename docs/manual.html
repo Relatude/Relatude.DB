@@ -2903,6 +2903,7 @@ deployments of the same binary:</p>
 <span class="w">    </span><span class="s">&quot;Reference&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;VenueApp&quot;</span><span class="p">,</span><span class="w">           </span><span class="c1">// assembly name; null means the entry assembly</span>
 <span class="w">    </span><span class="s">&quot;Filepath&quot;</span><span class="p">:</span><span class="w"> </span><span class="nx">null</span><span class="p">,</span><span class="w">                  </span><span class="c1">// file or folder, for the file-based types</span>
 <span class="w">    </span><span class="s">&quot;FileIO&quot;</span><span class="p">:</span><span class="w"> </span><span class="nx">null</span><span class="p">,</span><span class="w">                    </span><span class="c1">// legacy: read a JsonFile through an IO provider instead</span>
+<span class="w">    </span><span class="s">&quot;Enabled&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w">                   </span><span class="c1">// false skips the source entirely</span>
 <span class="w">    </span><span class="s">&quot;AutoDeduceRelations&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">]</span>
@@ -2941,6 +2942,13 @@ deployments of the same binary:</p>
 <p>Relative <code>Filepath</code> values resolve against the root data folder. Every source must carry a unique
 <code>Id</code> — it is what tags each type with its provenance, which is how the admin UI knows which source a
 type came from and which sources it may edit.</p>
+<p><code>Enabled</code> (<code>true</code> when absent) is a switch rather than a setting: a source turned off contributes
+nothing and is not registered on the model at all, so nothing it defines survives the next open, and
+nodes already stored under those types come back without the properties the types declared. Turning
+it back on restores the model exactly. Sources are edited from the admin UI under
+<strong>Settings → Data model → Model sources</strong>, and one added there starts turned off — an unfinished
+source would otherwise stop the database from opening, since every configured source is loaded and
+one that throws fails the open.</p>
 <p><strong>From <code>Program.cs</code></strong>, which is the common case when the model ships with the app — refactor-safe,
 and it fails at compile time rather than at boot:</p>
 <div class="codehilite"><pre><span></span><code><span class="n">options</span><span class="p">.</span><span class="n">OnDatamodelInit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">dm</span><span class="p">,</span><span class="w"> </span><span class="n">container</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>

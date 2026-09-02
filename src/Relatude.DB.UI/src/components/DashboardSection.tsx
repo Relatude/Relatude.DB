@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { IconAlertTriangle, IconPlayerPlayFilled, IconRefresh } from "@tabler/icons-react";
+import { IconAlertTriangle, IconEraser, IconPlayerPlayFilled, IconRecycle, IconRefresh } from "@tabler/icons-react";
 import { Chart } from "./Chart";
-import { showError, showInfo } from "../dialogs";
-import { fetchDashboard, fetchDashboardLive, type DashboardInfo, type DashboardLive } from "../server/dashboard";
+import { showConfirm, showError, showInfo } from "../dialogs";
+import { clearCaches, fetchDashboard, fetchDashboardLive, type DashboardInfo, type DashboardLive } from "../server/dashboard";
 import { fetchTrace, type TraceInfo } from "../server/logs";
 import { useMeasuredEvery, usePoll } from "../refresh";
+import { collectGarbage } from "../server/overview";
 import { openStore } from "../server/storage";
 import type { DatabaseInfo } from "../server/serverInfo";
 import type { SeriesPoint } from "../server/logs";
@@ -52,6 +53,8 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   const [error, setError] = useState<string | null>(null);
   const [metric, setMetric] = useState<MetricId>("queries");
   const [openBusy, setOpenBusy] = useState(false);
+  const [cacheBusy, setCacheBusy] = useState<"clear" | "collect" | null>(null);
+  const [cacheMessage, setCacheMessage] = useState<string | null>(null);
   const samples = useRef<Sample[]>([]);
   const [, setSampleTick] = useState(0);
   const measuredEvery = useMeasuredEvery();
@@ -119,6 +122,47 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
       showError("Could not open the database", e instanceof Error ? e.message : String(e));
     } finally {
       setOpenBusy(false);
+    }
+  }
+
+  /**
+   * Empties the caches of this database. Everything it held is read from the indexes again, so the
+   * next queries are slower until they warm back up - which is the point when a measurement should
+   * start from cold, and worth confirming when it is not.
+   */
+  async function onClearCaches() {
+    const choice = await showConfirm(
+      "Clear the caches",
+      "Empties the node, result set and index caches of this database. Nothing is lost, but until they warm up again queries are"
+        + " answered from the indexes instead of memory. The activity counters start over.",
+      { confirmLabel: "Clear" },
+    );
+    if (!choice.ok) return;
+    setCacheBusy("clear");
+    try {
+      const result = await clearCaches(db.id);
+      setCacheMessage(
+        `Cleared ${formatCount(result.entriesCleared)} entr${result.entriesCleared === 1 ? "y" : "ies"} in ${formatElapsed(result.elapsedMs)}` +
+          `${result.freedBytes > 0 ? `, freeing ${formatBytes(result.freedBytes)}` : ""}.`,
+      );
+      await loadInfo();
+    } catch (e) {
+      showError("Could not clear the caches", e instanceof Error ? e.message : String(e));
+    } finally {
+      setCacheBusy(null);
+    }
+  }
+
+  // the process, not this database: the collection is deep, blocking and compacting, and there is
+  // one heap behind every database on this server
+  async function onCollectGarbage() {
+    setCacheBusy("collect");
+    try {
+      setCacheMessage((await collectGarbage()).message);
+    } catch (e) {
+      showError("Could not collect", e instanceof Error ? e.message : String(e));
+    } finally {
+      setCacheBusy(null);
     }
   }
 
@@ -290,6 +334,29 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
                 hits={info.cache?.aggregateCacheHits ?? 0}
                 misses={info.cache?.aggregateCacheMisses ?? 0}
               />
+              {/* half a page wide, so the two actions sit side by side with one line under them,
+                  rather than each button pushing its own hint into a column too narrow to read */}
+              <div className="dash-cache-actions">
+                <button
+                  className="action-button"
+                  onClick={onClearCaches}
+                  disabled={cacheBusy !== null}
+                  title="Empties the caches of this database and frees the memory they held"
+                >
+                  <IconEraser size={14} stroke={1.8} /> {cacheBusy === "clear" ? "Clearing…" : "Clear caches"}
+                </button>
+                <button
+                  className="action-button"
+                  onClick={onCollectGarbage}
+                  disabled={cacheBusy !== null}
+                  title="Deep, blocking, compacting collection of the whole server process"
+                >
+                  <IconRecycle size={14} stroke={1.8} /> {cacheBusy === "collect" ? "Collecting…" : "Collect garbage"}
+                </button>
+              </div>
+              <div className="muted dash-cache-note">
+                {cacheMessage ?? "clearing empties this database and warms the indexes again in the background; collecting is the whole server process"}
+              </div>
             </section>
           </div>
 
@@ -388,6 +455,9 @@ function ratePoints(samples: Sample[], metric: MetricId): SeriesPoint[] {
   }
   return points;
 }
+
+// formatDuration counts in whole seconds, which reads as "00:00:00" for work that took milliseconds
+const formatElapsed = (ms: number) => (ms < 1000 ? Math.round(ms) + " ms" : (ms / 1000).toFixed(1) + " s");
 
 const formatRate = (value: number) => (value >= 100 ? formatCount(Math.round(value)) : value.toFixed(value >= 10 ? 0 : 1));
 
