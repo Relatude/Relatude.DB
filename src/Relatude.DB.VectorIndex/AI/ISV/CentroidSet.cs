@@ -216,7 +216,7 @@ internal sealed class CentroidSet {
             fs.Write(bytes);
             fs.Flush(true);
         }
-        File.Move(tmp, path, overwrite: true);
+        FileOpenRetry.Replace(tmp, path);
     }
     public static CentroidSet? TryRead(string path, long expectedGeneration, int expectedDims) {
         try {

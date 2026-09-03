@@ -1,4 +1,5 @@
 ﻿using Relatude.DB.DataStores.Indexes.TextIndexing;
+using Relatude.DB.Common;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 
@@ -103,7 +104,7 @@ public class TextIndexEngine : IndexEngineBase, ITextIndexEngine {
         var path = Path.Combine(_folderPath, FileKeyUtility.IndexEngine_TextIndexWalIdFileKey);
         var tmp = FileKeyUtility.TempFileName(path);
         File.WriteAllText(tmp, walFileId.ToString("D"));
-        File.Move(tmp, path, overwrite: true);
+        FileOpenRetry.Replace(tmp, path);
     }
 
     // ---- maintenance / lifecycle -----------------------------------------------------------------

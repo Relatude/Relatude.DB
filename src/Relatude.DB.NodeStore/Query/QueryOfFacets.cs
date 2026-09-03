@@ -40,6 +40,11 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
     /// </summary>
     [Pure]
     public QueryOfPivot<T, TInclude> Pivot() => new(this);
+    /// <summary>Groups the nodes the facet selection leaves (only the selection filters apply; the buckets are not counted).</summary>
+    [Pure]
+    public QueryOfGroups<T, TInclude, TKey> GroupBy<TKey>(Expression<Func<T, TKey>> keySelector) => QueryOfGroups<T, TInclude, TKey>.Create(this, keySelector);
+    [Pure]
+    public QueryOfGroups<T, TInclude, object?[]> GroupBy(params GroupKey[] keys) => QueryOfGroups<T, TInclude, object?[]>.Create(this, keys);
     Guid getPropertyId<TChild>(Expression<Func<TChild, object?>> expression) where TChild : T {
         return _query.Store.Mapper.GetProperty<TChild>(expression).Id;
     }

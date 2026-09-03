@@ -20,6 +20,9 @@
   /* the database's own data: important enough to mark, but not an error - never the danger red */
   --data: #8a5a09;
   --data-soft: rgba(138, 90, 9, 0.12);
+  /* an open revert window: neither an error nor data, and it must not be mistaken for either */
+  --revert: #7a3fb0;
+  --revert-soft: rgba(122, 63, 176, 0.12);
   --badge-bg: rgba(0, 0, 0, 0.07);
   --backdrop-ink: #1d1c1a;
   --backdrop-opacity: 0.16;
@@ -44,6 +47,8 @@
   --ok: #6fbf85;
   --data: #e0a45c;
   --data-soft: rgba(224, 164, 92, 0.14);
+  --revert: #c49bf0;
+  --revert-soft: rgba(196, 155, 240, 0.16);
   --badge-bg: rgba(255, 255, 255, 0.09);
   --backdrop-ink: #a8cdf2;
   --backdrop-opacity: 0.18;
@@ -326,6 +331,22 @@ a {
   font-size: 12px;
   color: var(--text-muted);
   line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the open revert window, in the switcher and its list: the state that changes what a write means */
+.db-revert {
+  margin-left: 6px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--revert);
+  background: var(--revert-soft);
+  border-radius: 4px;
 }
 
 .db-switcher-button .chevron {
@@ -534,10 +555,547 @@ a {
 
 /* ---- content ---- */
 
+/* a column: the revert bar of the database (when one is shown) on top, then the page, which is
+   the part that scrolls - so the bar stays in view whatever the page below it is doing */
 .content {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.content-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   padding: 16px; /* same rhythm as the 16px gap between panels */
   overflow-y: auto;
+}
+
+/* pages that fill the viewport (query, files, settings) size themselves against this box */
+.content-body > * {
+  flex: none;
+}
+
+.content-body > .query,
+.content-body > .files,
+.content-body > .settings {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
+/* while a revert window is open the whole page is framed in the window's colour, so the state is
+   visible even with the bar scrolled out of mind - it is the one thing every write here hangs on */
+.content.in-revert {
+  box-shadow: inset 0 0 0 2px var(--revert);
+}
+
+/* ---- revert window ---- */
+
+.revert-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  margin: 12px 16px 0;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.revert-bar .action-button {
+  min-width: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.revert-title {
+  font-weight: 600;
+  color: var(--text-soft);
+  white-space: nowrap;
+}
+
+.revert-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.revert-bar.active {
+  color: var(--text);
+  background: var(--revert-soft);
+  border: 1px solid var(--revert);
+}
+
+.revert-bar.active .revert-title {
+  color: var(--revert);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.revert-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  min-width: 0;
+}
+
+.revert-facts strong {
+  font-weight: 600;
+}
+
+.revert-changed {
+  color: var(--revert);
+}
+
+.revert-unchanged {
+  color: var(--text-muted);
+}
+
+.revert-pulse {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--revert);
+  animation: revert-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes revert-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--revert-soft);
+  }
+  50% {
+    box-shadow: 0 0 0 5px var(--revert-soft);
+  }
+}
+
+/* ---- tabs (generic) ---- */
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  flex: none;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ---- node meta ---- */
+
+.node-meta {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  container-type: inline-size;
+}
+
+.node-meta-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 4px 0 6px;
+  font-size: 12px;
+}
+
+.node-meta-actions .action-button {
+  min-width: 0;
+}
+
+.node-meta-group h4 {
+  margin: 14px 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.node-meta .node-field-control {
+  flex-wrap: wrap;
+}
+
+.node-meta .node-field-control.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.node-meta-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.node-meta-hint strong {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* ---- node history ---- */
+
+.node-history {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  container-type: inline-size; /* the diff rows lay out for the pane they are in */
+}
+
+/* in a narrow pane the property name takes a line of its own, and old → new share the next */
+@container (max-width: 560px) {
+  .history-change {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+  .history-change em {
+    grid-column: 1 / -1;
+  }
+  .history-values {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.history-intro {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.history-note {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.history-row {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.history-row.current {
+  border-color: var(--accent);
+}
+
+.history-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap; /* the editor pane is narrow: the summary drops to its own line rather than being cut */
+  gap: 4px 10px;
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  border-radius: 8px;
+}
+
+.history-summary {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* the head is a button (it toggles the values), so the compare button sits beside it, not in it */
+.history-head-wrap {
+  display: flex;
+  align-items: flex-start;
+}
+
+.history-head-wrap .history-head {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-compare {
+  flex: none;
+  margin: 6px 8px 0 0;
+}
+
+/* ---- version compare dialog + text diff ---- */
+
+.dialog.dialog-wide {
+  display: flex;
+  flex-direction: column;
+  width: min(1100px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+}
+
+.dialog.dialog-wide h3 {
+  gap: 8px;
+}
+
+.compare-pick {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.compare-pick label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
+.compare-pick .select {
+  max-width: 300px;
+}
+
+.compare-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.compare-toolbar .setting-toggle {
+  margin-right: 0;
+  font-size: 12px;
+}
+
+.compare-group {
+  display: flex;
+  gap: 4px;
+}
+
+.compare-body {
+  flex: 1;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 4px;
+  overflow-y: auto;
+}
+
+.compare-empty {
+  padding: 30px 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.compare-prop {
+  flex: none; /* overflow:hidden would otherwise let the scrolling column shrink each one to a sliver */
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.compare-prop header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.compare-prop header strong {
+  font-size: 13px;
+}
+
+.compare-same {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diff-stats {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.diff-stats .plus {
+  color: var(--ok);
+}
+
+.diff-stats .minus {
+  color: var(--danger);
+}
+
+.diff {
+  margin: 0;
+  padding: 8px 10px;
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diff .delete {
+  background: var(--danger-soft);
+  color: var(--danger);
+  text-decoration: line-through;
+  border-radius: 2px;
+}
+
+.diff .insert {
+  background: rgba(47, 122, 68, 0.16);
+  color: var(--ok);
+  border-radius: 2px;
+}
+
+[data-theme="dark"] .diff .insert {
+  background: rgba(111, 191, 133, 0.2);
+}
+
+/* two columns, aligned hunk by hunk: the same text on both sides for an equal hunk, the old text left
+   and the new text right for a changed one */
+.diff-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.diff-side-label {
+  padding: 3px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--border);
+}
+
+.diff-side-label + .diff-side-label,
+.diff-cell:nth-child(2) {
+  border-left: 1px solid var(--border);
+}
+
+.diff-split .diff-cell {
+  padding: 1px 10px;
+}
+
+.diff-split .diff-cell.changed {
+  background: var(--hover);
+}
+
+.diff-blank {
+  display: inline-block;
+  min-height: 1em;
+}
+
+.history-head:hover {
+  background: var(--hover);
+}
+
+.history-time {
+  font-weight: 600;
+}
+
+.history-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 12px 10px 34px;
+}
+
+.history-change {
+  display: grid;
+  grid-template-columns: minmax(100px, 180px) minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 4px 8px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.history-change.long {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.history-change.long .diff {
+  padding: 4px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.history-change em,
+.history-value em {
+  font-style: normal;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.history-from {
+  color: var(--danger);
+  text-decoration: line-through;
+  overflow-wrap: anywhere;
+}
+
+.history-to {
+  color: var(--ok);
+  overflow-wrap: anywhere;
+}
+
+.history-arrow {
+  color: var(--text-faint);
+}
+
+.history-values {
+  display: grid;
+  grid-template-columns: minmax(100px, 180px) 1fr;
+  gap: 4px 10px;
+  padding: 8px 12px 10px 34px;
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.history-value {
+  display: contents;
+}
+
+.history-value span {
+  overflow-wrap: anywhere;
 }
 
 .page-kicker {
@@ -3286,12 +3844,12 @@ a.action-button {
    three still read, the facet rail is the one that gives way - the selection it made is already
    applied, and the list and the form are what clicking through a set of nodes needs */
 .query-body.with-editor {
-  grid-template-columns: 210px minmax(0, 1fr) minmax(340px, 38%);
+  grid-template-columns: 210px minmax(0, 1fr) var(--editor-width, minmax(340px, 38%));
 }
 
 @media (max-width: 1240px) {
   .query-body.with-editor {
-    grid-template-columns: minmax(0, 1fr) minmax(340px, 44%);
+    grid-template-columns: minmax(0, 1fr) var(--editor-width, minmax(340px, 44%));
   }
   .query-body.with-editor .query-facets {
     display: none;
@@ -3304,14 +3862,59 @@ a.action-button {
 }
 
 .query-body.no-facets.with-editor {
-  grid-template-columns: minmax(0, 1fr) minmax(340px, 38%);
+  grid-template-columns: minmax(0, 1fr) var(--editor-width, minmax(340px, 38%));
+}
+
+/* while the bar is being dragged: the pointer owns the page, and a drag across a list of hits
+   should not select their text on the way */
+.query-body.resizing {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .query-editor {
+  position: relative;
   display: flex;
   min-height: 0;
   padding-left: 16px;
   border-left: 1px solid var(--border);
+}
+
+/* The bar between the list and the form. It has no column of its own - it sits on the editor's
+   left edge and reaches into the gap on either side, so there is something to grab where the
+   divider already is. The line only colours under the pointer: at rest the editor's own border is
+   the divider, and a second permanent line beside it would read as a second edge. */
+.query-splitter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -8px;
+  width: 17px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.query-splitter::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 7px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.query-splitter:hover::before,
+.query-splitter:focus-visible::before,
+.query-body.resizing .query-splitter::before {
+  opacity: 1;
+}
+
+.query-splitter:focus-visible {
+  outline: none;
 }
 
 /* the header buttons are sized for a full-width page; in this column they take their text's width */

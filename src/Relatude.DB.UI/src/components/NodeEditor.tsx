@@ -15,6 +15,10 @@ import { showError } from "../dialogs";
 import { useLiveResult } from "../server/hooks";
 import { formatCount, formatTime } from "../format";
 import { FilePreview } from "./MediaPreview";
+import { NodeMetaTab } from "./NodeMetaTab";
+import { NodeHistoryTab } from "./NodeHistoryTab";
+
+type EditorTab = "properties" | "meta" | "history";
 
 /**
  * One node as a form, built from the data model rather than from a class: every property of the
@@ -28,6 +32,11 @@ import { FilePreview } from "./MediaPreview";
  * Some property types are shown but not editable, because a text field is the wrong way to change
  * them: a file (the files section owns uploads), a stored vector, a byte array, and the inner
  * nodes of an embedded property, which are a document of their own inside the node.
+ *
+ * Three tabs: the properties (this form), the meta (access, publishing window, revision - see
+ * NodeMetaTab) and the history (the older versions in the transaction log - see NodeHistoryTab).
+ * The head, and its Save, belong to the properties; the meta tab saves on its own, since its edits
+ * are a different write to the store.
  */
 export function NodeEditor({
   storeId,
@@ -49,6 +58,7 @@ export function NodeEditor({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
+  const [tab, setTab] = useState<EditorTab>("properties");
 
   const load = useCallback(() => {
     setNode(null);
@@ -129,22 +139,49 @@ export function NodeEditor({
           </span>
         </div>
         <div className="query-spacer" />
-        {saved && <span className="muted">{saved}</span>}
-        <button className="action-button" onClick={load} disabled={saving} title="Read the node again, dropping unsaved edits">
-          <IconRefresh size={15} stroke={1.8} />
-          Reload
-        </button>
-        <button className="action-button primary" onClick={save} disabled={dirty === 0 || saving}>
-          <IconDeviceFloppy size={15} stroke={1.8} />
-          {dirty === 0 ? "Save" : `Save ${dirty} ${dirty === 1 ? "field" : "fields"}`}
-        </button>
+        {tab === "properties" && (
+          <>
+            {saved && <span className="muted">{saved}</span>}
+            <button className="action-button" onClick={load} disabled={saving} title="Read the node again, dropping unsaved edits">
+              <IconRefresh size={15} stroke={1.8} />
+              Reload
+            </button>
+            <button className="action-button primary" onClick={save} disabled={dirty === 0 || saving}>
+              <IconDeviceFloppy size={15} stroke={1.8} />
+              {dirty === 0 ? "Save" : `Save ${dirty} ${dirty === 1 ? "field" : "fields"}`}
+            </button>
+          </>
+        )}
         {onClose && (
           <button className="icon-button" title="Close" onClick={onClose}>
             <IconX size={16} stroke={1.8} />
           </button>
         )}
       </div>
-      <div className="node-fields">
+      <div className="tabs" role="tablist">
+        <button className={"tab" + (tab === "properties" ? " active" : "")} role="tab" onClick={() => setTab("properties")}>
+          Properties
+          {dirty > 0 && <span className="tab-dot" title={`${dirty} unsaved`} />}
+        </button>
+        <button className={"tab" + (tab === "meta" ? " active" : "")} role="tab" onClick={() => setTab("meta")} title="Access, publishing window, revision and culture">
+          Meta
+        </button>
+        <button className={"tab" + (tab === "history" ? " active" : "")} role="tab" onClick={() => setTab("history")} title="Older versions of the node, from the transaction log">
+          History
+        </button>
+      </div>
+      {tab === "meta" && (
+        <NodeMetaTab
+          storeId={storeId}
+          nodeId={nodeId}
+          onSaved={() => {
+            load(); // a meta write is a new version of the node: the head's timestamps move
+            onSaved?.();
+          }}
+        />
+      )}
+      {tab === "history" && <NodeHistoryTab storeId={storeId} nodeId={nodeId} />}
+      <div className="node-fields" hidden={tab !== "properties"}>
         {node.properties.map((property) => (
           <Field
             key={property.id}

@@ -55,9 +55,13 @@ sealed class UIQuery {
         commands.Register("query-search", async ctx => await search(ctx.Payload<SearchPayload>()));
         commands.Register("query-node", ctx => node(ctx.Payload<NodePayload>()));
         commands.Register("query-save", async ctx => await save(ctx.Payload<SavePayload>()));
+        commands.Register("query-node-meta", ctx => nodeMeta(ctx.Payload<NodePayload>()));
+        commands.Register("query-save-meta", ctx => saveMeta(ctx.Payload<SaveMetaPayload>()));
+        commands.Register("query-node-versions", ctx => nodeVersions(ctx.Payload<VersionsPayload>()));
         commands.Register("query-lookup", ctx => lookup(ctx.Payload<LookupPayload>()));
         commands.Register("query-pivot-model", ctx => pivotModel(ctx.Payload<PivotModelPayload>()));
         commands.Register("query-pivot", async ctx => await pivot(ctx.Payload<PivotPayload>()));
+        commands.Register("query-groupby", async ctx => await groupBy(ctx.Payload<GroupByPayload>()));
     }
 
     // Reading and writing as an administrator: hidden and unpublished nodes are part of what this
@@ -574,6 +578,225 @@ sealed class UIQuery {
             Properties = properties,
         };
     }
+
+    // ---- the node's meta: who may see it, when it is live, which revision and culture it is ----
+
+    /// <summary>
+    /// The meta of one node, with every guid explained. An access guid is a group: the well known
+    /// ones have names, any other is looked up as a node; the read and edit-view guids are also
+    /// resolved the way the query filter resolves them (node, then the type's default, then the
+    /// database's), so the page can say what actually applies when the node itself says nothing.
+    /// </summary>
+    object nodeMeta(NodePayload p) {
+        var s = store(p.StoreId);
+        var dm = s.Datastore.Datamodel;
+        if (!s.Datastore.TryGet(p.Id, out var n, adminContext)) throw new Exception("Node not found. ");
+        dm.NodeTypes.TryGetValue(n.NodeType, out var type);
+        var meta = n.Meta ?? IInnerNodeMeta.Empty;
+        var storeDefault = _server.Containers.TryGetValue(p.StoreId, out var c) ? c.Settings.LocalSettings?.DefaultReadAccess : null;
+        return new {
+            n.Id,
+            IntId = n.__Id,
+            TypeName = type?.CodeName,
+            DisplayName = displayNameOf(dm, n),
+            n.Address,
+            n.AutoAddress,
+            n.CreatedUtc,
+            n.ChangedUtc,
+            // an empty meta is not stored at all - the most common case, and worth saying
+            Stored = n.Meta != null,
+            HasRevisions = n is NodeDataRevision,
+            RevisionId = n is NodeDataRevision rev ? rev.RevisionId.ToString() : null,
+            RevisionType = n.RevisionType.ToString(),
+            n.RevisionKey,
+            Culture = idView(s, meta.CultureId),
+            Collection = idView(s, meta.CollectionId),
+            ReadAccess = accessView(s, meta.ReadAccess, type?.DefaultReadAccess, storeDefault),
+            EditViewAccess = accessView(s, meta.EditViewAccess, type?.DefaultEditViewAccess, storeDefault),
+            EditAccess = accessView(s, meta.EditAccess, type?.DefaultEditAccess, null),
+            PublishAccess = accessView(s, meta.PublishAccess, type?.DefaultPublishAccess, null),
+            meta.Deleted,
+            CreatedBy = idView(s, meta.CreatedBy),
+            ChangedBy = idView(s, meta.ChangedBy),
+            meta.ReleaseUtc,
+            meta.ExpireUtc,
+        };
+    }
+
+    // the groups every database has, by name
+    static string? wellKnownGroup(Guid id) {
+        if (id == NodeConstants.UserGroupUnspecified) return "Unspecified";
+        if (id == NodeConstants.UserGroupEveryone) return "Everyone";
+        if (id == NodeConstants.UserGroupMember) return "Members";
+        if (id == NodeConstants.UserGroupAdmins) return "Administrators";
+        return null;
+    }
+    static string? nameOfId(NodeStore s, Guid id) {
+        if (id == Guid.Empty) return null;
+        if (wellKnownGroup(id) is string group) return group;
+        return s.Datastore.TryGetNodeMeta(id, out var meta, adminContext) && !string.IsNullOrEmpty(meta.DisplayName) ? meta.DisplayName : null;
+    }
+    static object idView(NodeStore s, Guid id) => new { Value = id == Guid.Empty ? null : id.ToString(), Name = nameOfId(s, id) };
+    // mirrors NodeTypesByIds.findUserGroup: the node's own value, else the type's default, else the database's
+    static object accessView(NodeStore s, Guid fromMeta, Guid? fromType, Native.SystemGroupType? fromSettings) {
+        Guid effective;
+        string source;
+        if (fromMeta != NodeConstants.UserGroupUnspecified) (effective, source) = (fromMeta, "node");
+        else if (fromType is Guid t && t != NodeConstants.UserGroupUnspecified) (effective, source) = (t, "type");
+        else if (fromSettings is Native.SystemGroupType g) {
+            effective = g switch {
+                Native.SystemGroupType.Member => NodeConstants.UserGroupMember,
+                Native.SystemGroupType.Admins => NodeConstants.UserGroupAdmins,
+                _ => NodeConstants.UserGroupEveryone,
+            };
+            source = "database";
+        } else (effective, source) = (Guid.Empty, "none");
+        return new {
+            Value = fromMeta == Guid.Empty ? null : fromMeta.ToString(),
+            Name = nameOfId(s, fromMeta),
+            Effective = effective == Guid.Empty ? null : effective.ToString(),
+            EffectiveName = nameOfId(s, effective),
+            EffectiveSource = source,
+        };
+    }
+
+    /// <summary>
+    /// Writes the meta values that changed. The keys are the meta property names the store's
+    /// UpdateMeta accepts; culture and revision key are not among them (they identify the revision
+    /// rather than describe it), and the two audit guids are left alone here on purpose.
+    /// </summary>
+    object saveMeta(SaveMetaPayload p) {
+        var s = store(p.StoreId);
+        if (!s.Datastore.TryGet(p.Id, out var n, adminContext)) throw new Exception("Node not found. ");
+        var values = new List<KeyValuePair<string, object>>();
+        foreach (var (key, json) in p.Values ?? []) {
+            object value = key switch {
+                nameof(IInnerNodeMeta.CollectionId) or nameof(IInnerNodeMeta.ReadAccess) or nameof(IInnerNodeMeta.EditAccess)
+                    or nameof(IInnerNodeMeta.EditViewAccess) or nameof(IInnerNodeMeta.PublishAccess) => metaGuid(json),
+                nameof(IInnerNodeMeta.Deleted) => json.ValueKind == JsonValueKind.True,
+                nameof(IInnerNodeMeta.ReleaseUtc) or nameof(IInnerNodeMeta.ExpireUtc) => metaDate(json)!,
+                _ => throw new Exception("The meta property \"" + key + "\" cannot be written here. "),
+            };
+            values.Add(new(key, value));
+        }
+        if (values.Count == 0) return new { Changed = 0 };
+        if (n is NodeDataRevision rev) s.UpdateMeta(p.Id, rev.RevisionId, [.. values]);
+        else s.UpdateMeta(p.Id, [.. values]);
+        return new { Changed = values.Count };
+    }
+    static Guid metaGuid(JsonElement json) {
+        if (json.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) return Guid.Empty;
+        var text = json.GetString();
+        if (string.IsNullOrWhiteSpace(text)) return Guid.Empty;
+        return Guid.TryParse(text, out var g) ? g : throw new Exception("\"" + text + "\" is not a guid. ");
+    }
+    // a date arrives as the ISO text a datetime-local field produces, without a zone: it is UTC, as the store keeps them
+    static object? metaDate(JsonElement json) {
+        if (json.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) return null;
+        var text = json.GetString();
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        if (!DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var dt))
+            throw new Exception("\"" + text + "\" is not a date. ");
+        return (DateTime?)dt;
+    }
+
+    // ---- the node's history: its older versions, read off the transaction log ----
+
+    /// <summary>
+    /// The versions of a node, newest first, each with what changed when it was written: the
+    /// current version first, compared with the newest older one, then every older version
+    /// compared with the one before it. The oldest reachable version has nothing to compare
+    /// against, so it lists its values and no changes. Relations are not part of node data and are
+    /// not in the history; a property no longer in the data model is shown by its id.
+    /// </summary>
+    object nodeVersions(VersionsPayload p) {
+        var s = store(p.StoreId);
+        var dm = s.Datastore.Datamodel;
+        if (!s.Datastore.TryGet(p.Id, out var current, adminContext)) throw new Exception("Node not found. ");
+        var maxCount = Math.Clamp(p.MaxCount, 1, 500);
+        var versions = s.Datastore.FindOlderVersions(p.Id, maxCount, adminContext);
+        var rows = new List<object> { versionRow(dm, current, versions.Length > 0 ? versions[0].Node : null, null) };
+        for (var i = 0; i < versions.Length; i++) {
+            rows.Add(versionRow(dm, versions[i].Node, i + 1 < versions.Length ? versions[i + 1].Node : null, versions[i]));
+        }
+        return new {
+            Rows = rows,
+            Count = versions.Length,
+            // exactly as many as asked for means there may be more behind them
+            MayHaveMore = versions.Length >= maxCount,
+        };
+    }
+
+    static object versionRow(Datamodel dm, INodeDataExternal node, INodeDataExternal? older, NodeVersionData? data) {
+        dm.NodeTypes.TryGetValue(node.NodeType, out var type);
+        // every property either version has a value for, model order first, then anything not in the model
+        var known = type?.AllProperties.Values.Where(property => !property.Internal && property is not RelationPropertyModel)
+            .OrderBy(property => property.CodeName, StringComparer.OrdinalIgnoreCase).ToList() ?? [];
+        // anything the model knows but leaves out above (internal properties, relations) stays out;
+        // what is left is a property the model no longer has
+        var modelIds = type?.AllProperties.Keys.ToHashSet() ?? [];
+        var unknownIds = node.Values.Select(v => v.PropertyId).Concat(older?.Values.Select(v => v.PropertyId) ?? [])
+            .Where(id => !modelIds.Contains(id)).Distinct().OrderBy(id => id).ToList();
+        var values = new List<object>();
+        var changes = older == null ? null : new List<object>();
+        foreach (var property in known) values.Add(versionValue(property, property.CodeName, node, older, changes));
+        foreach (var id in unknownIds) values.Add(versionValue(null, id.ToString(), node, older, changes));
+        // the meta is part of the node record too, and a write that only changed it (a delete flag,
+        // an access group) would otherwise show as a version with no changes at all
+        var meta = node.Meta ?? IInnerNodeMeta.Empty;
+        var olderMeta = older?.Meta ?? IInnerNodeMeta.Empty;
+        foreach (var (name, now, was) in new (string, object?, object?)[] {
+            ("Deleted", meta.Deleted, olderMeta.Deleted),
+            ("ReadAccess", meta.ReadAccess, olderMeta.ReadAccess),
+            ("EditAccess", meta.EditAccess, olderMeta.EditAccess),
+            ("EditViewAccess", meta.EditViewAccess, olderMeta.EditViewAccess),
+            ("PublishAccess", meta.PublishAccess, olderMeta.PublishAccess),
+            ("CollectionId", meta.CollectionId, olderMeta.CollectionId),
+            ("CultureId", meta.CultureId, olderMeta.CultureId),
+            ("RevisionType", meta.RevisionType.ToString(), olderMeta.RevisionType.ToString()),
+            ("ReleaseUtc", meta.ReleaseUtc, olderMeta.ReleaseUtc),
+            ("ExpireUtc", meta.ExpireUtc, olderMeta.ExpireUtc),
+        }) {
+            var shown = now is Guid g ? (wellKnownGroup(g) ?? display(null, g)) : display(null, now);
+            if (older != null && token(now) != token(was)) {
+                changes!.Add(new { Name = "Meta." + name, From = was is Guid wg ? (wellKnownGroup(wg) ?? display(null, wg)) : display(null, was), To = shown });
+            }
+            values.Add(new { Name = "Meta." + name, Type = "meta", Value = shown });
+        }
+        return new {
+            Current = data == null,
+            Timestamp = data?.Timestamp.ToString(CultureInfo.InvariantCulture),
+            Utc = data?.EstimatedCreationUtc ?? node.ChangedUtc,
+            data?.Source,
+            TypeName = type?.CodeName ?? node.NodeType.ToString(),
+            DisplayName = displayNameOf(dm, node),
+            Values = values,
+            Changes = changes,
+        };
+    }
+    static object versionValue(PropertyModel? property, string name, INodeDataExternal node, INodeDataExternal? older, List<object>? changes) {
+        node.TryGetValue(property?.Id ?? Guid.Parse(name), out var value);
+        var shown = display(property, value);
+        if (older != null) {
+            older.TryGetValue(property?.Id ?? Guid.Parse(name), out var was);
+            if (token(value) != token(was)) changes!.Add(new { Name = name, From = display(property, was), To = shown });
+        }
+        return new { Name = name, Type = property?.PropertyType.ToString(), Value = shown };
+    }
+    // equality for the history diff: whatever identifies the value, never its display text (two
+    // different dates can display the same, and two identical files can have different display)
+    static string token(object? v) => v switch {
+        null => "",
+        string[] a => "s:" + string.Join('', a),
+        Guid[] a => "g:" + string.Join('', a),
+        int[] a => "i:" + string.Join('', a),
+        byte[] a => "b:" + a.Length + ":" + Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(a)),
+        float[] a => "f:" + a.Length + ":" + Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(System.Runtime.InteropServices.MemoryMarshal.AsBytes(a.AsSpan()))),
+        FileValue f => f.IsEmpty ? "" : "file:" + f.FileId + ":" + f.Hash + ":" + f.Name,
+        IInnerNodeDataMap m => "inner:" + string.Join('', m.Select(inner => inner.Id + "=" + string.Join('', inner.Values.Select(e => e.PropertyId + ":" + token(e.Value))))),
+        GeoCoordinate g => g.IsEmpty ? "" : "geo:" + g.Latitude.ToString("R", CultureInfo.InvariantCulture) + "," + g.Longitude.ToString("R", CultureInfo.InvariantCulture),
+        _ => wire(v) ?? "",
+    };
 
     static PropertyView propertyView(NodeStore s, Datamodel dm, NodeTypeModel type, INodeDataExternal n, PropertyModel property) {
         var view = new PropertyView {
@@ -1250,6 +1473,109 @@ sealed class UIQuery {
         Total = pivotCellView(s.Total),
     };
 
+    // ---- the group-by view: the same search, one row per group ----
+
+    /// <summary>
+    /// Runs a GroupBy: the page's search and facet selection as the source, one key level per chosen
+    /// property (one group per value, a calendar interval, or ranges), the aggregates asked for, the
+    /// rows in the keys' natural order or sorted by one measure, and paged. Built with the runtime
+    /// GroupBy API - GroupKey and Aggregate - so it is the very code path a dynamic report takes, and
+    /// the query string shown is the one such a report would send.
+    /// </summary>
+    async Task<object> groupBy(GroupByPayload p) {
+        var s = store(p.StoreId);
+        var dm = s.Datastore.Datamodel;
+        var typeId = queriedType(dm, p.TypeId);
+        var nodeType = dm.NodeTypes[typeId];
+        var pageSize = Math.Clamp(p.PageSize <= 0 ? 200 : p.PageSize, 1, maxPivotRows);
+        var keys = (p.Keys ?? []).Where(k => dm.Properties.ContainsKey(k.PropertyId)).Select(k => groupKey(dm.Properties[k.PropertyId], k.Mode)).ToArray();
+        var keyViews = keys.Select(k => {
+            var property = dm.Properties[k.PropertyId];
+            return (object)new { k.PropertyId, property.CodeName, ValueType = property.PropertyType.ToString(), k.IsRange, Interval = k.DateInterval.ToString() };
+        }).ToArray();
+        var measures = (p.Measures ?? [])
+            .Select(m => (Function: Enum.TryParse<PivotFunction>(m.Function, true, out var f) ? f : PivotFunction.Count, m.PropertyId))
+            .Where(m => m.Function != PivotFunction.Count && m.PropertyId is Guid id && dm.Properties.ContainsKey(id)) // Count is always a column; a half-built measure is skipped
+            .Select(m => (m.Function, Property: dm.Properties[m.PropertyId!.Value]))
+            .DistinctBy(m => (m.Function, m.Property.Id))
+            .ToArray();
+        var measureViews = measures.Select(m => (object)new { Name = m.Property.CodeName + "." + m.Function, Function = m.Function.ToString(), PropertyName = m.Property.CodeName }).ToArray();
+        var measureNames = measures.Select(m => m.Property.CodeName + "." + m.Function).ToArray();
+        if (keys.Length == 0) // nothing chosen yet: an empty table, not an error
+            return new { TypeId = typeId, TypeName = nodeType.CodeName, Query = "", DurationMs = 0.0, SourceCount = 0, Keys = keyViews, Measures = measureViews, Rows = Array.Empty<object>(), TotalRows = 0, Page = 0, PageSize = pageSize };
+
+        var q = s.QueryType(typeId, adminContext);
+        if (!string.IsNullOrWhiteSpace(p.Text)) q = q.WhereSearch(prefixEachWord(p.Text), p.SemanticRatio, (float?)p.MinimumSimilarity);
+        var selections = (p.Selections ?? []).Where(sel => dm.Properties.ContainsKey(sel.PropertyId) && sel.Values?.Length > 0).ToArray();
+        QueryOfGroups<object, object, object?[]> groups;
+        if (selections.Length == 0) {
+            groups = q.GroupBy(keys);
+        } else { // the selection is the filter; its buckets are neither asked for nor counted
+            var fq = q.Facets();
+            foreach (var selection in selections) {
+                foreach (var value in selection.Values!) {
+                    if (value.Value == null) fq = fq.SetFacetMissingValue(selection.PropertyId);
+                    else if (value.Value2 == null) fq = fq.SetFacetValue(selection.PropertyId, value.Value);
+                    else fq = fq.SetFacetRangeValue(selection.PropertyId, value.Value, value.Value2);
+                }
+            }
+            groups = fq.GroupBy(keys);
+        }
+        foreach (var m in measures) groups = groups.Aggregate(m.Function, m.Property.Id);
+        groups = groups.IncludeMissing(p.IncludeMissing);
+        QueryOfGroupRows<NodeGroup<object?[]>> rows = groups;
+        if (!string.IsNullOrEmpty(p.SortBy)) {
+            if (string.Equals(p.SortBy, "Count", StringComparison.OrdinalIgnoreCase)) {
+                rows = p.Descending ? rows.OrderByDescending(g => g.Count) : rows.OrderBy(g => g.Count);
+            } else if (measureNames.FirstOrDefault(n => string.Equals(n, p.SortBy, StringComparison.OrdinalIgnoreCase)) is { } name) {
+                rows = p.Descending ? rows.OrderByDescending(g => g[name]) : rows.OrderBy(g => g[name]);
+            }
+        }
+        rows = rows.Page(Math.Max(0, p.Page), pageSize);
+        var queryString = rows.ToString();
+        var sw = Stopwatch.StartNew();
+        var result = await rows.ExecuteAsync();
+        sw.Stop();
+        return new {
+            TypeId = typeId,
+            TypeName = nodeType.CodeName,
+            Query = queryString,
+            DurationMs = sw.Elapsed.TotalMilliseconds,
+            result.SourceCount,
+            Keys = keyViews,
+            Measures = measureViews,
+            Rows = result.Select(g => groupRowView(s, g)).ToArray(),
+            TotalRows = result.TotalCount,
+            Page = result.PageIndex,
+            PageSize = pageSize,
+        };
+    }
+    /// <summary>Mode: values (default) | ranges, or a calendar interval (year, quarter, month, week, day, hour) on a date property.</summary>
+    static GroupKey groupKey(PropertyModel property, string? mode) {
+        var m = (mode ?? "values").ToLowerInvariant();
+        var isDate = property.PropertyType is PropertyType.DateTime or PropertyType.DateTimeOffset;
+        return m switch {
+            "ranges" => GroupKey.Ranges(property.Id),
+            _ when isDate && Enum.TryParse<DateInterval>(m, true, out var interval) && interval != DateInterval.None => GroupKey.Interval(property.Id, interval),
+            _ => GroupKey.Values(property.Id),
+        };
+    }
+    // the key parts travel in the facet selection form (see wire), so a row can be turned into the
+    // selection that shows the nodes behind it; a range or calendar part gives both bounds
+    static object groupRowView(NodeStore s, NodeGroup<object?[]> g) => new {
+        g.Labels,
+        Values = g.Key.Select(v => wire(s, v is GroupRange<object> r ? r.From : v)).ToArray(),
+        Values2 = g.Key.Select(v => v is GroupRange<object> r ? wire(s, r.To) : null).ToArray(),
+        g.Count,
+        g.IsMissing,
+        Measures = g.MeasureValues,
+    };
+    // a GroupBy hands relation keys back as mapped node objects (the typed API's contract); their id is the token
+    static string? wire(NodeStore s, object? v) {
+        if (v is null or INodeData or string or bool or Enum or IFormattable) return wire(v);
+        try { return s.Mapper.GetIdGuid(v).ToString(); } catch { return wire(v); }
+    }
+
     sealed record StorePayload(Guid StoreId);
     sealed record NodePayload(Guid StoreId, Guid Id);
     internal sealed record PivotModelPayload(Guid StoreId, Guid? TypeId);
@@ -1260,11 +1586,15 @@ sealed class UIQuery {
     internal sealed record PivotPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity, FacetSelection[]? Selections,
         PivotLevelPayload[]? Rows, PivotLevelPayload[]? Columns, PivotMeasurePayload[]? Measures,
         PivotAxisOptionsPayload? RowOptions, PivotAxisOptionsPayload? ColumnOptions, bool SubTotals = false, int MaxCells = 0, int RowPage = 0, int RowPageSize = 0);
+    internal sealed record GroupByPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity, FacetSelection[]? Selections,
+        PivotLevelPayload[]? Keys, PivotMeasurePayload[]? Measures, bool IncludeMissing = true, string? SortBy = null, bool Descending = true, int Page = 0, int PageSize = 200);
     internal sealed record FacetSelectionValue(string? Value, string? Value2);
     internal sealed record FacetSelection(Guid PropertyId, FacetSelectionValue[]? Values);
     internal sealed record SearchPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity,
         FacetSelection[]? Selections, Guid[]? Expanded, int Page = 0, int PageSize = 25, bool Table = false, bool Facets = true,
         string? SortBy = null, bool SortDescending = false);
     sealed record SavePayload(Guid StoreId, Guid Id, Dictionary<string, JsonElement>? Values, Dictionary<string, Guid[]>? Relations);
+    sealed record SaveMetaPayload(Guid StoreId, Guid Id, Dictionary<string, JsonElement>? Values);
+    sealed record VersionsPayload(Guid StoreId, Guid Id, int MaxCount = 50);
     sealed record LookupPayload(Guid StoreId, Guid[]? TypeIds, string? Text, int Take = 20);
 }

@@ -228,6 +228,104 @@ export interface NodeView {
   properties: PropertyView[];
 }
 
+// ---- the node's meta and history (the other two tabs of the editor) ----
+
+/** A guid with what it stands for, when that can be found: a group, a user, a culture, a collection. */
+export interface IdView {
+  value: string | null;
+  name: string | null;
+}
+
+/**
+ * An access guid as stored, plus what actually applies: the node's own value, else the type's
+ * default, else the database's - the same order the query filter resolves it in.
+ */
+export interface AccessView extends IdView {
+  effective: string | null;
+  effectiveName: string | null;
+  effectiveSource: "node" | "type" | "database" | "none";
+}
+
+export interface NodeMetaView {
+  id: string;
+  intId: number;
+  typeName: string | null;
+  displayName: string;
+  address: string | null;
+  autoAddress: boolean;
+  createdUtc: string;
+  changedUtc: string;
+  /** False when the node carries no meta at all (every value at its default), which is the common case. */
+  stored: boolean;
+  hasRevisions: boolean;
+  revisionId: string | null;
+  revisionType: string;
+  revisionKey: number;
+  culture: IdView;
+  collection: IdView;
+  readAccess: AccessView;
+  editViewAccess: AccessView;
+  editAccess: AccessView;
+  publishAccess: AccessView;
+  deleted: boolean;
+  createdBy: IdView;
+  changedBy: IdView;
+  releaseUtc: string | null;
+  expireUtc: string | null;
+}
+
+/** The meta values that can be written here; the names are the store's own. */
+export type MetaKey = "CollectionId" | "ReadAccess" | "EditAccess" | "EditViewAccess" | "PublishAccess" | "Deleted" | "ReleaseUtc" | "ExpireUtc";
+
+export function fetchNodeMeta(storeId: string, id: string): Promise<NodeMetaView> {
+  return send<NodeMetaView>("query-node-meta", { storeId, id });
+}
+
+/** Writes the meta values that changed: guids as text (empty or null = unspecified), dates as ISO text in UTC (null = none). */
+export function saveNodeMeta(storeId: string, id: string, values: Partial<Record<MetaKey, string | boolean | null>>): Promise<{ changed: number }> {
+  return send<{ changed: number }>("query-save-meta", { storeId, id, values });
+}
+
+export interface VersionValue {
+  name: string;
+  type: string | null;
+  value: string;
+}
+
+export interface VersionChange {
+  name: string;
+  from: string;
+  to: string;
+}
+
+/**
+ * One version of a node. The first row is the current version; `changes` is what differs from the
+ * next older row, and is null on the oldest reachable version, which has nothing to compare with.
+ */
+export interface VersionRow {
+  current: boolean;
+  timestamp: string | null;
+  utc: string;
+  /** The log file the version was read from; null on the current version. */
+  source: string | null;
+  typeName: string;
+  displayName: string;
+  values: VersionValue[];
+  changes: VersionChange[] | null;
+}
+
+export interface NodeHistory {
+  rows: VersionRow[];
+  /** Older versions found (the rows less the current one). */
+  count: number;
+  /** As many were found as were asked for, so there may be more behind them. */
+  mayHaveMore: boolean;
+}
+
+export function fetchNodeVersions(storeId: string, id: string, maxCount = 50): Promise<NodeHistory> {
+  return send<NodeHistory>("query-node-versions", { storeId, id, maxCount });
+}
+
 // ---- the pivot view: the same search, summarized as groups x measures ----
 
 /** A property of the queried type as the pivot builder sees it: what it can be used for. */
@@ -367,6 +465,64 @@ export interface PivotResult {
   grandTotal: PivotCell;
   rowSubTotals: PivotSubTotal[];
   columnSubTotals: PivotSubTotal[];
+}
+
+// ---- the group-by view: the same search, one row per group ----
+
+export interface GroupByRequest {
+  storeId: string;
+  typeId: string | null;
+  text: string;
+  semanticRatio: number | null;
+  minimumSimilarity: number | null;
+  selections: FacetSelection[];
+  /** The key properties, in order; `mode` is values | ranges, or a calendar interval on a date. */
+  keys: PivotLevelSpec[];
+  /** The aggregates beyond the count, which every row has. */
+  measures: PivotMeasureSpec[];
+  /** A group for the nodes without a value for a key (the SQL null group). */
+  includeMissing: boolean;
+  /** "Count", a measure name, or null for the keys' natural order. */
+  sortBy: string | null;
+  descending: boolean;
+  page: number;
+  pageSize: number;
+}
+
+export interface GroupByKey {
+  propertyId: string;
+  codeName: string;
+  valueType: string;
+  isRange: boolean;
+  interval: string;
+}
+
+/** One group: a label and a selection token per key (see PivotGroup for the token rules), its count and its measures. */
+export interface GroupByRow {
+  labels: string[];
+  values: (string | null)[];
+  values2: (string | null)[];
+  count: number;
+  isMissing: boolean;
+  measures: (number | null)[];
+}
+
+export interface GroupByResult {
+  typeId: string;
+  typeName: string;
+  query: string;
+  durationMs: number;
+  sourceCount: number;
+  keys: GroupByKey[];
+  measures: PivotMeasure[];
+  rows: GroupByRow[];
+  totalRows: number;
+  page: number;
+  pageSize: number;
+}
+
+export function runGroupBy(request: GroupByRequest): Promise<GroupByResult> {
+  return send<GroupByResult>("query-groupby", request);
 }
 
 export function fetchPivotModel(storeId: string, typeId: string | null): Promise<PivotModel> {

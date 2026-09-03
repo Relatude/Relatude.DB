@@ -83,6 +83,16 @@ function describeDb(db: DatabaseInfo): string {
   return db.state + (db.nodeCount != null ? ` · ${db.nodeCount.toLocaleString("en-US")} nodes` : "");
 }
 
+/** The one-line state of a database, with the open revert window marked in the window's own colour. */
+function DbState({ db }: { db: DatabaseInfo }) {
+  return (
+    <>
+      {describeDb(db)}
+      {db.revertWindow && <span className="db-revert">revert window</span>}
+    </>
+  );
+}
+
 function DbSwitcher({
   databases,
   activeDb,
@@ -99,7 +109,7 @@ function DbSwitcher({
         <span className={"state-dot " + (activeDb?.state ?? "closed").toLowerCase()} />
         <span>
           <div className="db-name">{activeDb?.name ?? "No databases"}</div>
-          <div className="db-state">{activeDb ? describeDb(activeDb) : ""}</div>
+          <div className="db-state">{activeDb ? <DbState db={activeDb} /> : ""}</div>
         </span>
         <span className="chevron">
           <IconChevronDown size={16} stroke={1.8} />
@@ -120,7 +130,9 @@ function DbSwitcher({
               >
                 <span className={"state-dot " + db.state.toLowerCase()} />
                 <span className="db-name">{db.name}</span>
-                <span className="db-meta">{describeDb(db)}</span>
+                <span className="db-meta">
+                  <DbState db={db} />
+                </span>
               </button>
             ))}
           </div>

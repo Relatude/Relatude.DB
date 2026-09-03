@@ -30,7 +30,7 @@ export interface PivotBase {
 }
 
 const rowPageSize = 200;
-const functions: { value: PivotFunction; label: string }[] = [
+export const functions: { value: PivotFunction; label: string }[] = [
   { value: "Count", label: "Count" },
   { value: "CountDistinct", label: "Distinct" },
   { value: "Sum", label: "Sum" },
@@ -38,7 +38,7 @@ const functions: { value: PivotFunction; label: string }[] = [
   { value: "Min", label: "Min" },
   { value: "Max", label: "Max" },
 ];
-const dateModes = ["year", "quarter", "month", "week", "day", "hour"];
+export const dateModes = ["year", "quarter", "month", "week", "day", "hour"];
 const noOptions: PivotAxisOptions = { maxGroups: 0, sortByMeasure: null, descending: true, otherGroup: false, includeMissing: false };
 
 /** The modes a property can be bucketed by: dates by calendar, numbers by range, everything else by value. */
@@ -63,7 +63,7 @@ function modesOf(property: PivotProperty | undefined): { value: string; label: s
 }
 
 /** Which properties a measure function accepts. */
-function propertiesFor(fn: PivotFunction, properties: PivotProperty[]): PivotProperty[] {
+export function propertiesFor(fn: PivotFunction, properties: PivotProperty[]): PivotProperty[] {
   if (fn === "Count") return [];
   if (fn === "CountDistinct") return properties.filter((p) => p.aggregatable);
   return properties.filter((p) => p.numeric);

@@ -1,3 +1,4 @@
+using Relatude.DB.Common;
 using System.Buffers.Binary;
 
 namespace Relatude.DB.DataStores.Indexes.TextIndexing;
@@ -64,7 +65,7 @@ internal sealed class TextIndexManifest {
             fs.Write(bytes);
             fs.Flush(true);
         }
-        File.Move(tmp, path, overwrite: true);
+        FileOpenRetry.Replace(tmp, path);
     }
     static ulong fnv1a(ReadOnlySpan<byte> bytes) {
         var hash = 14695981039346656037UL;

@@ -96,6 +96,7 @@ The public documentation is thin and the API is pre-1.0. **When something disagr
 | Full query surface | `src/Relatude.DB.NodeStore/Query/IQueryOfNodes.cs` |
 | Facets | `src/Relatude.DB.NodeStore/Query/QueryOfFacets.cs`, `ResultSetFacets.cs` |
 | Pivot tables | `src/Relatude.DB.NodeStore/Query/QueryOfPivot.cs`, `src/Relatude.DB.DataStore/Common/Pivot.cs`, `src/Relatude.DB.DataStoreLocal/Query/Data/NodeCollectionData.Pivot.cs` |
+| GroupBy (LINQ-shaped grouping on the pivot engine) | `src/Relatude.DB.NodeStore/Query/QueryOfGroups.cs` (translation, `Bucket`, `GroupKey`, `NodeGroup`), `groupby` in `src/Relatude.DB.DataStore/Query/Parsing/Expressions/BuildMethod.cs` |
 | Store & transactions | `src/Relatude.DB.NodeStore/Nodes/NodeStore.cs`, `Transaction.cs` |
 | Reverting (revert window, DeleteTransactionsAfter) | `src/Relatude.DB.DataStoreLocal/DataStores/DataStoreLocal.Revert.cs`, `src/Relatude.DB.DataStore/DataStores/Reverting.cs` |
 | `GeoCoordinate` and spatial indexing | `src/Relatude.DB.Common/Common/GeoCoordinate.cs`, `GeoSpatial.cs` |

@@ -8,6 +8,7 @@ import { Login } from "./components/Login";
 import { LogsSection } from "./components/LogsSection";
 import { Overview } from "./components/Overview";
 import { QuerySection } from "./components/QuerySection";
+import { RevertBar } from "./components/RevertBar";
 import { SettingsSection } from "./components/SettingsSection";
 import { Sidebar } from "./components/Sidebar";
 import { StorageSection } from "./components/StorageSection";
@@ -96,6 +97,9 @@ export function App() {
   const databases = serverInfo?.containers ?? [];
   const activeDb = databases.find((db) => db.id === activeDbId) ?? null;
   const section = sections.find((s) => s.id === activeSectionId)!;
+  // the revert window belongs to the database, not to a page: it heads every page of an open one
+  const showRevert = section.scope === "database" && activeDb !== null && activeDb.state === "Open";
+  const inRevert = showRevert && !!activeDb.revertWindow;
   return (
     <div className="shell">
       <Header
@@ -118,7 +122,9 @@ export function App() {
           activeSectionId={activeSectionId}
           onSelectSection={setActiveSectionId}
         />
-        <main className="content">
+        <main className={"content" + (inRevert ? " in-revert" : "")}>
+          {showRevert && <RevertBar key={activeDb.id} db={activeDb} />}
+          <div className="content-body">
           {activeSectionId === "dashboard" && activeDb ? (
             <DashboardSection key={activeDb.id} db={activeDb} />
           ) : activeSectionId === "server-overview" ? (
@@ -145,6 +151,7 @@ export function App() {
               <span>{section.label} — not implemented yet</span>
             </div>
           )}
+          </div>
         </main>
       </div>
       <DialogHost />

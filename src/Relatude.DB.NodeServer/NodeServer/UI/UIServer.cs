@@ -31,6 +31,7 @@ public sealed class UIServer {
         new UIDashboard(server).Register(Commands);
         new UITasks(server).Register(Commands);
         new UIDemo(server).Register(Commands);
+        new UIRevert(server).Register(Commands);
         _query = new UIQuery(server);
         _query.Register(Commands);
         _containerWatch = new Timer(_ => watchContainers(), null, containerWatchIntervalMs, Timeout.Infinite);
@@ -58,7 +59,15 @@ public sealed class UIServer {
             long? nodeCount = null;
             var conversionCount = 0;
             var taskCount = 0;
+            object? revertWindow = null;
             if (c.IsOpen()) {
+                // whether a revert window is open rides the broadcast too: it may have been begun
+                // from code or the CLI, and every page has to say so the moment it is (UIRevert.cs)
+                try {
+                    if (c.Store!.Datastore.RevertWindow is RevertWindowInfo w) {
+                        revertWindow = new { Timestamp = w.Timestamp.ToString(System.Globalization.CultureInfo.InvariantCulture), w.BegunUtc };
+                    }
+                } catch { }
                 // a container closing mid-request should not fail the snapshot
                 try { nodeCount = c.Store!.Count(); } catch { }
                 // what the file conversion queue still owes, so the nav badge is live on every page
@@ -78,6 +87,7 @@ public sealed class UIServer {
                 NodeCount = nodeCount,
                 ConversionCount = conversionCount,
                 TaskCount = taskCount,
+                RevertWindow = revertWindow,
             };
         })];
     }

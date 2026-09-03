@@ -108,6 +108,15 @@ export function subscribeResync(handler: () => void): () => void {
   };
 }
 
+/**
+ * The same signal, raised on purpose: after something that changed the database under every
+ * page at once - a revert window rolled back, a database reopened - so the pages refetch what
+ * they show instead of keeping a picture the database no longer matches.
+ */
+export function notifyResync(): void {
+  for (const handler of resyncHandlers) handler();
+}
+
 export function connect(): void {
   if (source) return;
   source = new EventSource(`${base}/stream`);

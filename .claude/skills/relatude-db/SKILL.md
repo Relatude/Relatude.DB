@@ -329,6 +329,7 @@ The moves worth knowing, all detailed in `references/queries.md`:
 .Preload(e => e.Cover)                          // eager-load Reference / References
 .Traverse(a => a.Friends, maxLevel: 2)          // breadth-first walk, cycle-safe
 .Facets().AddValueFacet(e => e.Status)          // filter sidebar buckets
+.GroupBy(e => e.Venue).Select(g => new { g.Key, N = g.Count() })  // SQL GROUP BY, LINQ shape, no nodes
 .Pivot().AddRow(e => e.Venue).AddSum(e => e.Price)  // pivot table: groups x measures, no nodes
 .SelectId()                                     // ids only, no node materialisation
 .Page(2, 25)                                    // paged — gives you TotalCount for free

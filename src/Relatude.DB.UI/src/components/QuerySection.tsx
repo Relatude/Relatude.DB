@@ -10,11 +10,13 @@ import {
   IconFilter,
   IconLayoutList,
   IconSearch,
+  IconSum,
   IconTable,
   IconX,
 } from "@tabler/icons-react";
 import { NodeEditor } from "./NodeEditor";
 import { PivotView, type PivotBase } from "./PivotView";
+import { GroupByView } from "./GroupByView";
 import { showError } from "../dialogs";
 import {
   csvRowLimit,
@@ -28,10 +30,16 @@ import {
   type SearchRequest,
 } from "../server/query";
 import { useLiveResult } from "../server/hooks";
+import { subscribeResync } from "../server/channel";
 import type { DatabaseInfo } from "../server/serverInfo";
 import { formatCount, formatTime } from "../format";
 
 const pageSizes = [25, 50, 100, 200];
+
+const editorWidthKey = "queryEditorWidth";
+const minEditorWidth = 320; // narrower and the form's own labels start wrapping
+const minResultsWidth = 320; // wider and the list the form was opened from stops being readable
+const maxEditorShare = 0.6; // and a share of the page as well, so a narrower window keeps a list
 
 /** A bucket's identity, so a selection survives the counts changing under it. */
 function keyOf(v: { value: string | null; value2: string | null }): string {
@@ -69,16 +77,29 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
   const [expanded, setExpanded] = useState<string[]>([]);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(pageSizes[0]);
-  // list and table show the hits; the pivot summarizes them, and is a view of the same search
-  const [view, setView] = useState<"list" | "table" | "pivot">("list");
+  // list and table show the hits; the groups and the pivot summarize them, as views of the same search
+  const [view, setView] = useState<"list" | "table" | "groups" | "pivot">("list");
   const table = view === "table";
   const pivot = view === "pivot";
+  const groups = view === "groups";
+  const summary = pivot || groups; // no hits on screen: no paging, no csv of hits, no query string of the search
   const [sort, setSort] = useState<{ key: string; descending: boolean } | null>(null);
   const [showFacets, setShowFacets] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
   const [showQuery, setShowQuery] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  // The editor column's width, dragged on the bar between the list and the form. null is the
+  // stylesheet's own share of the page, which is where most people leave it; a width someone has
+  // dragged is theirs for good, so it outlives the page and the session.
+  const [editorWidth, setEditorWidth] = useState<number | null>(() => {
+    const saved = Number(localStorage.getItem(editorWidthKey));
+    return Number.isFinite(saved) && saved >= minEditorWidth ? saved : null;
+  });
+  const [resizing, setResizing] = useState(false);
+  const body = useRef<HTMLDivElement>(null);
+  const results = useRef<HTMLDivElement>(null);
+  const editor = useRef<HTMLElement>(null);
   const searchBox = useRef<HTMLInputElement>(null);
   // A native select fires change on every arrow key, so moving focus away on change alone would
   // make the type list unusable from the keyboard. Only a type picked with the pointer hands the
@@ -131,6 +152,18 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
 
   const { result, loading, error, refresh } = useLiveResult(query, runSearch);
 
+  // the database changed under the page as a whole (a rollback, a reconnect): the list is searched
+  // again and the open node read again - it may now be a different node, or none
+  const [epoch, setEpoch] = useState(0);
+  useEffect(
+    () =>
+      subscribeResync(() => {
+        refresh();
+        setEpoch((e) => e + 1);
+      }),
+    [refresh],
+  );
+
   // the pivot's source: the search as this page has it, without the paging and the view switches
   const pivotBase = useMemo<PivotBase | null>(
     () =>
@@ -182,6 +215,81 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
         return { ...prev, [facet.propertyId]: next };
       }),
     );
+  }
+
+  // How wide the editor may be pulled right now: never so wide that the list it belongs to is
+  // gone, and never so narrow that the form cannot show a field. What the two columns hold between
+  // them is measured rather than worked out, so the facet rail and the gaps around it need no
+  // arithmetic here - and while a drag is in progress that total does not move, only the split of
+  // it does. The share the stylesheet caps at is a limit here too, so the bar stops where the
+  // pointer stops mattering instead of running on past an edge that has stopped moving.
+  function widthLimits() {
+    const available = body.current?.getBoundingClientRect().width ?? 0;
+    const shared =
+      (editor.current?.getBoundingClientRect().width ?? 0) + (results.current?.getBoundingClientRect().width ?? 0);
+    const room = Math.min(shared - minResultsWidth, available * maxEditorShare);
+    return { min: minEditorWidth, max: Math.max(minEditorWidth, room) };
+  }
+
+  /** The width as it can be honoured now; the caller decides whether to keep it. */
+  function applyWidth(width: number) {
+    const { min, max } = widthLimits();
+    return Math.round(Math.min(Math.max(width, min), max));
+  }
+
+  function setWidth(width: number) {
+    const clamped = applyWidth(width);
+    setEditorWidth(clamped);
+    return clamped;
+  }
+
+  // The bar is dragged rather than stepped, so the pointer is captured for the duration: the
+  // pointer leaves the 17 pixels of the bar on the very first move, and without the capture the
+  // drag would end there. The width is written back once, on release, not on every frame.
+  function startResize(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.button !== 0 || !editor.current) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = editor.current.getBoundingClientRect().width;
+    let width = startWidth;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setResizing(true);
+    const move = (ev: PointerEvent) => (width = setWidth(startWidth - (ev.clientX - startX)));
+    const end = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      setResizing(false);
+      localStorage.setItem(editorWidthKey, String(Math.round(width)));
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  }
+
+  // The rail opening, or the window narrowing, can leave a dragged width too wide for what is now
+  // beside it. Pull it back in rather than squeezing the list the form was opened from - without
+  // writing it back, so the width someone actually dragged is still theirs when the room returns.
+  useEffect(() => {
+    if (!selected || editorWidth === null) return;
+    const fit = () => setEditorWidth((w) => (w === null ? w : applyWidth(w)));
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [selected, showFacets, editorWidth]);
+
+  // the same bar from the keyboard, and a double click to hand the width back to the stylesheet
+  function resizeByKey(e: React.KeyboardEvent) {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    if (!editor.current) return;
+    e.preventDefault();
+    const from = editor.current.getBoundingClientRect().width;
+    localStorage.setItem(editorWidthKey, String(setWidth(from + (e.key === "ArrowLeft" ? 24 : -24))));
+  }
+
+  function resetWidth() {
+    setEditorWidth(null);
+    localStorage.removeItem(editorWidthKey);
   }
 
   async function download() {
@@ -287,10 +395,18 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
         {model.hasAi && !model.hasSemanticIndex && <span className="query-note">Nothing in this data model is semantically indexed, so both sliders are inert.</span>}
       </div>
 
-      {showQuery && result && !pivot && <div className="query-string">{result.query}</div>}
-      {error && !pivot && <div className="query-error">{error}</div>}
+      {showQuery && result && !summary && <div className="query-string">{result.query}</div>}
+      {error && !summary && <div className="query-error">{error}</div>}
 
-      <div className={"query-body" + (selected ? " with-editor" : "") + (showFacets ? "" : " no-facets")}>
+      <div
+        ref={body}
+        className={"query-body" + (selected ? " with-editor" : "") + (showFacets ? "" : " no-facets") + (resizing ? " resizing" : "")}
+        // capped as a share of the page as well as in pixels: a width dragged on a wide window
+        // would otherwise leave nothing of the list on a narrow one
+        style={
+          editorWidth === null ? undefined : ({ "--editor-width": `min(${editorWidth}px, ${maxEditorShare * 100}%)` } as React.CSSProperties)
+        }
+      >
         {showFacets && (
         <aside className="query-facets">
           <div className="query-facets-head">
@@ -324,7 +440,7 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
         </aside>
         )}
 
-        <div className="query-results">
+        <div className="query-results" ref={results}>
           <div className="query-results-head">
             {result ? (
               <>
@@ -362,11 +478,14 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
               <button className={table ? "active" : ""} title={`Show the hits as a table, one column per property`} onClick={() => setView("table")}>
                 <IconTable size={15} stroke={1.8} />
               </button>
+              <button className={groups ? "active" : ""} title="Group the hits: one row per value of a property, with a count and aggregates (SQL's GROUP BY)" onClick={() => setView("groups")}>
+                <IconSum size={15} stroke={1.8} />
+              </button>
               <button className={pivot ? "active" : ""} title="Summarize the hits as a pivot table: groups by property, a count or sum per cell" onClick={() => setView("pivot")}>
                 <IconChartBar size={15} stroke={1.8} />
               </button>
             </div>
-            {!pivot && (
+            {!summary && (
               <select
                 className="select compact"
                 value={pageSize}
@@ -380,7 +499,7 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
                 ))}
               </select>
             )}
-            {!pivot && (
+            {!summary && (
               <button
                 className="icon-button"
                 disabled={exporting || !result || result.total === 0}
@@ -390,7 +509,7 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
                 <IconDownload size={16} stroke={1.8} />
               </button>
             )}
-            {!pivot && result && result.total > pageSize && (
+            {!summary && result && result.total > pageSize && (
               <div className="query-paging">
                 <button className="icon-button" disabled={page === 0} title="Previous page" onClick={() => setPage(page - 1)}>
                   <IconChevronLeft size={15} stroke={1.8} />
@@ -407,6 +526,8 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
           {pivot && pivotBase ? (
             // keyed by type: another type has other properties, so the definition starts over with it
             <PivotView key={pivotBase.typeId} base={pivotBase} showQuery={showQuery} onDrill={drill} />
+          ) : groups && pivotBase ? (
+            <GroupByView key={pivotBase.typeId} base={pivotBase} showQuery={showQuery} onDrill={drill} />
           ) : table && result?.columns ? (
             <div className={"query-table-wrap" + (loading ? " loading" : "")}>
               <table className="query-table">
@@ -475,8 +596,19 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
         </div>
 
         {selected && (
-          <aside className="query-editor">
-            <NodeEditor key={selected} storeId={db.id} nodeId={selected} onSaved={refresh} onClose={() => setSelected(null)} />
+          <aside className="query-editor" ref={editor}>
+            <div
+              className="query-splitter"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Width of the editor"
+              title="Drag to resize the editor · double-click to reset"
+              tabIndex={0}
+              onPointerDown={startResize}
+              onDoubleClick={resetWidth}
+              onKeyDown={resizeByKey}
+            />
+            <NodeEditor key={selected + ":" + epoch} storeId={db.id} nodeId={selected} onSaved={refresh} onClose={() => setSelected(null)} />
           </aside>
         )}
       </div>

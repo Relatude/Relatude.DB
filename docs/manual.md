@@ -53,7 +53,7 @@ concept builds on the last.
 25. [Graph traversal and shortest path](#25-graph-traversal-and-shortest-path)
 26. [Sorting, paging and result sets](#26-sorting-paging-and-result-sets)
 27. [Aggregates](#27-aggregates)
-28. [Faceted search](#28-faceted-search) · [28.1 pivot tables](#281-pivot-tables)
+28. [Faceted search](#28-faceted-search) · [28.1 pivot tables](#281-pivot-tables) · [28.2 GroupBy](#282-groupby)
 29. [Cultures, visibility and scoped stores](#29-cultures-visibility-and-scoped-stores)
 30. [Pitfalls and gotchas](#30-pitfalls-and-gotchas)
 
@@ -3549,6 +3549,130 @@ back into a facet selection showing the nodes behind the number.
 Like every query, a pivot travels to the store as a query string, which is what a REST client sends:
 `IEvent.Pivot().AddRow("IEvent.Venue").AddColumn("IEvent.StartsUtc", "Month").AddSum("IEvent.Price", "revenue")`.
 `QueryOfPivot.ToString()` gives the string for a typed pivot.
+
+---
+
+### 28.2 GroupBy
+
+`GroupBy` is SQL's `GROUP BY`, written the way LINQ and EF Core write it: group the matching nodes by
+a key built from their properties, then count and aggregate per group. It is the flat, typed cousin
+of the pivot — one axis, one row per group, the result shaped by your own `Select` — and it runs on
+the same engine, so it costs the same and obeys the same rules. Reach for `GroupBy` in application
+code and for reports with a known shape; reach for `Pivot` when you want two axes, sub-totals, or a
+table someone else defines at runtime.
+
+```csharp
+// SELECT Status, COUNT(*) FROM Event GROUP BY Status
+var byStatus = db.Query<IEvent>().GroupBy(e => e.Status).Execute();
+foreach (var g in byStatus) Console.WriteLine($"{g.Label}: {g.Count}");      // g.Key is the EventStatus
+
+// the EF Core shape: a composite key, aggregates, HAVING, ORDER BY, LIMIT
+var report = db.Query<IEvent>()
+    .Where(e => e.StartsUtc >= since)
+    .GroupBy(e => new { e.Venue, e.StartsUtc.Year, e.StartsUtc.Month })
+    .Select(g => new {
+        Venue    = g.Key.Venue!.Name,                 // a relation key is the related node
+        g.Key.Year,
+        g.Key.Month,
+        Events   = g.Count(),
+        Revenue  = g.Sum(e => e.Price),
+        AvgPrice = g.Average(e => e.Price),
+        Dearest  = g.Max(e => e.Price),
+        Cities   = g.CountDistinct(e => e.City),
+        PerEvent = g.Sum(e => e.Price) / g.Count(),   // arithmetic over aggregates runs on the rows
+    })
+    .Where(r => r.Events >= 3)                        // HAVING (Having(...) is the same call)
+    .OrderByDescending(r => r.Revenue)
+    .Take(20)
+    .Execute();
+```
+
+No node is read: every group is an id set from the value indexes and every aggregate a pass over
+the index, exactly as for a pivot. That is also why **grouping and aggregating need indexed
+properties** (`Indexed = true`; relations opt in with `[RelationProperty(Facet = true)]`) — the error
+says so at build time. For anything else, load the nodes and group them in memory with LINQ.
+
+#### Keys
+
+The key selector is translated, not run, so only these forms are accepted — each one is a stored
+value, which is what keeps every group one value (an expression like `e.Price / 100` is refused;
+compute it from the key on the result instead):
+
+| Key | Groups by |
+|---|---|
+| `e => e.Status` | One group per distinct value. Enums come back as the enum, relations as the related node |
+| `e => new { e.Venue, e.Status }` | The distinct combinations; `g.Key.Venue`, `g.Key.Status` |
+| `e => e.StartsUtc.Year` / `.Month` / `.Day` / `.Date` / `.Hour` | A calendar interval; `new { d.Year, d.Month }` gives one group per month |
+| `e => Bucket.Interval(e.StartsUtc, DateInterval.Quarter)` | Quarter and week have no `DateTime` member; the key is the interval's start |
+| `e => Bucket.Ranges(e.Price, 5)` | About five auto-generated ranges; the key is a `GroupRange<decimal>` with `From`, `To`, `Label` |
+| `e => Bucket.Ranges(e.Price, new[] { 0m, 100m, 500m })` | Explicit consecutive ranges (inclusive at both ends; values outside fall in no group) |
+
+An array-valued key (`e => e.Tags`) puts a node in one group per element, so the counts add up to
+more than the node count; the key of such a group is the one-element array. Nodes **without a value
+for a key** — no related venue, no tag — form a group of their own by default, as SQL and LINQ do
+with null: its `Key` is null (or the type's default), its `Label` `(none)`, and `IsMissing` is set
+on the group. `IncludeMissing(false)` drops it.
+
+#### Aggregates
+
+Inside `Select` the group is an `IGrouping<TKey, T>`, so the calls are the LINQ ones: `g.Count()`,
+`g.LongCount()`, `g.Sum(e => e.Price)`, `g.Average(...)`, `g.Min(...)`, `g.Max(...)`, plus
+`g.CountDistinct(e => e.City)` (or the LINQ spelling `g.Select(e => e.City).Distinct().Count()`).
+Each selector must be a property of the node. Sum, average, min and max need a numeric property;
+distinct count works on any indexed scalar. The results keep the call's type — a `decimal` sum, a
+`double` average, an `int` count — converted from the engine's `double`, which is exact for integer
+sums below 2^53 and for decimals to about 15 significant digits. An aggregate over a group in which
+no node has the value gives `0` for a non-nullable result (LINQ's sum over nothing) and `null` for a
+nullable one. Anything else on `g` — `g.First()`, `g.Where(...)`, `g.Count(e => ...)` — is rejected
+when the query is built: the nodes of a group are never enumerated. Filter with `Where` *before*
+`GroupBy` instead.
+
+#### Ordering, filtering and paging the groups
+
+`Where` (or `Having`), `OrderBy`, `OrderByDescending`, `ThenBy`, `Skip`, `Take` and `Page` run over
+the group rows, which are few compared to the nodes. One sort by one measure of a single-key query —
+`OrderByDescending(r => r.Revenue)`, `OrderBy(g => g.Count)` — is pushed into the engine together
+with the paging behind it, so `Take(20)` on a million nodes never materialises every group. Sorting
+by anything else, several keys, or a composite key sorts the rows in memory. `Execute()` returns a
+`ResultSetGroups<T>`: the page of rows, `TotalCount` (groups after `Where`) and `SourceCount` (the
+nodes grouped). `Count()` on the query is the number of groups.
+
+#### Without a Select
+
+`Execute()` straight after `GroupBy` gives `NodeGroup<TKey>` rows: `Key`, `Count`, `Label` (the
+engine's name — the related node's display name, the enum name, `2026-03`), `Labels` per key
+property, and `IsMissing`. For code that does not know the properties when it is written — a
+dynamic report, the admin UI — the keys and the aggregates are chosen at runtime instead:
+
+```csharp
+var rows = db.Query<IEvent>()
+    .GroupBy(GroupKey.Values(venueId), GroupKey.Interval(startsId, DateInterval.Year))
+    .Aggregate(PivotFunction.Sum, priceId)
+    .Aggregate(PivotFunction.Average, priceId)
+    .OrderByDescending(g => g["Price.Sum"])
+    .Page(0, 50)
+    .Execute();
+foreach (var g in rows) Console.WriteLine($"{g.Label}: {g.Count} events, {g["Price.Sum"]:0} in total");
+```
+
+The key of a runtime query is an `object?[]` with one entry per level: the value, or a
+`GroupRange<object>` (both bounds and the label) for a calendar or range level. Measures are read by
+their default name, `<Property>.<Function>`, case-insensitively.
+
+#### The query string and the admin UI
+
+Like every query, a `GroupBy` travels to the store as a query string — a one-axis pivot in its own
+spelling, which the parser accepts from a REST client too:
+`IEvent.GroupBy("IEvent.Venue", "IEvent.Status").AddCount().AddSum("IEvent.Price")`. Every argument
+of `GroupBy(...)` is one value level (with its missing-value group); calendar and range levels
+follow as `AddRow("IEvent.StartsUtc", "Month")` / `AddRowRanges(...)`, then the measures, then
+`SetRowOptions` for a sort and `SetRowPaging` for a page. Row totals only and a cell limit that
+throws instead of truncating are the GroupBy defaults. `ToString()` on the typed query gives the
+string.
+
+The admin UI has it as the third view of the Query section (list, table, **groups**, pivot): the
+same search and facet selection, chips for the keys and the aggregates, a click on a column header to
+sort, and a click on a row that turns its groups into a facet selection showing the nodes behind it.
 
 ---
 

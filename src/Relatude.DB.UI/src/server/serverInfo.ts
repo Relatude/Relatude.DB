@@ -10,6 +10,11 @@ export interface DatabaseInfo {
   conversionCount?: number;
   /** background tasks still owed: pending plus running, across both queues. Rides the same broadcast. */
   taskCount?: number;
+  /**
+   * The open revert window, if one is - begun here, from code or from the CLI alike. Rides the
+   * broadcast so every page can say so the moment it happens (see server/revert.ts).
+   */
+  revertWindow?: { timestamp: string; begunUtc: string } | null;
 }
 
 export interface ServerInfo {

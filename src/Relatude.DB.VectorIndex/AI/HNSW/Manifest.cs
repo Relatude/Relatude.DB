@@ -1,3 +1,4 @@
+using Relatude.DB.Common;
 using System.Buffers.Binary;
 
 namespace Relatude.DB.AI.HNSW;
@@ -96,7 +97,7 @@ internal sealed class Manifest {
             fs.Write(bytes);
             fs.Flush(true);
         }
-        File.Move(tmp, path, overwrite: true);
+        FileOpenRetry.Replace(tmp, path);
     }
 }
 

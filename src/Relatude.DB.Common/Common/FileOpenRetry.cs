@@ -100,4 +100,20 @@ public static class FileOpenRetry {
     public static void Open(string path, Action open, TimeSpan? timeout = null, Action<string>? log = null) {
         Open(path, () => { open(); return true; }, timeout, log);
     }
+
+    /// <summary>
+    /// Atomically replaces <paramref name="path"/> with the fully written <paramref name="tempPath"/>
+    /// (the write-to-temp-then-rename step of every manifest and marker file), retrying while another
+    /// process holds either file.
+    /// <para>On Windows the replace fails with <c>ERROR_ACCESS_DENIED</c> - surfacing as
+    /// <see cref="UnauthorizedAccessException"/>, not a sharing violation - whenever the destination
+    /// or the freshly closed temp file is open elsewhere: an antivirus scanning the new file, the search
+    /// indexer, a backup or sync agent. The lock clears within milliseconds, but a single failed attempt
+    /// on the flush path is reported as a critical error and takes the whole database down with it, so
+    /// giving up on the first attempt is the one wrong answer.</para>
+    /// </summary>
+    /// <exception cref="FileLockedException">One of the files was still held when the budget ran out.</exception>
+    public static void Replace(string tempPath, string path, TimeSpan? timeout = null, Action<string>? log = null) {
+        Open(path, () => File.Move(tempPath, path, overwrite: true), timeout, log);
+    }
 }

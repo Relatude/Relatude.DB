@@ -69,8 +69,8 @@ internal class RelationProperty : Property {
     public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
         var facets = new Facets(Model);
         facets.CopyOptionsFrom(given);
-        facets.IsRangeFacet = false; // ranges and the missing-value bucket are not supported for relations
-        facets.IncludeMissing = false;
+        facets.IsRangeFacet = false; // ranges are not supported for relations
+        facets.IncludeMissing = given?.IncludeMissing ?? false; // the missing bucket: the nodes with no related node (SQL's NULL group)
         var db = Definition.Store;
         if (given != null && given.HasValues()) {
             // given buckets (typically re-posted selections) hold guids; resolve them to node data
@@ -96,8 +96,19 @@ internal class RelationProperty : Property {
             }
             // deterministic order: Facets.Sort() cannot sort node data values (not IComparable)
             foreach (var fv in values.OrderBy(v => v.DisplayName, StringComparer.Ordinal)) facets.AddValue(fv);
+            if (facets.IncludeMissing) facets.AddValue(new FacetValue(null));
         }
         return facets;
+    }
+    // the nodes of the set with no related node in this direction: the set minus every bucket's
+    // nodes (the union is one cached set per relation state, so a missing bucket costs one difference)
+    IdSet nodesWithoutRelated(IdSet nodeIds) {
+        var rel = relation;
+        var dir = !RelModel.FromTargetToSource;
+        var sets = Definition.Sets;
+        var buckets = rel.DistinctIds(dir).Select(id => rel.GetRelated(id, dir)).ToList();
+        if (buckets.Count == 0) return nodeIds;
+        return sets.Difference(nodeIds, sets.Union(buckets));
     }
     bool tryToOuter(INodeDataInternal node, QueryContext ctx, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out INodeDataExternal outer) {
         try {
@@ -113,7 +124,8 @@ internal class RelationProperty : Property {
         var dir = !RelModel.FromTargetToSource;
         var sets = Definition.Sets;
         foreach (var facetValue in facets.Values) {
-            if (facetValue.Value == null || !tryCoerceToNodeId(facetValue.Value, out var bucketId)) { facetValue.Count = 0; continue; } // missing-value bucket not supported for relations
+            if (facetValue.Value == null) { facetValue.Count = nodesWithoutRelated(nodeIds).Count; continue; }
+            if (!tryCoerceToNodeId(facetValue.Value, out var bucketId)) { facetValue.Count = 0; continue; }
             facetValue.Count = sets.CountIntersection(nodeIds, rel.GetRelated(bucketId, dir));
         }
     }
@@ -124,8 +136,13 @@ internal class RelationProperty : Property {
         List<IdSet> matches = [];
         var hasSelected = false;
         foreach (var facetValue in facets.Values) {
-            if (!facetValue.Selected || facetValue.Value == null) continue;
+            if (!facetValue.Selected) continue;
             hasSelected = true;
+            if (facetValue.Value == null) { // the missing bucket selected: the nodes with no related node
+                var withoutRelated = nodesWithoutRelated(nodeIds);
+                if (withoutRelated.Count > 0) matches.Add(withoutRelated);
+                continue;
+            }
             if (!tryCoerceToNodeId(facetValue.Value, out var bucketId)) continue; // unresolvable selection matches nothing
             var matchForOneValue = sets.Intersection(nodeIds, rel.GetRelated(bucketId, dir));
             if (matchForOneValue.Count > 0) matches.Add(matchForOneValue);

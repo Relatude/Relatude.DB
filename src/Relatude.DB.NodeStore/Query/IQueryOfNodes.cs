@@ -25,6 +25,14 @@ public interface IQueryOfNodes<TNode, TInclude> : IQueryCollection<ResultSet<TNo
     /// pivot table. The nodes themselves are not returned; see <see cref="QueryOfPivot{T, TInclude}"/>.
     /// </summary>
     [Pure] QueryOfPivot<TNode, TInclude> Pivot();
+    /// <summary>
+    /// Groups the matching nodes by a key built from their properties - x => x.Brand, x => new { x.Brand, x.Created.Year },
+    /// x => Bucket.Ranges(x.Price, 5) - the way LINQ and EF Core do. Execute() gives the groups with their counts;
+    /// Select(g => new { g.Key, Total = g.Sum(x => x.Price) }) shapes them with aggregates. Aggregate-only: no nodes are read.
+    /// </summary>
+    [Pure] QueryOfGroups<TNode, TInclude, TKey> GroupBy<TKey>(Expression<Func<TNode, TKey>> keySelector);
+    /// <summary>Groups by properties chosen at runtime (GroupKey.Values / Interval / Ranges); the key is an object?[] with one entry per level.</summary>
+    [Pure] QueryOfGroups<TNode, TInclude, object?[]> GroupBy(params GroupKey[] keys);
     [Pure] IQueryOfNodes<TNode, TInclude> Page(int pageIndex0based, int pageSize);
     [Pure] IQueryOfNodes<TNode, TInclude> Take(int maxCount);
     [Pure] IQueryOfNodes<TNode, TInclude> Skip(int offset);

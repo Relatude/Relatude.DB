@@ -583,6 +583,29 @@ sealed class PivotMethodDef : MethodDef {
     protected override IExpression Create(MethodCallToken e, Datamodel dm) => new PivotMethod(BuildSource(e, dm), dm);
 }
 
+/// <summary>
+/// groupby(property, ...): a pivot with one axis in its GroupBy spelling. Every argument is a value
+/// level (one group per distinct value, with a group for the nodes without a value, as SQL groups
+/// nulls); further levels, measures and options chain on with the pivot clauses. Row totals only,
+/// and the cell limit throws rather than truncating - a GroupBy must not lose groups silently.
+/// </summary>
+sealed class GroupByMethodDef : MethodDef {
+    public override string[] Names => ["groupby"];
+    public override int MinArgs => 0;
+    public override int MaxArgs => -1;
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        var pivot = new PivotMethod(BuildSource(e, dm), dm);
+        pivot.SetTotals(rows: true, columns: false, subTotals: false);
+        pivot.SetLimits(PivotSpec.DefaultMaxCells, throwWhenExceeded: true);
+        for (var i = 0; i < e.Arguments.Count; i++) {
+            var property = PivotArgs.Str(e, i);
+            pivot.AddGroup(true, property, isRange: false, DateInterval.None, 0);
+            pivot.SetOptions(true, property, 0, 0, includeMissing: true, null, true, false);
+        }
+        return pivot;
+    }
+}
+
 /// <summary>addrow(property[, interval]) / addrowvalues(property) / addrowranges(property[, bucketCount]) and the addcolumn* twins</summary>
 sealed class PivotGroupMethodDef(string name, bool rows, bool? isRange) : MethodDef {
     public override string[] Names => [name];
@@ -687,7 +710,7 @@ internal class BuildMethod {
         new IncludeMethodDef(), new InRangeMethodDef(), new ContainsMethodDef(), new StartsWithMethodDef(),
         new MatchesSearchMethodDef(), new IsWithinMethodDef(), new DistanceToMethodDef(),
         new WhereCultureMethodDef(), new WhereCultureFallbackMethodDef(), new WhereHiddenMethodDef(),
-        new PivotMethodDef(),
+        new PivotMethodDef(), new GroupByMethodDef(),
         new PivotGroupMethodDef("addrow", true, null), new PivotGroupMethodDef("addrowvalues", true, false), new PivotGroupMethodDef("addrowranges", true, true), new PivotRangeMethodDef("addrowrange", true),
         new PivotGroupMethodDef("addcolumn", false, null), new PivotGroupMethodDef("addcolumnvalues", false, false), new PivotGroupMethodDef("addcolumnranges", false, true), new PivotRangeMethodDef("addcolumnrange", false),
         new PivotMeasureMethodDef("addcount", PivotFunction.Count), new PivotMeasureMethodDef("addcountdistinct", PivotFunction.CountDistinct),

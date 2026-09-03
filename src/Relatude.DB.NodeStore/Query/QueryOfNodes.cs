@@ -137,6 +137,8 @@ public class QueryOfNodes<TNode, TInclude> : IQueryOfNodes<TNode, TInclude> {
     public QueryOfPivot<TNode, TInclude> Pivot() {
         return new QueryOfPivot<TNode, TInclude>(this);
     }
+    public QueryOfGroups<TNode, TInclude, TKey> GroupBy<TKey>(Expression<Func<TNode, TKey>> keySelector) => QueryOfGroups<TNode, TInclude, TKey>.Create(this, keySelector);
+    public QueryOfGroups<TNode, TInclude, object?[]> GroupBy(params GroupKey[] keys) => QueryOfGroups<TNode, TInclude, object?[]>.Create(this, keys);
     public IQueryOfNodes<TNode, TInclude> WhereSearch(string? text, double? semanticRatio = null, float? minimumVectorSimilarity = null, bool? orSearch = null, int? maxWordsEvaluatedWhenFuzzy = null)
         => fork(q => q.WhereSearch(text, semanticRatio, minimumVectorSimilarity, orSearch, maxWordsEvaluatedWhenFuzzy));
     public QueryOfSearch<TNode, TInclude> Search(string text, double? semanticRatio = null, float? minimumVectorSimilarity = null, bool? orSearch = null, int? maxWordsEvaluatedWhenFuzzy = null, int? maxHitsEvaluatedBeforeRanked = null) {
