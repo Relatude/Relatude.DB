@@ -7,6 +7,7 @@
 
 import { send } from "./channel";
 import { adminBase } from "./base";
+import type { ModelKind, SourceType } from "./datamodel";
 
 export interface NodeTypeInfo {
   id: string;
@@ -15,12 +16,18 @@ export interface NodeTypeInfo {
   isInterface: boolean;
   hidden: boolean;
   isBase: boolean;
+  /** Class | Interface | Record | Struct - the icon shape in the type picker. */
+  kind: ModelKind;
+  /** which model source defines the type; the picker colours it the way the model editor does */
+  sourceId: string;
   count: number;
 }
 
 export interface QueryModel {
   storeId: string;
   types: NodeTypeInfo[];
+  /** the model sources, in load order: their position decides their colour (see sourceColors) */
+  sources: { id: string; name: string; type: SourceType }[];
   baseTypeId: string;
   hasAi: boolean;
   hasSemanticIndex: boolean;

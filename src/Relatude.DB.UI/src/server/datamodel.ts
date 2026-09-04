@@ -415,13 +415,24 @@ export function sourceColor(index: number): string {
   return sourcePalette[((index % sourcePalette.length) + sourcePalette.length) % sourcePalette.length];
 }
 
-/** A color per source id, in list order; the code source always gets grey. */
-export function sourceColors(sources: { Id: string; Type?: string }[], codeSourceId: string): Map<string, string> {
+/**
+ * The id of the synthetic source of types registered from application code (OnDatamodelInit). It is
+ * a fixed guid on the server (DatamodelSource.CodeSourceId), so pages that show types without asking
+ * for the whole model - the query type picker, the dashboard - can still tell it apart.
+ */
+export const codeSourceGuid = "00000000-0000-0000-0000-00000000c0de";
+
+/**
+ * A colour per source id, by position in the source list, so every page marks a type with the same
+ * colour. The code source always gets grey: it is not one of the configured sources and its position
+ * would otherwise shift the others' colours depending on whether it happens to be in the list.
+ */
+export function sourceColors(sources: { id: string; type?: string }[], codeSourceId: string = codeSourceGuid): Map<string, string> {
   const map = new Map<string, string>();
   let i = 0;
   for (const s of sources) {
-    if (s.Id === codeSourceId || s.Type === "Code") map.set(s.Id, "#8a8781");
-    else map.set(s.Id, sourceColor(i++));
+    if (s.id === codeSourceId || s.type === "Code") map.set(s.id, "#8a8781");
+    else map.set(s.id, sourceColor(i++));
   }
   return map;
 }

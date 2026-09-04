@@ -3,6 +3,26 @@
 // turns into rates.
 
 import { send } from "./channel";
+import type { ModelKind, SourceType } from "./datamodel";
+
+/**
+ * One node type and how much of the database is it, counted both ways: `count` is the nodes whose
+ * own type this is, `countAll` those plus every node of a type below it. A parent and its children
+ * both count the same nodes in `countAll`, so the two are never mixed in one picture - that is what
+ * the content panel's "include inherited" switch chooses between.
+ */
+export interface TypeCount {
+  id: string;
+  name: string;
+  full: string;
+  count: number;
+  countAll: number;
+  kind: ModelKind;
+  isInterface: boolean;
+  sourceId: string;
+  /** the types this one is directly under, base type excluded; empty means it is outermost */
+  parents: string[];
+}
 
 export interface FileSizes {
   database: number;
@@ -26,9 +46,9 @@ export interface DashboardInfo {
   firstChangeUtc?: string | null;
   lastChangeUtc?: string | null;
   datamodel?: { nodeTypes: number; properties: number; relations: number; indexes: number };
-  types?: { name: string; full: string; count: number }[];
-  otherTypes?: number;
-  otherTypeNodes?: number;
+  types?: TypeCount[];
+  /** the model sources, in load order: their position decides their colour (see sourceColors) */
+  sources?: { id: string; name: string; type: SourceType }[];
   maintenance?: {
     actionsNotInState: number;
     truncatableActions: number;
@@ -64,6 +84,12 @@ export interface DashboardLive {
   transactions?: number;
   actions?: number;
   nodeReads?: number;
+  /**
+   * The server process, not this database: one heap serves every database on it. A level rather
+   * than a counter, so the graph plots the samples themselves instead of their difference.
+   */
+  managedMemory?: number;
+  processMemory?: number;
   nodeCacheCount?: number;
   nodeCacheSize?: number;
   setCacheCount?: number;

@@ -26,3 +26,19 @@ export interface ServerInfo {
 export function fetchServerInfo(): Promise<ServerInfo> {
   return send<ServerInfo>("server-info");
 }
+
+/**
+ * Who is looking at the admin UI. Two ways in, and they are not the same thing: a token is a session
+ * that can be ended, while the localhost bypass (NoLoginRequiredForLocalhost) is not one - there is
+ * nothing to log out of, so the UI must not offer it.
+ */
+export interface WhoAmI {
+  userName: string | null;
+  viaLocalhost: boolean;
+  canLogOut: boolean;
+  machine: string;
+}
+
+export function fetchWhoAmI(): Promise<WhoAmI> {
+  return send<WhoAmI>("whoami");
+}

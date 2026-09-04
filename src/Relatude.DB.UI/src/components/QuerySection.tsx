@@ -17,6 +17,7 @@ import {
 import { NodeEditor } from "./NodeEditor";
 import { PivotView, type PivotBase } from "./PivotView";
 import { GroupByView } from "./GroupByView";
+import { TypePicker } from "./TypePicker";
 import { showError } from "../dialogs";
 import {
   csvRowLimit,
@@ -101,10 +102,6 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
   const results = useRef<HTMLDivElement>(null);
   const editor = useRef<HTMLElement>(null);
   const searchBox = useRef<HTMLInputElement>(null);
-  // A native select fires change on every arrow key, so moving focus away on change alone would
-  // make the type list unusable from the keyboard. Only a type picked with the pointer hands the
-  // caret on; a keypress on the select means someone is still choosing.
-  const pickedByPointer = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -314,29 +311,21 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
   return (
     <div className="query">
       <div className="query-toolbar">
-        <select
-          className="select"
-          value={typeId ?? ""}
-          onPointerDown={() => (pickedByPointer.current = true)}
-          onKeyDown={() => (pickedByPointer.current = false)}
-          onChange={(e) => {
+        <TypePicker
+          types={model.types}
+          sources={model.sources ?? []}
+          value={typeId}
+          onChange={(id) =>
             reset(() => {
-              setTypeId(e.target.value);
+              setTypeId(id);
               setSelections({}); // the facets of another type are different properties
               setExpanded([]);
               setSort(null); // and its columns are different properties too
-            });
-            if (pickedByPointer.current) searchBox.current?.focus();
-            pickedByPointer.current = false;
-          }}
-        >
-          {model.types.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.isBase ? "All node types" : t.name}
-              {t.isInterface && !t.isBase ? " (interface)" : ""} — {formatCount(t.count)}
-            </option>
-          ))}
-        </select>
+            })
+          }
+          // the type is chosen, the search box is where the next thing happens
+          onPicked={() => searchBox.current?.focus()}
+        />
         <div className="query-search">
           <IconSearch size={15} stroke={1.8} />
           <input

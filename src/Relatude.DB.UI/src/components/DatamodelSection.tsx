@@ -16,6 +16,8 @@ import {
   IconInfoCircle,
   IconLayoutGrid,
   IconList,
+  IconMessage,
+  IconMessageOff,
   IconPlus,
   IconRefreshAlert,
   IconRocket,
@@ -73,6 +75,12 @@ const views: { id: ViewId; label: string; icon: typeof IconList }[] = [
   { id: "sources", label: "Sources", icon: IconStack2 },
   { id: "history", label: "History", icon: IconHistory },
 ];
+
+const sideWidthKey = "dmSideWidth";
+const helpKey = "dmShowHelp";
+const minSideWidth = 280; // narrower and a field's label and its control collide
+const minMainWidth = 320; // wider and the view the editor was opened from stops being readable
+const maxSideShare = 0.7;
 
 function readSet(key: string): Set<string> {
   try {
@@ -139,7 +147,16 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
   const [planOpen, setPlanOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showHelp, setShowHelp] = useState(() => localStorage.getItem(helpKey) !== "false");
+  // the width of the editor panel, dragged and remembered; null leaves it to the stylesheet
+  const [sideWidth, setSideWidth] = useState<number | null>(() => {
+    const saved = Number(localStorage.getItem(sideWidthKey));
+    return Number.isFinite(saved) && saved >= minSideWidth ? saved : null;
+  });
+  const [resizing, setResizing] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const sideRef = useRef<HTMLElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -162,6 +179,65 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
   }, [load]);
   useEffect(() => localStorage.setItem("dmView", view), [view]);
   useEffect(() => writeSet("dmHiddenSources:" + db.id, hiddenSources), [hiddenSources, db.id]);
+  useEffect(() => localStorage.setItem(helpKey, String(showHelp)), [showHelp]);
+
+  // How wide the editor may be pulled: never so wide that the view it was opened from is gone, and
+  // never so narrow that a field cannot show its control. Measured rather than calculated, so the
+  // gap and any scrollbar are already in the number.
+  function clampWidth(width: number): number {
+    const available = bodyRef.current?.getBoundingClientRect().width ?? 0;
+    const max = Math.max(minSideWidth, Math.min(available - minMainWidth, available * maxSideShare));
+    return Math.round(Math.min(Math.max(width, minSideWidth), max));
+  }
+
+  // the bar is dragged, so the pointer is captured for the duration: it leaves the few pixels of the
+  // bar on the first move and the drag would otherwise end there. Written back once, on release.
+  function startResize(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.button !== 0 || !sideRef.current) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sideRef.current.getBoundingClientRect().width;
+    let width = startWidth;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setResizing(true);
+    const move = (ev: PointerEvent) => {
+      width = clampWidth(startWidth - (ev.clientX - startX));
+      setSideWidth(width);
+    };
+    const end = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      setResizing(false);
+      localStorage.setItem(sideWidthKey, String(Math.round(width)));
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  }
+
+  // the same bar from the keyboard, and a double click to hand the width back to the stylesheet
+  function resizeByKey(e: React.KeyboardEvent) {
+    if ((e.key !== "ArrowLeft" && e.key !== "ArrowRight") || !sideRef.current) return;
+    e.preventDefault();
+    const width = clampWidth(sideRef.current.getBoundingClientRect().width + (e.key === "ArrowLeft" ? 24 : -24));
+    setSideWidth(width);
+    localStorage.setItem(sideWidthKey, String(width));
+  }
+
+  function resetWidth() {
+    setSideWidth(null);
+    localStorage.removeItem(sideWidthKey);
+  }
+
+  // a window narrowing can leave a dragged width wider than what is now beside it; pull it back in
+  // without writing it back, so the width someone chose is still theirs when the room returns
+  useEffect(() => {
+    if (sideWidth === null) return;
+    const fit = () => setSideWidth((w) => (w === null ? w : clampWidth(w)));
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [sideWidth]);
 
   const dirty = model !== null && JSON.stringify(model) !== baseline;
   const hasDraft = dirty || page?.draft != null;
@@ -219,7 +295,10 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     });
   }, [model, page]);
 
-  const colors = useMemo(() => sourceColors(model?.Sources ?? [], codeSourceId), [model, codeSourceId]);
+  const colors = useMemo(
+    () => sourceColors((model?.Sources ?? []).map((s) => ({ id: s.Id, type: s.Type })), codeSourceId),
+    [model, codeSourceId],
+  );
 
   // what is shown: types of switched on sources, plus what they point at in switched off ones
   const { visibleTypes, ghostTypes } = useMemo(() => {
@@ -597,7 +676,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
   })();
 
   return (
-    <div className="dm">
+    <div className={"dm" + (showHelp ? "" : " no-help")}>
       <div className="dm-toolbar">
         <div className="dm-tabs">
           {views.map((v) => {
@@ -707,6 +786,11 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
                   </button>
                 )}
                 <hr />
+                <button onClick={() => { setShowHelp(!showHelp); setMenuOpen(false); }}>
+                  {showHelp ? <IconMessageOff size={15} stroke={1.9} /> : <IconMessage size={15} stroke={1.9} />}
+                  {showHelp ? "Hide help text" : "Show help text"}
+                </button>
+                <hr />
                 <button onClick={() => doExport("csharp")}>
                   <IconBrandCSharp size={15} stroke={1.9} /> Export as C#
                 </button>
@@ -756,7 +840,11 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
         </div>
       )}
 
-      <div className={"dm-body" + (selectedEditor ? " with-editor" : "")}>
+      <div
+        className={"dm-body" + (selectedEditor ? " with-editor" : "") + (resizing ? " resizing" : "")}
+        ref={bodyRef}
+        style={sideWidth === null ? undefined : ({ "--dm-side-width": `min(${sideWidth}px, ${maxSideShare * 100}%)` } as React.CSSProperties)}
+      >
         <div className="dm-main">
           {view === "list" && <ListView {...viewProps} />}
           {view === "tree" && <TreeView {...viewProps} />}
@@ -766,7 +854,21 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
           {view === "history" && <HistoryView history={page.history} activeChecksum={page.active?.checksum ?? null} draftBaseChecksum={page.draft?.baseChecksum ?? null} onLoad={loadFromHistory} onDelete={removeHistory} />}
         </div>
         {selectedEditor && (
-          <aside className="dm-side">
+          <>
+            {/* its own grid item in the editor's cell rather than a child of the panel: the panel
+                clips its content to keep its rounded corners, and would clip the bar with it */}
+            <div
+              className="dm-splitter"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Width of the editor"
+              title="Drag to resize · double-click to reset"
+              tabIndex={0}
+              onPointerDown={startResize}
+              onDoubleClick={resetWidth}
+              onKeyDown={resizeByKey}
+            />
+            <aside className="dm-side" ref={sideRef}>
             <div className="dm-side-head">
               <span className="page-kicker">{selection?.kind}</span>
               <button className="icon-button" onClick={() => setSelection(null)} title="Close">
@@ -774,7 +876,8 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
               </button>
             </div>
             <div className="dm-side-body">{selectedEditor}</div>
-          </aside>
+            </aside>
+          </>
         )}
       </div>
 

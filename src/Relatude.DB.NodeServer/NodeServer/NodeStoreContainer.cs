@@ -356,7 +356,15 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             Store!.Datastore.LogInfo($"NodeStore ready in a total of {sw.ElapsedMilliseconds.To1000N()}ms.");
             server.RaiseEventStoreOpen(this, Store);
             ModelEditor.DatamodelDrafts.RecordOpen(this); // the model history; never throws
-        } catch {
+            // it opened, so whatever stopped it last time is no longer what is wrong with it
+            StartUpException = null;
+            StartUpExceptionDateTimeUTC = null;
+        } catch (Exception error) {
+            // kept, not only counted: an open asked for by hand leaves the container in Error, and
+            // without the reason the admin UI has a red dot and nothing to say about it. The auto
+            // open path records the same two fields (see RelatudeDBServer.autoOpenContainer)
+            StartUpException = error;
+            StartUpExceptionDateTimeUTC = DateTime.UtcNow;
             Interlocked.Increment(ref _hasFailedCounter);
             throw;
         }

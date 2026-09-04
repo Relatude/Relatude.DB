@@ -164,6 +164,24 @@ public class SimpleAuthentication(RelatudeDBServer server) {
     public bool IsLoggedIn(HttpContext context) {
         return authenticationIsValid(context);
     }
+
+    /// <summary>
+    /// Who this request is, for the admin UI to say so: the master user where a token proves it, and
+    /// nobody at all where the localhost bypass is what let the request through. The difference is
+    /// not cosmetic - with the bypass there is no session to end, so logging out would delete a
+    /// cookie nothing is reading and leave the caller exactly as signed in as before.
+    /// </summary>
+    public (string? UserName, bool ViaLocalhost) Describe(HttpContext context) {
+        var isLocal = LocalRequest.IsLocalhost(context);
+        var token = settings.TokenCookieName == null ? null : context.Request.Cookies[settings.TokenCookieName];
+        if (token != null
+            && isTokenValid(token, context.Connection.RemoteIpAddress + "", out var userName, out var userTokenId)
+            && userTokenId == Guid.Empty
+            && userName == settings.MasterUserName) {
+            return (userName, false);
+        }
+        return (null, settings.NoLoginRequiredForLocalhost && isLocal);
+    }
     public void LogIn(HttpContext context, bool remember) {
         var requestIP = context.Connection.RemoteIpAddress + "";
         if (settings.MasterUserName == null) throw new Exception("No master user configured on the server.");

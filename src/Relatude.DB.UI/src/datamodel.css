@@ -303,7 +303,7 @@
 }
 
 .dm-body.with-editor {
-  grid-template-columns: minmax(0, 1fr) minmax(340px, 400px);
+  grid-template-columns: minmax(0, 1fr) var(--dm-side-width, minmax(340px, 400px));
 }
 
 .dm-main {
@@ -313,6 +313,7 @@
 }
 
 .dm-side {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -320,6 +321,60 @@
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
+}
+
+/* The drag bar between the view and the editor: a wide invisible target with a thin visible line,
+   so it is easy to hit and quiet until it is reached for. It shares the editor's grid cell and sits
+   at its leading edge, straddling the gap - inside the panel it would be clipped away by the
+   overflow that keeps the panel's corners round. */
+.dm-body.with-editor .dm-main {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.dm-body.with-editor .dm-side,
+.dm-body.with-editor .dm-splitter {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.dm-splitter {
+  position: relative;
+  z-index: 3;
+  justify-self: start;
+  width: 17px;
+  height: 100%;
+  margin-left: -15px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.dm-splitter::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 7px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.dm-splitter:hover::before,
+.dm-splitter:focus-visible::before,
+.dm-body.resizing .dm-splitter::before {
+  opacity: 1;
+}
+
+.dm-splitter:focus-visible {
+  outline: none;
+}
+
+/* a drag must not select the text it passes over */
+.dm-body.resizing {
+  user-select: none;
 }
 
 .dm-side-head {
@@ -336,6 +391,17 @@
   min-height: 0;
   overflow: auto;
   padding: 12px 14px 20px;
+  /* the fields lay themselves out against the panel's own width, which is dragged rather than
+     given by the window - so this is a container query, not a media query */
+  container-type: inline-size;
+}
+
+
+/* the help under every field says what the field means; someone who knows the model does not need
+   it on the screen, and it is most of the panel's height */
+.dm.no-help .dm-field-help,
+.dm.no-help .dm-help-text {
+  display: none;
 }
 
 /* tables */
@@ -1086,6 +1152,29 @@
   font-size: 11.5px;
   color: var(--text-muted);
   line-height: 1.4;
+}
+
+/* Wide enough for two columns: the name on the left, the control on the right, the way a table of
+   settings reads. Narrow, they stack, which is the only thing that fits. The panel's width is
+   dragged rather than given by the window, so this is a container query over .dm-side-body - and it
+   has to come after the rules above, which set the stacked layout at the same specificity. */
+@container (min-width: 430px) {
+  .dm-field {
+    display: grid;
+    grid-template-columns: minmax(110px, 34%) minmax(0, 1fr);
+    column-gap: 14px;
+    row-gap: 2px;
+    align-items: start;
+  }
+
+  .dm-field-label {
+    padding-top: 6px;
+    justify-content: flex-start;
+  }
+
+  .dm-field-help {
+    grid-column: 2;
+  }
 }
 
 .dm-check {

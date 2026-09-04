@@ -20,9 +20,6 @@ namespace Relatude.DB.NodeServer.UI;
 ///     pre-averaged.
 /// </summary>
 sealed class UIDashboard {
-    // a long tail of node types is a scroll, not a summary; the rest is counted into one line
-    const int maxTypes = 12;
-
     readonly RelatudeDBServer _server;
     internal UIDashboard(RelatudeDBServer server) => _server = server;
 
@@ -59,10 +56,7 @@ sealed class UIDashboard {
         var store = c.Store;
         var info = await store.Datastore.GetInfoAsync();
         var datamodel = store.Datastore.Datamodel;
-        var types = info.TypeCounts
-            .Where(kv => kv.Value > 0)
-            .OrderByDescending(kv => kv.Value)
-            .ToArray();
+        var types = buildTypes(datamodel, info.TypeCounts);
         return new {
             Open = true,
             State = state,
@@ -88,9 +82,8 @@ sealed class UIDashboard {
                 Relations = info.DatamodelRelationCount,
                 Indexes = info.DatamodelIndexCount,
             },
-            Types = types.Take(maxTypes).Select(kv => new { Name = shortTypeName(kv.Key), Full = kv.Key, Count = kv.Value }),
-            OtherTypes = types.Length > maxTypes ? types.Length - maxTypes : 0,
-            OtherTypeNodes = types.Skip(maxTypes).Sum(kv => (long)kv.Value),
+            Types = types,
+            Sources = UIModelInfo.Sources(datamodel),
             // what maintenance would find: the page says it, the Storage section does it
             Maintenance = new {
                 ActionsNotInState = info.LogActionsNotItInStatefile,
@@ -168,7 +161,17 @@ sealed class UIDashboard {
                     busy = activities(c.Store.Datastore.GetStatus());
                 } catch { } // a store that finishes opening mid-call has nothing to report, not an error
             }
-            return new { Open = false, State = state, SampledUtc = utc(DateTime.UtcNow), Opening = opening, Activities = busy };
+            return new {
+                Open = false,
+                State = state,
+                SampledUtc = utc(DateTime.UtcNow),
+                // the heap belongs to the server process, not to this database: worth reporting
+                // even while it is closed, since the memory it used is only released gradually
+                ManagedMemory = GC.GetTotalMemory(false),
+                ProcessMemory = workingSet(),
+                Opening = opening,
+                Activities = busy,
+            };
         }
         var datastore = c.Store.Datastore;
         var counters = datastore.PeekCounters();
@@ -180,6 +183,10 @@ sealed class UIDashboard {
             // the client turns the counters into rates, so it needs to know exactly when they were
             // read - not when the response happened to arrive
             SampledUtc = utc(DateTime.UtcNow),
+            // memory is the server process, not this database - the graph says so, and the
+            // "collect garbage" button next to it acts on the same process
+            ManagedMemory = GC.GetTotalMemory(false),
+            ProcessMemory = workingSet(),
             counters.NodeCount,
             counters.RelationCount,
             counters.Queries,
@@ -197,6 +204,19 @@ sealed class UIDashboard {
     }
 
     // ---- pieces both halves use ----
+
+    /// <summary>
+    /// What the operating system has the process resident in memory, or 0 where it cannot be read.
+    /// Sampled on the live cadence, so it must not throw and must not be expensive: this is a single
+    /// counter read, unlike <see cref="GC.GetTotalMemory"/> with collection forced.
+    /// </summary>
+    static long workingSet() {
+        try {
+            return Environment.WorkingSet;
+        } catch {
+            return 0;
+        }
+    }
 
     // flattened: the tree is one level deep in practice, and a nested list of one-liners reads
     // worse than the list itself
@@ -250,9 +270,50 @@ sealed class UIDashboard {
 
     // the full name carries the namespace, which is the same for every type of one datamodel and
     // only crowds the column; the full name is still sent, for the title
-    static string shortTypeName(string fullName) {
-        var index = fullName.LastIndexOf('.');
-        return index > -1 && index < fullName.Length - 1 ? fullName[(index + 1)..] : fullName;
+    /// <summary>
+    /// What the database holds, per node type, both ways of counting it: <c>Count</c> is the nodes
+    /// whose own type this is, <c>CountAll</c> those plus every node of a type below it. The two
+    /// answer different questions - which types the data actually is, and how much lives under an
+    /// abstraction - and the difference is the whole point of the panel's "include inherited" switch:
+    /// an interface or an abstract base has no nodes of its own and would otherwise never appear,
+    /// while with inheritance counted in a parent and its children each count the same nodes, so the
+    /// two must never be mixed in one picture.
+    ///
+    /// The counts come from the store's per-type tallies (a lookup, not a scan); the sums are walked
+    /// over the model's precomputed descendant sets. The whole list is sent - a few dozen entries at
+    /// most - and how many of them to show is the page's decision, not this one's.
+    /// </summary>
+    static object[] buildTypes(Datamodels.Datamodel datamodel, Dictionary<string, int> counts) {
+        var rows = new List<(Datamodels.NodeTypeModel Type, int Own, long All)>();
+        foreach (var t in datamodel.NodeTypes.Values) {
+            if (t.Id == Datamodels.NodeConstants.BaseNodeTypeId) continue; // every node at once: a total, not a type
+            if (t.IsInnerNode) continue; // lives inside another node's property and is not counted on its own
+            counts.TryGetValue(t.FullName, out var own);
+            long all = 0;
+            foreach (var d in t.ThisAndDescendingTypes.Values) {
+                if (counts.TryGetValue(d.FullName, out var c)) all += c;
+            }
+            if (own == 0 && all == 0) continue; // a type with nothing in it either way
+            rows.Add((t, own, all));
+        }
+        return [.. rows
+            .OrderByDescending(r => r.All)
+            .ThenByDescending(r => r.Own)
+            .ThenBy(r => r.Type.CodeName, StringComparer.OrdinalIgnoreCase)
+            .Select(r => (object)new {
+                r.Type.Id,
+                Name = r.Type.CodeName,
+                Full = r.Type.FullName,
+                Count = r.Own,
+                CountAll = r.All,
+                Kind = r.Type.ModelType.ToString(),
+                r.Type.IsInterface,
+                SourceId = r.Type.DatamodelSourceId,
+                // who this type is under: with inheritance counted in, a parent and its children
+                // count the same nodes, so a picture of shares has to drop whatever already sits
+                // inside something else it is showing
+                Parents = r.Type.Parents.Where(p => p != Datamodels.NodeConstants.BaseNodeTypeId).ToArray(),
+            })];
     }
 
     static string? utc(DateTime? value) {

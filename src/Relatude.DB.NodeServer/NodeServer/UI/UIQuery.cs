@@ -94,6 +94,10 @@ sealed class UIQuery {
                 t.IsInterface,
                 t.Hidden,
                 IsBase = t.Id == NodeConstants.BaseNodeTypeId,
+                // the type picker marks a type the way the model editor does: its kind by icon shape,
+                // the source it came from by colour
+                Kind = t.ModelType.ToString(),
+                SourceId = t.DatamodelSourceId,
                 // the id set per type is maintained, so counting it is a lookup and not a scan
                 Count = count(s, t.Id),
             })
@@ -106,6 +110,7 @@ sealed class UIQuery {
         return new {
             StoreId = storeId,
             Types = types,
+            Sources = UIModelInfo.Sources(dm),
             BaseTypeId = NodeConstants.BaseNodeTypeId,
             HasAi = ai != null,
             HasSemanticIndex = semantic,

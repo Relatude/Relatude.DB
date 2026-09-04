@@ -46,23 +46,42 @@ export interface ChartProps {
   format: (value: number) => string;
   /** Counts cannot be half of one, so their axis steps whole numbers. */
   integer?: boolean;
-  height?: number;
+  /**
+   * Whether the axis may shorten a large number to "12k" / "3.4M" on its own. Off where `format`
+   * already carries a scale of its own - bytes above all: 358000000 formats as "342 MB" and
+   * compacting it would put "358M" on the axis of a chart that says 342 MB everywhere else.
+   */
+  compactAxis?: boolean;
+  /**
+   * A height in pixels, or "fill" to take whatever the box around it gives - which is what a chart
+   * in a panel the reader can resize wants. "fill" needs an ancestor with a height of its own; in a
+   * box that sizes itself to its content the chart would measure zero and never grow.
+   */
+  height?: number | "fill";
 }
 
-export function Chart({ kind, points, groups, interval, format, integer = false, height = 210 }: ChartProps) {
+export function Chart({ kind, points, groups, interval, format, integer = false, compactAxis = true, height: heightProp = 210 }: ChartProps) {
   const wrap = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
+  const [measuredHeight, setMeasuredHeight] = useState(0);
   const [hover, setHover] = useState<number | null>(null);
+  const fill = heightProp === "fill";
   // the SVG is drawn in pixels rather than scaled from a viewBox: a stretched viewBox would take
   // the text and the stroke widths with it
   useLayoutEffect(() => {
     const element = wrap.current;
     if (!element) return;
-    const observer = new ResizeObserver(() => setWidth(element.clientWidth));
+    const measure = () => {
+      setWidth(element.clientWidth);
+      setMeasuredHeight(element.clientHeight);
+    };
+    const observer = new ResizeObserver(measure);
     observer.observe(element);
-    setWidth(element.clientWidth);
+    measure();
     return () => observer.disconnect();
   }, []);
+  // below this the axis labels have nowhere to go and the plot is a line with no room under it
+  const height = fill ? Math.max(90, measuredHeight) : heightProp;
   useEffect(() => setHover(null), [points, kind]);
 
   const plotW = Math.max(0, width - pad.left - pad.right);
@@ -101,14 +120,14 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
   const hovered = hover != null && hover >= 0 && hover < points.length ? points[hover] : null;
 
   return (
-    <div className="chart" ref={wrap} style={{ height }}>
+    <div className={"chart" + (fill ? " chart-fill" : "")} ref={wrap} style={fill ? undefined : { height }}>
       {width > 0 && (
         <svg width={width} height={height} role="img">
           {ticks.map((t) => (
             <g key={t}>
               <line className="chart-grid" x1={pad.left} x2={width - pad.right} y1={y(t)} y2={y(t)} />
               <text className="chart-axis" x={pad.left - 8} y={y(t)} textAnchor="end" dominantBaseline="middle">
-                {compact(t, format)}
+                {compactAxis ? compact(t, format) : format(t)}
               </text>
             </g>
           ))}

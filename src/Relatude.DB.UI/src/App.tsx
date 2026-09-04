@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ConversionsSection } from "./components/ConversionsSection";
 import { DashboardSection } from "./components/DashboardSection";
+import { DatabasesSection } from "./components/DatabasesSection";
 import { DatamodelSection } from "./components/DatamodelSection";
 import { DialogHost } from "./components/DialogHost";
 import { FilesSection } from "./components/FilesSection";
@@ -9,7 +10,6 @@ import { Login } from "./components/Login";
 import { LogsSection } from "./components/LogsSection";
 import { Overview } from "./components/Overview";
 import { QuerySection } from "./components/QuerySection";
-import { RevertBar } from "./components/RevertBar";
 import { SettingsSection } from "./components/SettingsSection";
 import { Sidebar } from "./components/Sidebar";
 import { StorageSection } from "./components/StorageSection";
@@ -98,9 +98,9 @@ export function App() {
   const databases = serverInfo?.containers ?? [];
   const activeDb = databases.find((db) => db.id === activeDbId) ?? null;
   const section = sections.find((s) => s.id === activeSectionId)!;
-  // the revert window belongs to the database, not to a page: it heads every page of an open one
-  const showRevert = section.scope === "database" && activeDb !== null && activeDb.state === "Open";
-  const inRevert = showRevert && !!activeDb.revertWindow;
+  // the revert window belongs to the database, not to a page: it is controlled from the top bar and
+  // frames every page of the database while it is open
+  const inRevert = section.scope === "database" && activeDb !== null && activeDb.state === "Open" && !!activeDb.revertWindow;
   return (
     <div className="shell">
       <Header
@@ -110,7 +110,6 @@ export function App() {
         activeSectionId={activeSectionId}
         theme={theme}
         onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
-        onLogout={handleLogout}
         navCollapsed={!navOpen}
         onToggleNav={() => setNavOpen(!navOpen)}
       />
@@ -122,12 +121,21 @@ export function App() {
           activeDb={activeDb}
           activeSectionId={activeSectionId}
           onSelectSection={setActiveSectionId}
+          onLogout={handleLogout}
         />
         <main className={"content" + (inRevert ? " in-revert" : "")}>
-          {showRevert && <RevertBar key={activeDb.id} db={activeDb} />}
           <div className="content-body">
           {activeSectionId === "dashboard" && activeDb ? (
             <DashboardSection key={activeDb.id} db={activeDb} />
+          ) : activeSectionId === "server-databases" ? (
+            // picking a database here switches the pages on the left to it, which is what someone
+            // who just started one is about to want
+            <DatabasesSection
+              onSelectDb={(id) => {
+                setActiveDbId(id);
+                setActiveSectionId("dashboard");
+              }}
+            />
           ) : activeSectionId === "server-overview" ? (
             <Overview />
           ) : section.scope === "server" && (activeSectionId === "server-settings" || section.settingsSection) ? (

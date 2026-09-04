@@ -353,7 +353,7 @@ export function SourcesView({ ctx, selection, hiddenSources, onToggleVisible, on
   return (
     <div className="dm-sources">
       <div className="dm-sources-head">
-        <span className="muted">
+        <span className="muted dm-help-text">
           Every source is loaded into one model, in this order. A type is written back into the source it belongs to; sources that cannot be written show their types read only.
         </span>
         {!locked && (
@@ -454,7 +454,7 @@ export function HistoryView({ history, activeChecksum, draftBaseChecksum, onLoad
       <h3>
         Model history <span className="panel-sub">{history.length} of at most 50</span>
       </h3>
-      <p className="muted dm-history-intro">
+      <p className="muted dm-history-intro dm-help-text">
         Every model that has been active, newest first: recorded when the database opens with a model the newest entry does not already hold, and just before an activation replaces one. Loading an
         entry makes it the draft; nothing changes until that draft is activated.
       </p>

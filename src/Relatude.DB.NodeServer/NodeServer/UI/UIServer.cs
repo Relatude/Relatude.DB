@@ -33,6 +33,7 @@ public sealed class UIServer {
         new UIDemo(server).Register(Commands);
         new UIRevert(server).Register(Commands);
         new UIDatamodel(server).Register(Commands);
+        new UIDatabases(server).Register(Commands);
         _query = new UIQuery(server);
         _query.Register(Commands);
         _containerWatch = new Timer(_ => watchContainers(), null, containerWatchIntervalMs, Timeout.Infinite);
@@ -322,6 +323,18 @@ public sealed class UIServer {
     }
     void registerBuiltInCommands() {
         Commands.Register("ping", ctx => new { Pong = true, ServerTimeUtc = DateTime.UtcNow });
+        // who is looking at this UI, for the footer of the nav rail. Two ways in, and they differ in
+        // what "log out" would mean: a token is a session that can be ended, the localhost bypass is
+        // not one, so the UI must not offer to end it
+        Commands.Register("whoami", ctx => {
+            var (userName, viaLocalhost) = _server.Authentication.Describe(ctx.Http);
+            return new {
+                UserName = userName,
+                ViaLocalhost = viaLocalhost,
+                CanLogOut = userName != null,
+                Machine = Environment.MachineName,
+            };
+        });
         Commands.Register("server-info", ctx => new {
             Version = typeof(UIServer).Assembly.GetName().Version?.ToString(),
             UpTimeMs = _server.UpTime.TotalMilliseconds,

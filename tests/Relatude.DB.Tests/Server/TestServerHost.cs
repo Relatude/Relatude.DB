@@ -26,7 +26,9 @@ sealed class TestServerHost(WebApplication app, RelatudeDBServer server, List<No
         await app.DisposeAsync();
     }
 
-    public static TestServerHost Start(string root, int databases = 1) {
+    /// <param name="configure">Runs over the settings before the server reads them, for a test that
+    /// needs a model of its own or a setting the defaults do not have.</param>
+    public static TestServerHost Start(string root, int databases = 1, Action<RelatudeDBServerSettings>? configure = null) {
         var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions {
             ContentRootPath = root,
             ApplicationName = "relatude.tests",
@@ -35,7 +37,9 @@ sealed class TestServerHost(WebApplication app, RelatudeDBServer server, List<No
         builder.Services.AddSingleton<IServer, NoServer>();
         var app = builder.Build();
         var closed = new List<NodeStore>();
-        var settings = new MutableSettings(MemorySettings(databases));
+        var initial = MemorySettings(databases);
+        configure?.Invoke(initial);
+        var settings = new MutableSettings(initial);
         var options = new ServerOptions {
             SettingsLoader = settings,
             ConfigurationSectionName = null, // no appsettings overlay in the tests

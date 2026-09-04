@@ -26,6 +26,14 @@
   --badge-bg: rgba(0, 0, 0, 0.07);
   --backdrop-ink: #1d1c1a;
   --backdrop-opacity: 0.16;
+  /* what a machine wrote, shown as the machine wrote it: an ink ground in BOTH themes, because a
+     terminal that turns into a white box in the light theme stops reading as one */
+  --term-bg: #1b1a18;
+  --term-text: #d8d5cf;
+  --term-dim: #837f78;
+  --term-ok: #7fc08f;
+  --term-warn: #e0a45c;
+  --term-bad: #f2887f;
 }
 
 [data-theme="dark"] {
@@ -52,6 +60,14 @@
   --badge-bg: rgba(255, 255, 255, 0.09);
   --backdrop-ink: #a8cdf2;
   --backdrop-opacity: 0.18;
+  /* a shade under the panel rather than over it: in the dark theme the terminal is the deepest
+     thing on the page, which is what sets it apart from the panel it sits in */
+  --term-bg: #131313;
+  --term-text: #d8d5cf;
+  --term-dim: #7d7a74;
+  --term-ok: #6fbf85;
+  --term-warn: #e0a45c;
+  --term-bad: #f2887f;
 }
 
 * {
@@ -268,38 +284,70 @@ a {
 /* ---- database switcher ---- */
 
 /* the refresh rate, in the top bar: one cadence for every page that follows something live */
+/* the cadence lives behind one icon: the bar shows what it is set to, the panel behind it sets it */
 .refresh-rate {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 4px 8px;
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel);
+  position: relative;
 }
 
-.refresh-rate.paused {
+.refresh-rate-button {
+  width: auto;
+  gap: 5px;
+  padding: 0 7px;
+}
+
+.refresh-rate-button.paused {
   color: var(--text-faint);
-  border-style: dashed;
 }
 
-.refresh-rate input[type="range"] {
-  width: 74px;
+.refresh-rate-button.active {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.refresh-rate-badge {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  /* wide enough for the longest stop ("0.2s"), so the icon does not shift as the slider is dragged */
+  min-width: 24px;
+  text-align: left;
+}
+
+.refresh-rate-panel {
+  width: 250px;
+  padding: 12px;
+}
+
+.refresh-rate-panel input[type="range"] {
+  width: 100%;
+  margin: 2px 0 0;
+}
+
+.refresh-rate-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .refresh-rate-value {
-  font-size: 12px;
   font-variant-numeric: tabular-nums;
-  /* wide enough for the longest stop ("0.2s"), so the slider does not shift as it is dragged */
-  min-width: 28px;
-  text-align: right;
+  color: var(--text-muted);
+  font-weight: 400;
 }
 
-@media (max-width: 900px) {
-  .refresh-rate input[type="range"] {
-    width: 52px;
-  }
+.refresh-rate-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.refresh-rate-note {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .db-switcher {
@@ -416,14 +464,6 @@ a {
   position: fixed;
   inset: 0;
   z-index: 10;
-}
-
-.more-menu {
-  position: relative;
-}
-
-.more-menu-list {
-  width: 170px;
 }
 
 /* ---- sidebar ---- */
@@ -544,13 +584,55 @@ a {
   color: var(--danger);
 }
 
+/* who is signed in, and the way out. It sits at the foot of the rail rather than in the top bar
+   because it is about the person rather than about the page, and because the rail is where a
+   reader already looks for what is theirs rather than the server's */
 .sidebar-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-top: auto;
-  padding: 12px 10px 2px;
+  padding: 10px 6px 2px;
+  border-top: 1px solid var(--border);
   font-size: 12px;
   color: var(--text-muted);
-  white-space: nowrap;
   overflow: hidden;
+}
+
+.sidebar-user-icon {
+  display: flex;
+  flex: none;
+  color: var(--text-faint);
+}
+
+.sidebar-user {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.sidebar-user-name {
+  font-weight: 600;
+  color: var(--text-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-user-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-logout {
+  margin-left: auto;
+  flex: none;
+  width: 26px;
+  height: 26px;
 }
 
 /* ---- content ---- */
@@ -595,59 +677,101 @@ a {
 
 /* ---- revert window ---- */
 
-.revert-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+/* In the top bar: one quiet icon while there is no window, a counting pill in the window's own
+   colour while there is one. The details and the two ways out are in the panel it opens, so the
+   bar stays a bar. */
+.revert-control {
+  position: relative;
   flex: none;
-  margin: 12px 16px 0;
-  padding: 6px 12px;
-  font-size: 12px;
+}
+
+.revert-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 99px;
   color: var(--text-muted);
-  border: 1px dashed var(--border);
-  border-radius: 8px;
 }
 
-.revert-bar .action-button {
-  min-width: 0;
-  padding: 4px 10px;
-  font-size: 12px;
-}
-
-.revert-title {
-  font-weight: 600;
-  color: var(--text-soft);
-  white-space: nowrap;
-}
-
-.revert-note {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.revert-bar.active {
+.revert-pill:hover {
+  background: var(--hover);
   color: var(--text);
+}
+
+.revert-pill.active {
   background: var(--revert-soft);
   border: 1px solid var(--revert);
+  color: var(--revert);
 }
 
-.revert-bar.active .revert-title {
-  color: var(--revert);
+.revert-pill-text {
   font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.revert-panel {
+  position: absolute;
+  z-index: 30;
+  top: 36px;
+  right: 0;
+  width: 320px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  font-size: 12.5px;
+}
+
+.revert-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  color: var(--revert);
 }
 
-.revert-facts {
+.revert-panel-facts {
   display: flex;
-  flex-wrap: wrap;
-  gap: 2px 16px;
-  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 10px;
 }
 
-.revert-facts strong {
-  font-weight: 600;
+.revert-panel-facts > div {
+  display: flex;
+  gap: 8px;
+}
+
+.revert-panel-facts .fact-k {
+  flex: none;
+  width: 86px;
+}
+
+.revert-panel-note {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.revert-panel-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.revert-panel-actions .action-button {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 10px;
+  font-size: 12px;
 }
 
 .revert-changed {
@@ -1248,7 +1372,6 @@ a {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 1100px;
 }
 
 .overview-columns {
@@ -1319,6 +1442,27 @@ a {
   font-size: 12px;
 }
 
+/* the hint shares the row with a button of a fixed width. Without this its longest word is the
+   row's floor, and a panel dragged narrower than that scrolls sideways instead of wrapping. */
+.process-action > .muted {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* narrower than the button itself: the label goes over its hint rather than off the panel */
+@container (max-width: 300px) {
+  .process-action {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+  /* the 150px floor every action button carries is wider than the panel can now be dragged, and a
+     min-width beats a max-width: this is the one place it has to give way */
+  .process-action .action-button {
+    min-width: 0;
+  }
+}
+
 .action-button {
   flex: none;
   min-width: 150px;
@@ -1337,6 +1481,7 @@ a {
 /* stacked action rows share one button width, so columns of buttons line up */
 .process-action .action-button {
   width: 220px;
+  max-width: 100%; /* the panel around it is resizable: a fixed width still has to fit inside it */
 }
 
 .action-button:hover:not(:disabled) {
@@ -1726,7 +1871,6 @@ a {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 1100px;
 }
 
 .storage-refresh {
@@ -1942,8 +2086,19 @@ a.action-button {
 
 .sidebar.collapsed .nav-item .label,
 .sidebar.collapsed .nav-item .badge,
-.sidebar.collapsed .sidebar-footer {
+.sidebar.collapsed .sidebar-user {
   display: none;
+}
+
+/* the footer stays: the way out is not something to have to expand the rail to find */
+.sidebar.collapsed .sidebar-footer {
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 0 2px;
+}
+
+.sidebar.collapsed .sidebar-logout {
+  margin-left: 0;
 }
 
 /* ---- settings ---- */
@@ -2050,10 +2205,6 @@ a.action-button {
   /* setting rows stack on the pane's width, not the window's: the contents column and the nav rail
      both take from it, so the viewport alone is the wrong thing to measure */
   container-type: inline-size;
-}
-
-.settings-section {
-  max-width: 1100px;
 }
 
 .settings-section + .settings-section {
@@ -2492,7 +2643,6 @@ a.action-button {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 1100px;
 }
 
 .conv-stats {
@@ -2738,7 +2888,6 @@ a.action-button {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 1100px;
 }
 
 .tasks-head {
@@ -3381,6 +3530,16 @@ a.action-button {
   width: 100%;
 }
 
+/* height="fill": the chart takes the room the panel gives it rather than naming a height of its
+   own. min-height, not height, or the SVG it draws at that height would keep the box from shrinking
+   again once the panel is dragged smaller */
+.chart-fill {
+  flex: 1;
+  /* explicit, not the flex default of auto: without it the SVG drawn at the measured height is the
+     item's minimum, and the box can grow but never shrink again */
+  min-height: 90px;
+}
+
 .chart svg {
   display: block;
   overflow: visible;
@@ -3538,6 +3697,451 @@ a.action-button {
   min-width: 0;
 }
 
+/* a panel whose middle stretches: everything but the chart keeps the size it asks for, and the
+   chart takes whatever the row was dragged to */
+.panel.panel-fill {
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-fill > * {
+  flex: none;
+}
+
+.panel-fill > .chart-fill {
+  flex: 1;
+}
+
+/* A body that takes whatever the panel has left - a log list, a table - but only in a row that was
+   given a height. In a row sizing itself to its content there is nothing to grow into, and the item
+   would collapse to nothing instead of keeping the height the stylesheet gives it. */
+.panel-cell.sized > .panel-fill > .fill-body {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+/* ---- databases ---- */
+
+.databases {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.db-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* one database as a card rather than a table row: what it is made of needs two lines, and the two
+   things that change what the server does need buttons wide enough to say so in words */
+.db-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 14px;
+  background: var(--button-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.db-card.is-default {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 -1px var(--accent);
+}
+
+.db-card-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.db-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* the name is the way into the database: it switches the pages on the left to this one */
+.db-card-name {
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-card-name:hover {
+  color: var(--accent);
+}
+
+.db-default-badge {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.db-card-state {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.db-card-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.db-card-facts > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-card-error {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.db-card-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+/* the buttons that change what the server does: bigger than an action button and always labelled.
+   An icon alone never says which way it is about to go, and one of these takes a database away
+   from the application it is serving */
+.big-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 132px;
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-soft);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.big-button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.big-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* starting is the safe direction and reads as the primary one; stopping is not painted red until
+   it is the thing that would happen, which is exactly when it is offered */
+.big-button.go {
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.big-button.go:hover:not(:disabled) {
+  color: var(--accent-contrast);
+  filter: brightness(1.08);
+}
+
+.big-button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.big-button.danger:hover:not(:disabled) {
+  color: var(--danger);
+  filter: brightness(1.05);
+}
+
+.big-button.quiet {
+  min-width: 128px;
+  font-weight: 500;
+}
+
+.big-button.quiet.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  opacity: 1; /* it is disabled because it is already true, which is a state and not a refusal */
+}
+
+.db-new {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.db-new .text-input {
+  width: 260px;
+}
+
+.db-new-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.db-new-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  max-width: 80ch;
+}
+
+.db-new-note svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+/* a card this narrow cannot carry its buttons beside the name */
+@container (max-width: 560px) {
+  .db-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .db-card-actions .big-button {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+/* ---- terminal output ---- */
+
+/* What the server and the database wrote, shown the way they wrote it: fixed pitch, one line per
+   entry, the timestamp and the level dim so the message is what the eye lands on. Used by the
+   server log and by the database's trace - both are a machine talking, and both were previously
+   laid out as tables, which made a wrapped message shift every column after it. */
+.term {
+  min-height: 0;
+  padding: 9px 12px;
+  overflow: auto;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--term-text);
+  background: var(--term-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+/* the message keeps its own column when it wraps, so a long line reads as one entry rather than
+   running back under the timestamp of the next */
+.term-line {
+  display: grid;
+  grid-template-columns: auto 62px minmax(0, 1fr);
+  gap: 0 12px;
+  padding: 1px 0;
+}
+
+.term-line.clickable {
+  cursor: pointer;
+  border-radius: 4px;
+  margin: 0 -6px;
+  padding: 1px 6px;
+}
+
+.term-line.clickable:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.term-time {
+  color: var(--term-dim);
+  white-space: nowrap;
+}
+
+.term-tag {
+  color: var(--term-dim);
+  text-transform: lowercase;
+}
+
+.term-tag.warning {
+  color: var(--term-warn);
+}
+
+.term-tag.error {
+  color: var(--term-bad);
+}
+
+.term-tag.backup {
+  color: var(--term-ok);
+}
+
+/* the message itself: wrapped, never cut short - a trace line names a file or an exception and the
+   end of it is usually the part worth reading */
+.term-text {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.term-line.error .term-text {
+  color: var(--term-bad);
+}
+
+.term-line.warning .term-text {
+  color: var(--term-warn);
+}
+
+/* the caret at the end: nothing is running, but it says this is a live tail rather than a snapshot */
+.term-idle {
+  color: var(--term-dim);
+  padding-top: 2px;
+}
+
+.term-empty {
+  color: var(--term-dim);
+  padding: 2px 0;
+}
+
+/* a two-column row is narrow: the level tag costs a column that says little once the colour does */
+@container (max-width: 380px) {
+  .term-line {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .term-tag {
+    display: none;
+  }
+}
+
+/* ---- resizable panel grid ---- */
+
+/* See PanelGrid.tsx. The gaps between the panels are grid tracks rather than `gap`, because each
+   one carries the divider that moves the boundary it sits on. */
+
+.panel-grid-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.panel-grid-wrap.narrow {
+  gap: 14px;
+}
+
+.panel-grid {
+  display: grid;
+  min-width: 0;
+}
+
+.panel-grid-tools {
+  display: flex;
+  justify-content: flex-end;
+  font-size: 12px;
+}
+
+/* the panel fills its cell, whatever height the row was dragged to, and scrolls what does not fit
+   rather than pushing the row back open */
+.panel-cell {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.panel-cell > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* the divider itself is the whole gap - a 14px target, which is what makes it findable - while what
+   is drawn is a thin grip that only appears once the pointer is on it */
+.pg-bar {
+  position: relative;
+  z-index: 1;
+  touch-action: none; /* a drag on the divider must move it, not scroll the page under it */
+}
+
+.pg-bar::after {
+  content: "";
+  position: absolute;
+  border-radius: 3px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.pg-bar:hover::after,
+.pg-bar:focus-visible::after,
+.pg-bar.active::after {
+  opacity: 1;
+}
+
+.pg-bar:focus {
+  outline: none; /* the grip below is the focus mark: an outline round a 14px gap reads as a panel */
+}
+
+.pg-vbar {
+  cursor: col-resize;
+}
+
+.pg-vbar::after {
+  top: 8px;
+  bottom: 8px;
+  left: 50%;
+  width: 3px;
+  transform: translateX(-50%);
+}
+
+.pg-hbar {
+  cursor: row-resize;
+}
+
+.pg-hbar::after {
+  left: 8px;
+  right: 8px;
+  top: 50%;
+  height: 3px;
+  transform: translateY(-50%);
+}
+
+/* where the two lines cross: above both, so the corner takes the pointer rather than whichever
+   divider happens to be underneath it */
+.pg-corner {
+  cursor: nwse-resize;
+  z-index: 2;
+}
+
+.pg-corner::after {
+  inset: 2px;
+  border-radius: 4px;
+}
+
+.pg-corner:hover::after,
+.pg-corner:focus-visible::after,
+.pg-corner.active::after {
+  opacity: 0.9; /* a solid block of the accent colour at this size is louder than the two lines */
+}
+
+/* the pointer leaves the divider the instant it moves, so the cursor and the ban on selecting text
+   belong to the page for as long as the drag lasts */
+body.pg-resizing {
+  user-select: none;
+}
+
 /* ---- dashboard ---- */
 
 .dashboard {
@@ -3669,8 +4273,16 @@ a.action-button {
   white-space: normal;
 }
 
-@media (max-width: 1100px) {
-  .dashboard .facts-grid {
+/* Every panel on this page is a size container, because how wide one is stopped being a question
+   about the window the moment the dividers between them could be dragged: a panel pulled to a fifth
+   of the page has to lay its own contents out for a fifth of the page, whatever the window is. */
+.panel-cell > .panel {
+  container-type: inline-size;
+}
+
+@container (max-width: 460px) {
+  .dashboard .facts-grid,
+  .overview .facts-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .dash-type {
@@ -3681,22 +4293,22 @@ a.action-button {
   }
 }
 
-@media (max-width: 900px) {
-  .dashboard .overview-columns,
-  .dashboard .overview-columns:last-child {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 700px) {
-  .dash-tiles {
-    grid-template-columns: repeat(2, 1fr);
+@container (max-width: 330px) {
+  .dashboard .facts-grid,
+  .overview .facts-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
   .dash-cache {
     grid-template-columns: 80px minmax(0, 1fr) 60px;
   }
   .dash-cache .scan-bar {
     display: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .dash-tiles {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 
@@ -4796,4 +5408,314 @@ a.action-button {
   background: var(--accent-soft);
   border-top: 2px solid var(--border);
   font-weight: 600;
+}
+
+/* ---- type picker (query page) ----
+   A searchable replacement for the type <select>: the list is long on a real model, most of it is
+   types holding nothing, and a type is marked here the way the model editor marks it (icon = kind,
+   colour = source) so it is the same thing in both places. */
+
+.type-picker {
+  position: relative;
+  flex: none;
+}
+
+.type-picker-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 230px;
+  max-width: 340px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--button-bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.type-picker-button:hover {
+  border-color: var(--text-faint);
+}
+
+.type-picker-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  font-weight: 600;
+}
+
+.type-picker-count {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* the kind icon with the source colour tucked under it, so one glyph carries both */
+.type-mark {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+
+.type-mark .dm-dot {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--panel);
+}
+
+.type-picker-menu {
+  position: absolute;
+  z-index: 30;
+  top: 36px;
+  left: 0;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+
+.type-picker-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 8px 7px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.type-picker-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+}
+
+.type-picker-list {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.type-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text);
+}
+
+.type-option.active {
+  background: var(--hover);
+}
+
+.type-option.selected {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.type-option.empty .type-option-name,
+.type-option.empty .type-option-count {
+  color: var(--text-faint);
+}
+
+.type-option-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.type-option-name .badge {
+  margin-left: 6px;
+}
+
+.type-option-count {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.type-picker-empty {
+  padding: 10px;
+  font-size: 13px;
+}
+
+.type-picker-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+/* ---- content panel charts (dashboard) ---- */
+
+.dash-chart-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.dash-chart-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.dash-chart-empty {
+  padding: 16px 0;
+  font-size: 13px;
+}
+
+.dash-type-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.dash-type-name svg {
+  flex: none;
+}
+
+/* treemap */
+
+.dash-treemap {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.dash-tile-rect {
+  stroke: var(--panel);
+  stroke-width: 2;
+}
+
+.dash-tile-g:hover .dash-tile-rect {
+  stroke: var(--text);
+  stroke-width: 2;
+}
+
+.dash-tile-label {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  height: 100%;
+  padding: 5px 7px;
+  overflow: hidden;
+  pointer-events: none;
+  line-height: 1.25;
+}
+
+.dash-tile-name {
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-tile-count {
+  font-size: 11px;
+  opacity: 0.82;
+  font-variant-numeric: tabular-nums;
+}
+
+/* donut */
+
+.dash-donut {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.dash-donut-svg {
+  flex: none;
+  width: 150px;
+  height: 150px;
+}
+
+.dash-donut-arc {
+  stroke: var(--panel);
+  stroke-width: 1.5;
+}
+
+.dash-donut-arc:hover {
+  stroke: var(--text);
+}
+
+.dash-donut-total {
+  font-size: 15px;
+  font-weight: 700;
+  fill: var(--text);
+}
+
+.dash-donut-caption {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  fill: var(--text-muted);
+}
+
+.dash-donut-legend {
+  flex: 1;
+  min-width: 160px;
+  max-height: 190px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+.dash-legend-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) 42px 56px;
+  gap: 8px;
+  align-items: center;
+  padding: 2px 0;
+}
+
+.dash-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.dash-legend-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-legend-share,
+.dash-legend-row .num {
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }

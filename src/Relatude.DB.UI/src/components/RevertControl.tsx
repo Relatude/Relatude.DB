@@ -16,41 +16,44 @@ import { usePoll } from "../refresh";
 import { formatBytes, formatCount, formatDuration, formatTime } from "../format";
 
 /**
- * The revert window of the database, at the top of every page of it.
+ * The revert window of the active database, in the top bar.
  *
- * It is one line when no window is open and a loud band when one is, because the two states ask
- * for opposite care: with no window every write is final, and with one open nothing is until it
- * is committed - and someone arriving at any page of the database has to see which of the two
- * they are in before they change anything.
+ * It belongs beside the database it applies to rather than on any one page: a window is a mode the
+ * whole database is in, and every page is written under it. Closed, it is one quiet icon - there is
+ * nothing to say about a database that is simply saving what it is told. Open, it is a coloured
+ * pill counting up, because every change being made is provisional until someone comes back to it,
+ * and that has to be visible without reading anything. The details and the two ways out are one
+ * click away in the panel, not spread across the bar.
  *
- * The container broadcast says whether a window is open, so a window begun from code, the CLI or
- * another browser shows up here within a second without this component asking; the details
- * (target, whether anything changed) come from a status call, refreshed on the global cadence.
+ * The container broadcast says whether a window is open, so one begun from code, the CLI or another
+ * browser shows up here within a second without this component asking; the details come from a
+ * status call, refreshed on the global cadence only while there is a window to follow.
  */
-export function RevertBar({ db }: { db: DatabaseInfo }) {
+export function RevertControl({ db }: { db: DatabaseInfo }) {
   const [status, setStatus] = useState<RevertStatus | null>(null);
   const [busy, setBusy] = useState(false);
-  const broadcastActive = !!db.revertWindow;
+  const [open, setOpen] = useState(false);
+  const isActive = !!db.revertWindow;
 
   const load = useCallback(async () => {
     try {
       setStatus(await fetchRevertStatus(db.id));
     } catch {
-      // a closed or restarting database has no window to report; the bar just keeps what it has
+      // a closed or restarting database has no window to report; the control keeps what it has
     }
   }, [db.id]);
 
   // the broadcast is the trigger, the status call the detail: a change in one refetches the other
   useEffect(() => {
     load();
-  }, [load, broadcastActive, db.revertWindow?.timestamp]);
-  usePoll(load, { enabled: broadcastActive || status?.active === true });
+  }, [load, isActive, db.revertWindow?.timestamp]);
+  usePoll(load, { enabled: isActive || status?.active === true });
 
   // the broadcast is the fresher of the two while they disagree (a window just begun, or just ended)
-  const active = status?.active === true && broadcastActive ? status : broadcastActive ? status?.active ? status : null : null;
-  const isActive = broadcastActive;
+  const active = isActive && status?.active === true ? status : null;
 
   async function begin() {
+    setOpen(false);
     const { ok, option } = await showConfirm(
       "Begin a revert window?",
       "The current position in the transaction log becomes a rollback target. Every change made after it can be discarded as one - or kept. " +
@@ -74,6 +77,7 @@ export function RevertBar({ db }: { db: DatabaseInfo }) {
   }
 
   async function commit() {
+    setOpen(false);
     const since = status?.window ? ` since ${formatTime(status.window.begunUtc)}` : "";
     const { ok } = await showConfirm(
       "Keep the changes and end the window?",
@@ -92,6 +96,7 @@ export function RevertBar({ db }: { db: DatabaseInfo }) {
   }
 
   async function rollback() {
+    setOpen(false);
     setBusy(true);
     try {
       // the confirmation names what is about to be deleted, so it is measured first
@@ -137,57 +142,83 @@ export function RevertBar({ db }: { db: DatabaseInfo }) {
     }
   }
 
-  if (!isActive) {
-    return (
-      <div className="revert-bar">
-        <IconHistory size={16} stroke={1.8} />
-        <span className="revert-title">No revert window</span>
-        <span className="revert-note">every change is permanent as it is made — begin a window to be able to undo a batch of them as one</span>
-        <div className="query-spacer" />
-        <button className="action-button" onClick={begin} disabled={busy} title="Mark the current position; changes after it can be rolled back or committed as one">
-          <IconHistory size={14} stroke={1.8} /> Begin revert window
-        </button>
-      </div>
-    );
-  }
-  const window = active?.window ?? null;
-  const begun = window?.begunUtc ?? db.revertWindow?.begunUtc ?? null;
+  const begun = active?.window?.begunUtc ?? db.revertWindow?.begunUtc ?? null;
   return (
-    <div className="revert-bar active" role="status">
-      <span className="revert-pulse" aria-hidden />
-      <span className="revert-title">Revert window open</span>
-      <span className="revert-facts">
-        {begun && (
-          <span>
-            since <strong>{formatTime(begun)}</strong>
-            {" · "}
-            <Elapsed from={begun} />
-          </span>
-        )}
-        {window && (
-          <span title="The last transaction that survives a rollback">
-            rollback target <strong>{formatTime(window.timestampUtc)}</strong>
-          </span>
-        )}
-        {active && (
-          <span className={active.changedSinceBegin ? "revert-changed" : "revert-unchanged"}>
-            {active.changedSinceBegin ? (
+    <div className="revert-control">
+      <button
+        className={"revert-pill" + (isActive ? " active" : "")}
+        onClick={() => setOpen(!open)}
+        title={isActive ? "A revert window is open — commit or roll back" : "No revert window: every change is permanent as it is made"}
+      >
+        {isActive ? <span className="revert-pulse" aria-hidden /> : <IconHistory size={16} stroke={1.8} />}
+        {isActive && <span className="revert-pill-text">{begun ? <Elapsed from={begun} /> : "open"}</span>}
+      </button>
+      {open && (
+        <>
+          <div className="db-menu-backdrop" onClick={() => setOpen(false)} />
+          <div className="revert-panel">
+            {isActive ? (
               <>
-                changes since: <strong>last at {active.headUtc ? formatTime(active.headUtc) : "—"}</strong>
+                <div className="revert-panel-head">
+                  <span className="revert-pulse" aria-hidden />
+                  Revert window open
+                </div>
+                <div className="revert-panel-facts">
+                  {begun && (
+                    <div>
+                      <span className="fact-k">Begun</span>
+                      <span>
+                        {formatTime(begun)} · <Elapsed from={begun} />
+                      </span>
+                    </div>
+                  )}
+                  {active?.window && (
+                    <div title="The last transaction that survives a rollback">
+                      <span className="fact-k">Rollback to</span>
+                      <span>{formatTime(active.window.timestampUtc)}</span>
+                    </div>
+                  )}
+                  {active && (
+                    <div>
+                      <span className="fact-k">Since then</span>
+                      <span className={active.changedSinceBegin ? "revert-changed" : "revert-unchanged"}>
+                        {active.changedSinceBegin ? `changes, last at ${active.headUtc ? formatTime(active.headUtc) : "—"}` : "no changes yet"}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <p className="revert-panel-note">
+                  Everything written since the window began can be kept or discarded as one. Until then the database suspends index durability, state snapshots
+                  and log rewrites.
+                </p>
+                <div className="revert-panel-actions">
+                  <button className="action-button" onClick={commit} disabled={busy} title="End the window and keep every change made inside it">
+                    <IconCheck size={14} stroke={2} /> Commit · keep
+                  </button>
+                  <button className="action-button danger" onClick={rollback} disabled={busy} title="End the window and permanently delete every change made inside it">
+                    <IconArrowBackUp size={14} stroke={1.8} /> Roll back
+                  </button>
+                </div>
               </>
             ) : (
-              "no changes yet"
+              <>
+                <div className="revert-panel-head">
+                  <IconHistory size={15} stroke={1.8} /> No revert window
+                </div>
+                <p className="revert-panel-note">
+                  Every change is permanent as it is made. Begin a window to mark the current position in the transaction log, and everything written after it can
+                  be rolled back or committed as one.
+                </p>
+                <div className="revert-panel-actions">
+                  <button className="action-button" onClick={begin} disabled={busy}>
+                    <IconHistory size={14} stroke={1.8} /> Begin revert window
+                  </button>
+                </div>
+              </>
             )}
-          </span>
-        )}
-      </span>
-      <div className="query-spacer" />
-      <button className="action-button" onClick={commit} disabled={busy} title="End the window and keep every change made inside it">
-        <IconCheck size={14} stroke={2} /> Commit · keep changes
-      </button>
-      <button className="action-button danger" onClick={rollback} disabled={busy} title="End the window and permanently delete every change made inside it">
-        <IconArrowBackUp size={14} stroke={1.8} /> Roll back · discard changes
-      </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -207,5 +238,5 @@ function Elapsed({ from }: { from: string }) {
     return () => window.clearInterval(timer);
   }, []);
   const ms = Math.max(0, Date.now() - new Date(from).getTime());
-  return <span>{ms < 60000 ? `${Math.floor(ms / 1000)}s` : formatDuration(ms)} ago</span>;
+  return <span>{ms < 60000 ? `${Math.floor(ms / 1000)}s` : formatDuration(ms)}</span>;
 }
