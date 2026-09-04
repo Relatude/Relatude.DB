@@ -48,6 +48,14 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     }
 
     public Datamodel? Datamodel { get; private set; }
+    /// <summary>
+    /// The model as the sources defined it, serialized right after it was loaded and before the
+    /// store applied its index defaults to it. This is what the datamodel editor edits and what the
+    /// model history records: a model that says exactly what the sources say, so writing it back
+    /// does not turn every unset default into an explicit setting.
+    /// </summary>
+    public string? DatamodelAsLoadedJson { get; private set; }
+    public RelatudeDBServer Server => server;
     public DataStoreStatus GetStatusAndActivity() {
         if (Store == null) return new DataStoreStatus(DataStoreState.Disposed, []);
         return Store.Datastore.GetStatus();
@@ -227,6 +235,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             if (local == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
             Datamodel = loadDatamodel();
             server.RaiseEventDatamodelInit(Datamodel, settings);
+            DatamodelAsLoadedJson = DatamodelJson.Serialize(Datamodel);
             var ioDatabase = server.GetOrNullIO(settings.IoDatabase);
             var ioIndexes = server.GetOrNullIO(settings.IoIndexes);
             var ioSecondary = server.GetOrNullIO(settings.IoDatabaseSecondary);
@@ -346,6 +355,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             }
             Store!.Datastore.LogInfo($"NodeStore ready in a total of {sw.ElapsedMilliseconds.To1000N()}ms.");
             server.RaiseEventStoreOpen(this, Store);
+            ModelEditor.DatamodelDrafts.RecordOpen(this); // the model history; never throws
         } catch {
             Interlocked.Increment(ref _hasFailedCounter);
             throw;
@@ -398,6 +408,16 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 }
             }
         }
+        return dm;
+    }
+    /// <summary>
+    /// A fresh model from the configured sources, with the types application code registers
+    /// (OnDatamodelInit) - exactly what a (re)open would start from, without opening anything. Used
+    /// by the datamodel editor to compare against and to verify what it wrote.
+    /// </summary>
+    internal Datamodel LoadDatamodelFromSettings() {
+        var dm = loadDatamodel();
+        server.RaiseEventDatamodelInit(dm, settings);
         return dm;
     }
     void loadDatamodelSource(Datamodel dm, DatamodelSource source) {

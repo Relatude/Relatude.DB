@@ -31,9 +31,11 @@ public static class DatamodelSourceLoader {
             switch (source.Type) {
                 case DatamodelSourceType.AssemblyNameReference:
                     loadAssemblySource(dm, source);
+                    stampSourceCodeFiles(dm, source, rootFolder);
                     break;
                 case DatamodelSourceType.TypeNameReference:
                     loadTypeNameSource(dm, source);
+                    stampSourceCodeFiles(dm, source, rootFolder);
                     break;
                 case DatamodelSourceType.JsonFile:
                     loadJsonSource(dm, source, rootFolder, resolveIO);
@@ -84,6 +86,34 @@ public static class DatamodelSourceLoader {
             + "Use the full type name, assembly qualified if the type is not in the entry assembly or mscorlib (e.g. \"MyApp.Models.Person, MyApp\"). ");
         dm.Add(type, true, source.AutoDeduceRelations);
     }
+    // A compiled source whose C# folder is known gets the declaring file stamped on its types, the
+    // way file based sources do, so the datamodel editor knows where to write a changed type. Syntax
+    // only, and never a reason for the open to fail: a folder that is missing or unreadable simply
+    // leaves the file names empty, and the editor reports that when it is asked to write.
+    static void stampSourceCodeFiles(Datamodel dm, DatamodelSource source, string rootFolder) {
+        var folder = ResolveSourceCodeFolder(source, rootFolder);
+        if (folder == null || !Directory.Exists(folder)) return;
+        Dictionary<string, string> fileByType;
+        try { fileByType = ModelSourceFiles.MapTypesToFiles(folder); } catch { return; }
+        foreach (var nt in dm.NodeTypes.Values) {
+            if (nt.DatamodelSourceId == source.Id && fileByType.TryGetValue(nt.FullName, out var file))
+                nt.DatamodelSourceFilename = Path.GetRelativePath(folder, file);
+        }
+        foreach (var r in dm.Relations.Values) {
+            if (r.DatamodelSourceId == source.Id && fileByType.TryGetValue(r.FullName(), out var file))
+                r.DatamodelSourceFilename = Path.GetRelativePath(folder, file);
+        }
+    }
+    /// <summary>
+    /// The folder holding the C# files a compiled source is built from (<see cref="DatamodelSource.SourceCodePath"/>
+    /// resolved against the settings folder), or null when the source does not name one.
+    /// </summary>
+    public static string? ResolveSourceCodeFolder(DatamodelSource source, string rootFolder) {
+        if (string.IsNullOrEmpty(source.SourceCodePath)) return null;
+        var path = source.SourceCodePath;
+        if (!Path.IsPathRooted(path)) path = Path.GetFullPath(Path.Combine(rootFolder, path));
+        return path;
+    }
     static void loadJsonSource(Datamodel dm, DatamodelSource source, string rootFolder, Func<Guid, IIOProvider?>? resolveIO) {
         if (source.FileIO != null) { // legacy variant reading through an IO provider
             var io = resolveIO?.Invoke(source.FileIO.Value);
@@ -92,7 +122,7 @@ public static class DatamodelSourceLoader {
             dm.AddDatamodel(deserialize(io.ReadAllTextUTF8(source.Reference.SplitKey()), source.Reference), source.Id, source.Reference);
             return;
         }
-        var (files, baseFolder) = resolveFiles(source, rootFolder, DefaultJsonFolder, "*.json");
+        var (files, baseFolder) = ResolveFiles(source, rootFolder, DefaultJsonFolder, "*.json");
         foreach (var file in files) {
             var imported = deserialize(File.ReadAllText(file), file);
             registerAssembliesOfBackingClrTypes(dm, imported);
@@ -122,7 +152,7 @@ public static class DatamodelSourceLoader {
         }
     }
     static void loadCSharpSource(Datamodel dm, DatamodelSource source, string rootFolder) {
-        var (files, baseFolder) = resolveFiles(source, rootFolder, DefaultCSharpFolder, "*.cs");
+        var (files, baseFolder) = ResolveFiles(source, rootFolder, DefaultCSharpFolder, "*.cs");
         var compiled = ModelCodeCompiler.CompileAndLoad(files, "RelatudeModel");
         dm.AssemblyImages[compiled.Assembly.GetName().Name!] = compiled.Image;
         var typesBefore = dm.NodeTypes.Count + dm.Relations.Count;
@@ -155,11 +185,8 @@ public static class DatamodelSourceLoader {
     /// default folder is used, combined with Reference when set. Relative paths resolve against
     /// the folder holding the settings file. Also returns the folder filenames are stored relative to.
     /// </summary>
-    static (List<string> files, string baseFolder) resolveFiles(DatamodelSource source, string rootFolder, string defaultFolder, string pattern) {
-        var path = !string.IsNullOrEmpty(source.Filepath) ? source.Filepath
-            : !string.IsNullOrEmpty(source.Reference) ? Path.Combine(defaultFolder, source.Reference)
-            : defaultFolder;
-        if (!Path.IsPathRooted(path)) path = Path.GetFullPath(Path.Combine(rootFolder, path));
+    public static (List<string> files, string baseFolder) ResolveFiles(DatamodelSource source, string rootFolder, string defaultFolder, string pattern) {
+        var path = ResolveFilePath(source, rootFolder, defaultFolder);
         if (File.Exists(path)) return ([path], Path.GetDirectoryName(path)!);
         if (Directory.Exists(path)) {
             var files = Directory.GetFiles(path, pattern, SearchOption.AllDirectories)
@@ -171,5 +198,18 @@ public static class DatamodelSourceLoader {
         }
         throw new Exception("The path \"" + path + "\" does not exist. Set Filepath to a " + pattern + " file or a folder holding such files "
             + "(relative paths resolve against the settings folder; when Filepath is empty, \"" + defaultFolder + "\" is used). ");
+    }
+    /// <summary>
+    /// The absolute file or folder path a file based source reads from, whether or not it exists yet:
+    /// Filepath, else the default folder combined with Reference, else the default folder, resolved
+    /// against the settings folder. The default folder for the source's type is
+    /// <see cref="DefaultJsonFolder"/> or <see cref="DefaultCSharpFolder"/>.
+    /// </summary>
+    public static string ResolveFilePath(DatamodelSource source, string rootFolder, string defaultFolder) {
+        var path = !string.IsNullOrEmpty(source.Filepath) ? source.Filepath
+            : !string.IsNullOrEmpty(source.Reference) ? Path.Combine(defaultFolder, source.Reference)
+            : defaultFolder;
+        if (!Path.IsPathRooted(path)) path = Path.GetFullPath(Path.Combine(rootFolder, path));
+        return path;
     }
 }

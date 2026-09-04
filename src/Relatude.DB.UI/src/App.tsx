@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ConversionsSection } from "./components/ConversionsSection";
 import { DashboardSection } from "./components/DashboardSection";
+import { DatamodelSection } from "./components/DatamodelSection";
 import { DialogHost } from "./components/DialogHost";
 import { FilesSection } from "./components/FilesSection";
 import { Header } from "./components/Header";
@@ -134,6 +135,8 @@ export function App() {
             <SettingsSection key={activeSectionId} focusSection={section.settingsSection} />
           ) : activeSectionId === "db-settings" && activeDb ? (
             <SettingsSection key={activeDb.id} storeId={activeDb.id} />
+          ) : activeSectionId === "datamodel" && activeDb ? (
+            <DatamodelSection key={activeDb.id} db={activeDb} />
           ) : activeSectionId === "logs" && activeDb ? (
             <LogsSection key={activeDb.id} db={activeDb} />
           ) : activeSectionId === "conversions" && activeDb ? (

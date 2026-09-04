@@ -29,6 +29,14 @@ public class DatamodelSource {
     public string? Reference { get; set; }
     public Guid? FileIO { get; set; }
     /// <summary>
+    /// For a source read from a compiled assembly (<see cref="DatamodelSourceType.AssemblyNameReference"/>,
+    /// <see cref="DatamodelSourceType.TypeNameReference"/>): the folder holding the C# files the
+    /// assembly is built from, relative to the settings folder unless rooted. When set, the datamodel
+    /// editor can write model changes back into those files (the application then has to be rebuilt
+    /// and restarted for them to take effect). Without it the source is read only in the editor.
+    /// </summary>
+    public string? SourceCodePath { get; set; }
+    /// <summary>
     /// When false the source is skipped entirely: nothing it defines reaches the datamodel, and it is
     /// not registered on it either. A source added from the admin UI starts turned off, so a settings
     /// file is never left holding a half configured source that would stop the database from opening.

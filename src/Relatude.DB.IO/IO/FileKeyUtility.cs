@@ -33,11 +33,16 @@ public static class FileKeyUtility {
     public const string StateFolderName = "state";
     public const string BackupFolderName = "backup";
     public const string LogFolderName = "log";
+    /// <summary>
+    /// The folder the datamodel editor keeps its files in: the draft model being edited, and the
+    /// history of every model that has been active (see the Datamodel_* methods below).
+    /// </summary>
+    public const string DatamodelsFolderName = "datamodels";
     /// <summary>The folder the file conversion engine caches its converted files in. Not a system
     /// folder: like the index and file store folders it owns its content and is not listed by
     /// <see cref="IIOProvider.GetFiles"/>.</summary>
     public const string ConvertedFolderName = "converted";
-    public static readonly string[] SystemFolderNames = [DataFolderName, StateFolderName, BackupFolderName, LogFolderName];
+    public static readonly string[] SystemFolderNames = [DataFolderName, StateFolderName, BackupFolderName, LogFolderName, DatamodelsFolderName];
 
     /// <summary>
     /// The folders below the storage root holding data that exists nowhere else: the database log
@@ -99,6 +104,11 @@ public static class FileKeyUtility {
 
     const string queueFileName = "queue";
     static readonly string[] queueFileKeyPattern = [StateFolderName, "queue.*"];
+
+    // The datamodel editor's files. The draft is the one model being edited (one per database);
+    // history files are timestamped copies of every model that has been active, newest last.
+    static readonly string[] datamodelDraftFileKey = [DatamodelsFolderName, "datamodel.draft.json"];
+    static readonly string[] datamodelHistoryFilePattern = [DatamodelsFolderName, "datamodel.*.json"];
 
     /// <summary>The key a pattern describes, with the wildcard in its file name filled in.</summary>
     static string[] fill(string[] pattern, string value) => [.. pattern[..^1], pattern[^1].Replace("*", value)];
@@ -278,6 +288,17 @@ public static class FileKeyUtility {
     }
 
     public static string[] Queue_GetFileKey(string ext) => [StateFolderName, queueFileName + "." + ext];
+
+    /// <summary>The draft model of the datamodel editor; there is one per database.</summary>
+    public static string[] Datamodel_DraftFileKey => datamodelDraftFileKey;
+    /// <summary>The history file for a model that was active at the given (UTC) time.</summary>
+    public static string[] Datamodel_GetHistoryFileKey(DateTime utc) => fill(datamodelHistoryFilePattern, utc.ToString(dateTimeTemplate));
+    /// <summary>Whether the key names a datamodel history file (the draft has the same shape but no timestamp).</summary>
+    public static bool Datamodel_IsHistoryFileKey(string[] key) => key.MatchesPattern(datamodelHistoryFilePattern) && !key.IsSameKey(datamodelDraftFileKey)
+        && DateTime.TryParseExact(key.FileName().Split('.')[^2], dateTimeTemplate, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _);
+    /// <summary>All datamodel history files, oldest first.</summary>
+    public static string[][] Datamodel_GetAllHistoryFileKeys(IIOProvider io) => [.. io.Search(datamodelHistoryFilePattern).Where(Datamodel_IsHistoryFileKey)];
+    public static DateTime Datamodel_GetHistoryDateTimeFromFileKey(string[] fileKey) => backupDateTime(fileKey);
 
     // Before the folder layout every file lived in the storage root. The startup migration moves
     // those files into their folders using the helpers below.

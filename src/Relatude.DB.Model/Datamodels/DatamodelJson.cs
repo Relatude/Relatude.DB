@@ -1,6 +1,7 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using Relatude.DB.Common;
 using Relatude.DB.Datamodels.Properties;
 
 namespace Relatude.DB.Datamodels;
@@ -18,7 +19,14 @@ public static class DatamodelJson {
     /// stripped, so moving a type between sources or renaming a source does not trigger a rebuild.
     /// </summary>
     public static readonly JsonSerializerOptions ChecksumOptions = create(stripProvenance: true);
-    static JsonSerializerOptions create(bool stripProvenance) {
+    /// <summary>
+    /// Options for deciding whether two models say the same thing: <see cref="ChecksumOptions"/> with
+    /// the derived name fields left out as well (NodeTypesNames, InnerNodeTypesNames, KeyPropertyName).
+    /// Those are resolved from the ids they stand next to and differ between a model read from
+    /// attributes and one read from JSON or generated code, without meaning anything different.
+    /// </summary>
+    public static readonly JsonSerializerOptions CompareOptions = create(stripProvenance: true, stripDerived: true);
+    static JsonSerializerOptions create(bool stripProvenance, bool stripDerived = false) {
         var options = new JsonSerializerOptions {
             PropertyNameCaseInsensitive = true, // accepts files saved with camelCase policies
             ReadCommentHandling = JsonCommentHandling.Skip,
@@ -27,10 +35,21 @@ public static class DatamodelJson {
         };
         options.Converters.Add(new JsonStringEnumConverter());
         options.Converters.Add(new PropertyModelJsonConverter());
-        if (stripProvenance) {
-            options.TypeInfoResolver = new DefaultJsonTypeInfoResolver { Modifiers = { stripProvenanceProperties } };
+        if (stripProvenance || stripDerived) {
+            var resolver = new DefaultJsonTypeInfoResolver();
+            if (stripProvenance) resolver.Modifiers.Add(stripProvenanceProperties);
+            if (stripDerived) resolver.Modifiers.Add(stripDerivedProperties);
+            options.TypeInfoResolver = resolver;
         }
         return options;
+    }
+    static void stripDerivedProperties(JsonTypeInfo typeInfo) {
+        if (typeInfo.Type == typeof(ReferencePropertyModel) || typeInfo.Type == typeof(ReferencesPropertyModel)) {
+            removeProperty(typeInfo, "NodeTypesNames");
+        } else if (typeInfo.Type == typeof(EmbeddedPropertyModel)) {
+            removeProperty(typeInfo, nameof(EmbeddedPropertyModel.InnerNodeTypesNames));
+            removeProperty(typeInfo, nameof(EmbeddedPropertyModel.KeyPropertyName));
+        }
     }
     static void stripProvenanceProperties(JsonTypeInfo typeInfo) {
         if (typeInfo.Type == typeof(Datamodel)) {
@@ -50,6 +69,29 @@ public static class DatamodelJson {
     }
     public static string Serialize(Datamodel datamodel) => JsonSerializer.Serialize(datamodel, Options);
     public static string SerializeForChecksum(Datamodel datamodel) => JsonSerializer.Serialize(datamodel, ChecksumOptions);
+    /// <summary>
+    /// A stable identity of what the model says, ignoring where it came from and the derived name
+    /// fields (<see cref="CompareOptions"/>). Two models with the same checksum define the same types,
+    /// relations and properties with the same settings. This is the datamodel editor's checksum; the
+    /// store's state file uses <see cref="SerializeForChecksum"/> directly.
+    /// </summary>
+    public static Guid Checksum(Datamodel datamodel) => JsonSerializer.Serialize(datamodel, CompareOptions).GenerateHashGuid();
+    /// <summary>
+    /// The content of one JSON datamodel source file holding the given node types and relations:
+    /// only those, without the built in base type, without the source list and without provenance
+    /// (the loader stamps the source and file name back on when it reads the file). This is what the
+    /// datamodel editor writes when it saves a model back into a JsonFile source.
+    /// </summary>
+    public static string SerializeForSourceFile(Datamodel datamodel, IEnumerable<Guid> nodeTypeIds, IEnumerable<Guid> relationIds) {
+        var part = new Datamodel();
+        part.NodeTypes.Clear(); // the base type is implied
+        foreach (var id in nodeTypeIds) {
+            if (id == NodeConstants.BaseNodeTypeId) continue;
+            part.NodeTypes.Add(id, datamodel.NodeTypes[id]);
+        }
+        foreach (var id in relationIds) part.Relations.Add(id, datamodel.Relations[id]);
+        return JsonSerializer.Serialize(part, ChecksumOptions);
+    }
     public static Datamodel Deserialize(string json) {
         var datamodel = JsonSerializer.Deserialize<Datamodel>(json, Options);
         if (datamodel == null) throw new Exception("The datamodel JSON is empty or contains only null. ");

@@ -355,6 +355,11 @@ public static class SettingsCatalog {
                                 Help = "One model class by its full name, assembly qualified unless it lives in the entry assembly. The types it refers to are pulled in with it, so this is how to add a single class rather than a whole namespace.",
                             },
                             new() {
+                                Path = "SourceCodePath", Label = "Source code folder", Placeholder = "read only in the editor",
+                                VisibleWhen = new() { Path = "Type", Values = ["AssemblyNameReference", "TypeNameReference"] },
+                                Help = "The folder holding the C# files these model classes are written in, relative to the folder holding this settings file unless rooted. With it set, the data model editor can write a changed model back into those files - the application then has to be rebuilt and restarted before the change takes effect. Without it the source is shown read only in the editor.",
+                            },
+                            new() {
                                 Path = "Filepath", Label = "C# file or folder", Placeholder = "Models/CSharp",
                                 VisibleWhen = new() { Path = "Type", Values = ["CSharpCodeFile"] },
                                 Help = "A .cs file, or a folder whose .cs files are compiled together as one assembly (bin and obj are skipped). Relative paths resolve against the folder holding this settings file. Empty uses \"Models/CSharp\".",
