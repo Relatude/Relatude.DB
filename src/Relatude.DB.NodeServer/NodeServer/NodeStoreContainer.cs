@@ -323,6 +323,10 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             foreach (var msg in toLog) {
                 datastore.LogInfo(msg);
             }
+            // a source that came out empty is allowed - it is a source nothing has been written into
+            // yet - but it is also what a mistyped namespace or path looks like, and a model that
+            // quietly lost its types would leave the stored nodes without them. So it is a warning.
+            foreach (var notice in Datamodel.SourceNotices) datastore.LogWarning(notice);
             Store = new NodeStore(datastore);
             server?.RaiseEventStoreInit(this, Store);
         } catch {

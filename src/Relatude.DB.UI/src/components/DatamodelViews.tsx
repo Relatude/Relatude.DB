@@ -354,7 +354,8 @@ export function SourcesView({ ctx, selection, hiddenSources, onToggleVisible, on
     <div className="dm-sources">
       <div className="dm-sources-head">
         <span className="muted dm-help-text">
-          Every source is loaded into one model, in this order. A type is written back into the source it belongs to; sources that cannot be written show their types read only.
+          Every source is loaded into one model, in this order. A type is written back into the source it belongs to; sources that cannot be written show their types read only. A source with nothing in it
+          yet loads as an empty one, so it can be added before its first type exists.
         </span>
         {!locked && (
           <button className="action-button" onClick={onAdd}>
@@ -414,6 +415,8 @@ export function SourcesView({ ctx, selection, hiddenSources, onToggleVisible, on
                     <span className="badge dm-badge-new">new</span>
                   )}
                   {info && !info.inSettings && !isCode && <span className="badge dm-badge-warn">not in settings</span>}
+                  {/* allowed, not an error: a source is empty until the first type is written into it */}
+                  {s.Enabled && types + relations === 0 && <span className="badge" title="The source loads, but nothing in it defines a type yet. Add one, or check the namespace and path below if it was meant to hold types.">empty</span>}
                 </div>
                 <div className="dm-source-facts">
                   {s.Namespace && (

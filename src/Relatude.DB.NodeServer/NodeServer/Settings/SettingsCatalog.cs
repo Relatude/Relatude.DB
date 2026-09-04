@@ -316,7 +316,9 @@ public static class SettingsCatalog {
                         + "in the order listed, so a type is defined by the first source that has it. The model is built while the "
                         + "database opens: a source that has just been added or changed does nothing until the database is closed "
                         + "and opened again. A source added here starts turned off, because an unfinished one would stop the "
-                        + "database from opening - fill it in, then turn it on. Model types registered from application code "
+                        + "database from opening - fill it in, then turn it on. A source that is filled in but has no types yet "
+                        + "is fine: it loads as an empty source, and the data model editor can write the first type into it. "
+                        + "Model types registered from application code "
                         + "(OnDatamodelInit) are always loaded and are not listed here.",
                     List = new() {
                         Path = "DatamodelSources",
@@ -347,7 +349,7 @@ public static class SettingsCatalog {
                             new() {
                                 Path = "Namespace", Label = "Namespace", Placeholder = "MyApp.Models",
                                 VisibleWhen = new() { Path = "Type", Values = ["AssemblyNameReference"] },
-                                Help = "The namespace the model classes live in. Required, and everything in it and under it is added. A namespace that yields no model types is treated as a mistake rather than as an empty model, so a typo is reported instead of quietly ignored.",
+                                Help = "The namespace the model classes live in. Required, and everything in it and under it is added. A namespace that holds no model types is loaded as an empty source, so a source can be configured before its first type exists - the database opens and notes it in the log, which is also where a typo shows up.",
                             },
                             new() {
                                 Path = "Reference", Label = "Type name", Placeholder = "MyApp.Models.Person, MyApp",
@@ -362,7 +364,7 @@ public static class SettingsCatalog {
                             new() {
                                 Path = "Filepath", Label = "C# file or folder", Placeholder = "Models/CSharp",
                                 VisibleWhen = new() { Path = "Type", Values = ["CSharpCodeFile"] },
-                                Help = "A .cs file, or a folder whose .cs files are compiled together as one assembly (bin and obj are skipped). Relative paths resolve against the folder holding this settings file. Empty uses \"Models/CSharp\".",
+                                Help = "A .cs file, or a folder whose .cs files are compiled together as one assembly (bin and obj are skipped). Relative paths resolve against the folder holding this settings file. Empty uses \"Models/CSharp\". A folder that is empty, or not there yet, loads as an empty source and is created when the data model editor writes the first type into it.",
                             },
                             new() {
                                 Path = "Namespace", Label = "Namespace filter", Placeholder = "every namespace",
@@ -372,7 +374,7 @@ public static class SettingsCatalog {
                             new() {
                                 Path = "Filepath", Label = "JSON file or folder", Placeholder = "Models/Json",
                                 VisibleWhen = new() { Path = "Type", Values = ["JsonFile"] },
-                                Help = "A .json model file, or a folder whose .json files are all loaded. Relative paths resolve against the folder holding this settings file, and empty uses \"Models/Json\". Ignored when a storage provider is named below.",
+                                Help = "A .json model file, or a folder whose .json files are all loaded. Relative paths resolve against the folder holding this settings file, and empty uses \"Models/Json\". A folder that is empty, or not there yet, loads as an empty source and is created when the data model editor writes the first type into it. Ignored when a storage provider is named below.",
                             },
                             new() {
                                 Path = "FileIO", Label = "Read through provider", Picker = "ioProviders",

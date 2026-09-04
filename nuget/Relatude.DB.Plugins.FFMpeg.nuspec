@@ -16,7 +16,6 @@
 		<dependencies>
 			<group targetFramework="net8.0">
 				<dependency id="FFMpegCore" version="5.4.0" />
-				<dependency id="Xabe.FFmpeg.Downloader" version="4.4.0" />
 			</group>
 		</dependencies>
 	</metadata>

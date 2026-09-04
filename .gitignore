@@ -382,3 +382,5 @@ nuget.exe
 /examples/Website.Simple/appsettings.Development.json
 /nuget/Output
 /docs/.obsidian
+examples/WebApp.Empty/Server/Backend/relatude.db.json
+/examples/WebApp.Empty/Server/Backend/relatude.db

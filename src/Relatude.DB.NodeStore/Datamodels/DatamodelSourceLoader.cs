@@ -8,6 +8,14 @@ namespace Relatude.DB.Datamodels;
 /// Loads a configured datamodel source into a datamodel: registers the source metadata on the
 /// model, tags everything the source adds with its id, and (for file-based sources) with the file
 /// each type came from. Shared by the server and the CLI.
+///
+/// A source that turns out to hold no model types - an empty namespace, a folder without files, a
+/// folder that is not there yet - is loaded as an empty source rather than treated as an error: it
+/// is registered on the model and can be written to, which is how the data model editor adds the
+/// first type to a source that has just been configured. It leaves a line in
+/// <see cref="Datamodel.SourceNotices"/> so the same situation, when it is a typo instead, is still
+/// reported. What cannot be recovered from - an assembly that will not load, a type name that does
+/// not resolve, JSON that is invalid, C# that does not compile - still throws.
 /// </summary>
 public static class DatamodelSourceLoader {
     public const string DefaultJsonFolder = "Models/Json";
@@ -51,6 +59,11 @@ public static class DatamodelSourceLoader {
             dm.CurrentSourceId = DatamodelSource.CodeSourceId;
         }
     }
+    /// <summary>Records why a source came out empty. Not an error - see the class summary.</summary>
+    static void note(Datamodel dm, DatamodelSource source, string message) {
+        var name = string.IsNullOrEmpty(source.Name) ? source.Id.ToString() : source.Name;
+        dm.SourceNotices.Add("The datamodel source \"" + name + "\" adds no types: " + message);
+    }
     static void loadAssemblySource(Datamodel dm, DatamodelSource source) {
         Assembly? assembly;
         if (source.Reference == null) {
@@ -73,8 +86,9 @@ public static class DatamodelSourceLoader {
             try {
                 available = assembly.GetTypes().Select(t => t.Namespace).Where(n => !string.IsNullOrEmpty(n)).Distinct().OrderBy(n => n).ToArray()!;
             } catch { available = []; }
-            throw new Exception("No model types were found in the namespace \"" + source.Namespace + "\" of the assembly " + assembly.GetName().Name
-                + " (or all of them were already added by an earlier datamodel source). Check the namespace for typos. "
+            note(dm, source, "no model types were found in the namespace \"" + source.Namespace + "\" of the assembly " + assembly.GetName().Name
+                + " (or all of them were already added by an earlier datamodel source), so it is loaded as an empty source. "
+                + "Check the namespace for typos if it was meant to hold types. "
                 + (available.Length == 0 ? "" : "Namespaces in the assembly: " + string.Join(", ", available.Take(20)) + (available.Length > 20 ? ", ..." : "") + ". "));
         }
     }
@@ -119,15 +133,28 @@ public static class DatamodelSourceLoader {
             var io = resolveIO?.Invoke(source.FileIO.Value);
             if (io == null) throw new Exception("No IO provider with id " + source.FileIO.Value + " is configured. ");
             if (string.IsNullOrEmpty(source.Reference)) throw new Exception("The datamodel source has no Reference. Set Reference to the file name of the JSON datamodel. ");
-            dm.AddDatamodel(deserialize(io.ReadAllTextUTF8(source.Reference.SplitKey()), source.Reference), source.Id, source.Reference);
+            var key = source.Reference.SplitKey();
+            if (!io.ExistsAndIsNotEmpty(key)) { // not written yet: an empty source, the same as a folder without files
+                note(dm, source, "the provider holds no file \"" + source.Reference + "\" yet, so it is loaded as an empty source. ");
+                return;
+            }
+            dm.AddDatamodel(deserialize(io.ReadAllTextUTF8(key), source.Reference), source.Id, source.Reference);
             return;
         }
-        var (files, baseFolder) = ResolveFiles(source, rootFolder, DefaultJsonFolder, "*.json");
+        var (files, baseFolder, emptyReason) = ResolveFiles(source, rootFolder, DefaultJsonFolder, "*.json");
+        if (emptyReason != null) {
+            note(dm, source, emptyReason);
+            return;
+        }
+        var typesBefore = dm.NodeTypes.Count + dm.Relations.Count;
         foreach (var file in files) {
             var imported = deserialize(File.ReadAllText(file), file);
             registerAssembliesOfBackingClrTypes(dm, imported);
             dm.AddDatamodel(imported, source.Id, Path.GetRelativePath(baseFolder, file));
         }
+        if (dm.NodeTypes.Count + dm.Relations.Count == typesBefore) note(dm, source,
+            "the file" + (files.Count == 1 ? "" : "s") + " " + string.Join(", ", files.Select(Path.GetFileName))
+            + " define no types, so it is loaded as an empty source. ");
     }
     // A JSON file only defines the model; at runtime each node type still needs a backing CLR type
     // (a plain class, no attributes needed) for the mapper to compile against. Reflection sources
@@ -152,7 +179,11 @@ public static class DatamodelSourceLoader {
         }
     }
     static void loadCSharpSource(Datamodel dm, DatamodelSource source, string rootFolder) {
-        var (files, baseFolder) = ResolveFiles(source, rootFolder, DefaultCSharpFolder, "*.cs");
+        var (files, baseFolder, emptyReason) = ResolveFiles(source, rootFolder, DefaultCSharpFolder, "*.cs");
+        if (emptyReason != null) {
+            note(dm, source, emptyReason);
+            return; // nothing to compile: an empty source, ready for the editor to write the first type into
+        }
         var compiled = ModelCodeCompiler.CompileAndLoad(files, "RelatudeModel");
         dm.AssemblyImages[compiled.Assembly.GetName().Name!] = compiled.Image;
         var typesBefore = dm.NodeTypes.Count + dm.Relations.Count;
@@ -166,10 +197,11 @@ public static class DatamodelSourceLoader {
                 dm.Add(type, true, source.AutoDeduceRelations);
             }
         }
-        if (dm.NodeTypes.Count + dm.Relations.Count == typesBefore) throw new Exception(
-            "No model types were found in the compiled source file" + (files.Count == 1 ? "" : "s") + " "
+        if (dm.NodeTypes.Count + dm.Relations.Count == typesBefore) note(dm, source,
+            "no model types were found in the compiled source file" + (files.Count == 1 ? "" : "s") + " "
             + string.Join(", ", files.Select(Path.GetFileName))
-            + (string.IsNullOrEmpty(source.Namespace) ? "" : " in the namespace \"" + source.Namespace + "\"") + ". ");
+            + (string.IsNullOrEmpty(source.Namespace) ? "" : " in the namespace \"" + source.Namespace + "\"")
+            + ", so it is loaded as an empty source. ");
         // several files compile as one assembly, so the file each type came from is stamped afterwards:
         foreach (var nt in dm.NodeTypes.Values) {
             if (nt.DatamodelSourceId == source.Id && compiled.FileByTypeFullName.TryGetValue(nt.FullName, out var file))
@@ -183,20 +215,25 @@ public static class DatamodelSourceLoader {
     /// <summary>
     /// Filepath may name a file or a folder (all matching files, recursively). When empty, the
     /// default folder is used, combined with Reference when set. Relative paths resolve against
-    /// the folder holding the settings file. Also returns the folder filenames are stored relative to.
+    /// the folder holding the settings file. Also returns the folder filenames are stored relative
+    /// to, and - when there is nothing to read - why, since that is a note rather than an error:
+    /// the folder of a source that has just been added does not exist until its first type is
+    /// written into it.
     /// </summary>
-    public static (List<string> files, string baseFolder) ResolveFiles(DatamodelSource source, string rootFolder, string defaultFolder, string pattern) {
+    public static (List<string> files, string baseFolder, string? emptyReason) ResolveFiles(DatamodelSource source, string rootFolder, string defaultFolder, string pattern) {
         var path = ResolveFilePath(source, rootFolder, defaultFolder);
-        if (File.Exists(path)) return ([path], Path.GetDirectoryName(path)!);
+        if (File.Exists(path)) return ([path], Path.GetDirectoryName(path)!, null);
         if (Directory.Exists(path)) {
             var files = Directory.GetFiles(path, pattern, SearchOption.AllDirectories)
                 .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
                          && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
                 .OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
-            if (files.Count == 0) throw new Exception("The folder \"" + path + "\" contains no " + pattern + " files. ");
-            return (files, path);
+            return (files, path, files.Count == 0 ? "the folder \"" + path + "\" holds no " + pattern + " files, so it is loaded as an empty source. " : null);
         }
-        throw new Exception("The path \"" + path + "\" does not exist. Set Filepath to a " + pattern + " file or a folder holding such files "
+        // the path is not there: a folder unless it names a file
+        var baseFolder = Path.HasExtension(path) ? Path.GetDirectoryName(path)! : path;
+        return ([], baseFolder, "the path \"" + path + "\" does not exist, so it is loaded as an empty source. "
+            + "Set Filepath to a " + pattern + " file or a folder holding such files if that is not intended "
             + "(relative paths resolve against the settings folder; when Filepath is empty, \"" + defaultFolder + "\" is used). ");
     }
     /// <summary>

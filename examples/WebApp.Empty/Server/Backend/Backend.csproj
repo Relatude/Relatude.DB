@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Relatude.DB.Plugins.FFMpeg" Version="0.2.0.160-alpha" />
+    <PackageReference Include="Relatude.DB.Plugins.Skia" Version="0.2.0.160-alpha" />
+    <PackageReference Include="Relatude.DB.Server" Version="0.2.0.160-alpha" />
+  </ItemGroup>
+
+</Project>

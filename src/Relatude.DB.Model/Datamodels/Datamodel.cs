@@ -29,6 +29,16 @@ public partial class Datamodel {
     [JsonIgnore]
     public Guid CurrentSourceId { get; set; } = DatamodelSource.CodeSourceId;
 
+    /// <summary>
+    /// What the source loader has to say about the sources it read: a source that turned out to hold
+    /// no model types, a file or folder that is not there. None of it stops the model from loading - a
+    /// source with nothing in it is a source that has nothing in it yet - but it is worth a line in the
+    /// log and a note in the editor, since it is also what a typo looks like. Not serialized: it
+    /// describes one load of the sources, not the model.
+    /// </summary>
+    [JsonIgnore]
+    public readonly List<string> SourceNotices = new();
+
     [JsonIgnore] // not serialized
     public readonly HashSet<Assembly> Assemblies = new();
 
