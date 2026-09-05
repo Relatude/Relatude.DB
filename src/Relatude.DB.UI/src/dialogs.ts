@@ -48,7 +48,19 @@ export interface ChoiceState {
   options: { label: string; hint: string | null }[];
 }
 
-export type DialogState = ProgressState | MessageState | ConfirmState | ChoiceState;
+export interface PromptState {
+  kind: "prompt";
+  title: string;
+  body: string;
+  label: string;
+  value: string;
+  confirmLabel: string;
+  error: string | null; // what validate said about the current value
+  validate: ((value: string) => string | null) | null;
+  selectEnd: number | null; // how much of the initial value starts selected (a file name's stem)
+}
+
+export type DialogState = ProgressState | MessageState | ConfirmState | ChoiceState | PromptState;
 
 export interface ProgressController {
   signal: AbortSignal;
@@ -60,6 +72,7 @@ let currentAbort: AbortController | null = null;
 let messageResolve: (() => void) | null = null;
 let confirmResolve: ((result: ConfirmResult) => void) | null = null;
 let choiceResolve: ((index: number | null) => void) | null = null;
+let promptResolve: ((value: string | null) => void) | null = null;
 const listeners = new Set<() => void>();
 
 function emit(): void {
@@ -185,6 +198,51 @@ export function showChoice(title: string, body: string, options: { label: string
   });
 }
 
+// A modal text question (a name to give something); resolves with the text, or null when closed.
+// validate turns a value into an error message shown under the input, and blocks the confirm.
+export function showPrompt(
+  title: string,
+  body: string,
+  options?: { label?: string; initial?: string; confirmLabel?: string; validate?: (value: string) => string | null; selectEnd?: number },
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    whenIdle(() => {
+      const validate = options?.validate ?? null;
+      const value = options?.initial ?? "";
+      state = {
+        kind: "prompt",
+        title,
+        body,
+        label: options?.label ?? "Name",
+        value,
+        confirmLabel: options?.confirmLabel ?? "OK",
+        error: validate ? validate(value) : null,
+        validate,
+        selectEnd: options?.selectEnd ?? null,
+      };
+      promptResolve = resolve;
+      emit();
+    });
+  });
+}
+
+export function setPromptValue(value: string): void {
+  if (state?.kind !== "prompt") return;
+  state = { ...state, value, error: state.validate ? state.validate(value) : null, selectEnd: null };
+  emit();
+}
+
+export function acceptPrompt(): void {
+  if (state?.kind !== "prompt") return;
+  if (state.error || state.value.trim().length === 0) return;
+  const resolve = promptResolve;
+  const value = state.value;
+  promptResolve = null;
+  state = null;
+  emit();
+  resolve?.(value);
+}
+
 export function acceptChoice(index: number): void {
   if (state?.kind !== "choice") return;
   const resolve = choiceResolve;
@@ -229,13 +287,16 @@ function settlePending(confirmOk: boolean): void {
   const message = messageResolve;
   const confirm = confirmResolve;
   const choice = choiceResolve;
+  const prompt = promptResolve;
   const option = state?.kind === "confirm" ? (state.option?.checked ?? false) : false;
   messageResolve = null;
   confirmResolve = null;
   choiceResolve = null;
+  promptResolve = null;
   message?.();
   confirm?.({ ok: confirmOk, option });
   choice?.(null);
+  prompt?.(null);
 }
 
 export function closeDialog(): void {

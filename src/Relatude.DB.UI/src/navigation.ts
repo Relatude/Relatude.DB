@@ -30,6 +30,8 @@ export interface Section {
    * and building a second screen for them would only be a second place to keep them.
    */
   settingsSection?: string;
+  /** Left out of the rail for now: the page is not ready to be shown. The entry stays so it keeps its id and place. */
+  hidden?: boolean;
 }
 
 export const sections: Section[] = [
@@ -45,7 +47,7 @@ export const sections: Section[] = [
   { id: "db-settings", label: "Settings", scope: "database", icon: IconSettings },
   { id: "server-overview", label: "Overview", scope: "server", icon: IconGauge },
   { id: "server-databases", label: "Databases", scope: "server", icon: IconDatabase },
-  { id: "server-events", label: "Events & exceptions", scope: "server", icon: IconAlertTriangle },
+  { id: "server-events", label: "Events & exceptions", scope: "server", icon: IconAlertTriangle, hidden: true },
   { id: "server-settings", label: "Settings", scope: "server", icon: IconAdjustments },
-  { id: "server-access", label: "Access", scope: "server", icon: IconLock, settingsSection: "security" },
+  { id: "server-access", label: "Access", scope: "server", icon: IconLock, settingsSection: "security", hidden: true },
 ];

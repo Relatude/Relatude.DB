@@ -165,7 +165,7 @@ model. Show only the interesting part:
     "IOSettings": [{ "Id": "b195...", "Name": "Local disk", "Path": "relatude.db", "IOType": "LocalDisk" }],
     "IoDatabase": "b195...",
     "DatamodelSources": [
-      { "Name": "Shop", "Namespace": "Website.Simple.Models", "Type": "AssemblyNameReference" }
+      { "Name": "Shop", "Namespace": "Website.Simple.Models", "Type": "TypeReference" }
     ],
     "LocalSettings": { "EnableTextIndexByDefault": true }
   }]

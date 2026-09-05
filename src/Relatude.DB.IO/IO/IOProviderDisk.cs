@@ -21,10 +21,14 @@ public class IOProviderDisk : IIOProvider {
     readonly Dictionary<string, int> _openWriters = [];
     readonly List<IStream> _openStreams = [];
     bool _dirExists;
-    public IOProviderDisk(string baseFolder, bool readOnly = false) {
+    /// <param name="plainFolder">The folder is an ordinary folder, not database storage (the admin UI's
+    /// view of the website project folder): any legal file system name is a valid key segment, and
+    /// listings carry none of the database folder descriptions or primary data markings.</param>
+    public IOProviderDisk(string baseFolder, bool readOnly = false, bool plainFolder = false) {
         _providers.Add(this);
         BaseFolder = baseFolder;
         _readOnly = readOnly;
+        PlainFolder = plainFolder;
         _dirExists = Directory.Exists(BaseFolder);
     }
     void ensureFolder() {
@@ -33,8 +37,16 @@ public class IOProviderDisk : IIOProvider {
         _dirExists = true;
     }
     public string BaseFolder { get; }
+    /// <summary>See the constructor: an ordinary folder rather than database storage.</summary>
+    public bool PlainFolder { get; }
+    /// <summary>Whether the segment is acceptable as a key segment of this provider.</summary>
+    public bool IsValidKeySegment(string segment) => PlainFolder ? FileKeyUtility.IsPlainFileNameValid(segment) : FileKeyUtility.IsFileKeyValid(segment);
+    void validate(string[] path) {
+        if (PlainFolder) FileKeyUtility.ValidatePlainPath(path);
+        else FileKeyUtility.ValidateFileKeyPath(path);
+    }
     string filePathOf(string[] path) {
-        FileKeyUtility.ValidateFileKeyPath(path);
+        validate(path);
         return Path.Combine([BaseFolder, .. path]);
     }
     void registerReader(string fileKey) {
@@ -148,7 +160,8 @@ public class IOProviderDisk : IIOProvider {
         lock (_lock) {
             var filePath = filePathOf(path);
             var newFilePath = filePathOf(newPath);
-            if (File.Exists(newFilePath)) throw new Exception($"File {newPath.AsKeyString()} already exists");
+            // a change of case only is a real rename on a case insensitive file system, not a collision
+            if (File.Exists(newFilePath) && !string.Equals(filePath, newFilePath, StringComparison.OrdinalIgnoreCase)) throw new Exception($"File {newPath.AsKeyString()} already exists");
             ensureParentFolder(newFilePath);
             File.Move(filePath, newFilePath);
         }
@@ -158,6 +171,27 @@ public class IOProviderDisk : IIOProvider {
         if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
     }
     public bool CanRenameFile => true;
+    public bool CanRenameFolder => !_readOnly;
+    public bool SupportsEmptyFolders => true;
+    public void RenameFolder(string[] path, string[] newPath) {
+        lock (_lock) {
+            if (_readOnly) throw new Exception("The IO provider is read only. ");
+            if (path.Length == 0 || newPath.Length == 0) throw new ArgumentException("The storage root cannot be renamed. ");
+            validate(path);
+            validate(newPath);
+            var folderPath = Path.Combine([BaseFolder, .. path]);
+            var newFolderPath = Path.Combine([BaseFolder, .. newPath]);
+            if (!Directory.Exists(folderPath)) throw new DirectoryNotFoundException("Folder not found: " + path.AsKeyString());
+            var caseChangeOnly = string.Equals(folderPath, newFolderPath, StringComparison.OrdinalIgnoreCase);
+            if (!caseChangeOnly && (Directory.Exists(newFolderPath) || File.Exists(newFolderPath))) throw new Exception($"{newPath.AsKeyString()} already exists");
+            // a file with an open stream would be moved out from under it (or block the move)
+            var prefix = path.AsKeyString() + FileKeyExtensions.KeyDelimiter;
+            var open = _openStreams.Select(s => s.FileKey).FirstOrDefault(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+            if (open != null) throw new Exception($"File {open} is in use, the folder cannot be renamed. ");
+            ensureParentFolder(newFolderPath);
+            Directory.Move(folderPath, newFolderPath);
+        }
+    }
 
     public bool CanTruncate => !_readOnly;
     public void TruncateFile(string[] path, long newLength) {
@@ -188,18 +222,21 @@ public class IOProviderDisk : IIOProvider {
     public Task<FolderMeta> GetFolderAsync(string[] path, bool recursive, bool withFiles) {
         lock (_lock) {
             ensureFolder();
-            FileKeyUtility.ValidateFileKeyPath(path);
+            validate(path);
             var relativePath = string.Join('/', path);
             var dirInfo = new DirectoryInfo(Path.Combine([BaseFolder, .. path]));
-            if (!dirInfo.Exists) return Task.FromResult(new FolderMeta { Name = path.Length > 0 ? path[^1] : "" }.Describe(relativePath));
-            var folderMeta = FolderMeta.FromDirInfo(dirInfo, relativePath);
+            if (!dirInfo.Exists) {
+                var missing = new FolderMeta { Name = path.Length > 0 ? path[^1] : "" };
+                return Task.FromResult(PlainFolder ? missing : missing.Describe(relativePath));
+            }
+            var folderMeta = FolderMeta.FromDirInfo(dirInfo, relativePath, describe: !PlainFolder);
             addAllSubFolders(dirInfo, folderMeta, relativePath, recursive, withFiles);
             return Task.FromResult(folderMeta);
         }
     }
     void addAllSubFolders(DirectoryInfo dirInfo, FolderMeta folder, string relativeParentPath, bool recursive, bool withFiles) {
         if (withFiles) folder.Files = [.. dirInfo.GetFiles().Select(f => fileMetaWithLockCounts(f, relativeKey(relativeParentPath, f.Name)))];
-        folder.SubFolders = [.. dirInfo.GetDirectories().Select(d => FolderMeta.FromDirInfo(d, relativeKey(relativeParentPath, d.Name)))];
+        folder.SubFolders = [.. dirInfo.GetDirectories().Select(d => FolderMeta.FromDirInfo(d, relativeKey(relativeParentPath, d.Name), describe: !PlainFolder))];
         if (recursive) {
             foreach (var subFolder in folder.SubFolders) {
                 var subDirInfo = new DirectoryInfo(Path.Combine(dirInfo.FullName, subFolder.Name));
@@ -216,7 +253,7 @@ public class IOProviderDisk : IIOProvider {
     }
     public void DeleteFolderIfItExists(string[] path) {
         lock (_lock) {
-            FileKeyUtility.ValidateFileKeyPath(path);
+            validate(path);
             var folderPath = Path.Combine([BaseFolder, .. path]);
             GC.Collect();
             GC.WaitForPendingFinalizers();
@@ -238,13 +275,13 @@ public class IOProviderDisk : IIOProvider {
     }
     public void EnsureFolder(string[] path) {
         lock (_lock) {
-            FileKeyUtility.ValidateFileKeyPath(path);
+            validate(path);
             var folderPath = Path.Combine([BaseFolder, .. path]);
             if (!Directory.Exists(folderPath)) Directory.CreateDirectory(folderPath);
         }
     }
     public bool TryGetLocalFilePath(string[] path, [MaybeNullWhen(false)] out string localFilePath) {
-        FileKeyUtility.ValidateFileKeyPath(path);
+        validate(path);
         var filePath = Path.Combine([BaseFolder, .. path]);
         if (File.Exists(filePath)) {
             localFilePath = filePath;
@@ -254,7 +291,7 @@ public class IOProviderDisk : IIOProvider {
         return false;
     }
     public bool TryGetLocalFolderPath(string[] path, [MaybeNullWhen(false)] out string localFolderPath) {
-        FileKeyUtility.ValidateFileKeyPath(path);
+        validate(path);
         var folderPath = Path.Combine([BaseFolder, .. path]);
         localFolderPath = folderPath;
         return true;

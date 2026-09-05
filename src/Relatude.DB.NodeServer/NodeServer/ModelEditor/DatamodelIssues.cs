@@ -42,6 +42,12 @@ public sealed class PlannedFile {
     public bool Exists { get; init; }
     /// <summary>False when the file already holds exactly this content, in which case it is left untouched.</summary>
     public bool Changed { get; init; }
+    /// <summary>
+    /// In a generated folder (<see cref="DatamodelSource.GenerateModelFile"/>): the file that is deleted
+    /// or overwritten does not start with the generated-code marker, so somebody wrote it by hand. The
+    /// plan reports these as a warning, which the activation needs accepted.
+    /// </summary>
+    public bool HandWritten { get; init; }
     public List<Guid> NodeTypeIds { get; init; } = [];
     public List<Guid> RelationIds { get; init; } = [];
     /// <summary>The IO provider and key of a provider-backed file, when the source reads through one.</summary>
@@ -58,6 +64,8 @@ public sealed class SourceChange {
     public string? ReadOnlyReason { get; init; }
     /// <summary>The source is compiled into the application: written changes take effect after a rebuild and restart.</summary>
     public bool RequiresRebuild { get; init; }
+    /// <summary>The source's code folder is generated as a whole at every activation (<see cref="DatamodelSource.GenerateModelFile"/>).</summary>
+    public bool Generated { get; init; }
     /// <summary>The source is in the active model but not in the draft: it leaves the settings, its files stay.</summary>
     public bool Removed { get; init; }
     /// <summary>The source is in the draft but not yet in the settings.</summary>
@@ -76,7 +84,11 @@ public sealed class SourceWritePlan {
     public List<PlannedFile> Files { get; } = [];
     public List<SourceChange> Sources { get; } = [];
     public List<DatamodelIssue> Issues { get; } = [];
-    public bool RequiresRebuild => Sources.Any(s => s.RequiresRebuild && s.HasModelChanges);
+    /// <summary>
+    /// A compiled source gets model changes, or (a generated folder) any file change at all - a stray
+    /// file deleted from a generated folder may have declared a type the running application still has.
+    /// </summary>
+    public bool RequiresRebuild => Sources.Any(s => s.RequiresRebuild && (s.HasModelChanges || Files.Any(f => f.SourceId == s.SourceId && f.Changed)));
     public bool HasErrors => Issues.Any(i => i.Severity == IssueSeverity.Error);
     /// <summary>Whether the sources listed in the settings change: a source added, removed or edited.</summary>
     public bool SettingsChange { get; set; }

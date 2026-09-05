@@ -29,6 +29,10 @@ sealed class UIDatamodel {
         commands.Register("datamodel-history-load", ctx => historyLoad(ctx.Payload<HistoryPayload>()));
         commands.Register("datamodel-history-delete", ctx => historyDelete(ctx.Payload<HistoryPayload>()));
         commands.Register("datamodel-export", ctx => export(ctx.Payload<ExportPayload>()));
+        // the type reference form: process wide lookups, on demand (see AssemblyScanner)
+        commands.Register("datamodel-scan-assemblies", ctx => AssemblyScanner.ScanAssemblies());
+        commands.Register("datamodel-scan-namespaces", ctx => AssemblyScanner.ScanNamespaces(ctx.Payload<ReferencePayload>().Reference));
+        commands.Register("datamodel-probe-types", ctx => { var p = ctx.Payload<ProbePayload>(); return AssemblyScanner.Probe(p.Reference, p.Namespace); });
     }
 
     NodeStoreContainer container(Guid storeId) {
@@ -117,13 +121,13 @@ sealed class UIDatamodel {
             string? resolved = null;
             bool? exists = null;
             try {
-                if (s.Type is DatamodelSourceType.AssemblyNameReference or DatamodelSourceType.TypeNameReference) {
+                if (s.Type == DatamodelSourceType.TypeReference) {
                     resolved = DatamodelSourceLoader.ResolveSourceCodeFolder(s, root);
                     if (resolved != null) exists = Directory.Exists(resolved);
-                } else if (s.Type == DatamodelSourceType.JsonFile && s.FileIO != null) {
+                } else if (s.IsJsonFiles && s.FileIO != null) {
                     resolved = "provider " + s.FileIO + " / " + s.Reference;
-                } else if (s.Type is DatamodelSourceType.JsonFile or DatamodelSourceType.CSharpCodeFile) {
-                    resolved = DatamodelSourceLoader.ResolveFilePath(s, root, s.Type == DatamodelSourceType.JsonFile ? DatamodelSourceLoader.DefaultJsonFolder : DatamodelSourceLoader.DefaultCSharpFolder);
+                } else if (s.Type == DatamodelSourceType.TextFiles) {
+                    resolved = DatamodelSourceLoader.ResolveFilePath(s, root, DatamodelSourceLoader.DefaultFolder(s));
                     exists = File.Exists(resolved) || Directory.Exists(resolved);
                 }
             } catch { }
@@ -133,13 +137,15 @@ sealed class UIDatamodel {
                 s.Id,
                 Name = string.IsNullOrEmpty(s.Name) ? (s.Type == DatamodelSourceType.Code ? "Code" : s.Id.ToString()) : s.Name,
                 Type = s.Type.ToString(),
+                FileFormat = s.FileFormat.ToString(),
                 s.Enabled,
                 s.Namespace,
                 s.Filepath,
                 s.Reference,
                 s.FileIO,
                 s.SourceCodePath,
-                s.AutoDeduceRelations,
+                s.GenerateModelFile,
+                s.Color,
                 IsCode = s.Type == DatamodelSourceType.Code,
                 InSettings = x.inSettings,
                 Writable = writable,
@@ -272,4 +278,6 @@ sealed class UIDatamodel {
     sealed record ActivatePayload(Guid StoreId, JsonElement Model, bool AcceptWarnings, string? Note);
     sealed record HistoryPayload(Guid StoreId, string Key);
     sealed record ExportPayload(Guid StoreId, JsonElement? Model, string Format, bool? Attributes);
+    sealed record ReferencePayload(string? Reference);
+    sealed record ProbePayload(string? Reference, string? Namespace);
 }

@@ -5,12 +5,17 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ClientDir>$(MSBuildProjectDirectory)\..\..\Client</ClientDir>
+    <Version>0.2.0.161</Version>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Relatude.DB.Plugins.FFMpeg" Version="0.2.0.160-alpha" />
     <PackageReference Include="Relatude.DB.Plugins.Skia" Version="0.2.0.160-alpha" />
     <PackageReference Include="Relatude.DB.Server" Version="0.2.0.160-alpha" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Models\" />
   </ItemGroup>
 
   <!-- On publish, build the React client into wwwroot. -->

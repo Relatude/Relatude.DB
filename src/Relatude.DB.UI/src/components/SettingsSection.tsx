@@ -31,6 +31,8 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
+import { ColorField } from "./ColorField";
+import { sourceColor } from "../server/datamodel";
 import { showConfirm, showError } from "../dialogs";
 import {
   addListItem,
@@ -44,6 +46,7 @@ import {
   type SettingListItem,
   type SettingValues,
   type SettingView,
+  type SettingVisibility,
   type SettingsPage,
 } from "../server/settings";
 
@@ -504,7 +507,7 @@ function ListEditor({
   return (
     <div className="setting-items">
       {list.items.length === 0 && <div className="setting-items-empty">{list.emptyHelp}</div>}
-      {list.items.map((item) => {
+      {list.items.map((item, itemIndex) => {
         const isCollapsed = collapsed[item.id] ?? false;
         return (
           <div className="setting-item" key={item.id}>
@@ -544,6 +547,9 @@ function ListEditor({
                       showComment={showComments}
                       onChange={(value) => onChange(setting.path, value)}
                       onRevert={() => onRevert(setting.path)}
+                      // an element that names no colour is marked with the palette's, by its place in
+                      // the list - the same rule the pages showing it follow (see sourceColors)
+                      fallbackColor={sourceColor(itemIndex)}
                     />
                   ))}
               </div>
@@ -562,9 +568,12 @@ function ListEditor({
 // a field that only applies to some kinds of element is hidden for the rest, so an Azure container
 // never sits under a local folder
 function visible(setting: SettingView, valueOf: (path: string) => unknown): boolean {
-  if (!setting.visibleWhen) return true;
-  const current = valueOf(setting.visibleWhen.path);
-  return setting.visibleWhen.values.some((v) => String(current ?? "").toLowerCase() === v.toLowerCase());
+  return holds(setting.visibleWhen, valueOf);
+}
+function holds(rule: SettingVisibility | null | undefined, valueOf: (path: string) => unknown): boolean {
+  if (!rule) return true;
+  const current = valueOf(rule.path);
+  return rule.values.some((v) => String(current ?? "").toLowerCase() === v.toLowerCase()) && holds(rule.and, valueOf);
 }
 
 // the card header follows the field the catalog nominated, live, so renaming a provider renames its
@@ -587,6 +596,7 @@ function SettingRow({
   showComment,
   onChange,
   onRevert,
+  fallbackColor,
 }: {
   setting: SettingView;
   pickers: Record<string, SettingChoice[] | undefined>;
@@ -595,6 +605,8 @@ function SettingRow({
   showComment: boolean;
   onChange: (value: unknown) => void;
   onRevert: () => void;
+  /** for a colour field: what the value in force is while nothing is set */
+  fallbackColor?: string;
 }) {
   const value = edited ? edit : setting.value;
   const locked = setting.overridden || setting.readOnly;
@@ -627,7 +639,7 @@ function SettingRow({
         )}
       </div>
       <div className="setting-control">
-        <Editor setting={setting} value={value} pickers={pickers} disabled={locked} onChange={onChange} />
+        <Editor setting={setting} value={value} pickers={pickers} disabled={locked} onChange={onChange} fallbackColor={fallbackColor} />
         {setting.unit && <span className="setting-unit">{setting.unit}</span>}
         {/* a random value is made here and only filled in: it is saved with the rest, and undone like any edit */}
         {!locked && setting.generate === "guid" && (
@@ -675,14 +687,19 @@ function Editor({
   pickers,
   disabled,
   onChange,
+  fallbackColor,
 }: {
   setting: SettingView;
   value: unknown;
   pickers: Record<string, SettingChoice[] | undefined>;
   disabled: boolean;
   onChange: (value: unknown) => void;
+  fallbackColor?: string;
 }) {
   const listId = useRef("dl-" + setting.path.replace(/\W/g, "-")).current;
+  if (setting.editor === "color") {
+    return <ColorField value={asText(value) || null} fallback={fallbackColor} disabled={disabled} onChange={(v) => onChange(v ?? "")} />;
+  }
   if (setting.editor === "toggle") {
     return (
       <label className="setting-toggle">

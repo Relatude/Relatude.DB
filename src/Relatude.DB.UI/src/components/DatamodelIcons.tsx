@@ -4,7 +4,6 @@ import {
   IconArrowsExchange,
   IconAssembly,
   IconBinary,
-  IconBox,
   IconBraces,
   IconBrandCSharp,
   IconCalendar,
@@ -30,7 +29,7 @@ import {
   IconToggleLeft,
   IconVector,
 } from "@tabler/icons-react";
-import type { ModelKind, RelationKind, SourceType } from "../server/datamodel";
+import type { ModelKind, RelationKind, SourceFileFormat, SourceType } from "../server/datamodel";
 
 type Icon = ComponentType<{ size?: number; stroke?: number; color?: string; className?: string }>;
 
@@ -55,6 +54,9 @@ export function KindIcon({ kind, size = 16 }: { kind: ModelKind; size?: number }
   return <Cmp size={size} stroke={1.9} color={meta.color} />;
 }
 
+/** Embedded (inner node) properties, shared by the property icon and the diagram's embed edges. */
+export const embeddedColor = "#b84cc0";
+
 /** Property value types grouped into a handful of families, each with a shape and a hue. */
 const propertyFamilies: Record<string, { icon: Icon; color: string }> = {
   text: { icon: IconAbc, color: "#2f7fd6" },
@@ -69,7 +71,7 @@ const propertyFamilies: Record<string, { icon: Icon; color: string }> = {
   file: { icon: IconPhoto, color: "#e06aa2" },
   list: { icon: IconList, color: "#7a6ff0" },
   vector: { icon: IconVector, color: "#7a6ff0" },
-  embedded: { icon: IconStack2, color: "#b84cc0" },
+  embedded: { icon: IconStack2, color: embeddedColor },
   reference: { icon: IconLink, color: "#d64f5f" },
   relation: { icon: IconArrowsExchange, color: "#d64f5f" },
   tags: { icon: IconTags, color: "#7a6ff0" },
@@ -129,16 +131,18 @@ export function RelationIcon({ kind, size = 16 }: { kind: RelationKind; size?: n
 
 /** Source kinds. Color comes from the source's own swatch; the shape tells the kind apart. */
 export const sourceMeta: Record<SourceType, { icon: Icon; label: string }> = {
-  AssemblyNameReference: { icon: IconAssembly, label: "Assembly namespace" },
-  TypeNameReference: { icon: IconBox, label: "Single type" },
-  JsonFile: { icon: IconBraces, label: "JSON file(s)" },
-  CSharpCodeFile: { icon: IconBrandCSharp, label: "C# file(s)" },
+  TypeReference: { icon: IconAssembly, label: "Compiled types" },
+  TextFiles: { icon: IconBraces, label: "Text files" },
   Code: { icon: IconCode, label: "Application code" },
 };
+/** Text files split further by what they hold; the other kinds are one shape each. */
+export function sourceKindMeta(type: SourceType, fileFormat?: SourceFileFormat | null): { icon: Icon; label: string } {
+  if (type === "TextFiles") return fileFormat === "CSharpCode" ? { icon: IconBrandCSharp, label: "C# files" } : { icon: IconBraces, label: "JSON files" };
+  return sourceMeta[type] ?? sourceMeta.Code;
+}
 
-export function SourceIcon({ type, color, size = 16 }: { type: SourceType; color?: string; size?: number }) {
-  const meta = sourceMeta[type] ?? sourceMeta.Code;
-  const Cmp = meta.icon;
+export function SourceIcon({ type, fileFormat, color, size = 16 }: { type: SourceType; fileFormat?: SourceFileFormat | null; color?: string; size?: number }) {
+  const Cmp = sourceKindMeta(type, fileFormat).icon;
   return <Cmp size={size} stroke={1.9} color={color} />;
 }
 

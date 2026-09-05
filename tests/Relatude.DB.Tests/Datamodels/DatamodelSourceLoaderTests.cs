@@ -76,7 +76,7 @@ namespace Relatude.Datamodels {
         static DatamodelSource jsonSource(string? filepath, string? reference = null) => new() {
             Id = new Guid("11111111-0000-0000-0000-000000000001"),
             Name = "JsonModel",
-            Type = DatamodelSourceType.JsonFile,
+            Type = DatamodelSourceType.TextFiles,
             Filepath = filepath,
             Reference = reference,
         };
@@ -192,7 +192,8 @@ namespace Relatude.Datamodels {
         DatamodelSource csharpSource(string? filepath) => new() {
             Id = new Guid("22222222-0000-0000-0000-000000000001"),
             Name = "CsModel",
-            Type = DatamodelSourceType.CSharpCodeFile,
+            Type = DatamodelSourceType.TextFiles,
+            FileFormat = DatamodelSourceFileFormat.CSharpCode,
             Filepath = filepath,
         };
         string writeCsFiles() {
@@ -248,10 +249,20 @@ namespace Relatude.Datamodels {
         }
 
         [TestMethod]
-        public void CSharpFileSource_MissingPathNamesResolvedPath() {
+        public void CSharpFileSource_MissingPathLoadsEmpty_AndNamesResolvedPath() {
+            // a folder that is not there yet is not an error: the source loads empty, so the data model
+            // editor can write the first type into it - but the notice names the resolved path, so a typo
+            // in Filepath still shows up in the log
             var dm = new Datamodel();
-            var ex = Assert.ThrowsException<Exception>(() => DatamodelSourceLoader.Load(dm, csharpSource("does/not/exist"), _root));
-            StringAssert.Contains(ex.Message, "does not exist");
+            var source = csharpSource("does/not/exist");
+            DatamodelSourceLoader.Load(dm, source, _root);
+            Assert.AreEqual(1, dm.Sources.Count, "an empty source is still registered on the model");
+            Assert.AreEqual(source.Id, dm.Sources[0].Id);
+            Assert.AreEqual(0, dm.NodeTypes.Values.Count(t => t.Id != NodeConstants.BaseNodeTypeId));
+            var notice = dm.SourceNotices.Single();
+            StringAssert.Contains(notice, "does not exist");
+            StringAssert.Contains(notice, Path.Combine(_root, "does", "not", "exist"), "the notice names the path as resolved against the settings folder");
+            StringAssert.Contains(notice, "*.cs");
         }
 
         [TestMethod]
@@ -317,7 +328,7 @@ namespace Relatude.Datamodels {
             Assert.IsFalse(dm.NodeTypesByFullName.ContainsKey("Relatude.SourceLoaderModels.SlAuthor"));
 
             // unfinished and pointing nowhere: exactly what "Add model source" leaves behind
-            var unfinished = new DatamodelSource() { Id = Guid.NewGuid(), Type = DatamodelSourceType.AssemblyNameReference, Enabled = false };
+            var unfinished = new DatamodelSource() { Id = Guid.NewGuid(), Type = DatamodelSourceType.TypeReference, Enabled = false };
             DatamodelSourceLoader.Load(dm, unfinished, _root);
             Assert.AreEqual(0, dm.Sources.Count);
 

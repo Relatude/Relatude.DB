@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores;
 using Relatude.DB.IO;
@@ -83,7 +83,7 @@ sealed class UIDashboard {
                 Indexes = info.DatamodelIndexCount,
             },
             Types = types,
-            Sources = UIModelInfo.Sources(datamodel),
+            Sources = UIModelInfo.Sources(datamodel, settings),
             // what maintenance would find: the page says it, the Storage section does it
             Maintenance = new {
                 ActionsNotInState = info.LogActionsNotItInStatefile,
@@ -169,6 +169,8 @@ sealed class UIDashboard {
                 // even while it is closed, since the memory it used is only released gradually
                 ManagedMemory = GC.GetTotalMemory(false),
                 ProcessMemory = workingSet(),
+                ProcessorTimeMs = processorTimeMs(),
+                ProcessorCount = Environment.ProcessorCount,
                 Opening = opening,
                 Activities = busy,
             };
@@ -187,6 +189,9 @@ sealed class UIDashboard {
             // "collect garbage" button next to it acts on the same process
             ManagedMemory = GC.GetTotalMemory(false),
             ProcessMemory = workingSet(),
+            // cumulative, like the counters: the client turns two readings into a share of the cores
+            ProcessorTimeMs = processorTimeMs(),
+            ProcessorCount = Environment.ProcessorCount,
             counters.NodeCount,
             counters.RelationCount,
             counters.Queries,
@@ -213,6 +218,14 @@ sealed class UIDashboard {
     static long workingSet() {
         try {
             return Environment.WorkingSet;
+        } catch {
+            return 0;
+        }
+    }
+    /// <summary>CPU time the whole server process has used so far, on every core added together.</summary>
+    static double processorTimeMs() {
+        try {
+            return System.Diagnostics.Process.GetCurrentProcess().TotalProcessorTime.TotalMilliseconds;
         } catch {
             return 0;
         }

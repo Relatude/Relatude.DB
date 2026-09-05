@@ -54,8 +54,8 @@ public sealed class DatamodelActivator {
         // 1. the model being replaced goes into the history first, so it is there whatever happens next
         _drafts.Snapshot(active, "replaced");
 
-        // 2. the files
-        foreach (var file in plan.Files.Where(f => f.Changed)) {
+        // 2. the files: deletes first, so a generated folder is emptied before it is filled again
+        foreach (var file in plan.Files.Where(f => f.Changed).OrderBy(f => f.Action == PlannedFileAction.Delete ? 0 : 1)) {
             if (file.IoId != null && file.IoKey != null) {
                 var io = _server.GetIO(file.IoId.Value);
                 if (file.Action == PlannedFileAction.Delete) io.DeleteFileIfItExists(file.IoKey);
@@ -130,12 +130,14 @@ public sealed class DatamodelActivator {
             target.Name = ds.Name;
             target.Namespace = ds.Namespace;
             target.Type = ds.Type;
+            target.FileFormat = ds.FileFormat;
             target.Filepath = ds.Filepath;
             target.Reference = ds.Reference;
             target.FileIO = ds.FileIO;
             target.SourceCodePath = ds.SourceCodePath;
+            target.GenerateModelFile = ds.GenerateModelFile;
             target.Enabled = ds.Enabled;
-            target.AutoDeduceRelations = ds.AutoDeduceRelations;
+            target.Color = ds.Color;
             list.Add(target);
         }
         settings.DatamodelSources = list.ToArray();

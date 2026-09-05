@@ -247,13 +247,16 @@ public class SettingsCatalogTests {
     public void ListFieldVisibilityNamesASiblingAndRealValues() {
         foreach (var (group, list, elementType) in lists()) {
             foreach (var field in list.Fields) {
-                if (field.VisibleWhen == null) continue;
-                var sibling = list.Fields.FirstOrDefault(f => string.Equals(f.Path, field.VisibleWhen.Path, StringComparison.OrdinalIgnoreCase));
-                Assert.IsNotNull(sibling, group.Id + "/" + field.Path + " depends on \"" + field.VisibleWhen.Path + "\", which is not a field.");
-                var type = SettingsAccessor.Describe(elementType, sibling!.Path).ValueType;
-                Assert.IsTrue(type.IsEnum, group.Id + "/" + field.Path + " depends on a field that is not a fixed set of values.");
-                foreach (var value in field.VisibleWhen.Values) {
-                    Assert.IsTrue(Enum.GetNames(type).Contains(value), value + " is not a " + type.Name + ".");
+                // every condition in the chain, the And-ed ones included
+                for (var rule = field.VisibleWhen; rule != null; rule = rule.And) {
+                    var sibling = list.Fields.FirstOrDefault(f => string.Equals(f.Path, rule.Path, StringComparison.OrdinalIgnoreCase));
+                    Assert.IsNotNull(sibling, group.Id + "/" + field.Path + " depends on \"" + rule.Path + "\", which is not a field.");
+                    var type = SettingsAccessor.Describe(elementType, sibling!.Path).ValueType;
+                    Assert.IsTrue(type.IsEnum || type == typeof(bool), group.Id + "/" + field.Path + " depends on a field that is not a fixed set of values.");
+                    foreach (var value in rule.Values) {
+                        var known = type == typeof(bool) ? new[] { "true", "false" } : Enum.GetNames(type);
+                        Assert.IsTrue(known.Contains(value), value + " is not a " + type.Name + ".");
+                    }
                 }
             }
         }
@@ -334,7 +337,7 @@ public class SettingsCatalogTests {
             SettingsAccessor.Write(container, prefix + field, JsonSerializer.SerializeToElement(value));
         }
         Assert.IsFalse(source.Enabled);
-        Assert.AreEqual(DatamodelSourceType.AssemblyNameReference, source.Type);
+        Assert.AreEqual(DatamodelSourceType.TypeReference, source.Type);
         Assert.AreEqual("New model source", source.Name);
     }
 

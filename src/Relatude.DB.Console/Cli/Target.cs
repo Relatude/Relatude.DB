@@ -103,7 +103,7 @@ public sealed class Target {
     bool _probingRegistered;
     /// <summary>
     /// Makes the application's own assemblies loadable by name, which is what a
-    /// <c>DatamodelSource</c> of type AssemblyNameReference needs. The Relatude.DB assemblies are
+    /// <c>DatamodelSource</c> of type TypeReference needs. The Relatude.DB assemblies are
     /// deliberately not resolved from the application's output folder: the model types must bind to the
     /// ones this tool already has loaded, otherwise the attributes on them are different types.
     /// </summary>

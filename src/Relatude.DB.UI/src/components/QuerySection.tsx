@@ -6,9 +6,12 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconCode,
+  IconColumns3,
   IconDownload,
   IconFilter,
   IconLayoutList,
+  IconPlus,
+  IconRefresh,
   IconSearch,
   IconSum,
   IconTable,
@@ -22,6 +25,7 @@ import { showError } from "../dialogs";
 import {
   csvRowLimit,
   exportCsv,
+  fetchColumns,
   runSearch,
   fetchQueryModel,
   type Facet,
@@ -29,11 +33,14 @@ import {
   type FacetValue,
   type QueryModel,
   type SearchRequest,
+  type SelectColumn,
+  type TextSample,
 } from "../server/query";
 import { useLiveResult } from "../server/hooks";
 import { subscribeResync } from "../server/channel";
 import type { DatabaseInfo } from "../server/serverInfo";
 import { formatCount, formatTime } from "../format";
+import { loadTabs, newQuery, saveTabs, type HitsView, type QueryMode, type QueryTabs, type SavedQuery } from "../queryTabs";
 
 const pageSizes = [25, 50, 100, 200];
 
@@ -42,15 +49,168 @@ const minEditorWidth = 320; // narrower and the form's own labels start wrapping
 const minResultsWidth = 320; // wider and the list the form was opened from stops being readable
 const maxEditorShare = 0.6; // and a share of the page as well, so a narrower window keeps a list
 
+/** The columns the select mode opens with: the node's own fields that name it, then its first two properties. */
+const defaultSelectKeys = ["__name", "__type", "__changed"];
+
+/**
+ * A text the search was sampled from, with the words it matched marked. The server sends the
+ * fragments the engine's own TextSample produced (see UIQuery.sampleView), so what is marked here is
+ * what the index matched on rather than a second guess at it made from the search box. Without a
+ * sample - no search, or a semantic hit with no literal match - the plain text is rendered as it was.
+ */
+function Sampled({ sample, plain }: { sample: TextSample | null; plain: string }) {
+  if (!sample) return <>{plain}</>;
+  return (
+    <>
+      {sample.cutAtStart && "…"}
+      {sample.fragments.map((f, i) => (f.isMatch ? <mark key={i}>{f.text}</mark> : <span key={i}>{f.text}</span>))}
+      {sample.cutAtEnd && "…"}
+    </>
+  );
+}
+
 /** A bucket's identity, so a selection survives the counts changing under it. */
 function keyOf(v: { value: string | null; value2: string | null }): string {
   return (v.value ?? " none") + " " + (v.value2 ?? "");
 }
 
-type Selections = Record<string, { value: string | null; value2: string | null }[]>;
+const modes: { id: QueryMode; label: string; icon: typeof IconSearch; hint: string }[] = [
+  { id: "search", label: "Search", icon: IconSearch, hint: "The nodes that match, as a list or a table" },
+  { id: "select", label: "Select", icon: IconColumns3, hint: "The nodes that match, as a table of the columns you choose (SQL's SELECT)" },
+  { id: "groups", label: "Group by", icon: IconSum, hint: "One row per value of a property, with a count and aggregates (SQL's GROUP BY)" },
+  { id: "pivot", label: "Pivot", icon: IconChartBar, hint: "Groups by property on two axes, a count or sum per cell" },
+];
 
 /**
- * Search a database and edit what comes back.
+ * Search a database and edit what comes back - on as many queries at once as there are tabs.
+ *
+ * Every tab is a saved query (see queryTabs.ts): everything that decides what is asked of the server
+ * lives in it and is written to localStorage as it changes, so the page comes back the way it was
+ * left. What is not the query's - the page number, the open node, the widths - is the tab's own
+ * while it is on screen, and starts over when it is switched to again. The tabs are kept here and
+ * the query itself is a component keyed by the tab, so switching is a remount and nothing of one
+ * query leaks into another.
+ */
+export function QuerySection({ db }: { db: DatabaseInfo }) {
+  const [model, setModel] = useState<QueryModel | null>(null);
+  const [modelError, setModelError] = useState<string | null>(null);
+  const [tabs, setTabs] = useState<QueryTabs>(() => loadTabs(db.id));
+  const [renaming, setRenaming] = useState<string | null>(null);
+
+  useEffect(() => saveTabs(db.id, tabs), [db.id, tabs]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setModel(null);
+    setModelError(null);
+    fetchQueryModel(db.id)
+      .then((m) => !cancelled && setModel(m))
+      .catch((e) => !cancelled && setModelError(e instanceof Error ? e.message : String(e)));
+    return () => {
+      cancelled = true;
+    };
+  }, [db.id]);
+
+  const active = tabs.queries.find((q) => q.id === tabs.active) ?? tabs.queries[0];
+
+  function patch(id: string, changes: Partial<SavedQuery>) {
+    setTabs((t) => ({ ...t, queries: t.queries.map((q) => (q.id === id ? { ...q, ...changes } : q)) }));
+  }
+  function add() {
+    const q = newQuery();
+    // a new tab starts where the current one is: same type, nothing else - the type is the one
+    // choice that takes a moment to make again, and a fresh search on it is the common next move
+    q.typeId = active.typeId;
+    setTabs((t) => ({ active: q.id, queries: [...t.queries, q] }));
+  }
+  function close(id: string) {
+    setTabs((t) => {
+      const remaining = t.queries.filter((q) => q.id !== id);
+      if (remaining.length === 0) {
+        const q = newQuery();
+        return { active: q.id, queries: [q] };
+      }
+      // closing the active tab lands on its neighbour to the left, the way browsers do
+      const index = t.queries.findIndex((q) => q.id === id);
+      const next = t.active === id ? remaining[Math.max(0, index - 1)].id : t.active;
+      return { active: next, queries: remaining };
+    });
+  }
+  function rename(id: string, name: string) {
+    patch(id, { name: name.trim() === "" ? null : name.trim() });
+    setRenaming(null);
+  }
+
+  // A tab without a typed name is named after what it asks: the type, the text, the kind of query.
+  function autoName(q: SavedQuery): string {
+    const type = model?.types.find((t) => t.id === (q.typeId ?? model?.baseTypeId));
+    const parts = [type ? (type.isBase ? "All nodes" : type.name) : "Query"];
+    const text = q.text.trim();
+    if (text) parts.push("“" + (text.length > 24 ? text.slice(0, 24) + "…" : text) + "”");
+    if (q.mode !== "search") parts.push(modes.find((m) => m.id === q.mode)?.label.toLowerCase() ?? q.mode);
+    return parts.join(" · ");
+  }
+
+  if (modelError) return <div className="placeholder">{modelError}</div>;
+
+  return (
+    <div className="query">
+      <div className="tabs query-tabs" role="tablist">
+        {tabs.queries.map((q) => {
+          const isActive = q.id === active.id;
+          return (
+            <div
+              key={q.id}
+              role="tab"
+              aria-selected={isActive}
+              className={"tab" + (isActive ? " active" : "") + (q.name === null ? " auto-named" : "")}
+              title={q.name === null ? "Double-click to name this query" : autoName(q)}
+              onClick={() => setTabs((t) => ({ ...t, active: q.id }))}
+              onDoubleClick={() => setRenaming(q.id)}
+              onAuxClick={(e) => e.button === 1 && close(q.id)}
+            >
+              {renaming === q.id ? (
+                <input
+                  className="tab-rename"
+                  autoFocus
+                  defaultValue={q.name ?? ""}
+                  placeholder={autoName(q)}
+                  onFocus={(e) => e.target.select()}
+                  onBlur={(e) => rename(q.id, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") rename(q.id, e.currentTarget.value);
+                    if (e.key === "Escape") setRenaming(null);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <span className="query-tab-name">{q.name ?? autoName(q)}</span>
+              )}
+              <button
+                className="icon-button"
+                title="Close this query"
+                tabIndex={isActive ? 0 : -1}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  close(q.id);
+                }}
+              >
+                <IconX size={12} stroke={2} />
+              </button>
+            </div>
+          );
+        })}
+        <button className="icon-button query-tabs-add" title="New query" onClick={add}>
+          <IconPlus size={16} stroke={1.8} />
+        </button>
+      </div>
+      {model && <QueryTab key={active.id} db={db} model={model} query={active} onChange={(changes) => patch(active.id, changes)} />}
+    </div>
+  );
+}
+
+/**
+ * One query and its result.
  *
  * The facets are whatever the engine finds facetable in the current result set - nothing here
  * names a property - so this page works against a data model it has never seen. Selections are
@@ -68,26 +228,20 @@ type Selections = Record<string, { value: string | null; value2: string | null }
  * The editor opens beside the result list rather than over it, so working through a set of nodes is
  * a click per node and the list keeps its scroll position between them.
  */
-export function QuerySection({ db }: { db: DatabaseInfo }) {
-  const [model, setModel] = useState<QueryModel | null>(null);
-  const [typeId, setTypeId] = useState<string | null>(null);
-  const [text, setText] = useState("");
-  const [semanticRatio, setSemanticRatio] = useState<number | null>(null);
-  const [minSimilarity, setMinSimilarity] = useState<number | null>(null);
-  const [selections, setSelections] = useState<Selections>({});
+function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: QueryModel; query: SavedQuery; onChange: (changes: Partial<SavedQuery>) => void }) {
+  // a type the model no longer has - or never named - falls back to the base type
+  const typeId = q.typeId !== null && model.types.some((t) => t.id === q.typeId) ? q.typeId : model.baseTypeId;
+  const { text, semanticRatio, minimumSimilarity: minSimilarity, selections, showFacets, mode, hitsView, sort, pageSize } = q;
   const [expanded, setExpanded] = useState<string[]>([]);
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(pageSizes[0]);
-  // list and table show the hits; the groups and the pivot summarize them, as views of the same search
-  const [view, setView] = useState<"list" | "table" | "groups" | "pivot">("list");
-  const table = view === "table";
-  const pivot = view === "pivot";
-  const groups = view === "groups";
+  // search shows the hits as a list or a table; select as a table of chosen columns; the groups and
+  // the pivot summarize them, as views of the same search
+  const select = mode === "select";
+  const pivot = mode === "pivot";
+  const groups = mode === "groups";
+  const table = select || (mode === "search" && hitsView === "table");
   const summary = pivot || groups; // no hits on screen: no paging, no csv of hits, no query string of the search
-  const [sort, setSort] = useState<{ key: string; descending: boolean } | null>(null);
-  const [showFacets, setShowFacets] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [modelError, setModelError] = useState<string | null>(null);
   const [showQuery, setShowQuery] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   // The editor column's width, dragged on the bar between the list and the form. null is the
@@ -103,32 +257,35 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
   const editor = useRef<HTMLElement>(null);
   const searchBox = useRef<HTMLInputElement>(null);
 
+  // the columns the select mode can pick from, per type; the mode opens with a handful chosen
+  const [available, setAvailable] = useState<SelectColumn[] | null>(null);
   useEffect(() => {
+    if (!select) return;
     let cancelled = false;
-    setModel(null);
-    setModelError(null);
-    fetchQueryModel(db.id)
-      .then((m) => {
+    setAvailable(null);
+    fetchColumns(db.id, typeId)
+      .then((r) => {
         if (cancelled) return;
-        setModel(m);
-        setTypeId(m.baseTypeId);
+        setAvailable(r.columns);
+        if (q.columns === null) {
+          const properties = r.columns.filter((c) => !c.key.startsWith("__")).slice(0, 2);
+          onChange({ columns: [...defaultSelectKeys, ...properties.map((c) => c.key)] });
+        }
       })
-      .catch((e) => !cancelled && setModelError(e instanceof Error ? e.message : String(e)));
+      .catch(() => !cancelled && setAvailable([]));
     return () => {
       cancelled = true;
     };
-  }, [db.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the default is decided once per type
+  }, [db.id, typeId, select]);
 
-  const selectionList = useMemo<FacetSelection[]>(
-    () => Object.entries(selections).filter(([, values]) => values.length > 0).map(([propertyId, values]) => ({ propertyId, values })),
-    [selections],
-  );
+  const selectionList = useMemo<FacetSelection[]>(() => selections.filter((s) => s.values.length > 0), [selections]);
 
   // one object per distinct search: the runner treats a new object as a new request
   const query = useMemo<SearchRequest | null>(
     () =>
-      model === null || typeId === null
-        ? null
+      select && q.columns === null
+        ? null // the columns are still being chosen; a table with none would be a row of nothing
         : {
             storeId: db.id,
             typeId,
@@ -140,18 +297,24 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
             page,
             pageSize,
             table,
+            columns: select ? q.columns : null,
             facets: showFacets,
             sortBy: sort?.key ?? null,
             sortDescending: sort?.descending ?? false,
           },
-    [model, db.id, typeId, text, semanticRatio, minSimilarity, selectionList, expanded, page, pageSize, table, showFacets, sort],
+    [db.id, typeId, text, semanticRatio, minSimilarity, selectionList, expanded, page, pageSize, table, select, q.columns, showFacets, sort],
   );
 
   const { result, loading, error, refresh } = useLiveResult(query, runSearch);
 
-  // the database changed under the page as a whole (a rollback, a reconnect): the list is searched
-  // again and the open node read again - it may now be a different node, or none
+  // the database changed under the page as a whole (a rollback, a reconnect), or someone asked for
+  // the result again: the list is searched again and the open node read again - it may now be a
+  // different node, or none. The summaries take the same token and run again with it.
   const [epoch, setEpoch] = useState(0);
+  function refreshAll() {
+    refresh();
+    setEpoch((e) => e + 1);
+  }
   useEffect(
     () =>
       subscribeResync(() => {
@@ -161,36 +324,27 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
     [refresh],
   );
 
-  // the pivot's source: the search as this page has it, without the paging and the view switches
-  const pivotBase = useMemo<PivotBase | null>(
-    () =>
-      typeId === null
-        ? null
-        : { storeId: db.id, typeId, text, semanticRatio, minimumSimilarity: minSimilarity, selections: selectionList },
+  // the summaries' source: the search as this page has it, without the paging and the view switches
+  const pivotBase = useMemo<PivotBase>(
+    () => ({ storeId: db.id, typeId, text, semanticRatio, minimumSimilarity: minSimilarity, selections: selectionList }),
     [db.id, typeId, text, semanticRatio, minSimilarity, selectionList],
   );
 
   // a pivot cell clicked: its groups become the facet selection, and the list shows the nodes behind
   // the number. A selection on a property the rail already filters by is replaced, not added to.
   function drill(from: FacetSelection[]) {
-    reset(() => {
-      setSelections((prev) => {
-        const next = { ...prev };
-        for (const s of from) next[s.propertyId] = s.values;
-        return next;
-      });
-      setView("list");
-    });
+    const next = selections.filter((s) => !from.some((f) => f.propertyId === s.propertyId));
+    reset({ selections: [...next, ...from], mode: "search" });
   }
 
   // Any change to what is being searched starts the result list over, and closes the node open
   // beside it: the form belongs to a hit in the list it came from, and once that list is a
   // different search it is no longer clear what is being edited or why it is still on screen.
   // Paging and the view switches do not go through here - they are the same search, still.
-  function reset(apply: () => void) {
+  function reset(changes: Partial<SavedQuery>) {
     setPage(0);
     setSelected(null);
-    apply();
+    onChange(changes);
   }
 
   // A column header cycles through the three states a sort can be in: up, down, and the order the
@@ -198,20 +352,14 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
   // open - only the page goes back to the first.
   function toggleSort(key: string) {
     setPage(0);
-    setSort((prev) => (prev?.key !== key ? { key, descending: false } : prev.descending ? null : { key, descending: true }));
+    onChange({ sort: sort?.key !== key ? { key, descending: false } : sort.descending ? null : { key, descending: true } });
   }
 
   function toggleFacet(facet: Facet, value: FacetValue) {
-    reset(() =>
-      setSelections((prev) => {
-        const current = prev[facet.propertyId] ?? [];
-        const key = keyOf(value);
-        const next = current.some((v) => keyOf(v) === key)
-          ? current.filter((v) => keyOf(v) !== key)
-          : [...current, { value: value.value, value2: value.value2 }];
-        return { ...prev, [facet.propertyId]: next };
-      }),
-    );
+    const current = selections.find((s) => s.propertyId === facet.propertyId)?.values ?? [];
+    const key = keyOf(value);
+    const values = current.some((v) => keyOf(v) === key) ? current.filter((v) => keyOf(v) !== key) : [...current, { value: value.value, value2: value.value2 }];
+    reset({ selections: [...selections.filter((s) => s.propertyId !== facet.propertyId), { propertyId: facet.propertyId, values }] });
   }
 
   // How wide the editor may be pulled right now: never so wide that the list it belongs to is
@@ -222,8 +370,7 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
   // pointer stops mattering instead of running on past an edge that has stopped moving.
   function widthLimits() {
     const available = body.current?.getBoundingClientRect().width ?? 0;
-    const shared =
-      (editor.current?.getBoundingClientRect().width ?? 0) + (results.current?.getBoundingClientRect().width ?? 0);
+    const shared = (editor.current?.getBoundingClientRect().width ?? 0) + (results.current?.getBoundingClientRect().width ?? 0);
     const room = Math.min(shared - minResultsWidth, available * maxEditorShare);
     return { min: minEditorWidth, max: Math.max(minEditorWidth, room) };
   }
@@ -302,27 +449,29 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
   }
 
   const selectedCount = selectionList.reduce((n, s) => n + s.values.length, 0);
-
-  if (modelError) return <div className="placeholder">{modelError}</div>;
-  if (!model) return null;
+  const chosen = q.columns ?? [];
+  const columnName = (key: string) => available?.find((c) => c.key === key);
 
   const semanticAvailable = model.hasAi && model.hasSemanticIndex;
   const lastPage = result ? Math.max(0, Math.ceil(result.total / pageSize) - 1) : 0;
   return (
-    <div className="query">
+    <>
       <div className="query-toolbar">
         <TypePicker
           types={model.types}
           sources={model.sources ?? []}
           value={typeId}
-          onChange={(id) =>
-            reset(() => {
-              setTypeId(id);
-              setSelections({}); // the facets of another type are different properties
-              setExpanded([]);
-              setSort(null); // and its columns are different properties too
-            })
-          }
+          onChange={(id) => {
+            reset({
+              typeId: id,
+              selections: [], // the facets of another type are different properties
+              sort: null, // and its columns are different properties too
+              columns: null, // as are the ones the select mode chose
+              pivot: null, // and what the summaries group by
+              groups: null,
+            });
+            setExpanded([]);
+          }}
           // the type is chosen, the search box is where the next thing happens
           onPicked={() => searchBox.current?.focus()}
         />
@@ -337,14 +486,14 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
             value={text}
             placeholder="Free text search — leave empty to browse everything"
             spellCheck={false}
-            onChange={(e) => reset(() => setText(e.target.value))}
+            onChange={(e) => reset({ text: e.target.value })}
           />
           {text && (
             <button
               className="icon-button"
               title="Clear the search text"
               onClick={() => {
-                reset(() => setText(""));
+                reset({ text: "" });
                 searchBox.current?.focus(); // the button is about to disappear; the caret should not go with it
               }}
             >
@@ -352,7 +501,18 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
             </button>
           )}
         </div>
-        <div className="query-spacer" />
+        {/* what kind of query this is: the hits themselves, a table of chosen columns, or a summary */}
+        <div className="query-view" role="tablist">
+          {modes.map((m) => (
+            <button key={m.id} role="tab" aria-selected={mode === m.id} className={mode === m.id ? "active" : ""} title={m.hint} onClick={() => onChange({ mode: m.id })}>
+              <m.icon size={14} stroke={1.8} />
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <button className="icon-button" title="Run the query again" onClick={refreshAll}>
+          <IconRefresh size={16} stroke={1.8} className={loading ? "spinning" : ""} />
+        </button>
         <button className={"icon-button" + (showQuery ? " armed" : "")} title="Show the query this page sends" onClick={() => setShowQuery(!showQuery)}>
           <IconCode size={16} stroke={1.8} />
         </button>
@@ -370,7 +530,7 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
           value={semanticRatio}
           fallback={model.defaultSemanticRatio}
           disabled={!semanticAvailable}
-          onChange={(v) => reset(() => setSemanticRatio(v))}
+          onChange={(v) => reset({ semanticRatio: v })}
         />
         <Slider
           label="Minimum similarity"
@@ -378,11 +538,52 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
           value={minSimilarity}
           fallback={model.defaultMinimumSimilarity}
           disabled={!semanticAvailable}
-          onChange={(v) => reset(() => setMinSimilarity(v))}
+          onChange={(v) => reset({ minimumSimilarity: v })}
         />
         {!model.hasAi && <span className="query-note">No AI provider is configured for this database, so a search matches words only.</span>}
         {model.hasAi && !model.hasSemanticIndex && <span className="query-note">Nothing in this data model is semantically indexed, so both sliders are inert.</span>}
       </div>
+
+      {select && (
+        // the columns of the select mode, in the order they were chosen; a column is added from what
+        // the type has left to offer and taken away on its own chip
+        <div className="query-columns">
+          <span className="pivot-builder-label">Columns</span>
+          {chosen.map((key) => {
+            const column = columnName(key);
+            return (
+              <span className="query-column" key={key} title={column ? column.type + (column.declaredBy ? " · from " + column.declaredBy : "") : key}>
+                {column?.name ?? key}
+                <button className="icon-button" title="Remove this column" onClick={() => onChange({ columns: chosen.filter((k) => k !== key) })}>
+                  <IconX size={12} stroke={2} />
+                </button>
+              </span>
+            );
+          })}
+          <select
+            className="select compact"
+            value=""
+            disabled={available === null}
+            title="Add a column"
+            onChange={(e) => e.target.value && onChange({ columns: [...chosen, e.target.value] })}
+          >
+            <option value="">{available === null ? "loading…" : "+ add column…"}</option>
+            {available
+              ?.filter((c) => !chosen.includes(c.key))
+              .map((c) => (
+                <option key={c.key} value={c.key}>
+                  {c.name}
+                  {c.declaredBy ? " (" + c.declaredBy + ")" : ""} · {c.type}
+                </option>
+              ))}
+          </select>
+          {chosen.length > 0 && (
+            <button className="link-button" onClick={() => onChange({ columns: [] })}>
+              clear
+            </button>
+          )}
+        </div>
+      )}
 
       {showQuery && result && !summary && <div className="query-string">{result.query}</div>}
       {error && !summary && <div className="query-error">{error}</div>}
@@ -392,41 +593,39 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
         className={"query-body" + (selected ? " with-editor" : "") + (showFacets ? "" : " no-facets") + (resizing ? " resizing" : "")}
         // capped as a share of the page as well as in pixels: a width dragged on a wide window
         // would otherwise leave nothing of the list on a narrow one
-        style={
-          editorWidth === null ? undefined : ({ "--editor-width": `min(${editorWidth}px, ${maxEditorShare * 100}%)` } as React.CSSProperties)
-        }
+        style={editorWidth === null ? undefined : ({ "--editor-width": `min(${editorWidth}px, ${maxEditorShare * 100}%)` } as React.CSSProperties)}
       >
         {showFacets && (
-        <aside className="query-facets">
-          <div className="query-facets-head">
-            <span>Facets</span>
-            {selectedCount > 0 && (
-              <button className="link-button" onClick={() => reset(() => setSelections({}))}>
-                clear {selectedCount}
-              </button>
-            )}
-          </div>
-          {result?.facets.length === 0 && <div className="query-empty">Nothing in this result set is facetable.</div>}
-          {result?.facets.map((facet) => (
-            <section className="query-facet" key={facet.propertyId}>
-              <h4 title={facet.codeName + " · " + facet.valueType}>{facet.displayName}</h4>
-              {facet.values.map((v) => (
-                <button className={"query-facet-value" + (v.selected ? " selected" : "")} key={keyOf(v)} onClick={() => toggleFacet(facet, v)}>
-                  <span className="query-facet-check" aria-hidden />
-                  <span className="query-facet-label" title={v.display}>
-                    {v.display}
-                  </span>
-                  <span className="query-facet-count">{formatCount(v.count)}</span>
-                </button>
-              ))}
-              {facet.truncated && (
-                <button className="link-button" onClick={() => setExpanded([...expanded, facet.propertyId])}>
-                  show all {formatCount(facet.totalValues)}
+          <aside className="query-facets">
+            <div className="query-facets-head">
+              <span>Facets</span>
+              {selectedCount > 0 && (
+                <button className="link-button" onClick={() => reset({ selections: [] })}>
+                  clear {selectedCount}
                 </button>
               )}
-            </section>
-          ))}
-        </aside>
+            </div>
+            {result?.facets.length === 0 && <div className="query-empty">Nothing in this result set is facetable.</div>}
+            {result?.facets.map((facet) => (
+              <section className="query-facet" key={facet.propertyId}>
+                <h4 title={facet.codeName + " · " + facet.valueType}>{facet.displayName}</h4>
+                {facet.values.map((v) => (
+                  <button className={"query-facet-value" + (v.selected ? " selected" : "")} key={keyOf(v)} onClick={() => toggleFacet(facet, v)}>
+                    <span className="query-facet-check" aria-hidden />
+                    <span className="query-facet-label" title={v.display}>
+                      {v.display}
+                    </span>
+                    <span className="query-facet-count">{formatCount(v.count)}</span>
+                  </button>
+                ))}
+                {facet.truncated && (
+                  <button className="link-button" onClick={() => setExpanded([...expanded, facet.propertyId])}>
+                    show all {formatCount(facet.totalValues)}
+                  </button>
+                )}
+              </section>
+            ))}
+          </aside>
         )}
 
         <div className="query-results" ref={results}>
@@ -447,7 +646,7 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
               // here is the difference between a filtered result and one that looks wrong
               <span className="query-filters">
                 {formatCount(selectedCount)} {selectedCount === 1 ? "filter" : "filters"}
-                <button className="link-button" onClick={() => reset(() => setSelections({}))}>
+                <button className="link-button" onClick={() => reset({ selections: [] })}>
                   clear
                 </button>
               </span>
@@ -456,31 +655,28 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
             <button
               className={"icon-button" + (showFacets ? " active" : "")}
               title={showFacets ? "Hide the facets" : "Show the facets — the search then counts their values"}
-              onClick={() => setShowFacets(!showFacets)}
+              onClick={() => onChange({ showFacets: !showFacets })}
             >
               <IconFilter size={16} stroke={1.8} />
             </button>
-            <div className="query-view">
-              <button className={view === "list" ? "active" : ""} title="Show the hits as a list" onClick={() => setView("list")}>
-                <IconLayoutList size={15} stroke={1.8} />
-              </button>
-              <button className={table ? "active" : ""} title={`Show the hits as a table, one column per property`} onClick={() => setView("table")}>
-                <IconTable size={15} stroke={1.8} />
-              </button>
-              <button className={groups ? "active" : ""} title="Group the hits: one row per value of a property, with a count and aggregates (SQL's GROUP BY)" onClick={() => setView("groups")}>
-                <IconSum size={15} stroke={1.8} />
-              </button>
-              <button className={pivot ? "active" : ""} title="Summarize the hits as a pivot table: groups by property, a count or sum per cell" onClick={() => setView("pivot")}>
-                <IconChartBar size={15} stroke={1.8} />
-              </button>
-            </div>
+            {mode === "search" && (
+              // how the hits are shown; the other modes are each one view
+              <div className="query-view" role="tablist">
+                {(
+                  [
+                    { id: "list", label: "List", icon: IconLayoutList, hint: "Show the hits as a list" },
+                    { id: "table", label: "Table", icon: IconTable, hint: "Show the hits as a table, one column per property" },
+                  ] as { id: HitsView; label: string; icon: typeof IconTable; hint: string }[]
+                ).map((v) => (
+                  <button key={v.id} role="tab" aria-selected={hitsView === v.id} className={hitsView === v.id ? "active" : ""} title={v.hint} onClick={() => onChange({ hitsView: v.id })}>
+                    <v.icon size={14} stroke={1.8} />
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+            )}
             {!summary && (
-              <select
-                className="select compact"
-                value={pageSize}
-                title="Rows per page"
-                onChange={(e) => reset(() => setPageSize(Number(e.target.value)))}
-              >
+              <select className="select compact" value={pageSize} title="Rows per page" onChange={(e) => reset({ pageSize: Number(e.target.value) })}>
                 {pageSizes.map((size) => (
                   <option key={size} value={size}>
                     {size} / page
@@ -512,11 +708,13 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
               </div>
             )}
           </div>
-          {pivot && pivotBase ? (
+          {pivot ? (
             // keyed by type: another type has other properties, so the definition starts over with it
-            <PivotView key={pivotBase.typeId} base={pivotBase} showQuery={showQuery} onDrill={drill} />
-          ) : groups && pivotBase ? (
-            <GroupByView key={pivotBase.typeId} base={pivotBase} showQuery={showQuery} onDrill={drill} />
+            <PivotView key={typeId} base={pivotBase} definition={q.pivot} onChange={(pivot) => onChange({ pivot })} refreshToken={epoch} showQuery={showQuery} onDrill={drill} />
+          ) : groups ? (
+            <GroupByView key={typeId} base={pivotBase} definition={q.groups} onChange={(groups) => onChange({ groups })} refreshToken={epoch} showQuery={showQuery} onDrill={drill} />
+          ) : select && chosen.length === 0 ? (
+            <div className="query-empty">Choose at least one column.</div>
           ) : table && result?.columns ? (
             <div className={"query-table-wrap" + (loading ? " loading" : "")}>
               <table className="query-table">
@@ -525,10 +723,7 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
                     {result.columns.map((column) => (
                       <th
                         key={column.key}
-                        className={
-                          (column.sortable ? "sortable" : "") +
-                          (sort?.key === column.key ? (result.sortApplied ? " sorted" : " sorted-inactive") : "")
-                        }
+                        className={(column.sortable ? "sortable" : "") + (sort?.key === column.key ? (result.sortApplied ? " sorted" : " sorted-inactive") : "")}
                         title={
                           sort?.key === column.key && !result.sortApplied
                             ? "Sorted by this column, but a facet selection is filtering and the rows come back in the database's own order"
@@ -539,8 +734,7 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
                         onClick={column.sortable ? () => toggleSort(column.key) : undefined}
                       >
                         {column.name}
-                        {sort?.key === column.key &&
-                          (sort.descending ? <IconArrowNarrowDown size={13} stroke={2} /> : <IconArrowNarrowUp size={13} stroke={2} />)}
+                        {sort?.key === column.key && (sort.descending ? <IconArrowNarrowDown size={13} stroke={2} /> : <IconArrowNarrowUp size={13} stroke={2} />)}
                       </th>
                     ))}
                   </tr>
@@ -565,10 +759,17 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
               {result?.hits.map((hit) => (
                 <button className={"query-hit" + (selected === hit.id ? " selected" : "")} key={hit.id} onClick={() => setSelected(hit.id)}>
                   <div className="query-hit-head">
-                    <span className="query-hit-name">{hit.displayName}</span>
+                    <span className="query-hit-name" title={hit.displayName}>
+                      <Sampled sample={hit.nameSample} plain={hit.displayName} />
+                    </span>
                     <span className="query-hit-type">{hit.typeName}</span>
                     <span className="query-hit-time">{formatTime(hit.changedUtc)}</span>
                   </div>
+                  {hit.snippet && (
+                    <div className="query-hit-snippet" title={hit.snippet.value}>
+                      <em>{hit.snippet.codeName}</em> <Sampled sample={hit.snippet.sample} plain={hit.snippet.value} />
+                    </div>
+                  )}
                   {hit.summary.length > 0 && (
                     <div className="query-hit-summary">
                       {hit.summary.map((s) => (
@@ -601,7 +802,7 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
           </aside>
         )}
       </div>
-    </div>
+    </>
   );
 }
 

@@ -18,6 +18,16 @@ public interface IIOProvider {
     long GetFileSizeOrZeroIfUnknown(string[] path);
     bool CanRenameFile { get; }
     void RenameFile(string[] path, string[] newPath);
+    /// <summary>Whether <see cref="RenameFolder"/> is supported. Providers that cannot move a whole
+    /// folder in one operation (blob storage) return false and throw from RenameFolder.</summary>
+    bool CanRenameFolder { get; }
+    /// <summary>Moves the folder and everything below it to the new path. The new path must not
+    /// exist yet and no file below the folder may have an open stream.</summary>
+    void RenameFolder(string[] path, string[] newPath);
+    /// <summary>Whether a folder exists on its own. Providers with virtual folders (memory, blob
+    /// storage) only have a folder while it holds a file: <see cref="EnsureFolder"/> is a no-op
+    /// there and an empty folder disappears from listings.</summary>
+    bool SupportsEmptyFolders { get; }
     /// <summary>Whether <see cref="TruncateFile"/> is supported. Providers that cannot shorten a
     /// file in place (e.g. append-only blob storage) return false and throw from TruncateFile.</summary>
     bool CanTruncate { get; }

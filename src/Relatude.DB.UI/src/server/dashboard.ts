@@ -47,8 +47,8 @@ export interface DashboardInfo {
   lastChangeUtc?: string | null;
   datamodel?: { nodeTypes: number; properties: number; relations: number; indexes: number };
   types?: TypeCount[];
-  /** the model sources, in load order: their position decides their colour (see sourceColors) */
-  sources?: { id: string; name: string; type: SourceType }[];
+  /** the model sources, in load order: the colour set on one, or its position, decides its colour (see sourceColors) */
+  sources?: { id: string; name: string; type: SourceType; color: string | null }[];
   maintenance?: {
     actionsNotInState: number;
     truncatableActions: number;
@@ -90,6 +90,12 @@ export interface DashboardLive {
    */
   managedMemory?: number;
   processMemory?: number;
+  /**
+   * CPU time the server process has used so far, in ms, summed over its cores - cumulative, so two
+   * readings a known time apart give a share of the machine. `processorCount` is what to divide by.
+   */
+  processorTimeMs?: number;
+  processorCount?: number;
   nodeCacheCount?: number;
   nodeCacheSize?: number;
   setCacheCount?: number;

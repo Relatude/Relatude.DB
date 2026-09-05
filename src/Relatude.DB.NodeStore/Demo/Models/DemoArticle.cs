@@ -36,7 +36,7 @@ public interface IDemoParagraph {
 }
 
 
-public class DemoArticle {
+public class DemoArticle : IDemoArticle {
 
     public Guid Id { get; set; }
 
@@ -65,6 +65,8 @@ public class DemoArticle {
     public string DisplayName { get; set; } = string.Empty;
 
     public Reference<IDemoArticle> Site { get; } = [];
+
+    public References<IDemoArticle> Sites => throw new NotImplementedException();
 }
 
 public class DemoParagraph {

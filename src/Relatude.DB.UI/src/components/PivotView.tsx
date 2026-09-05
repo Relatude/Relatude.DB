@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { IconArrowNarrowDown, IconArrowNarrowUp, IconChevronLeft, IconChevronRight, IconDownload, IconX } from "@tabler/icons-react";
+import { IconArrowNarrowDown, IconArrowNarrowUp, IconChartBar, IconChevronLeft, IconChevronRight, IconDownload, IconTable, IconX } from "@tabler/icons-react";
 import {
   fetchPivotModel,
   runPivot,
@@ -18,6 +18,8 @@ import {
 } from "../server/query";
 import { useLiveResult } from "../server/hooks";
 import { formatCount } from "../format";
+import type { PivotDefinition, SummaryView } from "../queryTabs";
+import { BarChart, maxSeries, type BarSeries } from "./BarChart";
 
 /** What the pivot summarizes: the search as the rest of the page has it. */
 export interface PivotBase {
@@ -40,6 +42,17 @@ export const functions: { value: PivotFunction; label: string }[] = [
 ];
 export const dateModes = ["year", "quarter", "month", "week", "day", "hour"];
 const noOptions: PivotAxisOptions = { maxGroups: 0, sortByMeasure: null, descending: true, otherGroup: false, includeMissing: false };
+/** A pivot before anyone has said what to group by: a single count. */
+export const emptyPivot: PivotDefinition = {
+  rows: [],
+  columns: [],
+  measures: [{ function: "Count", propertyId: null }],
+  rowOptions: noOptions,
+  columnOptions: noOptions,
+  subTotals: false,
+  view: "table",
+  chartMeasure: null,
+};
 
 /** The modes a property can be bucketed by: dates by calendar, numbers by range, everything else by value. */
 function modesOf(property: PivotProperty | undefined): { value: string; label: string }[] {
@@ -93,16 +106,38 @@ function measureNames(measures: PivotMeasureSpec[], properties: PivotProperty[])
  * way the rest of the page does. A click on a cell hands the groups behind it back to the page as a
  * facet selection, which is how a number becomes the nodes it counts.
  */
-export function PivotView({ base, showQuery, onDrill }: { base: PivotBase; showQuery: boolean; onDrill: (selections: FacetSelection[]) => void }) {
+export function PivotView({
+  base,
+  definition,
+  onChange,
+  refreshToken,
+  showQuery,
+  onDrill,
+}: {
+  base: PivotBase;
+  /** The definition as the page keeps it - null until this view has opened once for the type. */
+  definition: PivotDefinition | null;
+  onChange: (definition: PivotDefinition) => void;
+  /** Changes when the page is asked to run again with nothing else changed. */
+  refreshToken: number;
+  showQuery: boolean;
+  onDrill: (selections: FacetSelection[]) => void;
+}) {
   const [model, setModel] = useState<PivotModel | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
-  const [rows, setRows] = useState<PivotLevelSpec[]>([]);
-  const [columns, setColumns] = useState<PivotLevelSpec[]>([]);
-  const [measures, setMeasures] = useState<PivotMeasureSpec[]>([{ function: "Count", propertyId: null }]);
-  const [rowOptions, setRowOptions] = useState<PivotAxisOptions>(noOptions);
-  const [columnOptions, setColumnOptions] = useState<PivotAxisOptions>(noOptions);
-  const [subTotals, setSubTotals] = useState(false);
   const [rowPage, setRowPage] = useState(0);
+  // the definition belongs to the query the page has open, so it outlives this view and the session
+  const def = definition ?? emptyPivot;
+  const { rows, columns, measures, rowOptions, columnOptions, subTotals } = def;
+  const setRows = (rows: PivotLevelSpec[]) => onChange({ ...def, rows });
+  const setColumns = (columns: PivotLevelSpec[]) => onChange({ ...def, columns });
+  const setMeasures = (measures: PivotMeasureSpec[]) => onChange({ ...def, measures });
+  const setRowOptions = (rowOptions: PivotAxisOptions) => onChange({ ...def, rowOptions });
+  const setColumnOptions = (columnOptions: PivotAxisOptions) => onChange({ ...def, columnOptions });
+  const setSubTotals = (subTotals: boolean) => onChange({ ...def, subTotals });
+  const setView = (view: SummaryView) => onChange({ ...def, view });
+  const setChartMeasure = (chartMeasure: string | null) => onChange({ ...def, chartMeasure });
+  const chart = def.view === "chart";
 
   useEffect(() => {
     let cancelled = false;
@@ -112,14 +147,18 @@ export function PivotView({ base, showQuery, onDrill }: { base: PivotBase; showQ
       .then((m) => {
         if (cancelled) return;
         setModel(m);
-        // a first row grouping, so the view opens as a table rather than a single number
-        const first = m.properties.find((p) => p.groupable && !p.isDate) ?? m.properties.find((p) => p.groupable);
-        if (first) setRows([{ propertyId: first.id, mode: modesOf(first)[0].value }]);
+        // a first row grouping the first time the view opens, so it opens as a table rather than a
+        // single number; a definition someone has already shaped - even to nothing - is left alone
+        if (definition === null) {
+          const first = m.properties.find((p) => p.groupable && !p.isDate) ?? m.properties.find((p) => p.groupable);
+          onChange({ ...emptyPivot, rows: first ? [{ propertyId: first.id, mode: modesOf(first)[0].value }] : [] });
+        }
       })
       .catch((e) => !cancelled && setModelError(e instanceof Error ? e.message : String(e)));
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the default is decided once per type
   }, [base.storeId, base.typeId]);
 
   const names = useMemo(() => (model ? measureNames(measures, model.properties) : []), [measures, model]);
@@ -144,7 +183,9 @@ export function PivotView({ base, showQuery, onDrill }: { base: PivotBase; showQ
             rowPage,
             rowPageSize,
           },
-    [model, base, rows, columns, measures, rowOptions, columnOptions, subTotals, rowPage],
+    // the token is not part of the request; a new object is how the runner is told to run again
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [model, base, rows, columns, measures, rowOptions, columnOptions, subTotals, rowPage, refreshToken],
   );
   const { result, loading, error } = useLiveResult(request, runPivot);
 
@@ -248,6 +289,25 @@ export function PivotView({ base, showQuery, onDrill }: { base: PivotBase; showQ
           </span>
           {result.capped && <span className="query-filters">cut short: too many cells — group by fewer values</span>}
           <div className="query-spacer" />
+          <div className="query-view" role="tablist">
+            <button className={chart ? "" : "active"} title="The numbers, one cell per row and column group" onClick={() => setView("table")}>
+              <IconTable size={14} stroke={1.8} />
+              Table
+            </button>
+            <button className={chart ? "active" : ""} title="Bars: one band per row group, one bar per column group" onClick={() => setView("chart")}>
+              <IconChartBar size={14} stroke={1.8} />
+              Chart
+            </button>
+          </div>
+          {chart && result.measures.length > 1 && (
+            <select className="select compact" value={def.chartMeasure ?? result.measures[0].name} title="The measure the bars show" onChange={(e) => setChartMeasure(e.target.value)}>
+              {result.measures.map((m) => (
+                <option key={m.name} value={m.name}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          )}
           <button className="icon-button" title="Download this table as csv" disabled={result.cells.length === 0} onClick={() => downloadCsv(result)}>
             <IconDownload size={16} stroke={1.8} />
           </button>
@@ -266,7 +326,9 @@ export function PivotView({ base, showQuery, onDrill }: { base: PivotBase; showQ
           )}
         </div>
       )}
-      <div className={"query-table-wrap" + (loading ? " loading" : "")}>{result && <PivotTable result={result} onDrill={onDrill} />}</div>
+      <div className={"query-table-wrap" + (loading ? " loading" : "")}>
+        {result && (chart ? <PivotChart result={result} measure={def.chartMeasure} onDrill={onDrill} /> : <PivotTable result={result} onDrill={onDrill} />)}
+      </div>
     </div>
   );
 }
@@ -387,6 +449,54 @@ function selectionsOf(axis: PivotAxis, group: PivotGroup): FacetSelection[] | nu
     out.push({ propertyId: axis.levels[i].propertyId, values: [{ value: group.values[i], value2: group.values2[i] }] });
   }
   return out;
+}
+
+/**
+ * The pivot as bars: one band per row group, one bar per column group, drawn from one measure at a
+ * time - two measures on one axis would need two scales, and a chart with two scales says nothing.
+ * The palette has eight colours; a column axis with more groups than that is not charted, and the
+ * note says how to bring it down (the axis options cap the groups). A bar is the cell it stands
+ * for: a click on it drills the same way a click on the cell does.
+ */
+function PivotChart({ result, measure, onDrill }: { result: PivotResult; measure: string | null; onDrill: (selections: FacetSelection[]) => void }) {
+  const { rows, columns, measures } = result;
+  const hasColumns = columns.levels.length > 0;
+  if (hasColumns && columns.groups.length > maxSeries) {
+    return (
+      <div className="pivot-note">
+        {formatCount(columns.groups.length)} column groups is more than a chart can tell apart. Keep the column axis to {maxSeries} groups or fewer (its options can
+        cap them), or move the grouping to the rows.
+      </div>
+    );
+  }
+  const mi = Math.max(0, measures.findIndex((m) => m.name === measure));
+  const fn = measures[mi]?.function ?? "Count";
+  const index = new Map<string, PivotCell>();
+  for (const c of result.cells) index.set(c.row + ":" + c.column, c);
+  const valueOf = (r: number, c: number) => {
+    const cell = index.get(r + ":" + c);
+    if (!cell) return null;
+    return measures.length === 0 ? cell.count : (cell.values[mi] ?? null);
+  };
+  const categories = rows.groups.map((g) => g.labels.join(" · ") || "(all)");
+  const series: BarSeries[] = hasColumns
+    ? columns.groups.map((g, c) => ({ name: g.labels.join(" · "), values: rows.groups.map((_, r) => valueOf(r, c)) }))
+    : [{ name: measures[mi]?.name ?? "Count", values: rows.groups.map((_, r) => valueOf(r, 0)) }];
+  function drill(c: number, i: number) {
+    const a = selectionsOf(rows, rows.groups[c]);
+    const b = hasColumns ? selectionsOf(columns, columns.groups[i]) : [];
+    if (a === null || b === null) return;
+    onDrill([...a, ...b]);
+  }
+  return (
+    <BarChart
+      categories={categories}
+      series={series}
+      format={(v) => formatValue(v, fn)}
+      onBarClick={drill}
+      barTitle={(c, i, v) => (hasColumns ? categories[c] + " · " + series[i].name : categories[c]) + ": " + formatValue(v, fn) + " — click to see these nodes"}
+    />
+  );
 }
 
 function formatValue(value: number | null, fn: PivotFunction): string {

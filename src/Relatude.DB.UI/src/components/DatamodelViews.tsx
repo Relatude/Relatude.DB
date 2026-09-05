@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
-import { IconChevronDown, IconChevronRight, IconEye, IconEyeOff, IconLock, IconPlus, IconRefreshAlert, IconRestore, IconTrash } from "@tabler/icons-react";
-import { KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, kindMeta, relationMeta, sourceMeta } from "./DatamodelIcons";
+import { IconChevronDown, IconChevronRight, IconEye, IconEyeOff, IconList, IconLock, IconPlus, IconRefreshAlert, IconRestore, IconTrash } from "@tabler/icons-react";
+import { KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, kindMeta, relationMeta, sourceKindMeta } from "./DatamodelIcons";
 import type { EditorContext, Selection } from "./DatamodelEditors";
-import { allProperties, fullName, type HistoryEntry, type ModelDiff, type NodeTypeJson, type SourceInfo } from "../server/datamodel";
+import { allProperties, fullName, type HistoryEntry, type ModelDiff, type NodeTypeJson, type PropertyJson, type SourceInfo } from "../server/datamodel";
 import { formatBytes, formatTime } from "../format";
 
 export interface ViewProps {
@@ -29,6 +29,14 @@ function changeBadge(diff: ModelDiff | null, id: string, kind: "type" | "relatio
   if (added.includes(id)) return <span className="badge dm-badge-new">new</span>;
   if (changed.includes(id)) return <span className="badge dm-badge-changed">changed</span>;
   return null;
+}
+
+/** What a property row says after its name: the value type, and where it points when it points. */
+function propertyDetail(ctx: EditorContext, p: PropertyJson): string {
+  if (p.PropertyType === "Relation" && p.RelationId) return p.PropertyType + " · " + (ctx.model.Relations[p.RelationId]?.CodeName ?? "?");
+  const targets = p.PropertyType === "Embedded" ? p.InnerNodeTypes : p.PropertyType === "Reference" || p.PropertyType === "References" ? p.NodeTypes : null;
+  if (!targets || targets.length === 0) return p.PropertyType;
+  return p.PropertyType + " → " + targets.map((id) => ctx.model.NodeTypes[id]?.CodeName ?? "?").join(", ");
 }
 
 function isSelected(selection: Selection | null, kind: Selection["kind"], id: string): boolean {
@@ -125,9 +133,7 @@ export function ListView({ ctx, visibleTypes, ghostTypes, query, selection, diff
                       </td>
                       <td className="dm-cell-name">{p.CodeName}</td>
                       <td className="muted" colSpan={2}>
-                        {p.PropertyType}
-                        {p.PropertyType === "Relation" && p.RelationId ? ` · ${ctx.model.Relations[p.RelationId]?.CodeName ?? "?"}` : ""}
-                        {(p.PropertyType === "Reference" || p.PropertyType === "References") && p.NodeTypes ? ` → ${p.NodeTypes.map((id) => ctx.model.NodeTypes[id]?.CodeName ?? "?").join(", ")}` : ""}
+                        {propertyDetail(ctx, p)}
                       </td>
                       <td colSpan={4} className="dm-cell-flags">
                         {p.Indexed && <span className="badge">indexed</span>}
@@ -203,6 +209,8 @@ export function ListView({ ctx, visibleTypes, ghostTypes, query, selection, diff
 
 export function TreeView({ ctx, visibleTypes, ghostTypes, query, selection, diff }: ViewProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // the tree is about where a type sits, so its properties can be switched off to keep it short
+  const [showProperties, setShowProperties] = useState(true);
   const shown = new Set([...visibleTypes, ...ghostTypes]);
   const children = useMemo(() => {
     const map = new Map<string, NodeTypeJson[]>();
@@ -217,10 +225,12 @@ export function TreeView({ ctx, visibleTypes, ghostTypes, query, selection, diff
     return map;
   }, [ctx.model, visibleTypes, ghostTypes]);
   const q = query.trim().toLowerCase();
+  const ownProperties = (t: NodeTypeJson) => Object.values(t.Properties).filter((p) => !p.Internal);
   // with a search, a branch stays when anything below it matches
   const branchMatches = (t: NodeTypeJson, depth: number): boolean => {
     if (!q) return true;
     if (t.CodeName.toLowerCase().includes(q) || (t.Namespace ?? "").toLowerCase().includes(q)) return true;
+    if (showProperties && ownProperties(t).some((p) => p.CodeName.toLowerCase().includes(q))) return true;
     if (depth > 30) return false;
     return (children.get(t.Id) ?? []).some((c) => branchMatches(c, depth + 1));
   };
@@ -232,12 +242,13 @@ export function TreeView({ ctx, visibleTypes, ghostTypes, query, selection, diff
     const ghost = ghostTypes.has(t.Id) && !visibleTypes.has(t.Id);
     const parents = (t.Parents ?? []).filter((p) => p !== ctx.baseTypeId);
     const count = ctx.typeCounts[t.Id];
+    const own = showProperties ? ownProperties(t) : [];
     return (
       <div key={key} className="dm-tree-node">
         <div className={"dm-tree-row" + (ghost ? " dm-ghost" : "") + (isSelected(selection, "type", t.Id) ? " selected" : "")} style={{ paddingLeft: depth * 22 + 6 }} onClick={() => ctx.select({ kind: "type", id: t.Id })}>
           <button
             className="dm-expander"
-            style={{ visibility: kids.length > 0 ? "visible" : "hidden" }}
+            style={{ visibility: kids.length > 0 || own.length > 0 ? "visible" : "hidden" }}
             onClick={(e) => {
               e.stopPropagation();
               setCollapsed((prev) => {
@@ -254,12 +265,27 @@ export function TreeView({ ctx, visibleTypes, ghostTypes, query, selection, diff
           <span className="dm-tree-name">{t.CodeName}</span>
           <SourceDot color={ctx.colors.get(t.DatamodelSourceId) ?? "#888"} title={ctx.sources.find((s) => s.id === t.DatamodelSourceId)?.name} />
           {changeBadge(diff, t.Id, "type")}
+          {t.IsInnerNode && <span className="badge">inner</span>}
           <span className="muted dm-tree-meta">
-            {kindMeta[t.ModelType]?.label} · {Object.keys(t.Properties).length} props
+            {kindMeta[t.ModelType]?.label} · {ownProperties(t).length} props
             {count !== undefined ? ` · ${count} nodes` : ""}
             {parents.length > 1 ? ` · also under ${parents.filter((p) => p !== (path.split("/").pop() ?? "")).map((p) => ctx.model.NodeTypes[p]?.CodeName ?? "?").join(", ")}` : ""}
           </span>
         </div>
+        {!isCollapsed &&
+          own.map((p) => (
+            <div
+              key={key + "/" + p.Id}
+              className={"dm-tree-row dm-tree-prop" + (ghost ? " dm-ghost" : "") + (isSelected(selection, "property", p.Id) ? " selected" : "")}
+              style={{ paddingLeft: (depth + 1) * 22 + 6 }}
+              onClick={() => ctx.select({ kind: "property", id: p.Id, typeId: t.Id })}
+            >
+              <span className="dm-tree-spacer" />
+              <PropertyIcon propertyType={p.PropertyType} />
+              <span className="dm-tree-propname">{p.CodeName}</span>
+              <span className="muted dm-tree-meta">{propertyDetail(ctx, p)}</span>
+            </div>
+          ))}
         {!isCollapsed && kids.map((c) => render(c, depth + 1, key))}
       </div>
     );
@@ -267,9 +293,14 @@ export function TreeView({ ctx, visibleTypes, ghostTypes, query, selection, diff
   const roots = children.get("") ?? [];
   return (
     <div className="dm-tree panel">
-      <h3>
-        Inheritance <span className="panel-sub">{roots.length} root{roots.length === 1 ? "" : "s"}</span>
-      </h3>
+      <div className="dm-tree-head">
+        <h3>
+          Inheritance <span className="panel-sub">{roots.length} root{roots.length === 1 ? "" : "s"}</span>
+        </h3>
+        <button className={"dm-chip-source dm-tree-toggle" + (showProperties ? "" : " off")} onClick={() => setShowProperties((v) => !v)} title={showProperties ? "Hide properties" : "Show properties"}>
+          <IconList size={14} stroke={1.9} /> Properties
+        </button>
+      </div>
       <div className="dm-tree-body">
         {roots.map((t) => render(t, 0, ""))}
         {roots.length === 0 && <div className="muted dm-empty">No types to show.</div>}
@@ -374,10 +405,10 @@ export function SourcesView({ ctx, selection, hiddenSources, onToggleVisible, on
           return (
             <div key={s.Id} className={"dm-source-card" + (isSelected(selection, "source", s.Id) ? " selected" : "") + (hidden ? " off" : "") + (!s.Enabled ? " disabled" : "")} style={{ borderLeftColor: color }} onClick={() => ctx.select({ kind: "source", id: s.Id })}>
               <div className="dm-source-card-head">
-                <SourceIcon type={s.Type} color={color} size={20} />
+                <SourceIcon type={s.Type} fileFormat={s.FileFormat} color={color} size={20} />
                 <div className="dm-source-card-title">
                   <div className="dm-source-card-name">{s.Name || s.Id}</div>
-                  <div className="muted">{sourceMeta[s.Type]?.label ?? s.Type}</div>
+                  <div className="muted">{sourceKindMeta(s.Type, s.FileFormat).label}</div>
                 </div>
                 <button
                   className="icon-button"
@@ -424,14 +455,19 @@ export function SourcesView({ ctx, selection, hiddenSources, onToggleVisible, on
                       <span className="fact-k">Namespace</span> {s.Namespace}
                     </div>
                   )}
-                  {s.Reference && (
+                  {s.Type === "TypeReference" && (
                     <div>
-                      <span className="fact-k">Reference</span> {s.Reference}
+                      <span className="fact-k">Assembly</span> {s.Reference || "Current project"}
+                    </div>
+                  )}
+                  {s.Type !== "TypeReference" && s.Reference && (
+                    <div>
+                      <span className="fact-k">File name</span> {s.Reference}
                     </div>
                   )}
                   {(info?.resolvedPath || s.Filepath || s.SourceCodePath) && (
                     <div className={info?.pathExists === false ? "dm-missing" : ""}>
-                      <span className="fact-k">{s.Type === "AssemblyNameReference" || s.Type === "TypeNameReference" ? "Source code" : "Path"}</span> {info?.resolvedPath ?? s.Filepath ?? s.SourceCodePath}
+                      <span className="fact-k">{s.Type === "TypeReference" ? (s.GenerateModelFile ? "Generated code" : "Source code") : "Path"}</span> {info?.resolvedPath ?? s.Filepath ?? s.SourceCodePath}
                       {info?.pathExists === false ? " (missing)" : ""}
                     </div>
                   )}

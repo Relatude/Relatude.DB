@@ -19,7 +19,7 @@ export interface PickableType {
 
 interface Props {
   types: PickableType[];
-  sources: { id: string; name: string; type: SourceType }[];
+  sources: { id: string; name: string; type: SourceType; color?: string | null }[];
   value: string | null;
   onChange: (id: string) => void;
   /** Called when the picker closes after a pointer pick, so the page can move focus on. */

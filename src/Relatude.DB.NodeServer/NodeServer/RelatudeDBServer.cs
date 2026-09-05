@@ -76,6 +76,17 @@ public partial class RelatudeDBServer {
     internal SettingsOverlay? ConfigurationOverlay => _settingsOverlay;
     Dictionary<Guid, IIOProvider> _ios = [];
     /// <summary>
+    /// The id of the provider over the website project folder (the host's content root). It is not
+    /// part of any settings: every server has exactly one, under this fixed id, so the admin UI can
+    /// browse and edit the project's own files next to the database storage.
+    /// </summary>
+    public static readonly Guid ProjectRootIOId = new("5b1f0c2e-7a34-4d8e-9c61-0f2a6e3b8d47");
+    IOProviderDisk? _projectRootIO;
+    /// <summary>The provider over the website project folder, see <see cref="ProjectRootIOId"/>. A
+    /// plain folder provider: any file system name is a legal key and folders carry no database
+    /// descriptions.</summary>
+    public IOProviderDisk ProjectRootIO => Validator.ThrowIfNull(_projectRootIO);
+    /// <summary>
     /// Drops one cached provider, so the next lookup rebuilds it from its current settings. Editing a
     /// provider in the admin UI has no effect without this: the instance is built once and kept, and
     /// even reopening the database would hand back the one pointing at the old folder or container.
@@ -149,6 +160,7 @@ public partial class RelatudeDBServer {
         _serverLog.Clear();
         Log("Server starting up.");
         var environmentRoot = app.Environment.ContentRootPath;
+        _projectRootIO = new IOProviderDisk(environmentRoot, plainFolder: true);
         if (string.IsNullOrEmpty(dataFolderPath)) dataFolderPath = string.Empty;
         dataFolderPath = dataFolderPath.EnsureDirectorySeparatorChar();
         if (!System.IO.Path.IsPathRooted(dataFolderPath)) dataFolderPath = environmentRoot.SuperPathCombine(dataFolderPath);
@@ -473,6 +485,10 @@ public partial class RelatudeDBServer {
         }
     }
     public bool TryGetIO(Guid ioId, [MaybeNullWhen(false)] out IIOProvider io) {
+        if (ioId == ProjectRootIOId && _projectRootIO != null) {
+            io = _projectRootIO;
+            return true;
+        }
         lock (_ios) {
             if (_ios.TryGetValue(ioId, out io)) return true;
             var settings = _serverSettings.ContainerSettings?.SelectMany(c => c.IOSettings!)?.FirstOrDefault(s => s.Id == ioId);

@@ -1872,28 +1872,51 @@ deployments of the same binary:
   {
     "Id": "8a3f...",                   // required, and unique across the sources
     "Name": "VenueApp",
-    "Type": "AssemblyNameReference",   // see the table below
-    "Namespace": "VenueApp.Models",    // matched exactly, not by prefix
-    "Reference": "VenueApp",           // assembly name; null means the entry assembly
+    "Type": "TypeReference",           // see the table below
+    "FileFormat": "Json",              // TextFiles: what the files hold, Json or CSharpCode
+    "Namespace": "VenueApp.Models",    // one namespace, or a pattern: "VenueApp.Models.*" takes it and everything under it
+    "Reference": "VenueApp",           // assembly name; null means the current project (the entry assembly)
     "Filepath": null,                  // file or folder, for the file-based types
-    "FileIO": null,                    // legacy: read a JsonFile through an IO provider instead
+    "FileIO": null,                    // legacy: read a JSON model file through an IO provider instead
+    "SourceCodePath": null,            // TypeReference: the folder with the C# files, for the model editor
+    "GenerateModelFile": false,        // TypeReference: the model editor owns that folder and regenerates it
     "Enabled": true,                   // false skips the source entirely
-    "AutoDeduceRelations": false
+    "Color": null                      // the colour the admin UI marks this source's types with; null picks one from a palette
   }
 ]
 ```
 
 | `Type` | What it does |
 |---|---|
-| `AssemblyNameReference` | loads the assembly named by `Reference` (or the entry assembly when it is null) and adds every type in `Namespace`. `Namespace` is required. |
-| `TypeNameReference` | adds the single type named by `Reference`, plus everything it references. Assembly-qualify it (`"MyApp.Models.Person, MyApp"`) unless it is in the entry assembly. |
-| `JsonFile` | reads serialised `Datamodel` JSON. `Filepath` may name a file or a folder (searched recursively); with neither `Filepath` nor `Reference` it reads `Models/Json`. Each node type still needs a backing CLR class at runtime for the mapper to compile against. |
-| `CSharpCodeFile` | compiles `.cs` files in memory and adds the types. Same path resolution, defaulting to `Models/CSharp`; with no `Namespace` every non-nested, non-enum top-level type in the compilation is added. |
+| `TypeReference` | loads the assembly named by `Reference` (or the entry assembly — the current project — when it is null or empty) and adds every type whose namespace matches `Namespace`. `Namespace` is required: one namespace, or a pattern in which `*` stands for any run of characters — `VenueApp.Models.*` takes `VenueApp.Models` and every namespace under it, `VenueApp.*.Models` takes `VenueApp.Web.Models` and `VenueApp.Api.Models`. Called `AssemblyNameReference` before September 2026; the old name still reads. The single-type `TypeNameReference` kind was removed at the same time: name the type's namespace instead. |
+| `TextFiles` | reads model files from disk when the database opens, in the format `FileFormat` names. `Filepath` may name a file or a folder (searched recursively). With `FileFormat: "Json"` (the default) the files hold serialised `Datamodel` JSON, the default folder is `Models/Json`, and each node type still needs a backing CLR class at runtime for the mapper to compile against. With `FileFormat: "CSharpCode"` the `.cs` files are compiled in memory and their types added, the default folder is `Models/CSharp`, and with no `Namespace` every non-nested, non-enum top-level type in the compilation is added. Before September 2026 these were two kinds, `JsonFile` and `CSharpCodeFile`; both names still read and set the format. |
 | `Code` | **reserved.** It is the id stamped on types added from `OnDatamodelInit`, and configuring it as a source throws. |
 
 Relative `Filepath` values resolve against the root data folder. Every source must carry a unique
 `Id` — it is what tags each type with its provenance, which is how the admin UI knows which source a
 type came from and which sources it may edit.
+
+`Color` is the one setting nothing in the engine reads: it is the colour the admin UI marks this
+source's types and relations with, wherever they are listed — the model editor, the dashboard's
+content panel, the query page's type picker. Any CSS colour (`"#2f7fd6"`, `"teal"`); left out, the
+source takes one from a ten-hue palette by its position in the list, which is what every source did
+before there was anything to set. It can be changed on the settings page while the database is open.
+
+A `TypeReference` source is compiled into the application, so the admin UI's model editor can only
+write to it when `GenerateModelFile` is on and `SourceCodePath` names the folder the generated C#
+files go into (relative to the settings folder unless rooted, and inside the project that builds the
+assembly); the application then has to be rebuilt and restarted for the change to take effect. That
+folder belongs to the editor: activating a model deletes every file in it and generates one file per
+node type and relation, each starting with an `// <auto-generated>` comment saying it will be
+overwritten. Files in the folder without that comment are listed before the activation, which only
+goes ahead once they are given up — so point it at a folder of its own, not at the project root.
+(`SourceCodePath` without `GenerateModelFile` still works from a hand-edited settings file: the editor
+then rewrites the existing files in place and leaves files that hold no model types alone. The admin
+UI only offers the generated form.) In the editor's source form the assembly and namespace are
+comboboxes: the first assembly choice is the current project, and a *scan* lists the assemblies the
+running application can see, then the namespaces of the chosen one — scanned on request, since
+reflecting over every loaded assembly takes a moment. Under the form the editor lists what the chosen
+assembly and namespace would load, so a typo shows up before the database is reopened.
 
 `Enabled` (`true` when absent) is a switch rather than a setting: a source turned off contributes
 nothing and is not registered on the model at all, so nothing it defines survives the next open, and
@@ -1924,9 +1947,11 @@ options.OnDatamodelInit = (dm, container) => {
 };
 ```
 
-`AutoDeduceRelations` (off by default on both paths) decides what happens to a plain node-typed
-property with no relation declared: off, it becomes a `Reference`/`References`; on, it is turned
-into an auto-created relation, which is the old behaviour. Leave it off in new models.
+The static flag `DatamodelSource.AutoDeduceRelations` (off by default, and process wide — set it
+before the database opens) decides what happens to a plain node-typed property with no relation
+declared: off, it becomes a `Reference`/`References`; on, it is turned into an auto-created relation,
+which is the old behaviour. Leave it off in new models. Until September 2026 this was a per-source
+setting in `relatude.db.json`; a leftover `"AutoDeduceRelations"` key there is ignored.
 
 Either way the server builds the datamodel, generates the proxy assembly and reloads, and from then
 on the model is rebuilt automatically whenever the assembly loads.

@@ -27,9 +27,9 @@ public class DatamodelEditorTests {
     static readonly Guid sourceId = new("22222222-0000-0000-0000-000000000001");
 
     /// <summary>The library model (authors, books, a relation) tagged as coming from one source.</summary>
-    static Datamodel libraryModel(DatamodelSourceType type) {
+    static Datamodel libraryModel(DatamodelSourceType type, DatamodelSourceFileFormat format = DatamodelSourceFileFormat.Json) {
         var dm = new Datamodel();
-        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = type, Namespace = "Relatude.SourceLoaderModels" };
+        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = type, FileFormat = format, Namespace = "Relatude.SourceLoaderModels" };
         dm.Sources.Add(source);
         dm.CurrentSourceId = sourceId;
         dm.Add<SlAuthor>();
@@ -67,7 +67,7 @@ public class DatamodelEditorTests {
         var io = new IOProviderDisk(Path.Combine(_root, "db"));
         var drafts = new DatamodelDrafts(io);
         Assert.IsNull(drafts.LoadDraft());
-        var model = libraryModel(DatamodelSourceType.JsonFile);
+        var model = libraryModel(DatamodelSourceType.TextFiles);
         var checksum = DatamodelJson.Checksum(initialized(model));
         drafts.SaveDraft(new DatamodelDraft { Model = model, Checksum = checksum, BaseChecksum = Guid.NewGuid(), Note = "first" });
         Assert.IsTrue(drafts.HasDraft);
@@ -88,7 +88,7 @@ public class DatamodelEditorTests {
     public void History_SkipsUnchangedModels_AndKeepsAtMostFifty() {
         var io = new IOProviderDisk(Path.Combine(_root, "db"));
         var drafts = new DatamodelDrafts(io);
-        var model = initialized(libraryModel(DatamodelSourceType.JsonFile));
+        var model = initialized(libraryModel(DatamodelSourceType.TextFiles));
         Assert.IsNotNull(drafts.Snapshot(model, "open"));
         Assert.IsNull(drafts.Snapshot(model, "open"), "the same model again is not a new entry");
         Assert.AreEqual(1, drafts.ListHistory().Count);
@@ -122,9 +122,9 @@ public class DatamodelEditorTests {
     public void Plan_JsonSource_RewritesTheFileHoldingAChangedType() {
         var folder = Path.Combine(_root, "Models", "Json");
         Directory.CreateDirectory(folder);
-        var seed = libraryModel(DatamodelSourceType.JsonFile);
+        var seed = libraryModel(DatamodelSourceType.TextFiles);
         File.WriteAllText(Path.Combine(folder, "library.json"), DatamodelJson.SerializeForSourceFile(seed, seed.NodeTypes.Keys, seed.Relations.Keys));
-        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = DatamodelSourceType.JsonFile, Filepath = "Models/Json" };
+        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = DatamodelSourceType.TextFiles, Filepath = "Models/Json" };
         var active = new Datamodel();
         DatamodelSourceLoader.Load(active, source, _root);
         active.EnsureInitalization();
@@ -163,14 +163,14 @@ public class DatamodelEditorTests {
     public void Plan_JsonSource_DeletesAFileWhoseTypesAreAllRemoved_AndAddsNewTypesInTheirOwnFile() {
         var folder = Path.Combine(_root, "Models", "Json");
         Directory.CreateDirectory(folder);
-        var seed = libraryModel(DatamodelSourceType.JsonFile);
+        var seed = libraryModel(DatamodelSourceType.TextFiles);
         var review = new Datamodel();
         review.CurrentSourceId = sourceId;
         review.Add<Relatude.SourceLoaderModels.JsonGen.SlReview>();
         File.WriteAllText(Path.Combine(folder, "library.json"), DatamodelJson.SerializeForSourceFile(seed, seed.NodeTypes.Keys, seed.Relations.Keys));
         File.WriteAllText(Path.Combine(folder, "review.json"), DatamodelJson.SerializeForSourceFile(review, review.NodeTypes.Keys, review.Relations.Keys));
         File.WriteAllText(Path.Combine(folder, "Tag.json"), "{ \"NodeTypes\": {}, \"Relations\": {} }"); // an empty model file that happens to carry a future type's name
-        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = DatamodelSourceType.JsonFile, Filepath = "Models/Json" };
+        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = DatamodelSourceType.TextFiles, Filepath = "Models/Json" };
         var active = new Datamodel();
         DatamodelSourceLoader.Load(active, source, _root);
         active.EnsureInitalization();
@@ -199,7 +199,7 @@ public class DatamodelEditorTests {
 
     [TestMethod]
     public void Plan_ReadOnlySource_ReportsEveryDifferenceAsAnError() {
-        var active = initialized(libraryModel(DatamodelSourceType.AssemblyNameReference)); // no SourceCodePath: read only
+        var active = initialized(libraryModel(DatamodelSourceType.TypeReference)); // no SourceCodePath: read only
         var draft = copy(active);
         var book = typeNamed(draft, "SlBook");
         book.Hidden = true;
@@ -219,7 +219,7 @@ public class DatamodelEditorTests {
 
     [TestMethod]
     public void Plan_CodeTypesAreReadOnly_AndTypesWithoutASourceAreErrors() {
-        var active = initialized(libraryModel(DatamodelSourceType.JsonFile));
+        var active = initialized(libraryModel(DatamodelSourceType.TextFiles));
         var draft = copy(active);
         var orphan = new NodeTypeModel { Id = Guid.NewGuid(), CodeName = "Orphan", ModelType = ModelType.Class, DatamodelSourceId = Guid.NewGuid() };
         draft.NodeTypes.Add(orphan.Id, orphan);
@@ -235,9 +235,9 @@ public class DatamodelEditorTests {
     public void Plan_CSharpSource_WritesCodeTheLoaderReadsBack() {
         var folder = Path.Combine(_root, "Models", "CSharp");
         Directory.CreateDirectory(folder);
-        var seed = initialized(libraryModel(DatamodelSourceType.CSharpCodeFile));
+        var seed = initialized(libraryModel(DatamodelSourceType.TextFiles, DatamodelSourceFileFormat.CSharpCode));
         File.WriteAllText(Path.Combine(folder, "Library.cs"), ModelGen.GenerateCSharpModelCode(seed, true));
-        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = DatamodelSourceType.CSharpCodeFile, Filepath = "Models/CSharp" };
+        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = DatamodelSourceType.TextFiles, FileFormat = DatamodelSourceFileFormat.CSharpCode, Filepath = "Models/CSharp" };
         var active = new Datamodel();
         DatamodelSourceLoader.Load(active, source, _root);
         active.EnsureInitalization();
@@ -268,10 +268,10 @@ public class DatamodelEditorTests {
         // a "project" folder holding the model classes as C# files, the way an application would
         var project = Path.Combine(_root, "MyApp");
         Directory.CreateDirectory(Path.Combine(project, "Models"));
-        var seed = initialized(libraryModel(DatamodelSourceType.AssemblyNameReference));
+        var seed = initialized(libraryModel(DatamodelSourceType.TypeReference));
         File.WriteAllText(Path.Combine(project, "Models", "Library.cs"), ModelGen.GenerateCSharpModelCode(seed, true));
         File.WriteAllText(Path.Combine(project, "Program.cs"), "namespace MyApp { public static class Program { public static void Main() { } } }");
-        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = DatamodelSourceType.AssemblyNameReference, Namespace = "Relatude.SourceLoaderModels", SourceCodePath = "MyApp" };
+        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = DatamodelSourceType.TypeReference, Namespace = "Relatude.SourceLoaderModels", SourceCodePath = "MyApp" };
         var (writable, reason, rebuild) = DatamodelSourceWriter.Writability(source, _root);
         Assert.IsTrue(writable, reason);
         Assert.IsTrue(rebuild);
@@ -307,6 +307,141 @@ public class DatamodelEditorTests {
         Assert.IsFalse(plan.Files.Any(f => f.RelativePath == "Program.cs"), "files that hold no model types are never touched");
     }
 
+    [TestMethod]
+    public void Plan_GeneratedFolder_HoldsExactlyTheGeneratedFiles_AndWarnsBeforeDeletingHandWrittenOnes() {
+        var project = Path.Combine(_root, "MyApp", "Models");
+        Directory.CreateDirectory(Path.Combine(project, "Sub"));
+        var seed = initialized(libraryModel(DatamodelSourceType.TypeReference));
+        File.WriteAllText(Path.Combine(project, "Library.cs"), ModelGen.GenerateCSharpModelCode(seed, true)); // by hand: no marker
+        File.WriteAllText(Path.Combine(project, "Sub", "Helper.cs"), "namespace MyApp { public static class Helper { } }");
+        File.WriteAllText(Path.Combine(project, "Stale.cs"), ModelGen.AutoGeneratedHeader("Library") + "// left over from an earlier activation");
+        var active = copy(seed);
+        active.Sources[0].SourceCodePath = Path.Combine("MyApp", "Models");
+        active.Sources[0].GenerateModelFile = true;
+        foreach (var t in active.NodeTypes.Values) if (t.DatamodelSourceId == sourceId) t.DatamodelSourceFilename = "Library.cs";
+        foreach (var r in active.Relations.Values) if (r.DatamodelSourceId == sourceId) r.DatamodelSourceFilename = "Library.cs";
+        active.EnsureInitalization();
+        Assert.IsTrue(DatamodelSourceWriter.IsGeneratedFolder(active.Sources[0]));
+
+        // no model change at all: the folder is still brought into shape
+        var draft = copy(active);
+        draft.EnsureInitalization();
+        var plan = DatamodelSourceWriter.Plan(active, draft, _root, _ => null);
+        Assert.IsFalse(plan.HasErrors, string.Join("\n", plan.Issues.Select(i => i.Message)));
+        var writes = plan.Files.Where(f => f.Action == PlannedFileAction.Write).ToList();
+        CollectionAssert.AreEquivalent(new[] { "SlAuthor.cs", "SlBook.cs", "SlBooksRel.cs" }, writes.Select(f => f.RelativePath).ToArray(), "one file per type and relation, stamped file names ignored");
+        Assert.IsTrue(writes.All(f => f.Changed && !f.Exists && !f.HandWritten && ModelGen.IsAutoGenerated(f.Content!)), "every generated file starts with the marker");
+        StringAssert.Contains(writes[0].Content!, "generated again");
+        var deletes = plan.Files.Where(f => f.Action == PlannedFileAction.Delete).ToDictionary(f => f.RelativePath);
+        CollectionAssert.AreEquivalent(new[] { "Library.cs", "Stale.cs", Path.Combine("Sub", "Helper.cs") }, deletes.Keys.ToArray(), "everything else in the folder goes, however deep");
+        Assert.IsTrue(deletes["Library.cs"].HandWritten);
+        Assert.IsTrue(deletes[Path.Combine("Sub", "Helper.cs")].HandWritten);
+        Assert.IsFalse(deletes["Stale.cs"].HandWritten, "a file generated earlier goes without asking");
+        var warning = plan.Issues.Single(i => i.Code == "hand-written-files");
+        Assert.AreEqual(IssueSeverity.Warning, warning.Severity, "a warning: the activation needs it accepted");
+        StringAssert.Contains(warning.Message, "Library.cs");
+        StringAssert.Contains(warning.Message, "Helper.cs");
+        Assert.IsFalse(warning.Message.Contains("Stale.cs"));
+        Assert.IsTrue(plan.RequiresRebuild, "the compiled folder changes, so the application has to be rebuilt");
+
+        // carry the plan out the way the activator does: deletes first, then writes
+        foreach (var f in plan.Files.Where(f => f.Changed).OrderBy(f => f.Action == PlannedFileAction.Delete ? 0 : 1)) {
+            if (f.Action == PlannedFileAction.Delete) File.Delete(f.Path);
+            else File.WriteAllText(f.Path, f.Content);
+        }
+        CollectionAssert.AreEquivalent(new[] { "SlAuthor.cs", "SlBook.cs", "SlBooksRel.cs" },
+            Directory.GetFiles(project, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(project, f)).ToArray());
+        // what the folder now says is what the draft says
+        var reloaded = new Datamodel();
+        DatamodelSourceLoader.Load(reloaded, new DatamodelSource { Id = sourceId, Type = DatamodelSourceType.TextFiles, FileFormat = DatamodelSourceFileFormat.CSharpCode, Filepath = project, Namespace = "Relatude.SourceLoaderModels" }, _root);
+        reloaded.EnsureInitalization();
+        foreach (var t in draft.NodeTypes.Values.Where(t => t.DatamodelSourceId == sourceId))
+            Assert.AreEqual(DatamodelSourceWriter.Fingerprint(t), DatamodelSourceWriter.Fingerprint(reloaded.NodeTypes[t.Id]), t.CodeName);
+        foreach (var r in draft.Relations.Values.Where(r => r.DatamodelSourceId == sourceId))
+            Assert.AreEqual(DatamodelSourceWriter.Fingerprint(r), DatamodelSourceWriter.Fingerprint(reloaded.Relations[r.Id]), r.CodeName);
+
+        // a second pass over the generated folder has nothing to do and nothing to warn about
+        var again = DatamodelSourceWriter.Plan(active, draft, _root, _ => null);
+        Assert.AreEqual(0, again.Issues.Count, string.Join("\n", again.Issues.Select(i => i.Message)));
+        Assert.IsFalse(again.Files.Any(f => f.Changed));
+        Assert.IsFalse(again.RequiresRebuild);
+
+        // a file dropped into the folder later is deleted at the next activation, with the same warning
+        File.WriteAllText(Path.Combine(project, "Notes.txt"), "remember to ...");
+        var stray = DatamodelSourceWriter.Plan(active, draft, _root, _ => null);
+        var strayDelete = stray.Files.Single(f => f.Changed);
+        Assert.AreEqual(PlannedFileAction.Delete, strayDelete.Action);
+        Assert.AreEqual("Notes.txt", strayDelete.RelativePath);
+        Assert.IsTrue(strayDelete.HandWritten);
+        Assert.IsTrue(stray.Issues.Any(i => i.Code == "hand-written-files"));
+        Assert.IsTrue(stray.RequiresRebuild, "a deleted file may have declared a type the running application still has");
+    }
+
+    [TestMethod]
+    public void Plan_GeneratedFolder_IsWritableBeforeItExists_AndNamesClashingTypesByFullName() {
+        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = DatamodelSourceType.TypeReference, Namespace = "Relatude.SourceLoaderModels", SourceCodePath = "NotThereYet", GenerateModelFile = true };
+        var (writable, reason, rebuild) = DatamodelSourceWriter.Writability(source, _root);
+        Assert.IsTrue(writable, reason);
+        Assert.IsTrue(rebuild);
+        source.GenerateModelFile = false;
+        Assert.IsFalse(DatamodelSourceWriter.Writability(source, _root).writable, "a folder edited in place has to exist");
+
+        var active = initialized(libraryModel(DatamodelSourceType.TypeReference));
+        active.Sources[0].SourceCodePath = "NotThereYet";
+        active.Sources[0].GenerateModelFile = true;
+        var draft = copy(active);
+        var twin = new NodeTypeModel { Id = Guid.NewGuid(), CodeName = "SlBook", Namespace = "Other.Models", ModelType = ModelType.Class, DatamodelSourceId = sourceId };
+        draft.NodeTypes.Add(twin.Id, twin);
+        draft.EnsureInitalization();
+        var plan = DatamodelSourceWriter.Plan(active, draft, _root, _ => null);
+        Assert.IsFalse(plan.HasErrors, string.Join("\n", plan.Issues.Select(i => i.Message)));
+        CollectionAssert.AreEquivalent(new[] { "SlAuthor.cs", "Relatude.SourceLoaderModels.SlBook.cs", "Other.Models.SlBook.cs", "SlBooksRel.cs" }, plan.Files.Select(f => f.RelativePath).ToArray());
+        Assert.IsTrue(plan.Files.All(f => f.Action == PlannedFileAction.Write && f.Changed));
+        Assert.IsFalse(plan.Issues.Any(i => i.Code == "hand-written-files"), "a folder that is not there has nothing to warn about");
+    }
+
+    [TestMethod]
+    public void SourceType_ReadsTheOldName_AndRefusesTheRemovedOne() {
+        Assert.AreEqual(DatamodelSourceType.TypeReference, System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"AssemblyNameReference\"}")!.Type, "settings files written before the rename keep loading");
+        Assert.AreEqual(DatamodelSourceType.TypeReference, System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"typereference\"}")!.Type);
+        // the two old file kinds became one kind plus a format, which only a converter seeing the whole source can carry over
+        var oldCSharp = System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":3}")!;
+        Assert.AreEqual(DatamodelSourceType.TextFiles, oldCSharp.Type);
+        Assert.AreEqual(DatamodelSourceFileFormat.CSharpCode, oldCSharp.FileFormat);
+        var oldJson = System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"JsonFile\",\"Filepath\":\"Models/Json\"}")!;
+        Assert.AreEqual(DatamodelSourceType.TextFiles, oldJson.Type);
+        Assert.AreEqual(DatamodelSourceFileFormat.Json, oldJson.FileFormat);
+        Assert.AreEqual("Models/Json", oldJson.Filepath);
+        var oldCSharpFiles = System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"type\":\"CSharpCodeFile\",\"namespace\":\"X\",\"enabled\":false}", Relatude.DB.NodeServer.LocalSettingsLoaderFile.JsonOptions)!;
+        Assert.AreEqual(DatamodelSourceType.TextFiles, oldCSharpFiles.Type);
+        Assert.AreEqual(DatamodelSourceFileFormat.CSharpCode, oldCSharpFiles.FileFormat);
+        Assert.AreEqual("X", oldCSharpFiles.Namespace);
+        Assert.IsFalse(oldCSharpFiles.Enabled);
+        var explicitFormat = System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"CSharpCodeFile\",\"FileFormat\":\"Json\"}")!;
+        Assert.AreEqual(DatamodelSourceFileFormat.Json, explicitFormat.FileFormat, "an explicit format wins over what the old type name implies");
+        var roundTrip = new DatamodelSource { Id = Guid.NewGuid(), Name = "T", Type = DatamodelSourceType.TextFiles, FileFormat = DatamodelSourceFileFormat.CSharpCode, Filepath = "Models/CSharp", FileIO = null, GenerateModelFile = true, Enabled = false, Color = "#2f7fd6" };
+        var json = System.Text.Json.JsonSerializer.Serialize(roundTrip, DatamodelJson.Options);
+        StringAssert.Contains(json, "\"TextFiles\"");
+        StringAssert.Contains(json, "\"CSharpCode\"");
+        var back = System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>(json, DatamodelJson.Options)!;
+        Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(roundTrip, DatamodelJson.Options), System.Text.Json.JsonSerializer.Serialize(back, DatamodelJson.Options), "every property survives the converter");
+        Assert.AreEqual("#2f7fd6", back.Color, "the colour of a source is one of them");
+        Assert.IsNull(System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"TypeReference\"}")!.Color, "a source written before there was a colour has none, and takes the palette's");
+        var error = Assert.ThrowsException<System.Text.Json.JsonException>(() => System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"TypeNameReference\"}"));
+        StringAssert.Contains(error.Message, "TypeReference", "the message says what to use instead");
+        StringAssert.Contains(System.Text.Json.JsonSerializer.Serialize(new DatamodelSource { Type = DatamodelSourceType.TypeReference }), "\"TypeReference\"");
+        StringAssert.Contains(DatamodelJson.Serialize(libraryModel(DatamodelSourceType.TypeReference)), "\"TypeReference\"");
+        Assert.IsFalse(Enum.IsDefined(typeof(DatamodelSourceType), 1), "the removed value's number is not reused");
+        // the serializer options the settings file and the model files are read with carry a JsonStringEnumConverter,
+        // which outranks a converter on the enum type - the property attribute is what makes the old name load there
+        var withStringEnums = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        withStringEnums.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+        Assert.AreEqual(DatamodelSourceType.TypeReference, System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"AssemblyNameReference\"}", withStringEnums)!.Type);
+        Assert.AreEqual(DatamodelSourceType.TypeReference, System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"AssemblyNameReference\"}", Relatude.DB.NodeServer.LocalSettingsLoaderFile.JsonOptions)!.Type, "the settings file reader");
+        var legacyModel = DatamodelJson.Serialize(libraryModel(DatamodelSourceType.TypeReference)).Replace("\"TypeReference\"", "\"AssemblyNameReference\"");
+        Assert.AreEqual(DatamodelSourceType.TypeReference, DatamodelJson.Deserialize(legacyModel).Sources[0].Type, "history and draft envelopes written before the rename");
+    }
+
     // ---- validation helpers ----
 
     [TestMethod]
@@ -324,10 +459,12 @@ public class DatamodelEditorTests {
     [TestMethod]
     public void Catalog_EveryEntryNamesARealProperty_AndEveryPropertyIsCataloguedOrHidden() {
         foreach (var type in new[] { typeof(NodeTypeModel), typeof(RelationModel), typeof(DatamodelSource) }) {
-            var names = type.GetProperties().Select(p => p.Name).ToHashSet();
+            // instance properties only: a static flag (DatamodelSource.AutoDeduceRelations) is process wide, not a setting of one source
+            var properties = type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            var names = properties.Select(p => p.Name).ToHashSet();
             foreach (var path in DatamodelCatalog.CataloguedPaths(type)) Assert.IsTrue(names.Contains(path), type.Name + " has no property " + path);
             var covered = DatamodelCatalog.CataloguedPaths(type).Concat(DatamodelCatalog.HiddenPaths(type)).ToHashSet();
-            var missing = type.GetProperties().Where(p => p.SetMethod?.IsPublic == true && !covered.Contains(p.Name)).Select(p => p.Name).ToArray();
+            var missing = properties.Where(p => p.SetMethod?.IsPublic == true && !covered.Contains(p.Name)).Select(p => p.Name).ToArray();
             Assert.AreEqual(0, missing.Length, type.Name + " properties without a catalog entry: " + string.Join(", ", missing));
         }
         var propertyTypes = Enum.GetValues<PropertyType>().Where(pt => pt != PropertyType.Any).Select(PropertyModelJsonConverter.GetModelType).ToList();

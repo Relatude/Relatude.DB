@@ -7,6 +7,14 @@ export interface IoInfo {
   id: string;
   name: string;
   type: string; // Memory | LocalDisk | AzureBlobStorage
+  // "storage" for a provider from the database settings; "projectRoot" for the one every server
+  // has over the website project folder, which is not in any settings
+  kind: "storage" | "projectRoot";
+  canRenameFile: boolean;
+  canRenameFolder: boolean;
+  // false where folders are key prefixes (memory, blob storage): an empty folder is not stored
+  supportsEmptyFolders: boolean;
+  localPath?: string | null; // the project root's folder on the server
 }
 
 export interface FileInfo {
@@ -125,9 +133,67 @@ export async function deleteFolderWithProgress(ctl: ProgressController, ioId: st
   return failed;
 }
 
+// renames within the folder: newName is a single name, not a path
+export function renameFile(ioId: string, key: string, newName: string): Promise<{ key: string }> {
+  return send<{ key: string }>("io-rename-file", { ioId, key, newName });
+}
+
+export function renameFolder(ioId: string, path: string, newName: string): Promise<{ path: string }> {
+  return send<{ path: string }>("io-rename-folder", { ioId, key: path, newName });
+}
+
+// persisted is false on providers with virtual folders: the folder shows once it holds a file
+export function createFolder(ioId: string, parentPath: string, name: string): Promise<{ path: string; persisted: boolean }> {
+  return send<{ path: string; persisted: boolean }>("io-create-folder", { ioId, key: parentPath, newName: name });
+}
+
 // the existing (authenticated) download endpoint of the admin API
 export function downloadUrl(storeId: string, ioId: string, key: string): string {
   return `${adminBase}/maintenance/download-file?storeId=${storeId}&ioId=${ioId}&fileName=${encodeURIComponent(key)}`;
+}
+
+// the file itself, inline with its own content type, for the viewer; version only keeps a
+// changed file out of the browser cache
+export function fileUrl(ioId: string, key: string, version?: string): string {
+  return `${adminBase}/ui/file?ioId=${ioId}&key=${encodeURIComponent(key)}${version ? "&v=" + encodeURIComponent(version) : ""}`;
+}
+
+// A text file as the editor gets it, plus what a textarea would silently lose: the byte order
+// mark and CRLF line endings. Both go back on when the text is saved, so a file the editor
+// touched keeps its encoding conventions.
+export interface TextContent {
+  text: string; // LF line endings, no BOM
+  bom: boolean;
+  crlf: boolean;
+}
+
+export async function fetchText(ioId: string, key: string, signal: AbortSignal): Promise<TextContent> {
+  const response = await fetch(fileUrl(ioId, key, Date.now().toString()), { signal, cache: "no-store" });
+  if (response.status === 423) throw new Error("The file is in use and cannot be read right now.");
+  if (response.status === 404) throw new Error("The file was not found.");
+  if (!response.ok) {
+    let message = `Could not read the file (HTTP ${response.status}).`;
+    try {
+      const body = (await response.json()) as { error?: string };
+      if (body.error) message = body.error;
+    } catch {
+      // not json
+    }
+    throw new Error(message);
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const bom = bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
+  const raw = new TextDecoder("utf-8").decode(bom ? bytes.subarray(3) : bytes);
+  const crlf = raw.includes("\r\n");
+  return { text: crlf ? raw.replaceAll("\r\n", "\n") : raw, bom, crlf };
+}
+
+// the upload endpoint replaces the file: what the editor holds becomes the whole file
+export function saveText(ioId: string, key: string, name: string, content: TextContent): Promise<void> {
+  const text = content.crlf ? content.text.replaceAll("\n", "\r\n") : content.text;
+  const parts: BlobPart[] = content.bom ? [new Uint8Array([0xef, 0xbb, 0xbf]), text] : [text];
+  const file = new File(parts, name, { type: "text/plain" });
+  return uploadFile(ioId, key, file, () => {}, new AbortController().signal);
 }
 
 // XMLHttpRequest instead of fetch: it reports upload progress and can be aborted

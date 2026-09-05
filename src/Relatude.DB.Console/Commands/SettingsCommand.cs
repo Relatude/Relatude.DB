@@ -151,7 +151,7 @@ public static class SettingsCommand {
             }).ToArray(),
             c.LocalSettings,
             DatamodelSources = (c.DatamodelSources ?? []).Select(s => new {
-                s.Id, s.Name, Type = s.Type.ToString(), s.Reference, s.Namespace, s.Enabled, s.AutoDeduceRelations,
+                s.Id, s.Name, Type = s.Type.ToString(), s.Reference, s.Namespace, s.Enabled,
             }).ToArray(),
             AISettings = ai == null ? null : new {
                 ai.Name, ai.TypeName, ai.EmbeddingModel,

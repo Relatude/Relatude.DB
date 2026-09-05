@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  IconDatabase,
   IconDatabaseExport,
   IconDatabaseImport,
   IconDatabasePlus,
   IconDeviceFloppy,
+  IconFolder,
   IconDownload,
   IconFileSearch,
   IconFolderDown,
@@ -395,6 +397,15 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   return (
     <div className="storage">
       {error && <div className="login-error">{error}</div>}
+      {/* Four things live on this page and they are not alike: copies of the database, the file it
+          is, the files it points to, and content to test with. Each is a group with a name and a
+          line saying what it is about, and the panels of one group share a row. */}
+      <div className="storage-group">
+        <div className="storage-group-head">
+          <IconDeviceFloppy size={16} stroke={1.8} />
+          <h2>Backups</h2>
+          <span className="muted">copies of the database file, kept beside it - the way back when something has gone wrong</span>
+        </div>
       <div className="overview-columns">
         <section className="panel">
           <h3>
@@ -453,6 +464,15 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
           </div>
         </section>
       </div>
+      </div>
+
+      <div className="storage-group">
+        <div className="storage-group-head">
+          <IconDatabase size={16} stroke={1.8} />
+          <h2>Database file</h2>
+          <span className="muted">the transaction log the database lives in, and the maintenance that keeps it small and quick to open</span>
+        </div>
+      <div className="overview-columns even">
       <section className="panel">
         <h3>Database file</h3>
         {dbFile && (
@@ -553,6 +573,16 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
           </>
         )}
       </section>
+      </div>
+      </div>
+
+      <div className="storage-group">
+        <div className="storage-group-head">
+          <IconFolder size={16} stroke={1.8} />
+          <h2>File storage</h2>
+          <span className="muted">the files behind the file properties, and generated content to try things out with</span>
+        </div>
+      <div className="overview-columns even">
       <section className="panel">
         <h3>File storage</h3>
         <div className="process-action">
@@ -643,6 +673,8 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
           </>
         )}
       </section>
+      </div>
+      </div>
     </div>
   );
 }

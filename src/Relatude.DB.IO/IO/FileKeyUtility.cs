@@ -473,6 +473,24 @@ public static class FileKeyUtility {
     static void throwInvalidFileKey() {
         throw new ArgumentException("Invalid file key. Name can only contain lowercase English letters, numbers, dash, space and underscores and have max length of " + MaxFileNameLength + " characters per path segment.");
     }
+    // Plain folders (a disk provider pointed at an ordinary folder rather than at database storage,
+    // see IOProviderDisk.PlainFolder) accept any name the file system does. The only thing a
+    // segment must still not do is leave its folder: no separators, no "." or "..".
+    static readonly HashSet<char> _invalidPlainNameCharacters = [.. Path.GetInvalidFileNameChars(), '/', '\\'];
+    public const int MaxPlainFileNameLength = 255;
+    /// <summary>Whether the segment is a legal file or folder name in a plain folder: not empty,
+    /// not "." or "..", no path separators and none of the characters the OS forbids.</summary>
+    public static bool IsPlainFileNameValid(string name) {
+        if (string.IsNullOrWhiteSpace(name) || name.Length > MaxPlainFileNameLength) return false;
+        if (name == "." || name == ".." || name.EndsWith('.') && name.Trim('.').Length == 0) return false;
+        foreach (var c in name) if (_invalidPlainNameCharacters.Contains(c)) return false;
+        return true;
+    }
+    public static void ValidatePlainPath(string[] path) {
+        foreach (var segment in path) {
+            if (!IsPlainFileNameValid(segment)) throw new ArgumentException("Invalid file name \"" + segment + "\": it must be a legal file system name without path separators, and not \".\" or \"..\". ");
+        }
+    }
     static HashSet<char> _legalFilePrefixCharacters = "abcdefghijklmnopqrstuvwxyz0123456789".ToHashSet();
     public static bool IsFilePrefixValid(string prefix, [MaybeNullWhen(true)] out string? reason) {
         reason = null;

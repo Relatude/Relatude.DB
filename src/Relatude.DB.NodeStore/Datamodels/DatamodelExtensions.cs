@@ -23,12 +23,17 @@ public static class DatamodelExtensions {
             datamodel.Add(type, true, autoDeduceRelations);
         }
     }
+    /// <summary>
+    /// Adds every model type of the assembly whose namespace matches <paramref name="nameSpace"/>: one
+    /// namespace, or a pattern with <c>*</c> wildcards (see <see cref="DatamodelSource.NamespaceMatches"/>).
+    /// </summary>
     public static void AddAssembly(this Datamodel datamodel, Assembly assembly, string nameSpace, bool autoDeduceRelations = false) {
-        if (nameSpace == null) throw new Exception("A namespace is required when adding model types from the assembly " + assembly.GetName().Name
+        if (string.IsNullOrEmpty(nameSpace)) throw new Exception("A namespace is required when adding model types from the assembly " + assembly.GetName().Name
             + ". Specify the namespace that contains the model types. ");
         foreach (var type in assembly.GetTypes()) {
             if (excludeTypeAsNodeType(type)) continue;
-            if (type.Namespace != nameSpace) continue;
+            if (type.Name.StartsWith('<')) continue; // compiler generated
+            if (!DatamodelSource.NamespaceMatches(nameSpace, type.Namespace)) continue;
             datamodel.Add(type, true, autoDeduceRelations);
         }
     }

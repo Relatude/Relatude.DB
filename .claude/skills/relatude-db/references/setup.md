@@ -62,14 +62,14 @@ Two ways, and they compose — JSON sources load first, then `OnDatamodelInit` a
   {
     "Id": "...",
     "Name": "VenueApp",
-    "Type": "AssemblyNameReference",   // or TypeNameReference | JsonFile
+    "Type": "TypeReference",           // or TextFiles (+ "FileFormat": "Json" | "CSharpCode")
     "Namespace": "VenueApp.Models",    // matched exactly, not by prefix
     "Reference": "VenueApp"            // assembly name; null means the entry assembly
   }
 ]
 ```
 
-`AssemblyFileReference`, `TypeNameFileReference` and `CSharpCodeFile` are declared but throw `NotImplementedException` in the current build.
+`TypeReference` was called `AssemblyNameReference` before September 2026 (the old name still reads); the single-type `TypeNameReference` kind was removed then, and `JsonFile`/`CSharpCodeFile` became `TextFiles` with a `FileFormat` (the old names still read). C# text files are compiled while the database opens.
 
 **From `Program.cs`**, which is the common case when the model ships with the app — refactor-safe, and it fails at compile time rather than at boot:
 

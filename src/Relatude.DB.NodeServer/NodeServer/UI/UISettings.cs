@@ -1,4 +1,4 @@
-﻿using Relatude.DB.DataStores;
+using Relatude.DB.DataStores;
 using Relatude.DB.NodeServer.Settings;
 using System.Globalization;
 using System.Reflection;
@@ -164,12 +164,11 @@ sealed class UISettings {
             definition.Picker,
             definition.Generate,
             // the sibling is named relative to the element, so it needs the same prefix to be found
-            VisibleWhen = definition.VisibleWhen == null ? null
-                : new { Path = prefix + definition.VisibleWhen.Path, definition.VisibleWhen.Values },
+            VisibleWhen = VisibilityView.From(definition.VisibleWhen, prefix),
             Secret = isSecret,
             ReadOnly = definition.ReadOnly || description.Property.SetMethod?.IsPublic != true,
             Applies = definition.Applies.ToString().ToLowerInvariant(),
-            Editor = description.Editor.ToString().ToLowerInvariant(),
+            Editor = (definition.Editor ?? description.Editor).ToString().ToLowerInvariant(),
             description.Optional,
             Choices = choices(description, definition, value),
             // the choices of a suggested-values setting are a starting point, not the set of legal
@@ -545,6 +544,11 @@ sealed class UISettings {
 }
 
 sealed record RejectedSetting(string Path, string Reason);
+/// <summary>A field's visibility rule as the page sees it: the sibling named relative to the element, so it needs the same prefix to be found; the And-ed condition likewise.</summary>
+sealed record VisibilityView(string Path, string[] Values, VisibilityView? And) {
+    public static VisibilityView? From(Settings.SettingVisibility? rule, string prefix)
+        => rule == null ? null : new(prefix + rule.Path, rule.Values, From(rule.And, prefix));
+}
 sealed record DatabaseSettingsPayload(Guid StoreId);
 sealed record SaveServerSettingsPayload(Dictionary<string, JsonElement>? Values);
 sealed record SaveDatabaseSettingsPayload(Guid StoreId, Dictionary<string, JsonElement>? Values, bool Reopen);

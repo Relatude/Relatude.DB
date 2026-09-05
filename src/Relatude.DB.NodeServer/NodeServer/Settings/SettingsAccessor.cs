@@ -13,6 +13,10 @@ public enum SettingEditor {
     Toggle,
     /// <summary>A fixed list of choices: an enum, or a <see cref="SettingDefinition.Picker"/>.</summary>
     Choice,
+    /// <summary>A CSS colour, shown as a swatch beside a palette to pick from. Never derived from the
+    /// property - a colour is a string like any other - so it only appears where a catalog entry asks
+    /// for it with <see cref="SettingDefinition.Editor"/>.</summary>
+    Color,
 }
 
 /// <summary>

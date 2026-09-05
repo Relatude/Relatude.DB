@@ -1,7 +1,11 @@
 ﻿namespace Relatude.DB.IO;
 
 public class FolderMeta {
-    public static FolderMeta FromDirInfo(DirectoryInfo dirInfo, string relpath) {
+    public static FolderMeta FromDirInfo(DirectoryInfo dirInfo, string relpath) => FromDirInfo(dirInfo, relpath, describe: true);
+    /// <param name="describe">false for a folder that is not database storage: its "data" or "files"
+    /// folders are whatever the owner put there, not the database's, so they get no description
+    /// and are not marked as primary data</param>
+    public static FolderMeta FromDirInfo(DirectoryInfo dirInfo, string relpath, bool describe) {
         var folder = new FolderMeta {
             Name = dirInfo.Name,
             CreationTimeUtc = dirInfo.CreationTimeUtc,
@@ -9,7 +13,7 @@ public class FolderMeta {
             HasFiles = dirInfo.EnumerateFiles().Any(),
             HasSubFolders = dirInfo.EnumerateDirectories().Any(),
         };
-        folder.Describe(relpath);
+        if (describe) folder.Describe(relpath);
         return folder;
     }
     /// <summary>Fills in what the folder holds from its path below the storage root. Providers

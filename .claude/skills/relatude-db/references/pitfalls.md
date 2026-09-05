@@ -73,7 +73,7 @@ Full treatment in `files-and-media.md`.
 - **Values set in `OnServerSettingsInit` are written into `relatude.db.json`** when the admin UI saves settings. Put secrets in the configuration section instead — only section-supplied values are stripped from saves.
 - **Startup lifecycle callbacks never crash the server.** Exceptions inside `OnStoreInit`, `OnDatamodelInit` and friends are caught and written to the startup log, so a callback that did nothing looks like a no-op.
 - **Seed in `OnStoreOpenBackground`, not `OnStoreOpen`** — the latter blocks the store from opening.
-- **Datamodel source namespaces match exactly, not by prefix**, and `AssemblyFileReference` / `TypeNameFileReference` / `CSharpCodeFile` throw `NotImplementedException`.
+- **Datamodel source namespaces match exactly, not by prefix.** The kinds are `TypeReference` and `TextFiles` (with `FileFormat` `Json` or `CSharpCode`); the pre-September-2026 names `AssemblyNameReference`, `JsonFile` and `CSharpCodeFile` still read, `TypeNameReference` does not.
 - **`DBAdminUIUrlPath` in the settings file overrides the path passed to `UseRelatudeDB()`.**
 - **Reverting is destructive and global.** `RollbackRevertWindow` / `DeleteTransactionsAfter` permanently delete every transaction after the target from the log — including concurrent writers' transactions in that range — and files uploaded by deleted transactions stay behind in the file store as orphans. Prefer a revert window over a bare `DeleteTransactionsAfter`: inside a window rollback needs no index rebuild (except the SQLite engine); outside one, everything persisted past the target is rebuilt from the log. Closing the store ends an open window as a *commit*, and hot-swap log rewrites (auto truncate) are refused while a window is active.
 

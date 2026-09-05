@@ -1,4 +1,4 @@
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 using Relatude.DB.DataStores;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
@@ -37,6 +37,11 @@ sealed class UIQuery {
     const int maxFacetValuesExpanded = 500;
     const int maxSummaryValues = 4;
     const int summaryValueLength = 160;
+    // the snippet under a hit: long enough to carry the words around the match, short enough to stay
+    // two lines. maxSampledProperties bounds the search for it - a wide type holding long texts must
+    // not turn one page of hits into a scan of everything it has
+    const int snippetLength = 220;
+    const int maxSampledProperties = 20;
     const int maxLookupResults = 50;
     const int maxInnerNodesShown = 20;
     const int maxPageSize = 200;
@@ -55,6 +60,8 @@ sealed class UIQuery {
         commands.Register("query-search", async ctx => await search(ctx.Payload<SearchPayload>()));
         commands.Register("query-node", ctx => node(ctx.Payload<NodePayload>()));
         commands.Register("query-save", async ctx => await save(ctx.Payload<SavePayload>()));
+        commands.Register("query-create", async ctx => await create(ctx.Payload<CreatePayload>()));
+        commands.Register("query-save-embedded", async ctx => await saveEmbedded(ctx.Payload<SaveEmbeddedPayload>()));
         commands.Register("query-node-meta", ctx => nodeMeta(ctx.Payload<NodePayload>()));
         commands.Register("query-save-meta", ctx => saveMeta(ctx.Payload<SaveMetaPayload>()));
         commands.Register("query-node-versions", ctx => nodeVersions(ctx.Payload<VersionsPayload>()));
@@ -62,6 +69,7 @@ sealed class UIQuery {
         commands.Register("query-pivot-model", ctx => pivotModel(ctx.Payload<PivotModelPayload>()));
         commands.Register("query-pivot", async ctx => await pivot(ctx.Payload<PivotPayload>()));
         commands.Register("query-groupby", async ctx => await groupBy(ctx.Payload<GroupByPayload>()));
+        commands.Register("query-columns", ctx => columnsOf(ctx.Payload<ColumnsPayload>()));
     }
 
     // Reading and writing as an administrator: hidden and unpublished nodes are part of what this
@@ -73,6 +81,7 @@ sealed class UIQuery {
         if (c.Store == null || c.Store.State != DataStoreState.Open) throw new Exception("The database is not open. ");
         return c.Store;
     }
+    Settings.NodeStoreContainerSettings? settingsOf(Guid storeId) => _server.Containers.TryGetValue(storeId, out var c) ? c.Settings : null;
 
     // ---- the model behind the page: what can be queried, and which search options mean anything ----
 
@@ -98,6 +107,9 @@ sealed class UIQuery {
                 // the source it came from by colour
                 Kind = t.ModelType.ToString(),
                 SourceId = t.DatamodelSourceId,
+                // whether "New node" can make one: the base type stands for all types at once, and a
+                // type the model knows but no loaded assembly implements has nothing to instantiate
+                CanCreate = t.Id != NodeConstants.BaseNodeTypeId && findClrType(dm, t) != null,
                 // the id set per type is maintained, so counting it is a lookup and not a scan
                 Count = count(s, t.Id),
             })
@@ -110,7 +122,7 @@ sealed class UIQuery {
         return new {
             StoreId = storeId,
             Types = types,
-            Sources = UIModelInfo.Sources(dm),
+            Sources = UIModelInfo.Sources(dm, settingsOf(storeId)),
             BaseTypeId = NodeConstants.BaseNodeTypeId,
             HasAi = ai != null,
             HasSemanticIndex = semantic,
@@ -161,9 +173,10 @@ sealed class UIQuery {
             .ToArray();
         // the table needs a value per column for every row, which is a node read per cell; the list
         // needs a handful of values per row. Only one of them is built.
-        var columns = p.Table ? tableColumns(dm, nodeType) : null;
+        var columns = columnsFor(dm, nodeType, p);
+        var terms = termsOf(p.Text);
         var hits = nodes.NodeValues
-            .Select(n => columns == null ? hitView(dm, n) : hitView(dm, n, s, columns, maxTableCellLength))
+            .Select(n => columns == null ? hitView(dm, n, terms) : hitView(dm, n, terms, s, columns, maxTableCellLength))
             .ToArray();
         return new {
             TypeId = typeId,
@@ -285,16 +298,48 @@ sealed class UIQuery {
     /// properties, then the inherited ones. Capped, because a wide type would otherwise make a table
     /// nobody can read out of a query nobody meant to run.
     /// </summary>
-    static Column[] tableColumns(Datamodel dm, NodeTypeModel type) {
+    static Column[] tableColumns(Datamodel dm, NodeTypeModel type) => [.. metaColumns, .. propertyColumns(dm, type).Take(maxTableColumns)];
+    static IEnumerable<Column> propertyColumns(Datamodel dm, NodeTypeModel type) {
         var display = type.DisplayProperties.Select(p => p.Id).ToHashSet();
-        var properties = type.AllProperties.Values
+        return type.AllProperties.Values
             .Where(p => !p.Internal)
             .OrderBy(p => display.Contains(p.Id) ? 0 : 1)
             .ThenBy(p => p.NodeType == type.Id ? 0 : 1)
             .ThenBy(p => p.CodeName, StringComparer.OrdinalIgnoreCase)
-            .Take(maxTableColumns)
             .Select(p => new Column(p.Id.ToString(), p.CodeName, typeNameOf(dm, p), p));
-        return [.. metaColumns, .. properties];
+    }
+
+    /// <summary>
+    /// The columns a request wants: none for the list, the type's own table for the table view, and
+    /// exactly the ones named - in the order named - when the page has chosen them (its select mode).
+    /// A key that is not a column of this type is skipped rather than failing the query: the choice
+    /// was made against the type as it was, and the type may have changed since.
+    /// </summary>
+    static Column[]? columnsFor(Datamodel dm, NodeTypeModel type, SearchPayload p) {
+        if (!p.Table) return null;
+        if (p.Columns == null) return tableColumns(dm, type);
+        var all = metaColumns.Concat(propertyColumns(dm, type)).ToDictionary(c => c.Key, StringComparer.OrdinalIgnoreCase);
+        return p.Columns.Distinct(StringComparer.OrdinalIgnoreCase).Where(all.ContainsKey).Select(k => all[k]).ToArray();
+    }
+
+    /// <summary>Every column a type can show, uncapped: what the select mode picks from.</summary>
+    object columnsOf(ColumnsPayload p) {
+        var s = store(p.StoreId);
+        var dm = s.Datastore.Datamodel;
+        var type = dm.NodeTypes[queriedType(dm, p.TypeId)];
+        return new {
+            TypeId = type.Id,
+            TypeName = type.CodeName,
+            Columns = metaColumns.Concat(propertyColumns(dm, type)).Select(c => new {
+                c.Key,
+                c.Name,
+                Type = c.TypeName,
+                Sortable = c.Property != null && isSortable(c.Property),
+                // a node field is nobody's; a property inherited from another type says whose
+                DeclaredBy = c.Property == null || c.Property.NodeType == type.Id ? null
+                    : dm.NodeTypes.TryGetValue(c.Property.NodeType, out var owner) ? owner.CodeName : null,
+            }).ToArray(),
+        };
     }
     static string typeNameOf(Datamodel dm, PropertyModel p) => p switch {
         RelationPropertyModel r => "Relation" + (dm.Relations.TryGetValue(r.RelationId, out var rel) ? " (" + rel.CodeName + ")" : ""),
@@ -349,7 +394,7 @@ sealed class UIQuery {
         var dm = s.Datastore.Datamodel;
         var typeId = queriedType(dm, p.TypeId);
         var nodeType = dm.NodeTypes[typeId];
-        var columns = tableColumns(dm, nodeType);
+        var columns = columnsFor(dm, nodeType, p with { Table = true }) ?? tableColumns(dm, nodeType);
         // whatever the page is showing, an export reads no buckets: ask for none
         var queryString = queryFor(s, dm, p with { Facets = false }, typeId, 0, maxCsvRows);
         var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
@@ -485,31 +530,58 @@ sealed class UIQuery {
     }
 
     /// <summary>One hit as the result list shows it: what it is, and enough of it to recognize it by.</summary>
-    static object hitView(Datamodel dm, INodeDataExternal n) => hitView(dm, n, null, null, 0);
-    static object hitView(Datamodel dm, INodeDataExternal n, NodeStore? s, Column[]? columns, int maxLength) {
+    static object hitView(Datamodel dm, INodeDataExternal n, TermSet terms) => hitView(dm, n, terms, null, null, 0);
+    static object hitView(Datamodel dm, INodeDataExternal n, TermSet terms, NodeStore? s, Column[]? columns, int maxLength) {
         dm.NodeTypes.TryGetValue(n.NodeType, out var type);
         var (name, nameProperty) = nameOf(dm, n);
+        var searching = terms.Terms.Length > 0;
         // the table carries a value per column and the list a few telling ones; a row never needs both
         var summary = new List<object>();
+        object? snippet = null;
         if (type != null && columns == null) {
             var shown = type.DisplayProperties.Select(p => p.Id).ToHashSet(); // already in the title
             if (nameProperty.HasValue) shown.Add(nameProperty.Value);
+            var candidates = new List<(PropertyModel Property, string Text)>();
             foreach (var property in type.AllProperties.Values.OrderBy(p => p.CodeName, StringComparer.OrdinalIgnoreCase)) {
-                if (summary.Count >= maxSummaryValues) break;
+                if (candidates.Count >= (searching ? maxSampledProperties : maxSummaryValues)) break;
                 if (property.Internal || shown.Contains(property.Id)) continue;
                 if (!isSummaryType(property.PropertyType)) continue;
                 if (!n.TryGetValue(property.Id, out var value)) continue;
                 var text = display(property, value);
                 if (string.IsNullOrWhiteSpace(text)) continue;
+                candidates.Add((property, text));
+            }
+            // With a search on, the first value actually holding one of the searched words becomes the
+            // snippet: the line that says why this node is in the result, sampled around the match by
+            // the engine's own TextSample. Its property is then left out of the summary underneath,
+            // which would repeat it in a worse form - a truncated head that may not even reach the word.
+            Guid? snippetProperty = null;
+            if (searching) {
+                foreach (var (property, text) in candidates) {
+                    var sample = new TextSample(terms, text, snippetLength);
+                    if (!matched(sample)) continue;
+                    snippet = new { property.CodeName, Value = sampleText(sample), Sample = sampleView(sample) };
+                    snippetProperty = property.Id;
+                    break;
+                }
+            }
+            foreach (var (property, text) in candidates) {
+                if (summary.Count >= maxSummaryValues) break;
+                if (property.Id == snippetProperty) continue;
                 summary.Add(new { property.CodeName, Value = truncate(text, summaryValueLength) });
             }
         }
+        // the name is where a search matches most often, and it is never sampled away: the whole name
+        // is kept and only marked (TextSample clamps the sample length to the text it is given)
+        var nameSample = searching && name.Length > 0 ? new TextSample(terms, name, name.Length) : null;
         return new {
             n.Id,
             IntId = n.__Id,
             TypeId = n.NodeType,
             TypeName = type?.CodeName ?? n.NodeType.ToString(),
             DisplayName = name,
+            NameSample = nameSample != null && matched(nameSample) ? sampleView(nameSample) : null,
+            Snippet = snippet,
             n.Address,
             CreatedUtc = n.CreatedUtc,
             ChangedUtc = n.ChangedUtc,
@@ -517,6 +589,34 @@ sealed class UIQuery {
             Cells = columns == null || s == null ? null : columns.Select(c => cell(s, dm, n, c, maxLength)).ToArray(),
         };
     }
+
+    /// <summary>
+    /// The words a hit is marked on: the search text as the index reads it. <see cref="TermSet.Parse"/>
+    /// strips the operators, so the wildcard <see cref="prefixEachWord"/> appends is gone and "cor*"
+    /// marks the "cor" of "cork" - the part the index actually matched. The word length limits are the
+    /// model's defaults rather than any one property's: a hit is sampled from whichever property holds
+    /// the text, and they may each say something different.
+    /// </summary>
+    static TermSet termsOf(string? text) => string.IsNullOrWhiteSpace(text) ? TermSet.Empty
+        : TermSet.Parse(text, StringPropertyModel.DefaultMinWordLength, StringPropertyModel.DefaultMaxWordLength, allowInfix: true);
+
+    static bool matched(TextSample sample) => sample.Fragments.Any(f => f.IsMatch);
+
+    /// <summary>
+    /// A <see cref="TextSample"/> as the page renders it: the fragments in order, the matching ones
+    /// flagged, and whether text was cut off at either end. The client joins the fragments with
+    /// nothing between them - <see cref="TextSample.FormatSample"/> puts a space between every
+    /// fragment, which would split the word the match sits inside ("cor k").
+    /// </summary>
+    static object sampleView(TextSample sample) => new {
+        Fragments = sample.Fragments.Select(f => new { Text = f.Fragment, f.IsMatch }).ToArray(),
+        sample.CutAtStart,
+        sample.CutAtEnd,
+    };
+
+    /// <summary>The sampled text as one string, ellipses and all: what the marked-up line reads as.</summary>
+    static string sampleText(TextSample sample)
+        => (sample.CutAtStart ? "…" : "") + string.Concat(sample.Fragments.Select(f => f.Fragment)) + (sample.CutAtEnd ? "…" : "");
     static bool isSummaryType(PropertyType t) => t is PropertyType.String or PropertyType.StringArray or PropertyType.Integer
         or PropertyType.Long or PropertyType.Double or PropertyType.Float or PropertyType.Decimal
         or PropertyType.Boolean or PropertyType.DateTime or PropertyType.DateTimeOffset or PropertyType.TimeSpan;
@@ -810,6 +910,10 @@ sealed class UIQuery {
             Type = property.PropertyType.ToString(),
             DeclaredBy = dm.NodeTypes.TryGetValue(property.NodeType, out var owner) ? owner.CodeName : null,
             Notes = [.. notes(property, type)],
+            Indexed = property.Indexed,
+            WordIndex = property is StringPropertyModel ws && ws.IndexedByWords,
+            SemanticIndex = property is StringPropertyModel ss && ss.IndexedBySemantic,
+            Unique = property.UniqueValues,
         };
         n.TryGetValue(property.Id, out var value);
         switch (property) {
@@ -836,22 +940,26 @@ sealed class UIQuery {
                     view.Targets = id == Guid.Empty ? [] : [.. describe(s, dm, [id])];
                     break;
                 }
-            case EmbeddedPropertyModel: {
-                    // inner nodes are a document inside the node, addressed by their own property
-                    // paths; this form shows what is there rather than pretending it can rewrite it
+            case EmbeddedPropertyModel emb: {
+                    // Inner nodes are a document inside the node. Each one is described the way the
+                    // node itself is - its own properties as fields - so the same form renders them,
+                    // and the whole list is written back as one (see saveEmbedded).
                     view.Editor = "embedded";
-                    view.ReadOnly = true;
                     var map = value as IInnerNodeDataMap;
                     view.Info = map == null || map.Count == 0 ? "empty"
                         : map.Count + (map.Count == 1 ? " inner node" : " inner nodes");
+                    view.TargetTypes = [.. innerTypes(dm, emb).Select(t => (object)new { t.Id, Name = t.CodeName })];
                     var embedded = new PropertyPath(n.Id, property.Id);
                     view.Value = map == null ? [] : map.Take(maxInnerNodesShown).Select(inner => (object)new {
                         inner.Id,
+                        TypeId = inner.NodeType,
                         TypeName = typeName(dm, inner),
                         // an inner node is addressed through the property it hangs off, so a file
                         // inside one is previewable in the same way as a file on the node itself
                         Values = innerValues(dm, inner, embedded.CreatePathToInnerNode(inner.Id)),
+                        Fields = innerFields(s, dm, inner),
                     }).ToArray();
+                    if (map != null && map.Count > maxInnerNodesShown) view.ReadOnly = true; // a list this long is not edited a row at a time
                     break;
                 }
             case FilePropertyModel: {
@@ -984,6 +1092,12 @@ sealed class UIQuery {
         public string Type { get; init; } = "";
         public string? DeclaredBy { get; init; }
         public string[] Notes { get; init; } = [];
+        // the index marks, as flags rather than as words: every page that shows a property shows the
+        // same three icons, and a string has to be read to be understood
+        public bool Indexed { get; init; }
+        public bool WordIndex { get; init; }
+        public bool SemanticIndex { get; init; }
+        public bool Unique { get; init; }
         public string Editor { get; set; } = "text";
         public bool ReadOnly { get; set; }
         public object? Value { get; set; }
@@ -1046,6 +1160,26 @@ sealed class UIQuery {
             }
         }
     }
+    /// <summary>The concrete types an embedded property accepts: the ones it names, and what inherits them.</summary>
+    static IEnumerable<NodeTypeModel> innerTypes(Datamodel dm, EmbeddedPropertyModel embedded) {
+        return dm.NodeTypes.Values
+            .Where(t => t.ModelType is not ModelType.Interface && embedded.InnerNodeTypes.Any(id => t.ThisAndAllInheritedTypes.ContainsKey(id)))
+            .OrderBy(t => t.CodeName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// An inner node's own properties as form fields, built by the same code as the node's. What it
+    /// cannot edit - a file, another embedded list, a relation - is left out rather than shown dead:
+    /// those are addressed through the node that owns the list.
+    /// </summary>
+    static object[] innerFields(NodeStore s, Datamodel dm, NodeData inner) {
+        if (!dm.NodeTypes.TryGetValue(inner.NodeType, out var type)) return [];
+        return [.. type.AllProperties.Values
+            .Where(p => !p.Internal && p is not (EmbeddedPropertyModel or FilePropertyModel or RelationPropertyModel))
+            .OrderBy(p => p.CodeName, StringComparer.OrdinalIgnoreCase)
+            .Select(p => (object)propertyView(s, dm, type, inner, p))];
+    }
+
     static object[] innerValues(Datamodel dm, INodeData inner, NodePath path) {
         if (!dm.NodeTypes.TryGetValue(inner.NodeType, out var type)) return [];
         return [.. type.AllProperties.Values
@@ -1134,6 +1268,96 @@ sealed class UIQuery {
             changed++;
         }
         return changed;
+    }
+
+    // ---- making nodes ----
+
+    /// <summary>
+    /// The CLR type behind a node type, or null when no loaded assembly has it. An interface model
+    /// resolves to the interface: the mapper makes the implementation it generated at start up.
+    /// </summary>
+    static Type? findClrType(Datamodel dm, NodeTypeModel type) {
+        if (string.IsNullOrEmpty(type.FullName)) return null;
+        foreach (var assembly in dm.Assemblies) {
+            var clr = assembly.GetType(type.FullName, false, false);
+            if (clr != null) return clr;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// A new node of a type, written at once with nothing but its defaults. The form that opens on it
+    /// is then editing a real node rather than a draft this page would have to hold half-saved, and
+    /// the same call is what a picker uses to make the node it is about to point at.
+    /// </summary>
+    async Task<object> create(CreatePayload p) {
+        var s = store(p.StoreId);
+        var dm = s.Datastore.Datamodel;
+        if (!dm.NodeTypes.TryGetValue(p.TypeId, out var type)) throw new Exception("No node type with id " + p.TypeId + " in the data model. ");
+        if (p.TypeId == NodeConstants.BaseNodeTypeId) throw new Exception("Pick a type: the base type stands for every node at once. ");
+        if (type.IsInnerNode) throw new Exception(type.CodeName + " is an embedded type: it only exists inside another node's property. ");
+        var clr = findClrType(dm, type) ?? throw new Exception("The type " + type.FullName + " is in the data model, but no assembly loaded here implements it. ");
+        var node = newNode(s, clr);
+        var transaction = s.CreateTransaction();
+        transaction.Insert(node, out var id);
+        await transaction.ExecuteAsync();
+        return new { Id = id };
+    }
+
+    /// <summary>
+    /// An empty instance. NewObjectFromType has non-generic overloads as well, so the generic one has
+    /// to be picked by hand; it is the one that returns the generated implementation of an interface.
+    /// </summary>
+    static object newNode(NodeStore s, Type clr) {
+        var method = typeof(NodeMapper).GetMethods()
+            .First(m => m.Name == nameof(NodeMapper.NewObjectFromType) && m.IsGenericMethodDefinition)
+            .MakeGenericMethod(clr);
+        try {
+            return method.Invoke(s.Mapper, [null])!;
+        } catch (System.Reflection.TargetInvocationException err) {
+            throw new Exception("Could not make a " + clr.Name + ": " + (err.InnerException?.Message ?? err.Message), err);
+        }
+    }
+
+    /// <summary>
+    /// Writes the whole inner node list of an embedded property. Adding, removing, editing and
+    /// reordering are all the same write: the map is a document inside the node and is replaced as
+    /// one, so the form sends the list it wants and this builds it. An inner node keeps its id when
+    /// the form sends one, which is what makes an edit an edit rather than a delete and an insert.
+    /// </summary>
+    async Task<object> saveEmbedded(SaveEmbeddedPayload p) {
+        var s = store(p.StoreId);
+        var dm = s.Datastore.Datamodel;
+        if (!s.Datastore.TryGet(p.Id, out var n, adminContext)) throw new Exception("Node not found. ");
+        if (!dm.NodeTypes.TryGetValue(n.NodeType, out var type)) throw new Exception("The node has a type that is not in the current data model. ");
+        if (editableProperty(type, p.PropertyId.ToString()) is not EmbeddedPropertyModel embedded)
+            throw new Exception("Property " + p.PropertyId + " is not an embedded property. ");
+        embedded.GetKeyTypeOfPropertyIfPossible(dm); // the map cannot be built before the key type is known
+        var nowUtc = DateTime.UtcNow;
+        var nodes = new List<NodeData>();
+        foreach (var wanted in p.Nodes ?? []) {
+            if (!dm.NodeTypes.TryGetValue(wanted.TypeId, out var innerType)) throw new Exception("No node type with id " + wanted.TypeId + " in the data model. ");
+            // the property names the types it embeds; a type inheriting one of them is one of them
+            if (!embedded.InnerNodeTypes.Any(id => innerType.ThisAndAllInheritedTypes.ContainsKey(id)))
+                throw new Exception(innerType.CodeName + " cannot be embedded in " + embedded.CodeName + ". ");
+            var values = new Properties<object>(innerType.AllProperties.Count);
+            foreach (var property in innerType.AllProperties.Values) {
+                if (property.Internal) continue;
+                if (property is EmbeddedPropertyModel or FilePropertyModel or RelationPropertyModel) continue; // not editable in this form
+                object? value = null;
+                if (wanted.Values != null && wanted.Values.TryGetValue(property.Id.ToString(), out var json) && json.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
+                    value = parse(property, json);
+                value ??= property.GetDefaultValue();
+                if (value != null) values.Add(property.Id, value);
+            }
+            nodes.Add(new NodeData(wanted.Id is Guid g && g != Guid.Empty ? g : Guid.NewGuid(), 0, wanted.TypeId, nowUtc, nowUtc, values, null));
+        }
+        var map = embedded.CreateInnerNodeDataMap(new PropertyPath(p.Id, embedded.Id), nodes);
+        map.ValidateUniqueKeys();
+        var transaction = s.CreateTransaction();
+        transaction.UpdateProperty(p.Id, embedded.Id, map);
+        await transaction.ExecuteAsync();
+        return new { Count = nodes.Count };
     }
 
     /// <summary>
@@ -1597,8 +1821,12 @@ sealed class UIQuery {
     internal sealed record FacetSelection(Guid PropertyId, FacetSelectionValue[]? Values);
     internal sealed record SearchPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity,
         FacetSelection[]? Selections, Guid[]? Expanded, int Page = 0, int PageSize = 25, bool Table = false, bool Facets = true,
-        string? SortBy = null, bool SortDescending = false);
+        string? SortBy = null, bool SortDescending = false, string[]? Columns = null);
+    internal sealed record ColumnsPayload(Guid StoreId, Guid? TypeId);
     sealed record SavePayload(Guid StoreId, Guid Id, Dictionary<string, JsonElement>? Values, Dictionary<string, Guid[]>? Relations);
+    sealed record CreatePayload(Guid StoreId, Guid TypeId);
+    sealed record InnerNodePayload(Guid? Id, Guid TypeId, Dictionary<string, JsonElement>? Values);
+    sealed record SaveEmbeddedPayload(Guid StoreId, Guid Id, Guid PropertyId, InnerNodePayload[]? Nodes);
     sealed record SaveMetaPayload(Guid StoreId, Guid Id, Dictionary<string, JsonElement>? Values);
     sealed record VersionsPayload(Guid StoreId, Guid Id, int MaxCount = 50);
     sealed record LookupPayload(Guid StoreId, Guid[]? TypeIds, string? Text, int Take = 20);

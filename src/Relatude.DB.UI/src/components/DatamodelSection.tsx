@@ -41,6 +41,7 @@ import {
   fetchDatamodel,
   fetchSchema,
   loadHistory,
+  namespaceBase,
   newGuid,
   saveDraft,
   searchModel,
@@ -60,7 +61,7 @@ import {
 } from "../server/datamodel";
 import { formatTime } from "../format";
 import { KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon } from "./DatamodelIcons";
-import { PropertyEditor, RelationEditor, SourceEditor, TypeEditor, type EditorContext, type Selection } from "./DatamodelEditors";
+import { PropertyEditor, RelationEditor, SourceEditor, SourcePickerDialog, TypeEditor, type EditorContext, type Selection } from "./DatamodelEditors";
 import { HistoryView, ListView, MatrixView, SourcesView, TreeView } from "./DatamodelViews";
 import { DatamodelDiagram } from "./DatamodelDiagram";
 import "../datamodel.css";
@@ -147,6 +148,8 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
   const [planOpen, setPlanOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  // the open source picker: what is being added, where it could go, and what to do once one is picked
+  const [sourcePick, setSourcePick] = useState<{ what: "type" | "relation"; sources: SourceJson[]; create: (source: SourceJson) => void } | null>(null);
   const [showHelp, setShowHelp] = useState(() => localStorage.getItem(helpKey) !== "false");
   // the width of the editor panel, dragged and remembered; null leaves it to the stylesheet
   const [sideWidth, setSideWidth] = useState<number | null>(() => {
@@ -250,19 +253,22 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     const known = page?.sources ?? [];
     return model.Sources.map((s) => {
       const info = known.find((k) => k.id === s.Id);
-      const compiled = s.Type === "AssemblyNameReference" || s.Type === "TypeNameReference";
+      const compiled = s.Type === "TypeReference";
       if (info) {
         // the draft may have changed what decides writability (the kind, or a compiled source's code
         // folder); the server's verdict only holds while the definition it judged is the one shown
-        const sameDefinition = info.type === s.Type && (info.sourceCodePath ?? "") === (s.SourceCodePath ?? "");
-        if (sameDefinition) return { ...info, name: s.Name || info.name, enabled: s.Enabled };
+        const sameDefinition = info.type === s.Type && info.fileFormat === (s.FileFormat ?? "Json") && (info.sourceCodePath ?? "") === (s.SourceCodePath ?? "") && info.generateModelFile === !!s.GenerateModelFile;
+        if (sameDefinition) return { ...info, name: s.Name || info.name, enabled: s.Enabled, color: s.Color ?? null };
         const writable = s.Type !== "Code" && (!compiled || !!s.SourceCodePath);
         return {
           ...info,
           name: s.Name || info.name,
           enabled: s.Enabled,
+          color: s.Color ?? null,
           type: s.Type,
+          fileFormat: s.FileFormat ?? "Json",
           sourceCodePath: s.SourceCodePath ?? null,
+          generateModelFile: !!s.GenerateModelFile,
           writable,
           requiresRebuild: compiled,
           readOnlyReason: writable ? null : compiled ? "Set a source code folder on the source to write into it." : info.readOnlyReason,
@@ -274,13 +280,15 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
         id: s.Id,
         name: s.Name || "New source",
         type: s.Type,
+        fileFormat: s.FileFormat ?? "Json",
         enabled: s.Enabled,
         namespace: s.Namespace ?? null,
         filepath: s.Filepath ?? null,
         reference: s.Reference ?? null,
         fileIO: s.FileIO ?? null,
         sourceCodePath: s.SourceCodePath ?? null,
-        autoDeduceRelations: s.AutoDeduceRelations,
+        generateModelFile: !!s.GenerateModelFile,
+        color: s.Color ?? null,
         isCode: s.Type === "Code",
         inSettings: false,
         writable: s.Type !== "Code" && (!compiled || !!s.SourceCodePath),
@@ -296,7 +304,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
   }, [model, page]);
 
   const colors = useMemo(
-    () => sourceColors((model?.Sources ?? []).map((s) => ({ id: s.Id, type: s.Type })), codeSourceId),
+    () => sourceColors((model?.Sources ?? []).map((s) => ({ id: s.Id, type: s.Type, color: s.Color })), codeSourceId),
     [model, codeSourceId],
   );
 
@@ -420,13 +428,19 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     const lines: string[] = [];
     if (writes > 0) lines.push(`${writes} file${writes === 1 ? "" : "s"} will be written.`);
     if (deletes > 0) lines.push(`${deletes} file${deletes === 1 ? "" : "s"} will be deleted.`);
+    // a generated folder is emptied first; anything in it that was not generated is gone for good
+    const handWritten = files.filter((f) => f.handWritten);
+    if (handWritten.length > 0) {
+      const named = handWritten.slice(0, 8).map((f) => f.relativePath).join(", ") + (handWritten.length > 8 ? ` and ${handWritten.length - 8} more` : "");
+      lines.push(`${handWritten.length} file${handWritten.length === 1 ? " was" : "s were"} NOT generated by Relatude.DB and ${handWritten.length === 1 ? "is" : "are"} deleted or overwritten with the generated folder: ${named}. This cannot be undone from here.`);
+    }
     if (v.plan?.settingsChange) lines.push("The source list in the settings file changes.");
     if (v.requiresRebuild) lines.push("Some of the changes go into the application's own source code: they take effect after the application is rebuilt and restarted, and the draft is kept until then.");
     else if (page?.open) lines.push("The database is reopened with the new model, which rebuilds its state and indexes when index settings changed.");
     else lines.push("The database is closed; it uses the new model when it opens.");
     if (warnings > 0) lines.push(`${warnings} warning${warnings === 1 ? "" : "s"} (listed below the model) will be accepted.`);
     if (files.length === 0 && !v.plan?.settingsChange) lines.push("Nothing differs from the active model; activating only clears the draft.");
-    const confirmed = await showConfirm("Activate this model?", lines.join(" "), { confirmLabel: v.requiresRebuild ? "Write to source code" : "Activate", danger: warnings > 0 || deletes > 0 });
+    const confirmed = await showConfirm(handWritten.length > 0 ? "Delete hand-written files and activate?" : "Activate this model?", lines.join(" "), { confirmLabel: handWritten.length > 0 ? "Delete them and write" : v.requiresRebuild ? "Write to source code" : "Activate", danger: warnings > 0 || deletes > 0 });
     if (!confirmed.ok) return;
     const result = await runWithProgress("Activating the model", () => activateDraft(db.id, model, true));
     if (!result) return;
@@ -474,10 +488,24 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     if (result) download(result.fileName, result.content, result.contentType);
   }
 
-  function defaultSource(): SourceJson | null {
-    if (!model) return null;
-    const usable = model.Sources.filter((s) => s.Type !== "Code" && s.Enabled && writableSource(s.Id));
-    return usable.find((s) => s.Type === "JsonFile" || s.Type === "CSharpCodeFile") ?? usable[0] ?? null;
+  /**
+   * The sources a new type or relation could be written into. One of them needs no question; with
+   * several, the choice is the user's, because it decides which file (and, for a compiled source,
+   * which rebuild) the new thing ends up in - so the picker below asks before anything is created.
+   */
+  function usableSources(): SourceJson[] {
+    return (model?.Sources ?? []).filter((s) => s.Type !== "Code" && s.Enabled && writableSource(s.Id));
+  }
+  function pickSourceThen(what: "type" | "relation", create: (source: SourceJson) => void) {
+    setMenuOpen(false);
+    if (!model || !schema) return;
+    const usable = usableSources();
+    if (usable.length === 0) {
+      showError("No writable source", `Every source is read only or turned off. Add a JSON or C# source, or set a source code folder on a compiled one, before adding ${what}s.`);
+      return;
+    }
+    if (usable.length === 1) create(usable[0]);
+    else setSourcePick({ what, sources: usable, create });
   }
   function uniqueName(base: string, taken: (name: string) => boolean): string {
     let name = base;
@@ -486,16 +514,13 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     return name;
   }
   function addType() {
-    setMenuOpen(false);
+    pickSourceThen("type", createType);
+  }
+  function createType(source: SourceJson) {
     if (!model || !schema) return;
-    const source = defaultSource();
-    if (!source) {
-      showError("No writable source", "Every source is read only or turned off. Add a JSON or C# source, or set a source code folder on a compiled one, before adding types.");
-      return;
-    }
     const id = newGuid();
     const siblings = Object.values(model.NodeTypes).filter((t) => t.DatamodelSourceId === source.Id);
-    const ns = source.Namespace || siblings[0]?.Namespace || "Models";
+    const ns = namespaceBase(source.Namespace) || siblings[0]?.Namespace || "Models";
     update((m) => {
       const t: NodeTypeJson = {
         ...defaultsOf(schema.nodeType),
@@ -509,20 +534,18 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
       } as NodeTypeJson;
       m.NodeTypes[id] = t;
     });
-    setSelection({ kind: "type", id });
+    // the name is the first thing to change about a type called NewType, so the keyboard starts there
+    setSelection({ kind: "type", id, focusField: "CodeName" });
     if (view === "sources" || view === "history") setView("list");
   }
   function addRelation() {
-    setMenuOpen(false);
+    pickSourceThen("relation", createRelation);
+  }
+  function createRelation(source: SourceJson) {
     if (!model || !schema) return;
-    const source = defaultSource();
-    if (!source) {
-      showError("No writable source", "Every source is read only or turned off.");
-      return;
-    }
     const id = newGuid();
     const selectedType = selection?.kind === "type" ? selection.id : selection?.kind === "property" ? selection.typeId : null;
-    const ns = source.Namespace || (selectedType ? model.NodeTypes[selectedType]?.Namespace : null) || "Models";
+    const ns = namespaceBase(source.Namespace) || (selectedType ? model.NodeTypes[selectedType]?.Namespace : null) || "Models";
     update((m) => {
       const r: RelationJson = {
         ...defaultsOf(schema.relation),
@@ -536,7 +559,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
       } as RelationJson;
       m.Relations[id] = r;
     });
-    setSelection({ kind: "relation", id });
+    setSelection({ kind: "relation", id, focusField: "CodeName" });
     if (view === "sources" || view === "history") setView("list");
   }
   function addSource() {
@@ -544,7 +567,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     if (!model) return;
     const id = newGuid();
     update((m) => {
-      m.Sources.push({ Id: id, Name: uniqueName("New source", (n) => m.Sources.some((s) => (s.Name ?? "") === n)), Type: "JsonFile", Filepath: "Models/Json", Enabled: true, AutoDeduceRelations: false });
+      m.Sources.push({ Id: id, Name: uniqueName("New source", (n) => m.Sources.some((s) => (s.Name ?? "") === n)), Type: "TextFiles", FileFormat: "Json", Filepath: "Models/Json", Enabled: true });
     });
     setSelection({ kind: "source", id });
     setView("sources");
@@ -656,23 +679,28 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
       : { cls: "active", icon: <IconCircleCheck size={14} stroke={2} />, text: page.open ? "Active model" : "Model as configured (database closed)" };
 
   const viewProps = { ctx, visibleTypes, ghostTypes, query, selection, diff };
+  // a focus request is spent the moment the editor honors it; selecting the same thing again later
+  // must not pull the keyboard out of wherever the user has put it
+  const clearFocus = () => setSelection((s) => (s === null || s.focusField === undefined ? s : ({ ...s, focusField: undefined } as Selection)));
   const selectedEditor = (() => {
     if (!selection) return null;
     if (selection.kind === "type") {
       const t = model.NodeTypes[selection.id];
-      return t ? <TypeEditor type={t} ctx={ctx} onDelete={deleteSelected} /> : null;
+      return t ? <TypeEditor type={t} ctx={ctx} onDelete={deleteSelected} focusField={selection.focusField} onFocused={clearFocus} /> : null;
     }
     if (selection.kind === "property") {
       const t = model.NodeTypes[selection.typeId];
       const p = t?.Properties[selection.id];
-      return t && p ? <PropertyEditor type={t} property={p} ctx={ctx} onDelete={deleteSelected} /> : null;
+      return t && p ? <PropertyEditor type={t} property={p} ctx={ctx} onDelete={deleteSelected} focusField={selection.focusField} onFocused={clearFocus} /> : null;
     }
     if (selection.kind === "relation") {
       const r = model.Relations[selection.id];
-      return r ? <RelationEditor relation={r} ctx={ctx} onDelete={deleteSelected} /> : null;
+      return r ? <RelationEditor relation={r} ctx={ctx} onDelete={deleteSelected} focusField={selection.focusField} onFocused={clearFocus} /> : null;
     }
     const s = model.Sources.find((x) => x.Id === selection.id);
-    return s ? <SourceEditor source={s} info={page.sources.find((x) => x.id === s.Id)} ctx={ctx} locked={page.sourcesLocked} onDelete={deleteSelected} /> : null;
+    // sourceInfos, not page.sources: the editor's own header must follow what the draft just changed
+    // (a code folder set, the generate switch flipped), the way the source cards do
+    return s ? <SourceEditor source={s} info={sourceInfos.find((x) => x.id === s.Id)} ctx={ctx} locked={page.sourcesLocked} onDelete={deleteSelected} /> : null;
   })();
 
   return (
@@ -732,7 +760,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
                     setHitsOpen(false);
                   }}
                 >
-                  {h.kind === "type" ? <KindIcon kind={model.NodeTypes[h.id].ModelType} size={14} /> : h.kind === "property" ? <PropertyIcon propertyType={model.NodeTypes[h.typeId!].Properties[h.id].PropertyType} /> : h.kind === "relation" ? <RelationIcon kind={model.Relations[h.id].RelationType} size={14} /> : <SourceIcon type={sourceInfos.find((s) => s.id === h.id)?.type ?? "Code"} size={14} color={colors.get(h.id)} />}
+                  {h.kind === "type" ? <KindIcon kind={model.NodeTypes[h.id].ModelType} size={14} /> : h.kind === "property" ? <PropertyIcon propertyType={model.NodeTypes[h.typeId!].Properties[h.id].PropertyType} /> : h.kind === "relation" ? <RelationIcon kind={model.Relations[h.id].RelationType} size={14} /> : <SourceIcon type={sourceInfos.find((s) => s.id === h.id)?.type ?? "Code"} fileFormat={sourceInfos.find((s) => s.id === h.id)?.fileFormat} size={14} color={colors.get(h.id)} />}
                   <span className="dm-hit-label">{h.label}</span>
                   <span className="muted">{h.detail}</span>
                 </button>
@@ -757,6 +785,9 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
         <span className={"dm-status " + status.cls} title={page.draft?.note ?? undefined}>
           {status.icon} {status.text}
         </span>
+        <button className="action-button dm-button" onClick={addType} disabled={busy !== null} title="Add a node type to the model">
+          <IconCube size={15} stroke={2} /> New type
+        </button>
         <button className="action-button dm-button" onClick={save} disabled={!dirty || busy !== null} title="Keep the draft on the server without activating it">
           <IconDeviceFloppy size={15} stroke={2} /> Save draft
         </button>
@@ -774,9 +805,6 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
             <>
               <div className="dm-menu-backdrop" onClick={() => setMenuOpen(false)} />
               <div className="dm-menu">
-                <button onClick={addType}>
-                  <IconCube size={15} stroke={1.9} /> New type
-                </button>
                 <button onClick={addRelation}>
                   <IconArrowsExchange size={15} stroke={1.9} /> New relation
                 </button>
@@ -880,6 +908,19 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
           </>
         )}
       </div>
+
+      {sourcePick && (
+        <SourcePickerDialog
+          what={sourcePick.what}
+          sources={sourcePick.sources}
+          ctx={ctx}
+          onPick={(s) => {
+            setSourcePick(null);
+            sourcePick.create(s);
+          }}
+          onClose={() => setSourcePick(null)}
+        />
+      )}
 
       {validation && (
         <div className={"dm-issues" + (issuesOpen ? " open" : "")}>

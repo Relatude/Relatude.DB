@@ -26,8 +26,8 @@ export interface NodeTypeInfo {
 export interface QueryModel {
   storeId: string;
   types: NodeTypeInfo[];
-  /** the model sources, in load order: their position decides their colour (see sourceColors) */
-  sources: { id: string; name: string; type: SourceType }[];
+  /** the model sources, in load order: the colour set on one, or its position, decides its colour (see sourceColors) */
+  sources: { id: string; name: string; type: SourceType; color: string | null }[];
   baseTypeId: string;
   hasAi: boolean;
   hasSemanticIndex: boolean;
@@ -59,12 +59,38 @@ export interface HitSummaryValue {
   value: string;
 }
 
+/** One run of a sampled text; `isMatch` is a word the search matched (FragmentSample on the server). */
+export interface TextFragment {
+  text: string;
+  isMatch: boolean;
+}
+
+/** A text sampled around what the search matched (TextSample on the server), for rendering with the
+ *  matches marked. The fragments join with nothing between them; the cut flags are the ellipses. */
+export interface TextSample {
+  fragments: TextFragment[];
+  cutAtStart: boolean;
+  cutAtEnd: boolean;
+}
+
+/** The value that says why a hit is in the result: which property held the searched words, and the
+ *  text around them. Null when nothing literal matched - a semantic hit, or a match in the name. */
+export interface HitSnippet {
+  codeName: string;
+  /** the sampled text as one string, ellipses and all */
+  value: string;
+  sample: TextSample;
+}
+
 export interface Hit {
   id: string;
   intId: number;
   typeId: string;
   typeName: string;
   displayName: string;
+  /** the display name with the searched words marked; null when the search did not match it */
+  nameSample: TextSample | null;
+  snippet: HitSnippet | null;
   address: string | null;
   createdUtc: string;
   changedUtc: string;
@@ -128,6 +154,18 @@ export interface SearchRequest {
   /** The property id of the column the table is sorted by, or null for the store's own order. */
   sortBy: string | null;
   sortDescending: boolean;
+  /** The columns wanted, by key and in order (the select mode); null is the type's own table. Read only with `table`. */
+  columns: string[] | null;
+}
+
+/** A column the select mode can pick: a node field or a property of the type. */
+export interface SelectColumn extends Column {
+  /** The type that declares it when inherited; null for the type's own properties and the node fields. */
+  declaredBy: string | null;
+}
+
+export function fetchColumns(storeId: string, typeId: string | null): Promise<{ typeId: string; typeName: string; columns: SelectColumn[] }> {
+  return send("query-columns", { storeId, typeId });
 }
 
 /** How many rows the csv export covers before it stops; the server's own cap, repeated for the UI. */

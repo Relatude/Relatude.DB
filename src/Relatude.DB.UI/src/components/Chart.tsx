@@ -35,6 +35,22 @@ export function groupColor(index: number): string {
 }
 
 const pad = { top: 10, right: 14, bottom: 22, left: 52 };
+const overlayAxisWidth = 40; // room for the second axis's labels on the right
+
+/**
+ * A second series drawn over the first in another colour, on a scale of its own that runs 0..max
+ * against the right edge. Two scales on one plot is a thing to be careful with - a reader can take
+ * the lines to be comparable when they are not - so it is kept to a measure that is a bounded
+ * share (a percentage), which the right axis labels as such, and it is never given an area fill.
+ */
+export interface ChartOverlay {
+  points: SeriesPoint[];
+  /** The top of the overlay's scale (100 for a percentage). */
+  max: number;
+  format: (value: number) => string;
+  /** Names the series in the tooltip. */
+  label: string;
+}
 
 export interface ChartProps {
   kind: SeriesKind;
@@ -58,9 +74,10 @@ export interface ChartProps {
    * box that sizes itself to its content the chart would measure zero and never grow.
    */
   height?: number | "fill";
+  overlay?: ChartOverlay;
 }
 
-export function Chart({ kind, points, groups, interval, format, integer = false, compactAxis = true, height: heightProp = 210 }: ChartProps) {
+export function Chart({ kind, points, groups, interval, format, integer = false, compactAxis = true, height: heightProp = 210, overlay }: ChartProps) {
   const wrap = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [measuredHeight, setMeasuredHeight] = useState(0);
@@ -84,7 +101,8 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
   const height = fill ? Math.max(90, measuredHeight) : heightProp;
   useEffect(() => setHover(null), [points, kind]);
 
-  const plotW = Math.max(0, width - pad.left - pad.right);
+  const padRight = pad.right + (overlay ? overlayAxisWidth : 0);
+  const plotW = Math.max(0, width - pad.left - padRight);
   const plotH = height - pad.top - pad.bottom;
   const band = points.length > 0 ? plotW / points.length : 0;
   const stacked = kind === "groups";
@@ -115,6 +133,9 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
     return pad.top + plotH - ((value - scaleBottom) / (scaleTop - scaleBottom)) * plotH;
   };
   const xCenter = (index: number) => pad.left + band * (index + 0.5);
+  // the overlay's own scale: 0 at the baseline, its max at the top, whatever the main axis says
+  const yOverlay = (value: number) => pad.top + plotH - (Math.min(Math.max(value, 0), overlay?.max ?? 1) / (overlay?.max ?? 1)) * plotH;
+  const overlayTicks = overlay ? [0, overlay.max / 2, overlay.max] : [];
 
   const hasAny = points.some((p) => p.hasValue);
   const hovered = hover != null && hover >= 0 && hover < points.length ? points[hover] : null;
@@ -125,12 +146,18 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
         <svg width={width} height={height} role="img">
           {ticks.map((t) => (
             <g key={t}>
-              <line className="chart-grid" x1={pad.left} x2={width - pad.right} y1={y(t)} y2={y(t)} />
+              <line className="chart-grid" x1={pad.left} x2={width - padRight} y1={y(t)} y2={y(t)} />
               <text className="chart-axis" x={pad.left - 8} y={y(t)} textAnchor="end" dominantBaseline="middle">
                 {compactAxis ? compact(t, format) : format(t)}
               </text>
             </g>
           ))}
+          {overlay &&
+            overlayTicks.map((t) => (
+              <text key={"o" + t} className="chart-axis chart-axis-overlay" x={width - padRight + 8} y={yOverlay(t)} dominantBaseline="middle">
+                {overlay.format(t)}
+              </text>
+            ))}
           {xLabels(points, interval, band, plotW).map((label) => (
             <text key={label.index} className="chart-axis" x={xCenter(label.index)} y={height - 6} textAnchor="middle">
               {label.text}
@@ -161,10 +188,18 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
                   {segment.length === 1 && <circle className="chart-point" cx={xCenter(segment[0].index)} cy={y(segment[0].point.value ?? 0)} r={2.5} />}
                 </g>
               ))}
+          {overlay &&
+            segments(overlay.points).map((segment, si) => (
+              <g key={"o" + si}>
+                <path className="chart-line chart-line-overlay" d={linePath(segment, xCenter, yOverlay)} />
+                {segment.length === 1 && <circle className="chart-point chart-point-overlay" cx={xCenter(segment[0].index)} cy={yOverlay(segment[0].point.value ?? 0)} r={2.5} />}
+              </g>
+            ))}
           {hovered && (
             <g>
               <line className="chart-cursor" x1={xCenter(hover!)} x2={xCenter(hover!)} y1={pad.top} y2={pad.top + plotH} />
               {!stacked && hovered.hasValue && <circle className="chart-point" cx={xCenter(hover!)} cy={y(points[hover!]?.value ?? 0)} r={3.5} />}
+              {overlay?.points[hover!]?.hasValue && <circle className="chart-point chart-point-overlay" cx={xCenter(hover!)} cy={yOverlay(overlay.points[hover!].value ?? 0)} r={3.5} />}
             </g>
           )}
           {/* one overlay takes the pointer for the whole plot, so there is nothing to hit or miss */}
@@ -186,9 +221,9 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
       {hovered && (
         <div className="chart-tip" style={tipPosition(xCenter(hover!), width)}>
           <div className="chart-tip-time">{intervalLabel(hovered.fromUtc, interval)}</div>
-          {!hovered.hasValue ? (
+          {!hovered.hasValue && !overlay?.points[hover!]?.hasValue ? (
             <div className="muted">nothing recorded</div>
-          ) : stacked ? (
+          ) : !hovered.hasValue ? null : stacked ? (
             groups
               .map((g, gi) => ({ g, gi, value: hovered.values?.[g] ?? 0 }))
               .filter((row) => row.value > 0)
@@ -208,9 +243,16 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
               </div>
             ))
           )}
+          {overlay?.points[hover!]?.hasValue && (
+            <div className="chart-tip-row">
+              <span className="chart-swatch chart-swatch-overlay" />
+              <span className="chart-tip-k">{overlay.label}</span>
+              <span className="chart-tip-v">{overlay.format(overlay.points[hover!].value ?? 0)}</span>
+            </div>
+          )}
         </div>
       )}
-      {!hasAny && width > 0 && <div className="chart-empty">Nothing recorded in this range.</div>}
+      {!hasAny && !overlay?.points.some((p) => p.hasValue) && width > 0 && <div className="chart-empty">Nothing recorded in this range.</div>}
     </div>
   );
 }

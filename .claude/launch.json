@@ -14,6 +14,20 @@
       "runtimeArgs": ["run", "--project", "examples/Website.Simple", "--no-launch-profile", "--urls", "http://localhost:5052"],
       "port": 5052,
       "autoPort": false
+    },
+    {
+      "name": "website-simple-2",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "examples/Website.Simple", "--no-launch-profile", "--urls", "http://localhost:5062"],
+      "port": 5062,
+      "autoPort": false
+    },
+    {
+      "name": "relatude-db-ui-2",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "src/Relatude.DB.UI", "--", "--port", "5175"],
+      "port": 5175,
+      "autoPort": false
     }
   ]
 }

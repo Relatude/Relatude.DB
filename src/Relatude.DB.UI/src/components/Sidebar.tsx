@@ -30,7 +30,7 @@ export function Sidebar({ collapsed, onToggleCollapsed, databases, activeDb, act
         <NavGroup
           label={activeDb ? `Database — ${activeDb.name}` : "Database"}
           shortLabel="DB"
-          items={sections.filter((s) => s.scope === "database")}
+          items={sections.filter((s) => s.scope === "database" && !s.hidden)}
           badgeFor={badgeFor}
           activeSectionId={activeSectionId}
           onSelectSection={onSelectSection}
@@ -38,7 +38,7 @@ export function Sidebar({ collapsed, onToggleCollapsed, databases, activeDb, act
         <NavGroup
           label="Server"
           shortLabel="SRV"
-          items={sections.filter((s) => s.scope === "server")}
+          items={sections.filter((s) => s.scope === "server" && !s.hidden)}
           badgeFor={badgeFor}
           activeSectionId={activeSectionId}
           onSelectSection={onSelectSection}

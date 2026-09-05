@@ -2896,13 +2896,16 @@ deployments of the same binary:</p>
 <span class="w">  </span><span class="p">{</span>
 <span class="w">    </span><span class="s">&quot;Id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;8a3f...&quot;</span><span class="p">,</span><span class="w">                   </span><span class="c1">// required, and unique across the sources</span>
 <span class="w">    </span><span class="s">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;VenueApp&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="s">&quot;Type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;AssemblyNameReference&quot;</span><span class="p">,</span><span class="w">   </span><span class="c1">// see the table below</span>
-<span class="w">    </span><span class="s">&quot;Namespace&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;VenueApp.Models&quot;</span><span class="p">,</span><span class="w">    </span><span class="c1">// matched exactly, not by prefix</span>
-<span class="w">    </span><span class="s">&quot;Reference&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;VenueApp&quot;</span><span class="p">,</span><span class="w">           </span><span class="c1">// assembly name; null means the entry assembly</span>
+<span class="w">    </span><span class="s">&quot;Type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;TypeReference&quot;</span><span class="p">,</span><span class="w">           </span><span class="c1">// see the table below</span>
+<span class="w">    </span><span class="s">&quot;FileFormat&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Json&quot;</span><span class="p">,</span><span class="w">              </span><span class="c1">// TextFiles: what the files hold, Json or CSharpCode</span>
+<span class="w">    </span><span class="s">&quot;Namespace&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;VenueApp.Models&quot;</span><span class="p">,</span><span class="w">    </span><span class="c1">// one namespace, or a pattern: &quot;VenueApp.Models.*&quot; takes it and everything under it</span>
+<span class="w">    </span><span class="s">&quot;Reference&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;VenueApp&quot;</span><span class="p">,</span><span class="w">           </span><span class="c1">// assembly name; null means the current project (the entry assembly)</span>
 <span class="w">    </span><span class="s">&quot;Filepath&quot;</span><span class="p">:</span><span class="w"> </span><span class="nx">null</span><span class="p">,</span><span class="w">                  </span><span class="c1">// file or folder, for the file-based types</span>
-<span class="w">    </span><span class="s">&quot;FileIO&quot;</span><span class="p">:</span><span class="w"> </span><span class="nx">null</span><span class="p">,</span><span class="w">                    </span><span class="c1">// legacy: read a JsonFile through an IO provider instead</span>
+<span class="w">    </span><span class="s">&quot;FileIO&quot;</span><span class="p">:</span><span class="w"> </span><span class="nx">null</span><span class="p">,</span><span class="w">                    </span><span class="c1">// legacy: read a JSON model file through an IO provider instead</span>
+<span class="w">    </span><span class="s">&quot;SourceCodePath&quot;</span><span class="p">:</span><span class="w"> </span><span class="nx">null</span><span class="p">,</span><span class="w">            </span><span class="c1">// TypeReference: the folder with the C# files, for the model editor</span>
+<span class="w">    </span><span class="s">&quot;GenerateModelFile&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w">        </span><span class="c1">// TypeReference: the model editor owns that folder and regenerates it</span>
 <span class="w">    </span><span class="s">&quot;Enabled&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w">                   </span><span class="c1">// false skips the source entirely</span>
-<span class="w">    </span><span class="s">&quot;AutoDeduceRelations&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+<span class="w">    </span><span class="s">&quot;Color&quot;</span><span class="p">:</span><span class="w"> </span><span class="nx">null</span><span class="w">                      </span><span class="c1">// the colour the admin UI marks this source&#39;s types with; null picks one from a palette</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">]</span>
 </code></pre></div>
@@ -2916,20 +2919,12 @@ deployments of the same binary:</p>
 </thead>
 <tbody>
 <tr>
-<td><code>AssemblyNameReference</code></td>
-<td>loads the assembly named by <code>Reference</code> (or the entry assembly when it is null) and adds every type in <code>Namespace</code>. <code>Namespace</code> is required.</td>
+<td><code>TypeReference</code></td>
+<td>loads the assembly named by <code>Reference</code> (or the entry assembly — the current project — when it is null or empty) and adds every type whose namespace matches <code>Namespace</code>. <code>Namespace</code> is required: one namespace, or a pattern in which <code>*</code> stands for any run of characters — <code>VenueApp.Models.*</code> takes <code>VenueApp.Models</code> and every namespace under it, <code>VenueApp.*.Models</code> takes <code>VenueApp.Web.Models</code> and <code>VenueApp.Api.Models</code>. Called <code>AssemblyNameReference</code> before September 2026; the old name still reads. The single-type <code>TypeNameReference</code> kind was removed at the same time: name the type's namespace instead.</td>
 </tr>
 <tr>
-<td><code>TypeNameReference</code></td>
-<td>adds the single type named by <code>Reference</code>, plus everything it references. Assembly-qualify it (<code>"MyApp.Models.Person, MyApp"</code>) unless it is in the entry assembly.</td>
-</tr>
-<tr>
-<td><code>JsonFile</code></td>
-<td>reads serialised <code>Datamodel</code> JSON. <code>Filepath</code> may name a file or a folder (searched recursively); with neither <code>Filepath</code> nor <code>Reference</code> it reads <code>Models/Json</code>. Each node type still needs a backing CLR class at runtime for the mapper to compile against.</td>
-</tr>
-<tr>
-<td><code>CSharpCodeFile</code></td>
-<td>compiles <code>.cs</code> files in memory and adds the types. Same path resolution, defaulting to <code>Models/CSharp</code>; with no <code>Namespace</code> every non-nested, non-enum top-level type in the compilation is added.</td>
+<td><code>TextFiles</code></td>
+<td>reads model files from disk when the database opens, in the format <code>FileFormat</code> names. <code>Filepath</code> may name a file or a folder (searched recursively). With <code>FileFormat: "Json"</code> (the default) the files hold serialised <code>Datamodel</code> JSON, the default folder is <code>Models/Json</code>, and each node type still needs a backing CLR class at runtime for the mapper to compile against. With <code>FileFormat: "CSharpCode"</code> the <code>.cs</code> files are compiled in memory and their types added, the default folder is <code>Models/CSharp</code>, and with no <code>Namespace</code> every non-nested, non-enum top-level type in the compilation is added. Before September 2026 these were two kinds, <code>JsonFile</code> and <code>CSharpCodeFile</code>; both names still read and set the format.</td>
 </tr>
 <tr>
 <td><code>Code</code></td>
@@ -2940,6 +2935,26 @@ deployments of the same binary:</p>
 <p>Relative <code>Filepath</code> values resolve against the root data folder. Every source must carry a unique
 <code>Id</code> — it is what tags each type with its provenance, which is how the admin UI knows which source a
 type came from and which sources it may edit.</p>
+<p><code>Color</code> is the one setting nothing in the engine reads: it is the colour the admin UI marks this
+source's types and relations with, wherever they are listed — the model editor, the dashboard's
+content panel, the query page's type picker. Any CSS colour (<code>"#2f7fd6"</code>, <code>"teal"</code>); left out, the
+source takes one from a ten-hue palette by its position in the list, which is what every source did
+before there was anything to set. It can be changed on the settings page while the database is open.</p>
+<p>A <code>TypeReference</code> source is compiled into the application, so the admin UI's model editor can only
+write to it when <code>GenerateModelFile</code> is on and <code>SourceCodePath</code> names the folder the generated C#
+files go into (relative to the settings folder unless rooted, and inside the project that builds the
+assembly); the application then has to be rebuilt and restarted for the change to take effect. That
+folder belongs to the editor: activating a model deletes every file in it and generates one file per
+node type and relation, each starting with an <code>// &lt;auto-generated&gt;</code> comment saying it will be
+overwritten. Files in the folder without that comment are listed before the activation, which only
+goes ahead once they are given up — so point it at a folder of its own, not at the project root.
+(<code>SourceCodePath</code> without <code>GenerateModelFile</code> still works from a hand-edited settings file: the editor
+then rewrites the existing files in place and leaves files that hold no model types alone. The admin
+UI only offers the generated form.) In the editor's source form the assembly and namespace are
+comboboxes: the first assembly choice is the current project, and a <em>scan</em> lists the assemblies the
+running application can see, then the namespaces of the chosen one — scanned on request, since
+reflecting over every loaded assembly takes a moment. Under the form the editor lists what the chosen
+assembly and namespace would load, so a typo shows up before the database is reopened.</p>
 <p><code>Enabled</code> (<code>true</code> when absent) is a switch rather than a setting: a source turned off contributes
 nothing and is not registered on the model at all, so nothing it defines survives the next open, and
 nodes already stored under those types come back without the properties the types declared. Turning
@@ -2964,9 +2979,11 @@ and it fails at compile time rather than at boot:</p>
 <span class="p">};</span>
 </code></pre></div>
 
-<p><code>AutoDeduceRelations</code> (off by default on both paths) decides what happens to a plain node-typed
-property with no relation declared: off, it becomes a <code>Reference</code>/<code>References</code>; on, it is turned
-into an auto-created relation, which is the old behaviour. Leave it off in new models.</p>
+<p>The static flag <code>DatamodelSource.AutoDeduceRelations</code> (off by default, and process wide — set it
+before the database opens) decides what happens to a plain node-typed property with no relation
+declared: off, it becomes a <code>Reference</code>/<code>References</code>; on, it is turned into an auto-created relation,
+which is the old behaviour. Leave it off in new models. Until September 2026 this was a per-source
+setting in <code>relatude.db.json</code>; a leftover <code>"AutoDeduceRelations"</code> key there is ignored.</p>
 <p>Either way the server builds the datamodel, generates the proxy assembly and reloads, and from then
 on the model is rebuilt automatically whenever the assembly loads.</p>
 <h3 id="the-admin-ui">The admin UI<a class="anchor" href="#the-admin-ui" aria-label="Link to this section">#</a></h3>

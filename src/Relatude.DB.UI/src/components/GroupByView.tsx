@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { IconArrowNarrowDown, IconArrowNarrowUp, IconChevronLeft, IconChevronRight, IconDownload, IconX } from "@tabler/icons-react";
+import { IconArrowNarrowDown, IconArrowNarrowUp, IconChartBar, IconChevronLeft, IconChevronRight, IconDownload, IconTable, IconX } from "@tabler/icons-react";
 import {
   fetchPivotModel,
   runGroupBy,
@@ -16,8 +16,12 @@ import {
 import { useLiveResult } from "../server/hooks";
 import { formatCount } from "../format";
 import { dateModes, functions, propertiesFor, type PivotBase } from "./PivotView";
+import type { GroupByDefinition, SummaryView } from "../queryTabs";
+import { BarChart } from "./BarChart";
 
 const pageSize = 200;
+/** A grouping before anyone has said what to group by. */
+export const emptyGroupBy: GroupByDefinition = { keys: [], measures: [], includeMissing: true, sort: null, view: "table", chartMeasure: null };
 
 /** How a key property can be bucketed: one group per value always; dates by calendar too; numbers and dates by range. */
 function keyModesOf(property: PivotProperty | undefined): { value: string; label: string }[] {
@@ -35,14 +39,36 @@ function keyModesOf(property: PivotProperty | undefined): { value: string; label
  * range) and what to compute; every change runs at once. Column headers sort by count or by a
  * measure; a click on a row hands its groups back to the page as a facet selection.
  */
-export function GroupByView({ base, showQuery, onDrill }: { base: PivotBase; showQuery: boolean; onDrill: (selections: FacetSelection[]) => void }) {
+export function GroupByView({
+  base,
+  definition,
+  onChange,
+  refreshToken,
+  showQuery,
+  onDrill,
+}: {
+  base: PivotBase;
+  /** The definition as the page keeps it - null until this view has opened once for the type. */
+  definition: GroupByDefinition | null;
+  onChange: (definition: GroupByDefinition) => void;
+  /** Changes when the page is asked to run again with nothing else changed. */
+  refreshToken: number;
+  showQuery: boolean;
+  onDrill: (selections: FacetSelection[]) => void;
+}) {
   const [model, setModel] = useState<PivotModel | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
-  const [keys, setKeys] = useState<PivotLevelSpec[]>([]);
-  const [measures, setMeasures] = useState<PivotMeasureSpec[]>([]);
-  const [includeMissing, setIncludeMissing] = useState(true);
-  const [sort, setSort] = useState<{ by: string; descending: boolean } | null>(null);
   const [page, setPage] = useState(0);
+  // the definition belongs to the query the page has open, so it outlives this view and the session
+  const def = definition ?? emptyGroupBy;
+  const { keys, measures, includeMissing, sort } = def;
+  const setKeys = (keys: PivotLevelSpec[]) => onChange({ ...def, keys });
+  const setMeasures = (measures: PivotMeasureSpec[]) => onChange({ ...def, measures });
+  const setIncludeMissing = (includeMissing: boolean) => onChange({ ...def, includeMissing });
+  const setSort = (sort: { by: string; descending: boolean } | null) => onChange({ ...def, sort });
+  const setView = (view: SummaryView) => onChange({ ...def, view });
+  const setChartMeasure = (chartMeasure: string | null) => onChange({ ...def, chartMeasure });
+  const chart = def.view === "chart";
 
   useEffect(() => {
     let cancelled = false;
@@ -52,14 +78,18 @@ export function GroupByView({ base, showQuery, onDrill }: { base: PivotBase; sho
       .then((m) => {
         if (cancelled) return;
         setModel(m);
-        // a first key, so the view opens with rows rather than an empty table
-        const first = m.properties.find((p) => p.groupable && !p.isDate) ?? m.properties.find((p) => p.groupable);
-        if (first) setKeys([{ propertyId: first.id, mode: keyModesOf(first)[0].value }]);
+        // a first key the first time the view opens, so it opens with rows rather than an empty
+        // table; a definition someone has already shaped - even to nothing - is left alone
+        if (definition === null) {
+          const first = m.properties.find((p) => p.groupable && !p.isDate) ?? m.properties.find((p) => p.groupable);
+          onChange({ ...emptyGroupBy, keys: first ? [{ propertyId: first.id, mode: keyModesOf(first)[0].value }] : [] });
+        }
       })
       .catch((e) => !cancelled && setModelError(e instanceof Error ? e.message : String(e)));
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the default is decided once per type
   }, [base.storeId, base.typeId]);
 
   const request = useMemo<GroupByRequest | null>(
@@ -81,7 +111,9 @@ export function GroupByView({ base, showQuery, onDrill }: { base: PivotBase; sho
             page,
             pageSize,
           },
-    [model, base, keys, measures, includeMissing, sort, page],
+    // the token is not part of the request; a new object is how the runner is told to run again
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [model, base, keys, measures, includeMissing, sort, page, refreshToken],
   );
   const { result, loading, error } = useLiveResult(request, runGroupBy);
 
@@ -234,6 +266,26 @@ export function GroupByView({ base, showQuery, onDrill }: { base: PivotBase; sho
             <strong>{formatCount(result.sourceCount)}</strong> nodes · {formatCount(result.totalRows)} {result.totalRows === 1 ? "group" : "groups"} · {result.durationMs.toFixed(1)} ms
           </span>
           <div className="query-spacer" />
+          <div className="query-view" role="tablist">
+            <button className={chart ? "" : "active"} title="The numbers, one row per group" onClick={() => setView("table")}>
+              <IconTable size={14} stroke={1.8} />
+              Table
+            </button>
+            <button className={chart ? "active" : ""} title="Bars, one per group" onClick={() => setView("chart")}>
+              <IconChartBar size={14} stroke={1.8} />
+              Chart
+            </button>
+          </div>
+          {chart && result.measures.length > 0 && (
+            <select className="select compact" value={def.chartMeasure ?? ""} title="What the bars show" onChange={(e) => setChartMeasure(e.target.value || null)}>
+              <option value="">Count</option>
+              {result.measures.map((m) => (
+                <option key={m.name} value={m.name}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          )}
           <button className="icon-button" title="Download these rows as csv" disabled={result.rows.length === 0} onClick={() => downloadCsv(result)}>
             <IconDownload size={16} stroke={1.8} />
           </button>
@@ -253,7 +305,8 @@ export function GroupByView({ base, showQuery, onDrill }: { base: PivotBase; sho
         </div>
       )}
       <div className={"query-table-wrap" + (loading ? " loading" : "")}>
-        {result && result.keys.length > 0 && (
+        {result && result.keys.length > 0 && chart && <GroupByChart result={result} measure={def.chartMeasure} onDrill={drill} />}
+        {result && result.keys.length > 0 && !chart && (
           <table className="query-table pivot-table">
             <thead>
               <tr>
@@ -308,6 +361,28 @@ function formatValue(value: number | null, fn: PivotFunction): string {
 }
 
 /** The page as csv: the key labels, the count and one column per aggregate. */
+/**
+ * The groups as bars: one per row, as long as the count or the chosen measure - one measure at a
+ * time, on one axis. The rows are the page's rows, in the order the table has them, so sorting the
+ * table sorts the chart. A bar is its row: a click on it drills into the nodes it counts.
+ */
+function GroupByChart({ result, measure, onDrill }: { result: GroupByResult; measure: string | null; onDrill: (row: GroupByRow) => void }) {
+  const mi = measure === null ? -1 : result.measures.findIndex((m) => m.name === measure);
+  const name = mi < 0 ? "Count" : result.measures[mi].name;
+  const categories = result.rows.map((r) => r.labels.join(" · "));
+  const values = result.rows.map((r) => (mi < 0 ? r.count : (r.measures[mi] ?? null)));
+  const fmt = (v: number) => (Number.isInteger(v) ? formatCount(v) : v.toLocaleString(undefined, { maximumFractionDigits: 2 }));
+  return (
+    <BarChart
+      categories={categories}
+      series={[{ name, values }]}
+      format={fmt}
+      onBarClick={(c) => onDrill(result.rows[c])}
+      barTitle={(c, _i, v) => categories[c] + ": " + fmt(v) + " — click to see these nodes"}
+    />
+  );
+}
+
 function downloadCsv(result: GroupByResult) {
   const header = [...result.keys.map((k) => k.codeName), "Count", ...result.measures.map((m) => m.name)];
   const lines = [header, ...result.rows.map((row) => [...row.labels, String(row.count), ...row.measures.map((v) => (v === null ? "" : String(v)))])];

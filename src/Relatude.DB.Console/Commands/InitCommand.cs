@@ -90,7 +90,7 @@ public static class InitCommand {
             new() {
                 Id = Guid.NewGuid(),
                 Name = "Native",
-                Type = DatamodelSourceType.AssemblyNameReference,
+                Type = DatamodelSourceType.TypeReference,
                 Namespace = ModelSource.NativeNamespace,
                 Reference = "Relatude.DB.NodeStore",
             },
@@ -99,7 +99,7 @@ public static class InitCommand {
             list.Insert(0, new DatamodelSource {
                 Id = Guid.NewGuid(),
                 Name = "Model",
-                Type = DatamodelSourceType.AssemblyNameReference,
+                Type = DatamodelSourceType.TypeReference,
                 Namespace = modelNamespace,
                 Reference = assemblyName,
             });

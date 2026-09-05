@@ -9,7 +9,15 @@ import { send } from "./channel";
 
 export type ModelKind = "Class" | "Interface" | "Record" | "Struct";
 export type RelationKind = "OneOne" | "OneToOne" | "OneToMany" | "ManyMany" | "ManyToMany";
-export type SourceType = "AssemblyNameReference" | "TypeNameReference" | "JsonFile" | "CSharpCodeFile" | "Code";
+export type SourceType = "TypeReference" | "TextFiles" | "Code";
+/** what the files of a TextFiles source hold */
+export type SourceFileFormat = "Json" | "CSharpCode";
+export function isJsonFiles(s: { Type: SourceType; FileFormat?: SourceFileFormat | null }): boolean {
+  return s.Type === "TextFiles" && (s.FileFormat ?? "Json") === "Json";
+}
+export function isCSharpFiles(s: { Type: SourceType; FileFormat?: SourceFileFormat | null }): boolean {
+  return s.Type === "TextFiles" && s.FileFormat === "CSharpCode";
+}
 
 /** A property as the model serializes it. Only the fields the editor reads by name are typed; the
     rest are edited through the schema and ride along untouched. */
@@ -70,12 +78,17 @@ export interface SourceJson {
   Name?: string | null;
   Namespace?: string | null;
   Type: SourceType;
+  /** TextFiles only; absent means Json */
+  FileFormat?: SourceFileFormat | null;
   Filepath?: string | null;
   Reference?: string | null;
   FileIO?: string | null;
   SourceCodePath?: string | null;
+  /** the source code folder is generated as a whole at every activation */
+  GenerateModelFile?: boolean;
   Enabled: boolean;
-  AutoDeduceRelations: boolean;
+  /** the colour the source is marked with; empty takes one from the palette by position */
+  Color?: string | null;
   [key: string]: unknown;
 }
 
@@ -114,13 +127,16 @@ export interface SourceInfo {
   id: string;
   name: string;
   type: SourceType;
+  fileFormat: SourceFileFormat;
   enabled: boolean;
   namespace: string | null;
   filepath: string | null;
   reference: string | null;
   fileIO: string | null;
   sourceCodePath: string | null;
-  autoDeduceRelations: boolean;
+  generateModelFile: boolean;
+  /** the colour set on the source, or null for the one its position gives it */
+  color: string | null;
   /** the synthetic source of types registered from application code (OnDatamodelInit) */
   isCode: boolean;
   inSettings: boolean;
@@ -171,7 +187,8 @@ export type FieldEditor =
   | "propertyRef"
   | "sourceRef"
   | "stringList"
-  | "intList";
+  | "intList"
+  | "color";
 
 export interface FieldDef {
   path: string;
@@ -225,6 +242,8 @@ export interface SourceChange {
   writable: boolean;
   readOnlyReason: string | null;
   requiresRebuild: boolean;
+  /** the code folder is generated as a whole: every file in it is replaced */
+  generated: boolean;
   removed: boolean;
   added: boolean;
   addedTypes: string[];
@@ -243,6 +262,8 @@ export interface PlannedFile {
   action: "write" | "delete";
   exists: boolean;
   changed: boolean;
+  /** in a generated folder: the file deleted or overwritten was not generated, somebody wrote it */
+  handWritten: boolean;
   nodeTypeIds: string[];
   relationIds: string[];
   content: string | null;
@@ -319,6 +340,101 @@ export function loadHistory(storeId: string, key: string): Promise<HistoryEntry 
 
 export function deleteHistory(storeId: string, key: string): Promise<boolean> {
   return send<{ deleted: boolean }>("datamodel-history-delete", { storeId, key }).then((r) => r.deleted);
+}
+
+// ---- the type reference form: what the running application can see ----
+
+export interface AssemblyScan {
+  /** the entry assembly, which an empty Reference means */
+  current: string | null;
+  assemblies: { name: string; loaded: boolean }[];
+}
+export interface NamespaceScan {
+  assembly: string;
+  namespaces: { name: string; types: number }[];
+}
+export interface ProbedType {
+  id: string;
+  codeName: string;
+  namespace: string | null;
+  kind: string;
+  isInnerNode?: boolean;
+  /** false: pulled in by a type of the namespace rather than in the namespace itself */
+  direct: boolean;
+  properties?: number;
+}
+export interface TypeProbe {
+  assembly: string;
+  nodeTypes: ProbedType[];
+  relations: ProbedType[];
+  error: string | null;
+}
+
+// scans are asked for, never run behind the user's back, and what one found is kept for the page's
+// lifetime so the next source form opens with the list already there
+let assemblyScan: Promise<AssemblyScan> | null = null;
+let assemblyScanResult: AssemblyScan | null = null;
+const namespaceScans = new Map<string, Promise<NamespaceScan>>();
+const namespaceScanResults = new Map<string, NamespaceScan>();
+
+/** The assemblies the application can load by name. Scanned once per page load; `fresh` scans again. */
+export function scanAssemblies(fresh = false): Promise<AssemblyScan> {
+  if (fresh || !assemblyScan) {
+    assemblyScan = send<AssemblyScan>("datamodel-scan-assemblies", {}).then(
+      (r) => {
+        assemblyScanResult = r;
+        return r;
+      },
+      (e) => {
+        assemblyScan = null;
+        throw e;
+      },
+    );
+  }
+  return assemblyScan;
+}
+/** What an earlier scan found, without starting one. */
+export function peekAssemblyScan(): AssemblyScan | null {
+  return assemblyScanResult;
+}
+/** The namespaces of one assembly (null: the entry assembly). Cached per assembly; `fresh` scans again. */
+export function scanNamespaces(reference: string | null, fresh = false): Promise<NamespaceScan> {
+  const key = reference ?? "";
+  let p = fresh ? undefined : namespaceScans.get(key);
+  if (!p) {
+    p = send<NamespaceScan>("datamodel-scan-namespaces", { reference }).then(
+      (r) => {
+        namespaceScanResults.set(key, r);
+        return r;
+      },
+      (e) => {
+        namespaceScans.delete(key);
+        throw e;
+      },
+    );
+    namespaceScans.set(key, p);
+  }
+  return p;
+}
+export function peekNamespaceScan(reference: string | null): NamespaceScan | null {
+  return namespaceScanResults.get(reference ?? "") ?? null;
+}
+/** What a type reference with this assembly and namespace would load. */
+export function probeTypes(reference: string | null, namespace: string | null): Promise<TypeProbe> {
+  return send<TypeProbe>("datamodel-probe-types", { reference, namespace });
+}
+
+/** Whether a source namespace names several namespaces with `*` rather than one. */
+export function hasWildcard(pattern: string | null | undefined): boolean {
+  return !!pattern && pattern.includes("*");
+}
+/** The concrete namespace a (possibly wildcarded) source namespace starts with: where a new type goes. Mirrors DatamodelSource.NamespaceBase. */
+export function namespaceBase(pattern: string | null | undefined): string | null {
+  if (!pattern) return null;
+  const star = pattern.indexOf("*");
+  if (star < 0) return pattern;
+  const head = pattern.slice(0, star).replace(/\.+$/, "");
+  return head.length === 0 ? null : head;
 }
 
 export function exportModel(
@@ -408,11 +524,29 @@ export function relationsOf(model: ModelJson, typeId: string, baseTypeId: string
 
 // ---- colors ----
 
-/** Ten hues that stay apart in both themes. A source keeps its color by position in the source list. */
-const sourcePalette = ["#2f7fd6", "#d97b2b", "#3ca35a", "#b84cc0", "#c9a227", "#d64f5f", "#2ba8a0", "#7a6ff0", "#8a8a2b", "#e06aa2"];
+/** Ten hues that stay apart in both themes. A source with no colour of its own keeps one by position in the source list. */
+export const sourcePalette = ["#2f7fd6", "#d97b2b", "#3ca35a", "#b84cc0", "#c9a227", "#d64f5f", "#2ba8a0", "#7a6ff0", "#8a8a2b", "#e06aa2"];
 
+/** What a source that names no colour is marked with, by its position in the source list. */
 export function sourceColor(index: number): string {
   return sourcePalette[((index % sourcePalette.length) + sourcePalette.length) % sourcePalette.length];
+}
+
+/** The colour of the code source, which is not one of the configured ones and never has a colour set. */
+export const codeSourceColor = "#8a8781";
+
+/**
+ * A colour set on a source, as something that can go into a style attribute: a hex colour with or
+ * without its "#", or a CSS colour name. Anything else - half a hex value being typed, a word that is
+ * not a colour - is not a colour yet, and the caller falls back to the palette rather than writing
+ * a style the browser drops.
+ */
+export function readColor(value: string | null | undefined): string | null {
+  const text = (value ?? "").trim();
+  if (!text) return null;
+  if (/^#?[0-9a-f]{3}$/i.test(text) || /^#?[0-9a-f]{6}$/i.test(text)) return text.startsWith("#") ? text.toLowerCase() : "#" + text.toLowerCase();
+  if (/^[a-z]{3,20}$/i.test(text)) return text.toLowerCase(); // a CSS colour name
+  return null;
 }
 
 /**
@@ -423,16 +557,23 @@ export function sourceColor(index: number): string {
 export const codeSourceGuid = "00000000-0000-0000-0000-00000000c0de";
 
 /**
- * A colour per source id, by position in the source list, so every page marks a type with the same
- * colour. The code source always gets grey: it is not one of the configured sources and its position
- * would otherwise shift the others' colours depending on whether it happens to be in the list.
+ * A colour per source id, so every page marks a type with the same colour: the one set on the source,
+ * or the palette's by its position in the source list. A source that names its own colour still takes
+ * its place in that count, so setting one does not move the colours of the sources after it.
+ *
+ * The code source always gets grey: it is not one of the configured sources and its position would
+ * otherwise shift the others' colours depending on whether it happens to be in the list.
  */
-export function sourceColors(sources: { id: string; type?: string }[], codeSourceId: string = codeSourceGuid): Map<string, string> {
+export function sourceColors(sources: { id: string; type?: string; color?: string | null }[], codeSourceId: string = codeSourceGuid): Map<string, string> {
   const map = new Map<string, string>();
   let i = 0;
   for (const s of sources) {
-    if (s.id === codeSourceId || s.type === "Code") map.set(s.id, "#8a8781");
-    else map.set(s.id, sourceColor(i++));
+    if (s.id === codeSourceId || s.type === "Code") {
+      map.set(s.id, codeSourceColor);
+      continue;
+    }
+    map.set(s.id, readColor(s.color) ?? sourceColor(i));
+    i++;
   }
   return map;
 }

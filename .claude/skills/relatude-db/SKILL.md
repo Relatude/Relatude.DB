@@ -370,7 +370,7 @@ They are additive: JSON sources load first, then `OnDatamodelInit` adds to the s
 ```jsonc
 // relatude.db.json — no rebuild needed to change the model
 "DatamodelSources": [{
-  "Type": "AssemblyNameReference",   // or TypeNameReference | JsonFile
+  "Type": "TypeReference",           // or TextFiles (+ "FileFormat": "Json" | "CSharpCode")
   "Namespace": "VenueApp.Models",    // matched exactly, not by prefix
   "Reference": "VenueApp"            // assembly name; null = the entry assembly
 }]
@@ -384,7 +384,7 @@ options.OnDatamodelInit = (dm, container) => {
 };
 ```
 
-Prefer code when the model ships with the app; prefer JSON when the model must change without a rebuild or differs per deployment. Only `AssemblyNameReference`, `TypeNameReference` and `JsonFile` are implemented — the other three `DatamodelSourceType` values throw `NotImplementedException`.
+Prefer code when the model ships with the app; prefer JSON when the model must change without a rebuild or differs per deployment. The kinds are `TypeReference` (compiled classes, by assembly + namespace; called `AssemblyNameReference` before September 2026, the old name still reads) and `TextFiles` (files on disk read at open, `FileFormat` `Json` or `CSharpCode`; the old kinds `JsonFile` and `CSharpCodeFile` still read and set the format). A `TypeReference` source with `SourceCodePath` can be written by the admin UI model editor; with `GenerateModelFile` too, the editor owns that folder and regenerates every file in it at activation.
 
 **Admin credentials are not created for you.** `MasterUserName` / `MasterPassword` are null until set, login throws "No master user configured on the server" until then, the stored user name must be **lowercase**, and without `TokenEncryptionSecret` every restart logs everyone out.
 

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { PanelGrid, type PanelRow } from "./PanelGrid";
 import { showConfirm } from "../dialogs";
 import { subscribe, subscribeResync } from "../server/channel";
-import { collectGarbage, fetchServerOverview, softRestart, stopHost, type ProcessActionResult, type ServerOverview } from "../server/overview";
+import { collectGarbage, fetchServerLive, fetchServerOverview, softRestart, stopHost, type ProcessActionResult, type ServerOverview } from "../server/overview";
+import { ProcessChart, currentCpu, formatPercent, useProcessSamples, type ProcessSample } from "./ProcessChart";
 import { usePoll } from "../refresh";
 import { formatBytes, formatDuration, formatTime } from "../format";
 
@@ -29,6 +30,8 @@ export function Overview() {
   // uptime and memory drift rather than change: never worth asking more often than this, however
   // fast the refresh rate is set
   usePoll(load, { minMs: 10000 });
+  // the process itself moves faster than the facts: sampled at the refresh rate for the graph
+  const samples = useProcessSamples(readProcess);
   if (error) return <div className="placeholder">{error}</div>;
   if (!data) return null;
   const open = data.containers.filter((c) => c.state === "Open").length;
@@ -130,7 +133,27 @@ export function Overview() {
 
   // the rows of the resizable grid (see PanelGrid.tsx). Both have two panels, so the column line
   // runs the whole way down and the divider between them carries a corner handle
+  const last = samples[samples.length - 1];
+  const cpu = currentCpu(samples);
+  const processPanel = (
+    <section className="panel panel-fill">
+      <h3>
+        Process{" "}
+        <span className="panel-sub">
+          {last
+            ? `${formatBytes(last.managedMemory)} in the managed heap · ${formatBytes(last.processMemory)} resident${cpu === null ? "" : ` · ${formatPercent(cpu)} cpu of ${last.processorCount} cores`}`
+            : "sampling…"}
+        </span>
+      </h3>
+      <ProcessChart samples={samples} />
+      <div className="logs-chart-foot">
+        <span className="muted">the whole server process: one heap and one cpu budget serve every database on it</span>
+      </div>
+    </section>
+  );
+
   const rows: PanelRow[] = [
+    { id: "process", height: 260, cells: [processPanel] },
     { id: "host", cells: [hostPanel, actionsPanel] },
     { id: "log", cells: [logPanel, exceptionsPanel] },
   ];
@@ -140,6 +163,19 @@ export function Overview() {
       <PanelGrid id="overview" rows={rows} />
     </div>
   );
+}
+
+// one reading of the process, in the shape the chart samples
+async function readProcess(): Promise<ProcessSample> {
+  const live = await fetchServerLive();
+  return {
+    at: new Date(live.sampledUtc).getTime(),
+    iso: live.sampledUtc,
+    managedMemory: live.managedMemory ?? 0,
+    processMemory: live.processMemory ?? 0,
+    processorTimeMs: live.processorTimeMs ?? 0,
+    processorCount: live.processorCount ?? 1,
+  };
 }
 
 function ProcessAction({

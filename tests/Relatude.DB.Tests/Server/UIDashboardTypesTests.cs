@@ -49,7 +49,7 @@ namespace Relatude.Server {
                     container.DatamodelSources = [.. container.DatamodelSources ?? [], new DatamodelSource {
                         Id = new Guid("33333333-0000-0000-0000-000000000001"),
                         Name = "Animals",
-                        Type = DatamodelSourceType.AssemblyNameReference,
+                        Type = DatamodelSourceType.TypeReference,
                         Reference = typeof(IAnimal).Assembly.GetName().Name,
                         Namespace = typeof(IAnimal).Namespace,
                     }];

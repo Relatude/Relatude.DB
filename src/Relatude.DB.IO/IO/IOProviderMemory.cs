@@ -166,6 +166,29 @@ public class IOProviderMemory : IIOProvider {
             _disk.Add(newFileName, file);
         }
     }
+    public bool CanRenameFolder => true;
+    public bool SupportsEmptyFolders => false; // folders are key prefixes: one exists while a file has it
+    public void RenameFolder(string[] path, string[] newPath) {
+        if (path.Length == 0 || newPath.Length == 0) throw new ArgumentException("The storage root cannot be renamed. ");
+        var prefix = getAndValidateName(path) + _virtualFolderChar;
+        var newPrefix = getAndValidateName(newPath) + _virtualFolderChar;
+        lock (_lock) {
+            var keys = _disk.Keys.Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (keys.Count == 0) throw new Exception($"Folder {path.AsKeyString()} does not exist");
+            if (_disk.Keys.Any(k => k.StartsWith(newPrefix, StringComparison.OrdinalIgnoreCase))) throw new Exception($"{newPath.AsKeyString()} already exists");
+            foreach (var key in keys) {
+                var file = _disk[key];
+                if (file.Meta.Readers > 0) throw new Exception($"File {key} is locked for reading.");
+                if (file.Meta.Writers > 0) throw new Exception($"File {key} is locked for writing.");
+            }
+            foreach (var key in keys) {
+                var file = _disk[key];
+                _disk.Remove(key);
+                file.Meta.Key = newPrefix + key[prefix.Length..];
+                _disk.Add(file.Meta.Key, file);
+            }
+        }
+    }
     public void CloseAllOpenStreams() {
         lock (_lock) {
             foreach (var stream in _openStreams.ToArray()) {

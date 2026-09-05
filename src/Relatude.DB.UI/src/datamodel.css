@@ -571,6 +571,19 @@
 
 /* tree */
 
+.dm-tree-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dm-tree-toggle {
+  align-self: center;
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+
 .dm-tree-body {
   display: flex;
   flex-direction: column;
@@ -596,6 +609,21 @@
 
 .dm-tree-name {
   font-weight: 600;
+}
+
+/* a property under the type that declares it; the spacer lines its icon up with the type's */
+.dm-tree-spacer {
+  display: inline-block;
+  width: 20px;
+  flex: none;
+}
+
+.dm-tree-prop {
+  color: var(--text-soft);
+}
+
+.dm-tree-propname {
+  font-size: 12.5px;
 }
 
 .dm-tree-meta {
@@ -741,6 +769,27 @@
   border-color: var(--text-faint);
 }
 
+/* the same panel as a button, in the picker in front of adding a type or a relation */
+button.dm-source-card {
+  text-align: left;
+}
+
+/* the compound selector wins over .dialog's own width, whichever stylesheet loads last */
+.dialog.dm-source-pick {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, calc(100vw - 40px));
+  max-height: calc(100vh - 80px);
+}
+
+.dm-source-pick-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* the cards carry a hover border and a shadowless edge; the padding keeps both off the scroller */
+  padding: 2px;
+}
+
 .dm-source-card.selected {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
@@ -861,6 +910,10 @@
   border-top-color: var(--accent);
 }
 
+.dm-legend-line.embeds {
+  border-top-color: #b84cc0;
+}
+
 .dm-diagram-svg {
   flex: 1;
   width: 100%;
@@ -890,6 +943,11 @@
   stroke-width: 2.5;
 }
 
+/* inner node types are never stored on their own; a dashed body says so */
+.dm-node.inner .dm-node-body {
+  stroke-dasharray: 5 3;
+}
+
 .dm-node.ghost {
   opacity: 0.4;
 }
@@ -903,6 +961,18 @@
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  pointer-events: none;
+}
+
+.dm-node-badge rect {
+  fill: rgba(255, 255, 255, 0.3);
+}
+
+.dm-node-badge text {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  fill: #fff;
   pointer-events: none;
 }
 
@@ -961,9 +1031,22 @@
   stroke-width: 1.6;
 }
 
+.dm-edge.reference {
+  cursor: pointer;
+}
+
 .dm-edge.reference .dm-edge-line {
   stroke: var(--accent);
   stroke-dasharray: 2 3;
+}
+
+.dm-edge.embeds {
+  cursor: pointer;
+}
+
+.dm-edge.embeds .dm-edge-line {
+  stroke: #b84cc0;
+  stroke-width: 1.6;
 }
 
 .dm-edge.highlighted .dm-edge-line {
@@ -985,6 +1068,11 @@
 
 .dm-edge.relation .dm-edge-label {
   fill: #d64f5f;
+  font-weight: 600;
+}
+
+.dm-edge.embeds .dm-edge-label {
+  fill: #b84cc0;
   font-weight: 600;
 }
 
@@ -1225,40 +1313,95 @@
   width: auto;
 }
 
-.dm-add-menu {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px 10px;
-  padding: 8px;
-  margin: 4px 0 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
+/* picking what a new property holds: the whole catalog, each kind with its explanation */
+
+/* the compound selector wins over .dialog's own width, whichever stylesheet loads last */
+.dialog.dm-ptype-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, calc(100vw - 40px));
+  max-height: calc(100vh - 80px);
 }
 
-.dm-add-group-label {
+.dm-ptype-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 10px;
+  height: 32px;
+  flex: none;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+}
+
+.dm-ptype-search:focus-within {
+  border-color: var(--accent);
+}
+
+.dm-ptype-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 10px;
+  padding-right: 2px;
+}
+
+.dm-ptype-group-label {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--text-muted);
-  margin: 2px 0 2px 6px;
+  margin: 8px 0 3px 2px;
 }
 
-.dm-add-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.dm-ptype-group:first-child .dm-ptype-group-label {
+  margin-top: 0;
+}
+
+.dm-ptype {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  align-items: baseline;
+  gap: 0 8px;
   width: 100%;
-  padding: 4px 6px;
-  border-radius: 5px;
-  font-size: 12.5px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
   text-align: left;
   color: var(--text);
 }
 
-.dm-add-item:hover {
+.dm-ptype:hover {
   background: var(--hover);
+  border-color: var(--border);
+}
+
+.dm-ptype-icon {
+  grid-row: span 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* the icon sits beside the label, not on the baseline the grid gives its row */
+  align-self: start;
+  height: 18px;
+}
+
+.dm-ptype-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dm-ptype-help {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.dm-editor-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .dm-proplist {
@@ -1430,4 +1573,150 @@
   .dm-side {
     max-height: 50vh;
   }
+}
+
+/* ---- combobox: a text input with suggestions under it (the assembly and namespace of a type reference) ---- */
+
+.dm-combo {
+  position: relative;
+  width: 100%;
+}
+
+.dm-combo-input {
+  position: relative;
+  display: flex;
+}
+
+.dm-combo-input .text-input {
+  flex: 1;
+  padding-right: 28px;
+}
+
+.dm-combo-toggle {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  color: var(--text-muted);
+}
+
+.dm-combo-toggle:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.dm-combo.open .dm-combo-toggle svg {
+  transform: rotate(180deg);
+}
+
+.dm-combo-list {
+  position: absolute;
+  z-index: 30;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+
+.dm-combo-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.dm-combo-item.active {
+  background: var(--hover);
+}
+
+.dm-combo-item.selected .dm-combo-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.dm-combo-item.special .dm-combo-label {
+  font-style: italic;
+}
+
+.dm-combo-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dm-combo-hint {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.dm-combo-action {
+  margin-top: 2px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 6px 6px;
+  color: var(--accent);
+}
+
+.dm-combo-action.busy {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.dm-combo-action .spin {
+  animation: dm-spin 0.9s linear infinite;
+}
+
+@keyframes dm-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.dm-combo-status {
+  padding: 6px 8px 4px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.dm-combo-status.error {
+  color: var(--danger);
+}
+
+/* the list of what an assembly and namespace would load, under the type reference form */
+
+.dm-found-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dm-found-error {
+  color: var(--danger);
+  word-break: break-word;
+}
+
+.dm-proprow .dm-tag {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-faint);
 }

@@ -3,6 +3,7 @@ using Relatude.DB.DataStores;
 using Relatude.DB.IO;
 using Relatude.DB.NodeServer.API;
 using Relatude.DB.NodeServer.Json;
+using Relatude.DB.Web;
 using System.Text.Json;
 namespace Relatude.DB.NodeServer.UI;
 /// <summary>
@@ -101,12 +102,12 @@ public sealed class UIServer {
         app.MapPost(path + "upload", async (HttpContext ctx, Guid ioId, string key) => {
             var sizeFeature = ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
             if (sizeFeature != null && !sizeFeature.IsReadOnly) sizeFeature.MaxRequestBodySize = null; // database files exceed the default limit
+            var io = _server.GetIO(ioId);
             var fileKey = key.SplitKey();
-            if (fileKey.Length == 0 || fileKey.Any(segment => !FileKeyUtility.IsFileKeyValid(segment))) {
+            if (fileKey.Length == 0 || fileKey.Any(segment => !isValidSegment(io, segment))) {
                 return Results.BadRequest(new { error = "Invalid file key. " });
             }
             if (FileKeyUtility.State_IsStateFileKey(fileKey)) return Results.BadRequest(new { error = "Uploading the state file is not allowed. " });
-            var io = _server.GetIO(ioId);
             io.DeleteFileIfItExists(fileKey);
             try {
                 using var ioStream = io.OpenAppend(fileKey);
@@ -141,6 +142,15 @@ public sealed class UIServer {
                 return Results.Json(new { error = error.Message }, RelatudeDBJsonOptions.Default, statusCode: 500);
             }
         });
+        // the file itself, inline with its own content type, for the viewer panel of the files section:
+        // an <img>, a <video> (ranges) or a fetch of the text going into the editor point at it
+        app.MapGet(path + "file", async (HttpContext ctx, Guid ioId, string key) => {
+            try {
+                return await serveFileAsync(ctx, ioId, key);
+            } catch (Exception error) when (!ctx.Response.HasStarted) {
+                return Results.Json(new { error = error.Message }, RelatudeDBJsonOptions.Default, statusCode: 500);
+            }
+        });
         // zip downloads (binary, so not commands): GET zips a whole folder (also the url behind
         // dragging a folder out to the desktop), POST zips a set of selected files
         app.MapGet(path + "zip", async (HttpContext ctx, Guid ioId, string? folder) => {
@@ -150,6 +160,64 @@ public sealed class UIServer {
             return await zipToResponse(ctx, p.IoId, p.Keys, p.BasePath);
         });
         mapStaticUI(app);
+    }
+    // Disk backed files are opened directly (shared with writers, so a log being written still
+    // shows) for the same reason as in the download endpoint: the provider's OpenRead retries an OS
+    // locked file for minutes while holding the provider lock. The wrapped provider stream is
+    // seekable, so a video player's range requests work against either.
+    async Task<IResult> serveFileAsync(HttpContext ctx, Guid ioId, string key) {
+        var io = _server.GetIO(ioId);
+        var fileKey = key.SplitKey();
+        if (fileKey.Length == 0) return Results.BadRequest(new { error = "No file given. " });
+        Stream stream;
+        if (io.TryGetLocalFilePath(fileKey, out var localFilePath)) {
+            try {
+                stream = new FileStream(localFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, useAsync: true);
+            } catch (FileNotFoundException) {
+                return Results.NotFound();
+            } catch (DirectoryNotFoundException) {
+                return Results.NotFound();
+            } catch (IOException) {
+                return Results.StatusCode(StatusCodes.Status423Locked);
+            }
+        } else {
+            if (!io.Exists(fileKey)) return Results.NotFound();
+            stream = ReadStreamWrapper.Wrap(io.OpenRead(fileKey, 0));
+        }
+        return await FileHandler.HandleFileAsync(ctx, stream, fileKey.FileName(), false, contentTypeOf(fileKey.FileName()), false);
+    }
+    static readonly Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider _contentTypes = new();
+    // the code and config files a project folder holds, which the standard map either lacks or gets
+    // wrong for this purpose (.ts is a video format there); everything text is served as utf-8
+    static readonly Dictionary<string, string> _textContentTypes = new(StringComparer.OrdinalIgnoreCase) {
+        [".ts"] = "text/plain", [".tsx"] = "text/plain", [".jsx"] = "text/plain", [".mjs"] = "text/javascript", [".cjs"] = "text/javascript",
+        [".cs"] = "text/plain", [".razor"] = "text/plain", [".cshtml"] = "text/plain", [".csproj"] = "text/xml", [".props"] = "text/xml",
+        [".targets"] = "text/xml", [".slnx"] = "text/xml", [".md"] = "text/markdown", [".yml"] = "text/plain", [".yaml"] = "text/plain",
+        [".toml"] = "text/plain", [".ini"] = "text/plain", [".log"] = "text/plain", [".env"] = "text/plain", [".gitignore"] = "text/plain",
+        [".editorconfig"] = "text/plain", [".sql"] = "text/plain", [".ps1"] = "text/plain", [".sh"] = "text/plain", [".bat"] = "text/plain",
+        [".cmd"] = "text/plain", [".json"] = "application/json", [".map"] = "application/json", [".svg"] = "image/svg+xml",
+    };
+    static string contentTypeOf(string fileName) {
+        var extension = Path.GetExtension(fileName);
+        if (!_textContentTypes.TryGetValue(extension, out var contentType) && !_contentTypes.TryGetContentType(fileName, out contentType)) {
+            return "application/octet-stream";
+        }
+        var isText = contentType.StartsWith("text/") || contentType == "application/json" || contentType == "application/javascript" || contentType == "application/xml";
+        return isText ? contentType + "; charset=utf-8" : contentType;
+    }
+    // what a key segment may look like depends on the provider: database storage keeps to the
+    // strict file key alphabet, the project folder takes any legal file system name
+    static bool isValidSegment(IIOProvider io, string segment) => io is IOProviderDisk disk ? disk.IsValidKeySegment(segment) : FileKeyUtility.IsFileKeyValid(segment);
+    static string validName(IIOProvider io, string? name) {
+        name = name?.Trim() ?? "";
+        if (name.Length == 0) throw new Exception("The name cannot be empty. ");
+        if (name.Contains('/') || name.Contains('\\')) throw new Exception("The name cannot contain path separators. ");
+        if (!isValidSegment(io, name)) {
+            throw new Exception(io is IOProviderDisk { PlainFolder: true }
+                ? "The name is not a legal file system name. "
+                : "Names in database storage can only contain letters, numbers, dash, space, underscore, dot and parentheses, and be at most " + FileKeyUtility.MaxFileNameLength + " characters. ");
+        }
+        return name;
     }
     // Streams a zip of the given files (or of a whole folder when keys is null). Every file is
     // test-opened first: a locked file stops the request with 423 before any zip bytes are
@@ -340,6 +408,17 @@ public sealed class UIServer {
             UpTimeMs = _server.UpTime.TotalMilliseconds,
             Containers = buildContainers(),
         });
+        // the process alone, cheap enough to read at the refresh rate: what the overview graphs
+        Commands.Register("server-live", ctx => {
+            using var process = System.Diagnostics.Process.GetCurrentProcess();
+            return (object?)new {
+                SampledUtc = DateTime.UtcNow,
+                ManagedMemory = GC.GetTotalMemory(false),
+                ProcessMemory = process.WorkingSet64,
+                ProcessorTimeMs = process.TotalProcessorTime.TotalMilliseconds,
+                ProcessorCount = Environment.ProcessorCount,
+            };
+        });
         Commands.Register("server-overview", ctx => {
             var containers = _server.GetContainers();
             var restart = _server.GetRestartCapabilities();
@@ -412,15 +491,71 @@ public sealed class UIServer {
             addEngineNames(map, local?.VectorIndexes, "vector");
             return (object?)map;
         });
-        // the IO providers of one database container, for the files section
+        // the IO providers of one database container, for the files section, plus the one every server
+        // has: the website project folder (see RelatudeDBServer.ProjectRootIO). What each can do is
+        // told from its type rather than from a live instance, so listing never connects to anything.
         Commands.Register("io-list", ctx => {
             var p = ctx.Payload<IoListPayload>();
             var c = getContainer(p.StoreId);
-            return (object?)(c.Settings.IOSettings ?? []).Select(io => new {
-                io.Id,
+            var list = (c.Settings.IOSettings ?? []).Select(io => new IoInfo {
+                Id = io.Id,
                 Name = string.IsNullOrEmpty(io.Name) ? io.IOType.ToString() : io.Name,
                 Type = io.IOType.ToString(),
+                Kind = "storage",
+                CanRenameFile = io.IOType != IOTypes.AzureBlobStorage,
+                CanRenameFolder = io.IOType != IOTypes.AzureBlobStorage,
+                SupportsEmptyFolders = io.IOType == IOTypes.LocalDisk,
+            }).ToList();
+            var root = _server.ProjectRootIO;
+            list.Add(new IoInfo {
+                Id = RelatudeDBServer.ProjectRootIOId,
+                Name = "[Server root]",
+                Type = IOTypes.LocalDisk.ToString(),
+                Kind = "projectRoot",
+                CanRenameFile = root.CanRenameFile,
+                CanRenameFolder = root.CanRenameFolder,
+                SupportsEmptyFolders = root.SupportsEmptyFolders,
+                LocalPath = root.BaseFolder,
             });
+            return (object?)list;
+        });
+        // renames one file within its folder; the new name is a single segment. A change of case
+        // only is a real rename on a case insensitive file system, so it is not an "already exists"
+        Commands.Register("io-rename-file", ctx => {
+            var p = ctx.Payload<IoRenamePayload>();
+            var io = _server.GetIO(p.IoId);
+            if (!io.CanRenameFile) throw new Exception("This IO provider cannot rename files. ");
+            var key = p.Key.SplitKey();
+            if (key.Length == 0) throw new Exception("No file given. ");
+            var newName = validName(io, p.NewName);
+            if (newName == key[^1]) return (object?)new { Key = key.AsKeyString() };
+            string[] newKey = [.. key[..^1], newName];
+            if (!newKey.IsSameKey(key) && io.Exists(newKey)) throw new Exception($"{newKey.AsKeyString()} already exists. ");
+            io.RenameFile(key, newKey);
+            return (object?)new { Key = newKey.AsKeyString() };
+        });
+        Commands.Register("io-rename-folder", ctx => {
+            var p = ctx.Payload<IoRenamePayload>();
+            var io = _server.GetIO(p.IoId);
+            if (!io.CanRenameFolder) throw new Exception("This IO provider cannot rename folders. ");
+            var folder = splitFolderPath(p.Key);
+            if (folder.Length == 0) throw new Exception("The storage root cannot be renamed. ");
+            var newName = validName(io, p.NewName);
+            if (newName == folder[^1]) return (object?)new { Path = folder.AsKeyString() };
+            string[] newFolder = [.. folder[..^1], newName];
+            io.RenameFolder(folder, newFolder);
+            return (object?)new { Path = newFolder.AsKeyString() };
+        });
+        // Key is the parent folder ("" = the storage root), NewName the folder to make in it. On a
+        // provider with virtual folders nothing is stored: the folder appears with its first file
+        Commands.Register("io-create-folder", ctx => {
+            var p = ctx.Payload<IoRenamePayload>();
+            var io = _server.GetIO(p.IoId);
+            var parent = splitFolderPath(p.Key);
+            var name = validName(io, p.NewName);
+            string[] folder = [.. parent, name];
+            io.EnsureFolder(folder);
+            return (object?)new { Path = folder.AsKeyString(), Persisted = io.SupportsEmptyFolders };
         });
         // the given folder ("" = the storage root): its files and subfolder stubs, or the whole
         // tree below it when recursive (used to plan folder downloads)
@@ -819,6 +954,20 @@ sealed record BackupNowPayload(Guid StoreId, bool Truncate, bool KeepForever);
 sealed record BackupRestorePayload(Guid StoreId, string Key);
 sealed record TruncatePayload(Guid StoreId, bool KeepOld);
 sealed record IoFolderPayload(Guid IoId, string? Path, bool Recursive = false);
+/// <summary>Key is the file (rename file), the folder (rename folder) or the parent folder (create folder).</summary>
+sealed record IoRenamePayload(Guid IoId, string Key, string NewName);
+sealed class IoInfo {
+    public Guid Id { get; init; }
+    public string Name { get; init; } = "";
+    public string Type { get; init; } = "";
+    /// <summary>"storage" for a provider from the database settings, "projectRoot" for the website project folder.</summary>
+    public string Kind { get; init; } = "storage";
+    public bool CanRenameFile { get; init; }
+    public bool CanRenameFolder { get; init; }
+    public bool SupportsEmptyFolders { get; init; }
+    /// <summary>The folder on the server, only for the project root: the UI names it in its notice.</summary>
+    public string? LocalPath { get; init; }
+}
 sealed record ZipRequestPayload(Guid IoId, string[] Keys, string? BasePath);
 sealed record IoDeleteFilesPayload(Guid IoId, string[] Keys);
 sealed record FileScanStartPayload(Guid StoreId, string Scan, bool CountOnly);

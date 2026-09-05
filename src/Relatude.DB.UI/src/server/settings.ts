@@ -1,7 +1,7 @@
 import { send } from "./channel";
 
 /** How the field is rendered, decided on the server from the setting's CLR type. */
-export type SettingEditor = "text" | "number" | "integer" | "toggle" | "choice";
+export type SettingEditor = "text" | "number" | "integer" | "toggle" | "choice" | "color";
 
 /** When a change starts to matter. Shown on the field so a save is never mistaken for an effect. */
 export type SettingApplies = "live" | "reopen" | "restart";
@@ -16,6 +16,8 @@ export interface SettingChoice {
 export interface SettingVisibility {
   path: string;
   values: string[];
+  /** a further condition that must hold as well */
+  and?: SettingVisibility | null;
 }
 
 export interface SettingView {

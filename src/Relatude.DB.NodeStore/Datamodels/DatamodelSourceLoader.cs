@@ -1,4 +1,4 @@
-﻿using Relatude.DB.CodeGeneration;
+using Relatude.DB.CodeGeneration;
 using Relatude.DB.IO;
 using System.Reflection;
 
@@ -20,6 +20,8 @@ namespace Relatude.DB.Datamodels;
 public static class DatamodelSourceLoader {
     public const string DefaultJsonFolder = "Models/Json";
     public const string DefaultCSharpFolder = "Models/CSharp";
+    /// <summary>The folder a text file source reads when it names none: by its file format.</summary>
+    public static string DefaultFolder(DatamodelSource source) => source.FileFormat == DatamodelSourceFileFormat.Json ? DefaultJsonFolder : DefaultCSharpFolder;
     /// <param name="dm">The datamodel the source is combined into.</param>
     /// <param name="source">The source to load.</param>
     /// <param name="rootFolder">The folder relative file paths resolve against — the folder holding the settings file.</param>
@@ -37,19 +39,13 @@ public static class DatamodelSourceLoader {
         dm.CurrentSourceId = source.Id;
         try {
             switch (source.Type) {
-                case DatamodelSourceType.AssemblyNameReference:
+                case DatamodelSourceType.TypeReference:
                     loadAssemblySource(dm, source);
                     stampSourceCodeFiles(dm, source, rootFolder);
                     break;
-                case DatamodelSourceType.TypeNameReference:
-                    loadTypeNameSource(dm, source);
-                    stampSourceCodeFiles(dm, source, rootFolder);
-                    break;
-                case DatamodelSourceType.JsonFile:
-                    loadJsonSource(dm, source, rootFolder, resolveIO);
-                    break;
-                case DatamodelSourceType.CSharpCodeFile:
-                    loadCSharpSource(dm, source, rootFolder);
+                case DatamodelSourceType.TextFiles:
+                    if (source.FileFormat == DatamodelSourceFileFormat.Json) loadJsonSource(dm, source, rootFolder, resolveIO);
+                    else loadCSharpSource(dm, source, rootFolder);
                     break;
                 default:
                     throw new NotSupportedException("Unknown datamodel source type: " + source.Type);
@@ -64,23 +60,29 @@ public static class DatamodelSourceLoader {
         var name = string.IsNullOrEmpty(source.Name) ? source.Id.ToString() : source.Name;
         dm.SourceNotices.Add("The datamodel source \"" + name + "\" adds no types: " + message);
     }
-    static void loadAssemblySource(Datamodel dm, DatamodelSource source) {
-        Assembly? assembly;
-        if (source.Reference == null) {
-            assembly = Assembly.GetEntryAssembly();
-            if (assembly == null) throw new Exception("No assembly reference is set and there is no entry assembly. Set Reference to the assembly name containing the model types. ");
-        } else {
-            try {
-                assembly = Assembly.Load(source.Reference);
-            } catch (Exception ex) {
-                throw new Exception("The assembly \"" + source.Reference + "\" could not be loaded: " + ex.Message
-                    + " Check that the name is spelled correctly (without the .dll extension) and that the assembly is referenced by, or copied to, the application. ", ex);
-            }
+    /// <summary>
+    /// The assembly a <see cref="DatamodelSourceType.TypeReference"/> source reads: the one named by
+    /// <see cref="DatamodelSource.Reference"/>, or the entry assembly - the current project - when that is
+    /// null or empty. Throws, with the fix in the message, when it cannot be loaded.
+    /// </summary>
+    public static Assembly ResolveAssembly(string? reference) {
+        if (string.IsNullOrEmpty(reference)) {
+            return Assembly.GetEntryAssembly()
+                ?? throw new Exception("No assembly reference is set and there is no entry assembly. Set Reference to the assembly name containing the model types. ");
         }
+        try {
+            return Assembly.Load(reference);
+        } catch (Exception ex) {
+            throw new Exception("The assembly \"" + reference + "\" could not be loaded: " + ex.Message
+                + " Check that the name is spelled correctly (without the .dll extension) and that the assembly is referenced by, or copied to, the application. ", ex);
+        }
+    }
+    static void loadAssemblySource(Datamodel dm, DatamodelSource source) {
+        var assembly = ResolveAssembly(source.Reference);
         if (string.IsNullOrEmpty(source.Namespace)) throw new Exception(
             "The datamodel source has no Namespace. Set Namespace to the namespace containing the model types in " + assembly.GetName().Name + ". ");
         var typesBefore = dm.NodeTypes.Count + dm.Relations.Count;
-        dm.AddAssembly(assembly, source.Namespace, source.AutoDeduceRelations);
+        dm.AddAssembly(assembly, source.Namespace, DatamodelSource.AutoDeduceRelations);
         if (dm.NodeTypes.Count + dm.Relations.Count == typesBefore) {
             string[] available;
             try {
@@ -91,14 +93,6 @@ public static class DatamodelSourceLoader {
                 + "Check the namespace for typos if it was meant to hold types. "
                 + (available.Length == 0 ? "" : "Namespaces in the assembly: " + string.Join(", ", available.Take(20)) + (available.Length > 20 ? ", ..." : "") + ". "));
         }
-    }
-    static void loadTypeNameSource(Datamodel dm, DatamodelSource source) {
-        if (string.IsNullOrEmpty(source.Reference)) throw new Exception(
-            "The datamodel source has no Reference. Set Reference to the type name of a model type, assembly qualified if it is not in the entry assembly (e.g. \"MyApp.Models.Person, MyApp\"). ");
-        var type = Type.GetType(source.Reference);
-        if (type == null) throw new Exception("The type \"" + source.Reference + "\" could not be found. "
-            + "Use the full type name, assembly qualified if the type is not in the entry assembly or mscorlib (e.g. \"MyApp.Models.Person, MyApp\"). ");
-        dm.Add(type, true, source.AutoDeduceRelations);
     }
     // A compiled source whose C# folder is known gets the declaring file stamped on its types, the
     // way file based sources do, so the datamodel editor knows where to write a changed type. Syntax
@@ -188,13 +182,13 @@ public static class DatamodelSourceLoader {
         dm.AssemblyImages[compiled.Assembly.GetName().Name!] = compiled.Image;
         var typesBefore = dm.NodeTypes.Count + dm.Relations.Count;
         if (!string.IsNullOrEmpty(source.Namespace)) {
-            dm.AddAssembly(compiled.Assembly, source.Namespace, source.AutoDeduceRelations);
+            dm.AddAssembly(compiled.Assembly, source.Namespace, DatamodelSource.AutoDeduceRelations);
         } else {
             foreach (var type in compiled.Assembly.GetTypes()) {
                 if (type.Name.StartsWith('<')) continue; // compiler generated
                 if (type.IsAbstract && type.IsSealed) continue; // static classes
                 if (type.IsEnum || type.IsNested) continue;
-                dm.Add(type, true, source.AutoDeduceRelations);
+                dm.Add(type, true, DatamodelSource.AutoDeduceRelations);
             }
         }
         if (dm.NodeTypes.Count + dm.Relations.Count == typesBefore) note(dm, source,

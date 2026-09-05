@@ -247,6 +247,9 @@ public class FolderLayoutTests {
         public long GetFileSizeOrZeroIfUnknown(string[] path) => inner.GetFileSizeOrZeroIfUnknown(path);
         public bool CanRenameFile => false;
         public void RenameFile(string[] path, string[] newPath) => throw new NotSupportedException();
+        public bool CanRenameFolder => false;
+        public void RenameFolder(string[] path, string[] newPath) => throw new NotSupportedException();
+        public bool SupportsEmptyFolders => inner.SupportsEmptyFolders;
         public bool CanTruncate => inner.CanTruncate;
         public void TruncateFile(string[] path, long newLength) => inner.TruncateFile(path, newLength);
         public void CloseAllOpenStreams() => inner.CloseAllOpenStreams();

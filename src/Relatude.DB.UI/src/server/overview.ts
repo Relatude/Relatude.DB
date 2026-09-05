@@ -31,6 +31,20 @@ export function fetchServerOverview(): Promise<ServerOverview> {
   return send<ServerOverview>("server-overview");
 }
 
+/** One reading of the process: what the overview's memory and cpu graph is drawn from. */
+export interface ServerLive {
+  sampledUtc: string;
+  managedMemory: number;
+  processMemory: number;
+  /** cumulative ms of cpu time, all cores together */
+  processorTimeMs: number;
+  processorCount: number;
+}
+
+export function fetchServerLive(): Promise<ServerLive> {
+  return send<ServerLive>("server-live");
+}
+
 export interface ProcessActionResult {
   started: boolean;
   message: string;

@@ -258,7 +258,7 @@ public sealed class DatamodelValidator {
     // ---- JSON types and the classes behind them ----
 
     static void checkBackingClasses(Datamodel draft, List<DatamodelIssue> issues) {
-        var jsonSources = draft.Sources.Where(s => s.Type == DatamodelSourceType.JsonFile && s.Enabled).Select(s => s.Id).ToHashSet();
+        var jsonSources = draft.Sources.Where(s => s.IsJsonFiles && s.Enabled).Select(s => s.Id).ToHashSet();
         if (jsonSources.Count == 0) return;
         var assemblies = AppDomain.CurrentDomain.GetAssemblies().Where(a => !a.IsDynamic).ToList();
         foreach (var t in draft.NodeTypes.Values.Where(t => jsonSources.Contains(t.DatamodelSourceId) && t.ModelType != ModelType.Interface)) {
@@ -370,22 +370,24 @@ public sealed class DatamodelValidator {
     static DatamodelSource mirrorSource(DatamodelSource source, List<PlannedFile> files, Datamodel draft, string tempRoot, string rootFolder) {
         var folder = Path.Combine(tempRoot, source.Id.ToString("N"));
         Directory.CreateDirectory(folder);
-        var isJson = source.Type == DatamodelSourceType.JsonFile;
+        var isJson = source.IsJsonFiles;
         if (isJson && source.FileIO != null) {
             var file = Path.Combine(folder, "model.json");
             File.WriteAllText(file, files[0].Content ?? "{}");
-            return new DatamodelSource { Id = source.Id, Name = source.Name, Type = DatamodelSourceType.JsonFile, Filepath = file, Enabled = true, AutoDeduceRelations = source.AutoDeduceRelations };
+            return new DatamodelSource { Id = source.Id, Name = source.Name, Type = DatamodelSourceType.TextFiles, FileFormat = DatamodelSourceFileFormat.Json, Filepath = file, Enabled = true };
         }
         // the files the plan leaves alone but that hold model types come along unchanged
         var written = files.Select(f => f.RelativePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
         string baseFolder;
-        if (source.Type is DatamodelSourceType.AssemblyNameReference or DatamodelSourceType.TypeNameReference) {
+        if (source.Type == DatamodelSourceType.TypeReference) {
             baseFolder = DatamodelSourceLoader.ResolveSourceCodeFolder(source, rootFolder)!;
         } else {
-            var target = DatamodelSourceLoader.ResolveFilePath(source, rootFolder, isJson ? DatamodelSourceLoader.DefaultJsonFolder : DatamodelSourceLoader.DefaultCSharpFolder);
+            var target = DatamodelSourceLoader.ResolveFilePath(source, rootFolder, DatamodelSourceLoader.DefaultFolder(source));
             baseFolder = File.Exists(target) || !Directory.Exists(target) && Path.HasExtension(target) ? Path.GetDirectoryName(target)! : target;
         }
-        var untouched = draft.NodeTypes.Values.Where(t => t.DatamodelSourceId == source.Id).Select(t => t.DatamodelSourceFilename)
+        // a generated folder is described by the plan alone: the files the types were stamped with are
+        // the ones being deleted, and copying them would declare every type twice
+        var untouched = DatamodelSourceWriter.IsGeneratedFolder(source) ? [] : draft.NodeTypes.Values.Where(t => t.DatamodelSourceId == source.Id).Select(t => t.DatamodelSourceFilename)
             .Concat(draft.Relations.Values.Where(r => r.DatamodelSourceId == source.Id).Select(r => r.DatamodelSourceFilename))
             .Where(f => !string.IsNullOrEmpty(f) && !written.Contains(f!)).Distinct(StringComparer.OrdinalIgnoreCase);
         foreach (var relative in untouched) {
@@ -405,15 +407,10 @@ public sealed class DatamodelValidator {
             File.WriteAllText(to, f.Content);
         }
         var ns = source.Namespace;
-        if (source.Type == DatamodelSourceType.TypeNameReference && !string.IsNullOrEmpty(source.Reference)) {
-            // the reference names one type; the mirrored folder is filtered by that type's namespace
-            var typeName = source.Reference.Split(',')[0].Trim();
-            var dot = typeName.LastIndexOf('.');
-            ns = dot > 0 ? typeName[..dot] : null;
-        }
         return new DatamodelSource {
-            Id = source.Id, Name = source.Name, Enabled = true, AutoDeduceRelations = source.AutoDeduceRelations,
-            Type = isJson ? DatamodelSourceType.JsonFile : DatamodelSourceType.CSharpCodeFile,
+            Id = source.Id, Name = source.Name, Enabled = true,
+            Type = DatamodelSourceType.TextFiles,
+            FileFormat = isJson ? DatamodelSourceFileFormat.Json : DatamodelSourceFileFormat.CSharpCode,
             Filepath = folder,
             Namespace = isJson ? null : ns,
         };

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { IconArrowsMaximize, IconLayoutGrid, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
 import type { EditorContext, Selection } from "./DatamodelEditors";
-import { kindMeta, propertyColor, relationColor, relationMeta } from "./DatamodelIcons";
+import { embeddedColor, kindMeta, propertyColor, relationColor, relationMeta } from "./DatamodelIcons";
 import type { NodeTypeJson } from "../server/datamodel";
 
 interface Props {
@@ -28,7 +28,8 @@ interface Box {
 type Edge =
   | { kind: "inherits"; from: string; to: string; id: string }
   | { kind: "relation"; from: string; to: string; id: string; label: string; directed: boolean; symmetric: boolean }
-  | { kind: "reference"; from: string; to: string; id: string; label: string };
+  | { kind: "reference"; from: string; to: string; id: string; label: string; propertyId: string }
+  | { kind: "embeds"; from: string; to: string; id: string; label: string; propertyId: string };
 
 const nodeWidth = 210;
 const headerHeight = 28;
@@ -59,7 +60,10 @@ function writePositions(storeId: string, positions: Record<string, { x: number; 
 /**
  * The model as boxes and lines. Boxes are types (header in the source's color, kind icon, the first
  * properties), lines are inheritance (dashed, hollow arrow at the parent), relations (solid, in the
- * relation color, labelled, arrowhead when directed) and references (dotted). The layout is layered
+ * relation color, labelled, arrowhead when directed), references (dotted) and embedded inner nodes
+ * (solid, in the embedded color, with the filled diamond of containment at the type that owns the
+ * property). A relation line selects its relation, a reference or embed line selects its property.
+ * The layout is layered
  * by inheritance depth with parents above children and siblings ordered by their parents' position;
  * boxes can be dragged and stay where they were put (per database, in local storage) until "Auto
  * layout". Everything is plain SVG: no library, the model is small enough.
@@ -156,7 +160,10 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
       for (const p of b.type.Parents ?? []) if (boxById.has(p)) edges.push({ kind: "inherits", from: b.id, to: p, id: b.id + ">" + p });
       for (const p of Object.values(b.type.Properties)) {
         if ((p.PropertyType === "Reference" || p.PropertyType === "References") && p.NodeTypes) {
-          for (const target of p.NodeTypes) if (boxById.has(target)) edges.push({ kind: "reference", from: b.id, to: target, id: p.Id + ">" + target, label: p.CodeName });
+          for (const target of p.NodeTypes) if (boxById.has(target)) edges.push({ kind: "reference", from: b.id, to: target, id: p.Id + ">" + target, label: p.CodeName, propertyId: p.Id });
+        }
+        if (p.PropertyType === "Embedded" && p.InnerNodeTypes) {
+          for (const target of p.InnerNodeTypes) if (boxById.has(target)) edges.push({ kind: "embeds", from: b.id, to: target, id: p.Id + ">" + target, label: p.CodeName, propertyId: p.Id });
         }
       }
     }
@@ -291,7 +298,7 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
           <IconLayoutGrid size={16} stroke={1.9} />
         </button>
         <span className="muted dm-diagram-legend">
-          <span className="dm-legend-line inherits" /> inherits <span className="dm-legend-line relation" /> relation <span className="dm-legend-line reference" /> reference
+          <span className="dm-legend-line inherits" /> inherits <span className="dm-legend-line relation" /> relation <span className="dm-legend-line reference" /> reference <span className="dm-legend-line embeds" /> embedded
         </span>
       </div>
       <svg ref={svgRef} className="dm-diagram-svg" onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
@@ -307,6 +314,13 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
           </marker>
           <marker id="dm-arrow-reference" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
             <path d="M1 1 L11 6 L1 11 z" className="dm-marker-reference" />
+          </marker>
+          <marker id="dm-arrow-embed" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+            <path d="M1 1 L11 6 L1 11 z" className="dm-marker-embed" />
+          </marker>
+          {/* the filled diamond sits at the owner end, as containment does in UML; the shape is symmetric so orient does not matter */}
+          <marker id="dm-diamond-embed" viewBox="0 0 14 12" refX="0" refY="6" markerWidth="10" markerHeight="9" orient="auto">
+            <path d="M0 6 L7 2 L14 6 L7 10 z" className="dm-marker-embed" />
           </marker>
         </defs>
         <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
@@ -324,10 +338,24 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
             const cls = "dm-edge " + e.kind + (highlighted ? " highlighted" : "") + (dim ? " dim" : "");
             const d = selfLoop ? `M${p1.x} ${p1.y} C ${p1.x + 60} ${p1.y - 10}, ${p2.x + 60} ${p2.y + 10}, ${p2.x} ${p2.y}` : `M${p1.x} ${p1.y} L${p2.x} ${p2.y}`;
             const mid = { x: (p1.x + p2.x) / 2 + (selfLoop ? 45 : 0), y: (p1.y + p2.y) / 2 };
-            const marker = e.kind === "inherits" ? "url(#dm-arrow-inherit)" : e.kind === "reference" ? "url(#dm-arrow-reference)" : e.directed ? "url(#dm-arrow-relation)" : "url(#dm-dot-relation)";
-            const markerStart = e.kind === "relation" && e.symmetric ? "url(#dm-dot-relation)" : undefined;
+            const marker =
+              e.kind === "inherits" ? "url(#dm-arrow-inherit)" : e.kind === "reference" ? "url(#dm-arrow-reference)" : e.kind === "embeds" ? "url(#dm-arrow-embed)" : e.directed ? "url(#dm-arrow-relation)" : "url(#dm-dot-relation)";
+            const markerStart = e.kind === "embeds" ? "url(#dm-diamond-embed)" : e.kind === "relation" && e.symmetric ? "url(#dm-dot-relation)" : undefined;
+            const select =
+              e.kind === "relation"
+                ? () => ctx.select({ kind: "relation", id: e.id.split(":")[0] })
+                : e.kind === "reference" || e.kind === "embeds"
+                  ? () => ctx.select({ kind: "property", id: e.propertyId, typeId: e.from })
+                  : undefined;
             return (
-              <g key={e.id} className={cls} onClick={e.kind === "relation" ? () => ctx.select({ kind: "relation", id: e.id.split(":")[0] }) : undefined}>
+              <g
+                key={e.id}
+                className={cls}
+                // the pan on the svg captures the pointer, and a captured pointer sends the click to
+                // the svg rather than here, so a clickable edge has to keep the pan from starting
+                onPointerDown={select && ((ev) => ev.stopPropagation())}
+                onClick={select}
+              >
                 <path d={d} className="dm-edge-hit" />
                 <path d={d} className="dm-edge-line" markerEnd={marker} markerStart={markerStart} />
                 {e.kind !== "inherits" && (
@@ -341,18 +369,33 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
           {boxes.map((b) => {
             const color = ctx.colors.get(b.type.DatamodelSourceId) ?? "#888";
             const kind = kindMeta[b.type.ModelType] ?? kindMeta.Class;
+            // the header holds the kind, an "inner" badge when the type only exists embedded, and
+            // the name; the name takes what the other two leave, so it never runs into them
+            const kindWidth = 12 + kind.label.length * 6.6;
+            const badgeX = kindWidth + 8;
+            const badgeWidth = b.type.IsInnerNode ? 36 : 0;
+            const titleChars = Math.max(6, Math.floor((b.w - 10 - badgeX - badgeWidth - 8) / 7.2));
             const selected = selectedType === b.id;
             const match = q && (b.type.CodeName.toLowerCase().includes(q) || b.rows.some((r) => r.name.toLowerCase().includes(q)));
             const dim = q && !match;
             return (
-              <g key={b.id} transform={`translate(${b.x} ${b.y})`} className={"dm-node" + (b.ghost ? " ghost" : "") + (selected ? " selected" : "") + (dim ? " dim" : "")} onPointerDown={(e) => onNodePointerDown(e, b)}>
+              <g key={b.id} transform={`translate(${b.x} ${b.y})`} className={"dm-node" + (b.type.IsInnerNode ? " inner" : "") + (b.ghost ? " ghost" : "") + (selected ? " selected" : "") + (dim ? " dim" : "")} onPointerDown={(e) => onNodePointerDown(e, b)}>
                 <rect width={b.w} height={b.h} rx={8} className="dm-node-body" />
                 <path d={`M0 8 a8 8 0 0 1 8 -8 h${b.w - 16} a8 8 0 0 1 8 8 v${headerHeight - 8} h-${b.w} z`} fill={color} className="dm-node-head" />
                 <text x={12} y={headerHeight / 2 + 4.5} className="dm-node-kind" fill="#fff" opacity={0.85}>
                   {kind.label}
                 </text>
+                {b.type.IsInnerNode && (
+                  <g className="dm-node-badge">
+                    <title>Only exists embedded inside another node</title>
+                    <rect x={badgeX} y={6} width={badgeWidth} height={headerHeight - 12} rx={5} />
+                    <text x={badgeX + badgeWidth / 2} y={headerHeight / 2 + 3.5} textAnchor="middle">
+                      inner
+                    </text>
+                  </g>
+                )}
                 <text x={b.w - 10} y={headerHeight / 2 + 4.5} className="dm-node-title" textAnchor="end" fill="#fff">
-                  {b.type.CodeName.length > 24 ? b.type.CodeName.slice(0, 23) + "…" : b.type.CodeName}
+                  {b.type.CodeName.length > titleChars ? b.type.CodeName.slice(0, titleChars - 1) + "…" : b.type.CodeName}
                 </text>
                 {b.rows.map((r, i) => (
                   <g
@@ -391,7 +434,7 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
           </text>
         )}
       </svg>
-      <style>{`.dm-marker-relation{fill:${relationColor}}`}</style>
+      <style>{`.dm-marker-relation{fill:${relationColor}}.dm-marker-embed{fill:${embeddedColor}}`}</style>
     </div>
   );
 }

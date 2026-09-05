@@ -1,4 +1,4 @@
-﻿using Relatude.DB.DataStores;
+using Relatude.DB.DataStores;
 
 namespace Relatude.DB.NodeServer.Settings;
 
@@ -44,6 +44,10 @@ public sealed class SettingDefinition {
     public SettingSuggestion[]? Suggestions { get; init; }
     /// <summary>Shown after the input, e.g. "GB", "minutes".</summary>
     public string? Unit { get; init; }
+    /// <summary>Overrides the editor the property's type asks for, where the type does not say
+    /// everything - a string holding a colour. Only <see cref="SettingEditor.Color"/> so far; leave it
+    /// unset and the editor follows the type, which is what nearly every setting wants.</summary>
+    public SettingEditor? Editor { get; init; }
     /// <summary>Offers a button that fills the field with a freshly made value, for a setting whose
     /// value should be random rather than chosen - a signing key, a token secret. The one kind so far
     /// is <see cref="SettingGenerators.Guid"/>. The button only fills the field; saving is still a
@@ -74,7 +78,10 @@ public sealed class SettingSuggestion {
 public sealed class SettingVisibility {
     /// <summary>The sibling field, by the same relative path the fields use.</summary>
     public required string Path { get; init; }
+    /// <summary>The sibling's values that show the field: enum member names, or "true"/"false" for a boolean sibling.</summary>
     public required string[] Values { get; init; }
+    /// <summary>A further condition that must hold as well, for a field that depends on two siblings (a text file source's format only matters for text files).</summary>
+    public SettingVisibility? And { get; init; }
 }
 
 /// <summary>
@@ -327,69 +334,73 @@ public static class SettingsCatalog {
                         EmptyHelp = "No model source is configured, so this database only has the types application code registers itself. "
                             + "Without either it has no model, and everything stored in it is a bare node.",
                         // an assembly namespace: the code first case, and the only kind needing nothing on disk
-                        NewItem = new() { ["Name"] = "New model source", ["Type"] = "AssemblyNameReference", ["Enabled"] = "false" },
+                        NewItem = new() { ["Name"] = "New model source", ["Type"] = "TypeReference", ["Enabled"] = "false" },
                         Fields = [
                             new() {
                                 Path = "Name", Label = "Name",
                                 Help = "What this source is called here and in the error message when it fails to load. A label only - the model refers to it by id.",
                             },
                             new() {
-                                Path = "Enabled", Label = "Loaded",
+                                Path = "Enabled", Label = "Enable",
                                 Help = "Off skips the source entirely: its types leave the model at the next open, and nodes stored under them come back without the properties those types declared. It is how a source is taken out of the model without losing what it says.",
                             },
                             new() {
                                 Path = "Type", Label = "Kind", ExcludedChoices = ["Code"],
-                                Help = "Where the types are read from. An assembly namespace or a single type name uses classes compiled into the application. C# files are compiled while the database opens, so the model can change without rebuilding. JSON files hold the model itself, but every type in one still needs a plain backing class in the application for queries to map onto.",
+                                Help = "Where the types are read from. A type reference uses classes compiled into the application: an assembly and the namespace holding the model classes. Text files are read from disk when the database opens, so the model can change without rebuilding: C# files are compiled on the spot, JSON files hold the model itself (but every type in one still needs a plain backing class in the application for queries to map onto).",
                             },
                             new() {
-                                Path = "Reference", Label = "Assembly", Placeholder = "the entry assembly",
-                                VisibleWhen = new() { Path = "Type", Values = ["AssemblyNameReference"] },
-                                Help = "The assembly holding the model classes, by name and without \".dll\". Empty uses the application's own entry assembly. The assembly has to be referenced by, or copied next to, the application - naming one that is not there fails when the database opens.",
+                                Path = "FileFormat", Label = "File format",
+                                VisibleWhen = new() { Path = "Type", Values = ["TextFiles"] },
+                                Help = "What the files hold. C# code is compiled while the database opens and the classes become the model, attributes and all. JSON is the model itself in the same form the data model editor exports, with no code involved - each type then needs a plain class of the same name in the application for typed queries.",
+                            },
+                            new() {
+                                Path = "Reference", Label = "Assembly", Placeholder = "Current project",
+                                VisibleWhen = new() { Path = "Type", Values = ["TypeReference"] },
+                                Help = "The assembly holding the model classes, by name and without \".dll\". Empty is the current project: the assembly the application runs as. The assembly has to be referenced by, or copied next to, the application - naming one that is not there fails when the database opens. The data model editor can scan the running application for the assemblies it can see.",
                             },
                             new() {
                                 Path = "Namespace", Label = "Namespace", Placeholder = "MyApp.Models",
-                                VisibleWhen = new() { Path = "Type", Values = ["AssemblyNameReference"] },
-                                Help = "The namespace the model classes live in. Required, and everything in it and under it is added. A namespace that holds no model types is loaded as an empty source, so a source can be configured before its first type exists - the database opens and notes it in the log, which is also where a typo shows up.",
+                                VisibleWhen = new() { Path = "Type", Values = ["TypeReference"] },
+                                Help = "The namespace the model classes live in. Required. One namespace, or a pattern where * stands for any run of characters: \"MyApp.Models.*\" takes MyApp.Models and every namespace under it, \"MyApp.*.Models\" takes MyApp.Web.Models and MyApp.Api.Models. A namespace that holds no model types is loaded as an empty source, so a source can be configured before its first type exists - the database opens and notes it in the log, which is also where a typo shows up.",
                             },
                             new() {
-                                Path = "Reference", Label = "Type name", Placeholder = "MyApp.Models.Person, MyApp",
-                                VisibleWhen = new() { Path = "Type", Values = ["TypeNameReference"] },
-                                Help = "One model class by its full name, assembly qualified unless it lives in the entry assembly. The types it refers to are pulled in with it, so this is how to add a single class rather than a whole namespace.",
+                                Path = "GenerateModelFile", Label = "Generate source code",
+                                VisibleWhen = new() { Path = "Type", Values = ["TypeReference"] },
+                                Help = "Lets the data model editor write the model as C# files into a folder of the project, named below. When a model is activated, every file in that folder is deleted and one file per node type and relation is generated in its place, each starting with a comment saying it is generated and will be overwritten. Files in the folder without that comment are listed before the activation, which goes ahead only when they are given up. The application then has to be rebuilt and restarted before the change takes effect. Off, the source is shown read only in the editor.",
                             },
                             new() {
-                                Path = "SourceCodePath", Label = "Source code folder", Placeholder = "read only in the editor",
-                                VisibleWhen = new() { Path = "Type", Values = ["AssemblyNameReference", "TypeNameReference"] },
-                                Help = "The folder holding the C# files these model classes are written in, relative to the folder holding this settings file unless rooted. With it set, the data model editor can write a changed model back into those files - the application then has to be rebuilt and restarted before the change takes effect. Without it the source is shown read only in the editor.",
+                                Path = "SourceCodePath", Label = "Source code folder", Placeholder = "Models",
+                                VisibleWhen = new() { Path = "GenerateModelFile", Values = ["true"], And = new() { Path = "Type", Values = ["TypeReference"] } },
+                                Help = "The folder the generated C# files go into, relative to the folder holding this settings file unless rooted. It has to be inside the project that builds the assembly above, so the generated classes are compiled into it.",
                             },
                             new() {
                                 Path = "Filepath", Label = "C# file or folder", Placeholder = "Models/CSharp",
-                                VisibleWhen = new() { Path = "Type", Values = ["CSharpCodeFile"] },
+                                VisibleWhen = new() { Path = "FileFormat", Values = ["CSharpCode"], And = new() { Path = "Type", Values = ["TextFiles"] } },
                                 Help = "A .cs file, or a folder whose .cs files are compiled together as one assembly (bin and obj are skipped). Relative paths resolve against the folder holding this settings file. Empty uses \"Models/CSharp\". A folder that is empty, or not there yet, loads as an empty source and is created when the data model editor writes the first type into it.",
                             },
                             new() {
                                 Path = "Namespace", Label = "Namespace filter", Placeholder = "every namespace",
-                                VisibleWhen = new() { Path = "Type", Values = ["CSharpCodeFile"] },
+                                VisibleWhen = new() { Path = "Type", Values = ["TextFiles"], And = new() { Path = "FileFormat", Values = ["CSharpCode"] } },
                                 Help = "Limits what is taken from the compiled files to one namespace. Empty adds every top level class in them, which is what a folder written for this database alone usually wants.",
                             },
                             new() {
                                 Path = "Filepath", Label = "JSON file or folder", Placeholder = "Models/Json",
-                                VisibleWhen = new() { Path = "Type", Values = ["JsonFile"] },
+                                VisibleWhen = new() { Path = "FileFormat", Values = ["Json"], And = new() { Path = "Type", Values = ["TextFiles"] } },
                                 Help = "A .json model file, or a folder whose .json files are all loaded. Relative paths resolve against the folder holding this settings file, and empty uses \"Models/Json\". A folder that is empty, or not there yet, loads as an empty source and is created when the data model editor writes the first type into it. Ignored when a storage provider is named below.",
                             },
                             new() {
                                 Path = "FileIO", Label = "Read through provider", Picker = "ioProviders",
-                                VisibleWhen = new() { Path = "Type", Values = ["JsonFile"] },
+                                VisibleWhen = new() { Path = "Type", Values = ["TextFiles"], And = new() { Path = "FileFormat", Values = ["Json"] } },
                                 Help = "Reads the model from one of the storage providers instead of from the file system, which is how a model kept in blob storage is loaded. Setting it takes over from the path above and makes the file name below the one that is read.",
                             },
                             new() {
                                 Path = "Reference", Label = "File name",
-                                VisibleWhen = new() { Path = "Type", Values = ["JsonFile"] },
+                                VisibleWhen = new() { Path = "Type", Values = ["TextFiles"], And = new() { Path = "FileFormat", Values = ["Json"] } },
                                 Help = "The model file to read from the storage provider above. Only used when a provider is set - the path above is what names the file otherwise.",
                             },
                             new() {
-                                Path = "AutoDeduceRelations", Label = "Node properties become relations",
-                                VisibleWhen = new() { Path = "Type", Values = ["AssemblyNameReference", "TypeNameReference", "CSharpCodeFile"] },
-                                Help = "Turns a plain property whose type is another node - or a collection of them - into an automatically created relation, the way earlier versions did. Off, such a property becomes a Reference or References property stored on the node itself. The two keep the links in different places, so this is a decision to make before there is content rather than after.",
+                                Path = "Color", Label = "Colour", Editor = SettingEditor.Color, Applies = SettingApplies.Live,
+                                Help = "The colour the admin UI marks this source's types and relations with, wherever they are listed: the data model editor, the dashboard's content panel, the query page's type picker. Any CSS colour, and empty takes one from a palette by the source's position in the list - which is what every source did before there was anything to set here.",
                             },
                             new() {
                                 Path = "Id", Label = "Source id", ReadOnly = true,

@@ -24,16 +24,18 @@
   --revert: #7a3fb0;
   --revert-soft: rgba(122, 63, 176, 0.12);
   --badge-bg: rgba(0, 0, 0, 0.07);
+  /* a word a search matched, marked in the text it was found in */
+  --mark-soft: rgba(226, 178, 42, 0.38);
   --backdrop-ink: #1d1c1a;
   --backdrop-opacity: 0.16;
-  /* what a machine wrote, shown as the machine wrote it: an ink ground in BOTH themes, because a
-     terminal that turns into a white box in the light theme stops reading as one */
-  --term-bg: #1b1a18;
-  --term-text: #d8d5cf;
-  --term-dim: #837f78;
-  --term-ok: #7fc08f;
-  --term-warn: #e0a45c;
-  --term-bad: #f2887f;
+  /* what a machine wrote, shown as the machine wrote it: paper-bright with dark ink in the light
+     theme, the border keeping it apart from the panel; deepest-on-the-page in the dark theme */
+  --term-bg: #ffffff;
+  --term-text: #1f1e1c;
+  --term-dim: #7d7973;
+  --term-ok: #24803f;
+  --term-warn: #9a5f08;
+  --term-bad: #b93327;
 }
 
 [data-theme="dark"] {
@@ -58,6 +60,7 @@
   --revert: #c49bf0;
   --revert-soft: rgba(196, 155, 240, 0.16);
   --badge-bg: rgba(255, 255, 255, 0.09);
+  --mark-soft: rgba(226, 178, 42, 0.30);
   --backdrop-ink: #a8cdf2;
   --backdrop-opacity: 0.18;
   /* a shade under the panel rather than over it: in the dark theme the terminal is the deepest
@@ -1661,8 +1664,8 @@ a {
 
 .files-body {
   display: grid;
-  grid-template-columns: 260px 1fr;
-  gap: 16px;
+  grid-template-columns: 260px 14px 1fr;
+  gap: 0;
   flex: 1;
   min-height: 0;
 }
@@ -1689,9 +1692,13 @@ a {
   color: var(--accent);
 }
 
-/* the database's own data folders: the coloured folder is the marking, the notice explains it */
-.tree-row.primary-data .tree-label svg {
-  color: var(--data);
+/* the database's own data folders: the outline every folder has, filled with a wash of the same
+   colour, so the marking is a shape rather than a hue and follows the row's own colour. The first
+   path of a Tabler outline icon is its transparent 24x24 bounding box - filling that would paint a
+   solid square, hence the :not() */
+.tree-label .folder-data path:not([fill="none"]) {
+  fill: currentColor;
+  fill-opacity: 0.25;
 }
 
 .tree-chevron {
@@ -2049,6 +2056,8 @@ a.action-button {
 
 .dialog-choice .muted {
   font-size: 12px;
+  /* hints carry file paths; they wrap rather than run off the edge of the dialog */
+  overflow-wrap: anywhere;
 }
 
 .dialog-confirm.danger {
@@ -3963,7 +3972,7 @@ a.action-button {
 }
 
 .term-line.clickable:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--hover);
 }
 
 .term-time {
@@ -4187,17 +4196,99 @@ body.pg-resizing {
 }
 
 /* what the database is doing this second */
+/* the middle of the panel: the running work, scrolling when there is more than the row has room for */
 .dash-now {
   font-size: 12px;
   margin-bottom: 12px;
+  overflow-y: auto;
+  min-height: 0;
 }
 
+/* one row per running activity: a category of a fixed width, so the descriptions line up under
+   each other; the percentage in a column of its own on the right; and, when the work reports how
+   far it is, a bar under the description. A row fades in as it appears and out as it finishes. */
 .dash-activity {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 44px;
-  gap: 8px;
+  grid-template-columns: 96px minmax(0, 1fr) 40px;
+  column-gap: 10px;
+  row-gap: 3px;
   align-items: center;
-  padding: 3px 0;
+  padding: 4px 0;
+  animation: dash-enter 0.35s ease both;
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s ease;
+}
+
+.dash-activity.leaving {
+  opacity: 0;
+  transform: translateY(-3px);
+  pointer-events: none;
+}
+
+@keyframes dash-enter {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+.dash-activity-cat {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.dash-activity-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-activity-pct {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+/* the bar is drawn in lines and carries no colour: a hairline track, a heavier line for the part done */
+.dash-progress {
+  grid-column: 2 / span 2;
+  position: relative;
+  display: block;
+  height: 3px;
+  border-top: 1px solid var(--border);
+}
+
+.dash-progress-fill {
+  position: absolute;
+  top: -1px;
+  left: 0;
+  height: 0;
+  border-top: 2px solid var(--text-muted);
+  transition: width 0.6s ease;
+}
+
+/* the idle line stays in the flow and fades, so the panel does not jump when work starts */
+.dash-now-idle {
+  padding: 4px 0;
+  transition: opacity 0.4s ease;
+}
+
+.dash-now-idle.gone {
+  opacity: 0;
+  height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* the counts sit at the foot of the panel, whatever is running above them */
+.dash-now-facts {
+  grid-template-columns: repeat(2, 1fr);
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
 }
 
 .dash-types {
@@ -4751,6 +4842,36 @@ body.pg-resizing {
   margin-left: auto;
   font-size: 11px;
   color: var(--text-faint);
+}
+
+/* the line that says why a hit matched: the property that held the searched words, sampled around
+   them. It wraps where the summary line below it does not - a snippet cut off at the right edge
+   would usually lose the very word it exists to show - and stops at two lines */
+.query-hit-snippet {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-soft);
+  overflow: hidden;
+}
+
+.query-hit-snippet em {
+  font-style: normal;
+  color: var(--text-faint);
+}
+
+/* a word the search matched. The weight carries the marking on its own, so it survives a greyscale
+   screenshot and a reader who cannot pick the wash out of the row it sits on (a selected row is
+   already accent-soft, which is why the wash is not the accent) */
+.query-hit mark {
+  padding: 0 1px;
+  color: inherit;
+  font-weight: 600;
+  background: var(--mark-soft);
+  border-radius: 3px;
 }
 
 .query-hit-summary {
@@ -5718,4 +5839,932 @@ body.pg-resizing {
   color: var(--text-muted);
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/* ---- files: viewer panel, rename and code editor ---- */
+
+/* the row is the click target for the viewer; its own controls stop the click */
+.file-row:not(.file-head) {
+  cursor: default;
+}
+
+.file-row:not(.file-head):hover {
+  background: var(--hover);
+}
+
+.file-row.selected:hover {
+  background: var(--accent-soft);
+}
+
+.file-row.viewing .file-name {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.file-row.viewing .file-name svg {
+  color: var(--accent);
+}
+
+/* rename and download, at the end of the row */
+.file-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+/* the name keeps a minimum and the type gives way first: the viewer panel takes width from the list */
+.file-row {
+  grid-template-columns: 24px minmax(140px, 1.6fr) minmax(0, 1fr) 72px minmax(0, 150px) 56px;
+}
+
+/* the rows never grow past the panel: a narrow list loses the type and the date, not the name */
+.file-table {
+  overflow-x: hidden;
+}
+
+.file-row > .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the website project folder: the application's files, marked in the accent rather than the data colour */
+.files-notice.project {
+  background: var(--accent-soft);
+}
+
+.files-notice.project svg,
+.files-notice.project b {
+  color: var(--accent);
+}
+
+/* the dividers are the dashboard's (.pg-bar): while one is dragged an <iframe> or a <video> in the
+   viewer would swallow the mouse, and a text selection would follow the drag */
+.files-body.resizing .files-viewer {
+  pointer-events: none;
+}
+
+.files-body.resizing {
+  user-select: none;
+}
+
+.files-viewer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.viewer-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.viewer-head .viewer-icon {
+  flex: none;
+  color: var(--text-faint);
+}
+
+.viewer-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-right: 4px;
+}
+
+.viewer-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viewer-dirty {
+  margin-left: 6px;
+  color: var(--accent);
+  font-size: 10px;
+  vertical-align: middle;
+}
+
+.viewer-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.viewer-head .icon-button {
+  flex: none;
+}
+
+.viewer-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.viewer-media {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  overflow: auto;
+}
+
+/* a checkerboard under images, so transparency and white edges show */
+.viewer-media.checker {
+  background-color: var(--bg);
+  background-image: repeating-conic-gradient(var(--hover) 0 25%, transparent 0 50%);
+  background-size: 16px 16px;
+}
+
+.viewer-media img,
+.viewer-media video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+
+.viewer-media audio {
+  width: 100%;
+  max-width: 480px;
+}
+
+.viewer-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: var(--bg);
+}
+
+.viewer-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.viewer-empty svg {
+  color: var(--text-faint);
+}
+
+.viewer-warning {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--data);
+  background: var(--data-soft);
+}
+
+.viewer-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 11.5px;
+  border-top: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.viewer-ok {
+  color: var(--ok);
+}
+
+.viewer-error {
+  color: var(--danger);
+}
+
+/* what the linter found, one line each; clicking one moves the caret there */
+.viewer-issues {
+  max-height: 110px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.viewer-issue {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  padding: 3px 12px;
+  color: var(--danger);
+  text-align: left;
+}
+
+.viewer-issue:hover {
+  background: var(--hover);
+}
+
+.viewer-issue .ln {
+  flex: none;
+  min-width: 34px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* the prompt dialog's field */
+.dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 4px 0 12px;
+  font-size: 12px;
+}
+
+.dialog-field .text-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.dialog-error {
+  color: var(--danger);
+}
+
+/* ---- code editor ----
+   a transparent textarea over a coloured <pre>, same font and metrics, in one scrolling box with
+   the line numbers in a sticky gutter to the left */
+
+:root {
+  --code-font: 12.5px/20px ui-monospace, "Cascadia Code", "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+  --tok-k: #a626a4;
+  --tok-s: #50a14f;
+  --tok-n: #986801;
+  --tok-c: #9a9a9a;
+  --tok-t: #e45649;
+  --tok-a: #986801;
+  --tok-p: #4078f2;
+  --tok-f: #4078f2;
+  --tok-o: #6f6c66;
+  --tok-v: #0184bc;
+  --tok-e: #0184bc;
+  --code-issue-bg: rgba(179, 38, 30, 0.1);
+}
+
+[data-theme="dark"] {
+  --tok-k: #c678dd;
+  --tok-s: #98c379;
+  --tok-n: #d19a66;
+  --tok-c: #7f848e;
+  --tok-t: #e06c75;
+  --tok-a: #d19a66;
+  --tok-p: #61afef;
+  --tok-f: #61afef;
+  --tok-o: #9b9892;
+  --tok-v: #56b6c2;
+  --tok-e: #56b6c2;
+  --code-issue-bg: rgba(242, 136, 127, 0.14);
+}
+
+.code-editor {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
+  overflow: auto;
+  font: var(--code-font);
+  tab-size: 2;
+  color: var(--term-text);
+  background: var(--term-bg);
+}
+
+.code-gutter {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-height: 100%;
+  padding: 8px 8px 8px 10px;
+  text-align: right;
+  color: var(--text-faint);
+  background: var(--term-bg);
+  border-right: 1px solid var(--border);
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.code-ln {
+  height: 20px;
+  padding: 0 2px;
+  border-radius: 3px;
+}
+
+.code-ln.has-issue {
+  color: var(--danger);
+  font-weight: 600;
+  background: var(--code-issue-bg);
+}
+
+.code-area {
+  position: relative;
+  min-width: 100%;
+  min-height: 100%;
+}
+
+.code-pre,
+.code-input {
+  margin: 0;
+  padding: 8px 14px 8px 12px;
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  tab-size: inherit;
+  white-space: pre;
+  word-wrap: normal;
+  overflow-wrap: normal;
+  box-sizing: border-box;
+}
+
+.code-pre {
+  pointer-events: none;
+  min-height: 100%;
+}
+
+.code-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  border: 0;
+  outline: 0;
+  overflow: hidden;
+  background: transparent;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: var(--term-text);
+}
+
+.code-input::selection {
+  background: var(--accent-soft);
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.code-input:read-only {
+  caret-color: transparent;
+}
+
+.tok-k {
+  color: var(--tok-k);
+}
+.tok-s {
+  color: var(--tok-s);
+}
+.tok-n {
+  color: var(--tok-n);
+}
+.tok-c {
+  color: var(--tok-c);
+  font-style: italic;
+}
+.tok-t {
+  color: var(--tok-t);
+}
+.tok-a {
+  color: var(--tok-a);
+}
+.tok-p {
+  color: var(--tok-p);
+}
+.tok-f {
+  color: var(--tok-f);
+}
+.tok-o {
+  color: var(--tok-o);
+}
+.tok-v {
+  color: var(--tok-v);
+}
+.tok-e {
+  color: var(--tok-e);
+}
+.tok-h {
+  color: var(--tok-p);
+  font-weight: 700;
+}
+
+/* ---- files: sorting, selection, compact list ---- */
+
+/* a column heading that sorts: inherits the head row's small caps look */
+.file-sort {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.file-sort.num {
+  justify-content: flex-end;
+}
+
+.file-sort:hover,
+.file-sort.active {
+  color: var(--text-soft);
+}
+
+.file-sort svg {
+  flex: none;
+}
+
+/* with the viewer open the list is narrow: name and size only */
+.file-table.compact .file-row {
+  grid-template-columns: 24px minmax(100px, 1fr) 64px 56px;
+}
+
+/* ticking folders in the tree, for deleting several at once */
+.tree-check {
+  flex: none;
+  margin: 0 3px 0 1px;
+}
+
+.tree-row.ticked {
+  background: var(--accent-soft);
+}
+
+.files-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 12px;
+  color: var(--text-faint);
+}
+
+/* ---- query tabs, modes and the select mode's columns ---- */
+
+/* one tab per open query; the strip reuses the generic tab look, with a close on each and an add at the end */
+.query-tabs {
+  align-items: center;
+  gap: 2px;
+}
+
+.query-tabs .tab {
+  gap: 8px;
+  padding: 5px 8px 7px 12px;
+  max-width: 260px;
+  cursor: pointer;
+}
+
+.query-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* a name made from the query itself is quieter than one somebody typed */
+.query-tabs .tab.auto-named .query-tab-name {
+  font-weight: 500;
+}
+
+.query-tabs .tab .icon-button {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  opacity: 0;
+}
+
+.query-tabs .tab:hover .icon-button,
+.query-tabs .tab.active .icon-button,
+.query-tabs .tab .icon-button:focus-visible {
+  opacity: 1;
+}
+
+.query-tabs .tab-rename {
+  width: 160px;
+  padding: 1px 4px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  outline: none;
+}
+
+.query-tabs-add {
+  margin-left: 4px;
+  margin-bottom: 1px;
+}
+
+/* the segmented switches carry a name beside the icon: what a query is and how it is shown is read, not guessed */
+.query-view button {
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.query-view button + button {
+  border-left: 1px solid var(--border);
+}
+
+/* the columns of the select mode, chosen one at a time */
+.query-columns {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.query-columns .pivot-builder-label {
+  margin-right: 4px;
+}
+
+.query-column {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 8px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.query-column .icon-button {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+}
+
+.query-column-type {
+  color: var(--text-faint);
+}
+
+/* ---- bar chart ---- */
+
+/* the categorical palette, stepped for each surface (see the dataviz reference palette) */
+:root {
+  --viz-1: #2a78d6;
+  --viz-2: #eb6834;
+  --viz-3: #1baf7a;
+  --viz-4: #eda100;
+  --viz-5: #e87ba4;
+  --viz-6: #008300;
+  --viz-7: #4a3aa7;
+  --viz-8: #e34948;
+}
+
+[data-theme="dark"] {
+  --viz-1: #3987e5;
+  --viz-2: #d95926;
+  --viz-3: #199e70;
+  --viz-4: #c98500;
+  --viz-5: #d55181;
+  --viz-6: #008300;
+  --viz-7: #9085e9;
+  --viz-8: #e66767;
+}
+
+.bar-chart {
+  --bar-label-width: 200px;
+  --bar-value-room: 64px; /* the tip label of the longest bar has to land somewhere */
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 4px 12px;
+  font-size: 12px;
+}
+
+.bar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding: 0 0 8px var(--bar-label-width);
+  color: var(--text-muted);
+}
+
+.bar-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.bar-axis,
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bar-label {
+  flex: none;
+  width: var(--bar-label-width);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  color: var(--text-muted);
+}
+
+.bar-area {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  margin-right: var(--bar-value-room);
+  display: flex;
+  flex-direction: column;
+  gap: 2px; /* the surface between two bars of a band is what separates them - no strokes */
+  padding: 3px 0;
+}
+
+.bar-axis .bar-area {
+  height: 18px;
+  padding: 0;
+}
+
+.bar-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.bar-grid {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+  pointer-events: none;
+}
+
+.bar-grid.zero {
+  background: var(--text-faint);
+}
+
+.bar-slot {
+  position: relative;
+  display: block;
+  height: var(--bar-thickness);
+}
+
+.bar {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  min-width: 1px;
+  border-radius: 0 4px 4px 0; /* rounded at the data end, square at the baseline */
+  transition: width 0.15s ease;
+}
+
+.bar.negative {
+  border-radius: 4px 0 0 4px;
+}
+
+.bar:hover {
+  filter: brightness(1.12);
+}
+
+.bar:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.bar-value {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  padding-left: 6px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.bar-value.negative {
+  padding-left: 0;
+  padding-right: 6px;
+}
+
+.bar-rows {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* how a summary is shown, beside its head */
+.pivot-head .query-view {
+  margin-left: 4px;
+}
+
+.pivot-note {
+  padding: 12px 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* an icon that turns while what it stands for is running */
+.spinning {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* the chart's second series: another colour, its own axis on the right, no fill under it */
+.chart-line-overlay {
+  stroke: var(--viz-2);
+}
+
+.chart-point-overlay {
+  fill: var(--viz-2);
+}
+
+.chart-axis-overlay {
+  fill: var(--viz-2);
+}
+
+.chart-swatch-overlay {
+  background: var(--viz-2);
+}
+
+/* ---- storage groups ---- */
+
+/* the storage page in four named parts, each a heading, a line of what it is for, and its panels */
+.storage-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.storage-group + .storage-group {
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.storage-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 2px;
+  color: var(--text);
+}
+
+.storage-group-head svg {
+  align-self: center;
+  color: var(--text-muted);
+}
+
+.storage-group-head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.storage-group-head .muted {
+  font-size: 12px;
+}
+
+/* two panels of the same weight share the row equally; the backups list keeps its wide column */
+.overview-columns.even {
+  grid-template-columns: 1fr 1fr;
+}
+
+/* the switch on the dashboard's state tile: top right, out of the way of the number */
+.dash-tile {
+  position: relative;
+}
+
+.dash-tile-action {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+}
+
+/* ---- picking a colour (ColorField): a source's colour in the settings and in the model editor ---- */
+
+.color-field {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* the colour in force, and the way to the system picker: the native input fills the swatch and is
+   invisible, so the swatch itself is what is clicked and can show any CSS colour the well cannot */
+.color-current {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.color-current input[type="color"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.color-field.off .color-current input[type="color"] {
+  cursor: default;
+}
+
+/* nothing is set: the swatch shows what the colour would be, the corner says it was not chosen */
+.color-auto-mark {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, transparent 58%, var(--panel) 58%, var(--panel) 72%, transparent 72%);
+  pointer-events: none;
+}
+
+/* the field keeps its size next to the swatch and the palette; the palette wraps instead of it
+   being squeezed to nothing (a settings row stretches its text inputs to fill the row) */
+.color-field .color-text {
+  width: 110px;
+  flex: none;
+}
+
+.setting-control .color-field {
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.color-swatches {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.color-swatch {
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.color-swatch:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.color-swatch.on {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+
+/* back to automatic: no colour of its own to show, so it is drawn as an empty slot */
+.color-swatch.auto {
+  background: repeating-linear-gradient(135deg, var(--panel), var(--panel) 3px, var(--border) 3px, var(--border) 6px);
 }

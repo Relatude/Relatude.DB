@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { IconAlertTriangle, IconChartDonut, IconChartTreemap, IconEraser, IconLayoutList, IconPlayerPlayFilled, IconRecycle, IconRefresh } from "@tabler/icons-react";
+import { IconAlertTriangle, IconChartDonut, IconChartTreemap, IconEraser, IconLayoutList, IconPlayerPlayFilled, IconPlayerStopFilled, IconRecycle, IconRefresh } from "@tabler/icons-react";
 import { Chart } from "./Chart";
+import { ProcessChart, currentCpu, formatPercent, padToWindow, type ProcessSample } from "./ProcessChart";
 import { PanelGrid, type PanelRow } from "./PanelGrid";
 import { TypeChart, shade, type TypeChartShape, type TypeSlice } from "./TypeChart";
 import { showConfirm, showError, showInfo } from "../dialogs";
 import { clearCaches, fetchDashboard, fetchDashboardLive, type DashboardInfo, type DashboardLive, type TypeCount } from "../server/dashboard";
 import { codeSourceGuid, sourceColors } from "../server/datamodel";
 import { fetchTrace, type TraceInfo } from "../server/logs";
-import { useMeasuredEvery, usePoll } from "../refresh";
+import { useMeasuredEvery, usePoll, useRefreshInterval } from "../refresh";
 import { collectGarbage } from "../server/overview";
-import { openStore } from "../server/storage";
+import { closeStore, openStore } from "../server/storage";
 import type { DatabaseInfo } from "../server/serverInfo";
 import type { SeriesPoint } from "../server/logs";
 import { formatBytes, formatCount, formatDuration, formatTime } from "../format";
@@ -32,15 +33,12 @@ const infoIntervalMs = 60000;
 // three minutes of history at the default rate: enough to see a burst arrive and drain
 const maxSamples = 90;
 
-interface Sample {
-  at: number;
-  iso: string;
+/** A reading of the counters, taken together with one of the process (see ProcessChart). */
+interface Sample extends ProcessSample {
   queries: number;
   transactions: number;
   actions: number;
   nodeReads: number;
-  managedMemory: number;
-  processMemory: number;
 }
 
 /**
@@ -55,7 +53,7 @@ const metrics = [
   { id: "transactions", label: "Transactions", kind: "rate", unit: "transactions/s" },
   { id: "actions", label: "Actions", kind: "rate", unit: "actions/s" },
   { id: "nodeReads", label: "Node reads", kind: "rate", unit: "reads/s" },
-  { id: "managedMemory", label: "Memory", kind: "level", unit: "in the managed heap" },
+  { id: "managedMemory", label: "Memory & CPU", kind: "level", unit: "in the managed heap" },
 ] as const;
 
 type MetricId = (typeof metrics)[number]["id"];
@@ -72,6 +70,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   const samples = useRef<Sample[]>([]);
   const [, setSampleTick] = useState(0);
   const measuredEvery = useMeasuredEvery();
+  const refreshMs = useRefreshInterval();
 
   const loadInfo = useCallback(async () => {
     try {
@@ -109,6 +108,8 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
             nodeReads: sample.nodeReads ?? 0,
             managedMemory: sample.managedMemory ?? 0,
             processMemory: sample.processMemory ?? 0,
+            processorTimeMs: sample.processorTimeMs ?? 0,
+            processorCount: sample.processorCount ?? 1,
           },
         ].slice(-maxSamples);
         setSampleTick((t) => t + 1);
@@ -129,6 +130,11 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   }, [loadTrace]);
   usePoll(loadTrace);
 
+  // the running activities, with the ones that just finished kept a moment longer so they fade out
+  // instead of vanishing between two samples (a hook, so it sits here with the others, before the
+  // early returns below)
+  const running = useLeaving(live?.activities ?? [], activityKey, 450);
+
   async function onOpen() {
     setOpenBusy(true);
     try {
@@ -136,6 +142,27 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
       await loadInfo();
     } catch (e) {
       showError("Could not open the database", e instanceof Error ? e.message : String(e));
+    } finally {
+      setOpenBusy(false);
+    }
+  }
+
+  // closing is the one thing on this page that takes the database away from whoever is using it,
+  // so it is asked about first (see confirm-dialogs rule) - and never a second click on the same spot
+  async function onClose() {
+    const choice = await showConfirm(
+      "Close the database?",
+      "Every index is flushed and the file is released. Nothing is lost, but nothing is served from this database until it is opened again - which replays the log and takes a while on a large one.",
+      { confirmLabel: "Close", danger: true },
+    );
+    if (!choice.ok) return;
+    setOpenBusy(true);
+    try {
+      await closeStore(db.id);
+      samples.current = []; // the counters start over with the next open
+      await loadInfo();
+    } catch (e) {
+      showError("Could not close the database", e instanceof Error ? e.message : String(e));
     } finally {
       setOpenBusy(false);
     }
@@ -195,8 +222,13 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   const totalDisk = info.files.database + info.files.state + info.files.logs + info.files.backups + info.files.secondary;
   const chosen = metrics.find((m) => m.id === metric)!;
   const level = chosen.kind === "level";
-  const points = seriesPoints(samples.current, metric, chosen.kind);
-  const current = points.length > 0 ? (points[points.length - 1].value ?? 0) : 0;
+  const measured = seriesPoints(samples.current, metric, chosen.kind);
+  const current = measured.length > 0 ? (measured[measured.length - 1].value ?? 0) : 0;
+  // the axis spans the whole window from the first sample on, and the line grows into it from the
+  // right - a graph that stretches two points across the panel and then squeezes as more arrive
+  // reads as activity that is not there
+  const points = padToWindow(measured, maxSamples - 1, samples.current, refreshMs);
+  const cpuNow = level ? currentCpu(samples.current) : null;
 
   const activityPanel = (
     <section className="panel panel-fill">
@@ -204,7 +236,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
         Activity{" "}
         <span className="panel-sub">
           {level
-            ? `${formatBytes(live?.managedMemory ?? 0)} in the managed heap · ${formatBytes(live?.processMemory ?? 0)} resident in the process`
+            ? `${formatBytes(live?.managedMemory ?? 0)} in the managed heap · ${formatBytes(live?.processMemory ?? 0)} resident in the process${cpuNow === null ? "" : ` · ${formatPercent(cpuNow)} cpu`}`
             : `${formatRate(current)} ${chosen.unit} · ${formatCount(live?.[metric] ?? 0)} since the caches were last cleared`}
         </span>
         <button className="icon-button storage-refresh" title="Refresh" onClick={loadInfo}>
@@ -218,35 +250,52 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
           </button>
         ))}
       </div>
-      <Chart kind="sum" points={points} groups={[]} interval="Second" format={level ? formatBytes : formatRate} compactAxis={!level} height="fill" />
+      {level ? (
+        // the process, memory and cpu together: the same chart the server overview draws
+        <ProcessChart samples={samples.current} maxSamples={maxSamples} />
+      ) : (
+        <Chart kind="sum" points={points} groups={[]} interval="Second" format={formatRate} height="fill" />
+      )}
       <div className="logs-chart-foot">
         <span className="muted">
           {level
-            ? "the whole server process, not this database alone — one heap serves every database on it, and “collect garbage” below acts on the same process"
-            : `measured here, ${measuredEvery === "Off" ? "when the page is refreshed" : "every " + measuredEvery}, from counters the database keeps anyway — no logging needed`}
+            ? "the whole server process, not this database alone — one heap serves every database on it, the cpu share is of all its cores, and “collect garbage” below acts on the same process"
+            : `measured here, ${measuredEvery === "Off" ? "when the page is refreshed" : "every " + measuredEvery}`}
         </span>
       </div>
     </section>
   );
 
+  // the running work takes the middle of the panel, scrolling when there is more than fits; the
+  // two counts sit at the bottom whatever is running above them
   const nowPanel = (
-    <section className="panel">
+    <section className="panel panel-fill">
       <h3>
         Right now <span className="panel-sub">{(live?.activities?.length ?? 0) === 0 ? "idle" : `${live!.activities!.length} running`}</span>
       </h3>
-      <div className="dash-now">
-        {(live?.activities ?? []).map((a, i) => (
-          <div key={i} className="dash-activity">
-            <span className="conv-chip">{a.category}</span>
-            <span className="log-cell" title={a.description ?? undefined}>
+      <div className="dash-now fill-body">
+        {running.map(({ item: a, key, leaving }) => (
+          // keyed by what the activity is rather than its position, so a row is the same element
+          // from the moment it appears to the moment it fades, and its bar moves rather than jumps
+          <div key={key} className={"dash-activity" + (leaving ? " leaving" : "") + (a.percentageProgress != null ? " with-progress" : "")}>
+            <span className="conv-chip dash-activity-cat" title={a.category}>
+              {a.category}
+            </span>
+            <span className="log-cell dash-activity-text" title={a.description ?? undefined}>
               {a.description ?? "—"}
             </span>
-            {a.percentageProgress != null && <span className="num">{a.percentageProgress}%</span>}
+            <span className="num dash-activity-pct">{a.percentageProgress != null ? `${Math.round(a.percentageProgress)}%` : ""}</span>
+            {a.percentageProgress != null && (
+              // the bar is two lines, not a colour: the track and how far along it the work is
+              <span className="dash-progress" role="progressbar" aria-valuenow={Math.round(a.percentageProgress)} aria-valuemin={0} aria-valuemax={100}>
+                <span className="dash-progress-fill" style={{ width: `${Math.min(100, Math.max(0, a.percentageProgress))}%` }} />
+              </span>
+            )}
           </div>
         ))}
-        {(live?.activities?.length ?? 0) === 0 && <div className="muted">Nothing running.</div>}
+        <div className={"muted dash-now-idle" + (running.length === 0 ? "" : " gone")}>Nothing running.</div>
       </div>
-      <div className="facts-grid storage-facts">
+      <div className="facts-grid dash-now-facts">
         <Fact k="Background tasks" v={formatCount(live?.tasksQueued ?? 0)} />
         <Fact
           k="File conversions"
@@ -256,8 +305,6 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
               : `${formatCount(live!.conversions!.running)} running · ${formatCount(live!.conversions!.queued)} queued`
           }
         />
-        <Fact k="Indexes out of sync" v={formatCount(info.maintenance?.indexesOutOfSync ?? 0)} />
-        <Fact k="Actions not in snapshot" v={formatCount(info.maintenance?.actionsNotInState ?? 0)} />
       </div>
       {info.maintenance?.runningRewrite && <div className="logs-note">Rewriting {info.maintenance.runningRewrite}…</div>}
     </section>
@@ -431,12 +478,11 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
           { id: "trace", cells: [tracePanel] },
         ]
       : [
-          // the one row given a height of its own: the chart fills whatever it is handed, and a
-          // chart sized to its own content has no height at all
-          { id: "activity", height: 300, cells: [activityPanel] },
-          { id: "now", cells: [nowPanel, cachePanel] },
-          { id: "content", cells: [<ContentPanel key="content" info={info} />, enginesPanel] },
-          { id: "trace", height: 260, cells: [tracePanel] },
+          // rows given a height of their own hold a panel that fills whatever it is handed - a chart
+          // or a terminal sized to its own content has no height at all
+          { id: "activity", height: 300, cells: [activityPanel, nowPanel] },
+          { id: "engines", cells: [enginesPanel, cachePanel] },
+          { id: "trace", height: 260, cells: [tracePanel, <ContentPanel key="content" info={info} />] },
         ];
 
   return (
@@ -452,14 +498,30 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
       )}
 
       <div className="dash-tiles">
-        <Tile label="State" value={state} tone={open ? "ok" : state === "Error" ? "bad" : undefined} />
+        <Tile
+          label="State"
+          value={state}
+          tone={open ? "ok" : state === "Error" ? "bad" : undefined}
+          action={
+            // the switch for the database itself, on the tile that says which way it stands
+            open ? (
+              <button className="icon-button dash-tile-action" title="Close the database" disabled={openBusy} onClick={onClose}>
+                <IconPlayerStopFilled size={14} stroke={1.8} />
+              </button>
+            ) : opening ? null : (
+              <button className="icon-button dash-tile-action" title="Open the database" disabled={openBusy} onClick={onOpen}>
+                <IconPlayerPlayFilled size={14} stroke={1.8} />
+              </button>
+            )
+          }
+        />
         <Tile label="Nodes" value={formatCount(live?.nodeCount ?? 0)} />
         <Tile label="Relations" value={formatCount(live?.relationCount ?? 0)} />
         <Tile label="Open for" value={uptime == null ? "—" : formatDuration(uptime)} />
         <Tile label="On disk" value={formatBytes(totalDisk)} />
       </div>
 
-      <PanelGrid id="dashboard" rows={rows} />
+      <PanelGrid id="dashboard" rows={rows} defaultSplit={0.5} />
     </div>
   );
 }
@@ -475,9 +537,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
  * to report rather than a heap holding nothing, so that is a gap too.
  */
 function seriesPoints(samples: Sample[], metric: MetricId, kind: "rate" | "level"): SeriesPoint[] {
-  if (kind === "level") {
-    return samples.map((s) => ({ fromUtc: s.iso, hasValue: s[metric] > 0, value: s[metric] > 0 ? s[metric] : null }));
-  }
+  if (kind === "level") return []; // the shared ProcessChart draws the memory and the cpu itself
   const points: SeriesPoint[] = [];
   for (let i = 1; i < samples.length; i++) {
     const previous = samples[i - 1];
@@ -609,11 +669,53 @@ function ContentPanel({ info }: { info: DashboardInfo }) {
   );
 }
 
-function Tile({ label, value, tone }: { label: string; value: string; tone?: "ok" | "bad" }) {
+// What an activity is, for keeping its row between samples: the category and its description with
+// the numbers taken out, since a description that counts up ("rewriting 4,201 of 9,000") is still
+// the same piece of work. A second one just like it gets a suffix.
+function activityKey(a: { category: string; description: string | null }, index: number, taken: Set<string>): string {
+  const base = a.category + ":" + (a.description ?? "").replace(/[\d.,%]+/g, "#");
+  let key = base;
+  for (let n = 2; taken.has(key); n++) key = base + "#" + n;
+  void index;
+  return key;
+}
+
+/**
+ * The items as they should be on screen: the current ones, plus any that were there a moment ago
+ * and are now leaving. A removed item stays for `ms` with `leaving` set, which is what its exit
+ * transition runs on; an item that comes back within that time is simply current again.
+ */
+function useLeaving<T>(items: T[], keyOf: (item: T, index: number, taken: Set<string>) => string, ms: number): { item: T; key: string; leaving: boolean }[] {
+  const [gone, setGone] = useState<{ item: T; key: string; until: number }[]>([]);
+  const previous = useRef<{ item: T; key: string }[]>([]);
+  const taken = new Set<string>();
+  const current = items.map((item, i) => {
+    const key = keyOf(item, i, taken);
+    taken.add(key);
+    return { item, key };
+  });
+  useEffect(() => {
+    const now = Date.now();
+    const keys = new Set(current.map((c) => c.key));
+    const left = previous.current.filter((p) => !keys.has(p.key));
+    previous.current = current;
+    if (left.length > 0) {
+      setGone((g) => [...g.filter((x) => !keys.has(x.key) && !left.some((l) => l.key === x.key)), ...left.map((l) => ({ ...l, until: now + ms }))]);
+      const timer = setTimeout(() => setGone((g) => g.filter((x) => x.until > Date.now())), ms + 20);
+      return () => clearTimeout(timer);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the list changes, which is what `items` says
+  }, [items]);
+  const leaving = gone.filter((g) => !taken.has(g.key) && g.until > Date.now()).map((g) => ({ item: g.item, key: g.key, leaving: true }));
+  return [...current.map((c) => ({ ...c, leaving: false })), ...leaving];
+}
+
+function Tile({ label, value, tone, action }: { label: string; value: string; tone?: "ok" | "bad"; action?: React.ReactNode }) {
   return (
     <div className={"dash-tile" + (tone ? " " + tone : "")}>
       <div className="dash-tile-value">{value}</div>
       <div className="dash-tile-label">{label}</div>
+      {action}
     </div>
   );
 }

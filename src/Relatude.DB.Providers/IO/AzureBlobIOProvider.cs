@@ -175,6 +175,11 @@ public class AzureBlobIOProvider : IIOProvider {
             throw new NotSupportedException();
         }
     }
+    public bool CanRenameFolder => false;
+    public bool SupportsEmptyFolders => false; // folders are blob name prefixes
+    public void RenameFolder(string[] path, string[] newPath) {
+        throw new NotSupportedException("Azure blob storage cannot rename a folder: blobs would have to be copied one by one. ");
+    }
     public void CloseAllOpenStreams() {
         IStream[] streams;
         lock (_lock) {
