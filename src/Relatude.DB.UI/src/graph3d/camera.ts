@@ -32,6 +32,12 @@ export class FlyCamera {
   readonly fov = (50 * Math.PI) / 180;
   readonly near = 1;
   readonly far = 40000;
+  /**
+   * How far the heading may tip, in radians. A view that stands on a floor sets a negative upper
+   * bound, so the camera can be brought down to eye level but never under the ground - where it
+   * would be looking at the underside of the floor with everything hidden behind it.
+   */
+  pitchLimit: [number, number] = [-maxPitch, maxPitch];
 
   private vYaw = 0;
   private vPitch = 0;
@@ -86,7 +92,7 @@ export class FlyCamera {
   setPose(p: Pose) {
     this.pos = [...p.pos];
     this.yaw = p.yaw;
-    this.pitch = Math.max(-maxPitch, Math.min(maxPitch, p.pitch));
+    this.pitch = Math.max(this.pitchLimit[0], Math.min(this.pitchLimit[1], p.pitch));
     this.dist = Math.max(minDist, p.dist);
   }
   /** Placed so the target is in the middle at the given distance, heading kept. */
@@ -251,12 +257,12 @@ export class FlyCamera {
   private applyOrbit(dYaw: number, dPitch: number) {
     const target = this.target();
     this.yaw += dYaw;
-    this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch + dPitch));
+    this.pitch = Math.max(this.pitchLimit[0], Math.min(this.pitchLimit[1], this.pitch + dPitch));
     this.pos = sub(target, scale(this.forward(), this.dist));
   }
   private applyLook(dYaw: number, dPitch: number) {
     this.yaw += dYaw;
-    this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch + dPitch));
+    this.pitch = Math.max(this.pitchLimit[0], Math.min(this.pitchLimit[1], this.pitch + dPitch));
   }
   private applyPan(dx: number, dy: number) {
     this.pos = add(this.pos, add(scale(this.right(), dx), scale(this.up(), dy)));

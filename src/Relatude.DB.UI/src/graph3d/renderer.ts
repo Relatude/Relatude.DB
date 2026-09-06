@@ -21,17 +21,30 @@ export interface FrameSetup {
   /** where the fade starts and where it is complete, as distances from the eye */
   fogNear: number;
   fogFar: number;
+  /** the near and far planes the projection was built with */
+  near: number;
+  far: number;
+  /**
+   * Drawn after the frame is cleared and before anything of the graph: the sky, the range and the
+   * aeroplane of fun mode. It shares the depth buffer, so the graph is occluded by a mountain in
+   * front of it, and the state it leaves behind is put back before the graph is drawn.
+   */
+  background?: () => void;
 }
 
 export type Dash = 0 | 1 | 2; // solid, dashed (6 on 4 off), dotted (2 on 3 off)
 
 export interface Renderer {
+  /** the context the graph draws on, so fun mode's scenery can share it */
+  gl: WebGL2RenderingContext;
   resize(width: number, height: number): void;
   begin(setup: FrameSetup): void;
   /** A lit sphere; rim adds a glow of that colour along the silhouette, strength 0..1. */
   sphere(center: Vec3, r: number, color: RGB, alpha: number, rim?: RGB, rimStrength?: number): void;
   /** A translucent shell, drawn after everything opaque. */
   halo(center: Vec3, r: number, color: RGB, alpha: number): void;
+  /** An axis-aligned box, lit and fogged like the spheres. A number is a cube of that side. */
+  box(center: Vec3, size: Vec3 | number, color: RGB, alpha: number, rim?: RGB, rimStrength?: number): void;
   /** A line from a to b, its width in device pixels, dashed in world units. */
   line(a: Vec3, b: Vec3, color: RGB, widthPx: number, dash: Dash, alpha: number): void;
   /** A cone with its tip at apex pointing along dir, size = its length in world units. */
@@ -47,6 +60,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
   const gl: WebGL2RenderingContext = context;
 
   const sphereMesh = buildSphere(gl, 28, 18);
+  const boxMesh = buildBox(gl);
   const coneMesh = buildCone(gl, 16);
   const sphereProg = program(gl, sphereVert, sphereFrag);
   const lineProg = program(gl, lineVert, lineFrag);
@@ -55,6 +69,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
   // instance streams: interleaved floats, grown as needed, uploaded once per frame
   const spheres = new Stream(12); // x y z r | cr cg cb a | rr rg rb rs
   const halos = new Stream(12);
+  const boxes = new Stream(16); // x y z _ | cr cg cb a | rr rg rb rs | sx sy sz _
   const lines = new Stream(12); // ax ay az _ | bx by bz _ | cr cg cb a  + style in the pad slots: [3]=width [7]=dash
   const cones = new Stream(12); // ax ay az size | dx dy dz _ | cr cg cb a
 
@@ -67,6 +82,15 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
     ["aInst0", 0],
     ["aInst1", 4],
     ["aInst2", 8],
+  ]);
+  // a box needs a size per axis rather than one radius, so it gets its own vertex shader; the
+  // lighting and the fog are the sphere's, so the two read as the same material
+  const boxProg = program(gl, boxVert, sphereFrag);
+  const boxVao = instancedVao(gl, boxProg, boxMesh, boxes, [
+    ["aInst0", 0],
+    ["aInst1", 4],
+    ["aInst2", 8],
+    ["aInst3", 12],
   ]);
   const coneVao = instancedVao(gl, coneProg, coneMesh, cones, [
     ["aInst0", 0],
@@ -109,6 +133,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
     gl.enable(gl.DEPTH_TEST);
     gl.depthMask(true);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    // whatever stands behind the graph draws first and leaves the state as it likes
+    s.background?.();
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthMask(true);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.enable(gl.CULL_FACE);
@@ -125,6 +153,18 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       spheres.upload(gl);
       gl.bindVertexArray(sphereVao);
       gl.drawElementsInstanced(gl.TRIANGLES, sphereMesh.indexCount, gl.UNSIGNED_SHORT, 0, spheres.count);
+    }
+    if (boxes.count > 0) {
+      gl.useProgram(boxProg);
+      gl.uniformMatrix4fv(u(boxProg, "uViewProj"), false, viewProj);
+      gl.uniform3fv(u(boxProg, "uEye"), s.eye);
+      gl.uniform3fv(u(boxProg, "uLight"), lightDir);
+      gl.uniform3fv(u(boxProg, "uFog"), s.fog);
+      gl.uniform2f(u(boxProg, "uFogRange"), s.fogNear, s.fogFar);
+      boxes.upload(gl);
+      gl.bindVertexArray(boxVao);
+      gl.drawElementsInstanced(gl.TRIANGLES, boxMesh.indexCount, gl.UNSIGNED_SHORT, 0, boxes.count);
+      gl.useProgram(sphereProg);
     }
     if (cones.count > 0) {
       gl.useProgram(coneProg);
@@ -169,6 +209,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
   }
 
   return {
+    gl,
     resize(width, height) {
       if (canvas.width !== width || canvas.height !== height) {
         canvas.width = width;
@@ -180,11 +221,18 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       viewProj = mul(s.proj, s.view);
       spheres.reset();
       halos.reset();
+      boxes.reset();
       lines.reset();
       cones.reset();
     },
     sphere(c, r, color, alpha, rim = [1, 1, 1], rimStrength = 0) {
       spheres.push(c[0], c[1], c[2], r, color[0], color[1], color[2], alpha, rim[0], rim[1], rim[2], rimStrength);
+    },
+    box(c, size, color, alpha, rim = [1, 1, 1], rimStrength = 0) {
+      const sx = typeof size === "number" ? size : size[0];
+      const sy = typeof size === "number" ? size : size[1];
+      const sz = typeof size === "number" ? size : size[2];
+      boxes.push(c[0], c[1], c[2], 0, color[0], color[1], color[2], alpha, rim[0], rim[1], rim[2], rimStrength, sx, sy, sz, 0);
     },
     halo(c, r, color, alpha) {
       // a rim-only shell: the body colour is the halo colour at low alpha, the silhouette glows
@@ -202,13 +250,14 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
     destroy() {
       // the resources go, the context stays: the same canvas may be drawn on again by the next
       // renderer (a hot reload re-mounts on the element it has), and a lost context is never given back
-      for (const p of [sphereProg, lineProg, coneProg]) gl.deleteProgram(p);
-      for (const v of [sphereVao, haloVao, coneVao, lineVao]) gl.deleteVertexArray(v);
-      for (const m of [sphereMesh, coneMesh]) {
+      for (const p of [sphereProg, boxProg, lineProg, coneProg]) gl.deleteProgram(p);
+      for (const v of [sphereVao, haloVao, boxVao, coneVao, lineVao]) gl.deleteVertexArray(v);
+      for (const m of [sphereMesh, boxMesh, coneMesh]) {
         gl.deleteBuffer(m.vertices);
         gl.deleteBuffer(m.indices);
       }
       gl.deleteBuffer(quad);
+      boxes.release(gl);
       for (const st of [spheres, halos, lines, cones]) st.release(gl);
       setup = null;
     },
@@ -280,6 +329,87 @@ function buildSphere(gl: WebGL2RenderingContext, segments: number, rings: number
       const a = y * (segments + 1) + x;
       const b = a + segments + 1;
       idx.push(a, b, a + 1, b, b + 1, a + 1);
+    }
+  }
+  return mesh(gl, verts, idx);
+}
+
+/**
+ * A unit cube about the origin with its edges taken off.
+ *
+ * Six faces inset by the bevel, twelve narrow quads along the edges and eight triangles at the
+ * corners, each with its own flat normal. A true cube meets the light along a hard line and its
+ * edges read as a black crease or vanish entirely against a neighbour; a chamfer catches the light
+ * along every edge instead, which is what makes a stack of them legible as separate solids. The
+ * chamfer is a fraction of the mesh, so it scales with whatever the instance is scaled by.
+ */
+function buildBox(gl: WebGL2RenderingContext, bevel = 0.022): Mesh {
+  const verts: number[] = [];
+  const idx: number[] = [];
+  const h = 0.5;
+  const c = h - bevel * h; // how far the flat of a face reaches before the chamfer starts
+  const axis = (i: number, v: number): [number, number, number] => (i === 0 ? [v, 0, 0] : i === 1 ? [0, v, 0] : [0, 0, v]);
+  const add = (a: number[], b: number[]) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+
+  /**
+   * One flat polygon. The winding is not derived case by case: the polygon's own normal is compared
+   * with the direction it ought to face and the order is reversed when they disagree, which is far
+   * harder to get wrong than twelve hand-worked edge cases.
+   */
+  const face = (points: number[][], outward: number[]) => {
+    const e1 = [points[1][0] - points[0][0], points[1][1] - points[0][1], points[1][2] - points[0][2]];
+    const e2 = [points[2][0] - points[0][0], points[2][1] - points[0][1], points[2][2] - points[0][2]];
+    const cx = e1[1] * e2[2] - e1[2] * e2[1];
+    const cy = e1[2] * e2[0] - e1[0] * e2[2];
+    const cz = e1[0] * e2[1] - e1[1] * e2[0];
+    const p = cx * outward[0] + cy * outward[1] + cz * outward[2] < 0 ? [...points].reverse() : points;
+    const n = normalize3(outward);
+    const base = verts.length / 6;
+    for (const q of p) verts.push(q[0], q[1], q[2], n[0], n[1], n[2]);
+    for (let i = 2; i < p.length; i++) idx.push(base, base + i - 1, base + i);
+  };
+
+  for (let a = 0; a < 3; a++) {
+    const b = (a + 1) % 3;
+    const d = (a + 2) % 3;
+    for (const sa of [1, -1]) {
+      // the flat of the face, inset all round by the chamfer
+      face(
+        [
+          add(add(axis(a, sa * h), axis(b, -c)), axis(d, -c)),
+          add(add(axis(a, sa * h), axis(b, c)), axis(d, -c)),
+          add(add(axis(a, sa * h), axis(b, c)), axis(d, c)),
+          add(add(axis(a, sa * h), axis(b, -c)), axis(d, c)),
+        ],
+        axis(a, sa),
+      );
+      // the chamfer along each of its edges, shared with the neighbouring face
+      for (const sb of [1, -1]) {
+        face(
+          [
+            add(add(axis(a, sa * h), axis(b, sb * c)), axis(d, -c)),
+            add(add(axis(a, sa * c), axis(b, sb * h)), axis(d, -c)),
+            add(add(axis(a, sa * c), axis(b, sb * h)), axis(d, c)),
+            add(add(axis(a, sa * h), axis(b, sb * c)), axis(d, c)),
+          ],
+          add(axis(a, sa), axis(b, sb)),
+        );
+      }
+    }
+  }
+  // and the eight corners, where three chamfers meet
+  for (const sx of [1, -1]) {
+    for (const sy of [1, -1]) {
+      for (const sz of [1, -1]) {
+        face(
+          [
+            [sx * h, sy * c, sz * c],
+            [sx * c, sy * h, sz * c],
+            [sx * c, sy * c, sz * h],
+          ],
+          [sx, sy, sz],
+        );
+      }
     }
   }
   return mesh(gl, verts, idx);
@@ -380,6 +510,18 @@ const sphereVert = `#version 300 es
     vN = aNormal; vW = w; vColor = aInst1; vRim = aInst2;
   }`;
 
+const boxVert = `#version 300 es
+  in vec3 aPos; in vec3 aNormal;
+  in vec4 aInst0; in vec4 aInst1; in vec4 aInst2; in vec4 aInst3;
+  uniform mat4 uViewProj;
+  out vec3 vN; out vec3 vW; out vec4 vColor; out vec4 vRim;
+  void main() {
+    vec3 w = aInst0.xyz + aPos * aInst3.xyz;
+    gl_Position = uViewProj * vec4(w, 1.0);
+    // the mesh is axis aligned and only ever scaled, so its normals need no fixing up
+    vN = aNormal; vW = w; vColor = aInst1; vRim = aInst2;
+  }`;
+
 const sphereFrag = `#version 300 es
   precision highp float;
   in vec3 vN; in vec3 vW; in vec4 vColor; in vec4 vRim;
@@ -393,7 +535,8 @@ const sphereFrag = `#version 300 es
     float head = max(dot(n, v), 0.0);
     vec3 h = normalize(uLight + v);
     float spec = pow(max(dot(n, h), 0.0), 40.0) * 0.35;
-    vec3 c = vColor.rgb * (0.42 + 0.46 * diff + 0.22 * head) + spec;
+    vec3 body = vColor.rgb * (0.42 + 0.46 * diff + 0.22 * head);
+    vec3 c = body + spec;
     float rim = pow(1.0 - head, 2.2) * vRim.a;
     c = mix(c, vRim.rgb, rim);
     float a = vColor.a + rim * 0.6 * vRim.a;

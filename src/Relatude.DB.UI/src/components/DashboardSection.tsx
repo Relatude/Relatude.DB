@@ -3,6 +3,7 @@ import {
   IconAlertTriangle,
   IconChartDonut,
   IconChartTreemap,
+  IconCube3dSphere,
   IconDatabaseSearch,
   IconEraser,
   IconEyeOff,
@@ -601,6 +602,7 @@ const formatRate = (value: number) => (value >= 100 ? formatCount(Math.round(val
 const chartShapes: { id: TypeChartShape; label: string; icon: typeof IconLayoutList; help: string }[] = [
   { id: "bars", label: "Bars", icon: IconLayoutList, help: "Compare the amounts, down to the long tail" },
   { id: "treemap", label: "Treemap", icon: IconChartTreemap, help: "The database as a whole made of its types" },
+  { id: "cubes", label: "Cubes", icon: IconCube3dSphere, help: "The same whole in three dimensions, where the volume of a cube is the count" },
   { id: "donut", label: "Donut", icon: IconChartDonut, help: "The few types that dominate, as shares" },
 ];
 /** Beyond this the tail is one entry: a treemap of two hundred slivers says less than a number. */
@@ -635,7 +637,8 @@ function ContentPanel({ info, storeId }: { info: DashboardInfo; storeId: string 
   const [menu, setMenu] = useState<{ slice: TypeSlice; x: number; y: number } | null>(null);
 
   const partOfWhole = shape !== "bars";
-  const treemap = shape === "treemap";
+  // the cubes are the treemap in three dimensions: same whole, same hiding, same tile menu
+  const treemap = shape === "treemap" || shape === "cubes";
   const { slices, total, folded, overlapping, hiddenCount } = useMemo(() => {
     const all = info.types ?? [];
     const colors = sourceColors(info.sources ?? [], codeSourceGuid);

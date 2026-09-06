@@ -19,7 +19,6 @@ import {
   IconList,
   IconMessage,
   IconMessageOff,
-  IconPlus,
   IconRefreshAlert,
   IconRocket,
   IconSearch,
@@ -794,142 +793,147 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
   return (
     <div className={"dm" + (showHelp ? "" : " no-help")}>
       <div className="dm-toolbar">
-        <div className="dm-tabs">
-          {views.map((v) => {
-            const Icon = v.icon;
-            return (
-              <button key={v.id} className={"dm-tab" + (view === v.id ? " active" : "")} onClick={() => setView(v.id)} title={v.label}>
-                <Icon size={15} stroke={1.9} />
-                <span>{v.label}</span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="dm-search">
-          <IconSearch size={15} stroke={2} />
-          <input
-            ref={searchRef}
-            className="dm-search-input"
-            placeholder="Find types, properties, relations…"
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setHitsOpen(true);
-            }}
-            onFocus={() => setHitsOpen(true)}
-            onBlur={() => setTimeout(() => setHitsOpen(false), 150)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setQuery("");
-              if (e.key === "Enter" && hits[0]) {
-                const h = hits[0];
-                if (h.kind === "property") setSelection({ kind: "property", id: h.id, typeId: h.typeId! });
-                else setSelection({ kind: h.kind, id: h.id } as Selection);
-                setHitsOpen(false);
-              }
-            }}
-          />
-          {query && (
-            <button className="icon-button" onClick={() => setQuery("")} title="Clear">
-              <IconX size={13} stroke={2} />
-            </button>
-          )}
-          {hitsOpen && hits.length > 0 && (
-            <div className="dm-hits">
-              {hits.slice(0, 12).map((h) => (
-                <button
-                  key={h.kind + h.id}
-                  className="dm-hit"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    if (h.kind === "property") setSelection({ kind: "property", id: h.id, typeId: h.typeId! });
-                    else setSelection({ kind: h.kind, id: h.id } as Selection);
-                    if (h.kind === "source") setView("sources");
-                    else if (view === "history" || view === "sources") setView("list");
-                    setHitsOpen(false);
-                  }}
-                >
-                  {h.kind === "type" ? <KindIcon kind={model.NodeTypes[h.id].ModelType} size={14} /> : h.kind === "property" ? <PropertyIcon propertyType={model.NodeTypes[h.typeId!].Properties[h.id].PropertyType} /> : h.kind === "relation" ? <RelationIcon kind={model.Relations[h.id].RelationType} size={14} /> : <SourceIcon type={sourceInfos.find((s) => s.id === h.id)?.type ?? "Code"} fileFormat={sourceInfos.find((s) => s.id === h.id)?.fileFormat} size={14} color={colors.get(h.id)} />}
-                  <span className="dm-hit-label">{h.label}</span>
-                  <span className="muted">{h.detail}</span>
+        {/* two rows on purpose rather than one that wraps where it happens to: the first is how
+            the model is looked at and what can be done to it, the second is what of it is shown */}
+        <div className="dm-toolbar-row">
+          <div className="dm-tabs">
+            {views.map((v) => {
+              const Icon = v.icon;
+              return (
+                <button key={v.id} className={"dm-tab" + (view === v.id ? " active" : "")} onClick={() => setView(v.id)} title={v.label}>
+                  <Icon size={15} stroke={1.9} />
+                  <span>{v.label}</span>
                 </button>
-              ))}
+              );
+            })}
+          </div>
+          <div className="dm-actions">
+            <div className="dm-button-group">
+              <button className="action-button dm-button" onClick={addType} disabled={busy !== null} title="Add a node type to the model">
+                <IconCube size={15} stroke={2} /> New type
+              </button>
+              <button className="action-button dm-button" onClick={addRelation} disabled={busy !== null} title="Add a relation to the model">
+                <IconArrowsExchange size={15} stroke={2} /> New relation
+              </button>
             </div>
-          )}
-        </div>
-        <div className="dm-chips" title="Click a source to show or hide its types">
-          {model.Sources.map((s) => {
-            const n = Object.values(model.NodeTypes).filter((t) => t.DatamodelSourceId === s.Id).length;
-            const off = hiddenSources.has(s.Id);
-            return (
-              <button key={s.Id} className={"dm-chip-source" + (off ? " off" : "")} onClick={() => toggleSource(s.Id)} title={(s.Name || s.Id) + " · " + s.Type + (off ? " · hidden" : "")}>
-                <SourceDot color={colors.get(s.Id) ?? "#888"} />
-                <span>{s.Name || "?"}</span>
-                <span className="dm-chip-count">{n}</span>
+            <span className="dm-toolbar-sep" />
+            <div className="dm-button-group">
+              <button className="action-button dm-button" onClick={save} disabled={!dirty || busy !== null} title="Keep the draft on the server without activating it">
+                <IconDeviceFloppy size={15} stroke={2} /> Save draft
               </button>
-            );
-          })}
+              <button className="action-button dm-button" onClick={validate} disabled={busy !== null} title="Check the draft, and show what activating it would write">
+                <IconCheck size={15} stroke={2} /> Validate
+              </button>
+              <button className="action-button dm-button primary" onClick={activate} disabled={!hasDraft || busy !== null} title="Write the draft into its sources and make it the active model">
+                <IconRocket size={15} stroke={2} /> Activate…
+              </button>
+            </div>
+            <div className="dm-menu-wrap">
+              <button className="icon-button" onClick={() => setMenuOpen(!menuOpen)} title="More">
+                <IconDots size={18} stroke={2} />
+              </button>
+              {menuOpen && (
+                <>
+                  <div className="dm-menu-backdrop" onClick={() => setMenuOpen(false)} />
+                  {/* New relation lives on the toolbar beside New type, and a source is added from the
+                      Sources view where the sources actually are; neither is repeated here */}
+                  <div className="dm-menu">
+                    <button onClick={() => { setShowHelp(!showHelp); setMenuOpen(false); }}>
+                      {showHelp ? <IconMessageOff size={15} stroke={1.9} /> : <IconMessage size={15} stroke={1.9} />}
+                      {showHelp ? "Hide help text" : "Show help text"}
+                    </button>
+                    <hr />
+                    <button onClick={() => doExport("csharp")}>
+                      <IconBrandCSharp size={15} stroke={1.9} /> Export as C#
+                    </button>
+                    <button onClick={() => doExport("json")}>
+                      <IconBraces size={15} stroke={1.9} /> Export as JSON
+                    </button>
+                    <hr />
+                    <button
+                      onClick={() => {
+                        setMenuOpen(false);
+                        discard();
+                      }}
+                      disabled={!hasDraft}
+                      className="danger"
+                    >
+                      <IconTrash size={15} stroke={1.9} /> Discard draft
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         </div>
-        <span className="query-spacer" />
-        <span className={"dm-status " + status.cls} title={page.draft?.note ?? undefined}>
-          {status.icon} {status.text}
-        </span>
-        <button className="action-button dm-button" onClick={addType} disabled={busy !== null} title="Add a node type to the model">
-          <IconCube size={15} stroke={2} /> New type
-        </button>
-        <button className="action-button dm-button" onClick={addRelation} disabled={busy !== null} title="Add a relation to the model">
-          <IconArrowsExchange size={15} stroke={2} /> New relation
-        </button>
-        <button className="action-button dm-button" onClick={save} disabled={!dirty || busy !== null} title="Keep the draft on the server without activating it">
-          <IconDeviceFloppy size={15} stroke={2} /> Save draft
-        </button>
-        <button className="action-button dm-button" onClick={validate} disabled={busy !== null} title="Check the draft, and show what activating it would write">
-          <IconCheck size={15} stroke={2} /> Validate
-        </button>
-        <button className="action-button dm-button primary" onClick={activate} disabled={!hasDraft || busy !== null} title="Write the draft into its sources and make it the active model">
-          <IconRocket size={15} stroke={2} /> Activate…
-        </button>
-        <div className="dm-menu-wrap">
-          <button className="icon-button" onClick={() => setMenuOpen(!menuOpen)} title="More">
-            <IconDots size={18} stroke={2} />
-          </button>
-          {menuOpen && (
-            <>
-              <div className="dm-menu-backdrop" onClick={() => setMenuOpen(false)} />
-              <div className="dm-menu">
-                <button onClick={addRelation}>
-                  <IconArrowsExchange size={15} stroke={1.9} /> New relation
-                </button>
-                {!page.sourcesLocked && (
-                  <button onClick={addSource}>
-                    <IconPlus size={15} stroke={1.9} /> New source
+        <div className="dm-toolbar-row">
+          <div className="dm-search">
+            <IconSearch size={15} stroke={2} />
+            <input
+              ref={searchRef}
+              className="dm-search-input"
+              placeholder="Find types, properties, relations…"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setHitsOpen(true);
+              }}
+              onFocus={() => setHitsOpen(true)}
+              onBlur={() => setTimeout(() => setHitsOpen(false), 150)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setQuery("");
+                if (e.key === "Enter" && hits[0]) {
+                  const h = hits[0];
+                  if (h.kind === "property") setSelection({ kind: "property", id: h.id, typeId: h.typeId! });
+                  else setSelection({ kind: h.kind, id: h.id } as Selection);
+                  setHitsOpen(false);
+                }
+              }}
+            />
+            {query && (
+              <button className="icon-button" onClick={() => setQuery("")} title="Clear">
+                <IconX size={13} stroke={2} />
+              </button>
+            )}
+            {hitsOpen && hits.length > 0 && (
+              <div className="dm-hits">
+                {hits.slice(0, 12).map((h) => (
+                  <button
+                    key={h.kind + h.id}
+                    className="dm-hit"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      if (h.kind === "property") setSelection({ kind: "property", id: h.id, typeId: h.typeId! });
+                      else setSelection({ kind: h.kind, id: h.id } as Selection);
+                      if (h.kind === "source") setView("sources");
+                      else if (view === "history" || view === "sources") setView("list");
+                      setHitsOpen(false);
+                    }}
+                  >
+                    {h.kind === "type" ? <KindIcon kind={model.NodeTypes[h.id].ModelType} size={14} /> : h.kind === "property" ? <PropertyIcon propertyType={model.NodeTypes[h.typeId!].Properties[h.id].PropertyType} /> : h.kind === "relation" ? <RelationIcon kind={model.Relations[h.id].RelationType} size={14} /> : <SourceIcon type={sourceInfos.find((s) => s.id === h.id)?.type ?? "Code"} fileFormat={sourceInfos.find((s) => s.id === h.id)?.fileFormat} size={14} color={colors.get(h.id)} />}
+                    <span className="dm-hit-label">{h.label}</span>
+                    <span className="muted">{h.detail}</span>
                   </button>
-                )}
-                <hr />
-                <button onClick={() => { setShowHelp(!showHelp); setMenuOpen(false); }}>
-                  {showHelp ? <IconMessageOff size={15} stroke={1.9} /> : <IconMessage size={15} stroke={1.9} />}
-                  {showHelp ? "Hide help text" : "Show help text"}
-                </button>
-                <hr />
-                <button onClick={() => doExport("csharp")}>
-                  <IconBrandCSharp size={15} stroke={1.9} /> Export as C#
-                </button>
-                <button onClick={() => doExport("json")}>
-                  <IconBraces size={15} stroke={1.9} /> Export as JSON
-                </button>
-                <hr />
-                <button
-                  onClick={() => {
-                    setMenuOpen(false);
-                    discard();
-                  }}
-                  disabled={!hasDraft}
-                  className="danger"
-                >
-                  <IconTrash size={15} stroke={1.9} /> Discard draft
-                </button>
+                ))}
               </div>
-            </>
-          )}
+            )}
+          </div>
+          <div className="dm-chips" title="Click a source to show or hide its types">
+            {model.Sources.map((s) => {
+              const n = Object.values(model.NodeTypes).filter((t) => t.DatamodelSourceId === s.Id).length;
+              const off = hiddenSources.has(s.Id);
+              return (
+                <button key={s.Id} className={"dm-chip-source" + (off ? " off" : "")} onClick={() => toggleSource(s.Id)} title={(s.Name || s.Id) + " · " + s.Type + (off ? " · hidden" : "")}>
+                  <SourceDot color={colors.get(s.Id) ?? "#888"} />
+                  <span>{s.Name || "?"}</span>
+                  <span className="dm-chip-count">{n}</span>
+                </button>
+              );
+            })}
+          </div>
+          <span className={"dm-status " + status.cls} title={page.draft?.note ?? undefined}>
+            {status.icon} {status.text}
+          </span>
         </div>
       </div>
 

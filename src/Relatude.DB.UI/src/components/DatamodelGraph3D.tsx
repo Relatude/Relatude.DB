@@ -1,13 +1,17 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { IconArrowBackUp, IconArrowsMaximize, IconArrowsShuffle, IconFileTypePng, IconFocusCentered, IconHierarchy3, IconMaximize, IconMinimize, IconRotate360, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
+import { IconArrowBackUp, IconArrowsMaximize, IconArrowsShuffle, IconBinoculars, IconCrosshair, IconFileTypePng, IconFocusCentered, IconHierarchy3, IconMaximize, IconMinimize, IconPencil, IconPlayerPause, IconPlayerPlay, IconRotate360, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
 import type { EditorContext, Selection } from "./DatamodelEditors";
 import { embeddedColor, kindMeta, propertyColor, relationColor } from "./DatamodelIcons";
 import { TypePicker } from "./DatamodelGraph";
 import { buildWorld, edgeKinds, edgesKey, expandedKey, readEdges, readExpanded, readRoot, recall, remember, rootKey, unfold, type EdgeKind, type GraphLink, type GraphNode } from "./datamodelGraphModel";
-import { fullName } from "../server/datamodel";
+import { fullName, type NodeTypeJson } from "../server/datamodel";
+import { formatCount } from "../format";
 import { FlyCamera } from "../graph3d/camera";
 import { createRenderer, type Renderer, type RGB } from "../graph3d/renderer";
-import { add, distance, dot, multiply, normalize, rayPlane, raySphere, scale, sub, transform, type Vec3 } from "../graph3d/math";
+import { add, cross, distance, dot, lerp3, multiply, normalize, perspective, rayPlane, raySphere, scale, sub, transform, view as viewMatrix, type Vec3 } from "../graph3d/math";
+import { createScenery, scenePalette, type ScenePalette, type Scenery } from "../graph3d/scenery";
+import { groundAt as terrainGroundAt } from "../graph3d/terrain";
+import { AC, bodyMatrix, newAircraft, newControls, placeAircraft, stepFlight, toward, V_STALL, V_TRIM, type Aircraft, type Controls } from "../graph3d/flight";
 
 interface Props {
   ctx: EditorContext;
@@ -66,6 +70,9 @@ interface Projected {
 interface Theme {
   panel: string;
   panelRgb: RGB;
+  bgRgb: RGB;
+  /** whether the chosen theme is a dark one, which flips how the range is painted */
+  dark: boolean;
   text: string;
   textRgb: RGB;
   textMuted: string;
@@ -88,6 +95,27 @@ const typeCharge = -1100;
 const leafCharge = -140;
 const badgeR = 10.5;
 const orbitKey = (storeId: string) => "dmGraph3dOrbit:" + storeId;
+const funKey = (storeId: string) => "dmGraph3dFun:" + storeId;
+const invertKey = (storeId: string) => "dmGraph3dInvert:" + storeId;
+
+// ---- fun mode's scales ----
+// The flight model works in metres; the graph is drawn in its own units. Two graph units to the
+// metre puts a type sphere at about the size of a hangar and a node link at a couple of hundred
+// metres, so an aeroplane at cruise passes one every few seconds - close enough to read the names
+// off them, far enough apart to have to fly between them.
+const unitsPerMetre = 0.5;
+const metresPerUnit = 1 / unitsPerMetre;
+// The range is modelled small and drawn large, so a peak stands a kilometre and a half over the
+// valley the graph floats in and the mesh still covers eight kilometres of country.
+const terrainScale = 6;
+const terrainY = -420;
+/** the low sun of the front page, ahead and to the left */
+const sunDir: Vec3 = normalize([-0.42, 0.3, 0.85]);
+const funKeys = new Set([
+  "KeyW", "KeyA", "KeyS", "KeyD", "KeyZ", "KeyX", "KeyQ", "KeyE",
+  "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+  "KeyB", "Period", "ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight", "PageUp", "PageDown",
+]);
 const relationRgb = parseColor(relationColor);
 const embeddedRgb = parseColor(embeddedColor);
 
@@ -113,17 +141,44 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
   // counts the times the GPU has handed the context back, so the renderer is rebuilt on it
   const [glGeneration, setGlGeneration] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
+  const [fun, setFun] = useState<boolean>(() => recall(funKey(storeId)) === true);
+  /** mirrors flight.paused so the toolbar's button shows what the space bar did */
+  const [paused, setPaused] = useState(false);
+  /** the menu a right-click on a type opens, at the point it was clicked */
+  const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null);
   const q = query.trim().toLowerCase();
 
   useEffect(() => remember(rootKey(storeId), root), [storeId, root]);
   useEffect(() => remember(expandedKey(storeId), [...expanded]), [storeId, expanded]);
   useEffect(() => remember(edgesKey(storeId), [...edges]), [storeId, edges]);
   useEffect(() => remember(orbitKey(storeId), autoOrbit), [storeId, autoOrbit]);
+  useEffect(() => remember(funKey(storeId), fun), [storeId, fun]);
+  useEffect(() => {
+    const v = recall(invertKey(storeId));
+    if (v && typeof v === "object") {
+      flight.current.invertPitch = (v as { pitch?: boolean }).pitch === true;
+      flight.current.invertRoll = (v as { roll?: boolean }).roll === true;
+    }
+  }, [storeId]);
+  // leaving fun mode puts the aeroplane away and hands the view back to the camera where it was
+  useEffect(() => {
+    if (fun) {
+      flight.current.started = false;
+      setPaused(false);
+      invalidate();
+    } else {
+      camera.current.stop();
+      keys.current.clear();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- invalidate is stable enough for this
+  }, [fun]);
 
   const world = useMemo(() => buildWorld(ctx, visibleTypes, edges), [ctx, visibleTypes, edges]);
   // the start type has to be one that is still there and still shown; otherwise it is picked again
   const rootId = root !== null && world.eligible.has(root) ? root : null;
   const { nodes, links } = useMemo(() => unfold(world, ctx, expanded, rootId), [world, ctx, expanded, rootId]);
+  // whatever changes the picture under the menu closes it: another start type, a fold, fun mode
+  useEffect(() => setMenu(null), [rootId, expanded, fun, edges]);
 
   const viewRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -142,6 +197,38 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
   const theme = useRef<Theme | null>(null);
   const icons = useRef(new Map<string, HTMLImageElement>());
   const projected = useRef(new Map<string, Projected>());
+  // ---- fun mode ----
+  const scenery = useRef<Scenery | null>(null);
+  const ac = useRef<Aircraft>(newAircraft());
+  const ctl = useRef<Controls>(newControls());
+  const flight = useRef({
+    /** where the camera sits and looks, in graph units; both chase the aeroplane with weight */
+    eye: [0, 0, 0] as Vec3,
+    at: [0, 0, 0] as Vec3,
+    up: [0, 1, 0] as Vec3,
+    cockpit: false,
+    paused: false,
+    prop: 0,
+    /** the node the aeroplane last flew through, and how long ago */
+    buzz: null as { id: string; label: string; kind: string } | null,
+    buzzT: 0,
+    visited: new Set<string>(),
+    /**
+     * How fast time is running for the aeroplane: 1 flying, 0 stopped. Pausing eases it down rather
+     * than cutting it, so the aeroplane slows and settles in mid air instead of freezing on a frame.
+     */
+    timeScale: 1,
+    /** where the camera is looking from while it is stopped, and how it keeps drifting after a drag */
+    orbit: { yaw: 0, pitch: 0.2, dist: 60, vYaw: 0, vPitch: 0, panX: 0, panY: 0, ready: false },
+    /** counts up while the aeroplane is wrecked, then puts it back in the air */
+    down: 0,
+    started: false,
+    invertPitch: false,
+    invertRoll: false,
+  });
+  const planeMat = useRef(new Float32Array(16));
+  const funOn = useRef(fun);
+  funOn.current = fun && rootId !== null && glOk;
   // what a frame needs from React, read at draw time rather than bound into the handlers
   const scene = useRef({ nodes, links, selection, q, ctx });
   scene.current = { nodes, links, selection, q, ctx };
@@ -170,6 +257,11 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
       return;
     }
     renderer.current = r;
+    try {
+      scenery.current = createScenery(r.gl);
+    } catch {
+      scenery.current = null; // no scenery, no fun mode; the graph itself is unaffected
+    }
     theme.current = readTheme(stage);
     const measure = () => {
       const rect = stage.getBoundingClientRect();
@@ -219,6 +311,8 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
       stage.removeEventListener("wheel", wheel);
       gl.removeEventListener("webglcontextlost", lost);
       gl.removeEventListener("webglcontextrestored", restored);
+      scenery.current?.destroy();
+      scenery.current = null;
       r!.destroy();
       renderer.current = null;
       cancelAnimationFrame(raf.current);
@@ -328,16 +422,22 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
       busy = true;
     }
     const cam = camera.current;
-    if (keys.current.size > 0) {
-      const k = keys.current;
-      const fast = k.has("ShiftLeft") || k.has("ShiftRight") ? 2.5 : 1;
-      const x = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
-      const y = (k.has("KeyE") || k.has("PageUp") ? 1 : 0) - (k.has("KeyQ") || k.has("PageDown") ? 1 : 0);
-      const z = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0);
-      if (x || y || z) cam.thrust(x * fast, y * fast, z * fast, dt);
+    if (funOn.current) {
+      // the aeroplane has the keyboard and the camera; the graph keeps drifting underneath it
+      stepFun(dt, now);
       busy = true;
+    } else {
+      if (keys.current.size > 0) {
+        const k = keys.current;
+        const fast = k.has("ShiftLeft") || k.has("ShiftRight") ? 2.5 : 1;
+        const x = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
+        const y = (k.has("KeyE") || k.has("PageUp") ? 1 : 0) - (k.has("KeyQ") || k.has("PageDown") ? 1 : 0);
+        const z = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0);
+        if (x || y || z) cam.thrust(x * fast, y * fast, z * fast, dt);
+        busy = true;
+      }
+      if (cam.step(dt, now)) busy = true;
     }
-    if (cam.step(dt, now)) busy = true;
     if (drag.current) busy = true;
     draw();
     if (busy) raf.current = requestAnimationFrame(step);
@@ -346,6 +446,208 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
   function reheat(alpha = 0.6) {
     sim.current.alpha = Math.max(sim.current.alpha, alpha);
     invalidate();
+  }
+
+  // ---- fun mode: the flight ----
+
+  function rememberInvert() {
+    remember(invertKey(storeId), { pitch: flight.current.invertPitch, roll: flight.current.invertRoll });
+  }
+
+  /** The ground under a point, in the metres the flight model works in. */
+  function groundMetres(xm: number, zm: number) {
+    const g = terrainGroundAt((xm * unitsPerMetre) / terrainScale, (zm * unitsPerMetre) / terrainScale);
+    // the scale is the same in every direction, so the normal carries over untouched
+    return { y: (g.y * terrainScale + terrainY) * metresPerUnit, nx: g.nx, ny: g.ny, nz: g.nz };
+  }
+
+  /** Puts the aeroplane in the air off to one side of the graph, pointed at it. */
+  function launch() {
+    const f = flight.current;
+    const ns = [...sim.current.nodes.values()];
+    let cx = 0;
+    let cy = 0;
+    let cz = 0;
+    for (const n of ns) {
+      cx += n.x / Math.max(1, ns.length);
+      cy += n.y / Math.max(1, ns.length);
+      cz += n.z / Math.max(1, ns.length);
+    }
+    let radius = 160;
+    for (const n of ns) radius = Math.max(radius, distance([cx, cy, cz], [n.x, n.y, n.z]));
+    // Far enough out to see the whole graph against the range, and at the height the graph itself
+    // floats at rather than above it: now that the aeroplane holds its attitude it flies dead
+    // straight, so whatever height it starts at is the height it arrives at, and starting over the
+    // top of the model means never flying through it.
+    const startUnits: Vec3 = [cx, cy + radius * 0.12, cz + radius + 240];
+    const startM: Vec3 = [startUnits[0] * metresPerUnit, startUnits[1] * metresPerUnit, startUnits[2] * metresPerUnit];
+    const groundM = groundMetres(startM[0], startM[2]).y;
+    startM[1] = Math.max(startM[1], groundM + 90);
+    // heading pi points along -z, which is where the graph is from here
+    placeAircraft(ac.current, startM, Math.PI, V_TRIM * 1.15);
+    ctl.current = newControls();
+    f.paused = false;
+    f.timeScale = 1;
+    f.orbit.ready = false;
+    f.down = 0;
+    f.buzz = null;
+    f.buzzT = 0;
+    f.prop = 0;
+    f.started = true;
+    // the camera starts already behind it rather than sweeping in from the last view
+    const { eye, at } = chasePoint();
+    f.eye = eye;
+    f.at = at;
+    f.up = [0, 1, 0];
+  }
+
+  /** Where the camera wants to be this instant: behind and above, in the cockpit, or in orbit. */
+  function chasePoint(): { eye: Vec3; at: Vec3 } {
+    const a = ac.current;
+    const f = flight.current;
+    const p: Vec3 = [a.p[0] * unitsPerMetre, a.p[1] * unitsPerMetre, a.p[2] * unitsPerMetre];
+    // stopped in mid air: the mouse walks round the aeroplane instead of flying it
+    if (f.orbit.ready) {
+      const o = f.orbit;
+      const cp = Math.cos(o.pitch);
+      const dir: Vec3 = [Math.sin(o.yaw) * cp, Math.sin(o.pitch), -Math.cos(o.yaw) * cp];
+      const at = add(p, add(scale(a.right, o.panX), scale([0, 1, 0] as Vec3, o.panY)));
+      return { eye: sub(at, scale(dir, o.dist)), at };
+    }
+    if (flight.current.cockpit) {
+      const eye = add(p, add(scale(a.fwd, 1.1 * unitsPerMetre), scale(a.up, 0.75 * unitsPerMetre)));
+      return { eye, at: add(eye, scale(a.fwd, 100)) };
+    }
+    // the seat is behind and above, and it looks a little ahead of the aeroplane rather than at it,
+    // so what you are about to fly into is on screen and not behind the tail
+    const back = 22 + Math.min(18, a.V * 0.22);
+    const eye = add(p, add(scale(a.fwd, -back), scale(a.up, 7)));
+    return { eye, at: add(p, scale(a.fwd, 26)) };
+  }
+
+  /** One step of the flight, the camera that follows it, and what it flies through. */
+  function stepFun(dt: number, now: number) {
+    const f = flight.current;
+    if (!f.started) launch();
+    const a = ac.current;
+    const c = ctl.current;
+    const k = keys.current;
+    const held = (...codes: string[]) => codes.some((x) => k.has(x));
+
+    // ---- what the pilot is asking for ----
+    let ail = 0;
+    let elev = 0;
+    let rud = 0;
+    let air = 0;
+    if (!f.paused && !a.crashed) {
+      // Roll and yaw are mapped the way the glider maps them: the left key rolls right. Reversed at
+      // the input rather than in the aerodynamics, so the moments and the surfaces still agree.
+      if (held("ArrowLeft", "KeyA")) ail += 1;
+      if (held("ArrowRight", "KeyD")) ail -= 1;
+      if (f.invertRoll) ail = -ail;
+      // stick forward is nose down, as it would be in the hand
+      if (held("ArrowUp", "KeyW")) elev -= 1;
+      if (held("ArrowDown", "KeyS")) elev += 1;
+      if (f.invertPitch) elev = -elev;
+      if (held("KeyZ")) rud += AC.RUD_MAX;
+      if (held("KeyX")) rud -= AC.RUD_MAX;
+      if (held("KeyB", "Period")) air = 1;
+      const up = held("ShiftLeft", "ShiftRight", "PageUp", "KeyE") ? 1 : 0;
+      const dn = held("ControlLeft", "ControlRight", "PageDown", "KeyQ") ? 1 : 0;
+      c.throttle = Math.max(0, Math.min(1, c.throttle + (up - dn) * dt * 0.55));
+    }
+    c.ail = toward(c.ail, ail, 6.5, dt);
+    c.elev = toward(c.elev, elev, 3.5, dt); // a column, not a switch
+    c.rud = toward(c.rud, rud, 5.0, dt);
+    c.air = toward(c.air, air, 2.0, dt); // airbrakes take half a second
+
+    // ---- the flight ----
+    // Pausing does not cut the film: time slows over about a second and a half and the aeroplane
+    // settles where it is, which is what makes it possible to stop mid manoeuvre and walk round it.
+    const wantScale = f.paused ? 0 : 1;
+    f.timeScale += (wantScale - f.timeScale) * (1 - Math.exp(-dt * (f.paused ? 2.6 : 5)));
+    if (f.paused && f.timeScale < 0.02) f.timeScale = 0;
+    if (!f.paused && f.timeScale > 0.995) f.timeScale = 1;
+    // the mouse gets the camera once the aeroplane has all but stopped, and gives it back on the
+    // first frame of flying again
+    if (f.timeScale < 0.25 && f.paused) {
+      if (!f.orbit.ready) {
+        // start from where the chase camera already is, so nothing jumps
+        const p: Vec3 = [a.p[0] * unitsPerMetre, a.p[1] * unitsPerMetre, a.p[2] * unitsPerMetre];
+        const d = sub(f.eye, p);
+        const len = Math.max(12, Math.hypot(d[0], d[1], d[2]));
+        f.orbit.dist = len;
+        f.orbit.pitch = Math.asin(Math.max(-1, Math.min(1, d[1] / len)));
+        f.orbit.yaw = Math.atan2(d[0], -d[2]);
+        f.orbit.panX = 0;
+        f.orbit.panY = 0;
+        f.orbit.vYaw = 0;
+        f.orbit.vPitch = 0;
+        f.orbit.ready = true;
+      }
+    } else if (!f.paused) f.orbit.ready = false;
+
+    const scaled = dt * f.timeScale;
+    if (scaled > 1e-4) {
+      // a fixed step, so the physics behaves the same on a slow frame as on a fast one
+      let left = Math.min(scaled, 0.1);
+      while (left > 1e-5) {
+        const h = Math.min(0.008, left);
+        stepFlight(a, c, h, now / 1000, groundMetres, { speed: 4.6, dirX: 0.2, dirZ: -0.98 });
+        left -= h;
+      }
+      f.prop += scaled * (6 + 42 * c.throttle);
+      // wrecked: let it lie there a moment, then put it back in the air
+      if (a.crashed) {
+        f.down += scaled;
+        if (f.down > 1.6) launch();
+      }
+    }
+    // the orbit keeps turning a moment after the hand lets go, like everything else here
+    if (f.orbit.ready && drag.current === null) {
+      const o = f.orbit;
+      if (Math.abs(o.vYaw) + Math.abs(o.vPitch) > 1e-4) {
+        o.yaw += o.vYaw * dt;
+        o.pitch = Math.max(-1.45, Math.min(1.45, o.pitch + o.vPitch * dt));
+        const decay = Math.exp(-dt * 3.4);
+        o.vYaw *= decay;
+        o.vPitch *= decay;
+      }
+    }
+
+    // ---- what it flew through ----
+    const pu: Vec3 = [a.p[0] * unitsPerMetre, a.p[1] * unitsPerMetre, a.p[2] * unitsPerMetre];
+    f.buzzT = Math.max(0, f.buzzT - dt);
+    for (const n of sim.current.nodes.values()) {
+      if (n.kind !== "type") continue;
+      if (distance(pu, [n.x, n.y, n.z]) > n.r + 14) continue;
+      const node = scene.current.nodes.find((x) => x.id === n.id);
+      if (!node || node.kind !== "type") continue;
+      if (f.buzz?.id !== n.id) {
+        f.buzz = { id: n.id, label: node.type.CodeName, kind: kindMeta[node.type.ModelType]?.label ?? "type" };
+        f.visited.add(n.id);
+      }
+      f.buzzT = 2.4;
+      break;
+    }
+
+    // ---- the camera follows, with weight ----
+    // the camera lags toward the aeroplane, so anything non-finite in it would stay there for good
+    if (!isFinite(f.eye[0] + f.eye[1] + f.eye[2] + f.at[0] + f.at[1] + f.at[2] + f.up[0] + f.up[1] + f.up[2])) {
+      const fresh = chasePoint();
+      f.eye = fresh.eye;
+      f.at = fresh.at;
+      f.up = [0, 1, 0];
+    }
+    const want = chasePoint();
+    // a first-order lag: the camera never quite catches up, so a hard pull swings it out behind
+    const kEye = 1 - Math.exp(-dt * (f.cockpit || f.orbit.ready ? 60 : 5.5));
+    const kAt = 1 - Math.exp(-dt * (f.cockpit || f.orbit.ready ? 60 : 8));
+    f.eye = lerp3(f.eye, want.eye, kEye);
+    f.at = lerp3(f.at, want.at, kAt);
+    // the horizon rolls with the aeroplane, but only most of the way, or a spin is unwatchable
+    const wantUp: Vec3 = f.cockpit ? a.up : f.orbit.ready ? [0, 1, 0] : normalize(lerp3([0, 1, 0], a.up, 0.55));
+    f.up = normalize(lerp3(f.up, wantUp, 1 - Math.exp(-dt * 6)));
   }
 
   // ---- unfolding ----
@@ -507,6 +809,21 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
     const stage = stageRef.current;
     if (!stage) return;
     stage.focus({ preventScroll: true });
+    if (funOn.current) {
+      // flying, the keyboard has it; stopped in mid air, the mouse walks round the aeroplane
+      if (!flight.current.orbit.ready || e.button === 1) return;
+      const kind = e.button === 2 || e.shiftKey ? "pan" : "orbit";
+      drag.current = { kind, x: e.clientX, y: e.clientY, t: performance.now() };
+      flight.current.orbit.vYaw = 0;
+      flight.current.orbit.vPitch = 0;
+      try {
+        stage.setPointerCapture(e.pointerId);
+      } catch {
+        // a pointer the browser has forgotten; the drag still works over the stage
+      }
+      invalidate();
+      return;
+    }
     const cam = camera.current;
     const now = performance.now();
     if (e.button === 1 || (e.button === 0 && (e.ctrlKey || e.altKey))) {
@@ -547,6 +864,32 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
   }
 
   function onPointerMove(e: React.PointerEvent) {
+    if (funOn.current) {
+      const d = drag.current;
+      const o = flight.current.orbit;
+      if (!d || !o.ready || d.kind === "node") return;
+      const now = performance.now();
+      const dt = Math.max(1 / 240, (now - d.t) / 1000);
+      const dx = e.clientX - d.x;
+      const dy = e.clientY - d.y;
+      d.x = e.clientX;
+      d.y = e.clientY;
+      d.t = now;
+      const perPixel = (Math.PI * 1.4) / size.current.h;
+      if (d.kind === "orbit") {
+        o.yaw += dx * perPixel;
+        o.pitch = Math.max(-1.45, Math.min(1.45, o.pitch - dy * perPixel));
+        // remembered as a speed, so letting go leaves it turning
+        o.vYaw = (dx * perPixel) / dt;
+        o.vPitch = (-dy * perPixel) / dt;
+      } else {
+        const perUnit = (2 * o.dist * Math.tan(31 * (Math.PI / 180))) / Math.max(1, size.current.h);
+        o.panX -= dx * perUnit;
+        o.panY += dy * perUnit;
+      }
+      invalidate();
+      return;
+    }
     const d = drag.current;
     const cam = camera.current;
     if (!d) {
@@ -600,6 +943,10 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
     drag.current = null;
     const cam = camera.current;
     if (!d) return;
+    if (funOn.current) {
+      invalidate();
+      return;
+    }
     if (d.kind !== "node") {
       cam.release(d.kind);
       invalidate();
@@ -629,6 +976,15 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
 
   function onWheel(e: WheelEvent) {
     e.preventDefault();
+    if (funOn.current) {
+      // stopped, the wheel walks in and out; flying, it has nothing to do
+      const o = flight.current.orbit;
+      if (o.ready) {
+        o.dist = Math.max(14, Math.min(4000, o.dist * (e.deltaY < 0 ? 1 / 1.12 : 1.12)));
+        invalidate();
+      }
+      return;
+    }
     const { dir } = rayAt(e.clientX, e.clientY);
     // a notch is a hundred units on most mice; a trackpad sends many small ones that add up the same
     const amount = Math.max(-1, Math.min(1, e.deltaY / 100)) * -1.2;
@@ -636,7 +992,30 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
     invalidate();
   }
 
+  /**
+   * The right button on a type opens its menu, put where the click was. On the empty space between
+   * types there is nothing to act on, so the browser's own menu is suppressed and nothing opens.
+   */
+  function onContextMenu(e: React.MouseEvent) {
+    e.preventDefault();
+    if (funOn.current) return;
+    const h = hit(e.clientX, e.clientY);
+    const id = h && (h.kind === "node" || h.kind === "badge") ? h.id : null;
+    const node = id === null ? null : scene.current.nodes.find((n) => n.id === id);
+    if (!node || node.kind !== "type") {
+      setMenu(null);
+      return;
+    }
+    // a drag started by the press is not wanted once the menu is up
+    drag.current = null;
+    camera.current.release("orbit");
+    camera.current.release("pan");
+    camera.current.release("look");
+    setMenu({ x: e.clientX, y: e.clientY, id: node.id });
+  }
+
   function onDoubleClick(e: React.MouseEvent) {
+    if (funOn.current) return;
     const h = hit(e.clientX, e.clientY);
     if (h?.kind === "node") flyTo(h.id);
     else if (!h) fit();
@@ -644,6 +1023,61 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
 
   function onKeyDown(e: React.KeyboardEvent) {
     if (e.target !== e.currentTarget) return;
+    // The way in and the way back out of the aeroplane. Nothing on screen says so - it is meant to
+    // be found rather than offered, the way the glider hides its eagle behind SHIFT+E.
+    if (e.code === "KeyP" && e.shiftKey) {
+      e.preventDefault();
+      if (!e.repeat) {
+        setFun((v) => !v);
+        stageRef.current?.focus({ preventScroll: true });
+      }
+      return;
+    }
+    if (funOn.current) {
+      const f = flight.current;
+      if (funKeys.has(e.code)) {
+        e.preventDefault();
+        keys.current.add(e.code);
+        invalidate();
+        return;
+      }
+      if (e.code === "Space") {
+        // space holds the aeroplane still in mid air rather than freezing the picture
+        e.preventDefault();
+        if (!e.repeat) {
+          f.paused = !f.paused;
+          setPaused(f.paused);
+          invalidate();
+        }
+        return;
+      }
+      if (e.repeat) return;
+      switch (e.code) {
+        case "KeyC":
+          f.cockpit = !f.cockpit;
+          return;
+        case "KeyP":
+          f.paused = !f.paused;
+          setPaused(f.paused);
+          invalidate();
+          return;
+        case "KeyR":
+          launch();
+          invalidate();
+          return;
+        case "KeyI":
+          f.invertPitch = !f.invertPitch;
+          rememberInvert();
+          return;
+        case "KeyO":
+          f.invertRoll = !f.invertRoll;
+          rememberInvert();
+          return;
+        case "Escape":
+          setFun(false);
+          return;
+      }
+    }
     if (flyKeys.has(e.code)) {
       e.preventDefault();
       keys.current.add(e.code);
@@ -703,6 +1137,24 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
 
   // ---- drawing ----
 
+  /** Everything that stands behind the graph in fun mode: the sky, the range, the aeroplane. */
+  function drawScenery(viewProj: ReturnType<typeof multiply>, eye: Vec3, pal: ScenePalette) {
+    const s = scenery.current;
+    const th = theme.current;
+    if (!s || !th) return;
+    const a = ac.current;
+    const t = performance.now() / 1000;
+    s.sky(viewProj, eye, sunDir, pal, t);
+    s.terrain(viewProj, eye, sunDir, pal, [(a.p[0] * unitsPerMetre) / terrainScale, (a.p[2] * unitsPerMetre) / terrainScale], terrainScale, terrainY);
+    // from inside the cockpit there is nothing to draw but the country
+    if (!flight.current.cockpit) {
+      const m = bodyMatrix(planeMat.current, a, a.p[0] * unitsPerMetre, a.p[1] * unitsPerMetre, a.p[2] * unitsPerMetre, unitsPerMetre);
+      s.plane(viewProj, eye, sunDir, pal, m, flight.current.prop, th.accentRgb);
+    }
+    // specks in the air, last of the scenery so they blend over the range rather than under it
+    s.dust(viewProj, eye, pal, th.dark, t);
+  }
+
   function draw() {
     const r = renderer.current;
     const stage = stageRef.current;
@@ -714,20 +1166,45 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
     const sc = scene.current;
     const positions = sim.current.nodes;
     const aspect = w / h;
-    const viewM = cam.viewMatrix();
-    const projM = cam.projMatrix(aspect);
+    const flying = funOn.current && scenery.current !== null;
+    const f = flight.current;
+
+    // In fun mode the aeroplane's chase camera takes over: a wider lens, a far plane out past the
+    // range, and a fog that reaches much further, or the graph would vanish a wingspan ahead.
+    const fov = flying ? (62 * Math.PI) / 180 : cam.fov;
+    // A near plane of 2 against a far of 90000 spends almost all of the depth buffer on the first
+    // few metres and leaves neighbouring hillsides fighting over the same value, which shimmers.
+    // The chase camera never sits closer than a wingspan, and the haze hides anything past the
+    // mesh, so both planes can be pulled in a long way.
+    const near = flying ? 6 : cam.near;
+    const far = flying ? 20000 : cam.far;
+    let eye: Vec3;
+    let viewM: ReturnType<typeof viewMatrix>;
+    if (flying) {
+      eye = f.eye;
+      const fwd = normalize(sub(f.at, f.eye));
+      // the up given to the view has to be square to the heading, or the picture shears
+      const right = normalize(cross(fwd, f.up));
+      viewM = viewMatrix(eye, fwd, cross(right, fwd));
+    } else {
+      eye = cam.pos;
+      viewM = cam.viewMatrix();
+    }
+    const projM = perspective(fov, aspect, near, far);
     const viewProj = multiply(projM, viewM);
-    const fogNear = cam.dist * 1.3;
-    const fogFar = cam.dist * 4.5 + 500;
+    // Flying, the air is thick on purpose: the range runs for kilometres while the graph is a few
+    // hundred units across, and without it every ridge to the horizon reads at the same strength.
+    const fogNear = flying ? 320 : cam.dist * 1.3;
+    const fogFar = flying ? 2100 : cam.dist * 4.5 + 500;
     const fog = (depth: number) => smoothstep(fogNear, fogFar, depth);
-    const focal = h / 2 / Math.tan(cam.fov / 2);
+    const focal = h / 2 / Math.tan(fov / 2);
 
     // where everything lands on the screen this frame
     const proj = projected.current;
     proj.clear();
     for (const n of positions.values()) {
       const [cx, cy, , cw] = transform(viewProj, [n.x, n.y, n.z]);
-      const front = cw > cam.near;
+      const front = cw > near;
       proj.set(n.id, { x: (cx / cw + 1) * 0.5 * w, y: (1 - cy / cw) * 0.5 * h, r: front ? (n.r * focal) / cw : 0, depth: cw, front });
     }
 
@@ -736,10 +1213,25 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
     const selectedRelation = sc.selection?.kind === "relation" ? sc.selection.id : null;
     const hov = hover.current;
     const matches = (n: GraphNode) => !sc.q || (n.kind === "type" ? n.type.CodeName.toLowerCase().includes(sc.q) : n.property.CodeName.toLowerCase().includes(sc.q));
-    const right = cam.right();
-    const up = cam.up();
+    // the axes a self-loop and a label are laid out in: the live camera's, not the parked one's
+    const camFwd = flying ? normalize(sub(f.at, f.eye)) : cam.forward();
+    const right = normalize(cross(camFwd, flying ? f.up : [0, 1, 0]));
+    const up = cross(right, camFwd);
+    const pal = flying ? scenePalette(th.panelRgb, th.bgRgb, th.textRgb, th.accentRgb, th.dark) : null;
 
-    r.begin({ view: viewM, proj: projM, eye: cam.pos, width: Math.round(w * dpr), height: Math.round(h * dpr), fog: th.panelRgb, fogNear, fogFar });
+    r.begin({
+      view: viewM,
+      proj: projM,
+      eye,
+      width: Math.round(w * dpr),
+      height: Math.round(h * dpr),
+      fog: pal ? pal.fog : th.panelRgb,
+      fogNear,
+      fogFar,
+      near,
+      far,
+      background: pal ? () => drawScenery(viewProj, eye, pal) : undefined,
+    });
 
     // the lines, from border to border, with their arrowheads
     const labels: { x: number; y: number; text: string; color: string; bold: boolean; alpha: number; depth: number }[] = [];
@@ -772,7 +1264,7 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
           const top = add(c, scale(up, loopR + 6));
           const [tx, ty, , tw] = transform(viewProj, top);
           const pr = proj.get(a.id);
-          if (tw > cam.near && pr && pr.r > 10) labels.push({ x: ((tx / tw + 1) * 0.5) * w, y: ((1 - ty / tw) * 0.5) * h, text: l.label, color: style.labelColor, bold: style.bold, alpha: 1 - fog(tw) * 0.85, depth: tw });
+          if (tw > near && pr && pr.r > 10) labels.push({ x: ((tx / tw + 1) * 0.5) * w, y: ((1 - ty / tw) * 0.5) * h, text: l.label, color: style.labelColor, bold: style.bold, alpha: 1 - fog(tw) * 0.85, depth: tw });
         }
         continue;
       }
@@ -796,7 +1288,7 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
         if (sa && sb && sa.front && sb.front && Math.hypot(sb.x - sa.x, sb.y - sa.y) > 70) {
           const mid = scale(add(p1, p2), 0.5);
           const [mx, my, , mw] = transform(viewProj, mid);
-          if (mw > cam.near) labels.push({ x: ((mx / mw + 1) * 0.5) * w, y: ((1 - my / mw) * 0.5) * h - 5, text: l.label, color: style.labelColor, bold: style.bold, alpha: 1 - fog(mw) * 0.85, depth: mw });
+          if (mw > near) labels.push({ x: ((mx / mw + 1) * 0.5) * w, y: ((1 - my / mw) * 0.5) * h - 5, text: l.label, color: style.labelColor, bold: style.bold, alpha: 1 - fog(mw) * 0.85, depth: mw });
         }
       }
     }
@@ -861,8 +1353,9 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
         writeText(g, n.type.CodeName, p.x, p.y + p.r + 12, "600 12px system-ui, sans-serif", th.text, th.panel, "center", alpha);
         if (n.root) writeText(g, n.id === baseId ? "base type" : "start type", p.x, p.y + p.r + 25, "10px system-ui, sans-serif", th.textMuted, th.panel, "center", alpha);
       }
-      // the switch on the node's shoulder: plus and what it would unfold, minus once it is open
-      if ((n.hidden > 0 || n.open) && p.r >= 6 && !covered) {
+      // the switch on the node's shoulder: plus and what it would unfold, minus once it is open.
+      // Nothing to press while flying, so it is not drawn then.
+      if ((n.hidden > 0 || n.open) && p.r >= 6 && !covered && !flying) {
         const bx = p.x + p.r * 0.74;
         const by = p.y - p.r * 0.74;
         const hot = hov !== null && hov.id === n.id && hov.badge;
@@ -881,8 +1374,61 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
         g.globalAlpha = 1;
       }
     }
+    if (flying) drawHud(g, w, h, th);
     if (stage.style.cursor !== "grabbing" && drag.current && drag.current.kind !== "node") stage.style.cursor = "grabbing";
     else if (!drag.current && stage.style.cursor === "grabbing") stage.style.cursor = "grab";
+  }
+
+  /**
+   * The instruments: what the aeroplane is doing, drawn straight onto the overlay. Airspeed and
+   * height either side, a horizon that stays level while the aeroplane rolls against it, the
+   * throttle along the bottom, and the name of whatever was last flown through.
+   */
+  function drawHud(g: CanvasRenderingContext2D, w: number, h: number, th: Theme) {
+    const a = ac.current;
+    const c = ctl.current;
+    const f = flight.current;
+    const ink = th.text;
+    const dim = th.textMuted;
+    const cx = w / 2;
+
+    // --- the numbers ---
+    const box = (x: number, label: string, value: string, align: CanvasTextAlign) => {
+      writeText(g, value, x, h - 56, "600 22px system-ui, sans-serif", ink, th.panel, align, 0.95);
+      writeText(g, label, x, h - 36, "10px system-ui, sans-serif", dim, th.panel, align, 0.8);
+    };
+    // what is on the clock is what the aeroplane is doing on screen: as time eases to a stop, so
+    // does the needle, rather than sitting at cruise while the aeroplane hangs motionless
+    const shownV = a.V * f.timeScale;
+    box(26, a.V < V_STALL && f.timeScale > 0.5 ? "km/h · below stalling speed" : "km/h", Math.round(shownV * 3.6).toString(), "left");
+    box(w - 26, "metres above the ground", Math.round(Math.max(0, a.agl)).toString(), "right");
+
+    // --- the throttle ---
+    const tw = Math.min(230, w * 0.3);
+    const tx = cx - tw / 2;
+    g.globalAlpha = 0.45;
+    g.fillStyle = dim;
+    g.fillRect(tx, h - 26, tw, 3);
+    g.globalAlpha = 1;
+    g.fillStyle = th.accent;
+    g.fillRect(tx, h - 26, tw * c.throttle, 3);
+    writeText(g, "throttle " + Math.round(c.throttle * 100) + "%", cx, h - 38, "10px system-ui, sans-serif", dim, th.panel, "center", 0.85);
+
+    // --- what it is doing wrong, and what it has just flown through ---
+    let warn: string | null = null;
+    if (a.crashed) warn = "wrecked — back in the air in a moment";
+    else if (f.orbit.ready) warn = "stopped — drag to look round it, wheel to come closer, space to fly on";
+    else if (f.paused) warn = "slowing to a stop";
+    else if (a.stall > 0.35) warn = "stalled — stick forward";
+    else if (a.V > AC.vne) warn = "too fast";
+    if (warn) writeText(g, warn, cx, 36, "600 14px system-ui, sans-serif", a.crashed || a.stall > 0.35 ? th.accent : ink, th.panel, "center", 0.95);
+    if (f.buzz && f.buzzT > 0) {
+      const alpha = Math.min(1, f.buzzT / 0.6);
+      const total = scene.current.nodes.filter((n) => n.kind === "type").length;
+      writeText(g, f.buzz.label, cx, h - 98, "600 17px system-ui, sans-serif", ink, th.panel, "center", alpha);
+      writeText(g, f.buzz.kind + " · " + f.visited.size + " of " + total + " flown through", cx, h - 80, "10.5px system-ui, sans-serif", dim, th.panel, "center", alpha * 0.9);
+    }
+    writeText(g, "arrows or W A S D fly · Z X rudder · shift and ctrl throttle · B airbrakes · space stops · C view · R restart · Esc lands", cx, 16, "10.5px system-ui, sans-serif", dim, th.panel, "center", 0.7);
   }
 
   // ---- what is on the page ----
@@ -921,9 +1467,26 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
         <button className="icon-button" title="Stir the layout and let it settle again" onClick={shake}>
           <IconArrowsShuffle size={16} stroke={1.9} />
         </button>
-        <button className={"icon-button" + (autoOrbit ? " active" : "")} aria-pressed={autoOrbit} title={autoOrbit ? "Stop the slow turn" : "Turn slowly round the graph"} onClick={() => setAutoOrbit((v) => !v)}>
+        <button className={"icon-button" + (autoOrbit ? " active" : "")} aria-pressed={autoOrbit} title={autoOrbit ? "Stop the slow turn" : "Turn slowly round the graph"} onClick={() => setAutoOrbit((v) => !v)} disabled={fun}>
           <IconRotate360 size={16} stroke={1.9} />
         </button>
+        {/* there is no button for the aeroplane: SHIFT+P over the graph is the way in, and Esc the
+            way out. Only the pause button appears, and only once it is up. */}
+        {fun && (
+          <button
+            className={"icon-button" + (paused ? " active" : "")}
+            aria-pressed={paused}
+            title={paused ? "Fly on (space)" : "Stop in mid air and look round it (space)"}
+            onClick={() => {
+              flight.current.paused = !flight.current.paused;
+              setPaused(flight.current.paused);
+              stageRef.current?.focus({ preventScroll: true });
+              invalidate();
+            }}
+          >
+            {paused ? <IconPlayerPlay size={16} stroke={1.9} /> : <IconPlayerPause size={16} stroke={1.9} />}
+          </button>
+        )}
         <span className="dm-tools-gap" />
         <button className="icon-button" title="Unfold every type" onClick={expandAll} disabled={expanded.size >= world.eligible.size}>
           <IconHierarchy3 size={16} stroke={1.9} />
@@ -946,7 +1509,7 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
             </button>
           ))}
         </span>
-        <span className="muted dm-diagram-legend dg-hint">left drag orbits · right drag pans · middle drag looks · wheel flies · W A S D Q E · double-click a type to fly to it</span>
+        <span className="muted dm-diagram-legend dg-hint">{fun ? "flying — Esc lands" : "left drag orbits · right drag pans · middle drag looks · wheel flies · W A S D Q E · double-click a type to fly to it"}</span>
       </div>
       {glOk ? (
         <div
@@ -958,7 +1521,7 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
           onDoubleClick={onDoubleClick}
-          onContextMenu={(e) => e.preventDefault()}
+          onContextMenu={onContextMenu}
           onKeyDown={onKeyDown}
           onKeyUp={onKeyUp}
           onBlur={() => keys.current.clear()}
@@ -975,7 +1538,117 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
       ) : (
         <div className="dg3-nogl muted">This browser does not offer WebGL 2, which the 3D view needs. The Graph view shows the same picture flat.</div>
       )}
+      {menu &&
+        (() => {
+          const node = nodes.find((n) => n.id === menu.id);
+          if (!node || node.kind !== "type") return null;
+          return (
+            <NodeMenu
+              x={menu.x}
+              y={menu.y}
+              type={node.type}
+              open={node.open}
+              isRoot={node.root}
+              hidden={node.hidden}
+              count={ctx.typeCounts[node.id]}
+              onClose={() => setMenu(null)}
+              onStart={() => {
+                start(node.id);
+                setMenu(null);
+              }}
+              onSelect={() => {
+                ctx.select({ kind: "type", id: node.id });
+                setMenu(null);
+              }}
+              onToggle={() => {
+                toggle(node.id);
+                setMenu(null);
+              }}
+              onFlyTo={() => {
+                flyTo(node.id);
+                setMenu(null);
+              }}
+            />
+          );
+        })()}
     </div>
+  );
+}
+
+/**
+ * What a right-click on a type offers: make it the start of the graph, read it in the editor, unfold
+ * or fold it, or fly the camera to it. Put where the click was, the way the treemap's tile menu is.
+ */
+function NodeMenu({
+  x,
+  y,
+  type,
+  open,
+  isRoot,
+  hidden,
+  count,
+  onClose,
+  onStart,
+  onSelect,
+  onToggle,
+  onFlyTo,
+}: {
+  x: number;
+  y: number;
+  type: NodeTypeJson;
+  open: boolean;
+  isRoot: boolean;
+  hidden: number;
+  count: number | undefined;
+  onClose: () => void;
+  onStart: () => void;
+  onSelect: () => void;
+  onToggle: () => void;
+  onFlyTo: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const width = 248;
+  const height = 176;
+  const left = Math.max(8, Math.min(x, window.innerWidth - width - 8));
+  const top = Math.max(8, Math.min(y, window.innerHeight - height - 8));
+  const kind = kindMeta[type.ModelType] ?? kindMeta.Class;
+  return (
+    <>
+      <div
+        className="db-menu-backdrop"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={onClose}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onClose();
+        }}
+      />
+      <div className="db-menu type-menu" role="menu" style={{ top, left, width }} onPointerDown={(e) => e.stopPropagation()}>
+        <div className="type-menu-head">
+          <kind.icon size={14} stroke={1.9} color={kind.color} />
+          <b title={fullName(type)}>{type.CodeName}</b>
+          <span className="muted">{count === undefined ? kind.label : formatCount(count) + (count === 1 ? " node" : " nodes")}</span>
+        </div>
+        <button className="db-menu-item" role="menuitem" onClick={onStart} disabled={isRoot}>
+          <IconCrosshair size={15} stroke={1.8} /> {isRoot ? "Already the start type" : "Start the graph here"}
+        </button>
+        <button className="db-menu-item" role="menuitem" onClick={onToggle} disabled={!open && hidden === 0}>
+          <IconHierarchy3 size={15} stroke={1.8} /> {open ? "Fold what it unfolded" : hidden > 0 ? "Unfold " + hidden + " more" : "Nothing to unfold"}
+        </button>
+        <button className="db-menu-item" role="menuitem" onClick={onFlyTo}>
+          <IconBinoculars size={15} stroke={1.8} /> Fly the camera to it
+        </button>
+        <button className="db-menu-item" role="menuitem" onClick={onSelect}>
+          <IconPencil size={15} stroke={1.8} /> Open in the editor
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -1147,9 +1820,15 @@ function readTheme(el: HTMLElement): Theme {
   const textFaint = v("--text-faint", "#a6a39d");
   const border = v("--border", "#e2e0dc");
   const accent = v("--accent", "#0960b2");
+  const bg = v("--bg", "#f5f4f2");
+  const panelRgb = parseColor(panel);
+  const textRgb = parseColor(text);
   return {
     panel,
-    panelRgb: parseColor(panel),
+    panelRgb,
+    bgRgb: parseColor(bg),
+    // the page decides light or dark; the scene only mirrors that answer
+    dark: panelRgb[0] + panelRgb[1] + panelRgb[2] < textRgb[0] + textRgb[1] + textRgb[2],
     text,
     textRgb: parseColor(text),
     textMuted,

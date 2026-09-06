@@ -2,8 +2,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { KindIcon } from "./DatamodelIcons";
 import { formatCount } from "../format";
 import type { TypeCount } from "../server/dashboard";
+import { TypeCubes } from "./TypeCubes";
 
-export type TypeChartShape = "bars" | "treemap" | "donut";
+export type TypeChartShape = "bars" | "treemap" | "cubes" | "donut";
 
 export interface TypeSlice {
   type: TypeCount;
@@ -12,10 +13,12 @@ export interface TypeSlice {
 }
 
 /**
- * How much of a database each node type is, drawn three ways. They are not decoration of one
+ * How much of a database each node type is, drawn four ways. They are not decoration of one
  * another: bars compare exact amounts and stay readable down to the long tail, a treemap shows a
  * whole made of parts and is the only one of the three that survives fifty types, and a donut is
- * for the handful of types that actually dominate. The colour is the model source the type comes
+ * for the handful of types that actually dominate, and the cubes spend volume rather than area on
+ * the count, which is the only one of the four where a type a thousand times smaller than another is
+ * still something you can see. The colour is the model source the type comes
  * from - the same colour the model editor gives it - with the types of one source separated by
  * lightness, so a type keeps its identity across pages while a source stays recognisable as a group.
  *
@@ -37,6 +40,7 @@ export function TypeChart({
   if (slices.length === 0) return <div className="muted dash-chart-empty">No nodes yet.</div>;
   if (shape === "bars") return <Bars slices={slices} />;
   if (shape === "treemap") return <Treemap slices={slices} total={total} onTileClick={onTileClick} />;
+  if (shape === "cubes") return <TypeCubes slices={slices} total={total} onTileClick={onTileClick} />;
   return <Donut slices={slices} total={total} />;
 }
 

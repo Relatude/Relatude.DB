@@ -15,19 +15,31 @@
   justify-content: center;
 }
 
-/* toolbar */
+/* toolbar
+   Two rows: views on the left of the first with the commands on its right, search and the
+   source filter on the second with the model's status on its right. Every control on the first
+   row is 30px tall so the row reads as one line; the pills on the second are smaller and centered.
+   The groups are atomic flex items, so a narrow window wraps between groups, never inside one. */
 
 .dm-toolbar {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
-  flex-wrap: wrap;
   flex: none;
+}
+
+.dm-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-height: 30px;
 }
 
 .dm-tabs {
   display: flex;
   gap: 2px;
+  height: 30px;
   padding: 2px;
   background: var(--badge-bg);
   border-radius: 9px;
@@ -37,7 +49,8 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 5px 10px;
+  height: 26px;
+  padding: 0 10px;
   border-radius: 7px;
   font-size: 12.5px;
   font-weight: 600;
@@ -60,11 +73,12 @@
   align-items: center;
   gap: 6px;
   padding: 0 6px 0 10px;
-  min-width: 260px;
-  height: 32px;
+  flex: 0 1 320px;
+  min-width: 200px;
+  height: 30px;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 7px;
   color: var(--text-muted);
 }
 
@@ -85,7 +99,7 @@
 
 .dm-hits {
   position: absolute;
-  top: 36px;
+  top: 34px;
   left: 0;
   right: 0;
   z-index: 20;
@@ -123,9 +137,14 @@
   white-space: nowrap;
 }
 
+/* takes what the search box and the status leave, and wraps its chips inside that rather than
+   dropping the whole set to a line of its own */
 .dm-chips {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 0;
+  min-width: 0;
   flex-wrap: wrap;
 }
 
@@ -169,6 +188,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  margin-left: auto;
   padding: 4px 10px;
   border-radius: 99px;
   font-size: 12px;
@@ -192,11 +212,40 @@
   color: var(--data);
 }
 
-.dm-button {
+.dm-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.dm-button-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dm-toolbar-sep {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+}
+
+/* the shared action button carries a 150px floor meant for stacked rows; in a toolbar the
+   buttons are as wide as their labels and share the row's 30px height. Two classes: app.css
+   is loaded after this file, so a single class would lose to .action-button */
+.dm-button.action-button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
+  height: 30px;
   min-width: 0;
+  padding: 0 12px;
+  white-space: nowrap;
 }
 
 .dm-button.primary:not(:disabled) {
