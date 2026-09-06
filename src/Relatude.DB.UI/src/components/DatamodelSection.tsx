@@ -25,6 +25,7 @@ import {
   IconSitemap,
   IconStack2,
   IconTable,
+  IconTopologyStar3,
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
@@ -62,16 +63,19 @@ import {
 import { formatTime } from "../format";
 import { KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon } from "./DatamodelIcons";
 import { PropertyEditor, RelationEditor, SourceEditor, SourcePickerDialog, TypeEditor, type EditorContext, type Selection } from "./DatamodelEditors";
+import { takeDatamodelTarget, useNavigationRequest, type DatamodelTarget } from "../navigate";
 import { HistoryView, ListView, MatrixView, SourcesView, TreeView } from "./DatamodelViews";
 import { DatamodelDiagram } from "./DatamodelDiagram";
+import { DatamodelGraph } from "./DatamodelGraph";
 import "../datamodel.css";
 
-type ViewId = "list" | "tree" | "diagram" | "matrix" | "sources" | "history";
+type ViewId = "list" | "tree" | "diagram" | "graph" | "matrix" | "sources" | "history";
 
 const views: { id: ViewId; label: string; icon: typeof IconList }[] = [
   { id: "list", label: "List", icon: IconList },
   { id: "tree", label: "Inheritance", icon: IconSitemap },
   { id: "diagram", label: "Diagram", icon: IconLayoutGrid },
+  { id: "graph", label: "Graph", icon: IconTopologyStar3 },
   { id: "matrix", label: "Matrix", icon: IconTable },
   { id: "sources", label: "Sources", icon: IconStack2 },
   { id: "history", label: "History", icon: IconHistory },
@@ -132,6 +136,61 @@ function download(fileName: string, content: string, contentType: string) {
  * Sources can be switched off in the toolbar; a type of a switched off source that something
  * visible inherits from, relates to or refers to stays visible, grayed out.
  */
+/**
+ * What the banner above the model says about the draft, if anything. A saved draft normally needs no
+ * banner; these situations do:
+ * - "awaiting": the draft was written into source code that is compiled into the application, which
+ *   still runs the previous model. The server removes the draft once the database opens with the
+ *   written model (DatamodelDrafts.RemoveIfActivated), so this shows until the rebuild.
+ * - "rebuilt-differently": the database has opened since the write, but not with the draft's model,
+ *   or the draft would be gone: the build failed, the written files were changed, or something else
+ *   changed the model too.
+ * - "same-as-active": the draft says the same as the active model, so there is nothing to activate.
+ * - "active-changed": the model the draft was started from is no longer the active one, so activating
+ *   replaces changes made since. Not said for a draft waiting for a rebuild: there the active model
+ *   changing is the point.
+ * Unsaved edits switch the two rebuild notices off: what is shown is then no longer what was written.
+ */
+type DraftNotice =
+  | { kind: "awaiting"; since: string | null; files: string[] }
+  | { kind: "rebuilt-differently"; since: string | null; openedAt: string; files: string[] }
+  | { kind: "same-as-active" }
+  | { kind: "active-changed"; startedFrom: string | null };
+
+function draftNotice(page: DatamodelPage, dirty: boolean): DraftNotice | null {
+  const draft = page.draft;
+  if (!draft) return null;
+  if (draft.awaitingRebuild && !dirty) {
+    const since = draft.awaitingRebuildSinceUtc;
+    const files = [...draft.filesWritten, ...draft.filesDeleted.map((f) => f + " (deleted)")];
+    // the history is newest first, so the first "open" after the write is the latest one
+    const opened = since ? page.history.find((h) => h.reason === "open" && Date.parse(h.savedUtc) > Date.parse(since)) : undefined;
+    return opened ? { kind: "rebuilt-differently", since, openedAt: opened.savedUtc, files } : { kind: "awaiting", since, files };
+  }
+  if (!page.active) return null;
+  if (!dirty && draft.checksum === page.active.checksum) return { kind: "same-as-active" };
+  if (draft.baseChecksum && draft.baseChecksum !== page.active.checksum) {
+    const base = page.history.find((h) => h.checksum === draft.baseChecksum);
+    return { kind: "active-changed", startedFrom: base?.savedUtc ?? null };
+  }
+  return null;
+}
+
+function NoticeFiles({ files }: { files: string[] }) {
+  if (files.length === 0) return null;
+  const shown = files.slice(0, 6);
+  return (
+    <ul className="dm-notice-files">
+      {shown.map((f) => (
+        <li key={f} className="dm-mono">
+          {f}
+        </li>
+      ))}
+      {files.length > shown.length && <li>and {files.length - shown.length} more</li>}
+    </ul>
+  );
+}
+
 export function DatamodelSection({ db }: { db: DatabaseInfo }) {
   const [page, setPage] = useState<DatamodelPage | null>(null);
   const [schema, setSchema] = useState<Schema | null>(null);
@@ -150,6 +209,10 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
   const [menuOpen, setMenuOpen] = useState(false);
   // the open source picker: what is being added, where it could go, and what to do once one is picked
   const [sourcePick, setSourcePick] = useState<{ what: "type" | "relation"; sources: SourceJson[]; create: (source: SourceJson) => void } | null>(null);
+  // the type just created here: the list opens it, so the properties added to it next are visible
+  const [justAdded, setJustAdded] = useState<string | null>(null);
+  // something another page asked to open here, held until the model is loaded and can be selected in
+  const [pendingTarget, setPendingTarget] = useState<DatamodelTarget | null>(() => takeDatamodelTarget());
   const [showHelp, setShowHelp] = useState(() => localStorage.getItem(helpKey) !== "false");
   // the width of the editor panel, dragged and remembered; null leaves it to the stylesheet
   const [sideWidth, setSideWidth] = useState<number | null>(() => {
@@ -333,6 +396,24 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     return { visibleTypes: visible, ghostTypes: ghost };
   }, [model, hiddenSources]);
 
+  const navigation = useNavigationRequest();
+  useEffect(() => {
+    const target = takeDatamodelTarget();
+    if (target) setPendingTarget(target);
+  }, [navigation]);
+
+  // Held until the model is there: selecting a property of a type the editor has not loaded yet
+  // would open an empty panel and look like the link went nowhere.
+  useEffect(() => {
+    if (!pendingTarget || !model) return;
+    const type = model.NodeTypes[pendingTarget.typeId];
+    if (pendingTarget.relationId && model.Relations[pendingTarget.relationId]) setSelection({ kind: "relation", id: pendingTarget.relationId });
+    else if (pendingTarget.propertyId && type?.Properties[pendingTarget.propertyId]) setSelection({ kind: "property", id: pendingTarget.propertyId, typeId: pendingTarget.typeId });
+    else if (type) setSelection({ kind: "type", id: pendingTarget.typeId });
+    if (type) setView((v) => (v === "sources" || v === "history" ? "list" : v));
+    setPendingTarget(null);
+  }, [pendingTarget, model]);
+
   const diff = useMemo(() => (model && page?.active ? diffModels(page.active.model, model, baseTypeId) : null), [model, page, baseTypeId]);
 
   const update = useCallback((mutate: (m: ModelJson) => void) => {
@@ -435,7 +516,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
       lines.push(`${handWritten.length} file${handWritten.length === 1 ? " was" : "s were"} NOT generated by Relatude.DB and ${handWritten.length === 1 ? "is" : "are"} deleted or overwritten with the generated folder: ${named}. This cannot be undone from here.`);
     }
     if (v.plan?.settingsChange) lines.push("The source list in the settings file changes.");
-    if (v.requiresRebuild) lines.push("Some of the changes go into the application's own source code: they take effect after the application is rebuilt and restarted, and the draft is kept until then.");
+    if (v.requiresRebuild) lines.push("Some of the changes go into source code that is compiled into the application: they take effect after it is rebuilt and restarted. The draft is kept, marked as waiting for a rebuild, and removed by itself when the database opens with the written model.");
     else if (page?.open) lines.push("The database is reopened with the new model, which rebuilds its state and indexes when index settings changed.");
     else lines.push("The database is closed; it uses the new model when it opens.");
     if (warnings > 0) lines.push(`${warnings} warning${warnings === 1 ? "" : "s"} (listed below the model) will be accepted.`);
@@ -516,6 +597,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
   function addType() {
     pickSourceThen("type", createType);
   }
+
   function createType(source: SourceJson) {
     if (!model || !schema) return;
     const id = newGuid();
@@ -536,6 +618,9 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     });
     // the name is the first thing to change about a type called NewType, so the keyboard starts there
     setSelection({ kind: "type", id, focusField: "CodeName" });
+    // and its property list starts open, so a property added next is on screen rather than behind a
+    // chevron nobody thought to press
+    setJustAdded(id);
     if (view === "sources" || view === "history") setView("list");
   }
   function addRelation() {
@@ -668,17 +753,17 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
   }
 
   const hits = query.trim() ? searchModel(model, sourceInfos, query, baseTypeId) : [];
-  const activeChanged = !!page.draft?.baseChecksum && !!page.active && page.draft.baseChecksum !== page.active.checksum;
+  const notice = draftNotice(page, dirty);
   const errorCount = validation?.issues.filter((i) => i.severity === "error").length ?? 0;
   const warningCount = validation?.issues.filter((i) => i.severity === "warning").length ?? 0;
 
   const status = page.draft?.awaitingRebuild && !dirty
-    ? { cls: "rebuild", icon: <IconRefreshAlert size={14} stroke={2} />, text: "Written, awaiting rebuild" }
+    ? { cls: "rebuild", icon: <IconRefreshAlert size={14} stroke={2} />, text: notice?.kind === "rebuilt-differently" ? "Written, rebuild differs" : "Written, waiting for rebuild" }
     : hasDraft
       ? { cls: "draft", icon: <IconDeviceFloppy size={14} stroke={2} />, text: dirty ? "Draft · unsaved changes" : "Draft · saved " + (page.draft ? formatTime(page.draft.savedUtc) : "") }
       : { cls: "active", icon: <IconCircleCheck size={14} stroke={2} />, text: page.open ? "Active model" : "Model as configured (database closed)" };
 
-  const viewProps = { ctx, visibleTypes, ghostTypes, query, selection, diff };
+  const viewProps = { ctx, visibleTypes, ghostTypes, query, selection, diff, justAdded };
   // a focus request is spent the moment the editor honors it; selecting the same thing again later
   // must not pull the keyboard out of wherever the user has put it
   const clearFocus = () => setSelection((s) => (s === null || s.focusField === undefined ? s : ({ ...s, focusField: undefined } as Selection)));
@@ -788,6 +873,9 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
         <button className="action-button dm-button" onClick={addType} disabled={busy !== null} title="Add a node type to the model">
           <IconCube size={15} stroke={2} /> New type
         </button>
+        <button className="action-button dm-button" onClick={addRelation} disabled={busy !== null} title="Add a relation to the model">
+          <IconArrowsExchange size={15} stroke={2} /> New relation
+        </button>
         <button className="action-button dm-button" onClick={save} disabled={!dirty || busy !== null} title="Keep the draft on the server without activating it">
           <IconDeviceFloppy size={15} stroke={2} /> Save draft
         </button>
@@ -852,14 +940,43 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
           <IconAlertTriangle size={16} stroke={2} /> {page.draftError}
         </div>
       )}
-      {page.draft?.awaitingRebuild && !dirty && (
+      {notice?.kind === "awaiting" && (
         <div className="dm-notice warn">
-          <IconRefreshAlert size={16} stroke={2} /> This draft was written into the application's source code {page.draft.awaitingRebuildSinceUtc ? "at " + formatTime(page.draft.awaitingRebuildSinceUtc) : ""}. Rebuild and restart the application to make it the active model; the draft goes away by itself once the database opens with it.
+          <IconRefreshAlert size={16} stroke={2} />
+          <div>
+            <b>Waiting for a rebuild.</b> {notice.since ? "On " + formatTime(notice.since) + " this" : "This"} draft was written into source code that is compiled into the application, so the running
+            application still uses the previous model. Rebuild and restart it; when the database opens with the written model, the draft is removed automatically.
+            <NoticeFiles files={notice.files} />
+          </div>
         </div>
       )}
-      {activeChanged && (
+      {notice?.kind === "rebuilt-differently" && (
         <div className="dm-notice warn">
-          <IconAlertTriangle size={16} stroke={2} /> The active model has changed since this draft was started. Activating the draft would take the model back to what the draft says; compare the two before you do.
+          <IconAlertTriangle size={16} stroke={2} />
+          <div>
+            <b>The application was restarted, but not with this draft's model.</b> The draft was written into compiled source code{notice.since ? " on " + formatTime(notice.since) : ""}; the database has
+            opened since, on {formatTime(notice.openedAt)}, with a model that differs from the draft. Check that the build succeeded and that the written files are still as written, then activate
+            again. Or discard the draft if the active model is what you want.
+            <NoticeFiles files={notice.files} />
+          </div>
+        </div>
+      )}
+      {notice?.kind === "same-as-active" && (
+        <div className="dm-notice">
+          <IconCircleCheck size={16} stroke={2} />
+          <div>
+            <b>This draft says the same as the active model.</b> There is nothing to activate; discard the draft, or keep editing it.
+          </div>
+        </div>
+      )}
+      {notice?.kind === "active-changed" && (
+        <div className="dm-notice warn">
+          <IconAlertTriangle size={16} stroke={2} />
+          <div>
+            <b>The active model has changed since this draft was started.</b> The draft was started from the model{notice.startedFrom ? " the database opened with on " + formatTime(notice.startedFrom) : " that was active then"};
+            since then the database has opened with a different one, after a code change or another activation. Activating this draft replaces the current model with what the draft says, which undoes
+            those changes unless the draft has them too. Compare the two under History first.
+          </div>
         </div>
       )}
       {!page.open && !page.activeError && (
@@ -877,6 +994,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
           {view === "list" && <ListView {...viewProps} />}
           {view === "tree" && <TreeView {...viewProps} />}
           {view === "diagram" && <DatamodelDiagram ctx={ctx} visibleTypes={visibleTypes} ghostTypes={ghostTypes} selection={selection} query={query} storeId={db.id} />}
+          {view === "graph" && <DatamodelGraph ctx={ctx} visibleTypes={visibleTypes} selection={selection} query={query} storeId={db.id} />}
           {view === "matrix" && <MatrixView {...viewProps} />}
           {view === "sources" && <SourcesView ctx={ctx} selection={selection} hiddenSources={hiddenSources} onToggleVisible={toggleSource} onAdd={addSource} locked={page.sourcesLocked} />}
           {view === "history" && <HistoryView history={page.history} activeChecksum={page.active?.checksum ?? null} draftBaseChecksum={page.draft?.baseChecksum ?? null} onLoad={loadFromHistory} onDelete={removeHistory} />}

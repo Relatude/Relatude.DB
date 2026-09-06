@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { IconCheck, IconChevronDown, IconDatabase, IconSearch, IconX } from "@tabler/icons-react";
+import { IconCheck, IconChevronDown, IconCube, IconDatabase, IconSearch, IconX } from "@tabler/icons-react";
 import { KindIcon, SourceDot } from "./DatamodelIcons";
 import { codeSourceGuid, sourceColors, type ModelKind, type SourceType } from "../server/datamodel";
 import { formatCount } from "../format";
@@ -14,6 +14,8 @@ export interface PickableType {
   hidden: boolean;
   kind: ModelKind;
   sourceId: string;
+  /** whether a node of it can be made here; false is shown, and not choosable, with the reason */
+  canCreate: boolean;
   count: number;
 }
 
@@ -152,6 +154,102 @@ export function TypePicker({ types, sources, value, onChange, onPicked }: Props)
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Chooses the type of a node about to be made. The same list as the picker above, as a dialog and
+ * without the empty-types switch: a type with no nodes is exactly what someone making the first one
+ * is looking for. Types the server cannot instantiate - the base type, and a type in the model whose
+ * assembly is not loaded - are shown but not choosable, with the reason on them.
+ */
+export function NewNodeDialog({
+  types,
+  sources,
+  onPick,
+  onClose,
+}: {
+  types: PickableType[];
+  sources: { id: string; name: string; type: SourceType; color?: string | null }[];
+  onPick: (type: PickableType) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+  const listRef = useRef<HTMLDivElement>(null);
+  const colors = useMemo(() => sourceColors(sources, codeSourceGuid), [sources]);
+
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return types.filter((t) => !t.isBase && (q.length === 0 || match(t, q)));
+  }, [types, query]);
+
+  useEffect(() => setActive((a) => Math.min(a, Math.max(0, shown.length - 1))), [shown.length]);
+  useLayoutEffect(() => {
+    listRef.current?.querySelector<HTMLElement>(".type-option.active")?.scrollIntoView({ block: "nearest" });
+  }, [active]);
+
+  function pick(t: PickableType) {
+    if (!t.canCreate) return;
+    onPick(t);
+  }
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      setActive((a) => Math.min(shown.length - 1, Math.max(0, a + (e.key === "ArrowDown" ? 1 : -1))));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (shown[active]) pick(shown[active]);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      onClose();
+    }
+  }
+
+  return (
+    <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="dialog new-node-dialog" onKeyDown={onKeyDown}>
+        <h3>
+          <IconCube size={16} stroke={2} /> New node
+        </h3>
+        <div className="dialog-body">The node is written straight away, with the defaults of its type, and opens in the form beside the list.</div>
+        <div className="type-picker-search">
+          <IconSearch size={14} stroke={2} />
+          <input autoFocus value={query} placeholder="Search types…" onChange={(e) => setQuery(e.target.value)} />
+          {query && (
+            <button className="icon-button" onClick={() => setQuery("")} title="Clear">
+              <IconX size={13} stroke={2} />
+            </button>
+          )}
+        </div>
+        <div className="type-picker-list new-node-list" ref={listRef}>
+          {shown.map((t, i) => (
+            <button
+              key={t.id}
+              className={"type-option" + (i === active ? " active" : "") + (t.canCreate ? "" : " disabled")}
+              disabled={!t.canCreate}
+              onMouseEnter={() => setActive(i)}
+              onClick={() => pick(t)}
+              title={t.canCreate ? t.fullName : t.fullName + " — the model has this type, but no assembly loaded here implements it"}
+            >
+              <TypeMark type={t} colors={colors} />
+              <span className="type-option-name">
+                {t.name}
+                {t.hidden && <span className="badge">hidden</span>}
+                {!t.canCreate && <span className="badge">not loaded</span>}
+              </span>
+              <span className="type-option-count">{formatCount(t.count)}</span>
+            </button>
+          ))}
+          {shown.length === 0 && <div className="muted type-picker-empty">No type matches “{query}”.</div>}
+        </div>
+        <div className="dialog-actions">
+          <button className="action-button" onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

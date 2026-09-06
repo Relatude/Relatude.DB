@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { IconArrowsMaximize, IconArrowsMinimize } from "@tabler/icons-react";
 
 /**
  * Panels in rows the reader can resize.
@@ -19,6 +20,11 @@ import type { ReactNode } from "react";
  *
  * Below `narrowAt` the columns are gone and so is the whole idea: the panels stack in order and
  * nothing is resizable, because there is no second column to take room from.
+ *
+ * Any panel can be taken to the whole page for a while - a graph to read closely, a terminal to
+ * follow. It covers the scrolling area the grid lives in rather than the window, so the rail and the
+ * header stay in reach; the other panels are hidden where they are and shown again on the way back,
+ * which is a matter of a click on the same button or Escape.
  */
 
 export interface PanelRow {
@@ -52,6 +58,9 @@ export function PanelGrid({ id, rows, defaultSplit = 0.62 }: { id: string; rows:
   const storageKey = "panelGrid:" + id;
   const [layout, setLayout] = useState<Layout>(() => read(storageKey, defaultSplit));
   const [dragging, setDragging] = useState<DragMode | null>(null);
+  // the cell taken to the whole page, by its key, and the area it covers
+  const [maximized, setMaximized] = useState<string | null>(null);
+  const [maxRect, setMaxRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
   const [narrow, setNarrow] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const rowEls = useRef<(HTMLDivElement | null)[]>([]);
@@ -94,6 +103,30 @@ export function PanelGrid({ id, rows, defaultSplit = 0.62 }: { id: string; rows:
       document.body.classList.remove("pg-resizing");
     };
   }, [dragging]);
+
+  // the area the maximized panel covers is the nearest scrolling ancestor - the page's content, not
+  // the window. Measured again as the window or the rail beside it changes, so it keeps fitting.
+  useLayoutEffect(() => {
+    if (!maximized) return;
+    const scroller = scrollParentOf(box.current);
+    const measure = () => {
+      const r = scroller?.getBoundingClientRect();
+      setMaxRect(r ? { top: r.top, left: r.left, width: r.width, height: r.height } : { top: 0, left: 0, width: window.innerWidth, height: window.innerHeight });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (scroller) observer.observe(scroller);
+    window.addEventListener("resize", measure);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMaximized(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [maximized]);
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>, mode: DragMode, row: number) {
     if (e.button !== 0) return;
@@ -165,29 +198,44 @@ export function PanelGrid({ id, rows, defaultSplit = 0.62 }: { id: string; rows:
 
   const customized = layout.split !== defaultSplit || Object.keys(layout.heights).length > 0;
 
+  // a row is "sized" once it has a height of its own, dragged or given: a panel there has room to
+  // hand to a body that wants to fill it, which a row sizing itself to its content does not. A
+  // maximized panel has the whole page, so it is sized whatever its row is.
+  const heightOf = (row: PanelRow) => (narrow ? undefined : layout.heights[row.id] ?? row.height);
+  const cellClass = (row: PanelRow, isMax: boolean) => "panel-cell" + (isMax || heightOf(row) != null ? " sized" : "") + (isMax ? " maximized" : "");
+
+  // a cell of the grid: the panel it was handed, and the button that takes it to the whole page
+  const cell = (key: string, row: PanelRow, content: ReactNode, style?: React.CSSProperties, ref?: (el: HTMLDivElement | null) => void) => {
+    const isMax = maximized === key;
+    return (
+      <div key={key} className={cellClass(row, isMax)} ref={ref} style={isMax && maxRect ? { position: "fixed", ...maxRect } : style}>
+        <button
+          className="icon-button pg-max"
+          title={isMax ? "Back to the layout (Esc)" : "Maximize this panel"}
+          aria-pressed={isMax}
+          onClick={() => setMaximized(isMax ? null : key)}
+        >
+          {isMax ? <IconArrowsMinimize size={14} stroke={1.8} /> : <IconArrowsMaximize size={14} stroke={1.8} />}
+        </button>
+        {content}
+      </div>
+    );
+  };
+
   if (narrow) {
     // one column: the cells in the order they were given, nothing to drag
     return (
-      <div className="panel-grid-wrap narrow" ref={box}>
-        {rows.flatMap((row) => row.cells.map((cell, i) => <div key={row.id + i} className="panel-cell">{cell}</div>))}
+      <div className={"panel-grid-wrap narrow" + (maximized ? " has-max" : "")} ref={box}>
+        {rows.flatMap((row) => row.cells.map((content, i) => cell(row.id + (i === 0 ? ":a" : ":b"), row, content)))}
       </div>
     );
   }
-
-  // a row is "sized" once it has a height of its own, dragged or given: a panel there has room to
-  // hand to a body that wants to fill it, which a row sizing itself to its content does not
-  const heightOf = (row: PanelRow) => layout.heights[row.id] ?? row.height;
-  const cellClass = (row: PanelRow) => "panel-cell" + (heightOf(row) == null ? "" : " sized");
 
   const children: ReactNode[] = [];
   rows.forEach((row, i) => {
     const gridRow = 2 * i + 1;
     const split = row.cells.length > 1;
-    children.push(
-      <div key={row.id + ":a"} className={cellClass(row)} ref={(el) => void (rowEls.current[i] = el)} style={{ gridRow, gridColumn: split ? 1 : "1 / -1" }}>
-        {row.cells[0]}
-      </div>,
-    );
+    children.push(cell(row.id + ":a", row, row.cells[0], { gridRow, gridColumn: split ? 1 : "1 / -1" }, (el) => void (rowEls.current[i] = el)));
     if (split) {
       children.push(
         <Divider
@@ -203,11 +251,7 @@ export function PanelGrid({ id, rows, defaultSplit = 0.62 }: { id: string; rows:
           onKeyDown={(e) => onKeyDown(e, "col", i)}
         />,
       );
-      children.push(
-        <div key={row.id + ":b"} className={cellClass(row)} style={{ gridRow, gridColumn: 3 }}>
-          {row.cells[1]}
-        </div>,
-      );
+      children.push(cell(row.id + ":b", row, row.cells[1], { gridRow, gridColumn: 3 }));
     }
     // every row has a divider under it, the last one included: the rule is that a horizontal
     // divider sizes the row above it, and without this one the bottom panel of a page could never
@@ -256,7 +300,7 @@ export function PanelGrid({ id, rows, defaultSplit = 0.62 }: { id: string; rows:
     .join(" ");
 
   return (
-    <div className={"panel-grid-wrap" + (dragging ? " dragging" : "")} ref={box}>
+    <div className={"panel-grid-wrap" + (dragging ? " dragging" : "") + (maximized ? " has-max" : "")} ref={box}>
       {customized && (
         <div className="panel-grid-tools">
           <button className="link-button" onClick={() => setLayout({ split: defaultSplit, heights: {} })}>
@@ -318,4 +362,13 @@ function read(storageKey: string, defaultSplit: number): Layout {
     // unreadable or unparsable: the default layout is a fine answer
   }
   return { split: defaultSplit, heights: {} };
+}
+
+/** The nearest ancestor that scrolls: the area a maximized panel has to cover. */
+function scrollParentOf(el: HTMLElement | null): HTMLElement | null {
+  for (let node = el?.parentElement ?? null; node; node = node.parentElement) {
+    const overflow = getComputedStyle(node).overflowY;
+    if (overflow === "auto" || overflow === "scroll") return node;
+  }
+  return null;
 }

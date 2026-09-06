@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { IconArrowsMaximize, IconLayoutGrid, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
+import { IconArrowsMaximize, IconArrowsShuffle, IconCircleDotted, IconFileTypeSvg, IconLayoutColumns, IconLayoutGrid, IconLayoutRows, IconPalette, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
+import { downloadSvg } from "../svgExport";
 import type { EditorContext, Selection } from "./DatamodelEditors";
-import { embeddedColor, kindMeta, propertyColor, relationColor, relationMeta } from "./DatamodelIcons";
+import { embeddedColor, indexMarks, kindMeta, propertyColor, relationColor, relationMeta } from "./DatamodelIcons";
 import type { NodeTypeJson } from "../server/datamodel";
 
 interface Props {
@@ -20,10 +21,25 @@ interface Box {
   y: number;
   w: number;
   h: number;
-  rows: { id: string; name: string; propertyType: string }[];
+  rows: { id: string; name: string; propertyType: string; marks: string[] }[];
   more: number;
   ghost: boolean;
 }
+
+/**
+ * How the boxes are arranged. Inheritance is the default reading and gets both directions; the other
+ * three answer questions inheritance does not - what is in which source, what the whole model looks
+ * like at once, and how a relation-heavy model connects when nothing inherits anything.
+ */
+export type LayoutMode = "layers" | "columns" | "grid" | "sources" | "circle";
+
+const layouts: { id: LayoutMode; label: string; hint: string; icon: typeof IconLayoutRows }[] = [
+  { id: "layers", label: "Layers", hint: "Inheritance top down: parents above their children", icon: IconLayoutRows },
+  { id: "columns", label: "Columns", hint: "Inheritance left to right: parents left of their children", icon: IconLayoutColumns },
+  { id: "grid", label: "Grid", hint: "Every type in one grid, by name", icon: IconLayoutGrid },
+  { id: "sources", label: "Sources", hint: "One block per model source, in load order", icon: IconPalette },
+  { id: "circle", label: "Circle", hint: "Types on a ring, so the lines between them read", icon: IconCircleDotted },
+];
 
 type Edge =
   | { kind: "inherits"; from: string; to: string; id: string }
@@ -38,23 +54,141 @@ const maxRows = 9;
 const layerGap = 90;
 const columnGap = 48;
 
-function positionsKey(storeId: string) {
-  return "dmDiagram:" + storeId;
+// dragged positions belong to the arrangement they were dragged in: a box moved in the grid has no
+// meaning in the circle, so every layout remembers its own
+function positionsKey(storeId: string, mode: LayoutMode) {
+  return "dmDiagram:" + storeId + ":" + mode;
 }
-function readPositions(storeId: string): Record<string, { x: number; y: number }> {
+const layoutKey = (storeId: string) => "dmDiagramLayout:" + storeId;
+
+function readPositions(storeId: string, mode: LayoutMode): Record<string, { x: number; y: number }> {
   try {
-    const raw = localStorage.getItem(positionsKey(storeId));
+    const raw = localStorage.getItem(positionsKey(storeId, mode));
     return raw ? (JSON.parse(raw) as Record<string, { x: number; y: number }>) : {};
   } catch {
     return {};
   }
 }
-function writePositions(storeId: string, positions: Record<string, { x: number; y: number }>) {
+function writePositions(storeId: string, mode: LayoutMode, positions: Record<string, { x: number; y: number }>) {
   try {
-    localStorage.setItem(positionsKey(storeId), JSON.stringify(positions));
+    localStorage.setItem(positionsKey(storeId, mode), JSON.stringify(positions));
   } catch {
     // storage may be unavailable; the layout then simply is not remembered
   }
+}
+
+/** Arranges the boxes. Every mode writes x and y straight onto them; nothing else in the diagram
+ *  knows which one ran. */
+function place(mode: LayoutMode, boxes: Box[], depth: Map<string, number>, ctx: EditorContext) {
+  if (boxes.length === 0) return;
+  if (mode === "layers" || mode === "columns") layered(boxes, depth, mode === "columns");
+  else if (mode === "grid") grid([...boxes].sort((a, b) => a.type.CodeName.localeCompare(b.type.CodeName)), 0, 0);
+  else if (mode === "sources") bySource(boxes, ctx);
+  else circle(boxes);
+}
+
+/**
+ * Inheritance, as layers. Roots first, then each next layer ordered by the mean position of its
+ * parents so the lines between layers cross as little as they can. A layer wider than the budget
+ * wraps, so a flat model (many roots, little inheritance) reads as a block rather than as a line off
+ * the edge of the screen. Horizontal swaps the two axes: layers become columns and a layer stacks.
+ */
+function layered(boxes: Box[], depth: Map<string, number>, horizontal: boolean) {
+  const layers = new Map<number, Box[]>();
+  for (const b of boxes) {
+    const d = depth.get(b.id) ?? 0;
+    layers.set(d, [...(layers.get(d) ?? []), b]);
+  }
+  const layerKeys = [...layers.keys()].sort((a, b) => a - b);
+  const size = (b: Box) => (horizontal ? b.h : b.w);
+  const gap = horizontal ? rowHeight : columnGap;
+  const budget = horizontal
+    ? Math.max(4 * (60 + gap), Math.ceil(Math.sqrt(boxes.length)) * (90 + gap) * 1.6)
+    : Math.max(3 * (nodeWidth + gap), Math.ceil(Math.sqrt(boxes.length)) * (nodeWidth + gap) * 1.3);
+  let along = 0; // down the layers
+  const center = new Map<string, number>();
+  for (const d of layerKeys) {
+    const layer = layers.get(d)!;
+    if (d === 0) layer.sort((a, b) => a.type.CodeName.localeCompare(b.type.CodeName));
+    else {
+      const bary = (b: Box) => {
+        const ps = (b.type.Parents ?? []).filter((p) => center.has(p));
+        return ps.length === 0 ? Number.MAX_SAFE_INTEGER / 2 : ps.reduce((s, p) => s + center.get(p)!, 0) / ps.length;
+      };
+      layer.sort((a, b) => bary(a) - bary(b) || a.type.CodeName.localeCompare(b.type.CodeName));
+    }
+    const lines: Box[][] = [[]];
+    let used = 0;
+    for (const b of layer) {
+      if (used > 0 && used + size(b) > budget) {
+        lines.push([]);
+        used = 0;
+      }
+      lines[lines.length - 1].push(b);
+      used += size(b) + gap;
+    }
+    const widest = Math.max(...lines.map((line) => line.reduce((s, b) => s + size(b) + gap, -gap)));
+    for (const line of lines) {
+      const width = line.reduce((s, b) => s + size(b) + gap, -gap);
+      let across = (widest - width) / 2;
+      const thickness = Math.max(...line.map((b) => (horizontal ? b.w : b.h)));
+      for (const b of line) {
+        b.x = horizontal ? along : across;
+        b.y = horizontal ? across : along;
+        center.set(b.id, across + size(b) / 2);
+        across += size(b) + gap;
+      }
+      along += thickness + layerGap / 2;
+    }
+    along += layerGap / 2;
+  }
+}
+
+/** Boxes in reading order, wrapped into rows of roughly equal count. Returns the height it used. */
+function grid(ordered: Box[], x0: number, y0: number): number {
+  const perRow = Math.max(1, Math.ceil(Math.sqrt(ordered.length)));
+  let x = x0;
+  let y = y0;
+  let rowHeightUsed = 0;
+  ordered.forEach((b, i) => {
+    if (i > 0 && i % perRow === 0) {
+      x = x0;
+      y += rowHeightUsed + layerGap / 2;
+      rowHeightUsed = 0;
+    }
+    b.x = x;
+    b.y = y;
+    rowHeightUsed = Math.max(rowHeightUsed, b.h);
+    x += b.w + columnGap;
+  });
+  return y + rowHeightUsed - y0;
+}
+
+/** One block per model source, in the order the sources load, each block a grid of its own types. */
+function bySource(boxes: Box[], ctx: EditorContext) {
+  const order = new Map(ctx.model.Sources.map((s, i) => [s.Id, i]));
+  const groups = new Map<string, Box[]>();
+  for (const b of boxes) groups.set(b.type.DatamodelSourceId, [...(groups.get(b.type.DatamodelSourceId) ?? []), b]);
+  const keys = [...groups.keys()].sort((a, b) => (order.get(a) ?? 99) - (order.get(b) ?? 99));
+  let y = 0;
+  for (const key of keys) {
+    const group = groups.get(key)!.sort((a, b) => a.type.CodeName.localeCompare(b.type.CodeName));
+    const used = grid(group, 0, y);
+    y += used + layerGap; // a clear band between one source and the next
+  }
+}
+
+/** Types on a ring, big enough that the boxes do not touch, ordered by name. */
+function circle(boxes: Box[]) {
+  const ordered = [...boxes].sort((a, b) => a.type.CodeName.localeCompare(b.type.CodeName));
+  const step = (2 * Math.PI) / ordered.length;
+  // the ring has to fit every box side by side around it, plus room for the lines across the middle
+  const radius = Math.max(nodeWidth, (ordered.length * (nodeWidth + columnGap)) / (2 * Math.PI));
+  ordered.forEach((b, i) => {
+    const a = i * step - Math.PI / 2;
+    b.x = radius + radius * Math.cos(a) - b.w / 2;
+    b.y = radius + radius * Math.sin(a) - b.h / 2;
+  });
 }
 
 /**
@@ -69,7 +203,13 @@ function writePositions(storeId: string, positions: Record<string, { x: number; 
  * layout". Everything is plain SVG: no library, the model is small enough.
  */
 export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, query, storeId }: Props) {
-  const [positions, setPositions] = useState(() => readPositions(storeId));
+  const [layout, setLayout] = useState<LayoutMode>(() => {
+    const saved = localStorage.getItem(layoutKey(storeId));
+    return layouts.some((l) => l.id === saved) ? (saved as LayoutMode) : "layers";
+  });
+  const [positions, setPositions] = useState(() => readPositions(storeId, layout));
+  // types whose box shows every property rather than the first few
+  const [openBoxes, setOpenBoxes] = useState<Set<string>>(new Set());
   const [view, setView] = useState({ x: 20, y: 20, k: 1 });
   const [fitted, setFitted] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -94,58 +234,18 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
     for (const t of types) depthOf(t, 0);
     const boxes: Box[] = types.map((t) => {
       const props = Object.values(t.Properties).filter((p) => !p.Internal);
-      const rows = props.slice(0, maxRows).map((p) => ({ id: p.Id, name: p.CodeName, propertyType: p.PropertyType }));
-      return { id: t.Id, type: t, x: 0, y: 0, w: nodeWidth, h: headerHeight + Math.max(1, rows.length + (props.length > maxRows ? 1 : 0)) * rowHeight + 8, rows, more: props.length - rows.length, ghost: ghostTypes.has(t.Id) && !visibleTypes.has(t.Id) };
+      const limit = openBoxes.has(t.Id) ? props.length : maxRows;
+      const rows = props.slice(0, limit).map((p) => ({
+        id: p.Id,
+        name: p.CodeName,
+        propertyType: p.PropertyType,
+        marks: indexMarks.filter((m) => (m.key === "indexed" ? p.Indexed : m.key === "wordIndex" ? p.IndexedByWords : p.IndexedBySemantic)).map((m) => m.key),
+      }));
+      const more = props.length - rows.length;
+      return { id: t.Id, type: t, x: 0, y: 0, w: nodeWidth, h: headerHeight + Math.max(1, rows.length + (more > 0 || openBoxes.has(t.Id) ? 1 : 0)) * rowHeight + 8, rows, more, ghost: ghostTypes.has(t.Id) && !visibleTypes.has(t.Id) };
     });
     const boxById = new Map(boxes.map((b) => [b.id, b]));
-    // layers
-    const layers = new Map<number, Box[]>();
-    for (const b of boxes) {
-      const d = depth.get(b.id) ?? 0;
-      layers.set(d, [...(layers.get(d) ?? []), b]);
-    }
-    const layerKeys = [...layers.keys()].sort((a, b) => a - b);
-    // order the first layer by name, then every next layer by the mean x of its parents. A layer
-    // wider than the budget wraps into rows, so a flat model (many roots, little inheritance) reads
-    // as a grid rather than a line off the edge of the screen
-    const rowWidthBudget = Math.max(3 * (nodeWidth + columnGap), Math.ceil(Math.sqrt(boxes.length)) * (nodeWidth + columnGap) * 1.3);
-    let y = 0;
-    const center = new Map<string, number>();
-    for (const d of layerKeys) {
-      const layer = layers.get(d)!;
-      if (d === 0) layer.sort((a, b) => a.type.CodeName.localeCompare(b.type.CodeName));
-      else {
-        const bary = (b: Box) => {
-          const ps = (b.type.Parents ?? []).filter((p) => center.has(p));
-          return ps.length === 0 ? Number.MAX_SAFE_INTEGER / 2 : ps.reduce((s, p) => s + center.get(p)!, 0) / ps.length;
-        };
-        layer.sort((a, b) => bary(a) - bary(b) || a.type.CodeName.localeCompare(b.type.CodeName));
-      }
-      const rows: Box[][] = [[]];
-      let rowWidth = 0;
-      for (const b of layer) {
-        if (rowWidth > 0 && rowWidth + b.w > rowWidthBudget) {
-          rows.push([]);
-          rowWidth = 0;
-        }
-        rows[rows.length - 1].push(b);
-        rowWidth += b.w + columnGap;
-      }
-      const widest = Math.max(...rows.map((r) => r.reduce((s, b) => s + b.w + columnGap, -columnGap)));
-      for (const row of rows) {
-        const width = row.reduce((s, b) => s + b.w + columnGap, -columnGap);
-        let x = (widest - width) / 2;
-        const rowHeight = Math.max(...row.map((b) => b.h));
-        for (const b of row) {
-          b.x = x;
-          b.y = y;
-          center.set(b.id, x + b.w / 2);
-          x += b.w + columnGap;
-        }
-        y += rowHeight + layerGap / 2;
-      }
-      y += layerGap / 2;
-    }
+    place(layout, boxes, depth, ctx);
     // remembered positions win over the computed ones
     for (const b of boxes) {
       const p = positions[b.id];
@@ -178,7 +278,7 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
       }
     }
     return { boxes, edges };
-  }, [ctx.model, visibleTypes, ghostTypes, positions, ctx.baseTypeId]);
+  }, [ctx.model, visibleTypes, ghostTypes, positions, ctx.baseTypeId, layout, openBoxes]);
 
   // fit once the boxes exist, and again when the set of shown types changes a lot
   useEffect(() => {
@@ -247,22 +347,43 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
     drag.current = null;
     if (d?.kind === "node") {
       if (!d.moved) ctx.select({ kind: "type", id: d.id });
-      else writePositions(storeId, { ...positions, [d.id]: positions[d.id] ?? { x: d.ox, y: d.oy } });
+      else writePositions(storeId, layout, { ...positions, [d.id]: positions[d.id] ?? { x: d.ox, y: d.oy } });
     }
   }
   // the last drag's position is in state by now; persist whatever is there
   useEffect(() => {
-    if (Object.keys(positions).length > 0) writePositions(storeId, positions);
-  }, [positions, storeId]);
+    if (Object.keys(positions).length > 0) writePositions(storeId, layout, positions);
+  }, [positions, storeId, layout]);
 
   function autoLayout() {
     setPositions({});
     try {
-      localStorage.removeItem(positionsKey(storeId));
+      localStorage.removeItem(positionsKey(storeId, layout));
     } catch {
       // nothing to forget
     }
     setFitted(false);
+  }
+
+  /** Another arrangement, with whatever was dragged in that one; the view refits to what it shows. */
+  function chooseLayout(mode: LayoutMode) {
+    setLayout(mode);
+    setPositions(readPositions(storeId, mode));
+    setFitted(false);
+    try {
+      localStorage.setItem(layoutKey(storeId), mode);
+    } catch {
+      // the choice then simply is not remembered
+    }
+  }
+
+  function toggleBox(id: string) {
+    setOpenBoxes((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   const boxById = new Map(boxes.map((b) => [b.id, b]));
@@ -294,9 +415,25 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
         <button className="icon-button" title="Fit to view" onClick={fit}>
           <IconArrowsMaximize size={16} stroke={1.9} />
         </button>
-        <button className="icon-button" title="Auto layout (forgets dragged positions)" onClick={autoLayout}>
-          <IconLayoutGrid size={16} stroke={1.9} />
+        <button className="icon-button" title="Arrange again, forgetting what was dragged in this layout" onClick={autoLayout}>
+          <IconArrowsShuffle size={16} stroke={1.9} />
         </button>
+        <button
+          className="icon-button"
+          title="Save what is on screen as an SVG file, ready to print — fit to view first for the whole model"
+          onClick={() => svgRef.current && downloadSvg(svgRef.current, "datamodel-diagram.svg", "Relatude.DB data model")}
+        >
+          <IconFileTypeSvg size={16} stroke={1.9} />
+        </button>
+        {/* how the boxes are arranged; each layout keeps whatever was dragged in it */}
+        <div className="dm-layout-picker" role="tablist">
+          {layouts.map((l) => (
+            <button key={l.id} role="tab" aria-selected={layout === l.id} className={layout === l.id ? "active" : ""} title={l.hint} onClick={() => chooseLayout(l.id)}>
+              <l.icon size={14} stroke={1.9} />
+              {l.label}
+            </button>
+          ))}
+        </div>
         <span className="muted dm-diagram-legend">
           <span className="dm-legend-line inherits" /> inherits <span className="dm-legend-line relation" /> relation <span className="dm-legend-line reference" /> reference <span className="dm-legend-line embeds" /> embedded
         </span>
@@ -397,27 +534,46 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
                 <text x={b.w - 10} y={headerHeight / 2 + 4.5} className="dm-node-title" textAnchor="end" fill="#fff">
                   {b.type.CodeName.length > titleChars ? b.type.CodeName.slice(0, titleChars - 1) + "…" : b.type.CodeName}
                 </text>
-                {b.rows.map((r, i) => (
-                  <g
-                    key={r.id}
-                    className={"dm-node-row" + (selection?.kind === "property" && selection.id === r.id ? " selected" : "")}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={() => ctx.select({ kind: "property", id: r.id, typeId: b.id })}
-                  >
-                    <rect x={4} y={headerHeight + 4 + i * rowHeight} width={b.w - 8} height={rowHeight} rx={3} className="dm-node-row-bg" />
-                    <circle cx={14} cy={headerHeight + 4 + i * rowHeight + rowHeight / 2} r={3.5} fill={propertyColor(r.propertyType)} />
-                    <text x={24} y={headerHeight + 4 + i * rowHeight + rowHeight / 2 + 4} className="dm-node-prop">
-                      {r.name.length > 22 ? r.name.slice(0, 21) + "…" : r.name}
-                    </text>
-                    <text x={b.w - 10} y={headerHeight + 4 + i * rowHeight + rowHeight / 2 + 4} className="dm-node-proptype" textAnchor="end">
-                      {r.propertyType}
+                {b.rows.map((r, i) => {
+                  const top = headerHeight + 4 + i * rowHeight;
+                  const mid = top + rowHeight / 2;
+                  // the index marks sit between the name and the type, and the name gives up the room
+                  const marksWidth = r.marks.length * 11;
+                  const nameRoom = Math.max(6, Math.floor((b.w - 34 - marksWidth - 62) / 6.3));
+                  return (
+                    <g
+                      key={r.id}
+                      className={"dm-node-row" + (selection?.kind === "property" && selection.id === r.id ? " selected" : "")}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => ctx.select({ kind: "property", id: r.id, typeId: b.id })}
+                    >
+                      <rect x={4} y={top} width={b.w - 8} height={rowHeight} rx={3} className="dm-node-row-bg" />
+                      <circle cx={14} cy={mid} r={3.5} fill={propertyColor(r.propertyType)} />
+                      <text x={24} y={mid + 4} className="dm-node-prop">
+                        {r.name.length > nameRoom ? r.name.slice(0, nameRoom - 1) + "…" : r.name}
+                      </text>
+                      {r.marks.map((key, m) => {
+                        const mark = indexMarks.find((x) => x.key === key)!;
+                        return (
+                          <g key={key} transform={`translate(${26 + Math.min(r.name.length, nameRoom) * 6.3 + m * 11} ${mid - 5.5})`} className="dm-node-mark">
+                            <title>{mark.title}</title>
+                            <mark.icon size={11} stroke={2.4} color={mark.color} />
+                          </g>
+                        );
+                      })}
+                      <text x={b.w - 10} y={mid + 4} className="dm-node-proptype" textAnchor="end">
+                        {r.propertyType}
+                      </text>
+                    </g>
+                  );
+                })}
+                {(b.more > 0 || openBoxes.has(b.id)) && (
+                  <g className="dm-node-row dm-node-more" onPointerDown={(e) => e.stopPropagation()} onClick={() => toggleBox(b.id)}>
+                    <rect x={4} y={headerHeight + 4 + b.rows.length * rowHeight} width={b.w - 8} height={rowHeight} rx={3} className="dm-node-row-bg" />
+                    <text x={24} y={headerHeight + 4 + b.rows.length * rowHeight + rowHeight / 2 + 4} className="dm-node-proptype">
+                      {b.more > 0 ? `+${b.more} more — click to show` : "show fewer"}
                     </text>
                   </g>
-                ))}
-                {b.more > 0 && (
-                  <text x={24} y={headerHeight + 4 + b.rows.length * rowHeight + rowHeight / 2 + 4} className="dm-node-proptype">
-                    +{b.more} more
-                  </text>
                 )}
                 {b.rows.length === 0 && b.more === 0 && (
                   <text x={24} y={headerHeight + 4 + rowHeight / 2 + 4} className="dm-node-proptype">

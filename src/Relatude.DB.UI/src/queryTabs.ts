@@ -51,6 +51,8 @@ export interface SavedQuery {
   showFacets: boolean;
   mode: QueryMode;
   hitsView: HitsView;
+  /** the table view with its cells open for typing; off unless someone asked for it */
+  editCells?: boolean;
   sort: { key: string; descending: boolean } | null;
   pageSize: number;
   /** The columns of the select mode, by column key, in order; null until the mode has been opened. */
@@ -79,6 +81,7 @@ export function newQuery(): SavedQuery {
     showFacets: false,
     mode: "search",
     hitsView: "list",
+    editCells: false,
     sort: null,
     pageSize: 25,
     columns: null,

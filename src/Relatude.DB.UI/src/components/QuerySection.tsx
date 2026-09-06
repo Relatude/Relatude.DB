@@ -14,15 +14,20 @@ import {
   IconRefresh,
   IconSearch,
   IconSum,
+  IconPencil,
   IconTable,
   IconX,
 } from "@tabler/icons-react";
 import { NodeEditor } from "./NodeEditor";
 import { PivotView, type PivotBase } from "./PivotView";
 import { GroupByView } from "./GroupByView";
-import { TypePicker } from "./TypePicker";
+import { EditableTable } from "./EditableTable";
+import { CopyButton } from "./CopyButton";
+import { NewNodeDialog, TypePicker } from "./TypePicker";
 import { showError } from "../dialogs";
+import { takeQueryTarget, useNavigationRequest } from "../navigate";
 import {
+  createNode,
   csvRowLimit,
   exportCsv,
   fetchColumns,
@@ -112,6 +117,17 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
   }, [db.id]);
 
   const active = tabs.queries.find((q) => q.id === tabs.active) ?? tabs.queries[0];
+
+  // another page asking for a query on a type - the dashboard's treemap, say - gets a fresh tab on
+  // it, so whatever was open here stays as it was
+  const navigation = useNavigationRequest();
+  useEffect(() => {
+    const target = takeQueryTarget();
+    if (!target) return;
+    const q = newQuery();
+    q.typeId = target.typeId;
+    setTabs((t) => ({ active: q.id, queries: [...t.queries, q] }));
+  }, [navigation]);
 
   function patch(id: string, changes: Partial<SavedQuery>) {
     setTabs((t) => ({ ...t, queries: t.queries.map((q) => (q.id === id ? { ...q, ...changes } : q)) }));
@@ -242,6 +258,9 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
   const table = select || (mode === "search" && hitsView === "table");
   const summary = pivot || groups; // no hits on screen: no paging, no csv of hits, no query string of the search
   const [exporting, setExporting] = useState(false);
+  const [newNode, setNewNode] = useState(false);
+  // typing straight into the table; kept per tab, like the view it belongs to
+  const editCells = q.editCells === true;
   const [showQuery, setShowQuery] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   // The editor column's width, dragged on the bar between the list and the form. null is the
@@ -297,6 +316,7 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
             page,
             pageSize,
             table,
+      edit: table && editCells,
             columns: select ? q.columns : null,
             facets: showFacets,
             sortBy: sort?.key ?? null,
@@ -501,6 +521,9 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
             </button>
           )}
         </div>
+        <button className="action-button" onClick={() => setNewNode(true)} title="Make a node and open it here">
+          <IconPlus size={15} stroke={1.9} /> New node
+        </button>
         {/* what kind of query this is: the hits themselves, a table of chosen columns, or a summary */}
         <div className="query-view" role="tablist">
           {modes.map((m) => (
@@ -596,7 +619,7 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
         style={editorWidth === null ? undefined : ({ "--editor-width": `min(${editorWidth}px, ${maxEditorShare * 100}%)` } as React.CSSProperties)}
       >
         {showFacets && (
-          <aside className="query-facets">
+          <aside className="query-facets panel">
             <div className="query-facets-head">
               <span>Facets</span>
               {selectedCount > 0 && (
@@ -628,7 +651,7 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
           </aside>
         )}
 
-        <div className="query-results" ref={results}>
+        <div className="query-results panel" ref={results}>
           <div className="query-results-head">
             {result ? (
               <>
@@ -675,6 +698,17 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
                 ))}
               </div>
             )}
+            {table && (
+              // typing into the cells; off by default, because a table people read should not change
+              // under a stray keystroke, and on it costs a value per cell on the wire
+              <button
+                className={"icon-button" + (editCells ? " active" : "")}
+                title={editCells ? "Stop editing in the table" : "Edit in the table — arrows move, typing edits, enter saves"}
+                onClick={() => onChange({ editCells: !editCells })}
+              >
+                <IconPencil size={16} stroke={1.8} />
+              </button>
+            )}
             {!summary && (
               <select className="select compact" value={pageSize} title="Rows per page" onChange={(e) => reset({ pageSize: Number(e.target.value) })}>
                 {pageSizes.map((size) => (
@@ -693,6 +727,14 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
               >
                 <IconDownload size={16} stroke={1.8} />
               </button>
+            )}
+            {table && (
+              // this page of the table, as it is shown: what a spreadsheet or a message wants pasted
+              <CopyButton
+                title="Copy this page of the table to the clipboard"
+                disabled={!result?.columns || result.hits.length === 0}
+                table={() => ({ header: result?.columns?.map((c) => c.name) ?? [], rows: result?.hits.map((h) => h.cells ?? []) ?? [] })}
+              />
             )}
             {!summary && result && result.total > pageSize && (
               <div className="query-paging">
@@ -715,6 +757,22 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
             <GroupByView key={typeId} base={pivotBase} definition={q.groups} onChange={(groups) => onChange({ groups })} refreshToken={epoch} showQuery={showQuery} onDrill={drill} />
           ) : select && chosen.length === 0 ? (
             <div className="query-empty">Choose at least one column.</div>
+          ) : table && result?.columns && editCells ? (
+            <EditableTable
+              // keyed by type only: a cell save re-runs the search, and rebuilding the grid on every
+              // one of them would put the cursor back at the first cell after each edit
+              key={typeId}
+              storeId={db.id}
+              columns={result.columns}
+              hits={result.hits}
+              selected={selected}
+              onSelect={setSelected}
+              sort={sort}
+              sortApplied={result.sortApplied}
+              onSort={toggleSort}
+              onSaved={refresh}
+              loading={loading}
+            />
           ) : table && result?.columns ? (
             <div className={"query-table-wrap" + (loading ? " loading" : "")}>
               <table className="query-table">
@@ -786,7 +844,9 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
         </div>
 
         {selected && (
-          <aside className="query-editor" ref={editor}>
+          <>
+            {/* a grid item of its own in the editor's column rather than a child of the panel: the
+                panel clips its content to keep its rounded corners, and would clip the bar with it */}
             <div
               className="query-splitter"
               role="separator"
@@ -798,10 +858,42 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
               onDoubleClick={resetWidth}
               onKeyDown={resizeByKey}
             />
-            <NodeEditor key={selected + ":" + epoch} storeId={db.id} nodeId={selected} onSaved={refresh} onClose={() => setSelected(null)} />
-          </aside>
+            <aside className="query-editor panel" ref={editor}>
+              <NodeEditor
+                key={selected + ":" + epoch}
+                storeId={db.id}
+                nodeId={selected}
+                onSaved={refresh}
+                onClose={() => setSelected(null)}
+                onDeleted={() => {
+                  setSelected(null);
+                  refresh(); // the row it was is still in the list until the search runs again
+                }}
+              />
+            </aside>
+          </>
         )}
       </div>
+
+      {newNode && (
+        <NewNodeDialog
+          types={model.types}
+          sources={model.sources ?? []}
+          onClose={() => setNewNode(false)}
+          onPick={async (t) => {
+            setNewNode(false);
+            try {
+              const ref = await createNode(db.id, t.id);
+              // the list is a search result and the new node may not match it; the form opens on it
+              // either way, and the refresh puts it in the list whenever the query does match it
+              setSelected(ref.id);
+              refresh();
+            } catch (e) {
+              await showError("Could not create the node", e instanceof Error ? e.message : String(e));
+            }
+          }}
+        />
+      )}
     </>
   );
 }

@@ -61,6 +61,7 @@ sealed class UIQuery {
         commands.Register("query-node", ctx => node(ctx.Payload<NodePayload>()));
         commands.Register("query-save", async ctx => await save(ctx.Payload<SavePayload>()));
         commands.Register("query-create", async ctx => await create(ctx.Payload<CreatePayload>()));
+        commands.Register("query-delete", async ctx => await delete_(ctx.Payload<NodePayload>()));
         commands.Register("query-save-embedded", async ctx => await saveEmbedded(ctx.Payload<SaveEmbeddedPayload>()));
         commands.Register("query-node-meta", ctx => nodeMeta(ctx.Payload<NodePayload>()));
         commands.Register("query-save-meta", ctx => saveMeta(ctx.Payload<SaveMetaPayload>()));
@@ -176,7 +177,7 @@ sealed class UIQuery {
         var columns = columnsFor(dm, nodeType, p);
         var terms = termsOf(p.Text);
         var hits = nodes.NodeValues
-            .Select(n => columns == null ? hitView(dm, n, terms) : hitView(dm, n, terms, s, columns, maxTableCellLength))
+            .Select(n => columns == null ? hitView(dm, n, terms) : hitView(dm, n, terms, s, columns, maxTableCellLength, p.Edit))
             .ToArray();
         return new {
             TypeId = typeId,
@@ -188,7 +189,15 @@ sealed class UIQuery {
             DurationMs = sw.Elapsed.TotalMilliseconds,
             Query = queryString,
             Facets = facets,
-            Columns = columns?.Select(c => (object)new { c.Key, c.Name, Type = c.TypeName, Sortable = c.Property != null && isSortable(c.Property) }).ToArray(),
+            Columns = columns?.Select(c => (object)new {
+                c.Key,
+                c.Name,
+                Type = c.TypeName,
+                Sortable = c.Property != null && isSortable(c.Property),
+                // what a cell of this column is edited with, when it can be edited at all
+                Editor = cellEditor(c.Property),
+                Options = c.Property is IntegerPropertyModel ic ? choices(ic.LegalValues, ic.LegalValueNames) : null,
+            }).ToArray(),
             // false when a sort was asked for and could not be given, so the page never claims an order it has not got
             SortApplied = string.IsNullOrEmpty(p.SortBy) || queryString.Contains(".OrderBy(", StringComparison.Ordinal),
             Hits = hits,
@@ -345,6 +354,46 @@ sealed class UIQuery {
         RelationPropertyModel r => "Relation" + (dm.Relations.TryGetValue(r.RelationId, out var rel) ? " (" + rel.CodeName + ")" : ""),
         _ => p.PropertyType.ToString(),
     };
+
+    /// <summary>
+    /// What a cell of this column is edited with in the table's edit mode, or null when it is not a
+    /// cell anyone can type into. A single scalar is; a list, a coordinate, a file, a relation, a
+    /// reference and an embedded document are not - each of them is a control of its own, and the
+    /// form beside the table is where they are edited.
+    /// </summary>
+    static string? cellEditor(PropertyModel? property) => property switch {
+        null => null,
+        _ when property.Internal => null,
+        BooleanPropertyModel => "bool",
+        IntegerPropertyModel i => i.IsEnum || i.LegalValues != null ? "enum" : "integer",
+        LongPropertyModel => "integer",
+        DoublePropertyModel or FloatPropertyModel or DecimalPropertyModel => "number",
+        StringPropertyModel => "text",
+        GuidPropertyModel => "guid",
+        DateTimePropertyModel => "datetime",
+        DateTimeOffsetPropertyModel => "datetimeoffset",
+        TimeSpanPropertyModel => "timespan",
+        _ => null,
+    };
+
+    /// <summary>The value behind an editable cell, in the same shape the node form sends and takes back.</summary>
+    static object? editableValue(PropertyModel property, INodeDataExternal n) {
+        n.TryGetValue(property.Id, out var value);
+        return property switch {
+            BooleanPropertyModel => value is bool b && b,
+            IntegerPropertyModel => value is int i ? i : 0,
+            LongPropertyModel => value is long l ? l : 0L,
+            DoublePropertyModel => value is double d ? d : 0d,
+            FloatPropertyModel => value is float f ? f : 0f,
+            DecimalPropertyModel => value is decimal m ? m : 0m,
+            StringPropertyModel => value as string ?? "",
+            GuidPropertyModel => value is Guid g && g != Guid.Empty ? g.ToString() : "",
+            DateTimePropertyModel => value is DateTime dt && dt != DateTime.MinValue ? utc(dt) : null,
+            DateTimeOffsetPropertyModel => value is DateTimeOffset dto ? dto.ToString("O", CultureInfo.InvariantCulture) : null,
+            TimeSpanPropertyModel => (value is TimeSpan ts ? ts : TimeSpan.Zero).ToString("c", CultureInfo.InvariantCulture),
+            _ => null,
+        };
+    }
 
     /// <summary>One cell. Relations are counted rather than listed: a row is not the place to read a list.</summary>
     static string cell(NodeStore s, Datamodel dm, INodeDataExternal n, Column column, int maxLength) {
@@ -530,8 +579,8 @@ sealed class UIQuery {
     }
 
     /// <summary>One hit as the result list shows it: what it is, and enough of it to recognize it by.</summary>
-    static object hitView(Datamodel dm, INodeDataExternal n, TermSet terms) => hitView(dm, n, terms, null, null, 0);
-    static object hitView(Datamodel dm, INodeDataExternal n, TermSet terms, NodeStore? s, Column[]? columns, int maxLength) {
+    static object hitView(Datamodel dm, INodeDataExternal n, TermSet terms) => hitView(dm, n, terms, null, null, 0, false);
+    static object hitView(Datamodel dm, INodeDataExternal n, TermSet terms, NodeStore? s, Column[]? columns, int maxLength, bool edit) {
         dm.NodeTypes.TryGetValue(n.NodeType, out var type);
         var (name, nameProperty) = nameOf(dm, n);
         var searching = terms.Terms.Length > 0;
@@ -587,6 +636,11 @@ sealed class UIQuery {
             ChangedUtc = n.ChangedUtc,
             Summary = summary,
             Cells = columns == null || s == null ? null : columns.Select(c => cell(s, dm, n, c, maxLength)).ToArray(),
+            // the values behind the cells, in the shape the form editors take them, so a table in
+            // edit mode types a value rather than re-parsing what a cell happens to display
+            Values = !edit || columns == null ? null : columns
+                .Where(c => cellEditor(c.Property) != null)
+                .ToDictionary(c => c.Key, c => editableValue(c.Property!, n)),
         };
     }
 
@@ -909,6 +963,7 @@ sealed class UIQuery {
             Name = property.CodeName,
             Type = property.PropertyType.ToString(),
             DeclaredBy = dm.NodeTypes.TryGetValue(property.NodeType, out var owner) ? owner.CodeName : null,
+            OwnerTypeId = property.NodeType,
             Notes = [.. notes(property, type)],
             Indexed = property.Indexed,
             WordIndex = property is StringPropertyModel ws && ws.IndexedByWords,
@@ -1091,6 +1146,8 @@ sealed class UIQuery {
         public string Name { get; init; } = "";
         public string Type { get; init; } = "";
         public string? DeclaredBy { get; init; }
+        /// <summary>The type that declares the property: what the model editor opens when the form links to it.</summary>
+        public Guid OwnerTypeId { get; init; }
         public string[] Notes { get; init; } = [];
         // the index marks, as flags rather than as words: every page that shows a property shows the
         // same three icons, and a string has to be read to be understood
@@ -1301,7 +1358,21 @@ sealed class UIQuery {
         var transaction = s.CreateTransaction();
         transaction.Insert(node, out var id);
         await transaction.ExecuteAsync();
-        return new { Id = id };
+        // as a node reference, so a picker that made this node can show it without reading it back
+        return new { Id = id, Name = s.Datastore.TryGet(id, out var written, adminContext) ? displayNameOf(dm, written) : type.CodeName, TypeName = type.CodeName };
+    }
+
+    /// <summary>
+    /// Deletes a node. Nothing is asked here - the form asks before it calls - but the node has to
+    /// exist, so deleting one twice says so rather than reporting a success nothing did.
+    /// </summary>
+    async Task<object> delete_(NodePayload p) {
+        var s = store(p.StoreId);
+        if (!s.Datastore.Exists(p.Id, adminContext)) throw new Exception("There is no node with id " + p.Id + ". ");
+        var transaction = s.CreateTransaction();
+        transaction.Delete(p.Id);
+        await transaction.ExecuteAsync();
+        return new { Deleted = true };
     }
 
     /// <summary>
@@ -1821,7 +1892,7 @@ sealed class UIQuery {
     internal sealed record FacetSelection(Guid PropertyId, FacetSelectionValue[]? Values);
     internal sealed record SearchPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity,
         FacetSelection[]? Selections, Guid[]? Expanded, int Page = 0, int PageSize = 25, bool Table = false, bool Facets = true,
-        string? SortBy = null, bool SortDescending = false, string[]? Columns = null);
+        string? SortBy = null, bool SortDescending = false, string[]? Columns = null, bool Edit = false);
     internal sealed record ColumnsPayload(Guid StoreId, Guid? TypeId);
     sealed record SavePayload(Guid StoreId, Guid Id, Dictionary<string, JsonElement>? Values, Dictionary<string, Guid[]>? Relations);
     sealed record CreatePayload(Guid StoreId, Guid TypeId);

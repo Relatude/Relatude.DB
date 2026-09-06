@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { IconArrowNarrowDown, IconArrowNarrowUp, IconChartBar, IconChevronLeft, IconChevronRight, IconDownload, IconTable, IconX } from "@tabler/icons-react";
+import { ChipGrip, moveChip, useChipDrag, type ChipDrag } from "./ChipDrag";
+import { CopyButton } from "./CopyButton";
+import type { TableData } from "../clipboard";
 import {
   fetchPivotModel,
   runPivot,
@@ -195,37 +198,60 @@ export function PivotView({
     apply();
   }
 
+  // the chips are dragged: a grouping to another place in its axis or across to the other axis,
+  // a measure to another place among the measures. A grouping is not a measure, so not between those.
+  const kindOf = (list: string) => (list === "measures" ? "measure" : "level");
+  const drag = useChipDrag(
+    (from, to) => kindOf(from) === kindOf(to),
+    (from, to) => {
+      if (kindOf(from.list) === "measure") {
+        const moved = moveChip({ measures }, from, to);
+        if (moved) edit(() => setMeasures(moved.measures));
+      } else {
+        const moved = moveChip({ rows, columns }, from, to);
+        if (moved) edit(() => onChange({ ...def, rows: moved.rows, columns: moved.columns }));
+      }
+    },
+  );
+
   if (modelError) return <div className="query-error">{modelError}</div>;
   if (!model) return null;
   const groupable = model.properties.filter((p) => p.groupable);
   const lastPage = result ? Math.max(0, Math.ceil(result.rows.totalGroupCount / rowPageSize) - 1) : 0;
+  const measureRow = drag.row("measures", measures.length);
   return (
     <div className="pivot">
       <div className="pivot-builder">
         <AxisEditor
           title="Rows"
+          list="rows"
           levels={rows}
           properties={groupable}
           options={rowOptions}
           measureNames={names}
+          drag={drag}
           onChange={(levels) => edit(() => setRows(levels))}
           onOptions={(o) => edit(() => setRowOptions(o))}
         />
         <AxisEditor
           title="Columns"
+          list="columns"
           levels={columns}
           properties={groupable}
           options={columnOptions}
           measureNames={names}
+          drag={drag}
           onChange={(levels) => edit(() => setColumns(levels))}
           onOptions={(o) => edit(() => setColumnOptions(o))}
         />
-        <div className="pivot-builder-row">
+        <div className={"pivot-builder-row" + measureRow.className} onDragOver={measureRow.onDragOver} onDrop={measureRow.onDrop}>
           <span className="pivot-builder-label">Measures</span>
           {measures.map((m, i) => {
             const candidates = propertiesFor(m.function, model.properties);
+            const { className: mark, ...dropProps } = drag.chip({ list: "measures", index: i }, measures.length);
             return (
-              <span className="pivot-chip" key={i}>
+              <span className={"pivot-chip" + mark} key={i} {...dropProps}>
+                <ChipGrip title="Drag to change the order of the measures" {...drag.grip({ list: "measures", index: i })} />
                 <select
                   className="select"
                   value={m.function}
@@ -308,6 +334,7 @@ export function PivotView({
               ))}
             </select>
           )}
+          <CopyButton title="Copy this table to the clipboard" disabled={result.cells.length === 0} table={() => pivotTable(result)} />
           <button className="icon-button" title="Download this table as csv" disabled={result.cells.length === 0} onClick={() => downloadCsv(result)}>
             <IconDownload size={16} stroke={1.8} />
           </button>
@@ -337,29 +364,37 @@ export function PivotView({
 function AxisEditor({
   title,
   levels,
+  list,
   properties,
   options,
   measureNames,
+  drag,
   onChange,
   onOptions,
 }: {
   title: string;
+  /** The name the drag knows this axis by. */
+  list: "rows" | "columns";
   levels: PivotLevelSpec[];
   properties: PivotProperty[];
   options: PivotAxisOptions;
   measureNames: string[];
+  drag: ChipDrag;
   onChange: (levels: PivotLevelSpec[]) => void;
   onOptions: (options: PivotAxisOptions) => void;
 }) {
   const sortChoices = ["Count", ...measureNames.filter((n) => n && n.toLowerCase() !== "count")];
+  const row = drag.row(list, levels.length);
   return (
-    <div className="pivot-builder-row">
+    <div className={"pivot-builder-row" + row.className} onDragOver={row.onDragOver} onDrop={row.onDrop}>
       <span className="pivot-builder-label">{title}</span>
       {levels.map((level, i) => {
         const property = properties.find((p) => p.id === level.propertyId);
         const modes = modesOf(property);
+        const { className: mark, ...dropProps } = drag.chip({ list, index: i }, levels.length);
         return (
-          <span className="pivot-chip" key={i}>
+          <span className={"pivot-chip" + mark} key={i} {...dropProps}>
+            <ChipGrip title={"Drag to change the order, or onto the " + (list === "rows" ? "columns" : "rows") + " to group those by it instead"} {...drag.grip({ list, index: i })} />
             <select
               className="select"
               value={level.propertyId}
@@ -658,8 +693,8 @@ function PivotTable({ result, onDrill }: { result: PivotResult; onDrill: (select
   );
 }
 
-/** The table as csv: the row labels, then one column per column group and measure, then the row totals. */
-function downloadCsv(result: PivotResult) {
+/** The table as rows of text: the row labels, then one column per column group and measure, then the row totals. */
+function pivotTable(result: PivotResult): TableData {
   const { rows, columns, measures } = result;
   const hasColumns = columns.levels.length > 0;
   const measureNamesOrCount = measures.length === 0 ? ["Count"] : measures.map((m) => m.name);
@@ -688,6 +723,12 @@ function downloadCsv(result: PivotResult) {
       ...(hasColumns ? valuesOf(result.grandTotal) : []),
     ]);
   }
+  return { header, rows: lines.slice(1) };
+}
+
+function downloadCsv(result: PivotResult) {
+  const { header, rows } = pivotTable(result);
+  const lines = [header, ...rows];
   const quote = (s: string) => '"' + s.replace(/"/g, '""') + '"';
   const csv = "﻿" + lines.map((line) => line.map(quote).join(",")).join("\r\n");
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));

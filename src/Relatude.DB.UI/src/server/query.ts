@@ -20,6 +20,8 @@ export interface NodeTypeInfo {
   kind: ModelKind;
   /** which model source defines the type; the picker colours it the way the model editor does */
   sourceId: string;
+  /** whether a node of this type can be made here: not the base type, and an assembly implements it */
+  canCreate: boolean;
   count: number;
 }
 
@@ -97,6 +99,8 @@ export interface Hit {
   summary: HitSummaryValue[];
   /** One value per column of the table view, in column order. Null unless the table was asked for. */
   cells: string[] | null;
+  /** the values behind `cells`, keyed by column key; only sent when the request asked to edit */
+  values?: Record<string, unknown> | null;
 }
 
 /** A column of the table view. `key` is a property id, or a "__"-prefixed name for a node's own fields. */
@@ -106,6 +110,14 @@ export interface Column {
   type: string;
   /** Whether the result can be ordered by it: a list, a document or an array has no single key to sort on. */
   sortable: boolean;
+  /**
+   * What a cell of it is edited with in the table's edit mode, or null when it is not a cell anyone
+   * types into - a list, a coordinate, a file, a relation, a reference, an embedded document. Those
+   * are edited in the form beside the table, where each has a control of its own.
+   */
+  editor: EditorKind | null;
+  /** the members of an enum column, for the cell's select */
+  options: { value: number; label: string }[] | null;
 }
 
 export interface SearchResult {
@@ -135,6 +147,8 @@ export interface FacetSelection {
 }
 
 export interface SearchRequest {
+  /** ask for the values behind the cells as well, so the table can be typed into */
+  edit?: boolean;
   storeId: string;
   typeId: string | null;
   text: string;
@@ -233,9 +247,12 @@ export interface GeoValue {
 
 export interface InnerNodeView {
   id: string;
+  typeId: string;
   typeName: string;
   /** `file` is set on the values that are files, and is what a preview of one is built from. */
   values: { codeName: string; value: string; file: FileValueView | null }[];
+  /** the same fields the node form is built from, for the inner node's own editable properties */
+  fields: PropertyView[];
 }
 
 export interface PropertyView {
@@ -243,6 +260,8 @@ export interface PropertyView {
   name: string;
   type: string; // PropertyType
   declaredBy: string | null;
+  /** the type that declares the property: what the link beside a field opens in the model editor */
+  ownerTypeId: string;
   notes: string[];
   editor: EditorKind;
   readOnly: boolean;
@@ -258,6 +277,11 @@ export interface PropertyView {
   max: number | null;
   pattern: string | null;
   info: string | null;
+  /** the index marks, shown as icons wherever a property is listed */
+  indexed: boolean;
+  wordIndex: boolean;
+  semanticIndex: boolean;
+  unique: boolean;
 }
 
 export interface NodeView {
@@ -599,9 +623,32 @@ export function saveNode(
   storeId: string,
   id: string,
   values: Record<string, unknown>,
-  relations: Record<string, string[]>,
+  relations: Record<string, string[]> = {},
 ): Promise<{ changed: number }> {
   return send<{ changed: number }>("query-save", { storeId, id, values, relations });
+}
+
+/** Makes a node of a type, with its defaults, and hands it back as a reference to it. */
+export function createNode(storeId: string, typeId: string): Promise<NodeRef> {
+  return send("query-create", { storeId, typeId });
+}
+
+/** Deletes a node. What points at it is cleared with it; a revert window is the only way back. */
+export function deleteNode(storeId: string, id: string): Promise<{ deleted: boolean }> {
+  return send("query-delete", { storeId, id });
+}
+
+/**
+ * Writes the whole inner node list of an embedded property. Adding, removing, editing and reordering
+ * are one write: the list is a document inside the node and is replaced as one.
+ */
+export function saveEmbedded(
+  storeId: string,
+  id: string,
+  propertyId: string,
+  nodes: { id: string | null; typeId: string; values: Record<string, unknown> }[],
+): Promise<{ count: number }> {
+  return send("query-save-embedded", { storeId, id, propertyId, nodes });
 }
 
 export function lookupNodes(storeId: string, typeIds: string[], text: string, take = 20): Promise<NodeRef[]> {

@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 import {
   IconAbc,
   IconArrowsExchange,
+  IconBolt,
   IconAssembly,
   IconBinary,
   IconBraces,
@@ -24,6 +25,8 @@ import {
   IconRelationManyToMany,
   IconRelationOneToMany,
   IconRelationOneToOne,
+  IconSearch,
+  IconSparkles,
   IconStack2,
   IconTags,
   IconToggleLeft,
@@ -110,6 +113,48 @@ export function PropertyIcon({ propertyType, size = 14 }: { propertyType: string
   const family = propertyFamilies[propertyFamilyOf[propertyType] ?? "guid"];
   const Cmp = family.icon;
   return <Cmp size={size} stroke={1.9} color={family.color} />;
+}
+
+/**
+ * The index marks of a property, the same three wherever a property is listed - the model pages, the
+ * diagram, the node form. Nothing is drawn for a property that is not indexed at all: the marks say
+ * what a property can be searched by, and an empty row is the common case.
+ */
+export interface IndexFlags {
+  indexed?: boolean;
+  wordIndex?: boolean;
+  semanticIndex?: boolean;
+}
+
+export const indexMarks: { key: keyof IndexFlags; icon: Icon; color: string; title: string }[] = [
+  { key: "indexed", icon: IconBolt, color: "#c9a227", title: "Indexed — filtered, sorted and faceted from an index rather than by scanning" },
+  { key: "wordIndex", icon: IconSearch, color: "#2f7fd6", title: "Word index — part of the free text search (WhereSearch)" },
+  { key: "semanticIndex", icon: IconSparkles, color: "#7a6ff0", title: "Semantic index — embedded as a vector, searched by meaning" },
+];
+
+export function IndexMarks({ flags, size = 12 }: { flags: IndexFlags; size?: number }) {
+  const on = indexMarks.filter((m) => flags[m.key]);
+  if (on.length === 0) return null;
+  return (
+    <span className="index-marks">
+      {on.map((m) => (
+        <m.icon key={m.key} size={size} stroke={2} color={m.color} className="index-mark" />
+      ))}
+    </span>
+  );
+}
+
+/** The same marks as a legend row, for a page that wants to say what they mean. */
+export function IndexMarksLegend() {
+  return (
+    <span className="index-marks-legend muted">
+      {indexMarks.map((m) => (
+        <span key={m.key} title={m.title}>
+          <m.icon size={12} stroke={2} color={m.color} /> {m.key === "indexed" ? "indexed" : m.key === "wordIndex" ? "words" : "semantic"}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 /** Relation cardinalities. OneOne and ManyMany are symmetric, so the icon shows no arrowhead bias. */

@@ -1,9 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { IconAlertTriangle, IconChartDonut, IconChartTreemap, IconEraser, IconLayoutList, IconPlayerPlayFilled, IconPlayerStopFilled, IconRecycle, IconRefresh } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconChartDonut,
+  IconChartTreemap,
+  IconDatabaseSearch,
+  IconEraser,
+  IconEyeOff,
+  IconLayoutList,
+  IconPlayerPlayFilled,
+  IconPlayerStopFilled,
+  IconRecycle,
+  IconRefresh,
+  IconReload,
+  IconSchema,
+} from "@tabler/icons-react";
 import { Chart } from "./Chart";
 import { ProcessChart, currentCpu, formatPercent, padToWindow, type ProcessSample } from "./ProcessChart";
 import { PanelGrid, type PanelRow } from "./PanelGrid";
-import { TypeChart, shade, type TypeChartShape, type TypeSlice } from "./TypeChart";
+import { TypeChart, otherSliceId, shade, type TypeChartShape, type TypeSlice } from "./TypeChart";
+import { KindIcon } from "./DatamodelIcons";
+import { openInDatamodel, openInQuery } from "../navigate";
 import { showConfirm, showError, showInfo } from "../dialogs";
 import { clearCaches, fetchDashboard, fetchDashboardLive, type DashboardInfo, type DashboardLive, type TypeCount } from "../server/dashboard";
 import { codeSourceGuid, sourceColors } from "../server/datamodel";
@@ -142,6 +158,28 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
       await loadInfo();
     } catch (e) {
       showError("Could not open the database", e instanceof Error ? e.message : String(e));
+    } finally {
+      setOpenBusy(false);
+    }
+  }
+
+  // closed and opened again in one go: the settings and the model sources are read again on the way,
+  // which is what a restart is for. It takes the database away for the duration, so it is asked about.
+  async function onRestart() {
+    const choice = await showConfirm(
+      "Restart the database?",
+      "It is closed and opened again: every index is flushed, the settings and the model sources are read again, and the log is replayed - which takes a while on a large one. Nothing is served from this database in between.",
+      { confirmLabel: "Restart" },
+    );
+    if (!choice.ok) return;
+    setOpenBusy(true);
+    try {
+      await closeStore(db.id);
+      samples.current = []; // the counters start over with the open
+      await openStore(db.id);
+      await loadInfo();
+    } catch (e) {
+      showError("Could not restart the database", e instanceof Error ? e.message : String(e));
     } finally {
       setOpenBusy(false);
     }
@@ -482,7 +520,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
           // or a terminal sized to its own content has no height at all
           { id: "activity", height: 300, cells: [activityPanel, nowPanel] },
           { id: "engines", cells: [enginesPanel, cachePanel] },
-          { id: "trace", height: 260, cells: [tracePanel, <ContentPanel key="content" info={info} />] },
+          { id: "trace", height: 260, cells: [tracePanel, <ContentPanel key="content" info={info} storeId={db.id} />] },
         ];
 
   return (
@@ -505,9 +543,14 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
           action={
             // the switch for the database itself, on the tile that says which way it stands
             open ? (
-              <button className="icon-button dash-tile-action" title="Close the database" disabled={openBusy} onClick={onClose}>
-                <IconPlayerStopFilled size={14} stroke={1.8} />
-              </button>
+              <span className="dash-tile-actions">
+                <button className="icon-button dash-tile-action" title="Restart the database — close it and open it again" disabled={openBusy} onClick={onRestart}>
+                  <IconReload size={14} stroke={1.8} />
+                </button>
+                <button className="icon-button dash-tile-action" title="Close the database" disabled={openBusy} onClick={onClose}>
+                  <IconPlayerStopFilled size={14} stroke={1.8} />
+                </button>
+              </span>
             ) : opening ? null : (
               <button className="icon-button dash-tile-action" title="Open the database" disabled={openBusy} onClick={onOpen}>
                 <IconPlayerPlayFilled size={14} stroke={1.8} />
@@ -574,19 +617,33 @@ const inheritedKey = "dashTypeInherited";
  * a number - and it means a parent and its children now count the same nodes. The bars can show
  * that (they compare types, not parts of a whole), but the treemap and the donut cannot without
  * lying about shares, so those drop any type that already sits inside another type being shown.
+ *
+ * A tile of the treemap opens a small menu: take the type out of the treemap, query its nodes, or
+ * open it in the model editor. Hiding is for the treemap alone and is remembered per database - one
+ * type that is most of the database squashes the rest into slivers, and the picture of the rest is
+ * what the treemap is for; the bars and the donut still show everything.
  */
-function ContentPanel({ info }: { info: DashboardInfo }) {
+function ContentPanel({ info, storeId }: { info: DashboardInfo; storeId: string }) {
   const [shape, setShape] = useState<TypeChartShape>(() => (localStorage.getItem(shapeKey) as TypeChartShape | null) ?? "bars");
   const [inherited, setInherited] = useState(() => localStorage.getItem(inheritedKey) === "true");
   useEffect(() => localStorage.setItem(shapeKey, shape), [shape]);
   useEffect(() => localStorage.setItem(inheritedKey, String(inherited)), [inherited]);
+  const hiddenKey = hiddenKeyPrefix + storeId;
+  const [hidden, setHidden] = useState<Set<string>>(() => readHidden(hiddenKey));
+  useEffect(() => localStorage.setItem(hiddenKey, JSON.stringify([...hidden])), [hiddenKey, hidden]);
+  // the menu a tile opened, and where
+  const [menu, setMenu] = useState<{ slice: TypeSlice; x: number; y: number } | null>(null);
 
   const partOfWhole = shape !== "bars";
-  const { slices, total, folded, overlapping } = useMemo(() => {
+  const treemap = shape === "treemap";
+  const { slices, total, folded, overlapping, hiddenCount } = useMemo(() => {
     const all = info.types ?? [];
     const colors = sourceColors(info.sources ?? [], codeSourceGuid);
     const valueOf = (t: TypeCount) => (inherited ? t.countAll : t.count);
     let kept = all.filter((t) => valueOf(t) > 0);
+    // taken out of the treemap by hand; counted so the note below can say so and offer them back
+    const hiddenHere = treemap ? kept.filter((t) => hidden.has(t.id)).length : 0;
+    if (treemap) kept = kept.filter((t) => !hidden.has(t.id));
     // with inheritance counted in, whatever is already inside something else shown here would be
     // counted twice by a picture of shares
     let dropped = 0;
@@ -616,18 +673,18 @@ function ContentPanel({ info }: { info: DashboardInfo }) {
     if (tail.length > 0) {
       built.push({
         type: {
-          id: "__other", name: `${tail.length} more types`, full: tail.map((t) => t.name).join(", "),
+          id: otherSliceId, name: `${tail.length} more types`, full: tail.map((t) => t.name).join(", "),
           count: 0, countAll: 0, kind: "Class", isInterface: false, sourceId: "", parents: [],
         },
         value: tail.reduce((n, t) => n + valueOf(t), 0),
         color: "#8a8781",
       });
     }
-    return { slices: built, total: built.reduce((n, s) => n + s.value, 0), folded: tail.length, overlapping: dropped };
-  }, [info, inherited, partOfWhole]);
+    return { slices: built, total: built.reduce((n, s) => n + s.value, 0), folded: tail.length, overlapping: dropped, hiddenCount: hiddenHere };
+  }, [info, inherited, partOfWhole, treemap, hidden]);
 
   return (
-    <section className="panel">
+    <section className="panel panel-fill">
       <h3>
         Content{" "}
         <span className="panel-sub">
@@ -656,16 +713,132 @@ function ContentPanel({ info }: { info: DashboardInfo }) {
           <span>Include inherited</span>
         </label>
       </div>
-      <TypeChart shape={shape} slices={slices} total={total} />
-      {(folded > 0 || overlapping > 0 || inherited) && (
+      {/* the chart takes what the panel has left in a row with a height of its own, and the treemap
+          grows into it; the bars and the donut keep their size and scroll when there is less */}
+      <div className="dash-chart-body fill-body">
+        <TypeChart shape={shape} slices={slices} total={total} onTileClick={(slice, at) => setMenu({ slice, x: at.x, y: at.y })} />
+      </div>
+      {(folded > 0 || overlapping > 0 || inherited || hiddenCount > 0) && (
         <div className="muted dash-type-more">
-          {inherited && !partOfWhole && "a node counts under its own type and every type above it, so these overlap"}
-          {inherited && partOfWhole && overlapping > 0 && `${overlapping} ${overlapping === 1 ? "type is" : "types are"} inside another type shown here and left out, so the shares still add up`}
-          {inherited && partOfWhole && overlapping === 0 && "counted with everything below each type"}
-          {folded > 0 && `${inherited ? " · " : ""}${folded} smaller ${folded === 1 ? "type" : "types"} in the last group`}
+          {[
+            inherited && !partOfWhole ? "a node counts under its own type and every type above it, so these overlap" : null,
+            inherited && partOfWhole && overlapping > 0
+              ? `${overlapping} ${overlapping === 1 ? "type is" : "types are"} inside another type shown here and left out, so the shares still add up`
+              : null,
+            inherited && partOfWhole && overlapping === 0 ? "counted with everything below each type" : null,
+            folded > 0 ? `${folded} smaller ${folded === 1 ? "type" : "types"} in the last group` : null,
+            hiddenCount > 0 ? (
+              <>
+                {hiddenCount} {hiddenCount === 1 ? "type" : "types"} hidden from the treemap ·{" "}
+                <button className="link-button" onClick={() => setHidden(new Set())}>
+                  show {hiddenCount === 1 ? "it" : "them"} again
+                </button>
+              </>
+            ) : null,
+          ]
+            .filter((part) => part !== null)
+            .map((part, i) => (
+              <span key={i}>
+                {i > 0 && " · "}
+                {part}
+              </span>
+            ))}
         </div>
       )}
+      {menu && (
+        <TypeMenu
+          slice={menu.slice}
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          onHide={() => {
+            setHidden((h) => new Set([...h, menu.slice.type.id]));
+            setMenu(null);
+          }}
+          onQuery={() => {
+            setMenu(null);
+            openInQuery({ typeId: menu.slice.type.id });
+          }}
+          onModel={() => {
+            setMenu(null);
+            openInDatamodel({ typeId: menu.slice.type.id });
+          }}
+        />
+      )}
     </section>
+  );
+}
+
+const hiddenKeyPrefix = "dashTypeHidden:";
+
+function readHidden(key: string): Set<string> {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
+    return new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * The menu a treemap tile opens: what to do with the type from here. A small popover at the click,
+ * kept inside the window; a click anywhere else or Escape closes it.
+ */
+function TypeMenu({
+  slice,
+  x,
+  y,
+  onClose,
+  onHide,
+  onQuery,
+  onModel,
+}: {
+  slice: TypeSlice;
+  x: number;
+  y: number;
+  onClose: () => void;
+  onHide: () => void;
+  onQuery: () => void;
+  onModel: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const width = 250;
+  const height = 160;
+  const left = Math.max(8, Math.min(x, window.innerWidth - width - 8));
+  const top = Math.max(8, Math.min(y, window.innerHeight - height - 8));
+  return (
+    <>
+      <div
+        className="db-menu-backdrop"
+        onClick={onClose}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onClose();
+        }}
+      />
+      <div className="db-menu type-menu" role="menu" style={{ top, left, width }}>
+        <div className="type-menu-head">
+          <KindIcon kind={slice.type.kind} size={14} />
+          <b title={slice.type.full}>{slice.type.name}</b>
+          <span className="muted">{formatCount(slice.value)} nodes</span>
+        </div>
+        <button className="db-menu-item" role="menuitem" onClick={onHide}>
+          <IconEyeOff size={15} stroke={1.8} /> Hide from the treemap
+        </button>
+        <button className="db-menu-item" role="menuitem" onClick={onQuery}>
+          <IconDatabaseSearch size={15} stroke={1.8} /> Query these nodes
+        </button>
+        <button className="db-menu-item" role="menuitem" onClick={onModel}>
+          <IconSchema size={15} stroke={1.8} /> Open in the data model
+        </button>
+      </div>
+    </>
   );
 }
 

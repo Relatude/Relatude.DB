@@ -292,6 +292,16 @@
   color: var(--danger);
 }
 
+.dm-notice b {
+  font-weight: 600;
+}
+
+.dm-notice-files {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
 /* body */
 
 .dm-body {
@@ -881,6 +891,39 @@ button.dm-source-card {
   flex: none;
 }
 
+/* the arrangement picker: one control with a state per layout, like the query page's view switch */
+.dm-layout-picker {
+  display: flex;
+  margin-left: 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.dm-layout-picker button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.dm-layout-picker button + button {
+  border-left: 1px solid var(--border);
+}
+
+.dm-layout-picker button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.dm-layout-picker button.active {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
 .dm-diagram-legend {
   display: inline-flex;
   align-items: center;
@@ -908,6 +951,17 @@ button.dm-source-card {
 .dm-legend-line.reference {
   border-top-style: dotted;
   border-top-color: var(--accent);
+}
+
+.dm-legend-line.property {
+  border-top-width: 1px;
+  border-top-color: var(--border);
+}
+
+/* a breath between groups of tools */
+.dm-tools-gap {
+  width: 8px;
+  flex: none;
 }
 
 .dm-legend-line.embeds {
@@ -1004,6 +1058,36 @@ button.dm-source-card {
   font-size: 10.5px;
   fill: var(--text-muted);
   pointer-events: none;
+}
+
+.dm-node-mark {
+  pointer-events: none;
+}
+
+.dm-node-more .dm-node-proptype {
+  fill: var(--accent);
+}
+
+/* the index marks of a property, wherever one is listed */
+.index-marks {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  vertical-align: -2px;
+}
+
+.index-marks-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
+}
+
+.index-marks-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 
 .dm-edge-hit {
@@ -1719,4 +1803,328 @@ button.dm-source-card {
   flex-shrink: 0;
   font-size: 11px;
   color: var(--text-faint);
+}
+
+/* ---- new node dialog ---- */
+
+.new-node-dialog {
+  width: min(520px, 92vw);
+}
+
+.new-node-dialog h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.new-node-dialog .type-picker-search {
+  margin-bottom: 6px;
+}
+
+.new-node-list {
+  max-height: min(52vh, 420px);
+}
+
+.type-option.disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ---- the graph: the model unfolded node by node, in motion (DatamodelGraph.tsx) ---- */
+
+.dg-svg {
+  user-select: none;
+}
+
+.dg-node {
+  cursor: pointer;
+}
+
+/* a node fades in where it was unfolded from; the springs take it out from there */
+.dg-node.appear {
+  animation: dg-in 0.4s ease-out;
+}
+
+@keyframes dg-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.dg-body {
+  stroke: var(--panel);
+  stroke-width: 2.5;
+  transition: stroke 0.12s ease;
+}
+
+.dg-node.type:hover .dg-body {
+  stroke: var(--text);
+}
+
+.dg-node.selected .dg-body {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+
+/* inner node types are never stored on their own; a dashed body says so, as in the diagram */
+.dg-node.inner .dg-body {
+  stroke-dasharray: 4 3;
+}
+
+/* the ring round the base type, and round every unfolded type in its own colour */
+.dg-ring {
+  fill: none;
+  stroke: var(--text-faint);
+  stroke-width: 1.2;
+  stroke-dasharray: 3 3;
+  opacity: 0.8;
+}
+
+.dg-node.open .dg-ring {
+  stroke-dasharray: none;
+  opacity: 0.45;
+}
+
+.dg-icon {
+  pointer-events: none;
+}
+
+.dg-label {
+  font-size: 12px;
+  font-weight: 600;
+  fill: var(--text);
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 3px;
+  pointer-events: none;
+}
+
+.dg-sub {
+  font-size: 10px;
+  fill: var(--text-muted);
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 3px;
+  pointer-events: none;
+}
+
+.dg-leaf-label {
+  font-size: 10.5px;
+  fill: var(--text-soft);
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 3px;
+  pointer-events: none;
+}
+
+.dg-node.leaf:hover .dg-leaf-label,
+.dg-node.leaf.selected .dg-leaf-label {
+  fill: var(--accent);
+  font-weight: 600;
+}
+
+/* the switch on a type's shoulder: + and how much it would unfold, − once it is open */
+.dg-badge {
+  cursor: pointer;
+}
+
+.dg-badge circle {
+  fill: var(--text-soft);
+  stroke: var(--panel);
+  stroke-width: 1.5;
+  transition: fill 0.12s ease;
+}
+
+.dg-badge:hover circle {
+  fill: var(--accent);
+}
+
+.dg-badge.open circle {
+  fill: var(--text-faint);
+}
+
+.dg-badge text {
+  font-size: 10px;
+  font-weight: 700;
+  fill: var(--panel);
+  pointer-events: none;
+}
+
+.dg-badge.open text {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.dg-node.dim {
+  opacity: 0.2;
+}
+
+/* the stem from a type to one of its properties */
+.dm-edge.property .dm-edge-line {
+  stroke: var(--border);
+  stroke-width: 1.2;
+}
+
+.dm-edge.property.highlighted .dm-edge-line {
+  stroke: var(--text-faint);
+  stroke-width: 1.6;
+}
+
+/* the start of the graph: a type to pick, one group per source */
+.dg-picker {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px 24px 26px;
+}
+
+.dg-picker-head h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.dg-picker-head p {
+  margin: 0;
+  max-width: 680px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.dg-picker-group h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.dg-picker-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: none;
+}
+
+.dg-picker-n {
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
+.dg-picker-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* one type: its kind, its name, and what it holds; the source's colour on the edge, as in the diagram */
+.dg-picker-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px 7px 10px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    background 0.1s ease,
+    transform 0.1s ease,
+    border-color 0.1s ease;
+}
+
+.dg-picker-type:hover {
+  background: var(--hover);
+  border-color: var(--text-faint);
+  transform: translateY(-1px);
+}
+
+.dg-picker-type:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.dg-picker-type svg {
+  flex: none;
+}
+
+.dg-picker-name {
+  font-weight: 600;
+}
+
+.dg-picker-count {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.dg-picker-type.base .dg-picker-count {
+  color: var(--accent);
+}
+
+/* the start type's name in the toolbar, beside the way back to the picker */
+.dg-start {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-soft);
+  white-space: nowrap;
+}
+
+/* the kinds of line, as switches: the legend that can be clicked */
+.dg-edge-toggles {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 10px;
+}
+
+.dg-edge-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-radius: 6px;
+  opacity: 0.45;
+  white-space: nowrap;
+}
+
+.dg-edge-toggle .dm-legend-line {
+  width: 16px;
+}
+
+.dg-edge-toggle.on {
+  opacity: 1;
+}
+
+.dg-edge-toggle:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.dg-edge-toggle:not(.on) {
+  text-decoration: line-through;
+}
+
+.dg-hint {
+  margin-left: auto;
+}
+
+@media (max-width: 1500px) {
+  .dg-hint {
+    display: none;
+  }
 }

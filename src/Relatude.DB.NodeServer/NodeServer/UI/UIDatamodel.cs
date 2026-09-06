@@ -63,7 +63,15 @@ sealed class UIDatamodel {
         DatamodelDraft? draft = null;
         List<DatamodelHistoryEntry> history = [];
         if (store != null) {
-            try { draft = store.LoadDraft(); } catch (Exception error) { draftError = "The draft could not be read: " + error.Message; }
+            try {
+                draft = store.LoadDraft();
+                // a draft written into compiled source code is finished once the sources load as the draft:
+                // the application has been rebuilt with it. Normally noticed when the store opens; checked
+                // here too for a database that was closed when the application restarted
+                if (draft != null && active != null && store.RemoveIfActivated(draft, active)) draft = null;
+            } catch (Exception error) {
+                draftError = "The draft could not be read: " + error.Message;
+            }
             try { history = store.ListHistory(); } catch { }
         }
         var overlay = _server.ConfigurationOverlay;
@@ -96,6 +104,8 @@ sealed class UIDatamodel {
         draft.BaseChecksum,
         draft.AwaitingRebuild,
         draft.AwaitingRebuildSinceUtc,
+        draft.FilesWritten,
+        draft.FilesDeleted,
         draft.Note,
         Model = withModel ? element(draft.Model) : (JsonElement?)null,
     };
@@ -168,14 +178,7 @@ sealed class UIDatamodel {
         var store = drafts(c);
         var json = p.Model.GetRawText();
         var model = DatamodelJson.Deserialize(json); // throws on malformed input before anything is written
-        Guid checksum;
-        try {
-            var copy = DatamodelJson.Deserialize(json);
-            copy.EnsureInitalization();
-            checksum = DatamodelJson.Checksum(copy);
-        } catch {
-            checksum = DatamodelJson.Checksum(model); // a draft in progress need not initialize yet
-        }
+        var checksum = DatamodelDrafts.ChecksumOf(model);
         var existing = store.PeekDraft();
         Guid? baseChecksum = existing?.BaseChecksum;
         if (baseChecksum == null) {

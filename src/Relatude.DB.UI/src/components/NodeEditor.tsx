@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { IconArrowBackUp, IconDeviceFloppy, IconPlus, IconRefresh, IconSearch, IconX } from "@tabler/icons-react";
+import { IconArrowBackUp, IconChevronDown, IconChevronUp, IconDeviceFloppy, IconExternalLink, IconPlus, IconRefresh, IconSearch, IconTrash, IconX } from "@tabler/icons-react";
 import {
+  createNode,
+  deleteNode,
   fetchNode,
   lookupNodes,
+  saveEmbedded,
   saveNode,
   type GeoValue,
   type FileValueView,
@@ -10,8 +13,11 @@ import {
   type NodeRef,
   type NodeView,
   type PropertyView,
+  type TypeRef,
 } from "../server/query";
-import { showError } from "../dialogs";
+import { showChoice, showConfirm, showError } from "../dialogs";
+import { openInDatamodel } from "../navigate";
+import { IndexMarks } from "./DatamodelIcons";
 import { useLiveResult } from "../server/hooks";
 import { formatCount, formatTime } from "../format";
 import { FilePreview } from "./MediaPreview";
@@ -43,11 +49,14 @@ export function NodeEditor({
   nodeId,
   onSaved,
   onClose,
+  onDeleted,
 }: {
   storeId: string;
   nodeId: string;
   onSaved?: () => void;
   onClose?: () => void;
+  /** the node was deleted from here: the list it came from is stale and the form has nothing to show */
+  onDeleted?: () => void;
 }) {
   const [node, setNode] = useState<NodeView | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
@@ -122,6 +131,30 @@ export function NodeEditor({
     }
   }
 
+  /**
+   * Deleting is asked about first, and says what is being deleted rather than "are you sure": the
+   * name and the type are what tell someone whether this is the node they meant.
+   */
+  async function remove() {
+    if (!node) return;
+    const confirmed = await showConfirm(
+      `Delete ${node.displayName || "this node"}?`,
+      `The ${node.typeName} node is removed from the database. Relations and references to it are cleared with it. This cannot be undone from here - a revert window can take it back.`,
+      { confirmLabel: "Delete", danger: true },
+    );
+    if (!confirmed.ok) return;
+    setSaving(true);
+    try {
+      await deleteNode(storeId, node.id);
+      onDeleted?.();
+      onClose?.();
+    } catch (e) {
+      await showError("Could not delete", e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (error) return <div className="placeholder">{error}</div>;
   if (!node) return null;
 
@@ -131,7 +164,10 @@ export function NodeEditor({
         <div className="node-editor-title">
           <h3>{node.displayName}</h3>
           <span className="muted">
-            {node.typeName} · id {node.id} · #{node.intId}
+            <button className="link-button" title={`Open ${node.fullName} in the data model`} onClick={() => openInDatamodel({ typeId: node.typeId })}>
+              {node.typeName}
+            </button>{" "}
+            · id {node.id} · #{node.intId}
             {node.address ? " · " + node.address : ""}
           </span>
           <span className="muted">
@@ -149,6 +185,9 @@ export function NodeEditor({
             <button className="action-button primary" onClick={save} disabled={dirty === 0 || saving}>
               <IconDeviceFloppy size={15} stroke={1.8} />
               {dirty === 0 ? "Save" : `Save ${dirty} ${dirty === 1 ? "field" : "fields"}`}
+            </button>
+            <button className="icon-button danger" title="Delete this node" onClick={remove} disabled={saving}>
+              <IconTrash size={16} stroke={1.8} />
             </button>
           </>
         )}
@@ -186,6 +225,11 @@ export function NodeEditor({
           <Field
             key={property.id}
             storeId={storeId}
+            nodeId={nodeId}
+            onSaved={() => {
+              load();
+              onSaved?.();
+            }}
             property={property}
             edited={property.id in values || property.id in targets}
             value={property.id in values ? values[property.id] : property.value}
@@ -202,6 +246,7 @@ export function NodeEditor({
 
 function Field({
   storeId,
+  nodeId,
   property,
   value,
   targets,
@@ -209,8 +254,11 @@ function Field({
   onChange,
   onTargets,
   onRevert,
+  onSaved,
 }: {
   storeId: string;
+  nodeId: string;
+  onSaved: () => void;
   property: PropertyView;
   value: unknown;
   targets: NodeRef[];
@@ -223,14 +271,25 @@ function Field({
     <div className={"node-field" + (edited ? " edited" : "") + (property.readOnly ? " readonly" : "")}>
       <div className="node-field-label">
         <span className="node-field-name">{property.name}</span>
+        <IndexMarks flags={{ indexed: property.indexed, wordIndex: property.wordIndex, semanticIndex: property.semanticIndex }} />
         <span className="node-field-type">{property.type}</span>
         {edited && <span className="setting-badge unsaved">unsaved</span>}
-        {property.notes.map((note) => (
-          <span className="setting-badge faint" key={note}>
-            {note}
-          </span>
-        ))}
+        {/* the three index notes are the icons above; the rest are still worth spelling out */}
+        {property.notes
+          .filter((note) => note !== "indexed" && note !== "word index" && note !== "semantic index")
+          .map((note) => (
+            <span className="setting-badge faint" key={note}>
+              {note}
+            </span>
+          ))}
         {property.declaredBy && <span className="node-field-owner">from {property.declaredBy}</span>}
+        <button
+          className="icon-button node-field-link"
+          title={`Open ${property.declaredBy ?? ""}${property.declaredBy ? "." : ""}${property.name} in the data model`}
+          onClick={() => openInDatamodel({ typeId: property.ownerTypeId, propertyId: property.id })}
+        >
+          <IconExternalLink size={13} stroke={1.9} />
+        </button>
         {edited && (
           <button className="icon-button" title="Undo this change" onClick={onRevert}>
             <IconArrowBackUp size={14} stroke={1.8} />
@@ -238,7 +297,7 @@ function Field({
         )}
       </div>
       <div className="node-field-control">
-        <Editor storeId={storeId} property={property} value={value} targets={targets} onChange={onChange} onTargets={onTargets} />
+        <Editor storeId={storeId} nodeId={nodeId} property={property} value={value} targets={targets} onChange={onChange} onTargets={onTargets} onSaved={onSaved} />
       </div>
     </div>
   );
@@ -246,18 +305,23 @@ function Field({
 
 function Editor({
   storeId,
+  nodeId,
   property,
   value,
   targets,
   onChange,
   onTargets,
+  onSaved,
 }: {
   storeId: string;
+  nodeId: string;
   property: PropertyView;
   value: unknown;
   targets: NodeRef[];
   onChange: (value: unknown) => void;
   onTargets: (targets: NodeRef[]) => void;
+  /** an embedded list writes on its own, and the form has to read the node again after it */
+  onSaved: () => void;
 }) {
   // a fresh array every render would look like a new lookup to the picker
   const typeIds = useMemo(() => (property.targetTypes ?? []).map((t) => t.id), [property.targetTypes]);
@@ -401,11 +465,11 @@ function Editor({
       );
     }
     case "reference":
-      return <NodePicker storeId={storeId} typeIds={typeIds} targets={targets} multiple={false} onChange={onTargets} />;
+      return <NodePicker storeId={storeId} types={property.targetTypes ?? []} typeIds={typeIds} targets={targets} multiple={false} onChange={onTargets} />;
     case "references":
-      return <NodePicker storeId={storeId} typeIds={typeIds} targets={targets} multiple onChange={onTargets} />;
+      return <NodePicker storeId={storeId} types={property.targetTypes ?? []} typeIds={typeIds} targets={targets} multiple onChange={onTargets} />;
     case "relation":
-      return <NodePicker storeId={storeId} typeIds={typeIds} targets={targets} multiple={property.isMany === true} onChange={onTargets} />;
+      return <NodePicker storeId={storeId} types={property.targetTypes ?? []} typeIds={typeIds} targets={targets} multiple={property.isMany === true} onChange={onTargets} />;
     case "file": {
       const file = (value ?? null) as FileValueView | null;
       if (!file) return <span className="muted">No file.</span>;
@@ -413,22 +477,25 @@ function Editor({
     }
     case "embedded": {
       const inner = Array.isArray(value) ? (value as InnerNodeView[]) : [];
-      if (inner.length === 0) return <span className="muted">{property.info ?? "empty"}</span>;
-      return (
-        <div className="node-inner">
-          <span className="muted">{property.info}</span>
-          {inner.map((n) => (
-            <div className="node-inner-node" key={n.id}>
-              <span className="node-inner-type">{n.typeName}</span>
-              {n.values.map((v) => (
-                <span key={v.codeName}>
-                  <em>{v.codeName}</em> {v.file ? <FilePreview storeId={storeId} file={v.file} compact /> : v.value}
-                </span>
-              ))}
-            </div>
-          ))}
-        </div>
-      );
+      if (property.readOnly) {
+        // a list too long to edit a row at a time is still worth seeing
+        return (
+          <div className="node-inner">
+            <span className="muted">{property.info}</span>
+            {inner.map((n) => (
+              <div className="node-inner-node" key={n.id}>
+                <span className="node-inner-type">{n.typeName}</span>
+                {n.values.map((v) => (
+                  <span key={v.codeName}>
+                    <em>{v.codeName}</em> {v.file ? <FilePreview storeId={storeId} file={v.file} compact /> : v.value}
+                  </span>
+                ))}
+              </div>
+            ))}
+          </div>
+        );
+      }
+      return <EmbeddedEditor storeId={storeId} nodeId={nodeId} property={property} inner={inner} onSaved={onSaved} />;
     }
     default:
       return <span className="muted">{property.info ?? "Not editable here."}</span>;
@@ -461,18 +528,190 @@ function ListEditor({ values, onChange, placeholder, mono }: { values: string[];
 }
 
 /**
+ * The inner nodes of an embedded property, as a list of small forms.
+ *
+ * The list is a document inside the node rather than a set of node properties, so it is written as
+ * one and on its own: adding, removing, reordering and editing change a local copy, and Apply sends
+ * the whole list. That is why this has its own dirty state and its own button rather than joining
+ * the form's Save - the store rewrites the property, not the fields inside it.
+ */
+function EmbeddedEditor({
+  storeId,
+  nodeId,
+  property,
+  inner,
+  onSaved,
+}: {
+  storeId: string;
+  nodeId: string;
+  property: PropertyView;
+  inner: InnerNodeView[];
+  onSaved: () => void;
+}) {
+  const initial = useMemo<InnerRow[]>(
+    () => inner.map((n) => ({ id: n.id, typeId: n.typeId, typeName: n.typeName, fields: n.fields, values: {} })),
+    [inner],
+  );
+  const [rows, setRows] = useState<InnerRow[]>(initial);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    setRows(initial);
+    setDirty(false);
+  }, [initial]);
+
+  const types = property.targetTypes ?? [];
+
+  function edit(i: number, field: PropertyView, value: unknown) {
+    setDirty(true);
+    setRows((prev) => prev.map((r, j) => (i === j ? { ...r, values: { ...r.values, [field.id]: value } } : r)));
+  }
+  function remove(i: number) {
+    setDirty(true);
+    setRows((prev) => prev.filter((_, j) => j !== i));
+  }
+  function move(i: number, by: number) {
+    const to = i + by;
+    if (to < 0 || to >= rows.length) return;
+    setDirty(true);
+    setRows((prev) => {
+      const next = [...prev];
+      const [row] = next.splice(i, 1);
+      next.splice(to, 0, row);
+      return next;
+    });
+  }
+  async function add() {
+    if (types.length === 0) return;
+    let type = types[0];
+    if (types.length > 1) {
+      const pick = await showChoice("Add an inner node", "Which type?", types.map((t) => ({ label: t.name })));
+      if (pick === null) return;
+      type = types[pick];
+    }
+    // a new row borrows the fields of an existing one of its type, so it opens with editors to fill
+    // in; with none to borrow it is added bare and takes its shape after Apply
+    const like = rows.find((r) => r.typeId === type.id) ?? initial.find((r) => r.typeId === type.id);
+    setDirty(true);
+    setRows((prev) => [...prev, { id: null, typeId: type.id, typeName: type.name, fields: like?.fields ?? [], values: {} }]);
+  }
+  async function apply() {
+    setSaving(true);
+    try {
+      await saveEmbedded(
+        storeId,
+        nodeId,
+        property.id,
+        rows.map((r) => ({
+          id: r.id,
+          typeId: r.typeId,
+          // the server takes the whole row, so an untouched field sends what it already had
+          values: Object.fromEntries(r.fields.map((f) => [f.id, f.id in r.values ? r.values[f.id] : f.value])),
+        })),
+      );
+      setDirty(false);
+      onSaved();
+    } catch (e) {
+      await showError("Could not save the inner nodes", e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="node-inner">
+      <div className="node-inner-tools">
+        <span className="muted">{rows.length === 0 ? "empty" : rows.length + (rows.length === 1 ? " inner node" : " inner nodes")}</span>
+        <div className="query-spacer" />
+        {dirty && (
+          <button className="action-button primary" onClick={apply} disabled={saving}>
+            <IconDeviceFloppy size={14} stroke={1.8} /> Apply
+          </button>
+        )}
+        {dirty && (
+          <button
+            className="link-button"
+            disabled={saving}
+            onClick={() => {
+              setRows(initial);
+              setDirty(false);
+            }}
+          >
+            undo
+          </button>
+        )}
+        <button className="link-button" onClick={add} disabled={saving || types.length === 0} title={types.length === 0 ? "The property names no type to embed" : undefined}>
+          <IconPlus size={13} stroke={1.8} /> add
+        </button>
+      </div>
+      {rows.map((row, i) => (
+        <div className="node-inner-node editable" key={(row.id ?? "new") + ":" + i}>
+          <div className="node-inner-head">
+            <span className="node-inner-type">{row.typeName}</span>
+            {row.id === null && <span className="setting-badge unsaved">new</span>}
+            <div className="query-spacer" />
+            <button className="icon-button" title="Move up" onClick={() => move(i, -1)} disabled={i === 0}>
+              <IconChevronUp size={14} stroke={2} />
+            </button>
+            <button className="icon-button" title="Move down" onClick={() => move(i, 1)} disabled={i === rows.length - 1}>
+              <IconChevronDown size={14} stroke={2} />
+            </button>
+            <button className="icon-button danger" title="Remove" onClick={() => remove(i)}>
+              <IconX size={13} stroke={2} />
+            </button>
+          </div>
+          <div className="node-inner-fields">
+            {row.fields.map((f) => (
+              <label className="node-inner-field" key={f.id}>
+                <span className="node-inner-field-name">
+                  {f.name}
+                  <IndexMarks flags={{ indexed: f.indexed, wordIndex: f.wordIndex, semanticIndex: f.semanticIndex }} />
+                </span>
+                <Editor
+                  storeId={storeId}
+                  nodeId={nodeId}
+                  property={f}
+                  value={f.id in row.values ? row.values[f.id] : f.value}
+                  targets={[]}
+                  onChange={(v) => edit(i, f, v)}
+                  onTargets={() => undefined}
+                  onSaved={onSaved}
+                />
+              </label>
+            ))}
+            {row.fields.length === 0 && <span className="muted">Apply writes the row; its fields appear once it is stored.</span>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** One inner node while it is being edited: what it was, plus the fields that were touched. */
+interface InnerRow {
+  id: string | null;
+  typeId: string;
+  typeName: string;
+  fields: PropertyView[];
+  values: Record<string, unknown>;
+}
+
+/**
  * Picks nodes for a reference or a relation. The search is the same free text search the query page
  * runs, narrowed to the types the property can point at, so finding a node here works the same way
- * as finding one there.
+ * as finding one there. What is not there yet can be made from here: "new" writes an empty node of
+ * the target type and points at it, and it is then editable like any other hit.
  */
 function NodePicker({
   storeId,
+  types,
   typeIds,
   targets,
   multiple,
   onChange,
 }: {
   storeId: string;
+  types: TypeRef[];
   typeIds: string[];
   targets: NodeRef[];
   multiple: boolean;
@@ -480,6 +719,7 @@ function NodePicker({
 }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
+  const [making, setMaking] = useState(false);
   // nothing to look up until the picker is opened; after that every keystroke runs at once
   const lookup = useMemo(() => (open ? { storeId, typeIds, text } : null), [open, storeId, typeIds, text]);
   const { result, loading: busy, error } = useLiveResult(lookup, (r) => lookupNodes(r.storeId, r.typeIds, r.text));
@@ -491,6 +731,25 @@ function NodePicker({
     } else {
       onChange([ref]);
       setOpen(false);
+    }
+  }
+
+  /** Makes a node of the target type and points at it. The node is written now; the link on save. */
+  async function makeOne() {
+    if (types.length === 0) return;
+    let type = types[0];
+    if (types.length > 1) {
+      const pick = await showChoice("New node", "Which type?", types.map((t) => ({ label: t.name })));
+      if (pick === null) return;
+      type = types[pick];
+    }
+    setMaking(true);
+    try {
+      add(await createNode(storeId, type.id));
+    } catch (e) {
+      await showError("Could not create the node", e instanceof Error ? e.message : String(e));
+    } finally {
+      setMaking(false);
     }
   }
 
@@ -525,6 +784,14 @@ function NodePicker({
             <input className="text-input wide" value={text} placeholder="search…" spellCheck={false} autoFocus onChange={(e) => setText(e.target.value)} />
           </div>
           <div className="node-picker-results">
+            {types.length > 0 && (
+              <button className="node-picker-result new" onClick={makeOne} disabled={making}>
+                <span>
+                  <IconPlus size={13} stroke={2} /> New {types.length === 1 ? types[0].name : "node…"}
+                </span>
+                <em>empty, to fill in</em>
+              </button>
+            )}
             {error && <span className="query-error">{error}</span>}
             {busy && found.length === 0 && <span className="muted">searching…</span>}
             {!busy && !error && found.length === 0 && <span className="muted">nothing found</span>}

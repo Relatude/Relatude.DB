@@ -103,10 +103,16 @@ export interface ModelJson {
 
 export interface DraftInfo {
   savedUtc: string;
+  /** Recomputed by the server from the draft's model, so it compares with the active model's checksum. */
   checksum: string;
+  /** The checksum of the active model when the draft was started. */
   baseChecksum: string | null;
+  /** Written into source code that is compiled into the application; the server removes the draft once the database opens with that model. */
   awaitingRebuild: boolean;
   awaitingRebuildSinceUtc: string | null;
+  /** The files that activation wrote and deleted. */
+  filesWritten: string[];
+  filesDeleted: string[];
   note: string | null;
   model: ModelJson | null;
 }

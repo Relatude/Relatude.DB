@@ -154,8 +154,9 @@ public static class DatamodelSourceWriter {
     }
 
     /// <summary>What a type or relation says, without where it came from. Equal fingerprints mean nothing to write.</summary>
-    public static string Fingerprint(NodeTypeModel type) => JsonSerializer.Serialize(type, DatamodelJson.CompareOptions);
-    public static string Fingerprint(RelationModel relation) => JsonSerializer.Serialize(relation, DatamodelJson.CompareOptions);
+    // canonical, like the model checksum: the order properties or parents were added in is not a change
+    public static string Fingerprint(NodeTypeModel type) => DatamodelJson.CanonicalJson(type, DatamodelJson.CompareOptions);
+    public static string Fingerprint(RelationModel relation) => DatamodelJson.CanonicalJson(relation, DatamodelJson.CompareOptions);
     static string definition(DatamodelSource source) => JsonSerializer.Serialize(source, DatamodelJson.Options);
 
     /// <summary>Whether the source's code folder is generated as a whole by the editor rather than edited in place.</summary>

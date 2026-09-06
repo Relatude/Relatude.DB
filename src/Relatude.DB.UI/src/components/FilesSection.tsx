@@ -17,6 +17,7 @@ import {
   IconFolderX,
   IconPencil,
   IconRefresh,
+  IconSearch,
   IconSum,
   IconTrash,
   IconUpload,
@@ -89,7 +90,11 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   const [viewerWidth, setViewerWidth] = useState(() => Number(localStorage.getItem(viewerWidthKey)) || 520);
   const [resizing, setResizing] = useState<"tree" | "viewer" | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null); // measured while dragging the viewer's divider
+  const listRef = useRef<HTMLDivElement>(null); // the file list, which holds the keyboard once clicked
+  const cursorFile = useRef<string | null>(null); // the row the keyboard walks from: the last one clicked or moved to
   const [sort, setSort] = useState<SortState>(() => readSort());
+  // the name filter of the open folder's list: typed, kept while the folders are browsed, gone with the provider
+  const [filter, setFilter] = useState("");
   // index files are named after the property they index, so most of the tree reads as guids until
   // this is on; the map comes from the database and the substitution is display only
   const [names, setNames] = useState<NameMap>({});
@@ -111,6 +116,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     setSelectedFolders(new Set());
     selectionAnchor.current = null;
     setTreeSizes({});
+    setFilter("");
     viewerDirty.current = false;
   }
 
@@ -159,13 +165,32 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   // and the notice is a different one
   const projectRoot = io?.kind === "projectRoot";
   const typeOf = useCallback((f: FileInfo) => (projectRoot ? displayType(fileName(f.key)) : (f.description ?? "")), [projectRoot]);
-  const sortedFiles = useMemo(() => sortFiles(files, sort, typeOf), [files, sort, typeOf]);
-  const listedSize = files.reduce((sum, f) => sum + f.size, 0);
-  const allSelected = files.length > 0 && files.every((f) => selected.has(f.key));
+  // the list is the open folder's files, narrowed by the filter to the names it matches - the name
+  // as it is shown as well as the real one, so a friendly name is found too while those are on
+  const matcher = useMemo(() => nameMatcher(filter), [filter]);
+  const shownFiles = useMemo(
+    () => sortFiles(matcher ? files.filter((f) => matcher(fileName(f.key)) || matcher(show(fileName(f.key)))) : files, sort, typeOf),
+    [files, matcher, show, sort, typeOf],
+  );
+  const listedSize = shownFiles.reduce((sum, f) => sum + f.size, 0);
+  const allSelected = shownFiles.length > 0 && shownFiles.every((f) => selected.has(f.key));
   // the open folder belongs to the database's own storage: everything in it is the real data
   const primaryData = listing?.isPrimaryData === true;
   // the viewer: exactly one file and no folder selected
   const viewFile = selected.size === 1 && selectedFolders.size === 0 ? (files.find((f) => selected.has(f.key)) ?? null) : null;
+
+  // The selection follows the filter: a file the filter hides is no longer selected, so what the
+  // buttons say they act on is what the list shows. The one exception is the file open in the viewer
+  // while it holds unsaved changes - nothing takes that away without asking, and a filter being
+  // typed is no place to ask.
+  useEffect(() => {
+    if (!matcher) return;
+    const shown = new Set(shownFiles.map((f) => f.key));
+    setSelected((prev) => {
+      const kept = [...prev].filter((key) => shown.has(key) || (viewerDirty.current && viewFile?.key === key));
+      return kept.length === prev.size ? prev : new Set(kept);
+    });
+  }, [matcher, shownFiles, viewFile]);
 
   // the editor may hold changes; nothing that would take its file away goes ahead without asking
   async function confirmDiscard(): Promise<boolean> {
@@ -240,11 +265,12 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   // ---- file rows: click, ctrl-click, shift-click, checkbox ----
 
   function onRowClick(e: ReactMouseEvent, file: FileInfo) {
+    cursorFile.current = file.key;
     if (e.shiftKey && selectionAnchor.current !== null) {
-      const from = sortedFiles.findIndex((f) => f.key === selectionAnchor.current);
-      const to = sortedFiles.findIndex((f) => f.key === file.key);
+      const from = shownFiles.findIndex((f) => f.key === selectionAnchor.current);
+      const to = shownFiles.findIndex((f) => f.key === file.key);
       if (from >= 0 && to >= 0) {
-        const range = sortedFiles.slice(Math.min(from, to), Math.max(from, to) + 1).map((f) => f.key);
+        const range = shownFiles.slice(Math.min(from, to), Math.max(from, to) + 1).map((f) => f.key);
         const next = e.ctrlKey || e.metaKey ? new Set(selected) : new Set<string>();
         for (const key of range) next.add(key);
         changeSelection(next);
@@ -268,7 +294,53 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   }
 
   function toggleAll() {
-    changeSelection(allSelected ? new Set() : new Set(files.map((f) => f.key)));
+    changeSelection(allSelected ? new Set() : new Set(shownFiles.map((f) => f.key)));
+  }
+
+  // The arrows walk the list the way they do in a file manager: down and up select the next or the
+  // previous file - which opens it in the viewer, since one selected file is what the viewer shows -
+  // shift extends the selection from where it started, home and end jump, page keys take ten. The
+  // list is the one stop in the tab order; a click on a row lands the keyboard on it.
+  function onListKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (shownFiles.length === 0 || e.ctrlKey || e.metaKey || e.altKey) return;
+    const keys = shownFiles.map((f) => f.key);
+    const last = keys.length - 1;
+    const current = cursorFile.current === null ? -1 : keys.indexOf(cursorFile.current);
+    let next: number;
+    switch (e.key) {
+      case "ArrowDown":
+        next = current < 0 ? 0 : Math.min(last, current + 1);
+        break;
+      case "ArrowUp":
+        next = current < 0 ? last : Math.max(0, current - 1);
+        break;
+      case "PageDown":
+        next = Math.min(last, Math.max(0, current) + 10);
+        break;
+      case "PageUp":
+        next = Math.max(0, Math.max(0, current) - 10);
+        break;
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = last;
+        break;
+      default:
+        return;
+    }
+    e.preventDefault(); // the scroller would scroll instead
+    const key = keys[next];
+    cursorFile.current = key;
+    const anchor = selectionAnchor.current;
+    if (e.shiftKey && anchor !== null && keys.includes(anchor)) {
+      const from = keys.indexOf(anchor);
+      void changeSelection(new Set(keys.slice(Math.min(from, next), Math.max(from, next) + 1)));
+    } else {
+      selectionAnchor.current = key;
+      void changeSelection(new Set([key]));
+    }
+    listRef.current?.querySelectorAll<HTMLElement>(".file-row:not(.file-head)")[next]?.scrollIntoView({ block: "nearest" });
   }
 
   function toggleSort(column: SortColumn) {
@@ -547,7 +619,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     if (!ioId || selected.size === 0) return;
     const io = ioId;
     const target = path;
-    const keys = sortedFiles.filter((f) => selected.has(f.key)).map((f) => f.key);
+    const keys = shownFiles.filter((f) => selected.has(f.key)).map((f) => f.key);
     const zipName = (target === "" ? "storage-root" : target.split("/").pop()) + "-files.zip";
     let sink: ZipSink;
     let finish: (() => void) | null = null;
@@ -760,6 +832,13 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
             e.target.value = "";
           }}
         />
+        <label
+          className="files-filter"
+          title="Only the files of the open folder whose name matches: * stands for anything, ? for one character, and a text without either matches every name that contains it"
+        >
+          <IconSearch size={14} stroke={1.8} />
+          <input className="text-input" type="search" placeholder="Filter, e.g. *.log" value={filter} onChange={(e) => setFilter(e.target.value)} disabled={!ioId} />
+        </label>
         <label className="files-friendly" title="Show what the guids in file and folder names stand for - index files are named after the property they index">
           <input type="checkbox" checked={friendly} onChange={toggleFriendly} />
           Friendly names
@@ -826,16 +905,16 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
               </span>
             </div>
           )}
-          <div className={"file-table" + (compact ? " compact" : "")}>
+          <div className={"file-table" + (compact ? " compact" : "")} ref={listRef} tabIndex={0} onKeyDown={onListKeyDown}>
             <div className="file-row file-head">
-              <input type="checkbox" checked={allSelected} onChange={toggleAll} disabled={files.length === 0} />
+              <input type="checkbox" checked={allSelected} onChange={toggleAll} disabled={shownFiles.length === 0} />
               {sortHeader("name", "Name")}
               {!compact && sortHeader("type", "Type")}
               {sortHeader("size", "Size", true)}
               {!compact && sortHeader("modified", "Modified")}
               <span />
             </div>
-            {sortedFiles.map((f) => (
+            {shownFiles.map((f) => (
               <div
                 key={f.key}
                 className={"file-row" + (selected.has(f.key) ? " selected" : "") + (viewFile?.key === f.key ? " viewing" : "")}
@@ -869,9 +948,10 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
               </div>
             ))}
             {listing && files.length === 0 && <div className="muted files-empty">No files in this folder.</div>}
+            {listing && files.length > 0 && shownFiles.length === 0 && <div className="muted files-empty">No file name matches the filter.</div>}
           </div>
           <div className="files-footer muted">
-            {files.length} files · {formatBytes(listedSize)}
+            {matcher ? `${shownFiles.length} of ${files.length}` : files.length} files · {formatBytes(listedSize)}
             {selected.size > 0 ? ` · ${selected.size} selected` : ""}
             {selectedFolders.size > 0 ? ` · ${selectedFolders.size} folder${selectedFolders.size === 1 ? "" : "s"} ticked` : ""}
             {!compact && files.length > 0 && (
@@ -925,6 +1005,26 @@ function readSort(): SortState {
 }
 
 const nameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+/**
+ * The test a filter stands for. `*` is any run of characters and `?` one character, the way a shell
+ * matches file names; a filter with neither is a text the name has to contain, so "log" finds
+ * server.log without anyone typing the stars. Case does not count. Nothing typed is no filter.
+ */
+function nameMatcher(filter: string): ((name: string) => boolean) | null {
+  const text = filter.trim();
+  if (text === "") return null;
+  if (!/[*?]/.test(text)) {
+    const needle = text.toLowerCase();
+    return (name) => name.toLowerCase().includes(needle);
+  }
+  const pattern = text
+    .split(/(\*+|\?)/)
+    .map((part) => (part.startsWith("*") ? ".*" : part === "?" ? "." : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+    .join("");
+  const re = new RegExp("^" + pattern + "$", "i");
+  return (name) => re.test(name);
+}
 
 function sortFiles(files: FileInfo[], sort: SortState, typeOf: (f: FileInfo) => string): FileInfo[] {
   const direction = sort.ascending ? 1 : -1;

@@ -45,6 +45,8 @@ export interface TaskType {
 /** One batch: the unit the queue actually holds, carrying up to maxTasksPerBatch tasks of one type. */
 export interface TaskBatch {
   batchId: string;
+  /** the queue it sits in - the list can show both queues at once, and a control has to know */
+  queue: QueueId;
   typeId: string;
   type: string;
   state: BatchState;
@@ -65,8 +67,8 @@ export interface TasksInfo {
   throttle?: number;
   queues: QueueInfo[];
   types: TaskType[];
-  /** the queue the batch page below is from */
-  queue?: QueueId;
+  /** the queues the batch page below is from */
+  queuesShown?: QueueId[];
   batches: TaskBatch[];
   total: number;
   /** the page actually returned, which is not the one asked for if the queue drained meanwhile */
@@ -75,7 +77,8 @@ export interface TasksInfo {
 }
 
 export interface TasksQuery {
-  queue: QueueId;
+  /** one queue or both; the page lists them as one, newest first */
+  queues: QueueId[];
   states: BatchState[];
   typeIds: string[];
   page: number;

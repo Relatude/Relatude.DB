@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using Relatude.DB.Common;
@@ -72,10 +73,52 @@ public static class DatamodelJson {
     /// <summary>
     /// A stable identity of what the model says, ignoring where it came from and the derived name
     /// fields (<see cref="CompareOptions"/>). Two models with the same checksum define the same types,
-    /// relations and properties with the same settings. This is the datamodel editor's checksum; the
-    /// store's state file uses <see cref="SerializeForChecksum"/> directly.
+    /// relations and properties with the same settings, whatever order they were added in: the JSON
+    /// is put in canonical form first (<see cref="CanonicalJson"/>). This is the datamodel editor's
+    /// checksum; the store's state file uses <see cref="SerializeForChecksum"/> directly.
     /// </summary>
-    public static Guid Checksum(Datamodel datamodel) => JsonSerializer.Serialize(datamodel, CompareOptions).GenerateHashGuid();
+    public static Guid Checksum(Datamodel datamodel) => CanonicalJson(datamodel, CompareOptions).GenerateHashGuid();
+    /// <summary>
+    /// The value serialized with the given options and rewritten so that two values that say the same
+    /// give the same text: the members of every object are sorted by name, lists of type ids are
+    /// sorted, and there is no whitespace. Needed because the model's dictionaries (NodeTypes,
+    /// Relations, Properties) serialize in insertion order, and that order depends on who built the
+    /// model: the editor appends a new type at the end of the list, the loader places it after the
+    /// other types of its source. The same model must still compare equal, or a draft written into
+    /// compiled source code is never recognized as active once the application is rebuilt.
+    /// </summary>
+    public static string CanonicalJson<T>(T value, JsonSerializerOptions options) {
+        var node = JsonSerializer.SerializeToNode(value, options);
+        return canonical(node, null)?.ToJsonString() ?? "null";
+    }
+    /// <summary>
+    /// The lists of type ids in the model classes. They are sets - the types a type inherits, the
+    /// types a relation or a reference property points to - so their order carries no meaning, and
+    /// the loaders do not agree on it (reflection lists the base class first, the editor keeps the
+    /// order the user picked). Only lists are sorted: <c>NodeTypes</c> is also the name of the model's
+    /// dictionary of types, which is an object and is left alone.
+    /// </summary>
+    static readonly HashSet<string> idSetLists = new(StringComparer.OrdinalIgnoreCase) {
+        nameof(NodeTypeModel.Parents), nameof(RelationModel.SourceTypes), nameof(RelationModel.TargetTypes),
+        nameof(ReferencePropertyModel.NodeTypes), nameof(EmbeddedPropertyModel.InnerNodeTypes),
+    };
+    static JsonNode? canonical(JsonNode? node, string? name) {
+        switch (node) {
+            case JsonObject obj: {
+                    var sorted = new JsonObject();
+                    foreach (var member in obj.OrderBy(m => m.Key, StringComparer.Ordinal)) sorted[member.Key] = canonical(member.Value, member.Key);
+                    return sorted;
+                }
+            case JsonArray array: {
+                    var items = array.Select(item => canonical(item, null)).ToList();
+                    if (name != null && idSetLists.Contains(name) && items.All(i => i is JsonValue v && v.GetValueKind() == JsonValueKind.String))
+                        items.Sort((a, b) => string.CompareOrdinal(a!.GetValue<string>(), b!.GetValue<string>()));
+                    return new JsonArray(items.ToArray());
+                }
+            default:
+                return node?.DeepClone(); // a value; nodes cannot be shared between parents, hence the copy
+        }
+    }
     /// <summary>
     /// The content of one JSON datamodel source file holding the given node types and relations:
     /// only those, without the built in base type, without the source list and without provenance

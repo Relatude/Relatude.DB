@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { IconChevronDown, IconChevronRight, IconLoader2, IconPlus, IconRefreshAlert, IconSearch, IconTrash, IconWand, IconX } from "@tabler/icons-react";
-import { KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, relationMeta, sourceKindMeta } from "./DatamodelIcons";
+import { IndexMarks, KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, relationMeta, sourceKindMeta } from "./DatamodelIcons";
 import { Combobox, type ComboOption } from "./Combobox";
 import { ColorField } from "./ColorField";
 import {
@@ -631,9 +631,8 @@ export function TypeEditor({ type, ctx, onDelete, focusField, onFocused }: { typ
             <button key={p.Id} className="dm-proprow" onClick={() => ctx.select({ kind: "property", id: p.Id, typeId: type.Id })}>
               <PropertyIcon propertyType={p.PropertyType} />
               <span className="dm-propname">{p.CodeName}</span>
+              <IndexMarks flags={{ indexed: p.Indexed, wordIndex: p.IndexedByWords, semanticIndex: p.IndexedBySemantic }} />
               <span className="muted">{p.PropertyType}</span>
-              {p.Indexed && <span className="badge">indexed</span>}
-              {p.IndexedByWords && <span className="badge">words</span>}
               {p.UniqueValues && <span className="badge">unique</span>}
             </button>
           ))}
@@ -650,6 +649,7 @@ export function TypeEditor({ type, ctx, onDelete, focusField, onFocused }: { typ
                 <button key={p.property.Id} className="dm-proprow inherited" onClick={() => ctx.select({ kind: "property", id: p.property.Id, typeId: p.owner.Id })}>
                   <PropertyIcon propertyType={p.property.PropertyType} />
                   <span className="dm-propname">{p.property.CodeName}</span>
+                  <IndexMarks flags={{ indexed: p.property.Indexed, wordIndex: p.property.IndexedByWords, semanticIndex: p.property.IndexedBySemantic }} />
                   <span className="muted">from {p.owner.CodeName}</span>
                 </button>
               ))}
@@ -713,6 +713,7 @@ export function PropertyEditor({ type, property, ctx, onDelete, focusField, onFo
               {type.CodeName}
             </button>
             .{property.CodeName}
+            <IndexMarks flags={{ indexed: property.Indexed, wordIndex: property.IndexedByWords, semanticIndex: property.IndexedBySemantic }} size={13} />
           </div>
           <div className="dm-editor-sub" title={typeDef?.help}>
             {typeDef?.label ?? property.PropertyType} property{property.Internal ? " · internal" : ""}

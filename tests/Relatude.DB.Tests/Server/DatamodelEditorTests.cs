@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Relatude.DB.CodeGeneration;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
@@ -82,6 +83,96 @@ public class DatamodelEditorTests {
         drafts.DeleteDraft();
         Assert.IsNull(drafts.LoadDraft());
         Assert.IsFalse(drafts.HasDraft);
+    }
+
+    [TestMethod]
+    public void Drafts_AwaitingRebuild_CarriesTheFilesItWrote() {
+        var io = new IOProviderDisk(Path.Combine(_root, "db"));
+        var drafts = new DatamodelDrafts(io);
+        var model = libraryModel(DatamodelSourceType.TypeReference);
+        drafts.SaveDraft(new DatamodelDraft { Model = model, AwaitingRebuild = true, AwaitingRebuildSinceUtc = DateTime.UtcNow, FilesWritten = [@"C:\app\Models\SlAuthor.cs"], FilesDeleted = [@"C:\app\Models\Old.cs"] });
+        var peeked = drafts.PeekDraft()!;
+        Assert.IsTrue(peeked.AwaitingRebuild);
+        CollectionAssert.AreEqual(new[] { @"C:\app\Models\SlAuthor.cs" }, peeked.FilesWritten);
+        CollectionAssert.AreEqual(new[] { @"C:\app\Models\Old.cs" }, peeked.FilesDeleted);
+        var loaded = drafts.LoadDraft()!;
+        CollectionAssert.AreEqual(peeked.FilesWritten, loaded.FilesWritten);
+        CollectionAssert.AreEqual(peeked.FilesDeleted, loaded.FilesDeleted);
+    }
+
+    [TestMethod]
+    public void Drafts_LoadRecomputesTheChecksum_PeekReportsTheSavedOne() {
+        var io = new IOProviderDisk(Path.Combine(_root, "db"));
+        var drafts = new DatamodelDrafts(io);
+        var model = libraryModel(DatamodelSourceType.TextFiles);
+        var stale = Guid.NewGuid(); // what an older way of making checksums might have written
+        drafts.SaveDraft(new DatamodelDraft { Model = model, Checksum = stale });
+        Assert.AreEqual(stale, drafts.PeekDraft()!.Checksum);
+        Assert.AreEqual(DatamodelDrafts.ChecksumOf(model), drafts.LoadDraft()!.Checksum);
+        Assert.AreEqual(DatamodelJson.Checksum(initialized(model)), DatamodelDrafts.ChecksumOf(model), "ChecksumOf is the checksum of the initialized model");
+    }
+
+    /// <summary>
+    /// The situation from the bug report: a new type activated into compiled code, the application rebuilt.
+    /// The editor had appended the type at the end of the type list; the loader placed it after the other
+    /// types of its source. Same model, another order - the draft must be recognized as active and removed.
+    /// </summary>
+    [TestMethod]
+    public void Drafts_AwaitingRebuild_IsRemovedWhenTheStoreOpensWithItsModel_InAnotherOrder() {
+        var io = new IOProviderDisk(Path.Combine(_root, "db"));
+        var drafts = new DatamodelDrafts(io);
+        var draftModel = libraryModel(DatamodelSourceType.TypeReference); // raw, as the editor saves it
+        drafts.SaveDraft(new DatamodelDraft { Model = draftModel, AwaitingRebuild = true, AwaitingRebuildSinceUtc = DateTime.UtcNow });
+        var opened = copy(draftModel);
+        reverse(opened.NodeTypes);
+        reverse(typeNamed(opened, "SlBook").Properties);
+        opened.EnsureInitalization();
+        Assert.AreNotEqual(JsonSerializer.Serialize(initialized(draftModel), DatamodelJson.CompareOptions), JsonSerializer.Serialize(opened, DatamodelJson.CompareOptions), "the plain serializations differ in order");
+        Assert.IsTrue(drafts.RemoveIfActivated(drafts.LoadDraft()!, opened), "same model in another order: the rebuild has happened");
+        Assert.IsFalse(drafts.HasDraft);
+
+        // a model that really differs keeps the draft waiting
+        drafts.SaveDraft(new DatamodelDraft { Model = draftModel, AwaitingRebuild = true, AwaitingRebuildSinceUtc = DateTime.UtcNow });
+        var other = initialized(draftModel);
+        typeNamed(other, "SlBook").Properties.Values.First().IndexBoost = 3;
+        Assert.IsFalse(drafts.RemoveIfActivated(drafts.LoadDraft()!, other));
+        Assert.IsTrue(drafts.HasDraft);
+
+        // a draft that is not waiting for a rebuild is never removed this way, however equal
+        drafts.SaveDraft(new DatamodelDraft { Model = draftModel, AwaitingRebuild = false });
+        Assert.IsFalse(drafts.RemoveIfActivated(drafts.LoadDraft()!, initialized(draftModel)));
+        Assert.IsTrue(drafts.HasDraft);
+    }
+    static void reverse<T>(Dictionary<Guid, T> dictionary) {
+        var reversed = dictionary.Reverse().ToList();
+        dictionary.Clear();
+        foreach (var (key, value) in reversed) dictionary.Add(key, value);
+    }
+
+    // ---- checksums ----
+
+    [TestMethod]
+    public void Checksum_DoesNotDependOnInsertionOrder_OnlyOnContent() {
+        var a = initialized(libraryModel(DatamodelSourceType.TextFiles));
+        var b = copy(a);
+        reverse(b.NodeTypes);
+        reverse(b.Relations);
+        foreach (var t in b.NodeTypes.Values) reverse(t.Properties);
+        b.EnsureInitalization();
+        Assert.AreEqual(DatamodelJson.Checksum(a), DatamodelJson.Checksum(b));
+        Assert.AreEqual(DatamodelSourceWriter.Fingerprint(typeNamed(a, "SlBook")), DatamodelSourceWriter.Fingerprint(typeNamed(b, "SlBook")), "the per type fingerprint is canonical too");
+        typeNamed(b, "SlBook").Properties.Values.First().IndexBoost = 7;
+        Assert.AreNotEqual(DatamodelJson.Checksum(a), DatamodelJson.Checksum(b), "a real difference is still a difference");
+    }
+
+    [TestMethod]
+    public void CanonicalJson_TreatsTypeIdListsAsSets() {
+        var g1 = new Guid("11111111-0000-0000-0000-000000000001");
+        var g2 = new Guid("11111111-0000-0000-0000-000000000002");
+        string canonical(NodeTypeModel t) => DatamodelJson.CanonicalJson(t, DatamodelJson.CompareOptions);
+        Assert.AreEqual(canonical(new NodeTypeModel { Id = g1, Parents = [g1, g2] }), canonical(new NodeTypeModel { Id = g1, Parents = [g2, g1] }), "reflection lists the base class first, the editor keeps the order picked");
+        Assert.AreNotEqual(canonical(new NodeTypeModel { Id = g1, Parents = [g1, g2] }), canonical(new NodeTypeModel { Id = g1, Parents = [g1] }));
+        Assert.IsFalse(canonical(new NodeTypeModel { Id = g1 }).Contains('\n'), "compact: whitespace would only add to what is hashed");
     }
 
     [TestMethod]

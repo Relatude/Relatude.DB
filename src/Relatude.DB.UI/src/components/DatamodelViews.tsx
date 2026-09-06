@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { IconChevronDown, IconChevronRight, IconEye, IconEyeOff, IconList, IconLock, IconPlus, IconRefreshAlert, IconRestore, IconTrash } from "@tabler/icons-react";
-import { KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, kindMeta, relationMeta, sourceKindMeta } from "./DatamodelIcons";
+import { IndexMarks, KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, kindMeta, relationMeta, sourceKindMeta, type IndexFlags } from "./DatamodelIcons";
 import type { EditorContext, Selection } from "./DatamodelEditors";
 import { allProperties, fullName, type HistoryEntry, type ModelDiff, type NodeTypeJson, type PropertyJson, type SourceInfo } from "../server/datamodel";
 import { formatBytes, formatTime } from "../format";
@@ -14,6 +14,8 @@ export interface ViewProps {
   query: string;
   selection: Selection | null;
   diff: ModelDiff | null;
+  /** a type just added here: its properties start unfolded, so what is added to it next is visible */
+  justAdded?: string | null;
 }
 
 function matches(query: string, ...texts: (string | null | undefined)[]): boolean {
@@ -45,8 +47,11 @@ function isSelected(selection: Selection | null, kind: Selection["kind"], id: st
 
 // ---- list ----
 
-export function ListView({ ctx, visibleTypes, ghostTypes, query, selection, diff }: ViewProps) {
+export function ListView({ ctx, visibleTypes, ghostTypes, query, selection, diff, justAdded }: ViewProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (justAdded) setExpanded((prev) => new Set(prev).add(justAdded));
+  }, [justAdded]);
   const types = Object.values(ctx.model.NodeTypes)
     .filter((t) => t.Id !== ctx.baseTypeId && (visibleTypes.has(t.Id) || ghostTypes.has(t.Id)))
     .filter((t) => matches(query, t.CodeName, t.Namespace, ...Object.values(t.Properties).map((p) => p.CodeName)))
@@ -131,14 +136,14 @@ export function ListView({ ctx, visibleTypes, ghostTypes, query, selection, diff
                         <span className="dm-indent" />
                         <PropertyIcon propertyType={p.PropertyType} />
                       </td>
-                      <td className="dm-cell-name">{p.CodeName}</td>
+                      <td className="dm-cell-name">
+                        {p.CodeName}
+                        <IndexMarks flags={{ indexed: p.Indexed, wordIndex: p.IndexedByWords, semanticIndex: p.IndexedBySemantic }} />
+                      </td>
                       <td className="muted" colSpan={2}>
                         {propertyDetail(ctx, p)}
                       </td>
                       <td colSpan={4} className="dm-cell-flags">
-                        {p.Indexed && <span className="badge">indexed</span>}
-                        {p.IndexedByWords && <span className="badge">words</span>}
-                        {p.IndexedBySemantic && <span className="badge">semantic</span>}
                         {p.UniqueValues && <span className="badge">unique</span>}
                         {p.DisplayName && <span className="badge">display name</span>}
                       </td>
@@ -283,6 +288,7 @@ export function TreeView({ ctx, visibleTypes, ghostTypes, query, selection, diff
               <span className="dm-tree-spacer" />
               <PropertyIcon propertyType={p.PropertyType} />
               <span className="dm-tree-propname">{p.CodeName}</span>
+              <IndexMarks flags={{ indexed: p.Indexed, wordIndex: p.IndexedByWords, semanticIndex: p.IndexedBySemantic }} />
               <span className="muted dm-tree-meta">{propertyDetail(ctx, p)}</span>
             </div>
           ))}
@@ -316,13 +322,16 @@ export function MatrixView({ ctx, visibleTypes, ghostTypes, query, selection }: 
     .filter((t) => t.Id !== ctx.baseTypeId && (visibleTypes.has(t.Id) || ghostTypes.has(t.Id)) && !t.IsInnerNode)
     .sort((a, b) => a.CodeName.localeCompare(b.CodeName));
   const rows = useMemo(() => {
-    const byName = new Map<string, { name: string; propertyType: string; own: Set<string>; inherited: Set<string> }>();
+    const byName = new Map<string, { name: string; propertyType: string; flags: IndexFlags; own: Set<string>; inherited: Set<string> }>();
     for (const t of types) {
       for (const p of allProperties(ctx.model, t.Id, ctx.baseTypeId)) {
         if (p.property.Internal) continue;
         const key = p.property.CodeName.toLowerCase();
         let row = byName.get(key);
-        if (!row) byName.set(key, (row = { name: p.property.CodeName, propertyType: p.property.PropertyType, own: new Set(), inherited: new Set() }));
+        if (!row) byName.set(key, (row = { name: p.property.CodeName, propertyType: p.property.PropertyType, flags: {}, own: new Set(), inherited: new Set() }));
+        if (p.property.Indexed) row.flags.indexed = true;
+        if (p.property.IndexedByWords) row.flags.wordIndex = true;
+        if (p.property.IndexedBySemantic) row.flags.semanticIndex = true;
         (p.inherited ? row.inherited : row.own).add(t.Id);
       }
     }
@@ -356,6 +365,7 @@ export function MatrixView({ ctx, visibleTypes, ghostTypes, query, selection }: 
                 <th className="dm-matrix-rowhead">
                   <PropertyIcon propertyType={r.propertyType} />
                   <span>{r.name}</span>
+                  <IndexMarks flags={r.flags} />
                   <span className="muted">{r.own.size + r.inherited.size}</span>
                 </th>
                 {columns.map((t) => {

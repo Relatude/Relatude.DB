@@ -14,6 +14,8 @@ namespace Models6 {
     public class NewType22 {
         [Relatude.DB.Nodes.DoubleProperty(Id = "5fb5132c-df72-4ba2-8e07-a6e0acabcd0f")]
         public double NewProperty { get; set; }
+        [Relatude.DB.Nodes.FloatArrayProperty(Id = "52f24e87-6413-432a-9c4c-b28156c88c3a", ExcludeFromTextIndex = true)]
+        public float[] NewProperty2 { get; set; } = [];
     }
 
 }

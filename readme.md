@@ -1,290 +1,66 @@
 ﻿# Relatude.DB
 
-📖 **[db.relatude.com](https://db.relatude.com)** — introduction, manual and downloads.
+**A complete, all-in-one storage layer for .NET web applications.**
 
-**Relatude.DB** is an open-source, **C#-native database engine** designed to provide a **unified storage solution** with everything you need to build the backend for your web applications. It combines multiple database paradigms into one cohesive system. The best way to describe it is as an **object-oriented graph database** with rich indexing and query capabilities.
+Relatude.DB isn't a traditional database. It is an open-source, object-oriented graph database and application layer where your C# classes serve as the schema. 
 
-The project is in early development, but it is already used in several live products. In the long term, it will replace the data layer in our commercial CMS and E-Commerce platform [Relatude](https://relatude.com) from the Norwegian company [Proventus](https://proventus.no).
+In a typical web project, you usually have to wire together a relational database, an ORM, a dedicated search engine, file storage, and now vector databases for AI features. Relatude.DB replaces that entire stack. It gives you a single tool that handles data, files, search, and relationships out of the box.
 
-We chose to release Relatude.DB as open source because we want to build trust and be transparent about how your data is stored. We believe this transparency is fundamental for giving you control and true ownership of your data. We will offer cloud hosting as an option, but you are equally free to store the data in your own environment.
+### The Honest Pitch: Scale & Performance
 
-Another reason for publishing it as open source is to foster an active community. We see Relatude.DB as a **general-purpose storage solution** for any web application, not just a data layer for our own CMS. The system is designed to solve and simplify the typical challenges in building web applications. This includes offering a single, easy-to-install storage and query engine that covers all your data needs.
+We want to be completely transparent: Relatude.DB is not a drop-in replacement or direct competitor to massive-scale distributed systems like SQL Server, PostgreSQL, or Neo4j. 
 
-In today’s applications, you often need to combine multiple storage systems to get the required functionality: text indexing, vector/AI search (RAG), structured queries, model generation, faceted search, GraphQL endpoints, image scaling and media handling, file indexing, access control, revision management, multilingual support, backup, etc.
+If you are building a system that needs to crunch billions of rows, use a dedicated system. **The upper practical limit for Relatude.DB is somewhere around 100 million objects.** This isn't a hard system limit, but it's the boundary where you should considering specialized distributed architectures.
 
-Relatude.DB provides all of this in **one NuGet package** you can bring it into any project — small or large, prototyping or production.
+However, within that space, **Relatude.DB is incredibly fast.** Because it runs in-process and avoids the overhead of mapping layers, you will find it significantly outperforms typical ORM setups like Entity Framework or other in-process databases like SQLite. 
 
-----------
+For the 95% of projects that easily fit within this scale, wiring up complex micro-infrastructure is a waste of time. Relatude.DB is designed to drastically speed up your development by giving you exactly what you need—and more.
 
-## Technical implementation
+## Why use it?
 
-The underlying storage is different to many other systems, and is in its default configuration a binary **append-only log file** with an **in-memory index system**. This ensures high transaction throughput with fast response to queries. You may tune which indexes are kept in memory and which are stored on disk. As the file grows it will automatically be shortened in background processes that does not affect the live queries. Backups also run in the background without affecting the live database. The architecture works well with high latency storages like blob as data can be streamed in the background over time. The time delay and options to make every transaction wait for a commit to disk is configurable on a per transaction level.
+It eliminates boilerplate. There is no SQL to write, no separate ORM to configure, and no database migrations to run. You just write your C# classes, and the storage layer adapts. It is distributed as an **all-in-one NuGet package** that you can drop into your project and start building immediately. 
 
-The file format is binary and values are casted as best possible to the current schema on read. This provides flexibility in handling schema changes with existing data, similar to document databases.
+## Features that are built-in (not bolted on)
 
-To tune memory usage vs performance, you have the option of using disk-based indexes. 
+Because Relatude.DB acts as a complete storage layer, it includes features you would normally have to build yourself or integrate third-party services for. [Read the full feature breakdown at db.relatude.com](https://db.relatude.com).
 
-The system comes out of the box with a very effective cache based on set operations (A ∪ B, etc.). This enables high cache reuse across different queries.
+### Admin UI & Data Modeling (Included)
+* **Built-in DBA UI:** Out of the box, you get a full administration interface to view and manage your data.
+* **Data Modeling Interface:** Visually manage and interact with the schema generated by your C# classes.
 
-The system currently runs "in-process" in your application, but it is designed to be used as a standalone server with multiple clients as well. (This client part is not complete, but the system has been designed with this in mind). The server includes a web-based DBA UI for managing databases, users, and viewing logs and statistics.
+*(Insert Screenshot: DBA UI / Data Modeling Interface)*
 
-Antoher thing that differentiates Relatude.DB from other databases is the support for culture version of every object, with a fallback system. It also incorporates a revision system that allows preliminary revisions, publications,and archiving of old revisions. This is especially useful for content management systems, but can be used in any application that needs to control the lifecycle of data. Full access management for individual objects and properties is also part of the system.
+### Data & Modeling
+* **Code-first modeling:** Your C# classes define the schema natively.
+* **First-class citizen relations:** Unlike relational databases where relationships are just foreign keys hidden in join tables, relations in Relatude.DB are first-class citizens. You can query them, traverse them, and manage them directly as native objects.
+* **Built-in ORM:** No mapping layers or configuration needed.
+* **Typed query language:** Query your data safely with strong C# typing.
+* **Transactions:** Full transactional support for data integrity.
+* **Efficient caching:** Built-in set-based caches for high performance.
 
-----------
+### Search, Graph & AI
+* **Text Search:** Native full-text search with BM25 ranking built-in.
+* **Vector Indexes:** Ready for semantic search and AI agent integrations.
+* **Graph Features:** Built-in relationships, graph traversal, and shortest-path routing. [Learn more about graph capabilities at db.relatude.com](https://db.relatude.com)
+* **AI Providers:** Deep integration hooks for modern AI tooling.
 
-## Projects
+*(Insert Screenshot: Search/Graph Query Example)*
 
-Database:
+### Content & File Management
+* **File Management:** Handle user uploads and content natively alongside your data.
+* **Media Conversion:** Built-in tools for image formatting, dynamic scaling, and video conversion.
+* **Language Versions:** Native support for multi-lingual content.
 
--   **Relatude.DB.Common** — Common utilities
-    
--   **Relatude.DB.DataStore** — Defining the DataStore and query language
-    
--   **Relatude.DB.DataStoreLocal** — DataStore implementation
-    
--   **Relatude.DB.DataStoreRemote** — DataStore remote client
-    
--   **Relatude.DB.FileStorage** — File storage provider
-    
--   **Relatude.DB.GraphQL** — read-only GraphQL endpoint generated from the datamodel (queries, typed filters, full introspection)
-    
--   **Relatude.DB.IO** — IO providers
-    
--   **Relatude.DB.Logger** — Logging and statistics
-    
--   **Relatude.DB.Model** — Schema definitions
-    
--   **Relatude.DB.NodeServer** — Server runtime and admin UI backend
-    
--   **Relatude.DB.NodeStore** — Typed wrapper of DataStore and main API
-    
--   **Relatude.DB.Server.UI** — Admin UI frontend _(in early development)_
-    
+### Safety, History & Operations
+* **Revision History & Revert Window:** Time-travel through your data and easily undo mistakes.
+* **Access Control:** Built-in security and permissions layer.
+* **Automated Backup:** Keep your application state safe with built-in backup mechanisms.
+* **Remote Access:** Server setup allows remote access via sockets.
+* **GraphQL Endpoints:** Expose your data easily with generated endpoints.
 
-Tools:
+## Getting Started
 
--   **Relatude.DB.Console** — `relatude` command line tool: inspect the datamodel, run queries, generate model code, validate a model and run maintenance, without the application running. See [section 29 of the manual](docs/manual.md#29-the-command-line-tool), or `relatude help all`
-    
+Install the all-in-one package via NuGet:
 
-Plugins:
-
--   **Relatude.DB.Azure** — Azure Open AI and Azure Blob storage
-    
--   **Relatude.DB.Sqlite** — Index providers based on SQLite
-    
--   **Relatude.DB.Lucene** — Index providers based on Lucene
-    
-
-Examples:
-
--   **Website.Simple** — Basic website running the database server
-    
-
-----------
-
-## NuGets
-
-The database is distributed with the following NuGet packages:
-
--   **Relatude.DB.Server** — Database server with no external dependencies
-    
--   **Relatude.DB.Plugins.Providers** — AI providers (Azure OpenAI, OpenAI and OpenAI-compatible endpoints, Anthropic) and Azure Blob Storage IO, implemented over plain HttpClient with no dependencies
-    
--   **Relatude.DB.Plugins.Lucene** — Text index provider based on Lucene
-    
--   **Relatude.DB.Plugins.Sqlite** — Value index provider based on Sqlite
-    
--   **Relatude.DB.Tool** — `relatude` command line tool, installed with `dotnet tool install -g Relatude.DB.Tool`
-    
-
-Planned NuGets:
-
--   **Relatude.DB.Local** — In-process local database engine (NodeStore + DataStoreLocal)
-    
--   **Relatude.DB.Remote** — Client for connecting to a remote database (NodeStore + DataStoreRemote)
-    
-
-----------
-
-## API Example
-```c#
-var users = store.Query<User>()
-                 .Include(u => u.Friends)
-                 .Where(u => u.Company == "Microsoft")
-                 .Execute(); 
-```
-----------
-
-## Try it out
-
-It’s easy to incorporate the server in your exiting web project. 
-See the included example or follow these steps:
-
-1.  Create a C# web project in .NET 8  (any type)
-    
-2.  Add the [Relatude.DB.Server](https://www.nuget.org/packages/Relatude.DB.Server) NuGet package
-    
-3.  Add these two lines to your "Program.cs":
-
-After creating the builder:
-```C#
-    builder.AddRelatudeDB();
-```
-After creating the app:
-```C#
-    app.UseRelatudeDB();
-```
-4.  Run the project and access the web UI at `/relatude.db`
-    
-
-More examples and documentation will follow...
-
-![Logo](./media/b1.png)
-
-----------
-
-## Features
-
-_(under development)_
-
-### Multiple Engines in One
-
--   **Object-Oriented Data Modeling** — model your domain naturally with classes and relationships
-    
--   **Graph Support** — first-class object relationships and graph queries
-    
--   **Full-Text Indexing** — BM25 ranking and fuzzy search
-    
--   **Vector Indexing** — AI-driven semantic search
-    
--   **Flexible File Store** — manage files alongside structured data
-    
-
-----------
-
-### Simple, Powerful API
-
--   **Typed query expressions** in C# and TypeScript
-    
--   **String-based query API** for REST integrations
-    
--   **GraphQL endpoints** for frontend-friendly querying
-    
--   Expressive filters, range queries, and aggregations
-    
--   BM25-powered **full-text search** with fuzzy matching
-    
--   **Semantic search** with cosine similarity
-    
--   Adaptive **faceted search** for large, varied datasets
-    
-
-----------
-
-### Cross-Platform
-
--   Run the server on **Linux, macOS, or Windows**
-    
--   Develop clients in **C#, TypeScript, React**
-    
-
-----------
-
-### Flexible Schema Modeling
-
--   Combine **code-first** models with internal schema
-    
--   Automatic **model generation** in C# and TypeScript
-    
--   Supports **classes, interfaces, records, and structs**
-    
--   Multiple inheritance and expressive value constraints
-    
-
-----------
-
-### Plugin System
-
--   Intercept queries and transactions to customize behavior and implement triggers
-    
-
-----------
-
-### Hosting & Deployment
-
--   Run **in-process** or as an **external server**
-    
--   Includes a **built-in web-based DBA UI**
-    
-
-----------
-
-### Storage Options
-
--   Store data on the **local file system** for performance, or **remote blob storage** for cost efficiency
-    
--   In-memory index with queued disk writes works well with high-latency stores
-    
-
-----------
-
-### Transactions & Reliability
-
--   **ACID-compliant transactions**
-    
--   Built-in **data recovery** from file corruption or unexpected shutdowns/power loss
-    
--   Log-based storage system with rollback support
-    
-
-----------
-
-### High Performance
-
--   Built-in **in-memory indexes** using tries, hashmaps, and bit arrays
-    
--   Optional **disk-based indexes** via Lucene, SQLite, or custom implementations
-    
--   Intelligent caching based on set operations
-    
--   Benchmarks available — **don’t just take our word for it!**
-    
-
-----------
-
-### Scalability & Fault Tolerance
-
--   **Append-only transaction file format** for durability
-    
--   Automatic backups to external storage
-    
-
-----------
-
-### Media Handling
-
--   Integrated **image scaling engine**
-    
--   AI-powered **image indexing and manipulation** plugins
-    
-
-----------
-
-### Persistent Task Queue
-
--   Automatic batching of background tasks for performance
-    
--   Used for **file indexing** and other long-running operations
-    
--   Create and run **custom background tasks**
-    
-
-----------
-
-### Logging & Statistics
-
--   Track queries and usage per request
-    
--   View statistics and logs via the **DBA UI**
-    
--   Extend logging with custom data
+```bash
+dotnet add package Relatude.DB.Server

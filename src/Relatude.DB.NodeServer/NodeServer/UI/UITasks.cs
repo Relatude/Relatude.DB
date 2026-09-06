@@ -47,18 +47,41 @@ sealed class UITasks {
             return new { Open = false, State = state, Queues = Array.Empty<object>(), Types = Array.Empty<object>(), Batches = Array.Empty<object>(), Total = 0 };
         }
         var store = c.Store!.Datastore;
-        var selectedId = p.Queue == persistedId && store.TaskQueuePersisted != null ? persistedId : memoryId;
-        var selected = selectedId == persistedId ? store.TaskQueuePersisted! : store.TaskQueue;
+        var queuesById = new Dictionary<string, TaskQueue> { [memoryId] = store.TaskQueue };
+        if (store.TaskQueuePersisted != null) queuesById[persistedId] = store.TaskQueuePersisted;
+        // the page lists one queue or both; a queue asked for that this database does not have is skipped
+        var wanted = (p.Queues is { Length: > 0 } ? p.Queues : [p.Queue ?? memoryId]).Where(queuesById.ContainsKey).Distinct().ToArray();
+        if (wanted.Length == 0) wanted = [memoryId];
         var states = parseStates(p.States);
         var typeIds = p.TypeIds ?? [];
         var pageSize = Math.Clamp(p.PageSize, 1, maxPageSize);
         var page = Math.Max(0, p.Page);
-        var batches = selected.GetBatchMeta(states, typeIds, [], page, pageSize, out var total);
-        // a page past the end of a queue that drained while it was being looked at reads as empty,
-        // which is indistinguishable from "nothing here": step back to the last page that exists
-        if (batches.Length == 0 && total > 0 && page > 0) {
-            page = Math.Max(0, (total - 1) / pageSize);
-            batches = selected.GetBatchMeta(states, typeIds, [], page, pageSize, out total);
+        (BatchMetaWithCount batch, string queue)[] batches;
+        int total;
+        if (wanted.Length == 1) {
+            var selected = queuesById[wanted[0]];
+            var metas = selected.GetBatchMeta(states, typeIds, [], page, pageSize, out total);
+            // a page past the end of a queue that drained while it was being looked at reads as empty,
+            // which is indistinguishable from "nothing here": step back to the last page that exists
+            if (metas.Length == 0 && total > 0 && page > 0) {
+                page = Math.Max(0, (total - 1) / pageSize);
+                metas = selected.GetBatchMeta(states, typeIds, [], page, pageSize, out total);
+            }
+            batches = [.. metas.Select(b => (b, wanted[0]))];
+        } else {
+            // both queues as one list, newest first. The merged page's batches all sit within the
+            // newest (page + 1) * pageSize of each queue, so that much is asked of each and the page
+            // is cut from the merge - exact, at a cost that grows with the page number, which is fine
+            // for a list nobody reads far into
+            var merged = new List<(BatchMetaWithCount batch, string queue)>();
+            total = 0;
+            foreach (var id in wanted) {
+                var metas = queuesById[id].GetBatchMeta(states, typeIds, [], 0, (page + 1) * pageSize, out var count);
+                total += count;
+                merged.AddRange(metas.Select(b => (b, id)));
+            }
+            if (page * pageSize >= total && total > 0) page = Math.Max(0, (total - 1) / pageSize);
+            batches = [.. merged.OrderByDescending(x => x.batch.CreatedUtc).Skip(page * pageSize).Take(pageSize)];
         }
         return new {
             Open = true,
@@ -84,19 +107,21 @@ sealed class UITasks {
                     RetentionMs = finiteMs(r.GetMaximumAgeInQueuePerState(BatchState.Completed)),
                     RestartOnStartup = r.RestartTaskBatchesOnStartupThatStartedButNeverFailedOrCompleted,
                 }),
-            Queue = selectedId,
-            Batches = batches.Select(b => new {
-                b.BatchId,
-                TypeId = b.TaskTypeId,
-                Type = typeName(b.TaskTypeId),
-                State = b.State.ToString(),
-                Priority = b.Priority.ToString(),
-                b.TaskCount,
-                CreatedUtc = utc(b.CreatedUtc),
-                CompletedUtc = utc(b.Completed),
-                b.JobId,
-                b.ErrorType,
-                b.ErrorMessage,
+            Queue = wanted.Length == 1 ? wanted[0] : "both",
+            QueuesShown = wanted,
+            Batches = batches.Select(x => new {
+                x.batch.BatchId,
+                Queue = x.queue,
+                TypeId = x.batch.TaskTypeId,
+                Type = typeName(x.batch.TaskTypeId),
+                State = x.batch.State.ToString(),
+                Priority = x.batch.Priority.ToString(),
+                x.batch.TaskCount,
+                CreatedUtc = utc(x.batch.CreatedUtc),
+                CompletedUtc = utc(x.batch.Completed),
+                x.batch.JobId,
+                x.batch.ErrorType,
+                x.batch.ErrorMessage,
             }),
             Total = total,
             Page = page,
@@ -212,7 +237,8 @@ sealed class UITasks {
         return DateTime.SpecifyKind(v, DateTimeKind.Utc).ToString("o");
     }
 
-    sealed record TasksPayload(Guid StoreId, string? Queue, string[]? States, string[]? TypeIds, int Page = 0, int PageSize = 50);
+    /// <summary>Queues names the queues to list (one or both); Queue is the older single-queue form.</summary>
+    sealed record TasksPayload(Guid StoreId, string? Queue, string[]? Queues, string[]? States, string[]? TypeIds, int Page = 0, int PageSize = 50);
     sealed record TasksStatePayload(Guid StoreId, string? Queue, Guid[] BatchIds, string State);
     sealed record TasksDeletePayload(Guid StoreId, string? Queue, Guid[] BatchIds);
     sealed record TasksClearPayload(Guid StoreId, string? Queue, string[]? States, string[]? TypeIds);

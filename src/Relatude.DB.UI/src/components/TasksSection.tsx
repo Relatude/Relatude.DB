@@ -50,11 +50,12 @@ const cancellable: BatchState[] = ["Pending", "Waiting", "Running"];
 export function TasksSection({ db }: { db: DatabaseInfo }) {
   const [data, setData] = useState<TasksInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [queue, setQueue] = useState<QueueId>("memory");
+  // both queues by default: the page is about the database's background work, and which queue a
+  // task lands in is the type's choice, not the reader's
+  const [queues, setQueues] = useState<QueueId[]>(["memory", "persisted"]);
   const [states, setStates] = useState<BatchState[]>([]);
   const [typeId, setTypeId] = useState<string>("");
   const [page, setPage] = useState(0);
-  const [tick, setTick] = useState(0);
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   // the slider has to follow the pointer, so it holds its own value while it is being dragged and
@@ -64,7 +65,7 @@ export function TasksSection({ db }: { db: DatabaseInfo }) {
 
   const load = useCallback(async (): Promise<TasksInfo | null> => {
     try {
-      const info = await fetchTasks(db.id, { queue, states, typeIds: typeId ? [typeId] : [], page, pageSize });
+      const info = await fetchTasks(db.id, { queues, states, typeIds: typeId ? [typeId] : [], page, pageSize });
       setData(info);
       setError(null);
       // the server steps back to the last page that exists when the queue drained under the page
@@ -78,18 +79,39 @@ export function TasksSection({ db }: { db: DatabaseInfo }) {
       setError(e instanceof Error ? e.message : String(e));
       return null;
     }
-  }, [db.id, queue, states, typeId, page]);
+  }, [db.id, queues, states, typeId, page]);
 
-  // the first load, and one more whenever a filter changes or the refresh button is pressed; the
-  // repeat is the whole UI's refresh rate, set in the top bar
+  // the first load, and one more whenever a filter changes; the repeat is the whole UI's refresh
+  // rate, set in the top bar
   useEffect(() => {
     load();
-  }, [load, tick]);
+  }, [load]);
   usePoll(load);
 
   function toggleState(state: BatchState) {
     setPage(0);
     setStates((prev) => (prev.includes(state) ? prev.filter((s) => s !== state) : [...prev, state]));
+  }
+
+  /** One queue more or less in the list - never none: the last one on stays on. */
+  function toggleQueue(id: QueueId) {
+    setQueues((prev) => {
+      if (prev.includes(id)) return prev.length === 1 ? prev : prev.filter((q) => q !== id);
+      return [...prev, id];
+    });
+    setPage(0);
+    setSelected([]);
+  }
+
+  // a control works on one queue at a time; with both listed, the batches are handed back to their own
+  function byQueue(ids: string[]): [QueueId, string[]][] {
+    const queueOf = new Map((data?.batches ?? []).map((b) => [b.batchId, b.queue]));
+    const groups = new Map<QueueId, string[]>();
+    for (const id of ids) {
+      const q = queueOf.get(id) ?? queues[0];
+      groups.set(q, [...(groups.get(q) ?? []), id]);
+    }
+    return [...groups];
   }
 
   /** Runs one control, then refreshes: every one of them changes what the list should show. */
@@ -115,11 +137,15 @@ export function TasksSection({ db }: { db: DatabaseInfo }) {
       );
       if (!confirmed.ok) return;
     }
-    await run("queue the batches again", () => setTaskState(db.id, queue, ids, "Pending"));
+    await run("queue the batches again", async () => {
+      for (const [q, some] of byQueue(ids)) await setTaskState(db.id, q, some, "Pending");
+    });
   }
 
   async function cancel(ids: string[]): Promise<void> {
-    await run("cancel the batches", () => setTaskState(db.id, queue, ids, "Cancelled"));
+    await run("cancel the batches", async () => {
+      for (const [q, some] of byQueue(ids)) await setTaskState(db.id, q, some, "Cancelled");
+    });
   }
 
   async function remove(ids: string[]): Promise<void> {
@@ -130,14 +156,18 @@ export function TasksSection({ db }: { db: DatabaseInfo }) {
       });
       if (!confirmed.ok) return;
     }
-    await run("delete the batches", () => deleteTasks(db.id, queue, ids));
+    await run("delete the batches", async () => {
+      for (const [q, some] of byQueue(ids)) await deleteTasks(db.id, q, some);
+    });
   }
 
   async function clear(what: "finished" | "failed" | "all"): Promise<void> {
     const target: BatchState[] = what === "finished" ? ["Completed"] : what === "failed" ? badStates : [];
     const question =
       what === "all"
-        ? `Delete everything in the ${queueLabel(data, queue)} queue?`
+        ? queues.length > 1
+          ? "Delete everything in both queues?"
+          : `Delete everything in the ${queueLabel(data, queues[0])} queue?`
         : what === "failed"
           ? "Delete every failed, cancelled and aborted batch?"
           : "Delete every completed batch?";
@@ -147,7 +177,9 @@ export function TasksSection({ db }: { db: DatabaseInfo }) {
         : "Nothing that is waiting or running is touched.";
     const confirmed = await showConfirm(question, body, { confirmLabel: "Delete", danger: true });
     if (!confirmed.ok) return;
-    await run("clear the queue", () => clearTasks(db.id, queue, target));
+    await run("clear the queue", async () => {
+      for (const q of queues) if (data?.queues.some((x) => x.id === q)) await clearTasks(db.id, q, target);
+    });
   }
 
   function commitThrottle(value: number): void {
@@ -160,71 +192,65 @@ export function TasksSection({ db }: { db: DatabaseInfo }) {
   if (!data) return null;
   if (!data.open) return <div className="placeholder">Open the database to see its background tasks.</div>;
 
-  const activeQueue = data.queues.find((q) => q.id === (data.queue ?? queue)) ?? data.queues[0];
-  const counts = new Map(activeQueue?.counts.map((c) => [c.state, c]) ?? []);
+  // the counts are those of the queues shown, added up when both are
+  const shownQueues = data.queues.filter((q) => queues.includes(q.id));
+  const counts = new Map<BatchState, { batches: number; tasks: number }>();
+  for (const q of shownQueues) {
+    for (const c of q.counts) {
+      const sum = counts.get(c.state) ?? { batches: 0, tasks: 0 };
+      counts.set(c.state, { batches: sum.batches + c.batches, tasks: sum.tasks + c.tasks });
+    }
+  }
   const tiles = stateOrder.filter((s) => alwaysShown.includes(s) || (counts.get(s)?.tasks ?? 0) > 0 || states.includes(s));
   const batches = data.batches;
   const selectedSet = new Set(selected);
   const selectedBatches = batches.filter((b) => selectedSet.has(b.batchId));
   const allSelected = batches.length > 0 && selected.length === batches.length;
-  const types = data.types.filter((t) => t.queue === activeQueue?.id);
+  const types = data.types.filter((t) => queues.includes(t.queue));
   const filtered = states.length > 0 || typeId !== "";
   const totalPages = Math.max(1, Math.ceil(data.total / pageSize));
+  const bothShown = shownQueues.length > 1;
 
   return (
     <div className="tasks">
-      <div className="tasks-head">
-        <div className="tasks-queues">
-          {data.queues.map((q) => (
-            <button
-              key={q.id}
-              className={"tasks-queue" + (q.id === activeQueue?.id ? " active" : "")}
-              title={
-                q.persisted
-                  ? `Tasks that have to survive a restart, kept by ${q.engine}`
-                  : "Tasks that are cheap to lose: they are held in memory and go with the process"
-              }
-              onClick={() => {
-                setQueue(q.id);
-                setPage(0);
-                setSelected([]);
-              }}
-            >
-              <span className="tasks-queue-label">{q.label}</span>
-              <span className="tasks-queue-count">{formatCount(sumTasks(q.counts, ["Pending", "Running"]))}</span>
-              {q.engine && <span className="tasks-queue-engine">{q.engine}</span>}
-            </button>
-          ))}
+      {/* the tiles are the state filter: what you want to look at is what you just read the count of.
+          At the end of their line, quietly, which queues they count: both unless one is switched off */}
+      <div className="tasks-stats-row">
+        <div className="tasks-stats">
+          {tiles.map((state) => {
+            const count = counts.get(state);
+            const tone = state === "Running" ? " running" : badStates.includes(state) && (count?.tasks ?? 0) > 0 ? " bad" : state === "Completed" ? " done" : "";
+            return (
+              <button
+                key={state}
+                className={"tasks-stat" + tone + (states.includes(state) ? " selected" : "")}
+                onClick={() => toggleState(state)}
+                title={states.includes(state) ? "Stop filtering on this state" : "Show only batches in this state"}
+              >
+                <div className="tasks-stat-value">{formatCount(count?.tasks ?? 0)}</div>
+                <div className="tasks-stat-label">{stateLabels[state]}</div>
+                <div className="tasks-stat-sub">{count?.batches ? `${formatCount(count.batches)} ${count.batches === 1 ? "batch" : "batches"}` : "—"}</div>
+              </button>
+            );
+          })}
         </div>
-        <span className="tasks-spacer" />
-        {activeQueue?.estimatedEmptyMs != null && (
-          <span className="tasks-estimate" title="Estimated from the rate tasks are being taken off this queue">
-            empty in about {formatElapsed(activeQueue.estimatedEmptyMs)}
-          </span>
+        {data.queues.length > 0 && (
+          <div className="tasks-queue-pick" role="group" aria-label="Queues shown">
+            {data.queues.map((q) => {
+              const on = queues.includes(q.id);
+              const what = q.persisted ? `Tasks that have to survive a restart, kept by ${q.engine}` : "Tasks that are cheap to lose: held in memory, gone with the process";
+              const estimate = q.estimatedEmptyMs != null ? ` · empty in about ${formatElapsed(q.estimatedEmptyMs)}` : "";
+              const how = on ? (queues.length === 1 ? " — the one queue shown" : " — click to leave it out") : " — click to show it too";
+              return (
+                <button key={q.id} className={"tasks-queue-chip" + (on ? " on" : "")} aria-pressed={on} title={what + estimate + how} onClick={() => toggleQueue(q.id)}>
+                  <span className="tasks-queue-dot" />
+                  {q.label}
+                  <span className="tasks-queue-count">{formatCount(sumTasks(q.counts, ["Pending", "Running"]))}</span>
+                </button>
+              );
+            })}
+          </div>
         )}
-        <button className="action-button" onClick={() => setTick((t) => t + 1)} title="Refresh now">
-          <IconReload size={15} stroke={1.8} /> Refresh
-        </button>
-      </div>
-
-      {/* the tiles are the state filter: what you want to look at is what you just read the count of */}
-      <div className="tasks-stats">
-        {tiles.map((state) => {
-          const count = counts.get(state);
-          const tone = state === "Running" ? " running" : badStates.includes(state) && (count?.tasks ?? 0) > 0 ? " bad" : state === "Completed" ? " done" : "";
-          return (
-            <button
-              key={state}
-              className={"tasks-stat" + tone + (states.includes(state) ? " selected" : "")}
-              onClick={() => toggleState(state)}
-              title={states.includes(state) ? "Stop filtering on this state" : "Show only batches in this state"}
-            >
-              <div className="tasks-stat-value">{formatCount(count?.tasks ?? 0)}</div>
-              <div className="tasks-stat-label">{stateLabels[state]}</div>
-              <div className="tasks-stat-sub">{count?.batches ? `${formatCount(count.batches)} ${count.batches === 1 ? "batch" : "batches"}` : "—"}</div>
-            </button>
-          );
-        })}
       </div>
 
       {/* The explicit filter, and the only place every state is listed: a state with nothing in it has
@@ -334,8 +360,10 @@ export function TasksSection({ db }: { db: DatabaseInfo }) {
             {data.total === 0
               ? filtered
                 ? "nothing matching the filter"
-                : "nothing in this queue"
-              : `${formatCount(data.total)} ${data.total === 1 ? "batch" : "batches"}${filtered ? " matching the filter" : ""}`}
+                : bothShown
+                  ? "nothing in either queue"
+                  : "nothing in this queue"
+              : `${formatCount(data.total)} ${data.total === 1 ? "batch" : "batches"}${filtered ? " matching the filter" : ""}${bothShown ? ", both queues, newest first" : ""}`}
           </span>
         </h3>
         <div className="tasks-table">
@@ -362,6 +390,7 @@ export function TasksSection({ db }: { db: DatabaseInfo }) {
             <Row
               key={b.batchId}
               batch={b}
+              showQueue={bothShown}
               selected={selectedSet.has(b.batchId)}
               busy={busy}
               onSelect={(on) => setSelected((prev) => (on ? [...prev, b.batchId] : prev.filter((id) => id !== b.batchId)))}
@@ -413,6 +442,7 @@ export function TasksSection({ db }: { db: DatabaseInfo }) {
 
 function Row({
   batch,
+  showQueue,
   selected,
   busy,
   onSelect,
@@ -421,6 +451,8 @@ function Row({
   onDelete,
 }: {
   batch: TaskBatch;
+  /** both queues are listed, so each row says which one it is in */
+  showQueue: boolean;
   selected: boolean;
   busy: boolean;
   onSelect: (on: boolean) => void;
@@ -434,8 +466,9 @@ function Row({
       <span>
         <input type="checkbox" checked={selected} onChange={(e) => onSelect(e.target.checked)} />
       </span>
-      <span className="tasks-type-cell" title={batch.typeId + (batch.jobId ? "\njob " + batch.jobId : "")}>
+      <span className="tasks-type-cell" title={batch.typeId + (batch.jobId ? "\njob " + batch.jobId : "") + "\n" + (batch.queue === "persisted" ? "persisted queue" : "in-memory queue")}>
         {batch.type}
+        {showQueue && <span className="tasks-queue-tag">{batch.queue === "persisted" ? "persisted" : "memory"}</span>}
         {batch.errorMessage && (
           <span className="tasks-error" title={(batch.errorType ?? "") + "\n" + batch.errorMessage}>
             {batch.errorMessage}

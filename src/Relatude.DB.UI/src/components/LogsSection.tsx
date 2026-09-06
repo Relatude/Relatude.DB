@@ -50,7 +50,7 @@ import { formatBytes, formatCount, formatTime } from "../format";
 export function LogsSection({ db }: { db: DatabaseInfo }) {
   const [info, setInfo] = useState<LogsInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState("trace");
+  const [tab, setTab] = useState("overview");
   const load = useCallback(async () => {
     try {
       setInfo(await fetchLogsInfo(db.id));
@@ -69,12 +69,12 @@ export function LogsSection({ db }: { db: DatabaseInfo }) {
   return (
     <div className="logs">
       <div className="logs-tabs">
+        <Tab id="overview" label="All logs" active={tab} onSelect={setTab} />
         <Tab id="trace" label="Trace" active={tab} onSelect={setTab} />
         {info.logs.map((l) => (
           <Tab key={l.key} id={l.key} label={l.name} active={tab} onSelect={setTab} recording={l.enabledLog || l.enabledStatistics} />
         ))}
         <Tab id="scans" label="Scans" active={tab} onSelect={setTab} />
-        <Tab id="overview" label="All logs" active={tab} onSelect={setTab} />
       </div>
       <SaveBar db={db} info={info} onSaved={load} />
       {tab === "trace" ? (
@@ -557,6 +557,11 @@ function TraceTab({ db }: { db: DatabaseInfo }) {
   }, [db.id, tick]);
   // the trace is what the database is saying right now, so it follows by default
   usePoll(() => setTick((t) => t + 1), { enabled: live });
+  // and following means the newest line, at the bottom, is the one in view
+  const term = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (live && term.current) term.current.scrollTop = term.current.scrollHeight;
+  }, [trace, live]);
 
   if (error) return <div className="placeholder">{error}</div>;
   if (!trace) return null;
@@ -588,32 +593,30 @@ function TraceTab({ db }: { db: DatabaseInfo }) {
           )}
         </div>
       )}
-      <section className="panel">
+      {/* the dashboard's terminal, with the room of a page: a machine talking, shown the way it
+          talks, newest last so the line that just arrived is where the eye already is */}
+      <section className="panel panel-fill logs-trace">
         <h3>
-          Trace <span className="panel-sub">{trace.open ? `${trace.entries.length} messages` : "the database is closed"}</span>
+          Trace <span className="panel-sub">{trace.open ? `${trace.entries.length} messages, newest last` : "the database is closed"}</span>
         </h3>
-        <div className="log-table">
-          <div className="log-table-row log-table-head trace-row">
-            <span>Time</span>
-            <span>Type</span>
-            <span>Message</span>
-          </div>
-          {trace.entries.map((entry, i) => (
+        <div className="term logs-term" ref={term}>
+          {[...trace.entries].reverse().map((entry, i) => (
             <div
               key={i}
-              className={"log-table-row trace-row" + (entry.details ? " clickable" : "")}
+              className={"term-line " + entry.type.toLowerCase() + (entry.details ? " clickable" : "")}
               onClick={() => entry.details && showInfo(entry.text, "", [entry.details])}
-              title={entry.details ? "Show the details" : undefined}
+              title={entry.details ? "Click for the details" : undefined}
             >
-              <span className="log-time">{formatTime(entry.timestampUtc)}</span>
-              <span className={"log-cell " + entry.type.toLowerCase()}>{entry.type}</span>
-              <span className="log-cell" title={entry.text}>
+              <span className="term-time">{formatTime(entry.timestampUtc)}</span>
+              <span className={"term-tag " + entry.type.toLowerCase()}>{entry.type}</span>
+              <span className="term-text">
                 {entry.text}
-                {entry.details && <span className="muted"> · details</span>}
+                {entry.details && <span className="term-more"> · details</span>}
               </span>
             </div>
           ))}
-          {trace.entries.length === 0 && <div className="log-table-empty">{trace.open ? "Nothing traced yet." : "Open the database to see its trace."}</div>}
+          {trace.entries.length === 0 && <div className="term-empty">{trace.open ? "Nothing traced yet." : "Open the database to see its trace."}</div>}
+          {trace.entries.length > 0 && <div className="term-idle">_</div>}
         </div>
       </section>
     </div>

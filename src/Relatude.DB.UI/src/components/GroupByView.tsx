@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { IconArrowNarrowDown, IconArrowNarrowUp, IconChartBar, IconChevronLeft, IconChevronRight, IconDownload, IconTable, IconX } from "@tabler/icons-react";
+import { ChipGrip, moveChip, useChipDrag } from "./ChipDrag";
 import {
   fetchPivotModel,
   runGroupBy,
@@ -18,6 +19,8 @@ import { formatCount } from "../format";
 import { dateModes, functions, propertiesFor, type PivotBase } from "./PivotView";
 import type { GroupByDefinition, SummaryView } from "../queryTabs";
 import { BarChart } from "./BarChart";
+import { CopyButton } from "./CopyButton";
+import type { TableData } from "../clipboard";
 
 const pageSize = 200;
 /** A grouping before anyone has said what to group by. */
@@ -122,6 +125,17 @@ export function GroupByView({
     setPage(0);
     apply();
   }
+
+  // the chips are dragged into another order: the keys among the keys, the aggregates among the aggregates
+  const drag = useChipDrag(
+    (from, to) => from === to,
+    (from, to) => {
+      const moved = moveChip<PivotLevelSpec | PivotMeasureSpec>({ keys, measures }, from, to);
+      if (!moved) return;
+      if (from.list === "keys") edit(() => setKeys(moved.keys as PivotLevelSpec[]));
+      else edit(() => setMeasures(moved.measures as PivotMeasureSpec[]));
+    },
+  );
   // a header clicked: sort by it, largest first; again flips the direction; a third click is back to the natural order
   function sortBy(name: string) {
     edit(() => {
@@ -142,16 +156,20 @@ export function GroupByView({
   const lastPage = result ? Math.max(0, Math.ceil(result.totalRows / pageSize) - 1) : 0;
   const sortIcon = (name: string) =>
     sort?.by === name ? (sort.descending ? <IconArrowNarrowDown size={14} stroke={2} /> : <IconArrowNarrowUp size={14} stroke={2} />) : null;
+  const keyRow = drag.row("keys", keys.length);
+  const measureRow = drag.row("measures", measures.length);
   return (
     <div className="pivot">
       <div className="pivot-builder">
-        <div className="pivot-builder-row">
+        <div className={"pivot-builder-row" + keyRow.className} onDragOver={keyRow.onDragOver} onDrop={keyRow.onDrop}>
           <span className="pivot-builder-label">Group by</span>
           {keys.map((key, i) => {
             const property = groupable.find((p) => p.id === key.propertyId);
             const modes = keyModesOf(property);
+            const { className: mark, ...dropProps } = drag.chip({ list: "keys", index: i }, keys.length);
             return (
-              <span className="pivot-chip" key={i}>
+              <span className={"pivot-chip" + mark} key={i} {...dropProps}>
+                <ChipGrip title="Drag to change the order of the keys" {...drag.grip({ list: "keys", index: i })} />
                 <select
                   className="select"
                   value={key.propertyId}
@@ -198,15 +216,17 @@ export function GroupByView({
             </label>
           </div>
         </div>
-        <div className="pivot-builder-row">
+        <div className={"pivot-builder-row" + measureRow.className} onDragOver={measureRow.onDragOver} onDrop={measureRow.onDrop}>
           <span className="pivot-builder-label">Aggregates</span>
           <span className="pivot-chip" title="Every row has the number of nodes in its group">
             <span className="muted">Count</span>
           </span>
           {measures.map((m, i) => {
             const candidates = propertiesFor(m.function, model.properties);
+            const { className: mark, ...dropProps } = drag.chip({ list: "measures", index: i }, measures.length);
             return (
-              <span className="pivot-chip" key={i}>
+              <span className={"pivot-chip" + mark} key={i} {...dropProps}>
+                <ChipGrip title="Drag to change the order of the aggregates" {...drag.grip({ list: "measures", index: i })} />
                 <select
                   className="select"
                   value={m.function}
@@ -286,6 +306,7 @@ export function GroupByView({
               ))}
             </select>
           )}
+          <CopyButton title="Copy these rows to the clipboard" disabled={result.rows.length === 0} table={() => groupTable(result)} />
           <button className="icon-button" title="Download these rows as csv" disabled={result.rows.length === 0} onClick={() => downloadCsv(result)}>
             <IconDownload size={16} stroke={1.8} />
           </button>
@@ -383,9 +404,17 @@ function GroupByChart({ result, measure, onDrill }: { result: GroupByResult; mea
   );
 }
 
+/** The rows as a table: the keys, the count, the aggregates. */
+function groupTable(result: GroupByResult): TableData {
+  return {
+    header: [...result.keys.map((k) => k.codeName), "Count", ...result.measures.map((m) => m.name)],
+    rows: result.rows.map((row) => [...row.labels, String(row.count), ...row.measures.map((v) => (v === null ? "" : String(v)))]),
+  };
+}
+
 function downloadCsv(result: GroupByResult) {
-  const header = [...result.keys.map((k) => k.codeName), "Count", ...result.measures.map((m) => m.name)];
-  const lines = [header, ...result.rows.map((row) => [...row.labels, String(row.count), ...row.measures.map((v) => (v === null ? "" : String(v)))])];
+  const { header, rows } = groupTable(result);
+  const lines = [header, ...rows];
   const quote = (s: string) => '"' + s.replace(/"/g, '""') + '"';
   const csv = "﻿" + lines.map((line) => line.map(quote).join(",")).join("\r\n");
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));

@@ -15,6 +15,7 @@ import { Sidebar } from "./components/Sidebar";
 import { StorageSection } from "./components/StorageSection";
 import { TasksSection } from "./components/TasksSection";
 import { sections } from "./navigation";
+import { peekDatamodelTarget, peekQueryTarget, useNavigationRequest } from "./navigate";
 import { isLoggedIn, logout } from "./server/auth";
 import { disconnect, subscribe, subscribeResync, subscribeUnauthorized } from "./server/channel";
 import { fetchServerInfo, type DatabaseInfo, type ServerInfo } from "./server/serverInfo";
@@ -82,6 +83,14 @@ export function App() {
       applyContainers(containers);
     });
   }, [auth]);
+  // a page asking for the model editor - a form linking to a property's definition, say - or for a
+  // query on a type switches the section here; the page itself opens what was asked for once its
+  // model is loaded
+  const navigation = useNavigationRequest();
+  useEffect(() => {
+    if (peekDatamodelTarget()) setActiveSectionId("datamodel");
+    else if (peekQueryTarget()) setActiveSectionId("query");
+  }, [navigation]);
   async function handleLogout() {
     try {
       await logout();

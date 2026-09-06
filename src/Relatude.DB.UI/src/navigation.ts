@@ -37,7 +37,7 @@ export interface Section {
 export const sections: Section[] = [
   { id: "dashboard", label: "Dashboard", scope: "database", icon: IconLayoutDashboard },
   { id: "datamodel", label: "Data model", scope: "database", icon: IconSchema },
-  { id: "query", label: "Query", scope: "database", icon: IconDatabaseSearch },
+  { id: "query", label: "Query & Edit", scope: "database", icon: IconDatabaseSearch },
   { id: "files", label: "Files", scope: "database", icon: IconFolders },
   { id: "storage", label: "Storage", scope: "database", icon: IconArchive },
   { id: "logs", label: "Logs", scope: "database", icon: IconFileText },

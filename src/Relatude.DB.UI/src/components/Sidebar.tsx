@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
-import { IconChevronLeft, IconChevronRight, IconDeviceDesktop, IconLogout, IconUser } from "@tabler/icons-react";
+import { IconBook, IconChevronLeft, IconChevronRight, IconDeviceDesktop, IconExternalLink, IconLogout, IconUser } from "@tabler/icons-react";
 import { sections, type Section } from "../navigation";
 import { fetchWhoAmI, type DatabaseInfo, type WhoAmI } from "../server/serverInfo";
+
+/** The Relatude.DB site, where the manual is: the one link in the rail that leaves the UI. */
+const manualUrl = "https://db.relatude.com";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -43,6 +46,17 @@ export function Sidebar({ collapsed, onToggleCollapsed, databases, activeDb, act
           activeSectionId={activeSectionId}
           onSelectSection={onSelectSection}
         />
+        <div className="nav-group">
+          <div className="nav-group-label">
+            <span className="full">Help</span>
+            <span className="short">?</span>
+          </div>
+          <a className="nav-item" href={manualUrl} target="_blank" rel="noreferrer" title="The Relatude.DB manual — opens in a new tab">
+            <IconBook size={16} stroke={1.8} />
+            <span className="label">Manual</span>
+            <IconExternalLink className="nav-ext" size={12} stroke={1.8} />
+          </a>
+        </div>
         <SignedIn collapsed={collapsed} onLogout={onLogout} />
       </aside>
       <button className="nav-toggle" onClick={onToggleCollapsed} title={collapsed ? "Expand menu" : "Collapse menu"}>

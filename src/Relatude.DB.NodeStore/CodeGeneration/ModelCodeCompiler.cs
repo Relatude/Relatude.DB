@@ -23,7 +23,11 @@ public static class ModelCodeCompiler {
     // Re-initializing a store in the same process must reuse the identical loaded assembly for the
     // same source files, otherwise the datamodel would hold types from a second copy while compiled
     // mappers bind to the first. Keyed by a hash of the file names and contents.
-    static readonly ConcurrentDictionary<Guid, CompiledModelCode> _cache = new();
+    // Lazy, so that one key compiles once even when two callers ask for it at the same time - the
+    // store auto-opening at start-up while the model editor probes the same source, or two stores
+    // sharing one. GetOrAdd alone runs both factories, and the second load of an assembly with the
+    // same name is refused by the load context ("Assembly with same name is already loaded").
+    static readonly ConcurrentDictionary<Guid, Lazy<CompiledModelCode>> _cache = new();
 
     /// <summary>
     /// What &lt;ImplicitUsings&gt; adds to every file of a project. Model files are written against them,
@@ -45,7 +49,15 @@ public static class ModelCodeCompiler {
         var files = csFilePaths.Select(f => (path: Path.GetFullPath(f), content: File.ReadAllText(f)))
             .OrderBy(f => f.path, StringComparer.OrdinalIgnoreCase).ToList();
         var key = string.Join("\n", files.Select(f => f.path + "\n" + f.content)).GenerateHashGuid();
-        return _cache.GetOrAdd(key, _ => compileAndLoad(files, assemblyNamePrefix + "." + key.ToString("N")));
+        var lazy = _cache.GetOrAdd(key, k => new Lazy<CompiledModelCode>(() => compileAndLoad(files, assemblyNamePrefix + "." + k.ToString("N")),
+            LazyThreadSafetyMode.ExecutionAndPublication));
+        try {
+            return lazy.Value;
+        } catch {
+            // a Lazy keeps its exception for good; the next caller gets a fresh compile instead
+            _cache.TryRemove(new KeyValuePair<Guid, Lazy<CompiledModelCode>>(key, lazy));
+            throw;
+        }
     }
     static CompiledModelCode compileAndLoad(List<(string path, string content)> files, string assemblyName) {
         var parseOptions = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest);

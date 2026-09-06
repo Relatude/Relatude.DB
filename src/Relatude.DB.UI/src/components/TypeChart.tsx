@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { KindIcon } from "./DatamodelIcons";
 import { formatCount } from "../format";
 import type { TypeCount } from "../server/dashboard";
@@ -18,13 +18,30 @@ export interface TypeSlice {
  * for the handful of types that actually dominate. The colour is the model source the type comes
  * from - the same colour the model editor gives it - with the types of one source separated by
  * lightness, so a type keeps its identity across pages while a source stays recognisable as a group.
+ *
+ * A treemap tile can be clicked when a handler is given: it reports the type and where the click
+ * was, and the caller decides what to offer there. The folded tail of small types is not a type and
+ * takes no click.
  */
-export function TypeChart({ shape, slices, total }: { shape: TypeChartShape; slices: TypeSlice[]; total: number }) {
+export function TypeChart({
+  shape,
+  slices,
+  total,
+  onTileClick,
+}: {
+  shape: TypeChartShape;
+  slices: TypeSlice[];
+  total: number;
+  onTileClick?: (slice: TypeSlice, at: { x: number; y: number }) => void;
+}) {
   if (slices.length === 0) return <div className="muted dash-chart-empty">No nodes yet.</div>;
   if (shape === "bars") return <Bars slices={slices} />;
-  if (shape === "treemap") return <Treemap slices={slices} total={total} />;
+  if (shape === "treemap") return <Treemap slices={slices} total={total} onTileClick={onTileClick} />;
   return <Donut slices={slices} total={total} />;
 }
+
+/** The id of the slice that stands for the types beyond what the chart shows one by one. */
+export const otherSliceId = "__other";
 
 function share(value: number, total: number): string {
   if (total <= 0) return "0%";
@@ -67,34 +84,113 @@ interface Rect {
   h: number;
 }
 
-const treemapHeight = 230;
+/** The height the treemap has on its own; in a panel with room to spare it takes the room instead. */
+const treemapMinHeight = 230;
+/** How long a tile takes to get where the layout wants it. */
+const tweenMs = 380;
 
-function Treemap({ slices, total }: { slices: TypeSlice[]; total: number }) {
+/** A tile as it is on screen, on its way to where the layout wants it. */
+interface Tile {
+  slice: TypeSlice;
+  rect: Rect;
+  opacity: number;
+  leaving: boolean;
+}
+
+function Treemap({ slices, total, onTileClick }: { slices: TypeSlice[]; total: number; onTileClick?: (slice: TypeSlice, at: { x: number; y: number }) => void }) {
   // laid out in real pixels rather than in a stretched viewBox: the labels are ordinary text and a
-  // non-uniform scale would squash them
+  // non-uniform scale would squash them. The box is measured both ways: the stylesheet gives it its
+  // minimum height, and a panel with room to spare - a row dragged taller, the panel maximized -
+  // hands it the rest through flex, which the observer picks up.
   const box = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(0);
+  const [size, setSize] = useState({ width: 0, height: 0 });
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
-    const measure = () => setWidth(el.getBoundingClientRect().width);
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      setSize((prev) => (prev.width === r.width && prev.height === r.height ? prev : { width: r.width, height: r.height }));
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-  const rects = useMemo(() => (width > 0 ? squarify(slices.map((s) => s.value), width, treemapHeight) : []), [slices, width]);
+  const width = size.width;
+  const height = Math.max(treemapMinHeight, Math.floor(size.height));
+  // where the layout wants every tile
+  const targets = useMemo(() => {
+    const out = new Map<string, { slice: TypeSlice; rect: Rect }>();
+    if (width <= 0) return out;
+    squarify(slices.map((s) => s.value), width, height).forEach((r, i) => {
+      const s = slices[i];
+      if (s && r.w > 0 && r.h > 0) out.set(s.type.id, { slice: s, rect: r });
+    });
+    return out;
+  }, [slices, width, height]);
+
+  // What is on screen moves toward the targets rather than jumping: a tile that changes place slides
+  // and resizes, a new tile grows out of its spot, a tile that is gone shrinks into its own middle
+  // and is dropped once it is there. A change in the middle of a move starts the next move from
+  // wherever the tiles are, so a row being dragged is followed rather than fought. The first picture
+  // simply appears.
+  const shown = useRef<Map<string, Tile>>(new Map());
+  const anim = useRef<{ from: Map<string, Tile>; to: Map<string, Tile>; start: number } | null>(null);
+  const raf = useRef(0);
+  const [, setFrame] = useState(0);
+  useLayoutEffect(() => {
+    if (targets.size === 0 && shown.current.size === 0) return;
+    if (shown.current.size === 0) {
+      shown.current = new Map([...targets].map(([id, t]) => [id, { slice: t.slice, rect: t.rect, opacity: 1, leaving: false }]));
+      setFrame((f) => f + 1);
+      return;
+    }
+    const from = new Map(shown.current);
+    const to = new Map<string, Tile>();
+    for (const [id, t] of targets) {
+      to.set(id, { slice: t.slice, rect: t.rect, opacity: 1, leaving: false });
+      if (!from.has(id)) from.set(id, { slice: t.slice, rect: middleOf(t.rect), opacity: 0, leaving: false });
+    }
+    for (const [id, tile] of from) if (!targets.has(id)) to.set(id, { slice: tile.slice, rect: middleOf(tile.rect), opacity: 0, leaving: true });
+    anim.current = { from, to, start: performance.now() };
+    cancelAnimationFrame(raf.current);
+    const step = (now: number) => {
+      const a = anim.current;
+      if (!a) return;
+      const p = Math.min(1, (now - a.start) / tweenMs);
+      const e = 1 - Math.pow(1 - p, 3);
+      const next = new Map<string, Tile>();
+      for (const [id, target] of a.to) {
+        if (p >= 1 && target.leaving) continue;
+        const start = a.from.get(id) ?? target;
+        next.set(id, { slice: target.slice, rect: lerpRect(start.rect, target.rect, e), opacity: start.opacity + (target.opacity - start.opacity) * e, leaving: target.leaving });
+      }
+      shown.current = next;
+      setFrame((f) => f + 1);
+      if (p < 1) raf.current = requestAnimationFrame(step);
+      else anim.current = null;
+    };
+    raf.current = requestAnimationFrame(step);
+  }, [targets]);
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(raf.current);
+      raf.current = 0;
+    },
+    [],
+  );
+
+  const tiles = [...shown.current.values()];
   return (
-    <div className="dash-treemap" ref={box} style={{ height: treemapHeight }}>
+    <div className="dash-treemap" ref={box}>
       {width > 0 && (
-        <svg width={width} height={treemapHeight}>
-          {rects.map((r, i) => {
-            const s = slices[i];
-            if (!s || r.w <= 0 || r.h <= 0) return null;
+        <svg width={width} height={height}>
+          {tiles.map(({ slice: s, rect: r, opacity, leaving }) => {
+            const clickable = !leaving && onTileClick !== undefined && s.type.id !== otherSliceId;
             return (
-              <g key={s.type.id} className="dash-tile-g">
+              <g key={s.type.id} className={"dash-tile-g" + (clickable ? " clickable" : "")} opacity={opacity} onClick={clickable ? (e) => onTileClick(s, { x: e.clientX, y: e.clientY }) : undefined}>
                 <title>{title(s, total)}</title>
-                <rect x={r.x} y={r.y} width={r.w} height={r.h} fill={s.color} className="dash-tile-rect" />
+                <rect x={r.x} y={r.y} width={Math.max(0, r.w)} height={Math.max(0, r.h)} fill={s.color} className="dash-tile-rect" />
                 {/* below the size where a name fits, the tile is a colour and a tooltip */}
                 {r.w > 54 && r.h > 26 && (
                   <foreignObject x={r.x} y={r.y} width={r.w} height={r.h}>
@@ -111,6 +207,14 @@ function Treemap({ slices, total }: { slices: TypeSlice[]; total: number }) {
       )}
     </div>
   );
+}
+
+function middleOf(r: Rect): Rect {
+  return { x: r.x + r.w / 2, y: r.y + r.h / 2, w: 0, h: 0 };
+}
+
+function lerpRect(a: Rect, b: Rect, t: number): Rect {
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, w: a.w + (b.w - a.w) * t, h: a.h + (b.h - a.h) * t };
 }
 
 /**

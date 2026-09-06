@@ -249,6 +249,11 @@ a {
   color: var(--text-muted);
 }
 
+/* a copy that just happened: the tick stays a moment in the button's place */
+.icon-button.copied {
+  color: var(--ok);
+}
+
 .icon-button:hover {
   background: var(--hover);
   color: var(--text);
@@ -469,6 +474,43 @@ a {
   z-index: 10;
 }
 
+/* the menu a treemap tile opens: the header's menu, put where the click was */
+.type-menu {
+  position: fixed;
+  right: auto;
+}
+
+.type-menu-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 4px;
+  padding: 6px 10px 8px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.type-menu-head b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.type-menu-head .muted {
+  margin-left: auto;
+  flex: none;
+}
+
+.type-menu .db-menu-item {
+  font-size: 13px;
+}
+
+.type-menu .db-menu-item svg {
+  flex: none;
+  color: var(--text-muted);
+}
+
 /* ---- sidebar ---- */
 
 .sidebar-wrap {
@@ -570,6 +612,12 @@ a {
 .nav-item .label {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* the mark on the one entry that leaves the UI */
+.nav-item .nav-ext {
+  margin-left: auto;
+  color: var(--text-faint);
 }
 
 .nav-item .badge {
@@ -1647,6 +1695,38 @@ a {
 }
 
 /* swaps the guids in file and folder names for what they stand for; sits with the toolbar buttons */
+/* the name filter of the open folder's list: the query page's search box, in small */
+.files-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text-muted);
+}
+
+.files-filter:focus-within {
+  border-color: var(--accent);
+}
+
+.files-filter svg {
+  flex: none;
+}
+
+.files-filter .text-input {
+  width: 170px;
+  padding-left: 0;
+  padding-right: 0;
+  background: none;
+  border: none;
+}
+
+.files-filter .text-input:focus {
+  outline: none;
+}
+
 .files-friendly {
   display: flex;
   align-items: center;
@@ -1811,6 +1891,20 @@ a {
   min-height: 0;
   overflow-y: auto;
   font-size: 13px;
+}
+
+/* the list holds the keyboard: a soft ring says so when it got there by key, and the selected rows
+   are the cursor - an outline round the whole list on a click would read as a selected panel */
+.file-table:focus {
+  outline: none;
+}
+
+.file-table:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent-soft);
+}
+
+.file-table:focus-visible .file-row.selected {
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .file-row {
@@ -2095,6 +2189,7 @@ a.action-button {
 
 .sidebar.collapsed .nav-item .label,
 .sidebar.collapsed .nav-item .badge,
+.sidebar.collapsed .nav-item .nav-ext,
 .sidebar.collapsed .sidebar-user {
   display: none;
 }
@@ -2960,10 +3055,77 @@ a.action-button {
 }
 
 /* the tiles are also the state filter, so they are buttons and show which of them are in play */
+.tasks-stats-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.tasks-stats-row .tasks-stats {
+  flex: 1;
+  min-width: 0;
+}
+
 .tasks-stats {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+/* which queues the page shows: a quiet pair of switches at the end of the tiles' line, both on
+   unless one is turned off - the queue a task lands in is the type's choice, not the reader's */
+.tasks-queue-pick {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  margin-left: auto;
+  padding-top: 8px;
+}
+
+.tasks-queue-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  opacity: 0.55;
+  white-space: nowrap;
+}
+
+.tasks-queue-chip:hover {
+  background: var(--hover);
+}
+
+.tasks-queue-chip.on {
+  opacity: 1;
+  color: var(--text-soft);
+}
+
+.tasks-queue-chip .tasks-queue-count {
+  font-size: 11px;
+}
+
+.tasks-queue-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.tasks-queue-chip.on .tasks-queue-dot {
+  background: var(--accent);
+}
+
+/* with both queues in one list, each row says which one it is in */
+.tasks-queue-tag {
+  margin-left: 6px;
+  font-size: 10.5px;
+  color: var(--text-faint);
 }
 
 /* a fixed basis rather than a share of the row: the tiles are the same size whether three states
@@ -4024,6 +4186,32 @@ a.action-button {
   padding: 2px 0;
 }
 
+/* a line with more behind it: the details open on a click */
+.term-line.clickable {
+  cursor: pointer;
+}
+
+.term-line.clickable:hover .term-text {
+  text-decoration: underline dotted;
+}
+
+.term-more {
+  color: var(--term-dim);
+}
+
+/* the trace on the logs page: the dashboard's terminal with the room of a page, following the tail */
+.logs-trace {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.logs-term {
+  flex: 1;
+  min-height: 240px;
+  max-height: calc(100vh - 330px);
+}
+
 /* a two-column row is narrow: the level tag costs a column that says little once the colour does */
 @container (max-width: 380px) {
   .term-line {
@@ -4064,6 +4252,7 @@ a.action-button {
 /* the panel fills its cell, whatever height the row was dragged to, and scrolls what does not fit
    rather than pushing the row back open */
 .panel-cell {
+  position: relative;
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -4074,6 +4263,48 @@ a.action-button {
   min-width: 0;
   min-height: 0;
   overflow: auto;
+}
+
+/* the button that takes a panel to the whole page, in its top right corner; quiet until the panel
+   is under the pointer, because every panel has one */
+.panel-cell > .pg-max {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  overflow: visible;
+  background: var(--panel);
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.panel-cell:hover > .pg-max,
+.panel-cell > .pg-max:focus-visible,
+.panel-cell.maximized > .pg-max {
+  opacity: 1;
+}
+
+/* while one panel is maximized: it covers the page's content area and the rest of the grid keeps its
+   place unseen, so the page comes back exactly as it was */
+.panel-cell.maximized {
+  position: fixed;
+  z-index: 9;
+  padding: 16px;
+  background: var(--bg);
+}
+
+.panel-cell.maximized > .pg-max {
+  top: 22px;
+  right: 22px;
+}
+
+.panel-grid-wrap.has-max .panel-cell:not(.maximized),
+.panel-grid-wrap.has-max .pg-bar,
+.panel-grid-wrap.has-max .panel-grid-tools {
+  visibility: hidden;
 }
 
 /* the divider itself is the whole gap - a 14px target, which is what makes it findable - while what
@@ -4575,24 +4806,36 @@ body.pg-resizing {
   user-select: none;
 }
 
+/* Each of the three columns is a panel of its own: with the facets, the hits and the form all
+   sitting straight on the page background they read as one drift of content, and nothing says where
+   one ends. The panel edges do that, and the splitter between the list and the form still drags. */
 .query-editor {
   position: relative;
   display: flex;
+  flex-direction: column;
   min-height: 0;
-  padding-left: 16px;
-  border-left: 1px solid var(--border);
+  overflow: auto;
 }
 
-/* The bar between the list and the form. It has no column of its own - it sits on the editor's
-   left edge and reaches into the gap on either side, so there is something to grab where the
+/* The bar between the list and the form. It shares the editor's grid cell rather than living
+   inside the panel: the panel clips to its rounded corners, and a child hanging out over its left
+   edge - which is where the bar has to be - would be cut off, line and all. From the cell it sits
+   on the editor's edge and reaches back across the gap, so there is something to grab where the
    divider already is. The line only colours under the pointer: at rest the editor's own border is
    the divider, and a second permanent line beside it would read as a second edge. */
+.query-body.with-editor .query-editor,
+.query-body.with-editor .query-splitter {
+  grid-column: -2 / -1;
+  grid-row: 1;
+}
+
 .query-splitter {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -8px;
+  position: relative;
+  z-index: 3;
+  justify-self: start;
   width: 17px;
+  height: 100%;
+  margin-left: -15px;
   cursor: col-resize;
   touch-action: none;
 }
@@ -4627,7 +4870,6 @@ body.pg-resizing {
 
 .query-facets {
   overflow-y: auto;
-  padding-right: 4px;
 }
 
 .query-facets-head {
@@ -4715,6 +4957,17 @@ body.pg-resizing {
   flex-direction: column;
   min-height: 0;
   min-width: 0; /* a grid column sizes to its content unless told not to, and a long hit line is wide */
+}
+
+/* the panel pads its content; the head and the list reach the edges so the divider under the head
+   spans the panel and a hit highlight is not a stripe with margins */
+.query-body > .panel {
+  padding: 10px 12px;
+  overflow: hidden;
+}
+
+.query-body > .panel.query-facets {
+  overflow-y: auto;
 }
 
 .query-results-head {
@@ -5262,6 +5515,65 @@ body.pg-resizing {
   border-radius: 6px;
 }
 
+.node-inner-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.node-inner-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.node-inner-node.editable {
+  display: block;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.node-inner-node.editable + .node-inner-node.editable {
+  margin-top: 6px;
+}
+
+.node-inner-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.node-inner-field {
+  display: grid;
+  grid-template-columns: minmax(90px, 28%) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.node-inner-field-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* making a node from inside a picker: the same row as a result, marked as the one that writes */
+.node-picker-result.new {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.node-picker-result.new span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .node-inner {
   display: flex;
   flex-direction: column;
@@ -5419,6 +5731,7 @@ body.pg-resizing {
 }
 
 .pivot-chip {
+  position: relative; /* the drop marker hangs off its edge */
   display: flex;
   align-items: center;
   gap: 4px;
@@ -5426,6 +5739,62 @@ body.pg-resizing {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
+}
+
+/* the grip a chip is dragged by. The chip itself is not draggable: it is mostly selects, and a
+   select inside a draggable element cannot be worked with the mouse. */
+.pivot-grip {
+  display: flex;
+  align-items: center;
+  margin-left: -1px;
+  color: var(--text-faint);
+  cursor: grab;
+}
+
+.pivot-grip:hover {
+  color: var(--text-muted);
+}
+
+.pivot-grip:active {
+  cursor: grabbing;
+}
+
+/* while a chip is dragged: the one being carried fades, the rows that would take it are outlined
+   and the one under the pointer tinted, and where it would land is a line in the gap beside the
+   chip it would go next to */
+.pivot-chip.dragging {
+  opacity: 0.4;
+}
+
+.pivot-chip.drop-before::before,
+.pivot-chip.drop-after::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.pivot-chip.drop-before::before {
+  left: -6px;
+}
+
+.pivot-chip.drop-after::after {
+  right: -6px;
+}
+
+.pivot-builder-row.drop-ready {
+  border-radius: 6px;
+  outline: 1px dashed var(--text-faint);
+  outline-offset: 2px;
+}
+
+.pivot-builder-row.drop-over {
+  background: var(--accent-soft);
+  outline-color: var(--accent);
 }
 
 .pivot-chip .select,
@@ -5728,10 +6097,25 @@ body.pg-resizing {
 
 /* treemap */
 
+/* the chart's room: what the panel has left in a sized row (see .fill-body), the content's own
+   height otherwise. The bars scroll inside it; the treemap grows to fill it. */
+.dash-chart-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+
 .dash-treemap {
+  flex: 1;
   width: 100%;
+  min-height: 230px;
   overflow: hidden;
   border-radius: 8px;
+}
+
+.dash-treemap svg {
+  display: block;
 }
 
 .dash-tile-rect {
@@ -5742,6 +6126,10 @@ body.pg-resizing {
 .dash-tile-g:hover .dash-tile-rect {
   stroke: var(--text);
   stroke-width: 2;
+}
+
+.dash-tile-g.clickable {
+  cursor: pointer;
 }
 
 .dash-tile-label {
@@ -6680,6 +7068,19 @@ body.pg-resizing {
   height: 26px;
 }
 
+/* more than one action on a tile: side by side in the same corner */
+.dash-tile-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 2px;
+}
+
+.dash-tile-actions .dash-tile-action {
+  position: static;
+}
+
 /* ---- picking a colour (ColorField): a source's colour in the settings and in the model editor ---- */
 
 .color-field {
@@ -6767,4 +7168,98 @@ body.pg-resizing {
 /* back to automatic: no colour of its own to show, so it is drawn as an empty slot */
 .color-swatch.auto {
   background: repeating-linear-gradient(135deg, var(--panel), var(--panel) 3px, var(--border) 3px, var(--border) 6px);
+}
+
+/* ---- the table with its cells open for typing ---- */
+
+/* the scroller takes the keyboard, so the arrows move the cursor rather than scrolling the page */
+.query-table-wrap.grid {
+  outline: none;
+}
+
+.query-table.editable td {
+  position: relative;
+  padding: 0;
+}
+
+.query-table.editable td > span {
+  display: block;
+  padding: 4px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.query-table.editable td.locked > span {
+  color: var(--text-muted);
+}
+
+.query-table.editable th.locked {
+  color: var(--text-faint);
+}
+
+/* the cell with the cursor. An outline rather than a background: the row highlight underneath has
+   to stay readable, and a sheet marks the cell it is on with a border */
+.query-table.editable td.cursor::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--accent);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.query-table-wrap.grid:focus-visible .query-table.editable td.cursor::after {
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.query-table.editable td.written {
+  background: var(--accent-soft);
+}
+
+.query-table.editable td.failed {
+  background: var(--danger-soft);
+}
+
+.grid-input {
+  width: 100%;
+  padding: 3px 6px;
+  border: none;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+/* a write in flight: a thin bar along the bottom of the cell, gone before it is read */
+.grid-saving {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0.7;
+}
+
+.grid-error {
+  margin-top: 6px;
+}
+
+.query-table.editable td input[type="checkbox"] {
+  margin: 4px 8px;
+}
+
+/* the link from a field to where its property is defined; quiet until the row is under the pointer,
+   because every field has one and a column of icons would read as the point of the form */
+.node-field-link {
+  width: 20px;
+  height: 20px;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.node-field:hover .node-field-link,
+.node-field-link:focus-visible {
+  opacity: 1;
 }

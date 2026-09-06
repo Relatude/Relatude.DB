@@ -85,10 +85,13 @@ public sealed class DatamodelActivator {
                 BaseChecksum = existing?.BaseChecksum ?? validation.ActiveChecksum,
                 AwaitingRebuild = true,
                 AwaitingRebuildSinceUtc = DateTime.UtcNow,
+                FilesWritten = result.FilesWritten,
+                FilesDeleted = result.FilesDeleted,
                 Note = note ?? existing?.Note,
             });
             result.AwaitingRebuild = true;
-            result.Message = "The model was written into the source code. Rebuild and restart the application to activate it; the draft is kept until then. ";
+            result.Message = "The model was written into source code that is compiled into the application. The running application keeps its current model until it is rebuilt and restarted. "
+                + "The draft is kept, marked as waiting for a rebuild, and removed by itself when the database opens with the written model. ";
             return result;
         }
 

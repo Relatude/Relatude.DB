@@ -8,8 +8,9 @@ namespace Relatude.DB.NodeServer.ModelEditor;
 /// <summary>The model being edited in the admin UI. There is one per database.</summary>
 public sealed class DatamodelDraft {
     public DateTime SavedUtc { get; set; }
-    /// <summary>The checksum of the model as saved (see <see cref="DatamodelJson.Checksum"/>), or of
-    /// the raw model when it cannot be initialized yet.</summary>
+    /// <summary>The checksum of the draft's model (see <see cref="DatamodelDrafts.ChecksumOf"/>).
+    /// <see cref="DatamodelDrafts.LoadDraft"/> recomputes it from the model; <see cref="DatamodelDrafts.PeekDraft"/>
+    /// reports the value the draft was saved with.</summary>
     public Guid Checksum { get; set; }
     /// <summary>The checksum of the active model the draft was started from, so the editor can tell
     /// when the active model has moved on under it.</summary>
@@ -21,6 +22,10 @@ public sealed class DatamodelDraft {
     /// </summary>
     public bool AwaitingRebuild { get; set; }
     public DateTime? AwaitingRebuildSinceUtc { get; set; }
+    /// <summary>The files the activation wrote and deleted when it left the draft waiting for a rebuild,
+    /// so the editor can say which source code the rebuild is about.</summary>
+    public List<string> FilesWritten { get; set; } = [];
+    public List<string> FilesDeleted { get; set; } = [];
     public string? Note { get; set; }
     public required Datamodel Model { get; set; }
 }
@@ -72,18 +77,24 @@ public sealed class DatamodelDrafts {
             var text = _io.ReadAllTextUTF8(key);
             using var document = JsonDocument.Parse(text, new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
             var root = document.RootElement;
+            var model = DatamodelJson.Deserialize(root.GetProperty("Model").GetRawText());
             return new DatamodelDraft {
                 SavedUtc = utc(root, "SavedUtc") ?? DateTime.UtcNow,
-                Checksum = guid(root, "Checksum") ?? Guid.Empty,
+                // recomputed rather than read: the file holds the checksum the draft was saved with, and a
+                // change to how checksums are made would otherwise make every older draft look different
+                Checksum = ChecksumOf(model),
                 BaseChecksum = guid(root, "BaseChecksum"),
                 AwaitingRebuild = root.TryGetProperty("AwaitingRebuild", out var awaiting) && awaiting.ValueKind == JsonValueKind.True,
                 AwaitingRebuildSinceUtc = utc(root, "AwaitingRebuildSinceUtc"),
+                FilesWritten = strings(root, "FilesWritten"),
+                FilesDeleted = strings(root, "FilesDeleted"),
                 Note = root.TryGetProperty("Note", out var note) && note.ValueKind == JsonValueKind.String ? note.GetString() : null,
-                Model = DatamodelJson.Deserialize(root.GetProperty("Model").GetRawText()),
+                Model = model,
             };
         }
     }
-    /// <summary>Reads the draft's header without deserializing its model, for status displays.</summary>
+    /// <summary>Reads the draft's header without deserializing its model, for status displays. The
+    /// checksum is the one the draft was saved with.</summary>
     public DatamodelDraft? PeekDraft() {
         lock (_lock) {
             var key = FileKeyUtility.Datamodel_DraftFileKey;
@@ -95,6 +106,8 @@ public sealed class DatamodelDrafts {
                 BaseChecksum = guid(header, "BaseChecksum"),
                 AwaitingRebuild = header.TryGetValue("AwaitingRebuild", out var awaiting) && awaiting.ValueKind == JsonValueKind.True,
                 AwaitingRebuildSinceUtc = utc(header, "AwaitingRebuildSinceUtc"),
+                FilesWritten = strings(header, "FilesWritten"),
+                FilesDeleted = strings(header, "FilesDeleted"),
                 Note = header.TryGetValue("Note", out var note) && note.ValueKind == JsonValueKind.String ? note.GetString() : null,
                 Model = null!, // not read; callers of PeekDraft only look at the header
             };
@@ -109,6 +122,8 @@ public sealed class DatamodelDrafts {
                 if (draft.BaseChecksum != null) w.WriteString("BaseChecksum", draft.BaseChecksum.Value);
                 w.WriteBoolean("AwaitingRebuild", draft.AwaitingRebuild);
                 if (draft.AwaitingRebuildSinceUtc != null) w.WriteString("AwaitingRebuildSinceUtc", draft.AwaitingRebuildSinceUtc.Value);
+                if (draft.FilesWritten.Count > 0) writeStrings(w, "FilesWritten", draft.FilesWritten);
+                if (draft.FilesDeleted.Count > 0) writeStrings(w, "FilesDeleted", draft.FilesDeleted);
                 if (draft.Note != null) w.WriteString("Note", draft.Note);
                 writeSummary(w, draft.Model);
             }, draft.Model);
@@ -117,6 +132,36 @@ public sealed class DatamodelDrafts {
     }
     public void DeleteDraft() {
         lock (_lock) _io.DeleteFileIfItExists(FileKeyUtility.Datamodel_DraftFileKey);
+    }
+    /// <summary>
+    /// The checksum of a draft's model as the editor compares models (<see cref="DatamodelJson.Checksum"/>):
+    /// taken from an initialized copy, so that what initialization adds to every loaded model - the base
+    /// type as the parent of a type without one, for instance - is there too. A draft in progress need not
+    /// be valid yet; when its model cannot be initialized, the raw model is hashed.
+    /// </summary>
+    public static Guid ChecksumOf(Datamodel rawModel) {
+        try {
+            var copy = DatamodelJson.Deserialize(DatamodelJson.Serialize(rawModel));
+            copy.EnsureInitalization();
+            return DatamodelJson.Checksum(copy);
+        } catch {
+            return DatamodelJson.Checksum(rawModel);
+        }
+    }
+    /// <summary>
+    /// A draft that was written into compiled source code waits for the application to be rebuilt with
+    /// it. Once the model the sources load as says the same as the draft, that has happened and the draft
+    /// has served its purpose: it is removed and true is returned. Called when the store opens and when
+    /// the editor page is built, so a database that was closed when the application restarted is covered
+    /// too. A draft that is not waiting for a rebuild is never removed this way.
+    /// </summary>
+    /// <param name="draft">The draft as <see cref="LoadDraft"/> returns it.</param>
+    /// <param name="active">The model the sources load as now, initialized.</param>
+    public bool RemoveIfActivated(DatamodelDraft draft, Datamodel active) {
+        if (!draft.AwaitingRebuild) return false;
+        if (draft.Checksum != DatamodelJson.Checksum(active)) return false;
+        DeleteDraft();
+        return true;
     }
 
     // ---- the history ----
@@ -208,10 +253,11 @@ public sealed class DatamodelDrafts {
             var model = DatamodelJson.Deserialize(json);
             model.EnsureInitalization();
             drafts.Snapshot(model, "open");
-            var draft = drafts.PeekDraft();
-            if (draft != null && draft.AwaitingRebuild && draft.Checksum == DatamodelJson.Checksum(model)) {
-                drafts.DeleteDraft();
-                container.Store?.Datastore.LogInfo("The data model draft that was waiting for a rebuild is now the active model; the draft was removed. ");
+            if (drafts.PeekDraft()?.AwaitingRebuild == true) {
+                var draft = drafts.LoadDraft();
+                if (draft != null && drafts.RemoveIfActivated(draft, model)) {
+                    container.Store?.Datastore.LogInfo("The data model draft that was waiting for a rebuild is now the active model; the draft was removed. ");
+                }
             }
         } catch (Exception error) {
             try { container.Store?.Datastore.LogError("Could not record the data model in the model history: " + error.Message, error); } catch { }
@@ -279,4 +325,15 @@ public sealed class DatamodelDrafts {
         => header.TryGetValue(name, out var e) && e.ValueKind == JsonValueKind.String && e.TryGetGuid(out var g) ? g : null;
     static Guid? guid(JsonElement root, string name)
         => root.TryGetProperty(name, out var e) && e.ValueKind == JsonValueKind.String && e.TryGetGuid(out var g) ? g : null;
+    static List<string> strings(Dictionary<string, JsonElement> header, string name)
+        => header.TryGetValue(name, out var e) ? strings(e) : [];
+    static List<string> strings(JsonElement root, string name)
+        => root.TryGetProperty(name, out var e) ? strings(e) : [];
+    static List<string> strings(JsonElement e)
+        => e.ValueKind == JsonValueKind.Array ? e.EnumerateArray().Where(i => i.ValueKind == JsonValueKind.String).Select(i => i.GetString()!).ToList() : [];
+    static void writeStrings(Utf8JsonWriter w, string name, IEnumerable<string> values) {
+        w.WriteStartArray(name);
+        foreach (var value in values) w.WriteStringValue(value);
+        w.WriteEndArray();
+    }
 }
