@@ -2128,3 +2128,70 @@ button.dm-source-card {
     display: none;
   }
 }
+
+/* ---- the 3D graph: two canvases on a stage, one drawn by WebGL, one written over it ---- */
+
+.dg3-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  outline: none;
+}
+
+.dg3-stage:focus-visible::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 2px var(--accent-soft);
+}
+
+.dg3-gl,
+.dg3-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.dg3-overlay {
+  pointer-events: none;
+}
+
+/* the kind icons the overlay draws from: rendered, never shown */
+.dg3-icon-host {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dg3-nogl {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  font-size: 12.5px;
+}
+
+/* filling the screen: the panel becomes the page, so its frame and rounded corners go, and the
+   toolbar rides along at the top rather than being left behind in the page underneath */
+.dm-graph3d:fullscreen {
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+  background: var(--panel);
+}
+
+.dm-graph3d:fullscreen::backdrop {
+  background: var(--panel);
+}

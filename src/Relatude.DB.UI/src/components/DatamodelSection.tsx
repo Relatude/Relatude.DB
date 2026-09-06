@@ -9,6 +9,7 @@ import {
   IconChevronDown,
   IconCircleCheck,
   IconCube,
+  IconCube3dSphere,
   IconDatabaseImport,
   IconDeviceFloppy,
   IconDots,
@@ -67,15 +68,17 @@ import { takeDatamodelTarget, useNavigationRequest, type DatamodelTarget } from 
 import { HistoryView, ListView, MatrixView, SourcesView, TreeView } from "./DatamodelViews";
 import { DatamodelDiagram } from "./DatamodelDiagram";
 import { DatamodelGraph } from "./DatamodelGraph";
+import { DatamodelGraph3D } from "./DatamodelGraph3D";
 import "../datamodel.css";
 
-type ViewId = "list" | "tree" | "diagram" | "graph" | "matrix" | "sources" | "history";
+type ViewId = "list" | "tree" | "diagram" | "graph" | "graph3d" | "matrix" | "sources" | "history";
 
 const views: { id: ViewId; label: string; icon: typeof IconList }[] = [
   { id: "list", label: "List", icon: IconList },
   { id: "tree", label: "Inheritance", icon: IconSitemap },
   { id: "diagram", label: "Diagram", icon: IconLayoutGrid },
   { id: "graph", label: "Graph", icon: IconTopologyStar3 },
+  { id: "graph3d", label: "3D", icon: IconCube3dSphere },
   { id: "matrix", label: "Matrix", icon: IconTable },
   { id: "sources", label: "Sources", icon: IconStack2 },
   { id: "history", label: "History", icon: IconHistory },
@@ -995,6 +998,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
           {view === "tree" && <TreeView {...viewProps} />}
           {view === "diagram" && <DatamodelDiagram ctx={ctx} visibleTypes={visibleTypes} ghostTypes={ghostTypes} selection={selection} query={query} storeId={db.id} />}
           {view === "graph" && <DatamodelGraph ctx={ctx} visibleTypes={visibleTypes} selection={selection} query={query} storeId={db.id} />}
+          {view === "graph3d" && <DatamodelGraph3D ctx={ctx} visibleTypes={visibleTypes} selection={selection} query={query} storeId={db.id} />}
           {view === "matrix" && <MatrixView {...viewProps} />}
           {view === "sources" && <SourcesView ctx={ctx} selection={selection} hiddenSources={hiddenSources} onToggleVisible={toggleSource} onAdd={addSource} locked={page.sourcesLocked} />}
           {view === "history" && <HistoryView history={page.history} activeChecksum={page.active?.checksum ?? null} draftBaseChecksum={page.draft?.baseChecksum ?? null} onLoad={loadFromHistory} onDelete={removeHistory} />}
