@@ -25,6 +25,12 @@ export interface FrameSetup {
   near: number;
   far: number;
   /**
+   * How much of a sphere's or box's own colour shows where no light reaches it, 0..1. The lit side
+   * is normalised against it, so raising the floor lifts the shadow side without pushing the bright
+   * side past where it was. 0.42 unless given: right on a dark page, dull on a light one.
+   */
+  ambient?: number;
+  /**
    * Drawn after the frame is cleared and before anything of the graph: the sky, the range and the
    * aeroplane of fun mode. It shares the depth buffer, so the graph is occluded by a mountain in
    * front of it, and the state it leaves behind is put back before the graph is drawn.
@@ -142,6 +148,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
     gl.enable(gl.CULL_FACE);
     gl.cullFace(gl.BACK);
 
+    const ambient = s.ambient ?? 0.42;
     // opaque first, writing depth: spheres and arrowheads
     gl.useProgram(sphereProg);
     gl.uniformMatrix4fv(u(sphereProg, "uViewProj"), false, viewProj);
@@ -149,6 +156,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
     gl.uniform3fv(u(sphereProg, "uLight"), lightDir);
     gl.uniform3fv(u(sphereProg, "uFog"), s.fog);
     gl.uniform2f(u(sphereProg, "uFogRange"), s.fogNear, s.fogFar);
+    gl.uniform1f(u(sphereProg, "uAmbient"), ambient);
     if (spheres.count > 0) {
       spheres.upload(gl);
       gl.bindVertexArray(sphereVao);
@@ -161,6 +169,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       gl.uniform3fv(u(boxProg, "uLight"), lightDir);
       gl.uniform3fv(u(boxProg, "uFog"), s.fog);
       gl.uniform2f(u(boxProg, "uFogRange"), s.fogNear, s.fogFar);
+      gl.uniform1f(u(boxProg, "uAmbient"), ambient);
       boxes.upload(gl);
       gl.bindVertexArray(boxVao);
       gl.drawElementsInstanced(gl.TRIANGLES, boxMesh.indexCount, gl.UNSIGNED_SHORT, 0, boxes.count);
@@ -200,6 +209,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       gl.uniform3fv(u(sphereProg, "uLight"), lightDir);
       gl.uniform3fv(u(sphereProg, "uFog"), s.fog);
       gl.uniform2f(u(sphereProg, "uFogRange"), s.fogNear, s.fogFar);
+      gl.uniform1f(u(sphereProg, "uAmbient"), ambient);
       halos.upload(gl);
       gl.bindVertexArray(haloVao);
       gl.drawElementsInstanced(gl.TRIANGLES, sphereMesh.indexCount, gl.UNSIGNED_SHORT, 0, halos.count);
@@ -525,7 +535,7 @@ const boxVert = `#version 300 es
 const sphereFrag = `#version 300 es
   precision highp float;
   in vec3 vN; in vec3 vW; in vec4 vColor; in vec4 vRim;
-  uniform vec3 uEye; uniform vec3 uLight; uniform vec3 uFog; uniform vec2 uFogRange;
+  uniform vec3 uEye; uniform vec3 uLight; uniform vec3 uFog; uniform vec2 uFogRange; uniform float uAmbient;
   out vec4 outColor;
   ${fogSnippet}
   void main() {
@@ -535,7 +545,10 @@ const sphereFrag = `#version 300 es
     float head = max(dot(n, v), 0.0);
     vec3 h = normalize(uLight + v);
     float spec = pow(max(dot(n, h), 0.0), 40.0) * 0.35;
-    vec3 body = vColor.rgb * (0.42 + 0.46 * diff + 0.22 * head);
+    // the lit share runs 0..1 and is scaled into what is left above the ambient floor, so the
+    // brightest point stays at 1.1 of the colour whatever the floor is set to
+    float lit = (0.46 * diff + 0.22 * head) / 0.68;
+    vec3 body = vColor.rgb * (uAmbient + (1.1 - uAmbient) * lit);
     vec3 c = body + spec;
     float rim = pow(1.0 - head, 2.2) * vRim.a;
     c = mix(c, vRim.rgb, rim);

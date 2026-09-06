@@ -10,7 +10,6 @@ import {
   IconFileSearch,
   IconFolderDown,
   IconPhotoCancel,
-  IconListSearch,
   IconTextRecognition,
   IconRefresh,
   IconRestore,
@@ -23,7 +22,6 @@ import {
   backupNow,
   databaseDownloadUrl,
   deleteConvertedFiles,
-  deleteUnusedDbFiles,
   downloadFileStorage,
   fetchBackupList,
   fetchConvertedInfo,
@@ -139,27 +137,6 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
     load();
   }
 
-  async function onDeleteUnused() {
-    if (!maintenance) return;
-    const choice = await showConfirm(
-      "Delete unused database files",
-      `Delete ${maintenance.unusedFiles} old database log file${maintenance.unusedFiles === 1 ? "" : "s"} (${formatBytes(maintenance.unusedBytes)}) that are no longer in use?`,
-      { confirmLabel: "Delete", danger: true },
-    );
-    if (!choice.ok) return;
-    try {
-      const result = await deleteUnusedDbFiles(db.id);
-      if (result.errors.length > 0) {
-        showError("Could not delete everything", `${result.deleted} deleted, ${result.errors.length} failed.`, result.errors);
-      } else {
-        setMaintenanceMessage(`Deleted ${result.deleted} file${result.deleted === 1 ? "" : "s"}, freed ${formatBytes(result.freed)}.`);
-      }
-    } catch (e) {
-      showError("Delete failed", e instanceof Error ? e.message : String(e));
-    }
-    load();
-  }
-
   /**
    * Re-extracts the search text of every text indexed node. The work itself is background tasks,
    * so what takes time here is only queueing them - on a large database that is still a wait worth
@@ -222,55 +199,64 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   // Scans the file stores for files no node references anymore, and offers to delete what it found.
   // Counting first is the whole point: the deletion is then a confirmation of a known number rather
   // than a blind sweep, which is why there is no way to start straight at the deletion.
-  async function onUnreferenced() {
-    const progress = await runWithProgress(`Unreferenced files in ${db.name}`, (ctl) => runFileScan(ctl, db.id, "unreferenced", true));
-    const found = progress?.unreferenced;
+  /**
+   * Both audits in one pass. They ask the same question from opposite ends - files the database
+   * points at that the store does not have, and files the store has that nothing points at - and
+   * neither answer means much without the other: a file that has gone missing and one that has been
+   * left behind look identical from a single side. Missing files are reported, redundant ones are
+   * offered for deletion, in that order: the problem before the tidying.
+   */
+  async function onAuditFiles() {
+    const found = await runWithProgress(`Missing and redundant files in ${db.name}`, async (ctl) => {
+      const missing = (await runFileScan(ctl, db.id, "missing", false, "Missing files")).missing;
+      // counted, never deleted here: deleting is its own answer, behind its own confirmation
+      const redundant = (await runFileScan(ctl, db.id, "unreferenced", true, "Redundant files")).unreferenced;
+      return { missing, redundant };
+    });
     if (!found) return;
+    const { missing, redundant } = found;
+    const missingCount = missing?.missingCount ?? 0;
+    const redundantCount = redundant?.totalFilesDeleted ?? 0;
+    const redundantBytes = redundant?.totalBytesDeleted ?? 0;
+    const checked = missing
+      ? `${formatCount(missing.nodesScanned)} node${missing.nodesScanned === 1 ? "" : "s"} scanned, ${formatCount(missing.filesChecked)} file${missing.filesChecked === 1 ? "" : "s"} checked`
+      : "Scanned";
     setFilesMessage(
-      found.totalFilesDeleted === 0
-        ? "No unreferenced files."
-        : `${formatCount(found.totalFilesDeleted)} unreferenced file${found.totalFilesDeleted === 1 ? "" : "s"} · ${formatBytes(found.totalBytesDeleted)}.`,
+      missingCount === 0 && redundantCount === 0
+        ? `${checked}, nothing missing or redundant.`
+        : `${checked}, ${formatCount(missingCount)} missing, ${formatCount(redundantCount)} redundant (${formatBytes(redundantBytes)}).`,
     );
-    if (found.totalFilesDeleted === 0) {
-      showInfo("Unreferenced files", "Every file in the file stores is referenced by a node. Nothing to clean up.");
+    if (missingCount === 0 && redundantCount === 0) {
+      showInfo("Nothing missing or redundant", `${checked}. Every file value has its file, and every file in the stores is pointed at by a node.`);
       return;
     }
+    if (missing && missingCount > 0) {
+      const shown = missing.missing.slice(0, maxListedMissing);
+      const details = shown.map((m) => `${m.nodeType.split(".").pop()}.${m.property} — ${m.fileName} (${formatBytes(m.size)}) — ${m.reason}`);
+      if (missing.missing.length > shown.length) details.push(`…and ${formatCount(missing.missing.length - shown.length)} more`);
+      else if (missing.listTruncated) details.push("…the list was capped by the server; the counts above are complete");
+      await showError(
+        "Missing files",
+        `${checked}. ${formatCount(missingCount)} file${missingCount === 1 ? " is" : "s are"} missing (${formatBytes(missing.missingBytes)}).`,
+        details,
+      );
+    }
+    if (redundantCount === 0) return;
     const choice = await showConfirm(
-      "Delete unreferenced files",
-      `${formatCount(found.totalFilesDeleted)} file${found.totalFilesDeleted === 1 ? "" : "s"} (${formatBytes(found.totalBytesDeleted)}) in the file stores are not referenced by any node. Delete them, and the folders left empty? Everything under a file store counts as this database's, so files put there by anything else go too. This cannot be undone.`,
+      "Delete redundant files",
+      `${formatCount(redundantCount)} file${redundantCount === 1 ? "" : "s"} (${formatBytes(redundantBytes)}) in the file stores are not referenced by any node. Delete them, and the folders left empty? Everything under a file store counts as this database's, so files put there by anything else go too. This cannot be undone.`,
       { confirmLabel: "Delete", danger: true },
     );
     if (choice.ok) await deleteUnreferenced();
   }
 
   async function deleteUnreferenced() {
-    const progress = await runWithProgress(`Delete unreferenced files in ${db.name}`, (ctl) => runFileScan(ctl, db.id, "unreferenced", false));
+    const progress = await runWithProgress(`Delete redundant files in ${db.name}`, (ctl) => runFileScan(ctl, db.id, "unreferenced", false));
     const result: UnreferencedResult | null | undefined = progress?.unreferenced;
     if (!result) return;
     const summary = `Deleted ${formatCount(result.totalFilesDeleted)} file${result.totalFilesDeleted === 1 ? "" : "s"} and ${formatCount(result.totalFoldersDeleted)} folder${result.totalFoldersDeleted === 1 ? "" : "s"}, freed ${formatBytes(result.totalBytesDeleted)}.`;
     setFilesMessage(summary);
-    showInfo("Unreferenced files deleted", summary);
-  }
-
-  // The reverse audit: every file value in the database checked against the store it points at.
-  async function onCheckMissing() {
-    const progress = await runWithProgress(`Missing files in ${db.name}`, (ctl) => runFileScan(ctl, db.id, "missing", false));
-    const result = progress?.missing;
-    if (!result) return;
-    const checked = `${formatCount(result.nodesScanned)} node${result.nodesScanned === 1 ? "" : "s"} scanned, ${formatCount(result.filesChecked)} file${result.filesChecked === 1 ? "" : "s"} checked`;
-    if (result.missingCount === 0) {
-      setFilesMessage(`${checked}, none missing.`);
-      showInfo("No missing files", `${checked}. Every file value has its file in the file store.`);
-      return;
-    }
-    setFilesMessage(`${checked}, ${formatCount(result.missingCount)} missing (${formatBytes(result.missingBytes)}).`);
-    const shown = result.missing.slice(0, maxListedMissing);
-    const details = shown.map(
-      (m) => `${m.nodeType.split(".").pop()}.${m.property} — ${m.fileName} (${formatBytes(m.size)}) — ${m.reason}`,
-    );
-    if (result.missing.length > shown.length) details.push(`…and ${formatCount(result.missing.length - shown.length)} more`);
-    else if (result.listTruncated) details.push("…the list was capped by the server; the counts above are complete");
-    showError("Missing files", `${checked}. ${formatCount(result.missingCount)} file${result.missingCount === 1 ? " is" : "s are"} missing (${formatBytes(result.missingBytes)}).`, details);
+    showInfo("Redundant files deleted", summary);
   }
 
   // Empties the converted file cache. Measured first, so the confirmation names a number and an
@@ -400,13 +386,12 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       {/* Four things live on this page and they are not alike: copies of the database, the file it
           is, the files it points to, and content to test with. Each is a group with a name and a
           line saying what it is about, and the panels of one group share a row. */}
-      <div className="storage-group">
+      <div className="storage-group tone-backups">
         <div className="storage-group-head">
           <IconDeviceFloppy size={16} stroke={1.8} />
           <h2>Backups</h2>
           <span className="muted">copies of the database file, kept beside it - the way back when something has gone wrong</span>
         </div>
-      <div className="overview-columns">
         <section className="panel">
           <h3>
             Backups
@@ -415,6 +400,22 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
               <IconRefresh size={14} stroke={1.8} />
             </button>
           </h3>
+          {/* making one and having them is the same subject: the button that adds to the list sits
+              above the list it adds to, rather than in a panel of its own beside it */}
+          <div className="storage-make-backup">
+            <button className="action-button" onClick={onBackupNow} disabled={db.state !== "Open"}>
+              <IconDeviceFloppy size={14} stroke={1.8} className="tone-ok" /> Backup now
+            </button>
+            <label className="login-remember">
+              <input type="checkbox" checked={truncate} onChange={(e) => setTruncate(e.target.checked)} />
+              Truncate the log first (smaller backup)
+            </label>
+            <label className="login-remember">
+              <input type="checkbox" checked={keepForever} onChange={(e) => setKeepForever(e.target.checked)} />
+              Keep forever (never expires)
+            </label>
+            <span className="muted">{db.state !== "Open" ? "the database must be open" : (message ?? "")}</span>
+          </div>
           <div className="db-table">
             <div className="backup-row db-table-head">
               <span>Name</span>
@@ -446,27 +447,9 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
             {backups && backups.files.length === 0 && <div className="muted files-empty">No backups yet.</div>}
           </div>
         </section>
-        <section className="panel">
-          <h3>Create backup</h3>
-          <label className="login-remember">
-            <input type="checkbox" checked={truncate} onChange={(e) => setTruncate(e.target.checked)} />
-            Truncate the log first (smaller backup)
-          </label>
-          <label className="login-remember">
-            <input type="checkbox" checked={keepForever} onChange={(e) => setKeepForever(e.target.checked)} />
-            Keep forever (never expires)
-          </label>
-          <div className="process-action">
-            <button className="action-button" onClick={onBackupNow} disabled={db.state !== "Open"}>
-              <IconDeviceFloppy size={14} stroke={1.8} /> Backup now
-            </button>
-            <span className="muted">{db.state !== "Open" ? "the database must be open" : (message ?? "")}</span>
-          </div>
-        </section>
-      </div>
       </div>
 
-      <div className="storage-group">
+      <div className="storage-group tone-database">
         <div className="storage-group-head">
           <IconDatabase size={16} stroke={1.8} />
           <h2>Database file</h2>
@@ -534,12 +517,6 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
                 <div className="fact-k">State snapshot size</div>
                 <div className="fact-v">{maintenance.open ? formatBytes(maintenance.stateFileSize ?? 0) : "—"}</div>
               </div>
-              <div className="fact">
-                <div className="fact-k">Unused database files</div>
-                <div className="fact-v">
-                  {maintenance.unusedFiles === 0 ? "none" : `${maintenance.unusedFiles} · ${formatBytes(maintenance.unusedBytes)}`}
-                </div>
-              </div>
             </div>
             <div className="process-action">
               <button className="action-button" onClick={onSaveState} disabled={!maintenance.open}>
@@ -554,14 +531,8 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
               <span className="muted">rewrites the database file to only the current state</span>
             </div>
             <div className="process-action">
-              <button className="action-button" onClick={onDeleteUnused} disabled={maintenance.unusedFiles === 0}>
-                Delete unused database files
-              </button>
-              <span className="muted">removes old database log files that are no longer in use</span>
-            </div>
-            <div className="process-action">
               <button className="action-button" onClick={onRebuildTextIndex} disabled={!maintenance.open}>
-                <IconTextRecognition size={14} stroke={1.8} /> Rebuild text index
+                <IconTextRecognition size={14} stroke={1.8} className="tone-data" /> Rebuild text index
               </button>
               <span className="muted">
                 {maintenanceMessage ??
@@ -576,7 +547,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       </div>
       </div>
 
-      <div className="storage-group">
+      <div className="storage-group tone-files">
         <div className="storage-group-head">
           <IconFolder size={16} stroke={1.8} />
           <h2>File storage</h2>
@@ -586,28 +557,24 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       <section className="panel">
         <h3>File storage</h3>
         <div className="process-action">
-          <button className="action-button" onClick={onUnreferenced} disabled={db.state !== "Open"}>
-            <IconListSearch size={14} stroke={1.8} /> Unreferenced files
+          <button className="action-button" onClick={onAuditFiles} disabled={db.state !== "Open"}>
+            <IconFileSearch size={14} stroke={1.8} className="tone-accent" /> Missing and redundant files
           </button>
           <span className="muted">
-            {db.state !== "Open" ? "the database must be open" : "counts the files no node references anymore, and offers to delete them"}
+            {db.state !== "Open"
+              ? "the database must be open"
+              : "checks every file value against its store, and the stores for files no node points at any more"}
           </span>
         </div>
         <div className="process-action">
-          <button className="action-button" onClick={onCheckMissing} disabled={db.state !== "Open"}>
-            <IconFileSearch size={14} stroke={1.8} /> Check for missing files
-          </button>
-          <span className="muted">checks every file value in the database against its file store</span>
-        </div>
-        <div className="process-action">
           <button className="action-button" onClick={onDeleteConverted} disabled={db.state !== "Open"}>
-            <IconPhotoCancel size={14} stroke={1.8} /> Reset converted file cache
+            <IconPhotoCancel size={14} stroke={1.8} className="tone-accent" /> Reset converted file cache
           </button>
           <span className="muted">empties the cache of resized images and converted media; they are recreated on demand</span>
         </div>
         <div className="process-action">
           <button className="action-button" onClick={onDownloadFileStorage} disabled={fileStorages.length === 0}>
-            <IconFolderDown size={14} stroke={1.8} /> Download file storage
+            <IconFolderDown size={14} stroke={1.8} className="tone-accent" /> Download file storage
           </button>
           <span className="muted">
             {fileStorages.length === 0

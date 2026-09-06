@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { IconChevronDown, IconChevronRight, IconEye, IconEyeOff, IconList, IconLock, IconPlus, IconRefreshAlert, IconRestore, IconTrash } from "@tabler/icons-react";
+import { IconChevronDown, IconChevronRight, IconChevronUp, IconEye, IconEyeOff, IconList, IconListDetails, IconLock, IconPlus, IconRefreshAlert, IconRestore, IconSitemap, IconTrash } from "@tabler/icons-react";
 import { IndexMarks, KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, kindMeta, relationMeta, sourceKindMeta, type IndexFlags } from "./DatamodelIcons";
 import type { EditorContext, Selection } from "./DatamodelEditors";
 import { allProperties, fullName, type HistoryEntry, type ModelDiff, type NodeTypeJson, type PropertyJson, type SourceInfo } from "../server/datamodel";
@@ -45,52 +45,174 @@ function isSelected(selection: Selection | null, kind: Selection["kind"], id: st
   return selection !== null && selection.kind === kind && selection.id === id;
 }
 
-// ---- list ----
+// ---- sorting a table by one of its columns ----
 
-export function ListView({ ctx, visibleTypes, ghostTypes, query, selection, diff, justAdded }: ViewProps) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+/** Which column a table is ordered by, and which way round. */
+interface Sort {
+  key: string;
+  dir: "asc" | "desc";
+}
+
+/**
+ * Clicking a column orders by it; clicking the one already ordered by turns it round. A column of
+ * numbers starts at the largest and one of names at A, which is what each is normally wanted by.
+ */
+function useSort(initial: Sort) {
+  const [sort, setSort] = useState<Sort>(initial);
+  const sortBy = (key: string, numeric: boolean) =>
+    setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: numeric ? "desc" : "asc" }));
+  return [sort, sortBy] as const;
+}
+
+/** One column heading, as the control that orders by it. */
+function SortHead({ label, col, numeric, sort, onSort, title }: { label: string; col: string; numeric?: boolean; sort: Sort; onSort: (key: string, numeric: boolean) => void; title?: string }) {
+  const active = sort.key === col;
+  return (
+    <th className={"dm-sortable" + (numeric ? " num" : "") + (active ? " sorted" : "")} aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+      <button onClick={() => onSort(col, numeric === true)} title={title ?? `Sort by ${label.toLowerCase()}`}>
+        {label}
+        {active ? sort.dir === "asc" ? <IconChevronUp size={12} stroke={2.6} /> : <IconChevronDown size={12} stroke={2.6} /> : null}
+      </button>
+    </th>
+  );
+}
+
+/**
+ * The rows in the order the head asks for. Values come from `columns`; a column that is not there
+ * leaves the order to `tiebreak`, which also settles rows the chosen column cannot tell apart - so
+ * ordering by something coarse, like a source, still reads alphabetically inside each group.
+ */
+function sortRows<T>(rows: T[], sort: Sort, columns: Record<string, (row: T) => string | number>, tiebreak: (row: T) => string): T[] {
+  const pick = columns[sort.key];
+  const dir = sort.dir === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    let c = 0;
+    if (pick) {
+      const va = pick(a);
+      const vb = pick(b);
+      c = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
+    }
+    return dir * c || tiebreak(a).localeCompare(tiebreak(b));
+  });
+}
+
+// ---- the types, as a flat list or as the tree they inherit down ----
+
+/** Which arrangement the Models view is in. Kept for the database, like the graph's own settings. */
+export type ModelsLayout = "list" | "tree";
+
+const layoutKey = "dmModelsLayout";
+const treePropertiesKey = "dmTreeProperties";
+const listPropertiesKey = "dmListProperties";
+
+/** A remembered switch. Absent means the default: the tree carries properties, the table does not. */
+function readSwitch(key: string, fallback: boolean) {
+  const v = localStorage.getItem(key);
+  return v === null ? fallback : v === "true";
+}
+
+/**
+ * Every type in the model, arranged either way: a flat table of them all, or the tree they inherit
+ * down. The two are one view rather than two, because they answer the same question and the switch
+ * between them is worth less room than a tab each. Properties can be switched off in both, and each
+ * arrangement remembers its own answer: the tree is short enough to carry them, the table is not.
+ */
+export function ModelsView(props: ViewProps) {
+  const [layout, setLayout] = useState<ModelsLayout>(() => (localStorage.getItem(layoutKey) === "tree" ? "tree" : "list"));
+  const [treeProperties, setTreeProperties] = useState(() => readSwitch(treePropertiesKey, true));
+  const [listProperties, setListProperties] = useState(() => readSwitch(listPropertiesKey, false));
+  useEffect(() => localStorage.setItem(layoutKey, layout), [layout]);
+  useEffect(() => localStorage.setItem(treePropertiesKey, String(treeProperties)), [treeProperties]);
+  useEffect(() => localStorage.setItem(listPropertiesKey, String(listProperties)), [listProperties]);
+  const showProperties = layout === "tree" ? treeProperties : listProperties;
+  const setShowProperties = layout === "tree" ? setTreeProperties : setListProperties;
+  const { ctx, visibleTypes, ghostTypes, query } = props;
+  const count = Object.values(ctx.model.NodeTypes).filter((t) => t.Id !== ctx.baseTypeId && (visibleTypes.has(t.Id) || ghostTypes.has(t.Id)) && matches(query, t.CodeName, t.Namespace, ...Object.values(t.Properties).map((p) => p.CodeName))).length;
+  return (
+    <section className="panel dm-models">
+      <div className="dm-models-head">
+        <h3>
+          Types <span className="panel-sub">{count}</span>
+        </h3>
+        <div className="dm-models-tools">
+          <div className="dm-layout-picker" role="tablist" aria-label="How the types are arranged">
+            <button role="tab" aria-selected={layout === "list"} className={layout === "list" ? "active" : ""} title="Every type in one flat table" onClick={() => setLayout("list")}>
+              <IconList size={14} stroke={1.9} /> List
+            </button>
+            <button role="tab" aria-selected={layout === "tree"} className={layout === "tree" ? "active" : ""} title="The types as the tree they inherit down" onClick={() => setLayout("tree")}>
+              <IconSitemap size={14} stroke={1.9} /> Inheritance
+            </button>
+          </div>
+          <button className={"dm-chip-source dm-tree-toggle" + (showProperties ? "" : " off")} onClick={() => setShowProperties((v) => !v)} title={showProperties ? "Hide properties" : "Show properties"}>
+            <IconListDetails size={14} stroke={1.9} /> Properties
+          </button>
+        </div>
+      </div>
+      <div className="dm-panel-scroll">{layout === "list" ? <TypesTable {...props} showProperties={listProperties} /> : <TypeTree {...props} showProperties={treeProperties} />}</div>
+    </section>
+  );
+}
+
+// ---- the types, flat ----
+
+function TypesTable({ ctx, visibleTypes, ghostTypes, query, selection, diff, justAdded, showProperties }: ViewProps & { showProperties: boolean }) {
+  // which rows are shown against the grain of the Properties switch, so one type can be opened
+  // while the rest stay shut - and flipping the switch is a fresh start for all of them
+  const [flipped, setFlipped] = useState<Set<string>>(new Set());
+  useEffect(() => setFlipped(new Set()), [showProperties]);
   useEffect(() => {
-    if (justAdded) setExpanded((prev) => new Set(prev).add(justAdded));
+    if (justAdded) setFlipped((prev) => new Set(prev).add(justAdded));
   }, [justAdded]);
-  const types = Object.values(ctx.model.NodeTypes)
-    .filter((t) => t.Id !== ctx.baseTypeId && (visibleTypes.has(t.Id) || ghostTypes.has(t.Id)))
-    .filter((t) => matches(query, t.CodeName, t.Namespace, ...Object.values(t.Properties).map((p) => p.CodeName)))
-    .sort((a, b) => a.CodeName.localeCompare(b.CodeName));
-  const relations = Object.values(ctx.model.Relations)
-    .filter((r) => [...r.SourceTypes, ...r.TargetTypes].some((id) => visibleTypes.has(id) || ghostTypes.has(id)))
-    .filter((r) => matches(query, r.CodeName, r.Namespace, r.CodeNameSources, r.CodeNameTargets))
-    .sort((a, b) => a.CodeName.localeCompare(b.CodeName));
+  const [sort, sortBy] = useSort({ key: "name", dir: "asc" });
   const toggle = (id: string) =>
-    setExpanded((prev) => {
+    setFlipped((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
   const sourceName = (id: string) => ctx.sources.find((s) => s.id === id)?.name ?? ctx.model.Sources.find((s) => s.Id === id)?.Name ?? "?";
+  const parentNames = (t: NodeTypeJson) =>
+    (t.Parents ?? [])
+      .filter((p) => p !== ctx.baseTypeId)
+      .map((p) => ctx.model.NodeTypes[p]?.CodeName ?? "?")
+      .join(", ");
+  const shown = Object.values(ctx.model.NodeTypes)
+    .filter((t) => t.Id !== ctx.baseTypeId && (visibleTypes.has(t.Id) || ghostTypes.has(t.Id)))
+    .filter((t) => matches(query, t.CodeName, t.Namespace, ...Object.values(t.Properties).map((p) => p.CodeName)));
+  const types = sortRows(
+    shown,
+    sort,
+    {
+      name: (t) => t.CodeName,
+      namespace: (t) => t.Namespace ?? "",
+      source: (t) => sourceName(t.DatamodelSourceId),
+      props: (t) => Object.values(t.Properties).length,
+      inherits: (t) => parentNames(t),
+      // a type of a database that is closed has no count at all: those go last either way round
+      nodes: (t) => ctx.typeCounts[t.Id] ?? -1,
+    },
+    (t) => t.CodeName,
+  );
   return (
-    <div className="dm-list">
-      <section className="panel">
-        <h3>
-          Types <span className="panel-sub">{types.length}</span>
-        </h3>
+    <>
         <table className="dm-table">
           <thead>
             <tr>
               <th></th>
-              <th>Name</th>
-              <th>Namespace</th>
-              <th>Source</th>
-              <th className="num">Props</th>
-              <th>Inherits</th>
-              <th className="num">Nodes</th>
+              <SortHead label="Name" col="name" sort={sort} onSort={sortBy} />
+              <SortHead label="Namespace" col="namespace" sort={sort} onSort={sortBy} />
+              <SortHead label="Source" col="source" sort={sort} onSort={sortBy} />
+              <SortHead label="Props" col="props" numeric sort={sort} onSort={sortBy} title="Sort by how many properties the type declares itself" />
+              <SortHead label="Inherits" col="inherits" sort={sort} onSort={sortBy} />
+              <SortHead label="Nodes" col="nodes" numeric sort={sort} onSort={sortBy} title="Sort by how many nodes of the type the database holds" />
               <th></th>
             </tr>
           </thead>
           <tbody>
             {types.map((t) => {
               const ghost = ghostTypes.has(t.Id) && !visibleTypes.has(t.Id);
-              const open = expanded.has(t.Id) || (query.trim().length > 0 && Object.values(t.Properties).some((p) => matches(query, p.CodeName)) && !matches(query, t.CodeName));
+              const open = flipped.has(t.Id) !== showProperties || (query.trim().length > 0 && Object.values(t.Properties).some((p) => matches(query, p.CodeName)) && !matches(query, t.CodeName));
               const own = Object.values(t.Properties);
               const count = ctx.typeCounts[t.Id];
               return [
@@ -120,12 +242,7 @@ export function ListView({ ctx, visibleTypes, ghostTypes, query, selection, diff
                     {ghost && <span className="muted"> (off)</span>}
                   </td>
                   <td className="num">{own.length}</td>
-                  <td className="muted dm-cell-parents">
-                    {(t.Parents ?? [])
-                      .filter((p) => p !== ctx.baseTypeId)
-                      .map((p) => ctx.model.NodeTypes[p]?.CodeName ?? "?")
-                      .join(", ")}
-                  </td>
+                  <td className="muted dm-cell-parents">{parentNames(t)}</td>
                   <td className="num">{count !== undefined ? count : ""}</td>
                   <td></td>
                 </tr>,
@@ -160,20 +277,50 @@ export function ListView({ ctx, visibleTypes, ghostTypes, query, selection, diff
             )}
           </tbody>
         </table>
-      </section>
-      <section className="panel">
+    </>
+  );
+}
+
+// ---- the relations ----
+
+/**
+ * Every relation in the model: what it joins, which way round, and where it is declared. A relation
+ * belongs to no one type - both ends are equal - so it is read here rather than under either end.
+ */
+export function RelationsView({ ctx, visibleTypes, ghostTypes, query, selection, diff }: ViewProps) {
+  const [sort, sortBy] = useSort({ key: "name", dir: "asc" });
+  const sourceName = (id: string) => ctx.sources.find((s) => s.id === id)?.name ?? ctx.model.Sources.find((s) => s.Id === id)?.Name ?? "?";
+  const typeNames = (ids: string[]) => ids.map((id) => ctx.model.NodeTypes[id]?.CodeName ?? "?").join(", ");
+  const shown = Object.values(ctx.model.Relations)
+    .filter((r) => [...r.SourceTypes, ...r.TargetTypes].some((id) => visibleTypes.has(id) || ghostTypes.has(id)))
+    .filter((r) => matches(query, r.CodeName, r.Namespace, r.CodeNameSources, r.CodeNameTargets));
+  const relations = sortRows(
+    shown,
+    sort,
+    {
+      name: (r) => r.CodeName,
+      kind: (r) => relationMeta[r.RelationType]?.short ?? r.RelationType,
+      from: (r) => typeNames(r.SourceTypes),
+      to: (r) => typeNames(r.TargetTypes),
+      source: (r) => sourceName(r.DatamodelSourceId),
+    },
+    (r) => r.CodeName,
+  );
+  return (
+      <section className="panel dm-relations">
         <h3>
           Relations <span className="panel-sub">{relations.length}</span>
         </h3>
+        <div className="dm-panel-scroll">
         <table className="dm-table">
           <thead>
             <tr>
               <th></th>
-              <th>Name</th>
-              <th>Kind</th>
-              <th>From</th>
-              <th>To</th>
-              <th>Source</th>
+              <SortHead label="Name" col="name" sort={sort} onSort={sortBy} />
+              <SortHead label="Kind" col="kind" sort={sort} onSort={sortBy} />
+              <SortHead label="From" col="from" sort={sort} onSort={sortBy} />
+              <SortHead label="To" col="to" sort={sort} onSort={sortBy} />
+              <SortHead label="Source" col="source" sort={sort} onSort={sortBy} />
             </tr>
           </thead>
           <tbody>
@@ -205,17 +352,15 @@ export function ListView({ ctx, visibleTypes, ghostTypes, query, selection, diff
             )}
           </tbody>
         </table>
+        </div>
       </section>
-    </div>
   );
 }
 
-// ---- inheritance tree ----
+// ---- the types, as the tree they inherit down ----
 
-export function TreeView({ ctx, visibleTypes, ghostTypes, query, selection, diff }: ViewProps) {
+function TypeTree({ ctx, visibleTypes, ghostTypes, query, selection, diff, showProperties }: ViewProps & { showProperties: boolean }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  // the tree is about where a type sits, so its properties can be switched off to keep it short
-  const [showProperties, setShowProperties] = useState(true);
   const shown = new Set([...visibleTypes, ...ghostTypes]);
   const children = useMemo(() => {
     const map = new Map<string, NodeTypeJson[]>();
@@ -298,19 +443,9 @@ export function TreeView({ ctx, visibleTypes, ghostTypes, query, selection, diff
   };
   const roots = children.get("") ?? [];
   return (
-    <div className="dm-tree panel">
-      <div className="dm-tree-head">
-        <h3>
-          Inheritance <span className="panel-sub">{roots.length} root{roots.length === 1 ? "" : "s"}</span>
-        </h3>
-        <button className={"dm-chip-source dm-tree-toggle" + (showProperties ? "" : " off")} onClick={() => setShowProperties((v) => !v)} title={showProperties ? "Hide properties" : "Show properties"}>
-          <IconList size={14} stroke={1.9} /> Properties
-        </button>
-      </div>
-      <div className="dm-tree-body">
-        {roots.map((t) => render(t, 0, ""))}
-        {roots.length === 0 && <div className="muted dm-empty">No types to show.</div>}
-      </div>
+    <div className="dm-tree-body">
+      {roots.map((t) => render(t, 0, ""))}
+      {roots.length === 0 && <div className="muted dm-empty">No types to show.</div>}
     </div>
   );
 }

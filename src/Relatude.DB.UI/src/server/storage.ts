@@ -223,8 +223,11 @@ export async function runFileScan(
   storeId: string,
   scan: "unreferenced" | "missing",
   countOnly: boolean,
+  /** named when two scans share one dialog, so the bar starting again reads as the next of them */
+  phase?: string,
 ): Promise<FileScanProgress> {
-  ctl.set({ label: "Starting…", total: 100, done: 0, meta: "0%" }); // the job reports percent, so the bar counts to 100
+  const say = (text: string) => (phase ? phase + " — " + text : text);
+  ctl.set({ label: say("Starting…"), total: 100, done: 0, meta: "0%" }); // the job reports percent, so the bar counts to 100
   const { jobId } = await send<{ jobId: string }>("files-scan-start", { storeId, scan, countOnly });
   const cancelJob = () => {
     void send("files-scan-cancel", { jobId }).catch(() => {}); // a job that already finished is not an error worth showing
@@ -233,7 +236,7 @@ export async function runFileScan(
   try {
     for (;;) {
       const progress = await send<FileScanProgress>("files-scan-progress", { jobId });
-      ctl.set({ label: progress.description || "Scanning…", done: progress.percent, meta: progress.percent + "%" });
+      ctl.set({ label: say(progress.description || "Scanning…"), done: progress.percent, meta: progress.percent + "%" });
       if (progress.state === "running") {
         await new Promise((r) => setTimeout(r, 400));
         continue;

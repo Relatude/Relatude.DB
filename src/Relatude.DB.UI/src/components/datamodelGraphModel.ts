@@ -46,6 +46,13 @@ export const leafId = (propertyId: string) => "p:" + propertyId;
 export const rootKey = (storeId: string) => "dmGraphRoot:" + storeId;
 export const expandedKey = (storeId: string) => "dmGraphExpanded:" + storeId;
 export const edgesKey = (storeId: string) => "dmGraphEdges:" + storeId;
+// how the graph is looked at is a preference of the reader rather than a fact about a model, so
+// unlike the start type and what is unfolded it is kept once, for every database
+export const modeKey = "dmGraphMode";
+export const namesKey = "dmGraphNames";
+
+/** Flat on the page, or in space with a camera flying through it. */
+export type GraphMode = "2d" | "3d";
 
 /** The whole model as a graph, independent of what is unfolded. */
 export function buildWorld(ctx: EditorContext, visibleTypes: Set<string>, edges: Set<EdgeKind>): World {
@@ -189,4 +196,13 @@ export function readEdges(storeId: string): Set<EdgeKind> {
   const all = edgeKinds.map((e) => e.kind);
   if (!Array.isArray(v)) return new Set(all);
   return new Set(v.filter((x): x is EdgeKind => typeof x === "string" && (all as string[]).includes(x)));
+}
+
+export function readMode(): GraphMode {
+  return recall(modeKey) === "3d" ? "3d" : "2d";
+}
+
+/** Whether names are written beside the nodes and lines; on unless switched off. */
+export function readNames(): boolean {
+  return recall(namesKey) !== false;
 }

@@ -1,11 +1,12 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { IconArrowBackUp, IconArrowsMaximize, IconArrowsShuffle, IconFileTypeSvg, IconFocusCentered, IconHierarchy3, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { IconArrowBackUp, IconArrowsMaximize, IconArrowsShuffle, IconCube3dSphere, IconFileTypeSvg, IconFocusCentered, IconHierarchy3, IconMaximize, IconMinimize, IconTopologyStar3, IconTypography, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
 import type { EditorContext, Selection } from "./DatamodelEditors";
+import type { GraphShell } from "./DatamodelGraphView";
 import { embeddedColor, kindMeta, propertyColor, relationColor } from "./DatamodelIcons";
 import { fullName, type NodeTypeJson } from "../server/datamodel";
 import { formatCount } from "../format";
 import { downloadSvg } from "../svgExport";
-import { buildWorld, edgeKinds, edgesKey, expandedKey, readEdges, readExpanded, readRoot, remember, rootKey, unfold, type EdgeKind, type GraphLink, type GraphNode } from "./datamodelGraphModel";
+import { buildWorld, edgeKinds, edgesKey, expandedKey, readEdges, readExpanded, readRoot, remember, rootKey, unfold, type EdgeKind, type GraphLink, type GraphMode, type GraphNode } from "./datamodelGraphModel";
 
 interface Props {
   ctx: EditorContext;
@@ -13,6 +14,8 @@ interface Props {
   selection: Selection | null;
   query: string;
   storeId: string;
+  /** what the flat and the spatial graph share: the mode switch, the names switch, fullscreen */
+  shell: GraphShell;
 }
 
 /** A node as the simulation moves it. Pinned nodes (fx, fy) stay where they are put. */
@@ -69,14 +72,14 @@ const leafCharge = -140;
  *
  * Everything shown floats in a force layout: links are springs, nodes repel, the whole thing drifts
  * toward the middle and settles, and a node can be dragged wherever it reads best, where it then
- * stays. The view pans and zooms, and what is on screen can be saved as an SVG file that stands on
- * its own and prints.
+ * stays. The view pans and zooms, can fill the screen, and what is on it can be saved as an SVG file
+ * that stands on its own and prints.
  *
  * The lines mean what they mean in the diagram: dashed for inheritance (arrow at the parent), the
  * relation colour for relations, dotted in the accent for references, the embedded colour for
  * inner nodes, and a thin grey stem from a type to each of its properties.
  */
-export function DatamodelGraph({ ctx, visibleTypes, selection, query, storeId }: Props) {
+export function DatamodelGraph({ ctx, visibleTypes, selection, query, storeId, shell }: Props) {
   const baseId = ctx.baseTypeId;
   const [root, setRoot] = useState<string | null>(() => readRoot(storeId));
   const [expanded, setExpanded] = useState<Set<string>>(() => readExpanded(storeId));
@@ -163,6 +166,20 @@ export function DatamodelGraph({ ctx, visibleTypes, selection, query, storeId }:
     [],
   );
 
+  // The wheel is listened to natively. React registers its wheel listeners as passive, and a passive
+  // listener may not call preventDefault: the browser refuses it and logs, and the page scrolls under
+  // the graph while it zooms. The listener stays put; the handler it calls is this render's. It is
+  // hung on the drawing, which only exists once a start type is picked.
+  const wheelHandler = useRef<(e: WheelEvent) => void>(() => {});
+  wheelHandler.current = onWheel;
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const wheel = (e: WheelEvent) => wheelHandler.current(e);
+    svg.addEventListener("wheel", wheel, { passive: false });
+    return () => svg.removeEventListener("wheel", wheel);
+  }, [rootId]);
+
   /** Keeps the frames coming while there is motion left: the simulation, a drag, or a view tween. */
   function run() {
     if (raf.current) return;
@@ -200,6 +217,8 @@ export function DatamodelGraph({ ctx, visibleTypes, selection, query, storeId }:
     setRoot(id);
   }
   function startOver() {
+    // the picker has no toolbar, so nothing there could bring the screen back: step out first
+    shell.exitFullscreen();
     setRoot(null);
     setExpanded(new Set());
   }
@@ -273,10 +292,17 @@ export function DatamodelGraph({ ctx, visibleTypes, selection, query, storeId }:
       setView(next);
     } else animateTo(next);
   }
-  function onWheel(e: React.WheelEvent) {
+  function onWheel(e: WheelEvent) {
     e.preventDefault();
     const rect = svgRef.current!.getBoundingClientRect();
     zoomBy(e.deltaY < 0 ? 1.1 : 1 / 1.1, e.clientX - rect.left, e.clientY - rect.top, true);
+  }
+  function onKeyDown(e: React.KeyboardEvent) {
+    // a keypress is a gesture the browser accepts fullscreen from
+    if (e.code === "KeyF" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      void shell.toggleFullscreen();
+    }
   }
 
   // ---- the pointer: pan on the background, drag a node, click to unfold or select ----
@@ -346,27 +372,25 @@ export function DatamodelGraph({ ctx, visibleTypes, selection, query, storeId }:
 
   // ---- drawing ----
 
-  if (rootId === null) {
-    return (
-      <div className="dm-diagram dm-graph">
-        <TypePicker ctx={ctx} eligible={world.eligible} query={q} onPick={start} />
-      </div>
-    );
-  }
+  const modeSwitch = <GraphModeSwitch mode={shell.mode} onMode={shell.setMode} />;
+
+  if (rootId === null) return <TypePicker ctx={ctx} eligible={world.eligible} query={q} onPick={start} tools={modeSwitch} />;
 
   const positions = sim.current.nodes;
   const selectedType = selection?.kind === "type" ? selection.id : selection?.kind === "property" ? selection.typeId : null;
   const selectedProperty = selection?.kind === "property" ? selection.id : null;
   const selectedRelation = selection?.kind === "relation" ? selection.id : null;
-  const showLabels = view.k > 0.45;
-  const showLeafLabels = view.k > 0.7;
+  // names go when switched off, and otherwise when the graph is too far out for them to be read
+  const showLabels = shell.names && view.k > 0.45;
+  const showLeafLabels = shell.names && view.k > 0.7;
   const matches = (n: GraphNode) => !q || (n.kind === "type" ? n.type.CodeName.toLowerCase().includes(q) : n.property.CodeName.toLowerCase().includes(q));
   const touching = (l: GraphLink) => hover !== null && (l.from === hover || l.to === hover);
   const rootType = ctx.model.NodeTypes[rootId];
 
   return (
-    <div className="dm-diagram dm-graph">
+    <>
       <div className="dm-diagram-tools">
+        {modeSwitch}
         <button className="icon-button" title="Start over from another type" onClick={startOver}>
           <IconArrowBackUp size={16} stroke={1.9} />
         </button>
@@ -394,9 +418,11 @@ export function DatamodelGraph({ ctx, visibleTypes, selection, query, storeId }:
           <IconFocusCentered size={16} stroke={1.9} />
         </button>
         <span className="dm-tools-gap" />
+        <NamesButton on={shell.names} onToggle={shell.toggleNames} />
         <button className="icon-button" title="Save what is on screen as an SVG file, ready to print" onClick={exportSvg}>
           <IconFileTypeSvg size={16} stroke={1.9} />
         </button>
+        <FullscreenButton on={shell.fullscreen} onToggle={() => void shell.toggleFullscreen()} />
         {/* the legend is the switchboard: each kind of line can be turned off, and with it the types it leads to */}
         <span className="dg-edge-toggles" role="group" aria-label="Kinds of line to show">
           {edgeKinds.map((e) => (
@@ -410,7 +436,8 @@ export function DatamodelGraph({ ctx, visibleTypes, selection, query, storeId }:
       <svg
         ref={svgRef}
         className="dm-diagram-svg dg-svg"
-        onWheel={onWheel}
+        tabIndex={0}
+        onKeyDown={onKeyDown}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -420,7 +447,8 @@ export function DatamodelGraph({ ctx, visibleTypes, selection, query, storeId }:
         }}
       >
         <defs>
-          <marker id="dg-arrow-inherit" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="12" markerHeight="12" orient="auto-start-reverse">
+          {/* the inheritance head is drawn hollow and sits on every type, so it is kept the size of the others */}
+          <marker id="dg-arrow-inherit" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
             <path d="M1 1 L11 6 L1 11 z" className="dm-marker-inherit" />
           </marker>
           <marker id="dg-arrow-relation" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
@@ -575,7 +603,45 @@ export function DatamodelGraph({ ctx, visibleTypes, selection, query, storeId }:
           })}
         </g>
       </svg>
+    </>
+  );
+}
+
+// ---- what both graphs put in their toolbars ----
+
+/** Flat or in space: the one control that turns one graph into the other, first in both toolbars. */
+export function GraphModeSwitch({ mode, onMode }: { mode: GraphMode; onMode: (mode: GraphMode) => void }) {
+  const modes: { id: GraphMode; label: string; icon: typeof IconTopologyStar3; hint: string }[] = [
+    { id: "2d", label: "2D", icon: IconTopologyStar3, hint: "The graph laid out flat on the page" },
+    { id: "3d", label: "3D", icon: IconCube3dSphere, hint: "The graph in space, with a camera that flies through it" },
+  ];
+  return (
+    <div className="dm-layout-picker dg-mode" role="tablist" aria-label="Flat or in space">
+      {modes.map((m) => (
+        <button key={m.id} role="tab" aria-selected={mode === m.id} className={mode === m.id ? "active" : ""} title={m.hint} onClick={() => onMode(m.id)}>
+          <m.icon size={14} stroke={1.9} />
+          {m.label}
+        </button>
+      ))}
     </div>
+  );
+}
+
+/** Whether names are written beside the nodes and lines. */
+export function NamesButton({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+  return (
+    <button className={"icon-button" + (on ? " active" : "")} aria-pressed={on} title={on ? "Hide the names" : "Show the names"} onClick={onToggle}>
+      <IconTypography size={16} stroke={1.9} />
+    </button>
+  );
+}
+
+/** The browser's fullscreen, on or off; F over the drawing does the same. Named for what it fills with. */
+export function FullscreenButton({ on, onToggle, what = "graph" }: { on: boolean; onToggle: () => void; what?: string }) {
+  return (
+    <button className={"icon-button" + (on ? " active" : "")} aria-pressed={on} title={on ? `Leave fullscreen (Escape, or F over the ${what})` : `Fill the screen with the ${what} (F over the ${what})`} onClick={onToggle}>
+      {on ? <IconMinimize size={16} stroke={1.9} /> : <IconMaximize size={16} stroke={1.9} />}
+    </button>
   );
 }
 
@@ -584,9 +650,10 @@ export function DatamodelGraph({ ctx, visibleTypes, selection, query, storeId }:
 /**
  * Every type there is, to pick the one the graph starts from: one group per model source in the order
  * the sources load, the base type first in its group, the rest by name; each with its kind and how
- * many nodes it holds. The page's search box narrows the choice.
+ * many nodes it holds. The page's search box narrows the choice. Whatever is given as tools sits in
+ * the head, so a switch that belongs to the whole view is still within reach before a type is picked.
  */
-export function TypePicker({ ctx, eligible, query, onPick }: { ctx: EditorContext; eligible: Set<string>; query: string; onPick: (id: string) => void }) {
+export function TypePicker({ ctx, eligible, query, onPick, tools }: { ctx: EditorContext; eligible: Set<string>; query: string; onPick: (id: string) => void; tools?: ReactNode }) {
   const order = new Map(ctx.model.Sources.map((s, i) => [s.Id, i]));
   const groups = new Map<string, NodeTypeJson[]>();
   for (const id of eligible) {
@@ -602,11 +669,14 @@ export function TypePicker({ ctx, eligible, query, onPick }: { ctx: EditorContex
   return (
     <div className="dg-picker">
       <div className="dg-picker-head">
-        <h2>Start from a type</h2>
-        <p className="muted">
-          The graph grows from the type you pick: the + on a type unfolds what it inherits, relates to, references and embeds, all the way down to its
-          properties, and − folds it again. The search box above narrows the choice.
-        </p>
+        <div>
+          <h2>Start from a type</h2>
+          <p className="muted">
+            The graph grows from the type you pick: the + on a type unfolds what it inherits, relates to, references and embeds, all the way down to its
+            properties, and − folds it again. The search box above narrows the choice.
+          </p>
+        </div>
+        {tools && <div className="dg-picker-tools">{tools}</div>}
       </div>
       {keys.map((key) => {
         const source = ctx.sources.find((s) => s.id === key);

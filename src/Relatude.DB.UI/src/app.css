@@ -7022,9 +7022,31 @@ body.pg-resizing {
   gap: 10px;
 }
 
+/* the groups are told apart by their headings and their colour, not by a rule drawn between them */
 .storage-group + .storage-group {
-  padding-top: 18px;
-  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+/* one tone per group, from the tokens the rest of the app already means something by: green for the
+   copies that are the way back, the data amber for the database's own file, the accent for the files
+   it points at. The tone reaches the group's own icon and the icons of the actions inside it. */
+.storage-group.tone-backups {
+  --tone: var(--ok);
+  --tone-soft: rgba(47, 122, 68, 0.12);
+}
+
+.storage-group.tone-database {
+  --tone: var(--data);
+  --tone-soft: var(--data-soft);
+}
+
+.storage-group.tone-files {
+  --tone: var(--accent);
+  --tone-soft: var(--accent-soft);
+}
+
+[data-theme="dark"] .storage-group.tone-backups {
+  --tone-soft: rgba(111, 191, 133, 0.14);
 }
 
 .storage-group-head {
@@ -7035,9 +7057,50 @@ body.pg-resizing {
   color: var(--text);
 }
 
+/* the icon sits in a soft disc of its group's colour, which is what marks one group from the next */
 .storage-group-head svg {
   align-self: center;
-  color: var(--text-muted);
+  box-sizing: content-box;
+  padding: 5px;
+  border-radius: 8px;
+  background: var(--tone-soft, var(--badge-bg));
+  color: var(--tone, var(--text-muted));
+}
+
+/* an action icon carries the colour of what it acts on; the label stays the text colour */
+.action-button svg.tone-ok {
+  color: var(--ok);
+}
+
+.action-button svg.tone-data {
+  color: var(--data);
+}
+
+.action-button svg.tone-accent {
+  color: var(--accent);
+}
+
+.action-button:disabled svg {
+  color: inherit;
+}
+
+/* making a backup, above the list of the ones there are */
+.storage-make-backup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-bottom: 14px;
+  font-size: 12px;
+}
+
+.storage-make-backup .action-button {
+  width: 220px;
+  max-width: 100%;
+}
+
+.storage-make-backup .login-remember {
+  margin: 0;
 }
 
 .storage-group-head h2 {

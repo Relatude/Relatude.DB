@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { IconChevronDown, IconChevronRight, IconLoader2, IconPlus, IconRefreshAlert, IconSearch, IconTrash, IconWand, IconX } from "@tabler/icons-react";
+import { IconArrowLeft, IconChevronDown, IconChevronRight, IconLoader2, IconPlus, IconRefreshAlert, IconSearch, IconTrash, IconWand, IconX } from "@tabler/icons-react";
 import { IndexMarks, KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, relationMeta, sourceKindMeta } from "./DatamodelIcons";
 import { Combobox, type ComboOption } from "./Combobox";
 import { ColorField } from "./ColorField";
@@ -49,16 +49,46 @@ export interface EditorContext {
   select: (selection: Selection | null) => void;
 }
 
+/** Which half of the type form is up: what the type itself is, or the properties it holds. */
+export type TypeTab = "type" | "properties";
+
 /**
  * What the editor panel shows. focusField names a field of the thing selected that takes the
  * keyboard as soon as the editor is on screen - set when something has just been created, so its
  * placeholder name can be typed over without reaching for the mouse. It is cleared once used.
+ * tab opens the type form on one of its two halves; without it the form keeps the half it was on.
  */
 export type Selection =
-  | { kind: "type"; id: string; focusField?: string }
+  | { kind: "type"; id: string; focusField?: string; tab?: TypeTab }
   | { kind: "property"; id: string; typeId: string; focusField?: string }
   | { kind: "relation"; id: string; focusField?: string }
   | { kind: "source"; id: string; focusField?: string };
+
+/**
+ * Why the form for this selection cannot be edited, or null when it can. The panel head shows it as
+ * a badge; the forms themselves say nothing, so a read-only form reads the same as a writable one.
+ */
+export function readOnlyNote(selection: Selection, ctx: EditorContext, sourcesLocked: boolean): string | null {
+  const bySource = (sourceId: string) => (ctx.writableSource(sourceId) ? null : (ctx.readOnlyReason(sourceId) ?? "This source cannot be written from here."));
+  if (selection.kind === "type") {
+    const t = ctx.model.NodeTypes[selection.id];
+    return t ? bySource(t.DatamodelSourceId) : null;
+  }
+  if (selection.kind === "property") {
+    const t = ctx.model.NodeTypes[selection.typeId];
+    if (!t) return null;
+    // an internal property is writable as far as its source goes, and still nothing here can change it
+    return bySource(t.DatamodelSourceId) ?? (t.Properties[selection.id]?.Internal ? "An internal property: the engine keeps this one, not the model." : null);
+  }
+  if (selection.kind === "relation") {
+    const r = ctx.model.Relations[selection.id];
+    return r ? bySource(r.DatamodelSourceId) : null;
+  }
+  const s = ctx.model.Sources.find((x) => x.Id === selection.id);
+  if (!s) return null;
+  if (s.Type === "Code" || s.Id === ctx.codeSourceId) return "Types registered from application code (OnDatamodelInit). Change the code instead.";
+  return sourcesLocked ? "The source list is set by the configuration overlay." : null;
+}
 
 // ---- one field ----
 
@@ -395,10 +425,6 @@ function setField(target: Record<string, unknown>, path: string, value: unknown)
   else target[path] = value;
 }
 
-function ReadOnlyBanner({ reason }: { reason: string | null }) {
-  return <div className="dm-readonly">Read only. {reason ?? "This source cannot be written from here."}</div>;
-}
-
 // ---- the two model dialogs ----
 
 /** Escape closes a dialog wherever the keyboard happens to be, not only inside it. */
@@ -424,11 +450,13 @@ function useEscape(onClose: () => void) {
  */
 export function SourcePickerDialog({ what, sources, ctx, onPick, onClose }: { what: "type" | "relation"; sources: SourceJson[]; ctx: EditorContext; onPick: (source: SourceJson) => void; onClose: () => void }) {
   useEscape(onClose);
+  // a node type is called a model wherever the reader meets one; "type" is what the code calls it
+  const noun = what === "type" ? "model" : "relation";
   return (
     <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="dialog dm-source-pick">
-        <h3>Which source holds the new {what}?</h3>
-        <div className="dialog-body">The {what} is written into the source you pick when the draft is activated.</div>
+        <h3>Which source holds the new {noun}?</h3>
+        <div className="dialog-body">The {noun} is written into the source you pick when the draft is activated.</div>
         <div className="dm-source-cards dm-source-pick-list">
           {sources.map((s) => {
             const info = ctx.sources.find((x) => x.id === s.Id);
@@ -554,8 +582,14 @@ function PropertyTypeDialog({ typeName, schema, onPick, onClose }: { typeName: s
 
 // ---- a node type ----
 
-export function TypeEditor({ type, ctx, onDelete, focusField, onFocused }: { type: NodeTypeJson; ctx: EditorContext; onDelete: () => void; focusField?: string | null; onFocused?: () => void }) {
+export function TypeEditor({ type, ctx, onDelete, focusField, onFocused, tab: wanted }: { type: NodeTypeJson; ctx: EditorContext; onDelete: () => void; focusField?: string | null; onFocused?: () => void; tab?: TypeTab }) {
   const writable = ctx.writableSource(type.DatamodelSourceId);
+  const [tab, setTab] = useState<TypeTab>(wanted ?? "type");
+  // a selection can ask for a half - coming back from a property lands on the properties - and the
+  // form otherwise keeps the half it is on, so walking a chain of types does not reset it every step
+  useEffect(() => {
+    if (wanted) setTab(wanted);
+  }, [wanted, type.Id]);
   const color = ctx.colors.get(type.DatamodelSourceId) ?? "#888";
   const source = ctx.sources.find((s) => s.id === type.DatamodelSourceId);
   const own = Object.values(type.Properties);
@@ -597,101 +631,114 @@ export function TypeEditor({ type, ctx, onDelete, focusField, onFocused }: { typ
           </button>
         )}
       </div>
-      {writable && (
-        <div className="dm-editor-actions">
-          <button className="action-button dm-button" onClick={() => setPicking(true)} title="Add a property to this type">
-            <IconPlus size={15} stroke={2} /> Add property
-          </button>
-        </div>
-      )}
-      {picking && <PropertyTypeDialog typeName={type.CodeName} schema={ctx.schema} onPick={addProperty} onClose={() => setPicking(false)} />}
-      {!writable && <ReadOnlyBanner reason={ctx.readOnlyReason(type.DatamodelSourceId)} />}
-      <Groups
-        fields={ctx.schema.nodeType}
-        target={type as unknown as Record<string, unknown>}
-        disabled={!writable}
-        ctx={ctx}
-        open={["General", "Text search"]}
-        focusPath={focusField}
-        onFocused={onFocused}
-        onChange={(path, value) => ctx.update((m) => setField(m.NodeTypes[type.Id] as unknown as Record<string, unknown>, path, value))}
-      />
-      <div className="dm-group">
-        <div className="dm-group-head static">
-          <span>Properties</span>
+      {/* what the type is, and what it holds: two halves of one form, since the settings and a long
+          property list read badly stacked in a panel this narrow */}
+      <div className="tabs dm-editor-tabs" role="tablist">
+        <button className={"tab" + (tab === "type" ? " active" : "")} role="tab" aria-selected={tab === "type"} onClick={() => setTab("type")}>
+          Type
+        </button>
+        <button className={"tab" + (tab === "properties" ? " active" : "")} role="tab" aria-selected={tab === "properties"} onClick={() => setTab("properties")}>
+          Properties
           <span className="badge">{own.length}</span>
-          {writable && (
-            <button className="link-button" onClick={() => setPicking(true)}>
-              <IconPlus size={12} stroke={2} /> add
-            </button>
+        </button>
+      </div>
+      {picking && <PropertyTypeDialog typeName={type.CodeName} schema={ctx.schema} onPick={addProperty} onClose={() => setPicking(false)} />}
+      {tab === "type" && (
+        <>
+          <Groups
+            fields={ctx.schema.nodeType}
+            target={type as unknown as Record<string, unknown>}
+            disabled={!writable}
+            ctx={ctx}
+            open={["General", "Text search"]}
+            focusPath={focusField}
+            onFocused={onFocused}
+            onChange={(path, value) => ctx.update((m) => setField(m.NodeTypes[type.Id] as unknown as Record<string, unknown>, path, value))}
+          />
+          {relations.length > 0 && (
+            <div className="dm-group">
+              <div className="dm-group-head static">
+                <span>Relations</span>
+                <span className="badge">{relations.length}</span>
+              </div>
+              <div className="dm-proplist">
+                {relations.map(({ relation, asSource, asTarget }) => (
+                  <button key={relation.Id} className="dm-proprow" onClick={() => ctx.select({ kind: "relation", id: relation.Id })}>
+                    <RelationIcon kind={relation.RelationType} size={14} />
+                    <span className="dm-propname">{relation.CodeName}</span>
+                    <span className="muted">
+                      {relationMeta[relation.RelationType]?.short ?? relation.RelationType} · {asSource && asTarget ? "both sides" : asSource ? "as source" : "as target"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
-        </div>
-        <div className="dm-proplist">
-          {own.map((p) => (
-            <button key={p.Id} className="dm-proprow" onClick={() => ctx.select({ kind: "property", id: p.Id, typeId: type.Id })}>
-              <PropertyIcon propertyType={p.PropertyType} />
-              <span className="dm-propname">{p.CodeName}</span>
-              <IndexMarks flags={{ indexed: p.Indexed, wordIndex: p.IndexedByWords, semanticIndex: p.IndexedBySemantic }} />
-              <span className="muted">{p.PropertyType}</span>
-              {p.UniqueValues && <span className="badge">unique</span>}
-            </button>
-          ))}
-          {own.length === 0 && <div className="muted dm-empty">No properties of its own.</div>}
-        </div>
-        {inherited.length > 0 && (
-          <>
+          {children.length > 0 && (
+            <div className="dm-group">
+              <div className="dm-group-head static">
+                <span>{type.ModelType === "Interface" ? "Implemented by" : "Extended by"}</span>
+                <span className="badge">{children.length}</span>
+              </div>
+              <div className="dm-proplist">
+                {children.map((c) => (
+                  <button key={c.Id} className="dm-proprow" onClick={() => ctx.select({ kind: "type", id: c.Id })}>
+                    <KindIcon kind={c.ModelType} size={14} />
+                    <span className="dm-propname">{c.CodeName}</span>
+                    <span className="muted">{c.Namespace}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+      {tab === "properties" && (
+        <>
+          {writable && (
+            <div className="dm-editor-actions">
+              <button className="action-button dm-button" onClick={() => setPicking(true)} title="Add a property to this type">
+                <IconPlus size={15} stroke={2} /> Add property
+              </button>
+            </div>
+          )}
+          <div className="dm-group">
             <div className="dm-group-head static">
-              <span>Inherited</span>
-              <span className="badge">{inherited.length}</span>
+              <span>Own</span>
+              <span className="badge">{own.length}</span>
             </div>
             <div className="dm-proplist">
-              {inherited.map((p) => (
-                <button key={p.property.Id} className="dm-proprow inherited" onClick={() => ctx.select({ kind: "property", id: p.property.Id, typeId: p.owner.Id })}>
-                  <PropertyIcon propertyType={p.property.PropertyType} />
-                  <span className="dm-propname">{p.property.CodeName}</span>
-                  <IndexMarks flags={{ indexed: p.property.Indexed, wordIndex: p.property.IndexedByWords, semanticIndex: p.property.IndexedBySemantic }} />
-                  <span className="muted">from {p.owner.CodeName}</span>
+              {own.map((p) => (
+                <button key={p.Id} className="dm-proprow" onClick={() => ctx.select({ kind: "property", id: p.Id, typeId: type.Id })}>
+                  <PropertyIcon propertyType={p.PropertyType} />
+                  <span className="dm-propname">{p.CodeName}</span>
+                  <IndexMarks flags={{ indexed: p.Indexed, wordIndex: p.IndexedByWords, semanticIndex: p.IndexedBySemantic }} />
+                  <span className="muted">{p.PropertyType}</span>
+                  {p.UniqueValues && <span className="badge">unique</span>}
                 </button>
               ))}
+              {own.length === 0 && <div className="muted dm-empty">No properties of its own.</div>}
             </div>
-          </>
-        )}
-      </div>
-      {relations.length > 0 && (
-        <div className="dm-group">
-          <div className="dm-group-head static">
-            <span>Relations</span>
-            <span className="badge">{relations.length}</span>
+            {inherited.length > 0 && (
+              <>
+                <div className="dm-group-head static">
+                  <span>Inherited</span>
+                  <span className="badge">{inherited.length}</span>
+                </div>
+                <div className="dm-proplist">
+                  {inherited.map((p) => (
+                    <button key={p.property.Id} className="dm-proprow inherited" onClick={() => ctx.select({ kind: "property", id: p.property.Id, typeId: p.owner.Id })}>
+                      <PropertyIcon propertyType={p.property.PropertyType} />
+                      <span className="dm-propname">{p.property.CodeName}</span>
+                      <IndexMarks flags={{ indexed: p.property.Indexed, wordIndex: p.property.IndexedByWords, semanticIndex: p.property.IndexedBySemantic }} />
+                      <span className="muted">from {p.owner.CodeName}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
-          <div className="dm-proplist">
-            {relations.map(({ relation, asSource, asTarget }) => (
-              <button key={relation.Id} className="dm-proprow" onClick={() => ctx.select({ kind: "relation", id: relation.Id })}>
-                <RelationIcon kind={relation.RelationType} size={14} />
-                <span className="dm-propname">{relation.CodeName}</span>
-                <span className="muted">
-                  {relationMeta[relation.RelationType]?.short ?? relation.RelationType} · {asSource && asTarget ? "both sides" : asSource ? "as source" : "as target"}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      {children.length > 0 && (
-        <div className="dm-group">
-          <div className="dm-group-head static">
-            <span>{type.ModelType === "Interface" ? "Implemented by" : "Extended by"}</span>
-            <span className="badge">{children.length}</span>
-          </div>
-          <div className="dm-proplist">
-            {children.map((c) => (
-              <button key={c.Id} className="dm-proprow" onClick={() => ctx.select({ kind: "type", id: c.Id })}>
-                <KindIcon kind={c.ModelType} size={14} />
-                <span className="dm-propname">{c.CodeName}</span>
-                <span className="muted">{c.Namespace}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+        </>
       )}
     </div>
   );
@@ -703,16 +750,20 @@ export function PropertyEditor({ type, property, ctx, onDelete, focusField, onFo
   const writable = ctx.writableSource(type.DatamodelSourceId) && !property.Internal;
   const typeDef = ctx.schema.propertyTypes.find((p) => p.value === property.PropertyType);
   const fields = [...ctx.schema.propertyCommon, ...(ctx.schema.propertyByType[property.PropertyType] ?? [])];
+  // a relation property is one end of a relation that has a form of its own: the rules for both ends
+  // live there, and there is no way to reach it from here but the type it came from
+  const relation = property.RelationId ? ctx.model.Relations[property.RelationId] : undefined;
   return (
     <div className="dm-editor">
+      {/* the way back up: a property is only ever reached through its type */}
+      <button className="link-button dm-editor-back" onClick={() => ctx.select({ kind: "type", id: type.Id, tab: "properties" })} title={`Back to the properties of ${fullName(type)}`}>
+        <IconArrowLeft size={13} stroke={2} /> Back to {type.CodeName}
+      </button>
       <div className="dm-editor-head">
         <PropertyIcon propertyType={property.PropertyType} size={20} />
         <div className="dm-editor-title">
           <div className="dm-editor-name">
-            <button className="link-button dm-crumb" onClick={() => ctx.select({ kind: "type", id: type.Id })}>
-              {type.CodeName}
-            </button>
-            .{property.CodeName}
+            <span className="dm-crumb">{type.CodeName}</span>.{property.CodeName}
             <IndexMarks flags={{ indexed: property.Indexed, wordIndex: property.IndexedByWords, semanticIndex: property.IndexedBySemantic }} size={13} />
           </div>
           <div className="dm-editor-sub" title={typeDef?.help}>
@@ -726,7 +777,13 @@ export function PropertyEditor({ type, property, ctx, onDelete, focusField, onFo
           </button>
         )}
       </div>
-      {!ctx.writableSource(type.DatamodelSourceId) && <ReadOnlyBanner reason={ctx.readOnlyReason(type.DatamodelSourceId)} />}
+      {relation && (
+        <div className="dm-editor-actions">
+          <button className="action-button dm-button" onClick={() => ctx.select({ kind: "relation", id: relation.Id })} title={`Open ${relation.CodeName}, the relation this property is one end of`}>
+            <RelationIcon kind={relation.RelationType} size={15} /> Open relation {relation.CodeName}
+          </button>
+        </div>
+      )}
       <Groups
         fields={fields}
         target={property as unknown as Record<string, unknown>}
@@ -766,7 +823,6 @@ export function RelationEditor({ relation, ctx, onDelete, focusField, onFocused 
           </button>
         )}
       </div>
-      {!writable && <ReadOnlyBanner reason={ctx.readOnlyReason(relation.DatamodelSourceId)} />}
       <Groups
         fields={ctx.schema.relation}
         target={relation as unknown as Record<string, unknown>}
@@ -854,8 +910,6 @@ export function SourceEditor({ source, info, ctx, locked, onDelete }: { source: 
           </button>
         )}
       </div>
-      {isCode && <ReadOnlyBanner reason="Types registered from application code (OnDatamodelInit). Change the code instead." />}
-      {locked && !isCode && <ReadOnlyBanner reason="The source list is set by the configuration overlay." />}
       {info && !info.writable && !isCode && <div className="dm-note">{info.readOnlyReason}</div>}
       {info?.resolvedPath && (
         <div className="dm-note">

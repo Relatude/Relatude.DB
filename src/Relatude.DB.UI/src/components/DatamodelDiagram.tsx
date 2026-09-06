@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { IconArrowsMaximize, IconArrowsShuffle, IconCircleDotted, IconFileTypeSvg, IconLayoutColumns, IconLayoutGrid, IconLayoutRows, IconPalette, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
+import { IconAffiliate, IconArrowsMaximize, IconArrowsShuffle, IconCircleDotted, IconFileTypeSvg, IconLayoutColumns, IconLayoutGrid, IconLayoutRows, IconPalette, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
 import { downloadSvg } from "../svgExport";
+import { FullscreenButton } from "./DatamodelGraph";
 import type { EditorContext, Selection } from "./DatamodelEditors";
 import { embeddedColor, indexMarks, kindMeta, propertyColor, relationColor, relationMeta } from "./DatamodelIcons";
 import type { NodeTypeJson } from "../server/datamodel";
@@ -31,7 +32,7 @@ interface Box {
  * three answer questions inheritance does not - what is in which source, what the whole model looks
  * like at once, and how a relation-heavy model connects when nothing inherits anything.
  */
-export type LayoutMode = "layers" | "columns" | "grid" | "sources" | "circle";
+export type LayoutMode = "layers" | "columns" | "grid" | "sources" | "circle" | "force";
 
 const layouts: { id: LayoutMode; label: string; hint: string; icon: typeof IconLayoutRows }[] = [
   { id: "layers", label: "Layers", hint: "Inheritance top down: parents above their children", icon: IconLayoutRows },
@@ -39,6 +40,7 @@ const layouts: { id: LayoutMode; label: string; hint: string; icon: typeof IconL
   { id: "grid", label: "Grid", hint: "Every type in one grid, by name", icon: IconLayoutGrid },
   { id: "sources", label: "Sources", hint: "One block per model source, in load order", icon: IconPalette },
   { id: "circle", label: "Circle", hint: "Types on a ring, so the lines between them read", icon: IconCircleDotted },
+  { id: "force", label: "Force", hint: "Pulled together by what joins them, as in the Graph view: clusters fall out of the relations", icon: IconAffiliate },
 ];
 
 type Edge =
@@ -53,6 +55,20 @@ const rowHeight = 17;
 const maxRows = 9;
 const layerGap = 90;
 const columnGap = 48;
+
+/** Where the drawing is on screen: panned to (x, y) and scaled by k. */
+interface View {
+  x: number;
+  y: number;
+  k: number;
+}
+
+// One arrangement is a different reading of the same model, and watching a type travel from where it
+// sat to where it belongs is what says so. Long enough to follow a box across the screen, short
+// enough that switching twice in a row is not a wait.
+const moveMs = 520;
+/** Fast away, gentle in: the boxes settle rather than stop. */
+const ease = (p: number) => 1 - Math.pow(1 - p, 3);
 
 // dragged positions belong to the arrangement they were dragged in: a box moved in the grid has no
 // meaning in the circle, so every layout remembers its own
@@ -84,6 +100,7 @@ function place(mode: LayoutMode, boxes: Box[], depth: Map<string, number>, ctx: 
   if (mode === "layers" || mode === "columns") layered(boxes, depth, mode === "columns");
   else if (mode === "grid") grid([...boxes].sort((a, b) => a.type.CodeName.localeCompare(b.type.CodeName)), 0, 0);
   else if (mode === "sources") bySource(boxes, ctx);
+  else if (mode === "force") forceLayout(boxes, ctx);
   else circle(boxes);
 }
 
@@ -191,6 +208,136 @@ function circle(boxes: Box[]) {
   });
 }
 
+// ---- the force layout ----
+
+// What a pair of joined types settles at, and how hard every pair pushes. The two are balanced so a
+// joined pair comes to rest at about the link length; the pull to the middle then decides how wide
+// the whole cloud ends up, since nothing else stops the unjoined ones drifting outward.
+const linkLength = 330;
+const boxCharge = -2600;
+const centerPull = 0.045;
+const boxPad = 26;
+
+/** Every pair of types the diagram would draw a line between, as indexes into the boxes. */
+function linksBetween(boxes: Box[], ctx: EditorContext): [number, number][] {
+  const index = new Map(boxes.map((b, i) => [b.id, i]));
+  const links: [number, number][] = [];
+  const add = (a: string, b: string) => {
+    const i = index.get(a);
+    const j = index.get(b);
+    if (i !== undefined && j !== undefined && i !== j) links.push([i, j]);
+  };
+  for (const b of boxes) {
+    for (const p of b.type.Parents ?? []) add(b.id, p);
+    for (const p of Object.values(b.type.Properties)) {
+      if ((p.PropertyType === "Reference" || p.PropertyType === "References") && p.NodeTypes) for (const t of p.NodeTypes) add(b.id, t);
+      if (p.PropertyType === "Embedded" && p.InnerNodeTypes) for (const t of p.InnerNodeTypes) add(b.id, t);
+    }
+  }
+  for (const r of Object.values(ctx.model.Relations)) for (const s of r.SourceTypes) for (const t of r.TargetTypes) add(s, t);
+  return links;
+}
+
+/**
+ * Types pulled together by what joins them and pushed apart by everything else - the arrangement the
+ * Graph view keeps alive under the hand, worked out here in one go and then left still, because the
+ * diagram is a picture to read and print rather than something to play with. What it is good for is
+ * the shape of a model nothing inherits: clusters fall out of the relations, and a type joined to
+ * nothing drifts to the edge where it is easy to spot.
+ *
+ * It starts from the same spiral every time and has no randomness in it, so a model always relaxes
+ * into the same picture. Opening a box or switching a source off would otherwise deal the whole
+ * diagram again, which is no way to read one.
+ */
+function forceLayout(boxes: Box[], ctx: EditorContext) {
+  const n = boxes.length;
+  const links = linksBetween(boxes, ctx);
+  // a sunflower spiral: an even spread to start from, and evenness is what keeps the first few
+  // rounds from being one long shove apart
+  const spread = Math.max(nodeWidth, Math.sqrt(n) * linkLength * 0.6);
+  boxes.forEach((b, i) => {
+    const a = i * 2.399963229728653; // the golden angle, or the start comes out in spokes
+    const r = spread * Math.sqrt((i + 0.5) / n);
+    b.x = Math.cos(a) * r;
+    b.y = Math.sin(a) * r;
+  });
+  // a big model is not worth a long relax: it is past reading as one picture anyway
+  const rounds = n > 160 ? 140 : 320;
+  const vx = new Float64Array(n);
+  const vy = new Float64Array(n);
+  for (let round = 0; round < rounds; round++) {
+    // the whole thing cools: big moves first, then only settling
+    const alpha = Math.pow(1 - round / rounds, 1.2);
+    for (const [i, j] of links) {
+      const dx = boxes[j].x - boxes[i].x;
+      const dy = boxes[j].y - boxes[i].y;
+      const d = Math.hypot(dx, dy) || 1;
+      const f = ((d - linkLength) / d) * alpha * 0.25;
+      vx[i] += dx * f;
+      vy[i] += dy * f;
+      vx[j] -= dx * f;
+      vy[j] -= dy * f;
+    }
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        let dx = boxes[j].x - boxes[i].x;
+        let dy = boxes[j].y - boxes[i].y;
+        let d2 = dx * dx + dy * dy;
+        // far enough apart to ignore: the push is already down to nothing there
+        if (d2 > 1600 * 1600) continue;
+        if (d2 < 1) {
+          // exactly on top of each other, and the push has no direction: give it one, the same one
+          // every time this pair meets, so the layout stays repeatable
+          dx = ((i * 7 + j * 13) % 11) / 11 - 0.5;
+          dy = ((i * 11 + j * 3) % 11) / 11 - 0.5;
+          d2 = dx * dx + dy * dy || 1;
+        }
+        const f = (boxCharge * alpha) / d2;
+        vx[i] += dx * f;
+        vy[i] += dy * f;
+        vx[j] -= dx * f;
+        vy[j] -= dy * f;
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      // the pull to the middle, or anything joined to nothing drifts away for ever
+      vx[i] -= boxes[i].x * centerPull * alpha;
+      vy[i] -= boxes[i].y * centerPull * alpha;
+      vx[i] *= 0.62;
+      vy[i] *= 0.62;
+      boxes[i].x += vx[i];
+      boxes[i].y += vy[i];
+    }
+    // these are boxes, not dots: whatever the forces did, two of them may not cover each other
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const a = boxes[i];
+        const b = boxes[j];
+        const ox = (a.w + b.w) / 2 + boxPad - Math.abs(a.x + a.w / 2 - (b.x + b.w / 2));
+        const oy = (a.h + b.h) / 2 + boxPad - Math.abs(a.y + a.h / 2 - (b.y + b.h / 2));
+        if (ox <= 0 || oy <= 0) continue;
+        // out the short way: the way apart that moves them least
+        if (ox < oy) {
+          const s = (a.x < b.x ? -1 : 1) * ox * 0.5;
+          a.x += s;
+          b.x -= s;
+        } else {
+          const s = (a.y < b.y ? -1 : 1) * oy * 0.5;
+          a.y += s;
+          b.y -= s;
+        }
+      }
+    }
+  }
+  // every other arrangement starts at the origin, and the export and the fit read better from there
+  const minX = Math.min(...boxes.map((b) => b.x));
+  const minY = Math.min(...boxes.map((b) => b.y));
+  for (const b of boxes) {
+    b.x -= minX;
+    b.y -= minY;
+  }
+}
+
 /**
  * The model as boxes and lines. Boxes are types (header in the source's color, kind icon, the first
  * properties), lines are inheritance (dashed, hollow arrow at the parent), relations (solid, in the
@@ -210,11 +357,28 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
   const [positions, setPositions] = useState(() => readPositions(storeId, layout));
   // types whose box shows every property rather than the first few
   const [openBoxes, setOpenBoxes] = useState<Set<string>>(new Set());
-  const [view, setView] = useState({ x: 20, y: 20, k: 1 });
+  const [view, setView] = useState<View>({ x: 20, y: 20, k: 1 });
   const [fitted, setFitted] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<{ kind: "pan"; sx: number; sy: number; ox: number; oy: number } | { kind: "node"; id: string; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null);
   const q = query.trim().toLowerCase();
+  // where each box is drawn this frame, so the next rearrangement starts from where the eye left it
+  const drawn = useRef(new Map<string, { x: number; y: number }>());
+  // a rearrangement on its way: where the boxes set out from, and when
+  const move = useRef<{ from: Map<string, { x: number; y: number }>; start: number } | null>(null);
+  const viewMove = useRef<{ from: View; to: View; start: number } | null>(null);
+  // counts rearrangements, so the view can be sent after one once the new places are known
+  const [rearranged, setRearranged] = useState(0);
+  const [, setFrame] = useState(0);
+  const raf = useRef(0);
+  const viewRef = useRef<HTMLDivElement>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  // the listeners below are hung once and live as long as the view, while what they call is this
+  // render's: refs are how they reach it without being taken down and put up again every frame
+  const liveView = useRef(view);
+  liveView.current = view;
+  const fitViewRef = useRef<() => View | null>(() => null);
+  const runMoveRef = useRef<() => void>(() => {});
 
   const { boxes, edges } = useMemo(() => {
     const shown = new Set([...visibleTypes, ...ghostTypes]);
@@ -296,17 +460,127 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
     const maxY = Math.max(...boxes.map((b) => b.y + b.h));
     return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
   }
-  function fit() {
+  /** Where the view has to sit for the whole model to fit, or null while there is nothing to fit. */
+  function fitView(): View | null {
     const svg = svgRef.current;
-    if (!svg) return;
+    if (!svg) return null;
     const rect = svg.getBoundingClientRect();
     const b = bounds();
     const k = Math.min(1.25, Math.max(0.15, Math.min((rect.width - 40) / Math.max(1, b.w), (rect.height - 40) / Math.max(1, b.h))));
-    setView({ k, x: (rect.width - b.w * k) / 2 - b.x * k, y: (rect.height - b.h * k) / 2 - b.y * k });
+    return { k, x: (rect.width - b.w * k) / 2 - b.x * k, y: (rect.height - b.h * k) / 2 - b.y * k };
   }
+  fitViewRef.current = fitView;
+
+  function fit() {
+    const v = fitView();
+    if (!v) return;
+    viewMove.current = null;
+    setView(v);
+  }
+
+  /** Keeps the frames coming while the boxes are still travelling, and while the view follows them. */
+  function runMove() {
+    if (raf.current) return;
+    const step = () => {
+      raf.current = 0;
+      const now = performance.now();
+      let busy = false;
+      if (move.current) {
+        if (now - move.current.start >= moveMs) move.current = null;
+        else busy = true;
+      }
+      const vm = viewMove.current;
+      if (vm) {
+        const p = Math.min(1, (now - vm.start) / moveMs);
+        const e = ease(p);
+        setView({ x: vm.from.x + (vm.to.x - vm.from.x) * e, y: vm.from.y + (vm.to.y - vm.from.y) * e, k: vm.from.k + (vm.to.k - vm.from.k) * e });
+        if (p >= 1) viewMove.current = null;
+        else busy = true;
+      }
+      setFrame((f) => f + 1);
+      if (busy) raf.current = requestAnimationFrame(step);
+    };
+    raf.current = requestAnimationFrame(step);
+  }
+  runMoveRef.current = runMove;
+
+  // the frame id is cleared with the frame: a stale one would make runMove believe a loop is running
+  // (an effect cleanup runs on every hot reload in development, not only on unmount)
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(raf.current);
+      raf.current = 0;
+    },
+    [],
+  );
+
+  /** Sets the boxes off from wherever they are drawn now toward wherever the new arrangement puts them. */
+  function startMove() {
+    move.current = { from: new Map(drawn.current), start: performance.now() };
+    setRearranged((n) => n + 1);
+    runMove();
+  }
+
+  // The view goes with them. One arrangement's extent is usually nothing like the next one's - a ring
+  // is as wide as the layers are tall - so without this the boxes would glide off the edge of the
+  // screen. It waits for the render that has the new places, since that is what it measures.
+  useEffect(() => {
+    if (rearranged === 0) return;
+    const to = fitView();
+    if (!to) return;
+    viewMove.current = { from: view, to, start: performance.now() };
+    runMove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- follows a rearrangement, not the view moving
+  }, [rearranged]);
+
+  // ---- the whole screen ----
+
+  // the browser owns the fullscreen state - Escape and F11 change it without asking - so the button
+  // follows the document rather than the other way round. Filling the screen gives the drawing far
+  // more room than it had, so it is refitted into it, once the new size has actually been laid out:
+  // the change fires before the layout, and one frame is not always enough to have it.
+  useEffect(() => {
+    const sync = () => {
+      setFullscreen(document.fullscreenElement !== null && document.fullscreenElement === viewRef.current);
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const to = fitViewRef.current();
+          if (!to) return;
+          viewMove.current = { from: liveView.current, to, start: performance.now() };
+          runMoveRef.current();
+        }),
+      );
+    };
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
+  /** Hands the view to the browser's fullscreen, toolbar and all, so the controls stay within reach. */
+  function toggleFullscreen() {
+    const el = viewRef.current;
+    if (!el) return;
+    if (document.fullscreenElement === el) {
+      void document.exitFullscreen().catch(() => {});
+      return;
+    }
+    // refused (a permissions policy, or no gesture behind this call): the view stays where it is
+    void el
+      .requestFullscreen?.()
+      .then(() => svgRef.current?.focus({ preventScroll: true }))
+      .catch(() => {});
+  }
+  function onKeyDown(e: React.KeyboardEvent) {
+    // a keypress is a gesture the browser accepts fullscreen from
+    if (e.code === "KeyF" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      toggleFullscreen();
+    }
+  }
+
   function zoom(factor: number, cx?: number, cy?: number) {
     const svg = svgRef.current;
     if (!svg) return;
+    viewMove.current = null;
     const rect = svg.getBoundingClientRect();
     const px = cx ?? rect.width / 2;
     const py = cy ?? rect.height / 2;
@@ -315,19 +589,37 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
       return { k, x: px - ((px - v.x) * k) / v.k, y: py - ((py - v.y) * k) / v.k };
     });
   }
-  function onWheel(e: React.WheelEvent) {
+  function onWheel(e: WheelEvent) {
     e.preventDefault();
     const rect = svgRef.current!.getBoundingClientRect();
     zoom(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - rect.left, e.clientY - rect.top);
   }
+
+  // The wheel is listened to natively. React registers its wheel listeners as passive, and a passive
+  // listener may not call preventDefault: the browser refuses it and logs, the page scrolls under the
+  // drawing, and zooming takes the diagram with it. The ref keeps the listener itself fixed while the
+  // handler it calls is this render's, which is the one that can see the current view.
+  const wheelHandler = useRef<(e: WheelEvent) => void>(() => {});
+  wheelHandler.current = onWheel;
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const wheel = (e: WheelEvent) => wheelHandler.current(e);
+    svg.addEventListener("wheel", wheel, { passive: false });
+    return () => svg.removeEventListener("wheel", wheel);
+  }, []);
   function onPointerDown(e: React.PointerEvent) {
     if (e.button !== 0) return;
+    // a hand on the drawing outranks a transition still playing under it
+    viewMove.current = null;
     drag.current = { kind: "pan", sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y };
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
   }
   function onNodePointerDown(e: React.PointerEvent, b: Box) {
     if (e.button !== 0) return;
     e.stopPropagation();
+    move.current = null;
+    viewMove.current = null;
     drag.current = { kind: "node", id: b.id, sx: e.clientX, sy: e.clientY, ox: b.x, oy: b.y, moved: false };
     svgRef.current!.setPointerCapture(e.pointerId);
   }
@@ -355,21 +647,23 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
     if (Object.keys(positions).length > 0) writePositions(storeId, layout, positions);
   }, [positions, storeId, layout]);
 
+  /** Back to the computed places, forgetting what was dragged here - and the boxes walk back. */
   function autoLayout() {
+    startMove();
     setPositions({});
     try {
       localStorage.removeItem(positionsKey(storeId, layout));
     } catch {
       // nothing to forget
     }
-    setFitted(false);
   }
 
-  /** Another arrangement, with whatever was dragged in that one; the view refits to what it shows. */
+  /** Another arrangement, with whatever was dragged in that one. The boxes travel to their new places. */
   function chooseLayout(mode: LayoutMode) {
+    if (mode === layout) return;
+    startMove();
     setLayout(mode);
     setPositions(readPositions(storeId, mode));
-    setFitted(false);
     try {
       localStorage.setItem(layoutKey(storeId), mode);
     } catch {
@@ -386,7 +680,22 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
     });
   }
 
-  const boxById = new Map(boxes.map((b) => [b.id, b]));
+  // The boxes as they are drawn this frame: part of the way from the last arrangement to this one, or
+  // simply where they belong. Everything downstream reads these - the edges take their ends from the
+  // same boxes, so a line travels with the two boxes it joins rather than snapping between them.
+  const m = move.current;
+  const t = m ? ease(Math.min(1, (performance.now() - m.start) / moveMs)) : 1;
+  const placed =
+    t >= 1
+      ? boxes
+      : boxes.map((b) => {
+          const from = m?.from.get(b.id);
+          // a type that was not on screen a moment ago has nowhere to come from: it starts where it belongs
+          return from ? { ...b, x: from.x + (b.x - from.x) * t, y: from.y + (b.y - from.y) * t } : b;
+        });
+  drawn.current = new Map(placed.map((b) => [b.id, { x: b.x, y: b.y }]));
+
+  const boxById = new Map(placed.map((b) => [b.id, b]));
   const selectedType = selection?.kind === "type" ? selection.id : selection?.kind === "property" ? selection.typeId : null;
   const selectedRelation = selection?.kind === "relation" ? selection.id : null;
 
@@ -404,7 +713,7 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
   }
 
   return (
-    <div className="dm-diagram">
+    <div className="dm-diagram" ref={viewRef}>
       <div className="dm-diagram-tools">
         <button className="icon-button" title="Zoom in" onClick={() => zoom(1.25)}>
           <IconZoomIn size={16} stroke={1.9} />
@@ -425,6 +734,7 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
         >
           <IconFileTypeSvg size={16} stroke={1.9} />
         </button>
+        <FullscreenButton on={fullscreen} onToggle={toggleFullscreen} what="diagram" />
         {/* how the boxes are arranged; each layout keeps whatever was dragged in it */}
         <div className="dm-layout-picker" role="tablist">
           {layouts.map((l) => (
@@ -438,7 +748,7 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
           <span className="dm-legend-line inherits" /> inherits <span className="dm-legend-line relation" /> relation <span className="dm-legend-line reference" /> reference <span className="dm-legend-line embeds" /> embedded
         </span>
       </div>
-      <svg ref={svgRef} className="dm-diagram-svg" onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
+      <svg ref={svgRef} className="dm-diagram-svg" tabIndex={0} onKeyDown={onKeyDown} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
         <defs>
           <marker id="dm-arrow-inherit" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="12" markerHeight="12" orient="auto-start-reverse">
             <path d="M1 1 L11 6 L1 11 z" className="dm-marker-inherit" />
@@ -503,7 +813,7 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
               </g>
             );
           })}
-          {boxes.map((b) => {
+          {placed.map((b) => {
             const color = ctx.colors.get(b.type.DatamodelSourceId) ?? "#888";
             const kind = kindMeta[b.type.ModelType] ?? kindMeta.Class;
             // the header holds the kind, an "inner" badge when the type only exists embedded, and

@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { IconArrowBackUp, IconArrowsMaximize, IconArrowsShuffle, IconBinoculars, IconCrosshair, IconFileTypePng, IconFocusCentered, IconHierarchy3, IconMaximize, IconMinimize, IconPencil, IconPlayerPause, IconPlayerPlay, IconRotate360, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
+import { IconArrowBackUp, IconArrowsMaximize, IconArrowsShuffle, IconBinoculars, IconCrosshair, IconFileTypePng, IconFocusCentered, IconHierarchy3, IconPencil, IconPlayerPause, IconPlayerPlay, IconRotate360, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
 import type { EditorContext, Selection } from "./DatamodelEditors";
+import type { GraphShell } from "./DatamodelGraphView";
 import { embeddedColor, kindMeta, propertyColor, relationColor } from "./DatamodelIcons";
-import { TypePicker } from "./DatamodelGraph";
+import { FullscreenButton, GraphModeSwitch, NamesButton, TypePicker } from "./DatamodelGraph";
 import { buildWorld, edgeKinds, edgesKey, expandedKey, readEdges, readExpanded, readRoot, recall, remember, rootKey, unfold, type EdgeKind, type GraphLink, type GraphNode } from "./datamodelGraphModel";
 import { fullName, type NodeTypeJson } from "../server/datamodel";
 import { formatCount } from "../format";
@@ -19,6 +20,8 @@ interface Props {
   selection: Selection | null;
   query: string;
   storeId: string;
+  /** what the flat and the spatial graph share: the mode switch, the names switch, fullscreen */
+  shell: GraphShell;
 }
 
 /** A node as the simulation moves it through space. Pinned nodes (fx, fy, fz) stay where they are put. */
@@ -131,7 +134,7 @@ const embeddedRgb = parseColor(embeddedColor);
  * fly to it, double-click the space around to fit everything in. Dragging a type moves it in the
  * plane facing the camera and leaves it pinned there; the shake button lets go of every pinned type.
  */
-export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId }: Props) {
+export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId, shell }: Props) {
   const baseId = ctx.baseTypeId;
   const [root, setRoot] = useState<string | null>(() => readRoot(storeId));
   const [expanded, setExpanded] = useState<Set<string>>(() => readExpanded(storeId));
@@ -140,7 +143,6 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
   const [glOk, setGlOk] = useState(true);
   // counts the times the GPU has handed the context back, so the renderer is rebuilt on it
   const [glGeneration, setGlGeneration] = useState(0);
-  const [fullscreen, setFullscreen] = useState(false);
   const [fun, setFun] = useState<boolean>(() => recall(funKey(storeId)) === true);
   /** mirrors flight.paused so the toolbar's button shows what the space bar did */
   const [paused, setPaused] = useState(false);
@@ -180,7 +182,6 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
   // whatever changes the picture under the menu closes it: another start type, a fold, fun mode
   useEffect(() => setMenu(null), [rootId, expanded, fun, edges]);
 
-  const viewRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const glRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -230,8 +231,9 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
   const funOn = useRef(fun);
   funOn.current = fun && rootId !== null && glOk;
   // what a frame needs from React, read at draw time rather than bound into the handlers
-  const scene = useRef({ nodes, links, selection, q, ctx });
-  scene.current = { nodes, links, selection, q, ctx };
+  const names = shell.names;
+  const scene = useRef({ nodes, links, selection, q, ctx, names });
+  scene.current = { nodes, links, selection, q, ctx, names };
   camera.current.autoOrbit = autoOrbit;
   // the wheel is listened to natively: React registers wheel listeners as passive, and a passive
   // listener cannot keep the page from scrolling under the graph
@@ -377,10 +379,10 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the sim syncs to the graph, not to the helpers
   }, [nodes, links]);
 
-  // what is selected, searched for or set turning changes the picture without touching the graph
+  // what is selected, searched for, named or set turning changes the picture without touching the graph
   useEffect(() => {
     invalidate();
-  }, [selection, q, autoOrbit]);
+  }, [selection, q, autoOrbit, names]);
 
   // the frame id is cleared with the frame: a stale id would make run() believe a loop is still going
   useEffect(
@@ -390,16 +392,6 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
     },
     [],
   );
-
-  // the browser owns the fullscreen state - Escape and F11 change it without asking - so the button
-  // follows the document rather than the other way round
-  useEffect(() => {
-    // both sides are null while the type picker is up, which is not the same as being fullscreen
-    const sync = () => setFullscreen(document.fullscreenElement !== null && document.fullscreenElement === viewRef.current);
-    document.addEventListener("fullscreenchange", sync);
-    sync();
-    return () => document.removeEventListener("fullscreenchange", sync);
-  }, []);
 
   // ---- frames ----
 
@@ -658,7 +650,7 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
   }
   function startOver() {
     // the picker has no toolbar, so nothing there could bring the screen back: step out first
-    if (document.fullscreenElement === viewRef.current) void document.exitFullscreen().catch(() => {});
+    shell.exitFullscreen();
     setRoot(null);
     setExpanded(new Set());
   }
@@ -1097,19 +1089,11 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
   // ---- the whole screen ----
 
   /**
-   * Hands the view to the browser's fullscreen, toolbar and all, so the controls stay within reach.
-   * The canvases follow by themselves: the stage's ResizeObserver measures the new size.
+   * The shell owns the screen; the canvases follow by themselves, since the stage's ResizeObserver
+   * measures the new size. The keys go back to the stage afterwards, so flying carries on at once.
    */
   function toggleFullscreen() {
-    const el = viewRef.current;
-    if (!el) return;
-    if (document.fullscreenElement === el) {
-      void document.exitFullscreen().catch(() => {});
-      return;
-    }
-    void el.requestFullscreen?.().then(() => stageRef.current?.focus({ preventScroll: true })).catch(() => {
-      // refused (a permissions policy, or no gesture behind this call): the view stays where it is
-    });
+    void shell.toggleFullscreen().then(() => stageRef.current?.focus({ preventScroll: true }));
   }
 
   // ---- the file ----
@@ -1230,6 +1214,8 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
       fogFar,
       near,
       far,
+      // a dark shadow side reads as depth on a dark page and as dirt on a light one
+      ambient: th.dark ? 0.42 : 0.7,
       background: pal ? () => drawScenery(viewProj, eye, pal) : undefined,
     });
 
@@ -1323,16 +1309,19 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
       .map((n) => ({ n, p: proj.get(n.id) }))
       .filter((x): x is { n: GraphNode; p: Projected } => !!x.p && x.p.front && x.p.x > -200 && x.p.x < w + 200 && x.p.y > -100 && x.p.y < h + 100)
       .sort((a, b) => b.p.depth - a.p.depth);
-    for (const lb of labels.sort((a, b) => b.depth - a.depth)) {
-      if (lb.alpha < 0.05) continue;
-      writeText(g, lb.text, lb.x, lb.y, (lb.bold ? "600 " : "") + "10.5px system-ui, sans-serif", lb.color, th.panel, "center", lb.alpha);
+    // with the names switched off only the icons and the badges are written: the graph reads as shape
+    if (sc.names) {
+      for (const lb of labels.sort((a, b) => b.depth - a.depth)) {
+        if (lb.alpha < 0.05) continue;
+        writeText(g, lb.text, lb.x, lb.y, (lb.bold ? "600 " : "") + "10.5px system-ui, sans-serif", lb.color, th.panel, "center", lb.alpha);
+      }
     }
     for (const { n, p } of order) {
       const dim = !matches(n);
       const alpha = (1 - fog(p.depth) * 0.85) * (dim ? 0.3 : 1);
       if (alpha < 0.04) continue;
       if (n.kind === "property") {
-        if (p.r >= 2.5) {
+        if (sc.names && p.r >= 2.5) {
           const selected = selectedProperty === n.property.Id;
           const hovered = hov !== null && hov.id === n.id;
           writeText(g, n.property.CodeName, p.x + p.r + 4, p.y, (selected || hovered ? "600 " : "") + "10.5px system-ui, sans-serif", selected || hovered ? th.accent : th.textSoft, th.panel, "left", alpha);
@@ -1349,7 +1338,7 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
           g.globalAlpha = 1;
         }
       }
-      if (p.r >= 5) {
+      if (sc.names && p.r >= 5) {
         writeText(g, n.type.CodeName, p.x, p.y + p.r + 12, "600 12px system-ui, sans-serif", th.text, th.panel, "center", alpha);
         if (n.root) writeText(g, n.id === baseId ? "base type" : "start type", p.x, p.y + p.r + 25, "10px system-ui, sans-serif", th.textMuted, th.panel, "center", alpha);
       }
@@ -1433,21 +1422,16 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
 
   // ---- what is on the page ----
 
-  // React reuses the one div across both branches, so the picker carries the ref as well - without it
-  // the fullscreen state would lose track of the element the browser is actually showing
-  if (rootId === null) {
-    return (
-      <div className="dm-diagram dm-graph dm-graph3d" ref={viewRef}>
-        <TypePicker ctx={ctx} eligible={world.eligible} query={q} onPick={start} />
-      </div>
-    );
-  }
+  const modeSwitch = <GraphModeSwitch mode={shell.mode} onMode={shell.setMode} />;
+
+  if (rootId === null) return <TypePicker ctx={ctx} eligible={world.eligible} query={q} onPick={start} tools={modeSwitch} />;
 
   const rootType = ctx.model.NodeTypes[rootId];
 
   return (
-    <div className="dm-diagram dm-graph dm-graph3d" ref={viewRef}>
+    <>
       <div className="dm-diagram-tools">
+        {modeSwitch}
         <button className="icon-button" title="Start over from another type" onClick={startOver}>
           <IconArrowBackUp size={16} stroke={1.9} />
         </button>
@@ -1495,12 +1479,11 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
           <IconFocusCentered size={16} stroke={1.9} />
         </button>
         <span className="dm-tools-gap" />
+        <NamesButton on={shell.names} onToggle={shell.toggleNames} />
         <button className="icon-button" title="Save what is on screen as a PNG image" onClick={exportPng}>
           <IconFileTypePng size={16} stroke={1.9} />
         </button>
-        <button className={"icon-button" + (fullscreen ? " active" : "")} aria-pressed={fullscreen} title={fullscreen ? "Leave fullscreen (Escape, or F over the graph)" : "Fill the screen with the graph (F over the graph)"} onClick={toggleFullscreen}>
-          {fullscreen ? <IconMinimize size={16} stroke={1.9} /> : <IconMaximize size={16} stroke={1.9} />}
-        </button>
+        <FullscreenButton on={shell.fullscreen} onToggle={toggleFullscreen} />
         {/* the legend is the switchboard: each kind of line can be turned off, and with it the types it leads to */}
         <span className="dg-edge-toggles" role="group" aria-label="Kinds of line to show">
           {edgeKinds.map((e) => (
@@ -1509,7 +1492,10 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
             </button>
           ))}
         </span>
-        <span className="muted dm-diagram-legend dg-hint">{fun ? "flying — Esc lands" : "left drag orbits · right drag pans · middle drag looks · wheel flies · W A S D Q E · double-click a type to fly to it"}</span>
+        {/* the flying hint is four words; the one that spells out the camera needs far more room before it is worth showing */}
+        <span className={"muted dm-diagram-legend dg-hint" + (fun ? "" : " dg-hint-long")}>
+          {fun ? "flying — Esc lands" : "left drag orbits · right drag pans · middle drag looks · wheel flies · W A S D Q E · double-click a type to fly to it"}
+        </span>
       </div>
       {glOk ? (
         <div
@@ -1571,7 +1557,7 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId 
             />
           );
         })()}
-    </div>
+    </>
   );
 }
 

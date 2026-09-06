@@ -9,14 +9,15 @@ import {
   IconChevronDown,
   IconCircleCheck,
   IconCube,
-  IconCube3dSphere,
   IconDatabaseImport,
   IconDeviceFloppy,
   IconDots,
+  IconFolders,
   IconHistory,
   IconInfoCircle,
   IconLayoutGrid,
   IconList,
+  IconLock,
   IconMessage,
   IconMessageOff,
   IconRefreshAlert,
@@ -61,27 +62,104 @@ import {
   type Validation,
 } from "../server/datamodel";
 import { formatTime } from "../format";
-import { KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon } from "./DatamodelIcons";
-import { PropertyEditor, RelationEditor, SourceEditor, SourcePickerDialog, TypeEditor, type EditorContext, type Selection } from "./DatamodelEditors";
+import { KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, kindMeta, relationColor } from "./DatamodelIcons";
+import { PropertyEditor, readOnlyNote, RelationEditor, SourceEditor, SourcePickerDialog, TypeEditor, type EditorContext, type Selection } from "./DatamodelEditors";
 import { takeDatamodelTarget, useNavigationRequest, type DatamodelTarget } from "../navigate";
-import { HistoryView, ListView, MatrixView, SourcesView, TreeView } from "./DatamodelViews";
+import { HistoryView, MatrixView, ModelsView, RelationsView, SourcesView } from "./DatamodelViews";
 import { DatamodelDiagram } from "./DatamodelDiagram";
-import { DatamodelGraph } from "./DatamodelGraph";
-import { DatamodelGraph3D } from "./DatamodelGraph3D";
+import { DatamodelGraphView } from "./DatamodelGraphView";
+import { modeKey, remember } from "./datamodelGraphModel";
 import "../datamodel.css";
 
-type ViewId = "list" | "tree" | "diagram" | "graph" | "graph3d" | "matrix" | "sources" | "history";
+type ViewId = "models" | "relations" | "diagram" | "graph" | "matrix" | "sources" | "history";
 
+/** The views with a tab of their own. Matrix is not one: it is opened from the ⋯ menu. */
 const views: { id: ViewId; label: string; icon: typeof IconList }[] = [
-  { id: "list", label: "List", icon: IconList },
-  { id: "tree", label: "Inheritance", icon: IconSitemap },
+  { id: "models", label: "Models", icon: IconSitemap },
+  { id: "relations", label: "Relations", icon: IconArrowsExchange },
   { id: "diagram", label: "Diagram", icon: IconLayoutGrid },
   { id: "graph", label: "Graph", icon: IconTopologyStar3 },
-  { id: "graph3d", label: "3D", icon: IconCube3dSphere },
-  { id: "matrix", label: "Matrix", icon: IconTable },
   { id: "sources", label: "Sources", icon: IconStack2 },
   { id: "history", label: "History", icon: IconHistory },
 ];
+
+const matrixView = { id: "matrix" as ViewId, label: "Matrix", icon: IconTable };
+
+/** One line of a filter menu: what it is called, how much of the model it accounts for, its colour. */
+interface FilterItem {
+  id: string;
+  label: string;
+  count: number;
+  hint?: string;
+  color?: string;
+}
+
+/**
+ * A filter as a menu of checkboxes. The button carries how much of the whole is shown and lights up
+ * while anything is hidden, so a filter left on in another view is never a mystery: a model that
+ * looks like it has lost half its types always says so here.
+ */
+function FilterMenu({
+  label,
+  icon: Icon,
+  title,
+  items,
+  hidden,
+  onToggle,
+  onShowAll,
+  onHideAll,
+}: {
+  label: string;
+  icon: typeof IconList;
+  title: string;
+  items: FilterItem[];
+  hidden: Set<string>;
+  onToggle: (id: string) => void;
+  onShowAll: () => void;
+  onHideAll: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const shown = items.filter((i) => !hidden.has(i.id)).length;
+  const filtering = shown !== items.length;
+  return (
+    <div className="dm-menu-wrap">
+      <button className={"dm-filter" + (filtering ? " on" : "")} onClick={() => setOpen(!open)} title={title} aria-expanded={open} aria-haspopup="true">
+        <Icon size={14} stroke={1.9} />
+        <span>{label}</span>
+        <span className="badge">{filtering ? shown + " of " + items.length : items.length}</span>
+        <IconChevronDown size={13} stroke={2} />
+      </button>
+      {open && (
+        <>
+          <div className="dm-menu-backdrop" onClick={() => setOpen(false)} />
+          <div className="dm-menu dm-filter-menu">
+            <div className="dm-filter-actions">
+              <button className="link-button" onClick={onShowAll} disabled={!filtering}>
+                Show all
+              </button>
+              <button className="link-button" onClick={onHideAll} disabled={shown === 0}>
+                Hide all
+              </button>
+            </div>
+            <hr />
+            {items.map((i) => {
+              const on = !hidden.has(i.id);
+              return (
+                <label key={i.id} className={"dm-filter-row" + (on ? "" : " off")} title={i.hint}>
+                  <input type="checkbox" checked={on} onChange={() => onToggle(i.id)} />
+                  {i.color !== undefined && <SourceDot color={i.color} />}
+                  <span className="dm-filter-name">{i.label}</span>
+                  <span className="badge">{i.count}</span>
+                </label>
+              );
+            })}
+            {items.length === 0 && <div className="muted dm-filter-empty">Nothing to filter by.</div>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 const sideWidthKey = "dmSideWidth";
 const helpKey = "dmShowHelp";
@@ -199,10 +277,21 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
   const [model, setModel] = useState<ModelJson | null>(null);
   const [baseline, setBaseline] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<ViewId>(() => (localStorage.getItem("dmView") as ViewId | null) ?? "list");
+  const [view, setView] = useState<ViewId>(() => {
+    const stored = localStorage.getItem("dmView");
+    // 3D used to be a view of its own; it is a mode of the Graph view now, and a page left there comes back to it
+    if (stored === "graph3d") {
+      remember(modeKey, "3d");
+      return "graph";
+    }
+    // the list and the inheritance tree used to be two views; they are the two arrangements of one
+    if (stored === "list" || stored === "tree") return "models";
+    return stored === matrixView.id || views.some((v) => v.id === stored) ? (stored as ViewId) : "models";
+  });
   const [query, setQuery] = useState("");
   const [hitsOpen, setHitsOpen] = useState(false);
   const [hiddenSources, setHiddenSources] = useState<Set<string>>(() => readSet("dmHiddenSources:" + db.id));
+  const [hiddenNamespaces, setHiddenNamespaces] = useState<Set<string>>(() => readSet("dmHiddenNamespaces:" + db.id));
   const [selection, setSelection] = useState<Selection | null>(null);
   const [validation, setValidation] = useState<Validation | null>(null);
   const [issuesOpen, setIssuesOpen] = useState(false);
@@ -247,6 +336,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
   }, [load]);
   useEffect(() => localStorage.setItem("dmView", view), [view]);
   useEffect(() => writeSet("dmHiddenSources:" + db.id, hiddenSources), [hiddenSources, db.id]);
+  useEffect(() => writeSet("dmHiddenNamespaces:" + db.id, hiddenNamespaces), [hiddenNamespaces, db.id]);
   useEffect(() => localStorage.setItem(helpKey, String(showHelp)), [showHelp]);
 
   // How wide the editor may be pulled: never so wide that the view it was opened from is gone, and
@@ -373,12 +463,13 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     [model, codeSourceId],
   );
 
-  // what is shown: types of switched on sources, plus what they point at in switched off ones
+  // what is shown: types of switched on sources and namespaces, plus what they point at among the
+  // switched off - a type nothing shown points at simply goes, one that is pointed at stays as a ghost
   const { visibleTypes, ghostTypes } = useMemo(() => {
     const visible = new Set<string>();
     const ghost = new Set<string>();
     if (!model) return { visibleTypes: visible, ghostTypes: ghost };
-    for (const t of Object.values(model.NodeTypes)) if (!hiddenSources.has(t.DatamodelSourceId)) visible.add(t.Id);
+    for (const t of Object.values(model.NodeTypes)) if (!hiddenSources.has(t.DatamodelSourceId) && !hiddenNamespaces.has(t.Namespace ?? "")) visible.add(t.Id);
     const pull = (id: string | undefined | null) => {
       if (id && model.NodeTypes[id] && !visible.has(id)) ghost.add(id);
     };
@@ -396,7 +487,33 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
       if (touches) for (const id of [...r.SourceTypes, ...r.TargetTypes]) pull(id);
     }
     return { visibleTypes: visible, ghostTypes: ghost };
-  }, [model, hiddenSources]);
+  }, [model, hiddenSources, hiddenNamespaces]);
+
+  // every namespace the model declares a type in, with how many are in it. The whole list, whatever
+  // is filtered out at the moment, so the menu does not rearrange itself as it is used.
+  const namespaces = useMemo<FilterItem[]>(() => {
+    const counts = new Map<string, number>();
+    for (const t of Object.values(model?.NodeTypes ?? {})) {
+      if (t.Id === baseTypeId) continue;
+      const ns = t.Namespace ?? "";
+      counts.set(ns, (counts.get(ns) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([ns, count]) => ({ id: ns, label: ns || "(no namespace)", count, hint: ns || "Types declared outside any namespace" }));
+  }, [model, baseTypeId]);
+
+  const sourceFilters = useMemo<FilterItem[]>(
+    () =>
+      (model?.Sources ?? []).map((s) => ({
+        id: s.Id,
+        label: s.Name || "?",
+        count: Object.values(model?.NodeTypes ?? {}).filter((t) => t.DatamodelSourceId === s.Id && t.Id !== baseTypeId).length,
+        hint: (s.Name || s.Id) + " · " + s.Type,
+        color: colors.get(s.Id) ?? "#888",
+      })),
+    [model, colors, baseTypeId],
+  );
 
   const navigation = useNavigationRequest();
   useEffect(() => {
@@ -412,7 +529,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     if (pendingTarget.relationId && model.Relations[pendingTarget.relationId]) setSelection({ kind: "relation", id: pendingTarget.relationId });
     else if (pendingTarget.propertyId && type?.Properties[pendingTarget.propertyId]) setSelection({ kind: "property", id: pendingTarget.propertyId, typeId: pendingTarget.typeId });
     else if (type) setSelection({ kind: "type", id: pendingTarget.typeId });
-    if (type) setView((v) => (v === "sources" || v === "history" ? "list" : v));
+    if (type) setView((v) => (v === "sources" || v === "history" ? "models" : v));
     setPendingTarget(null);
   }, [pendingTarget, model]);
 
@@ -555,7 +672,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     if (!loaded) return;
     await run("Save the draft", () => saveDraft(db.id, loaded.model, "Loaded from history " + formatTime(entry.savedUtc)));
     await load();
-    setView("list");
+    setView("models");
   }
 
   async function removeHistory(entry: HistoryEntry) {
@@ -623,7 +740,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     // and its property list starts open, so a property added next is on screen rather than behind a
     // chevron nobody thought to press
     setJustAdded(id);
-    if (view === "sources" || view === "history") setView("list");
+    if (view === "sources" || view === "history") setView("models");
   }
   function addRelation() {
     pickSourceThen("relation", createRelation);
@@ -647,7 +764,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
       m.Relations[id] = r;
     });
     setSelection({ kind: "relation", id, focusField: "CodeName" });
-    if (view === "sources" || view === "history") setView("list");
+    if (view === "sources" || view === "history") setView("models");
   }
   function addSource() {
     setMenuOpen(false);
@@ -715,6 +832,15 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     setSelection(null);
   }
 
+  function toggleNamespace(ns: string) {
+    setHiddenNamespaces((prev) => {
+      const next = new Set(prev);
+      if (next.has(ns)) next.delete(ns);
+      else next.add(ns);
+      return next;
+    });
+  }
+
   function toggleSource(id: string) {
     setHiddenSources((prev) => {
       const next = new Set(prev);
@@ -729,7 +855,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     else if (issue.nodeTypeId) setSelection({ kind: "type", id: issue.nodeTypeId });
     else if (issue.relationId) setSelection({ kind: "relation", id: issue.relationId });
     else if (issue.sourceId) setSelection({ kind: "source", id: issue.sourceId });
-    if (view === "history") setView("list");
+    if (view === "history") setView("models");
   }
 
   // ---- render ----
@@ -769,11 +895,13 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
   // a focus request is spent the moment the editor honors it; selecting the same thing again later
   // must not pull the keyboard out of wherever the user has put it
   const clearFocus = () => setSelection((s) => (s === null || s.focusField === undefined ? s : ({ ...s, focusField: undefined } as Selection)));
+  // why the form below cannot be edited, said once in the panel head instead of in every editor
+  const readOnly = selection ? readOnlyNote(selection, ctx, page.sourcesLocked) : null;
   const selectedEditor = (() => {
     if (!selection) return null;
     if (selection.kind === "type") {
       const t = model.NodeTypes[selection.id];
-      return t ? <TypeEditor type={t} ctx={ctx} onDelete={deleteSelected} focusField={selection.focusField} onFocused={clearFocus} /> : null;
+      return t ? <TypeEditor type={t} ctx={ctx} onDelete={deleteSelected} focusField={selection.focusField} onFocused={clearFocus} tab={selection.tab} /> : null;
     }
     if (selection.kind === "property") {
       const t = model.NodeTypes[selection.typeId];
@@ -797,10 +925,12 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
             the model is looked at and what can be done to it, the second is what of it is shown */}
         <div className="dm-toolbar-row">
           <div className="dm-tabs">
-            {views.map((v) => {
+            {/* the matrix has no tab of its own until it is what is on screen: opened from the ⋯ menu,
+                it still needs somewhere to show that it is up, and a way back off it */}
+            {(view === matrixView.id ? [...views, matrixView] : views).map((v) => {
               const Icon = v.icon;
               return (
-                <button key={v.id} className={"dm-tab" + (view === v.id ? " active" : "")} onClick={() => setView(v.id)} title={v.label}>
+                <button key={v.id} className={"dm-tab dm-tab-" + v.id + (view === v.id ? " active" : "")} onClick={() => setView(v.id)} title={v.label}>
                   <Icon size={15} stroke={1.9} />
                   <span>{v.label}</span>
                 </button>
@@ -808,26 +938,6 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
             })}
           </div>
           <div className="dm-actions">
-            <div className="dm-button-group">
-              <button className="action-button dm-button" onClick={addType} disabled={busy !== null} title="Add a node type to the model">
-                <IconCube size={15} stroke={2} /> New type
-              </button>
-              <button className="action-button dm-button" onClick={addRelation} disabled={busy !== null} title="Add a relation to the model">
-                <IconArrowsExchange size={15} stroke={2} /> New relation
-              </button>
-            </div>
-            <span className="dm-toolbar-sep" />
-            <div className="dm-button-group">
-              <button className="action-button dm-button" onClick={save} disabled={!dirty || busy !== null} title="Keep the draft on the server without activating it">
-                <IconDeviceFloppy size={15} stroke={2} /> Save draft
-              </button>
-              <button className="action-button dm-button" onClick={validate} disabled={busy !== null} title="Check the draft, and show what activating it would write">
-                <IconCheck size={15} stroke={2} /> Validate
-              </button>
-              <button className="action-button dm-button primary" onClick={activate} disabled={!hasDraft || busy !== null} title="Write the draft into its sources and make it the active model">
-                <IconRocket size={15} stroke={2} /> Activate…
-              </button>
-            </div>
             <div className="dm-menu-wrap">
               <button className="icon-button" onClick={() => setMenuOpen(!menuOpen)} title="More">
                 <IconDots size={18} stroke={2} />
@@ -838,6 +948,26 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
                   {/* New relation lives on the toolbar beside New type, and a source is added from the
                       Sources view where the sources actually are; neither is repeated here */}
                   <div className="dm-menu">
+                    {/* History gives up its tab when the toolbar runs short of room and is reached
+                        from here instead; the stylesheet decides which of the two is on show */}
+                    <button
+                      className="dm-menu-history"
+                      onClick={() => {
+                        setView("history");
+                        setMenuOpen(false);
+                      }}
+                    >
+                      <IconHistory size={15} stroke={1.9} /> History
+                    </button>
+                    <button
+                      onClick={() => {
+                        setView(matrixView.id);
+                        setMenuOpen(false);
+                      }}
+                    >
+                      <IconTable size={15} stroke={1.9} /> Properties matrix
+                    </button>
+                    <hr />
                     <button onClick={() => { setShowHelp(!showHelp); setMenuOpen(false); }}>
                       {showHelp ? <IconMessageOff size={15} stroke={1.9} /> : <IconMessage size={15} stroke={1.9} />}
                       {showHelp ? "Hide help text" : "Show help text"}
@@ -863,6 +993,26 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
                   </div>
                 </>
               )}
+            </div>
+            <div className="dm-button-group">
+              {/* the icons carry the colours they have everywhere else: a class is blue, a relation red */}
+              <button className="action-button dm-button" onClick={addType} disabled={busy !== null} title="Add a node type to the model">
+                <IconCube size={15} stroke={2} color={kindMeta.Class.color} /> New model
+              </button>
+              <button className="action-button dm-button" onClick={addRelation} disabled={busy !== null} title="Add a relation to the model">
+                <IconArrowsExchange size={15} stroke={2} color={relationColor} /> New relation
+              </button>
+            </div>
+            <div className="dm-button-group">
+              <button className="action-button dm-button" onClick={save} disabled={!dirty || busy !== null} title="Keep the draft on the server without activating it">
+                <IconDeviceFloppy size={15} stroke={2} /> Save draft
+              </button>
+              <button className="action-button dm-button" onClick={validate} disabled={busy !== null} title="Check the draft, and show what activating it would write">
+                <IconCheck size={15} stroke={2} /> Validate
+              </button>
+              <button className="action-button dm-button primary" onClick={activate} disabled={!hasDraft || busy !== null} title="Write the draft into its sources and make it the active model">
+                <IconRocket size={15} stroke={2} /> Activate…
+              </button>
             </div>
           </div>
         </div>
@@ -906,7 +1056,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
                       if (h.kind === "property") setSelection({ kind: "property", id: h.id, typeId: h.typeId! });
                       else setSelection({ kind: h.kind, id: h.id } as Selection);
                       if (h.kind === "source") setView("sources");
-                      else if (view === "history" || view === "sources") setView("list");
+                      else if (view === "history" || view === "sources") setView("models");
                       setHitsOpen(false);
                     }}
                   >
@@ -918,18 +1068,29 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
               </div>
             )}
           </div>
-          <div className="dm-chips" title="Click a source to show or hide its types">
-            {model.Sources.map((s) => {
-              const n = Object.values(model.NodeTypes).filter((t) => t.DatamodelSourceId === s.Id).length;
-              const off = hiddenSources.has(s.Id);
-              return (
-                <button key={s.Id} className={"dm-chip-source" + (off ? " off" : "")} onClick={() => toggleSource(s.Id)} title={(s.Name || s.Id) + " · " + s.Type + (off ? " · hidden" : "")}>
-                  <SourceDot color={colors.get(s.Id) ?? "#888"} />
-                  <span>{s.Name || "?"}</span>
-                  <span className="dm-chip-count">{n}</span>
-                </button>
-              );
-            })}
+          {/* what of the model is shown, as two menus rather than a row of chips that pushed
+              everything else off the line as soon as a database had a few sources */}
+          <div className="dm-filters">
+            <FilterMenu
+              label="Sources"
+              icon={IconStack2}
+              title="Which sources' types are shown"
+              items={sourceFilters}
+              hidden={hiddenSources}
+              onToggle={toggleSource}
+              onShowAll={() => setHiddenSources(new Set())}
+              onHideAll={() => setHiddenSources(new Set(sourceFilters.map((s) => s.id)))}
+            />
+            <FilterMenu
+              label="Namespaces"
+              icon={IconFolders}
+              title="Which namespaces' types are shown"
+              items={namespaces}
+              hidden={hiddenNamespaces}
+              onToggle={toggleNamespace}
+              onShowAll={() => setHiddenNamespaces(new Set())}
+              onHideAll={() => setHiddenNamespaces(new Set(namespaces.map((n) => n.id)))}
+            />
           </div>
           <span className={"dm-status " + status.cls} title={page.draft?.note ?? undefined}>
             {status.icon} {status.text}
@@ -998,11 +1159,10 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
         style={sideWidth === null ? undefined : ({ "--dm-side-width": `min(${sideWidth}px, ${maxSideShare * 100}%)` } as React.CSSProperties)}
       >
         <div className="dm-main">
-          {view === "list" && <ListView {...viewProps} />}
-          {view === "tree" && <TreeView {...viewProps} />}
+          {view === "models" && <ModelsView {...viewProps} />}
+          {view === "relations" && <RelationsView {...viewProps} />}
           {view === "diagram" && <DatamodelDiagram ctx={ctx} visibleTypes={visibleTypes} ghostTypes={ghostTypes} selection={selection} query={query} storeId={db.id} />}
-          {view === "graph" && <DatamodelGraph ctx={ctx} visibleTypes={visibleTypes} selection={selection} query={query} storeId={db.id} />}
-          {view === "graph3d" && <DatamodelGraph3D ctx={ctx} visibleTypes={visibleTypes} selection={selection} query={query} storeId={db.id} />}
+          {view === "graph" && <DatamodelGraphView ctx={ctx} visibleTypes={visibleTypes} selection={selection} query={query} storeId={db.id} />}
           {view === "matrix" && <MatrixView {...viewProps} />}
           {view === "sources" && <SourcesView ctx={ctx} selection={selection} hiddenSources={hiddenSources} onToggleVisible={toggleSource} onAdd={addSource} locked={page.sourcesLocked} />}
           {view === "history" && <HistoryView history={page.history} activeChecksum={page.active?.checksum ?? null} draftBaseChecksum={page.draft?.baseChecksum ?? null} onLoad={loadFromHistory} onDelete={removeHistory} />}
@@ -1025,9 +1185,17 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
             <aside className="dm-side" ref={sideRef}>
             <div className="dm-side-head">
               <span className="page-kicker">{selection?.kind}</span>
-              <button className="icon-button" onClick={() => setSelection(null)} title="Close">
-                <IconX size={16} stroke={2} />
-              </button>
+              <div className="dm-side-head-right">
+                {/* one badge for every form, rather than a banner each form pushes its fields down with */}
+                {readOnly && (
+                  <span className="badge dm-readonly-badge" title={readOnly}>
+                    <IconLock size={11} stroke={2.2} /> Read only
+                  </span>
+                )}
+                <button className="icon-button" onClick={() => setSelection(null)} title="Close">
+                  <IconX size={16} stroke={2} />
+                </button>
+              </div>
             </div>
             <div className="dm-side-body">{selectedEditor}</div>
             </aside>
@@ -1050,20 +1218,24 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
 
       {validation && (
         <div className={"dm-issues" + (issuesOpen ? " open" : "")}>
-          <button className="dm-issues-head" onClick={() => setIssuesOpen(!issuesOpen)}>
-            {issuesOpen ? <IconChevronDown size={14} stroke={2} /> : <IconChevronDown size={14} stroke={2} style={{ transform: "rotate(180deg)" }} />}
-            <span>Validation</span>
-            {errorCount > 0 && <span className="badge danger">{errorCount} error{errorCount === 1 ? "" : "s"}</span>}
-            {warningCount > 0 && <span className="badge dm-badge-warn">{warningCount} warning{warningCount === 1 ? "" : "s"}</span>}
-            {errorCount === 0 && warningCount === 0 && <span className="badge dm-badge-ok">no problems</span>}
-            {validation.compiled && <span className="badge dm-badge-ok">compiled</span>}
-            {validation.requiresRebuild && <span className="badge dm-badge-warn">needs rebuild</span>}
+          {/* a row of controls, not one control: the head used to be a button with the file-changes
+              link and the dismiss button inside it, which is invalid HTML and cost them their own
+              keyboard reach. They are siblings now, and none of them needs to stop a click any more. */}
+          <div className="dm-issues-head">
+            <button className="dm-issues-toggle" onClick={() => setIssuesOpen(!issuesOpen)} aria-expanded={issuesOpen}>
+              {issuesOpen ? <IconChevronDown size={14} stroke={2} /> : <IconChevronDown size={14} stroke={2} style={{ transform: "rotate(180deg)" }} />}
+              <span>Validation</span>
+              {errorCount > 0 && <span className="badge danger">{errorCount} error{errorCount === 1 ? "" : "s"}</span>}
+              {warningCount > 0 && <span className="badge dm-badge-warn">{warningCount} warning{warningCount === 1 ? "" : "s"}</span>}
+              {errorCount === 0 && warningCount === 0 && <span className="badge dm-badge-ok">no problems</span>}
+              {validation.compiled && <span className="badge dm-badge-ok">compiled</span>}
+              {validation.requiresRebuild && <span className="badge dm-badge-warn">needs rebuild</span>}
+            </button>
             <span className="query-spacer" />
             {validation.plan && (
               <button
                 className="link-button"
-                onClick={(e) => {
-                  e.stopPropagation();
+                onClick={() => {
                   setPlanOpen(!planOpen);
                   setIssuesOpen(true);
                 }}
@@ -1071,17 +1243,10 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
                 <IconDatabaseImport size={13} stroke={2} /> {validation.plan.files.filter((f) => f.changed).length} file change{validation.plan.files.filter((f) => f.changed).length === 1 ? "" : "s"}
               </button>
             )}
-            <button
-              className="icon-button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setValidation(null);
-              }}
-              title="Dismiss"
-            >
+            <button className="icon-button" onClick={() => setValidation(null)} title="Dismiss">
               <IconX size={14} stroke={2} />
             </button>
-          </button>
+          </div>
           {issuesOpen && (
             <div className="dm-issues-body">
               {validation.issues.length === 0 && <div className="muted dm-empty">Nothing to report: the draft is sound and compiles.</div>}
