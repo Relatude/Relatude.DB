@@ -25,6 +25,14 @@ import type { Bounds } from "./layouts";
  *  - Picking is done by the GPU: a click renders the ids as colours into a single pixel under the
  *    pointer. It is exact for whatever is on the screen, including cards half way through a move,
  *    and costs one extra draw on a click rather than a spatial index for every card.
+ *  - Pictures. A card wide enough to be read (detailCssPx) shows a picture over its upper part and
+ *    keeps its colour as a strip along the bottom, where its name goes (drawn in html over the
+ *    canvas, not here). The pictures live in one array texture per resolution level, a layer per
+ *    picture, and each card carries three words saying which layer of which level it draws, which one
+ *    it is fading from, and when the current one arrived. Who gets a layer, and when, is decided
+ *    outside (cardMedia.ts); this only draws what it is handed, and only the words of the cards that
+ *    changed are re-uploaded. A card told it has no picture draws a placeholder glyph instead, in the
+ *    shader, so it is crisp at any zoom.
  *
  * The camera is two-dimensional (a centre and a zoom) and eases toward its targets every frame, so a
  * wheel step or a fit is smooth. Cards are one world unit apart; a card's own size is a fraction of
@@ -32,7 +40,7 @@ import type { Bounds } from "./layouts";
  * to the whole set is a solid mosaic rather than a screen full of dust.
  *
  * Nothing here knows what a card stands for. The cards are a count, and a card is told apart from
- * its neighbours by its index alone, which is what a later version can hang a sprite or an image on.
+ * its neighbours by its index alone.
  */
 
 export type RGBf = [number, number, number];
@@ -57,6 +65,10 @@ export interface Camera {
   zoom: number;
 }
 
+/** what a card draws over its upper part: nothing known yet (the plain colour), a picture (or the colour until it arrives), or the placeholder glyph for a node without one */
+export const CardKind = { Flat: 0, Image: 1, Placeholder: 2 } as const;
+export type CardKind = (typeof CardKind)[keyof typeof CardKind];
+
 export interface CardField {
   /**
    * A new set of cards. `to` is where they go (two floats each); `from` is where they start, or null
@@ -70,6 +82,8 @@ export interface CardField {
   moveTo(to: Float32Array, stagger?: number, duration?: number): void;
   /** Where every card is right now, mid-flight or not; a fresh array. */
   positions(): Float32Array;
+  /** Where the given cards are right now, two floats each into `out`, in the order given. */
+  positionsOf(indexes: ArrayLike<number>, count: number, out: Float32Array): void;
   /** The group of every card (uint16, an index into the palette) and the palette itself, rgba bytes per group. */
   setGroups(assignment: Uint16Array, palette: Uint8Array): void;
   setTheme(theme: FieldTheme): void;
@@ -93,6 +107,10 @@ export interface CardField {
   fling(vx: number, vy: number): void;
   worldToCss(x: number, y: number): [number, number];
   camera(): Camera;
+  /** Where the camera is going: the end of a glide or of a wheel step, the camera itself when it is still. */
+  cameraTarget(): Camera;
+  /** The canvas in css pixels, and the device pixel ratio it is drawn at. */
+  size(): { width: number; height: number; dpr: number };
   /** Whether cards or the camera are moving. */
   moving(): boolean;
   /** Called after every frame drawn, for whatever is laid over the canvas in html (labels). */
@@ -101,6 +119,21 @@ export interface CardField {
   invalidate(): void;
   /** Reads the canvas' css size again and resizes the drawing buffer to it. */
   resize(): void;
+
+  // ---- pictures ----
+
+  /** Makes room for `layers` pictures at a level (an index into imageLevels); nothing if it has room already. */
+  ensureImageLevel(level: number, layers: number): void;
+  /** How many layers a level has room for; 0 before ensureImageLevel. */
+  imageLayers(level: number): number;
+  /** Puts a picture into a layer of a level. The bitmap is expected at the level's own size. */
+  uploadImage(level: number, layer: number, image: ImageBitmap): void;
+  /**
+   * What a card draws over its upper part: a kind, the level and layer of its picture (-1 for
+   * none yet), the level and layer it is fading from (-1 for none), and when the current one
+   * arrived, on the performance.now() clock. Cheap: the words are uploaded with the next frame.
+   */
+  setCardImage(index: number, kind: CardKind, level: number, layer: number, fromLevel: number, fromLayer: number, arrivalMs: number): void;
   destroy(): void;
 }
 
@@ -144,10 +177,29 @@ const pulseMinPx = 2.5;
 const pulseGlow = 0.45;
 
 /** how much of the pitch a card fills when there is room to see the gap */
-const cardFill = 0.84;
-const maxZoom = 640; // css px per unit: a card fills most of a panel
+export const cardFill = 0.84;
+/** the least a card can be zoomed to, in css px per unit; the most is set by the canvas (see maxZoomFor) */
+const zoomLimitFloor = 640;
 const cameraRate = 11; // per second: how fast the camera closes on its target
 const flingDecay = 4.2; // per second
+
+// ---- pictures ----
+
+/**
+ * The widths a picture comes in, each twice the one before; the server makes them (cardImageLevels
+ * there must agree). A card is handed the smallest level at least as wide as it is on the screen,
+ * so the GPU never shrinks a picture by more than half - fine without mipmaps - and stretches the
+ * last level as far as the zoom goes.
+ */
+export const imageLevels = [128, 256, 512, 1024, 2048] as const;
+/** a picture is this much of the card's height; the strip below it keeps the card's colour and carries the name */
+export const imageShare = 0.75;
+/** how wide a card is, in css px, when its picture and name appear (they fade in over ±10% of this) */
+export const detailCssPx = 100;
+/** how long a picture takes to come up, or to take over from the level before it, in ms */
+export const imageFadeMs = 320;
+/** the most layers any level is ever given, and the bytes a texel takes: what bounds the GPU memory */
+const maxLayersPerLevel = 512;
 
 const vertexSource = `#version 300 es
 precision highp float;
@@ -157,13 +209,16 @@ layout(location = 1) in vec2 aFrom;
 layout(location = 2) in vec2 aTo;
 layout(location = 3) in vec2 aTiming;  // when this card sets off, and whether it is fading in
 layout(location = 4) in uint aGroup;
-uniform vec2 uCenter;
+layout(location = 5) in uvec3 aTex;    // the picture words, see setCardImage
+uniform vec2 uCenterHi;   // the camera's centre, split into a whole part and a fraction so that at
+uniform vec2 uCenterLo;   // a deep zoom the subtraction from an integer cell is exact in float32
 uniform float uZoom;      // device pixels per world unit
 uniform vec2 uHalfSize;   // half the canvas, device pixels
 uniform float uTime;      // seconds since the move began
 uniform float uDuration;
 uniform float uFill;
 uniform float uFade;      // how long a newborn card takes to come up to full colour
+uniform float uDetailPx;  // device pixels a card is wide when its picture and name appear
 uniform sampler2D uPalette;
 uniform int uHover;
 uniform int uSelected;
@@ -175,6 +230,8 @@ out vec2 vUv;
 out vec4 vColor;
 flat out float vHalfPx;
 flat out int vFlags;
+flat out uvec3 vTex;
+flat out float vDetail;
 const float OVERSHOOT = ${overshoot.toFixed(4)};
 const float PULSE = ${pulseAmount.toFixed(4)};
 const float PULSE_MIN_PX = ${pulseMinPx.toFixed(4)};
@@ -214,10 +271,14 @@ void main() {
   // signal at all, so what is left of it is worth a couple of pixels of the screen
   side = max(side, min(base, 2.0 * PULSE_MIN_PX / uZoom));
   vec2 corner = (aCorner - 0.5) * side + 0.5;
-  vec2 px = (pos + corner - uCenter) * uZoom;
+  vec2 px = ((pos - uCenterHi) - uCenterLo + corner) * uZoom;
   gl_Position = vec4(px.x / uHalfSize.x, -px.y / uHalfSize.y, 0.0, 1.0);
   vUv = aCorner;
   vHalfPx = 0.5 * side * uZoom;
+  vTex = aTex;
+  // the picture and the name come in as the card passes the width they are readable at; measured
+  // on the card at rest, so a pulse at that width does not flicker them
+  vDetail = smoothstep(uDetailPx * 0.9, uDetailPx * 1.1, fill * uZoom);
   int id = gl_InstanceID;
   vFlags = id == uSelected ? 1 : 0;
   if (uPick == 1) {
@@ -241,9 +302,57 @@ in vec2 vUv;
 in vec4 vColor;
 flat in float vHalfPx;
 flat in int vFlags;
+flat in uvec3 vTex;
+flat in float vDetail;
 uniform int uPick;
 uniform vec3 uOutline;
+uniform vec3 uInk;
+uniform vec3 uClear;
+uniform float uNowMs;
+uniform mediump sampler2DArray uLevel0;
+uniform mediump sampler2DArray uLevel1;
+uniform mediump sampler2DArray uLevel2;
+uniform mediump sampler2DArray uLevel3;
+uniform mediump sampler2DArray uLevel4;
 out vec4 outColor;
+const float SHARE = ${imageShare.toFixed(4)};
+const float FADE_MS = ${imageFadeMs.toFixed(1)};
+// samplers can only be indexed by a constant, so the level is a switch
+vec3 sampleLevel(int level, vec3 uv) {
+  switch (level) {
+    case 0: return texture(uLevel0, uv).rgb;
+    case 1: return texture(uLevel1, uv).rgb;
+    case 2: return texture(uLevel2, uv).rgb;
+    case 3: return texture(uLevel3, uv).rgb;
+    default: return texture(uLevel4, uv).rgb;
+  }
+}
+// signed distance to a triangle (Inigo Quilez)
+float sdTriangle(vec2 p, vec2 p0, vec2 p1, vec2 p2) {
+  vec2 e0 = p1 - p0, e1 = p2 - p1, e2 = p0 - p2;
+  vec2 v0 = p - p0, v1 = p - p1, v2 = p - p2;
+  vec2 pq0 = v0 - e0 * clamp(dot(v0, e0) / dot(e0, e0), 0.0, 1.0);
+  vec2 pq1 = v1 - e1 * clamp(dot(v1, e1) / dot(e1, e1), 0.0, 1.0);
+  vec2 pq2 = v2 - e2 * clamp(dot(v2, e2) / dot(e2, e2), 0.0, 1.0);
+  float s = sign(e0.x * e2.y - e0.y * e2.x);
+  vec2 d = min(min(vec2(dot(pq0, pq0), s * (v0.x * e0.y - v0.y * e0.x)),
+                   vec2(dot(pq1, pq1), s * (v1.x * e1.y - v1.y * e1.x))),
+                   vec2(dot(pq2, pq2), s * (v2.x * e2.y - v2.y * e2.x)));
+  return -sqrt(d.x) * sign(d.y);
+}
+// The placeholder: a sun and two hills, the way a missing picture is drawn everywhere, in a tone of
+// the card's own colour on a ground a little toward the panel. q spans 0..4/3 by 0..1 so the shapes
+// keep their proportions whatever the card's size; aa is a device pixel and a half in those units.
+vec3 placeholder(vec3 c, vec2 uv, float aa) {
+  vec3 ground = mix(c, uClear, 0.35);
+  vec3 glyph = mix(c, uInk, 0.42);
+  vec2 q = vec2(uv.x * 1.3333, uv.y);
+  float sun = length(q - vec2(1.02, 0.30)) - 0.12;
+  float hill1 = sdTriangle(q, vec2(0.06, 1.0), vec2(0.90, 1.0), vec2(0.48, 0.42));
+  float hill2 = sdTriangle(q, vec2(0.62, 1.0), vec2(1.34, 1.0), vec2(0.99, 0.60));
+  float d = min(sun, min(hill1, hill2));
+  return mix(ground, glyph, 1.0 - smoothstep(-aa, aa, d));
+}
 void main() {
   // signed distance to the edge of a rounded rectangle, in device pixels
   vec2 p = (vUv - 0.5) * 2.0 * vHalfPx;
@@ -258,6 +367,34 @@ void main() {
   // one pixel of anti-aliasing on the rounded edge; a tiny card is left to the multisampling
   float alpha = vHalfPx > 2.5 ? clamp(0.5 - d, 0.0, 1.0) : 1.0;
   vec3 c = vColor.rgb;
+  // the upper part of a card wide enough to be read is its picture; the strip below stays the colour
+  if (vDetail > 0.001 && vUv.y < SHARE) {
+    vec2 uv = vec2(vUv.x, vUv.y / SHARE);
+    uint w0 = vTex.x;
+    int kind = int((w0 >> 24u) & 3u);
+    vec3 pic = c;
+    float show = 0.0;
+    if (kind == 1) {
+      int levelA = int((w0 >> 16u) & 15u) - 1;
+      if (levelA >= 0) {
+        int levelB = int((w0 >> 20u) & 15u) - 1;
+        float fade = clamp((uNowMs - float(vTex.z)) / FADE_MS, 0.0, 1.0);
+        vec3 a = sampleLevel(levelA, vec3(uv, float(w0 & 0xFFFFu)));
+        if (levelB >= 0) {
+          // the sharper level takes over from the one before it, which stays underneath
+          pic = mix(sampleLevel(levelB, vec3(uv, float(vTex.y & 0xFFFFu))), a, fade);
+          show = 1.0;
+        } else {
+          pic = a;
+          show = fade;
+        }
+      }
+    } else if (kind == 2) {
+      pic = placeholder(c, uv, 1.5 / max(1.0, 2.0 * vHalfPx * SHARE));
+      show = 1.0;
+    }
+    c = mix(c, pic, vDetail * show);
+  }
   if (vFlags == 1 && vHalfPx > 4.0) c = mix(c, uOutline, clamp(d + 2.5, 0.0, 1.0));
   outColor = vec4(c, alpha * vColor.a);
 }`;
@@ -269,21 +406,26 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
 
   const prog = program(gl, vertexSource, fragmentSource);
   const u = (name: string) => gl.getUniformLocation(prog, name);
-  const uCenter = u("uCenter");
+  const uCenterHi = u("uCenterHi");
+  const uCenterLo = u("uCenterLo");
   const uZoom = u("uZoom");
   const uHalfSize = u("uHalfSize");
   const uTime = u("uTime");
   const uDuration = u("uDuration");
   const uFill = u("uFill");
   const uFade = u("uFade");
+  const uDetailPx = u("uDetailPx");
   const uPalette = u("uPalette");
   const uHover = u("uHover");
   const uSelected = u("uSelected");
   const uInk = u("uInk");
+  const uClear = u("uClear");
+  const uNowMs = u("uNowMs");
   const uPick = u("uPick");
   const uOutline = u("uOutline");
   const uPulseGroup = u("uPulseGroup");
   const uPulseT = u("uPulseT");
+  const uLevels = imageLevels.map((_, i) => u("uLevel" + i));
 
   // the quad every card is an instance of, corner (0,0) to (1,1)
   const quad = gl.createBuffer()!;
@@ -293,6 +435,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   const toBuffer = gl.createBuffer()!;
   const timingBuffer = gl.createBuffer()!;
   const groupBuffer = gl.createBuffer()!;
+  const texBuffer = gl.createBuffer()!;
   const vao = gl.createVertexArray()!;
   gl.bindVertexArray(vao);
   gl.bindBuffer(gl.ARRAY_BUFFER, quad);
@@ -312,6 +455,10 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   gl.enableVertexAttribArray(4);
   gl.vertexAttribIPointer(4, 1, gl.UNSIGNED_SHORT, 0, 0);
   gl.vertexAttribDivisor(4, 1);
+  gl.bindBuffer(gl.ARRAY_BUFFER, texBuffer);
+  gl.enableVertexAttribArray(5);
+  gl.vertexAttribIPointer(5, 3, gl.UNSIGNED_INT, 0, 0);
+  gl.vertexAttribDivisor(5, 1);
   gl.bindVertexArray(null);
 
   // the palette: one texel per group
@@ -322,6 +469,18 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([128, 128, 128, 255]));
+
+  // The picture levels: an array texture each, made when first asked for. Until then a sampler is
+  // bound to one grey layer, so every sampler is complete whatever the shader may branch to.
+  const emptyLevel = gl.createTexture()!;
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, emptyLevel);
+  gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA8, 1, 1, 1);
+  gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, 0, 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([128, 128, 128, 255]));
+  arrayTextureParameters(gl);
+  const levelTextures: (WebGLTexture | null)[] = imageLevels.map(() => null);
+  const levelLayers: number[] = imageLevels.map(() => 0);
+  // a bitmap that is not the size of its level is drawn onto this first, so a layer is always whole
+  let resizeCanvas: HTMLCanvasElement | null = null;
 
   // one pixel to pick into
   const pickTexture = gl.createTexture()!;
@@ -341,6 +500,10 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   let to: Float32Array = new Float32Array(0);
   // two floats per card: when it sets off, and 1 when it is fading in where it lands
   let timing: Float32Array = new Float32Array(0);
+  // three words per card, see setCardImage; only the cards in `texDirty` are re-uploaded
+  let texWords: Uint32Array = new Uint32Array(0);
+  const texDirty = new Set<number>();
+  let fadeUntil = 0; // performance.now() when the last picture fade ends: frames are drawn until then
   let moveStart = 0; // performance.now() when the current move began
   let duration = 1;
   let maxDelay = 0;
@@ -379,6 +542,16 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
 
   function pulsing(): boolean {
     return pulsedGroup >= 0;
+  }
+
+  function fading(now: number): boolean {
+    return now < fadeUntil;
+  }
+
+  // the most a card can be zoomed to: six canvas widths, so a picture can be looked into (the
+  // sharpest level is stretched a few times over by then, which is what looking into it means)
+  function maxZoomFor(): number {
+    return Math.max(zoomLimitFloor, (6 * width) / dpr / cardFill);
   }
 
   function cameraMoving(): boolean {
@@ -423,23 +596,45 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
 
   function setCommonUniforms(now: number, pickMode: boolean) {
     gl.useProgram(prog);
-    gl.uniform2f(uCenter, cur.x, cur.y);
+    const hx = Math.floor(cur.x);
+    const hy = Math.floor(cur.y);
+    gl.uniform2f(uCenterHi, hx, hy);
+    gl.uniform2f(uCenterLo, cur.x - hx, cur.y - hy);
     gl.uniform1f(uZoom, cur.zoom * dpr);
     gl.uniform2f(uHalfSize, width / 2, height / 2);
     gl.uniform1f(uTime, cardsMoving ? elapsed(now) : 1e6);
     gl.uniform1f(uDuration, duration);
     gl.uniform1f(uFill, cardFill);
     gl.uniform1f(uFade, fadeSeconds);
+    gl.uniform1f(uDetailPx, detailCssPx * dpr);
     gl.uniform1i(uHover, hover);
     gl.uniform1i(uSelected, selected);
     gl.uniform1i(uPulseGroup, pulsedGroup);
     gl.uniform1f(uPulseT, pulsing() ? (now - pulseStart) / 1000 / pulseSeconds : 1);
     gl.uniform3fv(uInk, theme.ink);
+    gl.uniform3fv(uClear, theme.clear);
     gl.uniform3fv(uOutline, theme.outline);
+    gl.uniform1f(uNowMs, now);
     gl.uniform1i(uPick, pickMode ? 1 : 0);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, palette);
     gl.uniform1i(uPalette, 0);
+    for (let i = 0; i < imageLevels.length; i++) {
+      gl.activeTexture(gl.TEXTURE1 + i);
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, levelTextures[i] ?? emptyLevel);
+      gl.uniform1i(uLevels[i], 1 + i);
+    }
+    gl.activeTexture(gl.TEXTURE0);
+  }
+
+  // the picture words of the cards that changed since the last frame, a few bytes each
+  function flushTexWords() {
+    if (texDirty.size === 0) return;
+    gl.bindBuffer(gl.ARRAY_BUFFER, texBuffer);
+    for (const i of texDirty) {
+      if (i < count) gl.bufferSubData(gl.ARRAY_BUFFER, i * 12, texWords, i * 3, 3);
+    }
+    texDirty.clear();
   }
 
   // One pass, whatever is happening: a pulsing card is drawn into its own cell and never past it,
@@ -455,7 +650,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     raf = 0;
     if (destroyed) return;
     // a frame asked for by something that then turned out to change nothing draws nothing
-    if (!dirty && !cardsMoving && !pulsing() && !cameraMoving()) {
+    if (!dirty && !cardsMoving && !pulsing() && !cameraMoving() && !fading(now) && texDirty.size === 0) {
       lastFrame = 0;
       return;
     }
@@ -466,6 +661,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     // ended before the uniforms are set, so the last frame of a pulse is the picture at rest
     if (pulsing() && (now - pulseStart) / 1000 >= pulseSeconds) pulsedGroup = -1;
 
+    flushTexWords();
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, width, height);
     gl.clearColor(theme.clear[0], theme.clear[1], theme.clear[2], 1);
@@ -478,7 +674,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     draw();
     dirty = false;
     frameCallback?.();
-    if (cardsMoving || pulsing() || cameraMoving()) schedule();
+    if (cardsMoving || pulsing() || cameraMoving() || fading(now) || texDirty.size > 0) schedule();
     else lastFrame = 0;
   }
 
@@ -505,6 +701,12 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     upload(timingBuffer, timing);
   }
 
+  function positionOf(i: number, time: number, out: Float32Array, at: number) {
+    const s = ease((time - timing[i * 2]) / duration);
+    out[at] = from[i * 2] + (to[i * 2] - from[i * 2]) * s;
+    out[at + 1] = from[i * 2 + 1] + (to[i * 2 + 1] - from[i * 2 + 1]) * s;
+  }
+
   function currentPositions(): Float32Array {
     const out = new Float32Array(count * 2);
     if (!cardsMoving) {
@@ -512,12 +714,13 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       return out;
     }
     const time = elapsed(performance.now());
-    for (let i = 0; i < count; i++) {
-      const s = ease((time - timing[i * 2]) / duration);
-      out[i * 2] = from[i * 2] + (to[i * 2] - from[i * 2]) * s;
-      out[i * 2 + 1] = from[i * 2 + 1] + (to[i * 2 + 1] - from[i * 2 + 1]) * s;
-    }
+    for (let i = 0; i < count; i++) positionOf(i, time, out, i * 2);
     return out;
+  }
+
+  function sizeOfLevel(level: number): [number, number] {
+    const w = imageLevels[level];
+    return [w, Math.round(w * imageShare)];
   }
 
   const field: CardField = {
@@ -536,6 +739,10 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       // a fresh set of cards has no groups yet; until it is told, every card is group 0
       const groups = new Uint16Array(n);
       upload(groupBuffer, groups);
+      // and no pictures: every card is flat until it is told what it shows
+      texWords = new Uint32Array(n * 3);
+      texDirty.clear();
+      upload(texBuffer, texWords);
       hover = -1;
       selected = -1;
       dirty = true;
@@ -555,6 +762,18 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       schedule();
     },
     positions: currentPositions,
+    positionsOf(indexes, n, out) {
+      if (!cardsMoving) {
+        for (let k = 0; k < n; k++) {
+          const i = indexes[k];
+          out[k * 2] = to[i * 2];
+          out[k * 2 + 1] = to[i * 2 + 1];
+        }
+        return;
+      }
+      const time = elapsed(performance.now());
+      for (let k = 0; k < n; k++) positionOf(indexes[k], time, out, k * 2);
+    },
     setGroups(assignment, colors) {
       upload(groupBuffer, assignment);
       paletteSize = Math.max(1, colors.length / 4);
@@ -592,6 +811,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       const px = Math.floor(cssX * dpr);
       const py = Math.floor(cssY * dpr);
       if (px < 0 || py < 0 || px >= width || py >= height) return -1;
+      flushTexWords();
       gl.bindFramebuffer(gl.FRAMEBUFFER, pickFramebuffer);
       // the viewport is the whole canvas, shifted so the pixel under the pointer is the one pixel
       // the framebuffer has; everything else is rasterized away
@@ -611,7 +831,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       const cssH = height / dpr;
       const bw = Math.max(1e-6, bounds.x1 - bounds.x0);
       const bh = Math.max(1e-6, bounds.y1 - bounds.y0);
-      const zoom = Math.min(maxZoom, Math.max(0.001, Math.min((cssW - 2 * padding) / bw, (cssH - 2 * padding) / bh)));
+      const zoom = Math.min(maxZoomFor(), Math.max(0.001, Math.min((cssW - 2 * padding) / bw, (cssH - 2 * padding) / bh)));
       minZoom = zoom * 0.2;
       target.x = (bounds.x0 + bounds.x1) / 2;
       target.y = (bounds.y0 + bounds.y1) / 2;
@@ -631,7 +851,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     zoomBy(factor, cssX, cssY) {
       const cssW = width / dpr;
       const cssH = height / dpr;
-      const zoom = Math.min(maxZoom, Math.max(minZoom, target.zoom * factor));
+      const zoom = Math.min(maxZoomFor(), Math.max(minZoom, target.zoom * factor));
       // the world point under the pointer stays under it
       const wx = target.x + (cssX - cssW / 2) / target.zoom;
       const wy = target.y + (cssY - cssH / 2) / target.zoom;
@@ -661,7 +881,9 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       return [(x - cur.x) * cur.zoom + width / dpr / 2, (y - cur.y) * cur.zoom + height / dpr / 2];
     },
     camera: () => ({ ...cur }),
-    moving: () => cardsMoving || pulsing() || cameraMoving(),
+    cameraTarget: () => ({ ...target }),
+    size: () => ({ width: width / dpr, height: height / dpr, dpr }),
+    moving: () => cardsMoving || pulsing() || cameraMoving() || fading(performance.now()),
     onFrame(callback) {
       frameCallback = callback;
     },
@@ -681,6 +903,55 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       dirty = true;
       schedule();
     },
+
+    ensureImageLevel(level, layers) {
+      layers = Math.max(1, Math.min(maxLayersPerLevel, Math.floor(layers)));
+      if (levelTextures[level] !== null && levelLayers[level] >= layers) return;
+      // storage is immutable once made: a level asked to grow is made anew (its pictures are gone,
+      // which the owner knows, having asked)
+      if (levelTextures[level] !== null) gl.deleteTexture(levelTextures[level]);
+      const [w, h] = sizeOfLevel(level);
+      const texture = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, texture);
+      gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA8, w, h, layers);
+      arrayTextureParameters(gl);
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);
+      levelTextures[level] = texture;
+      levelLayers[level] = layers;
+    },
+    imageLayers: (level) => levelLayers[level],
+    uploadImage(level, layer, image) {
+      const texture = levelTextures[level];
+      if (texture === null || layer < 0 || layer >= levelLayers[level]) return;
+      const [w, h] = sizeOfLevel(level);
+      let source: TexImageSource = image;
+      if (image.width !== w || image.height !== h) {
+        // not the size asked for (a tiny original the converter would not blow up): drawn to size
+        if (resizeCanvas === null) resizeCanvas = document.createElement("canvas");
+        resizeCanvas.width = w;
+        resizeCanvas.height = h;
+        const ctx = resizeCanvas.getContext("2d");
+        if (!ctx) return;
+        ctx.drawImage(image, 0, 0, w, h);
+        source = resizeCanvas;
+      }
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, texture);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+      gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, w, h, 1, gl.RGBA, gl.UNSIGNED_BYTE, source);
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);
+    },
+    setCardImage(index, kind, level, layer, fromLevel, fromLayer, arrivalMs) {
+      if (index < 0 || index >= count) return;
+      const at = index * 3;
+      texWords[at] = ((layer >= 0 && level >= 0 ? layer & 0xffff : 0) | ((level >= 0 ? level + 1 : 0) << 16) | ((fromLevel >= 0 && fromLayer >= 0 ? fromLevel + 1 : 0) << 20) | ((kind & 3) << 24)) >>> 0;
+      texWords[at + 1] = fromLayer >= 0 ? fromLayer & 0xffff : 0;
+      texWords[at + 2] = Math.max(0, Math.floor(arrivalMs)) >>> 0;
+      texDirty.add(index);
+      if (kind === CardKind.Image && level >= 0) fadeUntil = Math.max(fadeUntil, arrivalMs + imageFadeMs + 20);
+      dirty = true;
+      schedule();
+    },
     destroy() {
       destroyed = true;
       if (raf !== 0) cancelAnimationFrame(raf);
@@ -690,14 +961,24 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       gl.deleteBuffer(toBuffer);
       gl.deleteBuffer(timingBuffer);
       gl.deleteBuffer(groupBuffer);
+      gl.deleteBuffer(texBuffer);
       gl.deleteVertexArray(vao);
       gl.deleteTexture(palette);
+      gl.deleteTexture(emptyLevel);
+      for (const t of levelTextures) if (t !== null) gl.deleteTexture(t);
       gl.deleteTexture(pickTexture);
       gl.deleteFramebuffer(pickFramebuffer);
       gl.deleteProgram(prog);
     },
   };
   return field;
+}
+
+function arrayTextureParameters(gl: WebGL2RenderingContext) {
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 }
 
 function program(gl: WebGL2RenderingContext, vertex: string, fragment: string): WebGLProgram {

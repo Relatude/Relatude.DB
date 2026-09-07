@@ -1,7 +1,13 @@
+﻿using System.Buffers.Binary;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Relatude.DB.Common;
+using Relatude.DB.DataStores;
+using Relatude.DB.FileConversion.ImageEncoders;
+using Relatude.DB.NodeServer.Settings;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.NodeServer;
 using Relatude.DB.NodeServer.Json;
@@ -18,8 +24,8 @@ namespace Relatude.Server;
 public class UIQueryVisualTests {
     static readonly string[] _titles = ["Alpha", "Beta", "Gamma"];
 
-    static (TestServerHost host, Guid storeId, List<DemoArticle> articles) start(string root) {
-        var host = TestServerHost.Start(root);
+    static (TestServerHost host, Guid storeId, List<DemoArticle> articles) start(string root, bool files = false) {
+        var host = TestServerHost.Start(root, configure: files ? withFileStore : null);
         typeof(RelatudeDBServer).GetMethod("MapAdminAPI", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(host.Server, [host.App]);
         var storeId = host.Settings.Settings.ContainerSettings![0].Id;
         var store = host.Server.Containers[storeId].Store!;
@@ -27,6 +33,12 @@ public class UIQueryVisualTests {
         for (var i = 1; i <= 30; i++) articles.Add(new DemoArticle { Id = Guid.NewGuid(), Title = _titles[i % 3], Content = "c" + i, Size = i });
         store.Insert(articles);
         return (host, storeId, articles);
+    }
+
+    // a file store on the container's memory io, so a test can upload a picture onto a node
+    static void withFileStore(RelatudeDBServerSettings settings) {
+        var container = settings.ContainerSettings![0];
+        container.FileStoreSettings = [new FileStoreSettings { Id = Guid.NewGuid(), IoProviderId = container.IOSettings![0].Id, StoreType = FileStoreEngine.MultiFile, MultiFileFolderDepth = 2 }];
     }
 
     static async Task<JsonElement> command(TestServerHost host, string type, object payload) {
@@ -153,5 +165,124 @@ public class UIQueryVisualTests {
             await host.DisposeAsync();
             try { Directory.Delete(root, true); } catch { }
         }
+    }
+
+    /// <summary>
+    /// The cards' names and pictures: query-cards names every card and points at the first file
+    /// property holding a convertible image, and the card-images route streams the picture of a
+    /// card at a level's width, as a record per card, in the shape the browser parses.
+    /// </summary>
+    [TestMethod]
+    public async Task Visual_CardsCarryNamesAndPictures() {
+        var root = Path.Combine(Path.GetTempPath(), "relatude-visual-cards-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var (host, storeId, articles) = start(root, files: true);
+        try {
+            var store = host.Server.Containers[storeId].Store!;
+            var fileProperty = store.Datastore.Datamodel.NodeTypesByFullName[typeof(DemoArticle).FullName!].AllPropertiesByName[nameof(DemoArticle.File)];
+            // one article gets a picture, one a clip (not a picture), the rest nothing
+            var withPicture = articles[0];
+            var withClip = articles[1];
+            byte[] png;
+            using (var image = NativeImage.Create(320, 240)) png = image.Encode(FileFormat.Png);
+            await store.Datastore.FileUploadAsync(new PropertyPath(withPicture.Id, fileProperty.Id), new MemoryStream(png), "picture.png");
+            await store.Datastore.FileUploadAsync(new PropertyPath(withClip.Id, fileProperty.Id), new MemoryStream([1, 2, 3, 4, 5, 6, 7, 8]), "clip.mp4");
+
+            var model = await command(host, "query-model", new { storeId });
+            var typeId = prop(typeOf(model, nameof(DemoArticle)), "id").GetGuid();
+            var visual = await command(host, "query-visual", new { storeId, typeId, text = "", selections = Array.Empty<object>(), properties = Array.Empty<object>() });
+            var count = prop(visual, "count").GetInt32();
+            var cardIds = ids(prop(visual, "ids"), count);
+            var byGuid = articles.ToDictionary(a => a.Id);
+            var guidOf = new Dictionary<int, Guid>();
+            foreach (var id in cardIds) guidOf[id] = prop(await command(host, "query-node-id", new { storeId, id }), "id").GetGuid();
+
+            // every card is named, and only the one with a picture points at the file property
+            var cards = prop(await command(host, "query-cards", new { storeId, ids = cardIds }), "cards").EnumerateArray().ToDictionary(c => prop(c, "id").GetInt32(), c => c);
+            Assert.AreEqual(count, cards.Count, "one answer per card");
+            int pictureCardId = -1;
+            int clipCardId = -1;
+            foreach (var (id, card) in cards) {
+                var article = byGuid[guidOf[id]];
+                Assert.AreEqual(article.Title, prop(card, "name").GetString(), "a card is named by the node's display name");
+                var image = prop(card, "image");
+                if (article.Id == withPicture.Id) {
+                    Assert.AreEqual(fileProperty.Id, image.GetGuid(), "the picture is the file property holding the image");
+                    Assert.IsFalse(string.IsNullOrEmpty(prop(card, "version").GetString()), "a picture carries the file's version");
+                    pictureCardId = id;
+                } else {
+                    Assert.AreEqual(JsonValueKind.Null, image.ValueKind, "a clip or no file is no picture: " + article.Title);
+                    if (article.Id == withClip.Id) clipCardId = id;
+                }
+            }
+            Assert.IsTrue(pictureCardId >= 0 && clipCardId >= 0);
+            // ids the store does not know are left out rather than answered
+            var unknown = prop(await command(host, "query-cards", new { storeId, ids = new[] { 1_000_000_000 } }), "cards");
+            Assert.AreEqual(0, unknown.GetArrayLength());
+
+            // the pictures: one record per card asked for, the picture at the level's width and
+            // three quarters of it in height, and a card without one answered as such
+            var records = await cardImages(host, storeId, 128, new[] {
+                new { id = pictureCardId, p = fileProperty.Id },
+                new { id = clipCardId, p = fileProperty.Id },
+            });
+            Assert.AreEqual(2, records.Count);
+            var picture = records.Single(r => r.Id == pictureCardId);
+            Assert.AreEqual(0, picture.Status, "the picture is ready");
+            using (var decoded = NativeImage.Load(new MemoryStream(picture.Bytes))) {
+                Assert.AreEqual(128, decoded.Width);
+                Assert.AreEqual(96, decoded.Height);
+            }
+            var clip = records.Single(r => r.Id == clipCardId);
+            Assert.AreNotEqual(0, clip.Status, "a clip has no picture at this route");
+            Assert.AreEqual(0, clip.Bytes.Length);
+        } finally {
+            await host.DisposeAsync();
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    sealed record ImageRecord(int Id, byte Status, byte[] Bytes);
+    sealed class BodyPresent : Microsoft.AspNetCore.Http.Features.IHttpRequestBodyDetectionFeature {
+        public bool CanHaveBody => true;
+    }
+
+    // the card-images route, driven through its endpoint the way the browser reaches it, and its
+    // binary answer parsed record by record: int32 id, status byte, int32 length, the bytes
+    static async Task<List<ImageRecord>> cardImages(TestServerHost host, Guid storeId, int level, object[] items) {
+        var endpoint = ((IEndpointRouteBuilder)host.App).DataSources.SelectMany(d => d.Endpoints).OfType<RouteEndpoint>()
+            .Single(e => e.RoutePattern.RawText != null && e.RoutePattern.RawText.EndsWith("/ui/card-images", StringComparison.Ordinal));
+        var http = new DefaultHttpContext { RequestServices = host.App.Services };
+        http.Features.Set<Microsoft.AspNetCore.Http.Features.IHttpRequestBodyDetectionFeature>(new BodyPresent()); // a bare context has no body detection, and the binder reads no body without it
+        http.Request.Method = "POST";
+        http.Request.ContentType = "application/json";
+        var json = JsonSerializer.Serialize(new { storeId, level, items }, RelatudeDBJsonOptions.Default);
+        // the same deserialization the endpoint does, so a payload that cannot bind says why
+        var payloadType = typeof(RelatudeDBServer).Assembly.GetType("Relatude.DB.NodeServer.UI.UIQuery+CardImagesPayload")!;
+        try {
+            Assert.IsNotNull(JsonSerializer.Deserialize(json, payloadType, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        } catch (Exception e) {
+            Assert.Fail("the payload does not bind: " + e.Message + " json: " + json);
+        }
+        var body = Encoding.UTF8.GetBytes(json);
+        http.Request.Body = new MemoryStream(body);
+        http.Request.ContentLength = body.Length;
+        var response = new MemoryStream();
+        http.Response.Body = response;
+        await endpoint.RequestDelegate!(http);
+        Assert.AreEqual(200, http.Response.StatusCode, "card-images answered " + http.Response.StatusCode + ": " + Encoding.UTF8.GetString(response.ToArray()));
+        var bytes = response.ToArray();
+        var records = new List<ImageRecord>();
+        var at = 0;
+        while (at + 9 <= bytes.Length) {
+            var id = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(at));
+            var status = bytes[at + 4];
+            var length = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(at + 5));
+            at += 9;
+            records.Add(new ImageRecord(id, status, bytes.AsSpan(at, length).ToArray()));
+            at += length;
+        }
+        Assert.AreEqual(bytes.Length, at, "the stream is whole records");
+        return records;
     }
 }

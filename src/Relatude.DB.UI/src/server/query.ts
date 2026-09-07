@@ -669,6 +669,104 @@ export function fetchNodeGuid(storeId: string, id: number): Promise<{ id: string
   return send<{ id: string }>("query-node-id", { storeId, id });
 }
 
+/** What a card shows when it is wide enough to be read: the node's display name and where its picture is. */
+export interface CardInfo {
+  id: number;
+  name: string;
+  /** The id of the file property holding the node's picture: the first image the store can convert; null for none. */
+  image: string | null;
+  /** The file's version (its hash), so a picture can be kept for as long as the file is the same. */
+  version: string | null;
+}
+
+/** The names and picture properties of the cards on screen, by their int ids (up to a thousand). A node that is gone is left out. */
+export function fetchCards(storeId: string, ids: number[]): Promise<{ cards: CardInfo[] }> {
+  return send<{ cards: CardInfo[] }>("query-cards", { storeId, ids });
+}
+
+/**
+ * The pictures of a batch of cards at one width (a level the server knows), streamed back as
+ * records in the order they come ready: `onRecord` is called for each with the node id, a status -
+ * 0 the picture follows, 1 it is still being converted (ask again later), 2 there is none - and the
+ * encoded bytes. Resolves when the response has ended; rejects if it failed as a whole.
+ */
+export async function streamCardImages(
+  storeId: string,
+  level: number,
+  items: { id: number; p: string }[],
+  onRecord: (id: number, status: number, bytes: Uint8Array) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(`${adminBase}/ui/card-images`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ storeId, level, items }),
+    signal,
+  });
+  if (!response.ok) {
+    let message = `The pictures could not be fetched (HTTP ${response.status}).`;
+    try {
+      const body = await response.json();
+      if (typeof body?.error === "string") message = body.error;
+    } catch {
+      // not json, keep the default message
+    }
+    throw new Error(message);
+  }
+  // records: int32 id, uint8 status, int32 length, bytes - parsed as the chunks come in
+  const headerSize = 9;
+  let buffer = new Uint8Array(64 * 1024);
+  let end = 0; // bytes held
+  let start = 0; // the first byte not yet consumed
+  const consume = () => {
+    while (end - start >= headerSize) {
+      const view = new DataView(buffer.buffer, buffer.byteOffset + start, headerSize);
+      const length = view.getInt32(5, true);
+      if (length < 0) throw new Error("A picture record is malformed.");
+      if (end - start < headerSize + length) return;
+      const id = view.getInt32(0, true);
+      const status = view.getUint8(4);
+      const bytes = buffer.slice(start + headerSize, start + headerSize + length);
+      start += headerSize + length;
+      onRecord(id, status, bytes);
+    }
+  };
+  const append = (chunk: Uint8Array) => {
+    if (start > 0 && start === end) {
+      start = 0;
+      end = 0;
+    }
+    if (end + chunk.length > buffer.length) {
+      // room for what is held plus the chunk, dropping what has been consumed
+      const held = end - start;
+      let size = buffer.length;
+      while (size < held + chunk.length) size *= 2;
+      const next = new Uint8Array(size);
+      next.set(buffer.subarray(start, end), 0);
+      buffer = next;
+      end = held;
+      start = 0;
+    }
+    buffer.set(chunk, end);
+    end += chunk.length;
+  };
+  if (!response.body) {
+    append(new Uint8Array(await response.arrayBuffer()));
+    consume();
+    return;
+  }
+  const reader = response.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      append(value);
+      consume();
+    }
+  }
+  consume();
+}
+
 /** Base64 as sent by System.Text.Json for a byte[], back to bytes. */
 export function bytesOf(base64: string): Uint8Array {
   const text = atob(base64);

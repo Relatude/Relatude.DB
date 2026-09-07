@@ -4,29 +4,72 @@
     {
       "name": "relatude-db-ui",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "src/Relatude.DB.UI"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "src/Relatude.DB.UI"
+      ],
       "port": 5173,
       "autoPort": true
     },
     {
       "name": "website-simple",
       "runtimeExecutable": "dotnet",
-      "runtimeArgs": ["run", "--project", "examples/Website.Simple", "--no-launch-profile", "--urls", "http://localhost:5052"],
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "examples/Website.Simple",
+        "--no-launch-profile",
+        "--urls",
+        "http://localhost:5052"
+      ],
       "port": 5052,
       "autoPort": false
     },
     {
       "name": "website-simple-2",
       "runtimeExecutable": "dotnet",
-      "runtimeArgs": ["run", "--project", "examples/Website.Simple", "--no-launch-profile", "--urls", "http://localhost:5062"],
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "examples/Website.Simple",
+        "--no-launch-profile",
+        "--urls",
+        "http://localhost:5062"
+      ],
       "port": 5062,
       "autoPort": false
     },
     {
       "name": "relatude-db-ui-2",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "src/Relatude.DB.UI", "--", "--port", "5175"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "src/Relatude.DB.UI",
+        "--",
+        "--port",
+        "5175"
+      ],
       "port": 5175,
+      "autoPort": false
+    },
+    {
+      "name": "website-simple-fresh",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "examples/Website.Simple",
+        "--no-launch-profile",
+        "-e",
+        "RelatudeDB__ContainerSettings__0__IOSettings__0__Path=relatude.db2",
+        "--urls",
+        "http://localhost:5062"
+      ],
+      "port": 5062,
       "autoPort": false
     }
   ]

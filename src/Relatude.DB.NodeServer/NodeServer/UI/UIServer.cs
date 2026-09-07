@@ -135,6 +135,18 @@ public sealed class UIServer {
             }
             return Results.Empty;
         });
+        // the pictures of the cards on the visual pivot's screen, at one width, streamed back as a
+        // sequence of records as each comes ready (binary, so not a command): see UIQuery.WriteCardImages
+        app.MapPost(path + "card-images", async (HttpContext ctx, UIQuery.CardImagesPayload payload) => {
+            try {
+                await _query.WriteCardImages(ctx, payload);
+            } catch (OperationCanceledException) when (ctx.RequestAborted.IsCancellationRequested) {
+                // the browser moved on: the pictures it no longer wants are simply not sent
+            } catch (Exception error) when (!ctx.Response.HasStarted) {
+                return Results.Json(new { error = error.Message }, RelatudeDBJsonOptions.Default, statusCode: 500);
+            }
+            return Results.Empty;
+        });
         // a log as a tab separated file (a download, so not a command): the whole log, or the range
         // the logs page is showing
         app.MapPost(path + "log-tsv", async (HttpContext ctx, UILogs.ExportPayload payload) => {

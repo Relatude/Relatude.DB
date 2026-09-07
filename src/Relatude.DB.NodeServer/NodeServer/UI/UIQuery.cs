@@ -8,6 +8,7 @@ using Relatude.DB.Nodes;
 using Relatude.DB.Query;
 using Relatude.DB.Query.Data;
 using Relatude.DB.Web;
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
@@ -76,6 +77,7 @@ sealed class UIQuery {
         commands.Register("query-groupby", async ctx => await groupBy(ctx.Payload<GroupByPayload>()));
         commands.Register("query-visual", async ctx => await visual(ctx.Payload<VisualPayload>()));
         commands.Register("query-node-id", ctx => nodeGuid(ctx.Payload<NodeIntPayload>()));
+        commands.Register("query-cards", ctx => cards(ctx.Payload<CardsPayload>()));
         commands.Register("query-columns", ctx => columnsOf(ctx.Payload<ColumnsPayload>()));
     }
 
@@ -1920,6 +1922,16 @@ sealed class UIQuery {
     // apart and a bar chart has to keep the bars readable; past this the smaller buckets go unassigned
     // and the page shows them as one "(other)" group.
     const int maxVisualGroups = 500;
+    // What a card shows once it is large enough to be read: its name and its picture. Both are asked
+    // for by the browser for the cards on screen only, so neither bound is about the size of the result.
+    const int maxCardsPerLookup = 1000;
+    const int maxCardImagesPerBatch = 128;
+    // The widths a card picture is made at, each twice the one before: the browser asks for the
+    // smallest that is at least as wide as the card on its screen and scales the rest itself. A
+    // picture is three quarters as high as it is wide - the card's strip for the name takes the rest.
+    internal static readonly int[] cardImageLevels = [128, 256, 512, 1024, 2048];
+    // how long one picture of a batch is waited for before the browser is told to ask again
+    const int cardImageWaitMs = 8000;
 
     /// <summary>
     /// The result of the page's search as cards: the id of every node in it, in the result's order,
@@ -2034,6 +2046,113 @@ sealed class UIQuery {
     // the cards carry the store's int ids; the form opens on a guid
     object nodeGuid(NodeIntPayload p) => new { Id = store(p.StoreId).Datastore.GetGuid(p.Id) };
 
+    // ---- what a card shows when it is large enough to be read ----
+
+    /// <summary>
+    /// The name and the picture of the given cards, asked for by the browser for the cards on its
+    /// screen once they are wide enough to carry them. The picture is the first file property of the
+    /// node, in the model's order, that holds an image the store can convert; a node without one gets
+    /// null and the browser draws a placeholder. The version is the file's hash, so the browser can
+    /// keep a picture for as long as the file stays the same and no longer.
+    /// </summary>
+    object cards(CardsPayload p) {
+        var s = store(p.StoreId);
+        var dm = s.Datastore.Datamodel;
+        var probe = cardAdjustment(cardImageLevels[0]); // what the picture would be converted with, to ask whether it can be
+        var result = new List<object>();
+        foreach (var id in (p.Ids ?? []).Distinct().Take(maxCardsPerLookup)) {
+            if (!s.Datastore.TryGet(id, out var n, adminContext)) continue; // a card of a node that is gone: the browser keeps it blank
+            Guid? image = null;
+            string? version = null;
+            if (dm.NodeTypes.TryGetValue(n.NodeType, out var type)) {
+                foreach (var property in type.AllProperties.Values) {
+                    if (property is not FilePropertyModel || property.Internal) continue;
+                    if (!n.TryGetValue(property.Id, out var value) || value is not FileValue file || file.IsEmpty) continue;
+                    if (file.FileType != FileType.Image) continue;
+                    var path = new PropertyPath(id, property.Id);
+                    if (!s.Datastore.CanConvert(path, probe, adminContext)) continue; // a vector image, or a format no converter reads
+                    image = property.Id;
+                    version = file.Hash.Length > 8 ? file.Hash[..8] : file.Hash;
+                    break;
+                }
+            }
+            result.Add(new { Id = id, Name = displayNameOf(dm, n), Image = image, Version = version });
+        }
+        return new { Cards = result };
+    }
+
+    /// <summary>
+    /// The picture of a card at one of the widths in <see cref="cardImageLevels"/>: the image cropped
+    /// to fill the card's picture area, converted by the store like any other adjusted file, so it
+    /// lands in the store's conversion cache and is the same bytes a public url of it would serve.
+    /// </summary>
+    internal static FileAdjustmentImage cardAdjustment(int level) {
+        var adj = new FileAdjustmentImage {
+            Width = level,
+            Height = level * 3 / 4,
+            CropMode = ImageCropMode.Fill,
+            Quality = level <= 256 ? 72 : 80, // a small picture is seen small; the larger ones are what is looked at
+        };
+        adj.BasicSanitization();
+        return adj;
+    }
+
+    /// <summary>
+    /// The pictures of a batch of cards at one width, as one response: a stream of records, each an
+    /// int32 node id, a status byte (0 ready, 1 still converting, 2 no picture), an int32 length and
+    /// that many bytes of image. The records are written in the order the pictures come ready, each
+    /// flushed as it is, so the first pictures reach the browser while the rest are still being made.
+    /// One request for a batch rather than one per picture, because a browser on plain http gives a
+    /// host six connections, and a screen of cards is hundreds of pictures.
+    /// </summary>
+    internal async Task WriteCardImages(HttpContext http, CardImagesPayload p) {
+        var s = store(p.StoreId);
+        var level = cardImageLevels.Contains(p.Level) ? p.Level : cardImageLevels[1];
+        var items = (p.Items ?? []).Take(maxCardImagesPerBatch).ToArray();
+        var adj = cardAdjustment(level);
+        http.Response.ContentType = "application/octet-stream";
+        http.Response.Headers.CacheControl = "no-store";
+        var body = http.Response.Body;
+        var gate = new SemaphoreSlim(1, 1); // one record at a time on the wire; the conversions run beside each other
+        var options = new ParallelOptions { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 4, 16), CancellationToken = http.RequestAborted };
+        await Parallel.ForEachAsync(items, options, async (item, ct) => {
+            byte status;
+            byte[] bytes = [];
+            try {
+                var path = new PropertyPath(item.Id, item.P);
+                var state = await s.Datastore.GetFileStreamAndState(path, adj, cardImageWaitMs, adminContext);
+                if (state.IsReady) {
+                    using var stream = state.Stream;
+                    using var buffer = new MemoryStream();
+                    await stream.CopyToAsync(buffer, ct);
+                    bytes = buffer.ToArray();
+                    status = 0;
+                } else {
+                    state.Stream.Dispose(); // the engine's status picture, which is not for a card
+                    // still on its way, or given up on: the browser asks again for the first and not the second
+                    var failed = s.Datastore.TryGetConversionInfo(path, adj, false, out var progress, adminContext) && progress.Status == FileConversionStatus.Error;
+                    status = failed ? (byte)2 : (byte)1;
+                }
+            } catch (OperationCanceledException) {
+                throw;
+            } catch (Exception) {
+                status = 2; // the file is gone, or the property no longer holds one
+            }
+            var header = new byte[9];
+            BinaryPrimitives.WriteInt32LittleEndian(header, item.Id);
+            header[4] = status;
+            BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(5), bytes.Length);
+            await gate.WaitAsync(ct);
+            try {
+                await body.WriteAsync(header, ct);
+                if (bytes.Length > 0) await body.WriteAsync(bytes, ct);
+                await body.FlushAsync(ct);
+            } finally {
+                gate.Release();
+            }
+        });
+    }
+
     sealed record StorePayload(Guid StoreId);
     sealed record NodePayload(Guid StoreId, Guid Id);
     internal sealed record PivotModelPayload(Guid StoreId, Guid? TypeId);
@@ -2051,6 +2170,12 @@ sealed class UIQuery {
     internal sealed record VisualPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity, FacetSelection[]? Selections,
         VisualLevelPayload[]? Properties, int MaxCards = 0, Guid? SortBy = null, bool SortDescending = false);
     sealed record NodeIntPayload(Guid StoreId, int Id);
+    /// <summary>The cards to name and find the picture of, by their int ids.</summary>
+    sealed record CardsPayload(Guid StoreId, int[]? Ids);
+    /// <summary>One card's picture to make: the node's int id and the file property it is in.</summary>
+    internal sealed record CardImageItem(int Id, Guid P);
+    /// <summary>A batch of card pictures at one width (Level, one of cardImageLevels).</summary>
+    internal sealed record CardImagesPayload(Guid StoreId, int Level, CardImageItem[]? Items);
     internal sealed record FacetSelectionValue(string? Value, string? Value2);
     internal sealed record FacetSelection(Guid PropertyId, FacetSelectionValue[]? Values);
     internal sealed record SearchPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity,

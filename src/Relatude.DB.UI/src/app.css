@@ -7877,6 +7877,11 @@ body.pg-resizing {
   display: block;
 }
 
+/* the names on the cards, drawn over the picture from the same frame; the pointer goes through to the cards */
+.visual-canvas canvas.visual-text {
+  pointer-events: none;
+}
+
 /* what is laid over the canvas follows the camera by transform; none of it takes the pointer */
 .visual-labels,
 .visual-tooltip,

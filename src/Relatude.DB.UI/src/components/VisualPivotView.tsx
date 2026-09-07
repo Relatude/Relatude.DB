@@ -9,6 +9,8 @@ import { createCardField, transitionSeconds, type CardField, type FieldTheme, ty
 import { barLayout, gridLayout, type Bar, type Layout } from "../visual/layouts";
 import { buildPalette, parseCssColor, type PaletteColor } from "../visual/palette";
 import { IntMap } from "../visual/intMap";
+import { createCardMedia, type CardMedia } from "../visual/cardMedia";
+import { createCardLabels, type CardLabels, type LabelColors } from "../visual/cardLabels";
 
 /** A visual pivot before anyone has chosen anything: a grid of one colour, in the result's order. */
 export const emptyVisual: VisualDefinition = { colorProperty: null, colorMode: "auto", barProperty: null, barMode: "auto", sortProperty: null, sortDescending: false, legend: true };
@@ -164,8 +166,13 @@ export function VisualPivotView({
 
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const textRef = useRef<HTMLCanvasElement>(null);
   const labelsRef = useRef<HTMLDivElement>(null);
   const field = useRef<CardField | null>(null);
+  // the names and pictures of the cards in view, and the names drawn over the picture
+  const media = useRef<CardMedia | null>(null);
+  const labels = useRef<CardLabels | null>(null);
+  const labelColors = useRef<LabelColors | null>(null);
   const [glOk, setGlOk] = useState(true);
   const [theme, setTheme] = useState<Theme | null>(null);
   const [bars, setBars] = useState<{ bar: Bar; group: DecodedGroup }[]>([]);
@@ -200,8 +207,17 @@ export function VisualPivotView({
     setTheme(t);
     f.setTheme(t);
     f.resize();
-    // the labels follow the camera on every frame the field draws
-    f.onFrame(() => placeLabels());
+    const m = createCardMedia(f, base.storeId);
+    media.current = m;
+    const l = textRef.current ? createCardLabels(textRef.current) : null;
+    labels.current = l;
+    // the labels follow the camera on every frame the field draws; the pictures of the cards in view
+    // are kept coming from the same place, and the names drawn over them
+    f.onFrame(() => {
+      placeLabels();
+      m.frame(performance.now());
+      l?.draw(f, m, labelColors.current);
+    });
     const ro = new ResizeObserver(() => {
       f!.resize();
       // the picture is fitted to its new room, once the resizing has settled: a dragged splitter
@@ -230,6 +246,9 @@ export function VisualPivotView({
       mo.disconnect();
       window.clearTimeout(refit.current);
       canvas.removeEventListener("wheel", wheel);
+      m.destroy();
+      media.current = null;
+      labels.current = null;
       f!.destroy();
       field.current = null;
     };
@@ -237,6 +256,11 @@ export function VisualPivotView({
   }, [hasStage]);
 
   const palette = useMemo(() => buildPalette(paletteSize, theme?.dark ?? false), [theme?.dark]);
+
+  // another database: nothing known about the cards carries over
+  useEffect(() => {
+    media.current?.setStore(base.storeId);
+  }, [base.storeId]);
 
   // What the picture is coloured and stacked by. When a picker changes, the answer for the new
   // property is a round trip away and the answer on hand has nothing for it - so until it arrives
@@ -297,6 +321,7 @@ export function VisualPivotView({
         fresh = new Uint8Array(decoded.count).fill(1);
       }
       f.setCards(decoded.count, from, layout.positions, fresh);
+      media.current?.setCards(decoded.ids);
       setSelectedIndex(-1);
       // the camera keeps pace with the cards: it arrives on the new picture as the last of them do
       f.fit(fitBounds(layout), fitPadding, prev !== null ? transitionSeconds : 0);
@@ -305,7 +330,10 @@ export function VisualPivotView({
       f.fit(fitBounds(layout), fitPadding, transitionSeconds);
     }
     previous.current = { decoded, layout };
-    f.setGroups(colorData ? colorData.assignment : new Uint16Array(decoded.count), paletteBytes(colorData, palette, theme));
+    media.current?.setLayout(layout);
+    const colors = paletteBytes(colorData, palette, theme);
+    f.setGroups(colorData ? colorData.assignment : new Uint16Array(decoded.count), colors);
+    labelColors.current = { assignment: colorData ? colorData.assignment : null, palette: colors };
     setBars(layout.bars ? layout.bars.map((bar) => ({ bar, group: barData!.groups[bar.group] })) : []);
     setTooltip(null);
   }, [decoded, colorData, barData, theme, palette]);
@@ -405,6 +433,8 @@ export function VisualPivotView({
       return;
     }
     const lines: string[] = [];
+    const name = media.current?.nameOf(i);
+    if (name) lines.push(name);
     for (const p of [colorData, barData]) {
       if (!p || lines.some((l) => l.startsWith(p.name + ": "))) continue;
       lines.push(p.name + ": " + p.groups[p.assignment[i]].label);
@@ -538,7 +568,10 @@ export function VisualPivotView({
       <div className="visual-stage" ref={stageRef}>
         <div className="visual-canvas">
           {glOk ? (
-            <canvas ref={canvasRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onPointerLeave={onPointerLeave} onDoubleClick={() => fitToLayout(refitSeconds)} />
+            <>
+              <canvas ref={canvasRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onPointerLeave={onPointerLeave} onDoubleClick={() => fitToLayout(refitSeconds)} />
+              <canvas className="visual-text" ref={textRef} />
+            </>
           ) : (
             <div className="query-empty">This browser has no WebGL 2, which the picture is drawn with.</div>
           )}
