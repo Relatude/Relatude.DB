@@ -74,6 +74,8 @@ sealed class UIQuery {
         commands.Register("query-pivot-model", ctx => pivotModel(ctx.Payload<PivotModelPayload>()));
         commands.Register("query-pivot", async ctx => await pivot(ctx.Payload<PivotPayload>()));
         commands.Register("query-groupby", async ctx => await groupBy(ctx.Payload<GroupByPayload>()));
+        commands.Register("query-visual", async ctx => await visual(ctx.Payload<VisualPayload>()));
+        commands.Register("query-node-id", ctx => nodeGuid(ctx.Payload<NodeIntPayload>()));
         commands.Register("query-columns", ctx => columnsOf(ctx.Payload<ColumnsPayload>()));
     }
 
@@ -1908,6 +1910,110 @@ sealed class UIQuery {
         try { return s.Mapper.GetIdGuid(v).ToString(); } catch { return wire(v); }
     }
 
+    // ---- the visual pivot: every node of the result as a card, placed and coloured by its values ----
+
+    // How many cards one picture may hold. Every card costs six bytes on the wire per property it is
+    // grouped by, and a few tens of bytes of GPU memory in the browser, so a million is a picture the
+    // browser can still draw; a result larger than that shows its first million and says so.
+    const int maxVisualCards = 1_000_000;
+    // How many distinct values one property may colour or stack by. A palette has to keep the colours
+    // apart and a bar chart has to keep the bars readable; past this the smaller buckets go unassigned
+    // and the page shows them as one "(other)" group.
+    const int maxVisualGroups = 500;
+
+    /// <summary>
+    /// The result of the page's search as cards: the id of every node in it, in the result's order,
+    /// and for each property the picture is grouped by, one group per value (ranges for scalars, the
+    /// way the facets do it) with the index of the group each card falls in. Both travel as bytes -
+    /// int32 ids and uint16 group indexes - because at a hundred thousand cards and up the size of the
+    /// answer is the time the picture takes to appear. The groups are made with the facet primitives
+    /// (IBucketSource), so no node is read whatever the size of the result.
+    /// </summary>
+    async Task<object> visual(VisualPayload p) {
+        var s = store(p.StoreId);
+        var dm = s.Datastore.Datamodel;
+        var typeId = queriedType(dm, p.TypeId);
+        var nodeType = dm.NodeTypes[typeId];
+        var cards = Math.Clamp(p.MaxCards <= 0 ? maxVisualCards : p.MaxCards, 1, maxVisualCards);
+        // the same search as the list, as one page as large as the picture may be; no buckets are
+        // counted (the groups below are built directly from the result)
+        var search = new SearchPayload(p.StoreId, p.TypeId, p.Text, p.SemanticRatio, p.MinimumSimilarity, p.Selections, null, 0, cards, Facets: false);
+        var queryString = queryFor(s, dm, search, typeId, 0, cards);
+
+        var sw = Stopwatch.StartNew();
+        var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
+        var nodes = (data as FacetQueryResultData)?.Result ?? data as IStoreNodeDataCollection
+            ?? throw new Exception("The query did not return a collection of nodes. ");
+        var ids = nodes.NodeIds.ToArray();
+        var position = positionsOf(ids);
+        var properties = new List<object>();
+        foreach (var level in (p.Properties ?? []).DistinctBy(l => l.PropertyId)) {
+            if (!dm.Properties.TryGetValue(level.PropertyId, out var property)) continue; // a property the picker has not settled on yet
+            if (nodes is not IBucketSource source) throw new Exception("This database cannot group a result set without reading it. ");
+            bool? isRange = (level.Mode ?? "auto").ToLowerInvariant() switch { "values" => false, "ranges" => true, _ => null };
+            var buckets = source.Bucket(property.Id, isRange, includeMissing: true, maxVisualGroups, adminContext);
+            // one uint16 per card, little-endian; 0xFFFF is a card in none of the groups sent
+            var assignment = new byte[ids.Length * 2];
+            Array.Fill(assignment, (byte)0xFF);
+            var assigned = 0;
+            for (var b = 0; b < buckets.Count; b++) {
+                foreach (var id in buckets[b].Ids) {
+                    var at = position(id);
+                    if (at < 0) continue; // a set can hold ids the page does not (it never should; the guard is cheap)
+                    if (assignment[at * 2] == 0xFF && assignment[at * 2 + 1] == 0xFF) assigned++;
+                    assignment[at * 2] = (byte)(b & 0xFF);
+                    assignment[at * 2 + 1] = (byte)(b >> 8);
+                }
+            }
+            properties.Add(new {
+                PropertyId = property.Id,
+                Name = property.CodeName,
+                ValueType = property.PropertyType.ToString(),
+                IsRange = buckets.Any(b => b.Value.Value2 != null),
+                Groups = buckets.Select(b => (object)new {
+                    Label = facetValueLabel(property, b.Value),
+                    Value = wire(b.Value.Value),
+                    Value2 = wire(b.Value.Value2),
+                    b.Count,
+                }).ToArray(),
+                Assignment = assignment,
+                Unassigned = ids.Length - assigned,
+            });
+        }
+        sw.Stop();
+        var idBytes = new byte[ids.Length * 4];
+        Buffer.BlockCopy(ids, 0, idBytes, 0, idBytes.Length); // int32, the platform's byte order, which is little-endian everywhere this runs
+        return new {
+            TypeId = typeId,
+            TypeName = nodeType.CodeName,
+            Total = nodes.TotalCount,
+            Count = ids.Length,
+            DurationMs = sw.Elapsed.TotalMilliseconds,
+            Query = queryString,
+            Ids = idBytes,
+            Properties = properties,
+        };
+    }
+    // where each id sits in the result: a flat array when the ids are dense enough for one, a
+    // dictionary otherwise (a result of a few thousand out of millions would waste the array)
+    static Func<int, int> positionsOf(int[] ids) {
+        if (ids.Length == 0) return _ => -1;
+        var max = 0;
+        foreach (var id in ids) if (id > max) max = id;
+        if (max < 0) return _ => -1;
+        if (max <= ids.Length * 8L + 4096) {
+            var byId = new int[max + 1];
+            Array.Fill(byId, -1);
+            for (var i = 0; i < ids.Length; i++) if (ids[i] >= 0) byId[ids[i]] = i;
+            return id => id >= 0 && id < byId.Length ? byId[id] : -1;
+        }
+        var map = new Dictionary<int, int>(ids.Length);
+        for (var i = 0; i < ids.Length; i++) map[ids[i]] = i;
+        return id => map.TryGetValue(id, out var at) ? at : -1;
+    }
+    // the cards carry the store's int ids; the form opens on a guid
+    object nodeGuid(NodeIntPayload p) => new { Id = store(p.StoreId).Datastore.GetGuid(p.Id) };
+
     sealed record StorePayload(Guid StoreId);
     sealed record NodePayload(Guid StoreId, Guid Id);
     internal sealed record PivotModelPayload(Guid StoreId, Guid? TypeId);
@@ -1920,6 +2026,11 @@ sealed class UIQuery {
         PivotAxisOptionsPayload? RowOptions, PivotAxisOptionsPayload? ColumnOptions, bool SubTotals = false, int MaxCells = 0, int RowPage = 0, int RowPageSize = 0);
     internal sealed record GroupByPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity, FacetSelection[]? Selections,
         PivotLevelPayload[]? Keys, PivotMeasurePayload[]? Measures, bool IncludeMissing = true, string? SortBy = null, bool Descending = true, int Page = 0, int PageSize = 200);
+    /// <summary>A property the visual pivot groups by; Mode: auto | values | ranges.</summary>
+    internal sealed record VisualLevelPayload(Guid PropertyId, string? Mode);
+    internal sealed record VisualPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity, FacetSelection[]? Selections,
+        VisualLevelPayload[]? Properties, int MaxCards = 0);
+    sealed record NodeIntPayload(Guid StoreId, int Id);
     internal sealed record FacetSelectionValue(string? Value, string? Value2);
     internal sealed record FacetSelection(Guid PropertyId, FacetSelectionValue[]? Values);
     internal sealed record SearchPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity,

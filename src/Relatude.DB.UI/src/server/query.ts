@@ -602,6 +602,73 @@ export function runGroupBy(request: GroupByRequest): Promise<GroupByResult> {
   return send<GroupByResult>("query-groupby", request);
 }
 
+// ---- the visual pivot: every node of the result as a card, grouped by its values ----
+
+export interface VisualRequest {
+  storeId: string;
+  typeId: string | null;
+  text: string;
+  semanticRatio: number | null;
+  minimumSimilarity: number | null;
+  selections: FacetSelection[];
+  /** The properties the picture is grouped by (colour, bars); `mode` is auto | values | ranges. */
+  properties: PivotLevelSpec[];
+  /** How many cards at most; 0 is the server's own ceiling. */
+  maxCards?: number;
+}
+
+/** One value (or range) of a grouping property; `value`/`value2` are selection tokens (see the top of this file). */
+export interface VisualGroup {
+  label: string;
+  value: string | null;
+  value2: string | null;
+  count: number;
+}
+
+/** The groups of one property, and which of them each card is in. */
+export interface VisualProperty {
+  propertyId: string;
+  name: string;
+  valueType: string;
+  isRange: boolean;
+  groups: VisualGroup[];
+  /** One uint16 per card, little-endian, base64: the index into `groups`, or 0xFFFF for a card in none of them. */
+  assignment: string;
+  /** How many cards are in none of the groups sent (the property had more values than groups are kept). */
+  unassigned: number;
+}
+
+export interface VisualResult {
+  typeId: string;
+  typeName: string;
+  /** How many nodes the search found. */
+  total: number;
+  /** How many of them are in the picture: the first `count` of the result, all of them unless it is capped. */
+  count: number;
+  durationMs: number;
+  query: string;
+  /** One int32 per card, little-endian, base64: the node's int id, in result order. */
+  ids: string;
+  properties: VisualProperty[];
+}
+
+export function runVisual(request: VisualRequest): Promise<VisualResult> {
+  return send<VisualResult>("query-visual", request);
+}
+
+/** The guid of a node from its int id, which is what the cards carry. */
+export function fetchNodeGuid(storeId: string, id: number): Promise<{ id: string }> {
+  return send<{ id: string }>("query-node-id", { storeId, id });
+}
+
+/** Base64 as sent by System.Text.Json for a byte[], back to bytes. */
+export function bytesOf(base64: string): Uint8Array {
+  const text = atob(base64);
+  const bytes = new Uint8Array(text.length);
+  for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i);
+  return bytes;
+}
+
 export function fetchPivotModel(storeId: string, typeId: string | null): Promise<PivotModel> {
   return send<PivotModel>("query-pivot-model", { storeId, typeId });
 }

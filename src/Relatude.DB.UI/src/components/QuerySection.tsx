@@ -3,6 +3,7 @@ import {
   IconArrowNarrowDown,
   IconArrowNarrowUp,
   IconChartBar,
+  IconChartHistogram,
   IconChevronLeft,
   IconChevronRight,
   IconCode,
@@ -22,6 +23,7 @@ import {
 import { NodeEditor } from "./NodeEditor";
 import { PivotView, type PivotBase } from "./PivotView";
 import { GroupByView } from "./GroupByView";
+import { VisualPivotView } from "./VisualPivotView";
 import { EditableTable } from "./EditableTable";
 import { CopyButton } from "./CopyButton";
 import { NewNodeDialog, TypePicker } from "./TypePicker";
@@ -91,6 +93,7 @@ const modes: { id: QueryMode; label: string; icon: typeof IconSearch; hint: stri
   { id: "search", label: "Search", icon: IconSearch, hint: "The nodes that match, as a list or a table of the columns you choose" },
   { id: "groups", label: "Group by", icon: IconSum, hint: "One row per value of a property, with a count and aggregates (SQL's GROUP BY)" },
   { id: "pivot", label: "Pivot", icon: IconChartBar, hint: "Groups by property on two axes, a count or sum per cell" },
+  { id: "visual", label: "Visual pivot", icon: IconChartHistogram, hint: "Every node as a card: coloured by one property, stacked into bars by another" },
 ];
 
 /**
@@ -302,8 +305,9 @@ function QueryTab({
   // the pivot summarize them, as views of the same search
   const pivot = mode === "pivot";
   const groups = mode === "groups";
+  const visual = mode === "visual";
   const table = mode === "search" && hitsView === "table";
-  const summary = pivot || groups; // no hits on screen: no paging, no csv of hits, no query string of the search
+  const summary = pivot || groups || visual; // no hits on screen: no paging, no csv of hits, no query string of the search
   const [exporting, setExporting] = useState(false);
   const [newNode, setNewNode] = useState(false);
   // typing straight into the table; kept per tab, like the view it belongs to
@@ -397,9 +401,11 @@ function QueryTab({
 
   // a pivot cell clicked: its groups become the facet selection, and the list shows the nodes behind
   // the number. A selection on a property the rail already filters by is replaced, not added to.
-  function drill(from: FacetSelection[]) {
+  // The visual pivot narrows its own picture instead - the cards it keeps flow together - so it
+  // stays in its mode.
+  function drill(from: FacetSelection[], to: QueryMode = "search") {
     const next = selections.filter((s) => !from.some((f) => f.propertyId === s.propertyId));
-    reset({ selections: [...next, ...from], mode: "search" });
+    reset({ selections: [...next, ...from], mode: to });
   }
 
   // Any change to what is being searched starts the result list over, and closes the node open
@@ -585,6 +591,7 @@ function QueryTab({
               columns: null, // and the columns of the table are that type's, not this one's
               pivot: null, // and what the summaries group by
               groups: null,
+              visual: null,
             });
             setExpanded([]);
           }}
@@ -875,6 +882,18 @@ function QueryTab({
           {pivot ? (
             // keyed by type: another type has other properties, so the definition starts over with it
             <PivotView key={typeId} base={pivotBase} definition={q.pivot} onChange={(pivot) => onChange({ pivot })} refreshToken={epoch} showQuery={showQuery} onDrill={drill} />
+          ) : visual ? (
+            <VisualPivotView
+              key={typeId}
+              base={pivotBase}
+              definition={q.visual}
+              onChange={(visual) => onChange({ visual })}
+              refreshToken={epoch}
+              showQuery={showQuery}
+              onOpen={setSelected}
+              selected={selected}
+              onDrill={(from) => drill(from, "visual")}
+            />
           ) : groups ? (
             <GroupByView key={typeId} base={pivotBase} definition={q.groups} onChange={(groups) => onChange({ groups })} refreshToken={epoch} showQuery={showQuery} onDrill={drill} />
           ) : table && q.columns?.length === 0 ? (

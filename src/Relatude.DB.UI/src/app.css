@@ -7819,3 +7819,178 @@ body.pg-resizing {
 .tc-overlay {
   pointer-events: none;
 }
+
+/* ---- visual pivot: every node as a card on a WebGL canvas ---- */
+
+.visual {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* the second label on the builder line sits after the first chip rather than in the label column */
+.pivot-builder-label.visual-label-2 {
+  width: auto;
+  margin-left: 12px;
+}
+
+/* the picture and its legend, framed like a panel; the canvas takes what the legend leaves */
+.visual-stage {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 240px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.visual-canvas {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.visual-canvas:active {
+  cursor: grabbing;
+}
+
+.visual-canvas canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* what is laid over the canvas follows the camera by transform; none of it takes the pointer */
+.visual-labels,
+.visual-tooltip,
+.visual-empty,
+.visual-selected-note {
+  position: absolute;
+  pointer-events: none;
+}
+
+.visual-labels {
+  inset: 0;
+  overflow: hidden;
+}
+
+.visual-label {
+  left: 0;
+  top: 0;
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 11px;
+  line-height: 1.25;
+  color: var(--text-soft);
+  will-change: transform;
+}
+
+.visual-label-name,
+.visual-label-count {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visual-label-count {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+.visual-tooltip {
+  left: 0;
+  top: 0;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
+  white-space: nowrap;
+}
+
+.visual-empty {
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.visual-selected-note {
+  right: 8px;
+  bottom: 6px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* the legend: one row per colour, biggest groups no different from the rest - it is a key, not a ranking */
+.visual-legend {
+  flex: none;
+  width: 210px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 6px 0;
+  border-left: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.visual-legend-head {
+  padding: 2px 10px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.visual-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  color: var(--text-soft);
+  text-align: left;
+}
+
+.visual-legend-item:hover {
+  background: var(--hover);
+}
+
+.visual-swatch {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+}
+
+.visual-legend-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visual-legend-count {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}

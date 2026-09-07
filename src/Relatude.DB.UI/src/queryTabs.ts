@@ -10,8 +10,8 @@ import type { FacetSelection, PivotAxisOptions, PivotLevelSpec, PivotMeasureSpec
  * exactly as it was left, still running against whatever the database holds now.
  */
 
-/** search: the hits, as a list or a table of chosen columns; groups and pivot: summaries of them. */
-export type QueryMode = "search" | "groups" | "pivot";
+/** search: the hits, as a list or a table of chosen columns; groups and pivot: summaries of them; visual: every hit as a card. */
+export type QueryMode = "search" | "groups" | "pivot" | "visual";
 export type HitsView = "list" | "table";
 /** How a summary is shown: the numbers, or bars drawn from them. */
 export type SummaryView = "table" | "chart";
@@ -38,6 +38,18 @@ export interface GroupByDefinition {
   chartMeasure: string | null;
 }
 
+/** The visual pivot: what colours the cards and what stacks them. A mode is auto | values | ranges. */
+export interface VisualDefinition {
+  /** the property whose values colour the cards; null is one colour for all of them */
+  colorProperty: string | null;
+  colorMode: string;
+  /** the property whose values the cards are stacked into bars by; null is the grid */
+  barProperty: string | null;
+  barMode: string;
+  /** the legend beside the picture */
+  legend: boolean;
+}
+
 export interface SavedQuery {
   id: string;
   /** A name someone typed; null is a name made from the query itself, which follows it as it changes. */
@@ -62,6 +74,7 @@ export interface SavedQuery {
   /** The summaries' definitions, null until their view has been opened; dropped when the type changes. */
   pivot: PivotDefinition | null;
   groups: GroupByDefinition | null;
+  visual: VisualDefinition | null;
 }
 
 export interface QueryTabs {
@@ -90,6 +103,7 @@ export function newQuery(): SavedQuery {
     columns: null,
     pivot: null,
     groups: null,
+    visual: null,
   };
 }
 
