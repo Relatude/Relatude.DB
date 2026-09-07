@@ -3998,6 +3998,40 @@ a.action-button {
   border-bottom: none;
 }
 
+/* the headings and the filter row under them read as one band: no rule between them, and the
+   filter sits closer to the heading it belongs to than to the first entry */
+.log-table-head.with-filter-row {
+  border-bottom: none;
+}
+
+.log-table-filter {
+  padding-top: 3px;
+  padding-bottom: 5px;
+}
+
+/* one filter per column, sitting under its heading: what that column has to contain */
+.log-filter-input {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 6px;
+  font: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.log-filter-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* a filter narrowing the list is marked, so a short list is never a mystery */
+.log-filter-input.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
 .log-table-row .num {
   text-align: right;
   font-variant-numeric: tabular-nums;

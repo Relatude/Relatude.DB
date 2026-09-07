@@ -3,6 +3,7 @@
 // the server), so nothing here names a log, a column or a statistic - adding one on the server adds
 // it to the UI.
 
+import { adminBase } from "./base";
 import { send } from "./channel";
 
 /** How a log value is stored, which is all the client needs to know to format it. */
@@ -204,6 +205,44 @@ export function saveLogSettings(storeId: string): Promise<{ saved: boolean; logs
 /** Puts every switch back to what the settings file holds - the other half of saving. */
 export function restoreLogSettings(storeId: string): Promise<{ restored: boolean; recording: number }> {
   return send<{ restored: boolean; recording: number }>("logs-restore", { storeId });
+}
+
+/**
+ * Downloads a log as tab separated text: the range between the two bounds, or - with both left
+ * null - the whole log. This is not a command but a file, so it goes to a route of its own and
+ * comes back as an attachment the browser saves.
+ */
+export async function downloadLogTsv(storeId: string, logKey: string, fromUtc: string | null, toUtc: string | null): Promise<void> {
+  const response = await fetch(`${adminBase}/ui/log-tsv`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ storeId, logKey, fromUtc, toUtc }),
+  });
+  if (!response.ok) {
+    let message = `The download failed (HTTP ${response.status}).`;
+    try {
+      const body = await response.json();
+      if (typeof body?.error === "string") message = body.error;
+    } catch {
+      // not json, keep the default message
+    }
+    throw new Error(message);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filenameOf(response.headers.get("content-disposition")) ?? `${logKey}-log.tsv`;
+    link.click();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function filenameOf(contentDisposition: string | null): string | null {
+  const match = contentDisposition?.match(/filename="([^"]+)"/);
+  return match ? match[1] : null;
 }
 
 export function fetchScans(storeId: string): Promise<ScanInfo> {

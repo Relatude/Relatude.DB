@@ -21,6 +21,7 @@ public sealed class UIServer {
     readonly RelatudeDBServer _server;
     readonly Timer _containerWatch;
     readonly UIQuery _query;
+    readonly UILogs _logs;
     string? _lastContainersJson;
     public UIEventStream Events { get; } = new();
     public UICommands Commands { get; }
@@ -29,7 +30,8 @@ public sealed class UIServer {
         Commands = new UICommands(server);
         registerBuiltInCommands();
         new UISettings(server).Register(Commands);
-        new UILogs(server).Register(Commands);
+        _logs = new UILogs(server);
+        _logs.Register(Commands);
         new UIDashboard(server).Register(Commands);
         new UITasks(server).Register(Commands);
         new UIDemo(server).Register(Commands);
@@ -129,6 +131,18 @@ public sealed class UIServer {
             } catch (Exception error) when (!ctx.Response.HasStarted) {
                 // everything that can fail (the store, the query) happens before the first row is
                 // written, so until then the client can still be told what went wrong
+                return Results.Json(new { error = error.Message }, RelatudeDBJsonOptions.Default, statusCode: 500);
+            }
+            return Results.Empty;
+        });
+        // a log as a tab separated file (a download, so not a command): the whole log, or the range
+        // the logs page is showing
+        app.MapPost(path + "log-tsv", async (HttpContext ctx, UILogs.ExportPayload payload) => {
+            try {
+                await _logs.WriteTsv(ctx, payload);
+            } catch (Exception error) when (!ctx.Response.HasStarted) {
+                // the log and its range are read before the first row is written, so until then the
+                // client can still be told what went wrong
                 return Results.Json(new { error = error.Message }, RelatudeDBJsonOptions.Default, statusCode: 500);
             }
             return Results.Empty;

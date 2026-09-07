@@ -5,15 +5,17 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconDeviceFloppy,
+  IconDownload,
   IconEraser,
   IconReload,
   IconRotate,
   IconTrash,
 } from "@tabler/icons-react";
 import { Chart, groupColor, intervalLabel } from "./Chart";
-import { showConfirm, showError, showInfo } from "../dialogs";
+import { showChoice, showConfirm, showError, showInfo } from "../dialogs";
 import {
   clearLog,
+  downloadLogTsv,
   enableLog,
   fetchLogPage,
   fetchLogsInfo,
@@ -26,7 +28,9 @@ import {
   saveLogSettings,
   setMinQueryDuration,
   type IntervalType,
+  type LogColumn,
   type LogDataType,
+  type LogEntry,
   type LogInfo,
   type LogPage,
   type LogSeries,
@@ -234,6 +238,21 @@ function RangePicker({ value, onChange }: { value: string; onChange: (id: string
 
 const pageSize = 100;
 
+/**
+ * How many entries a column filter searches.
+ *
+ * The filters run in the browser over the entries it already has, so they need a window worth
+ * searching: with one set, a call brings back this many of the newest entries in the range rather
+ * than a page of a hundred, and the filter pages through the matches among those. Reading a range
+ * on the server reads every record in it whatever the take is, so the window costs a larger
+ * response and no more work there - but it is still a window, and the table says so when the range
+ * holds more entries than fit in it.
+ */
+const filterWindow = 5000;
+
+/** The key the time column's filter is kept under. No log declares a property named like this. */
+const timeKey = "*time";
+
 function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChanged: () => void }) {
   const [rangeId, setRangeId] = useState("24h");
   const [seriesKey, setSeriesKey] = useState(seriesId(log.series[0]));
@@ -243,13 +262,30 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
   const [skip, setSkip] = useState(0);
   const [live, setLive] = useState(false);
   const [tick, setTick] = useState(0);
+  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [downloading, setDownloading] = useState(false);
   const range = ranges.find((r) => r.id === rangeId) ?? ranges[2];
   const selected = log.series.find((s) => seriesId(s) === seriesKey) ?? log.series[0];
+  const columns = log.columns;
 
-  useEffect(() => setSkip(0), [rangeId, log.key]);
+  // What the filter row holds, as one needle per column that has something in it. The empty ones
+  // are dropped here, so a field typed into and emptied again is the same as one never touched.
+  const needles = Object.entries(filters)
+    .map(([key, text]) => ({ key, column: columns.find((c) => c.key === key) ?? null, needle: text.trim().toLowerCase() }))
+    .filter((f) => f.needle.length > 0);
+  const filtering = needles.length > 0;
+  const filterKey = needles.map((f) => f.key + "=" + f.needle).join("\n"); // what a fetch or a page reset depends on
+
+  useEffect(() => setSkip(0), [rangeId, log.key, filterKey]);
   // one refresh per bucket at the fastest: a graph drawn a second at a time that only moved every
   // five seconds would stand still for five of its points and then jump
   usePoll(() => setTick((t) => t + 1), { enabled: live, minMs: range.interval === "Second" ? 1000 : 5000 });
+
+  // A filter pages in the browser, over one window of the newest entries; without one the server
+  // pages, a hundred rows at a time. So typing in a filter field never fetches anything: only
+  // arriving at one, or leaving the last one, changes what is asked for.
+  const take = filtering ? filterWindow : pageSize;
+  const windowSkip = filtering ? 0 : skip;
 
   // one window for both halves of the page: the graph and the entries under it always cover the
   // same range, so a spike in the graph is in the table below it
@@ -268,13 +304,17 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
         setSeries(null);
         setSeriesError(e instanceof Error ? e.message : String(e));
       });
-    fetchLogPage(db.id, log.key, from.toISOString(), to.toISOString(), skip, pageSize)
+    fetchLogPage(db.id, log.key, from.toISOString(), to.toISOString(), windowSkip, take)
       .then((p) => !cancelled && setPage(p))
       .catch(() => !cancelled && setPage(null));
     return () => {
       cancelled = true;
     };
-  }, [db.id, log.key, selected, range, skip, tick]);
+  }, [db.id, log.key, selected, range, windowSkip, take, tick]);
+
+  function setFilter(key: string, text: string) {
+    setFilters((current) => ({ ...current, [key]: text }));
+  }
 
   async function toggle(change: { log?: boolean; statistics?: boolean }) {
     try {
@@ -303,6 +343,39 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
     }
   }
 
+  /**
+   * The download, asked for by range first.
+   *
+   * The range the page is showing is the one usually wanted, but a log is kept for days beyond it,
+   * and reading the whole of it is a walk through every file it has - a choice worth making on
+   * purpose rather than discovering as a wait. So both are offered, each saying how much it is.
+   */
+  async function download() {
+    const to = new Date();
+    const from = new Date(to.getTime() - range.ms);
+    const inRange = page ? ` · ${formatCount(page.total)} ${page.total === 1 ? "entry" : "entries"}` : "";
+    const choices = [{ label: `The last ${range.label}${inRange}`, hint: "the range the page is showing" }];
+    // what the log holds beyond the range is only known once its files have been looked at
+    if (log.firstRecordUtc && log.lastRecordUtc) {
+      choices.push({
+        label: "The whole log",
+        hint: `${formatTime(log.firstRecordUtc)} — ${formatTime(log.lastRecordUtc)} · ${formatBytes(log.logBytes)} on disk`,
+      });
+    }
+    const picked = await showChoice("Download as tab separated text", "How much of this log should the file hold?", choices);
+    if (picked === null) return;
+    setDownloading(true);
+    try {
+      // both bounds left out is the whole log, however far back its files reach
+      if (picked === 0) await downloadLogTsv(db.id, log.key, from.toISOString(), to.toISOString());
+      else await downloadLogTsv(db.id, log.key, null, null);
+    } catch (e) {
+      await showError("Could not download the log", e instanceof Error ? e.message : String(e));
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   async function rebuild() {
     try {
       await rebuildStatistics(db.id, log.key);
@@ -315,7 +388,12 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
   }
 
   const entries = page?.entries ?? [];
-  const columns = log.columns;
+  // every filter has to match, so a row narrows with each field typed into
+  const matches = filtering ? entries.filter((entry) => needles.every((f) => haystack(entry, f.key, f.column).includes(f.needle))) : entries;
+  const rows = filtering ? matches.slice(skip, skip + pageSize) : matches;
+  const total = filtering ? matches.length : (page?.total ?? 0);
+  // the range holds more than the filter window brought back, so the filter has not seen all of it
+  const beyondWindow = filtering && (page?.total ?? 0) > entries.length;
   const gridTemplate = "150px " + columns.map((c) => (c.dataType === "String" ? "minmax(0, 2fr)" : "minmax(0, 1fr)")).join(" ");
   // a log with many columns scrolls sideways rather than squeezing every one of them into an
   // ellipsis: below this width the table is unreadable, and the panel around it has a scrollbar
@@ -339,8 +417,25 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
         >
           <IconReload size={15} stroke={1.8} /> Live
         </button>
-        <button className="action-button" onClick={() => setTick((t) => t + 1)} title="Refresh now">
+        {/* the sizes and the first and last record of the log come with its description, so a
+            refresh reloads that too - the download offers the whole log out of it */}
+        <button
+          className="action-button"
+          onClick={() => {
+            onChanged();
+            setTick((t) => t + 1);
+          }}
+          title="Refresh now"
+        >
           <IconReload size={15} stroke={1.8} />
+        </button>
+        <button
+          className="action-button"
+          onClick={download}
+          disabled={downloading || (!log.firstRecordUtc && total === 0)}
+          title={log.firstRecordUtc || total > 0 ? "Save the entries as a tab separated file" : "This log has recorded nothing to download"}
+        >
+          <IconDownload size={15} stroke={1.8} /> {downloading ? "Writing…" : "Download"}
         </button>
         <button className="action-button" onClick={() => clear({ log: true, statistics: false })} title="Delete the recorded entries">
           <IconTrash size={15} stroke={1.8} /> Entries
@@ -414,12 +509,12 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
 
       <section className="panel">
         <h3>
-          Entries{" "}
-          <span className="panel-sub">
-            {page && page.total > 0
-              ? `${formatCount(skip + 1)}–${formatCount(skip + entries.length)} of ${formatCount(page.total)} in the last ${range.label}`
-              : `nothing recorded in the last ${range.label}`}
-          </span>
+          Entries <span className="panel-sub">{entriesText(range.label, total, skip, rows.length, filtering, entries.length)}</span>
+          {filtering && (
+            <button className="link-button" onClick={() => setFilters({})} title="Empty every filter field">
+              Clear filter
+            </button>
+          )}
         </h3>
         {!log.enabledLog && (
           <div className="logs-note">
@@ -429,14 +524,28 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
             </button>
           </div>
         )}
+        {beyondWindow && (
+          <div className="logs-note">
+            The filter searches the newest {formatCount(entries.length)} of the {formatCount(page?.total ?? 0)} entries in this range; the older ones
+            are not searched. The download holds every one of them.
+          </div>
+        )}
         <div className="log-table">
-          <div className="log-table-row log-table-head" style={rowStyle}>
+          <div className="log-table-row log-table-head with-filter-row" style={rowStyle}>
             <span>Time</span>
             {columns.map((c) => (
               <span key={c.key}>{c.name}</span>
             ))}
           </div>
-          {entries.map((entry, i) => (
+          {/* one field per column, under the heading it filters, so which column it narrows needs no
+              saying. They search what the browser has, so typing in one fetches nothing */}
+          <div className="log-table-row log-table-filter" style={rowStyle}>
+            <FilterCell columnKey={timeKey} label="Time" value={filters[timeKey] ?? ""} onChange={setFilter} />
+            {columns.map((c) => (
+              <FilterCell key={c.key} columnKey={c.key} label={c.name} value={filters[c.key] ?? ""} onChange={setFilter} />
+            ))}
+          </div>
+          {rows.map((entry, i) => (
             <div
               key={entry.timestampUtc + i}
               className="log-table-row"
@@ -455,14 +564,14 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
               })}
             </div>
           ))}
-          {entries.length === 0 && <div className="log-table-empty">No entries in this range.</div>}
+          {rows.length === 0 && <div className="log-table-empty">{filtering ? "Nothing matches the filter." : "No entries in this range."}</div>}
         </div>
-        {page && page.total > pageSize && (
+        {total > pageSize && (
           <div className="logs-paging">
             <button className="action-button" disabled={skip === 0} onClick={() => setSkip(Math.max(0, skip - pageSize))}>
               <IconChevronLeft size={15} stroke={1.8} /> Newer
             </button>
-            <button className="action-button" disabled={skip + pageSize >= page.total} onClick={() => setSkip(skip + pageSize)}>
+            <button className="action-button" disabled={skip + pageSize >= total} onClick={() => setSkip(skip + pageSize)}>
               Older <IconChevronRight size={15} stroke={1.8} />
             </button>
           </div>
@@ -470,6 +579,53 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
       </section>
     </div>
   );
+}
+
+/** One column's filter: the text that column has to contain for a row to be listed. */
+function FilterCell({
+  columnKey,
+  label,
+  value,
+  onChange,
+}: {
+  columnKey: string;
+  label: string;
+  value: string;
+  onChange: (key: string, text: string) => void;
+}) {
+  return (
+    <input
+      className={"log-filter-input" + (value.trim() ? " active" : "")}
+      value={value}
+      placeholder="Filter"
+      title={`List only entries whose ${label} contains this`}
+      onChange={(e) => onChange(columnKey, e.currentTarget.value)}
+      onKeyDown={(e) => e.key === "Escape" && onChange(columnKey, "")}
+    />
+  );
+}
+
+/**
+ * What a filter searches in one cell: the text the table shows, and the value it was made from.
+ * Both, because a row count written "1,234" and recorded as 1234 has to be found by either, and a
+ * time reads as the local clock on screen while the entry carries the UTC instant.
+ */
+function haystack(entry: LogEntry, key: string, column: LogColumn | null): string {
+  if (key === timeKey) return (formatTime(entry.timestampUtc) + "\n" + entry.timestampUtc).toLowerCase();
+  const value = entry.values[key];
+  return (formatValue(value, column?.dataType ?? "String") + "\n" + (value == null ? "" : String(value))).toLowerCase();
+}
+
+/** The line under the "Entries" heading: which rows are on screen, out of what. */
+function entriesText(rangeLabel: string, total: number, skip: number, shown: number, filtering: boolean, searched: number): string {
+  if (filtering) {
+    // a filter counts twice over: what it matched, and how much it was able to look at
+    if (total === 0) return `nothing matches in the ${formatCount(searched)} ${searched === 1 ? "entry" : "entries"} searched`;
+    if (total <= shown) return `${formatCount(total)} matching, of ${formatCount(searched)} searched`;
+    return `${formatCount(skip + 1)}–${formatCount(skip + shown)} of ${formatCount(total)} matching, in ${formatCount(searched)} searched`;
+  }
+  if (total === 0) return `nothing recorded in the last ${rangeLabel}`;
+  return `${formatCount(skip + 1)}–${formatCount(skip + shown)} of ${formatCount(total)} in the last ${rangeLabel}`;
 }
 
 const seriesId = (s: LogSeries | undefined) => (s ? (s.property ?? "*") + ":" + s.statistic : "*:Count");

@@ -1,7 +1,10 @@
 using Relatude.DB.DataStores;
+using Relatude.DB.IO;
 using Relatude.DB.Logging;
 using Relatude.DB.Logging.Statistics;
 using Relatude.DB.NodeServer.Settings;
+using System.Globalization;
+using System.Text;
 
 namespace Relatude.DB.NodeServer.UI;
 
@@ -179,7 +182,11 @@ sealed class UILogs {
         var from = asUtc(p.FromUtc) ?? DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
         var to = asUtc(p.ToUtc) ?? DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc);
         var skip = Math.Max(0, p.Skip);
-        var take = Math.Clamp(p.Take, 1, 1000);
+        // A page of the table is a hundred rows, but the column filters search what the browser
+        // already holds, so filtering asks for a window of thousands in one call. Reading a range
+        // reads every record in it whatever the take is, so a larger one costs a larger response
+        // and no more work here.
+        var take = Math.Clamp(p.Take, 1, 10000);
         var entries = log.ExtractLog(p.LogKey, from, to, skip, take, true, out var total);
         return new {
             Total = total,
@@ -190,6 +197,84 @@ sealed class UILogs {
                 e.Values,
             }),
         };
+    }
+
+    // ---- a log as a file ----
+
+    /// <summary>
+    /// A log written out as tab separated text: the whole of it, or one range. The column no log
+    /// declares comes first - the timestamp, ISO 8601 in UTC so it sorts as text - and then one
+    /// column per property the log declares, in the order its table shows them.
+    ///
+    /// The range is walked one slice at a time rather than asked for in one call, because
+    /// extracting a range reads every record in it into memory: a whole log of a busy database
+    /// would otherwise be held at once. A slice is never smaller than one of the log's own files,
+    /// since a smaller one would only read the same file again, and the rows come out oldest
+    /// first - the order the files are walked in.
+    /// </summary>
+    internal async Task WriteTsv(HttpContext http, ExportPayload p) {
+        var log = logger(p.StoreId);
+        var store = log.LogStore;
+        var setting = store.GetSetting(p.LogKey); // an unknown log throws here, before anything is written
+        var first = asUtc(store.GetTimestampOfFirstRecord(p.LogKey));
+        var last = asUtc(store.GetTimestampOfLastRecord(p.LogKey));
+        var columns = setting.Properties.ToArray();
+        var name = p.LogKey + "-log-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".tsv";
+        http.Response.ContentType = "text/tab-separated-values; charset=utf-8";
+        http.Response.Headers.ContentDisposition = "attachment; filename=\"" + name + "\"";
+        var writer = new StreamWriter(http.Response.Body, new UTF8Encoding(true)); // BOM: spreadsheets read the file as utf-8 without being told
+        await using (writer.ConfigureAwait(false)) {
+            await writer.WriteAsync(row(["Time", .. columns.Select(c => c.Value.Name)]));
+            // Nothing recorded: the header alone says what the file would have held.
+            if (first is not DateTime firstRecord || last is not DateTime lastRecord) return;
+            // An omitted bound is the whole log. A bound reaching past what the log holds is that
+            // too, and is clamped rather than walked: a range starting at year one is half a
+            // million empty day slices before the first record the log actually has.
+            var rangeFrom = asUtc(p.FromUtc) is DateTime f && f > firstRecord ? f : firstRecord;
+            var rangeTo = asUtc(p.ToUtc) is DateTime t && t <= lastRecord ? t : lastRecord.AddTicks(1); // [from, to): the last record is in it
+            var interval = setting.FileInterval;
+            for (var sliceFrom = floorToSlice(rangeFrom, interval); sliceFrom < rangeTo; sliceFrom = nextSlice(sliceFrom, interval)) {
+                if (http.RequestAborted.IsCancellationRequested) return;
+                var sliceTo = nextSlice(sliceFrom, interval);
+                var entries = log.ExtractLog(p.LogKey, sliceFrom > rangeFrom ? sliceFrom : rangeFrom, sliceTo < rangeTo ? sliceTo : rangeTo,
+                    0, int.MaxValue, false, out _);
+                foreach (var entry in entries) {
+                    if (http.RequestAborted.IsCancellationRequested) return;
+                    await writer.WriteAsync(row([
+                        cell(entry.Timestamp),
+                        .. columns.Select(c => cell(entry.Values.TryGetValue(c.Key, out var value) ? value : null)),
+                    ]));
+                }
+            }
+        }
+    }
+
+    // A slice covers whole log files: one day, or one month for a log keeping a file per month.
+    // A log writing a file per minute or per hour reads several of them per slice, which is the
+    // point - the slice is there to bound memory, not to read as little as possible.
+    static DateTime floorToSlice(DateTime at, FileInterval interval) => interval == FileInterval.Month
+        ? new DateTime(at.Year, at.Month, 1, 0, 0, 0, DateTimeKind.Utc)
+        : new DateTime(at.Year, at.Month, at.Day, 0, 0, 0, DateTimeKind.Utc);
+    static DateTime nextSlice(DateTime at, FileInterval interval) => interval == FileInterval.Month ? at.AddMonths(1) : at.AddDays(1);
+
+    static string row(IEnumerable<string> cells) => string.Join('\t', cells) + "\r\n";
+
+    /// <summary>
+    /// One value as the file holds it. Tab separated text has no escape - a value with a tab in it
+    /// would become another column, and one with a newline another row - so those become spaces.
+    /// Nothing else is dressed up: the numbers are the numbers, and the timestamps sort as text.
+    /// </summary>
+    static string cell(object? value) {
+        var text = value switch {
+            null => string.Empty,
+            DateTime dt => DateTime.SpecifyKind(dt, DateTimeKind.Utc).ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture),
+            TimeSpan ts => ts.ToString("c", CultureInfo.InvariantCulture),
+            double d => d.ToString("R", CultureInfo.InvariantCulture),
+            int i => i.ToString(CultureInfo.InvariantCulture),
+            byte[] bytes => bytes.Length + " bytes", // the log holds them, a text file cannot
+            _ => value.ToString() ?? string.Empty,
+        };
+        return text.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
     }
 
     // The trace is the last messages the running database kept in memory: the ones written before
@@ -513,6 +598,8 @@ sealed class UILogs {
     sealed record LogPayload(Guid StoreId, string LogKey);
     sealed record TracePayload(Guid StoreId, int Take = 200);
     sealed record ExtractPayload(Guid StoreId, string LogKey, DateTime? FromUtc, DateTime? ToUtc, int Skip = 0, int Take = 200);
+    // both bounds omitted is the whole log; either one on its own bounds that end of it
+    internal sealed record ExportPayload(Guid StoreId, string LogKey, DateTime? FromUtc, DateTime? ToUtc);
     sealed record SeriesPayload(Guid StoreId, string LogKey, string? Property, string Statistic, string Interval, DateTime? FromUtc, DateTime? ToUtc);
     sealed record EnablePayload(Guid StoreId, string LogKey, bool? Log, bool? Statistics);
     sealed record ClearPayload(Guid StoreId, string? LogKey, bool Log, bool Statistics);

@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ClientDir>$(MSBuildProjectDirectory)\..\..\Client</ClientDir>
-    <Version>0.3.0.172</Version>
+    <Version>0.3.0.173</Version>
   </PropertyGroup>
 
   <ItemGroup>
