@@ -15,7 +15,7 @@ import {
   type PivotProperty,
 } from "../server/query";
 import { useLiveResult } from "../server/hooks";
-import { formatCount } from "../format";
+import { formatCount, formatQuery } from "../format";
 import { dateModes, functions, propertiesFor, type PivotBase } from "./PivotView";
 import type { GroupByDefinition, SummaryView } from "../queryTabs";
 import { BarChart } from "./BarChart";
@@ -277,7 +277,7 @@ export function GroupByView({
         </div>
       </div>
 
-      {showQuery && result && result.query && <div className="query-string">{result.query}</div>}
+      {showQuery && result && result.query && <div className="query-string">{formatQuery(result.query)}</div>}
       {error && <div className="query-error">{error}</div>}
 
       {result && (

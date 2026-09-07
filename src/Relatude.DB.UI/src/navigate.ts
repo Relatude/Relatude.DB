@@ -53,9 +53,11 @@ export function takeDatamodelTarget(): DatamodelTarget | null {
   return target;
 }
 
-/** Where in the query page to open: a type, as a new query on it. */
+/** Where in the query page to open: a type, as a new query on it, and a node of it to have open. */
 export interface QueryTarget {
   typeId: string;
+  /** the node to open in the form beside the list; the query itself is still the whole type */
+  nodeId?: string;
 }
 
 let pendingQuery: QueryTarget | null = null;
@@ -75,6 +77,39 @@ export function peekQueryTarget(): QueryTarget | null {
 export function takeQueryTarget(): QueryTarget | null {
   const target = pendingQuery;
   if (target) pendingQuery = null;
+  return target;
+}
+
+/**
+ * Which settings page to open, and where in it: the two scopes are two pages, and a section and a
+ * group inside them. The path of the setting itself travels too, for a page that can mark it.
+ */
+export interface SettingsTarget {
+  scope: "server" | "database";
+  /** the database whose settings to open; ignored for the server scope */
+  storeId?: string | null;
+  sectionId: string;
+  groupId: string;
+  path?: string;
+}
+
+let pendingSettings: SettingsTarget | null = null;
+
+/** Asks for the settings page of that scope, scrolled to the group holding this setting. */
+export function openInSettings(target: SettingsTarget): void {
+  pendingSettings = target;
+  notify();
+}
+
+/** The request, without taking it: what the shell watches to know it has to switch section. */
+export function peekSettingsTarget(): SettingsTarget | null {
+  return pendingSettings;
+}
+
+/** The request, taken: the settings page consumes it, so a later remount does not repeat it. */
+export function takeSettingsTarget(): SettingsTarget | null {
+  const target = pendingSettings;
+  if (target) pendingSettings = null;
   return target;
 }
 

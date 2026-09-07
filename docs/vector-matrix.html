@@ -18,7 +18,11 @@
 /* Light is the base palette. Dark is applied in two places: under the system
    preference (unless the reader has explicitly chosen light), and under an
    explicit data-theme="dark" set by the theme button. Keep the two dark blocks
-   in sync — they are deliberately identical. */
+   in sync — they are deliberately identical.
+
+   The dark grounds and ink are neutral grey on purpose: no blue tint anywhere
+   behind the text. Colour is reserved for what sits on top of them — links,
+   search marks, syntax and chart series. */
 :root {
   color-scheme: light;
   --bg: #ffffff;
@@ -29,8 +33,8 @@
   --fg: #1f2328;
   --fg-dim: #656d76;
   --fg-faint: #8b949e;
-  --accent: #2f5bd7;
-  --accent-soft: #dbe4fb;
+  --accent: #0960b2;
+  --accent-soft: #dae7f3;
   --border: #d8dce3;
   --border-soft: #e8ebef;
   --grid: #dfe3ea;
@@ -39,51 +43,51 @@
   --side-w: 300px;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --eng-0: #2f5bd7;
+  --eng-0: #0960b2;
   --eng-1: #0f7b52;
   --eng-2: #c2410c;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #0f1116;
-    --bg-side: #14161c;
-    --bg-code: #171a21;
-    --bg-hover: #1e222b;
-    --bg-active: #232a3d;
-    --fg: #e3e6eb;
-    --fg-dim: #9aa3b2;
-    --fg-faint: #6e7787;
-    --accent: #7fa2ff;
-    --accent-soft: #22304f;
-    --border: #2a2f3a;
-    --border-soft: #21252e;
-    --grid: #262b35;
-    --grid-faint: #1c2029;
+    --bg: #111111;
+    --bg-side: #171717;
+    --bg-code: #1a1a1a;
+    --bg-hover: #222222;
+    --bg-active: #2b2b2b;
+    --fg: #e6e6e6;
+    --fg-dim: #a2a2a2;
+    --fg-faint: #777777;
+    --accent: #6db3f5;
+    --accent-soft: #2b2b2b;
+    --border: #303030;
+    --border-soft: #252525;
+    --grid: #2b2b2b;
+    --grid-faint: #202020;
     --bad: #f87171;
-    --eng-0: #7fa2ff;
+    --eng-0: #6db3f5;
     --eng-1: #42c896;
     --eng-2: #fb923c;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0f1116;
-  --bg-side: #14161c;
-  --bg-code: #171a21;
-  --bg-hover: #1e222b;
-  --bg-active: #232a3d;
-  --fg: #e3e6eb;
-  --fg-dim: #9aa3b2;
-  --fg-faint: #6e7787;
-  --accent: #7fa2ff;
-  --accent-soft: #22304f;
-  --border: #2a2f3a;
-  --border-soft: #21252e;
-  --grid: #262b35;
-  --grid-faint: #1c2029;
+  --bg: #111111;
+  --bg-side: #171717;
+  --bg-code: #1a1a1a;
+  --bg-hover: #222222;
+  --bg-active: #2b2b2b;
+  --fg: #e6e6e6;
+  --fg-dim: #a2a2a2;
+  --fg-faint: #777777;
+  --accent: #6db3f5;
+  --accent-soft: #2b2b2b;
+  --border: #303030;
+  --border-soft: #252525;
+  --grid: #2b2b2b;
+  --grid-faint: #202020;
   --bad: #f87171;
-  --eng-0: #7fa2ff;
+  --eng-0: #6db3f5;
     --eng-1: #42c896;
     --eng-2: #fb923c;
 }

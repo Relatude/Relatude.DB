@@ -20,11 +20,19 @@ export interface SettingVisibility {
   and?: SettingVisibility | null;
 }
 
+/** Somewhere to read more about a setting, for a choice that needs more than its help text gives. */
+export interface SettingLink {
+  url: string;
+  text: string;
+}
+
 export interface SettingView {
   path: string;
   label: string;
   /** The inline explanation of what this setting does. */
   help: string;
+  /** A page worth reading before choosing, shown under the help text. */
+  link?: SettingLink | null;
   unit?: string | null;
   placeholder?: string | null;
   /** Names a runtime list in `pickers` to choose from instead of typing a value. */

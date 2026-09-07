@@ -28,9 +28,10 @@
 </script>
 <style>
 /* Black and white throughout, on the same grounds as intro.html / manual.html:
-   #ffffff in light, #0f1116 in dark. Light is the base palette; dark is applied
+   #ffffff in light, #111111 in dark. Light is the base palette; dark is applied
    twice — under the system preference (unless the reader explicitly chose light)
    and under an explicit data-theme="dark". The two dark blocks are identical.
+   The dark greys are neutral — no blue tint in any ground, scrim or glass.
 
    Behind all of it is the WebGL scene from NodeAnimation.html: a slow flight
    over ridged terrain with a graph rewiring itself across the peaks. It is a
@@ -80,56 +81,56 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #0f1116;
-    --surface: #14161c;
-    --fg: #e3e6eb;
-    --fg-dim: #9aa3b2;
-    --fg-faint: #6e7787;
-    --border: #2a2f3a;
-    --border-soft: #21252e;
-    --border-btn: #454d5c;
-    --bg-code: #171a21;
-    --hover: #1e222b;
+    --bg: #111111;
+    --surface: #171717;
+    --fg: #e6e6e6;
+    --fg-dim: #a2a2a2;
+    --fg-faint: #777777;
+    --border: #303030;
+    --border-soft: #252525;
+    --border-btn: #4d4d4d;
+    --bg-code: #1a1a1a;
+    --hover: #222222;
     --logo-filter: invert(1);
-    --scrim-a: rgba(15,17,22,.88);
-    --scrim-b: rgba(15,17,22,.68);
-    --scrim-c: rgba(15,17,22,.22);
-    --glass: rgba(20,22,28,.66);
-    --glass-hover: rgba(30,34,43,.86);
-    --glass-code: rgba(23,26,33,.62);
-    --halo: 0 1px 16px rgba(15,17,22,.95), 0 0 3px rgba(15,17,22,.80);
-    --logo-glow: rgba(4,6,10,.85);
-    --logo-edge: rgba(4,6,10,.60);
+    --scrim-a: rgba(17,17,17,.88);
+    --scrim-b: rgba(17,17,17,.68);
+    --scrim-c: rgba(17,17,17,.22);
+    --glass: rgba(23,23,23,.66);
+    --glass-hover: rgba(34,34,34,.86);
+    --glass-code: rgba(26,26,26,.62);
+    --halo: 0 1px 16px rgba(17,17,17,.95), 0 0 3px rgba(17,17,17,.80);
+    --logo-glow: rgba(6,6,6,.85);
+    --logo-edge: rgba(6,6,6,.60);
     --vig-dark: 1;
     --vig-light: 0;
-    --fallback: radial-gradient(140% 100% at 50% 100%, #23262e 0%, #14161c 45%, #0f1116 100%);
+    --fallback: radial-gradient(140% 100% at 50% 100%, #262626 0%, #171717 45%, #111111 100%);
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0f1116;
-  --surface: #14161c;
-  --fg: #e3e6eb;
-  --fg-dim: #9aa3b2;
-  --fg-faint: #6e7787;
-  --border: #2a2f3a;
-  --border-soft: #21252e;
-  --border-btn: #454d5c;
-  --bg-code: #171a21;
-  --hover: #1e222b;
+  --bg: #111111;
+  --surface: #171717;
+  --fg: #e6e6e6;
+  --fg-dim: #a2a2a2;
+  --fg-faint: #777777;
+  --border: #303030;
+  --border-soft: #252525;
+  --border-btn: #4d4d4d;
+  --bg-code: #1a1a1a;
+  --hover: #222222;
   --logo-filter: invert(1);
-  --scrim-a: rgba(15,17,22,.88);
-  --scrim-b: rgba(15,17,22,.68);
-  --scrim-c: rgba(15,17,22,.22);
-  --glass: rgba(20,22,28,.66);
-  --glass-hover: rgba(30,34,43,.86);
-  --glass-code: rgba(23,26,33,.62);
-  --halo: 0 1px 16px rgba(15,17,22,.95), 0 0 3px rgba(15,17,22,.80);
-  --logo-glow: rgba(4,6,10,.85);
-  --logo-edge: rgba(4,6,10,.60);
+  --scrim-a: rgba(17,17,17,.88);
+  --scrim-b: rgba(17,17,17,.68);
+  --scrim-c: rgba(17,17,17,.22);
+  --glass: rgba(23,23,23,.66);
+  --glass-hover: rgba(34,34,34,.86);
+  --glass-code: rgba(26,26,26,.62);
+  --halo: 0 1px 16px rgba(17,17,17,.95), 0 0 3px rgba(17,17,17,.80);
+  --logo-glow: rgba(6,6,6,.85);
+  --logo-edge: rgba(6,6,6,.60);
   --vig-dark: 1;
   --vig-light: 0;
-  --fallback: radial-gradient(140% 100% at 50% 100%, #23262e 0%, #14161c 45%, #0f1116 100%);
+  --fallback: radial-gradient(140% 100% at 50% 100%, #262626 0%, #171717 45%, #111111 100%);
 }
 
 * { box-sizing: border-box; }
@@ -164,8 +165,8 @@ body {
 .vig-dark {
   opacity: var(--vig-dark);
   background:
-    radial-gradient(125% 95% at 50% 42%, transparent 32%, rgba(11,13,17,.42) 72%, rgba(8,9,12,.72) 100%),
-    linear-gradient(to bottom, rgba(11,13,17,.45) 0%, transparent 22%, transparent 76%, rgba(8,9,12,.55) 100%);
+    radial-gradient(125% 95% at 50% 42%, transparent 32%, rgba(13,13,13,.42) 72%, rgba(10,10,10,.72) 100%),
+    linear-gradient(to bottom, rgba(13,13,13,.45) 0%, transparent 22%, transparent 76%, rgba(10,10,10,.55) 100%);
 }
 .vig-light {
   opacity: var(--vig-light);
@@ -513,16 +514,17 @@ footer a:hover { color: var(--fg); }
    Two entries only, matching this page: the animation's blue
    theme is left out, and `fog` and `top` — the horizon and the
    zenith, i.e. the colours that actually read as the ground of
-   the frame — are pulled onto the docs grounds (#0f1116 and
+   the frame — are pulled onto the docs grounds (#111111 and
    #ffffff) so the scene and the page are the same black and
-   white.
+   white. The dark theme is pure greyscale: every channel of
+   every entry is equal, so the terrain never picks up a tint.
    ============================================================ */
 const THEMES = {
   dark: {
-    deep:[0.030,0.032,0.038], mid:[0.150,0.155,0.168], lit:[0.600,0.610,0.628],
-    hot :[0.930,0.935,0.945], fog:[0.059,0.067,0.086], sun:[0.330,0.336,0.350],
-    top :[0.020,0.023,0.031], dust:[0.82,0.83,0.85],
-    edge:[0.45,0.46,0.48],    node:[0.95,0.955,0.965], star:1, sub:0
+    deep:[0.033,0.033,0.033], mid:[0.157,0.157,0.157], lit:[0.612,0.612,0.612],
+    hot :[0.936,0.936,0.936], fog:[0.067,0.067,0.067], sun:[0.338,0.338,0.338],
+    top :[0.024,0.024,0.024], dust:[0.83,0.83,0.83],
+    edge:[0.46,0.46,0.46],    node:[0.957,0.957,0.957], star:1, sub:0
   },
   light: {
     // terrain sits darker than the sky so the ridges read as silhouettes,

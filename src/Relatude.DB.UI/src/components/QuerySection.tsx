@@ -13,6 +13,7 @@ import {
   IconPlus,
   IconRefresh,
   IconSearch,
+  IconSparkles,
   IconSum,
   IconPencil,
   IconTable,
@@ -24,12 +25,13 @@ import { GroupByView } from "./GroupByView";
 import { EditableTable } from "./EditableTable";
 import { CopyButton } from "./CopyButton";
 import { NewNodeDialog, TypePicker } from "./TypePicker";
-import { showError } from "../dialogs";
+import { showChoice, showError } from "../dialogs";
 import { takeQueryTarget, useNavigationRequest } from "../navigate";
 import {
   createNode,
   csvRowLimit,
   exportCsv,
+  maxPageRows,
   fetchColumns,
   runSearch,
   fetchQueryModel,
@@ -44,18 +46,24 @@ import {
 import { useLiveResult } from "../server/hooks";
 import { subscribeResync } from "../server/channel";
 import type { DatabaseInfo } from "../server/serverInfo";
-import { formatCount, formatTime } from "../format";
+import { formatCount, formatQuery, formatTime } from "../format";
 import { loadTabs, newQuery, saveTabs, type HitsView, type QueryMode, type QueryTabs, type SavedQuery } from "../queryTabs";
+import { useRowWindow } from "../rowWindow";
 
-const pageSizes = [25, 50, 100, 200];
+// How many hits one page holds. The large ones are for reading a whole set in one go - a table
+// someone is going to scroll, or export - and are asked for deliberately; "all" (0 here) is one
+// page as large as the server will build, which is maxPageRows.
+const pageSizes = [25, 50, 100, 200, 1000, 10_000, 100_000];
+
+// The round numbers the csv export offers, beside the page on screen and the whole result set.
+const csvRowChoices = [1000, 10_000, 100_000];
+
+const rowCount = (n: number) => formatCount(n) + (n === 1 ? " row" : " rows");
 
 const editorWidthKey = "queryEditorWidth";
 const minEditorWidth = 320; // narrower and the form's own labels start wrapping
 const minResultsWidth = 320; // wider and the list the form was opened from stops being readable
 const maxEditorShare = 0.6; // and a share of the page as well, so a narrower window keeps a list
-
-/** The columns the select mode opens with: the node's own fields that name it, then its first two properties. */
-const defaultSelectKeys = ["__name", "__type", "__changed"];
 
 /**
  * A text the search was sampled from, with the words it matched marked. The server sends the
@@ -80,8 +88,7 @@ function keyOf(v: { value: string | null; value2: string | null }): string {
 }
 
 const modes: { id: QueryMode; label: string; icon: typeof IconSearch; hint: string }[] = [
-  { id: "search", label: "Search", icon: IconSearch, hint: "The nodes that match, as a list or a table" },
-  { id: "select", label: "Select", icon: IconColumns3, hint: "The nodes that match, as a table of the columns you choose (SQL's SELECT)" },
+  { id: "search", label: "Search", icon: IconSearch, hint: "The nodes that match, as a list or a table of the columns you choose" },
   { id: "groups", label: "Group by", icon: IconSum, hint: "One row per value of a property, with a count and aggregates (SQL's GROUP BY)" },
   { id: "pivot", label: "Pivot", icon: IconChartBar, hint: "Groups by property on two axes, a count or sum per cell" },
 ];
@@ -118,14 +125,19 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
 
   const active = tabs.queries.find((q) => q.id === tabs.active) ?? tabs.queries[0];
 
-  // another page asking for a query on a type - the dashboard's treemap, say - gets a fresh tab on
-  // it, so whatever was open here stays as it was
+  // Another page asking for a query on a type - the dashboard's treemap, the global search - gets a
+  // fresh tab on it, so whatever was open here stays as it was. A request naming a node wants that
+  // node in the form as well; which node is open is the tab's own state and not part of the saved
+  // query, so it is handed to the tab rather than written into it.
+  // it belongs to the tab that was made for it, so a tab someone opens later does not inherit it
+  const [openNode, setOpenNode] = useState<{ tabId: string; nodeId: string } | null>(null);
   const navigation = useNavigationRequest();
   useEffect(() => {
     const target = takeQueryTarget();
     if (!target) return;
     const q = newQuery();
     q.typeId = target.typeId;
+    setOpenNode(target.nodeId ? { tabId: q.id, nodeId: target.nodeId } : null);
     setTabs((t) => ({ active: q.id, queries: [...t.queries, q] }));
   }, [navigation]);
 
@@ -220,7 +232,16 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
           <IconPlus size={16} stroke={1.8} />
         </button>
       </div>
-      {model && <QueryTab key={active.id} db={db} model={model} query={active} onChange={(changes) => patch(active.id, changes)} />}
+      {model && (
+        <QueryTab
+          key={active.id}
+          db={db}
+          model={model}
+          query={active}
+          openNode={openNode?.tabId === active.id ? openNode.nodeId : null}
+          onChange={(changes) => patch(active.id, changes)}
+        />
+      )}
     </div>
   );
 }
@@ -244,25 +265,41 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
  * The editor opens beside the result list rather than over it, so working through a set of nodes is
  * a click per node and the list keeps its scroll position between them.
  */
-function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: QueryModel; query: SavedQuery; onChange: (changes: Partial<SavedQuery>) => void }) {
+function QueryTab({
+  db,
+  model,
+  query: q,
+  openNode,
+  onChange,
+}: {
+  db: DatabaseInfo;
+  model: QueryModel;
+  query: SavedQuery;
+  /** a node someone asked to have open here, from another page or the global search */
+  openNode: string | null;
+  onChange: (changes: Partial<SavedQuery>) => void;
+}) {
   // a type the model no longer has - or never named - falls back to the base type
   const typeId = q.typeId !== null && model.types.some((t) => t.id === q.typeId) ? q.typeId : model.baseTypeId;
   const { text, semanticRatio, minimumSimilarity: minSimilarity, selections, showFacets, mode, hitsView, sort, pageSize } = q;
+  const showSemantic = q.showSemantic === true;
   const [expanded, setExpanded] = useState<string[]>([]);
   const [page, setPage] = useState(0);
-  // search shows the hits as a list or a table; select as a table of chosen columns; the groups and
+  // what one page actually holds: "all" (0) asks for the largest page the server will build, and a
+  // result bigger than that is still paged - in pages of that size - rather than quietly cut off
+  const pageRows = pageSize > 0 ? pageSize : maxPageRows;
+  // search shows the hits, as a list or as a table of the columns it is told to show; the groups and
   // the pivot summarize them, as views of the same search
-  const select = mode === "select";
   const pivot = mode === "pivot";
   const groups = mode === "groups";
-  const table = select || (mode === "search" && hitsView === "table");
+  const table = mode === "search" && hitsView === "table";
   const summary = pivot || groups; // no hits on screen: no paging, no csv of hits, no query string of the search
   const [exporting, setExporting] = useState(false);
   const [newNode, setNewNode] = useState(false);
   // typing straight into the table; kept per tab, like the view it belongs to
   const editCells = q.editCells === true;
   const [showQuery, setShowQuery] = useState(false);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(openNode);
   // The editor column's width, dragged on the bar between the list and the form. null is the
   // stylesheet's own share of the page, which is where most people leave it; a width someone has
   // dragged is theirs for good, so it outlives the page and the session.
@@ -276,36 +313,26 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
   const editor = useRef<HTMLElement>(null);
   const searchBox = useRef<HTMLInputElement>(null);
 
-  // the columns the select mode can pick from, per type; the mode opens with a handful chosen
+  // every column this type could show, for the picker beside the table; the columns it IS showing
+  // come back with the result, so the table needs none of this to be drawn
   const [available, setAvailable] = useState<SelectColumn[] | null>(null);
   useEffect(() => {
-    if (!select) return;
+    if (!table) return;
     let cancelled = false;
     setAvailable(null);
     fetchColumns(db.id, typeId)
-      .then((r) => {
-        if (cancelled) return;
-        setAvailable(r.columns);
-        if (q.columns === null) {
-          const properties = r.columns.filter((c) => !c.key.startsWith("__")).slice(0, 2);
-          onChange({ columns: [...defaultSelectKeys, ...properties.map((c) => c.key)] });
-        }
-      })
+      .then((r) => !cancelled && setAvailable(r.columns))
       .catch(() => !cancelled && setAvailable([]));
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the default is decided once per type
-  }, [db.id, typeId, select]);
+  }, [db.id, typeId, table]);
 
   const selectionList = useMemo<FacetSelection[]>(() => selections.filter((s) => s.values.length > 0), [selections]);
 
   // one object per distinct search: the runner treats a new object as a new request
   const query = useMemo<SearchRequest | null>(
-    () =>
-      select && q.columns === null
-        ? null // the columns are still being chosen; a table with none would be a row of nothing
-        : {
+    () => ({
             storeId: db.id,
             typeId,
             text,
@@ -314,18 +341,26 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
             selections: selectionList,
             expanded,
             page,
-            pageSize,
+            pageSize: pageRows,
             table,
-      edit: table && editCells,
-            columns: select ? q.columns : null,
+            edit: table && editCells,
+            // null asks for the type's own columns, which is what the table opens with
+            columns: table ? q.columns : null,
             facets: showFacets,
             sortBy: sort?.key ?? null,
             sortDescending: sort?.descending ?? false,
-          },
-    [db.id, typeId, text, semanticRatio, minSimilarity, selectionList, expanded, page, pageSize, table, select, q.columns, showFacets, sort],
+    }),
+    [db.id, typeId, text, semanticRatio, minSimilarity, selectionList, expanded, page, pageRows, table, editCells, q.columns, showFacets, sort],
   );
 
   const { result, loading, error, refresh } = useLiveResult(query, runSearch);
+
+  // The rows of the page, and how many of them are built (see rowWindow): a page can be asked to
+  // hold a hundred thousand, which is a query the store answers in a moment and a table the dom
+  // cannot be handed in one piece. One array per result, so the window starts over with the search
+  // and not with every render of it.
+  const hits = useMemo(() => result?.hits ?? [], [result]);
+  const rowWindow = useRowWindow(hits);
 
   // the database changed under the page as a whole (a rollback, a reconnect), or someone asked for
   // the result again: the list is searched again and the open node read again - it may now be a
@@ -373,6 +408,11 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
   function toggleSort(key: string) {
     setPage(0);
     onChange({ sort: sort?.key !== key ? { key, descending: false } : sort.descending ? null : { key, descending: true } });
+  }
+
+  /** Takes a column out of the table - and the sort with it, if that is what it was sorted by. */
+  function removeColumn(key: string) {
+    onChange({ columns: shownColumns.filter((k) => k !== key), ...(sort?.key === key ? { sort: null } : {}) });
   }
 
   function toggleFacet(facet: Facet, value: FacetValue) {
@@ -456,11 +496,37 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
     localStorage.removeItem(editorWidthKey);
   }
 
+  /**
+   * The csv export, asked for by size first.
+   *
+   * An export is a query of its own, not the page on screen: the file people want is usually more
+   * than the rows they are looking at, and sometimes it is the whole set - which on a large store is
+   * a scan worth choosing on purpose rather than discovering as a wait. So the size is picked before
+   * anything runs, and each choice says how many rows it is in the count the search already knows.
+   *
+   * Row counts are a take, and the page on screen is that take from where the page starts - the same
+   * two numbers the search itself ran with, so the file holds exactly the rows that were on screen,
+   * in the order they were in.
+   */
   async function download() {
-    if (!query) return;
+    if (!query || !result) return;
+    const total = result.total;
+    const onPage = Math.max(0, Math.min(pageRows, total - page * pageRows));
+    const choices: { label: string; hint?: string; page: number; rows: number }[] = [];
+    if (onPage < total) choices.push({ label: `This page (${rowCount(onPage)})`, hint: "the rows on screen, in the order they are shown", page, rows: pageRows });
+    for (const n of csvRowChoices) if (n < total) choices.push({ label: `First ${rowCount(n)}`, page: 0, rows: n });
+    choices.push({
+      label: `All (${rowCount(total)})`,
+      hint: total > csvRowLimit ? `the export stops at ${formatCount(csvRowLimit)} rows` : undefined,
+      page: 0,
+      rows: 0, // as many as there are, up to the server's own cap
+    });
+    const picked = await showChoice("Export as csv", "How much of the result should the file hold?", choices);
+    if (picked === null) return;
+    const choice = choices[picked];
     setExporting(true);
     try {
-      await exportCsv(query);
+      await exportCsv({ ...query, page: choice.page, csvRows: choice.rows });
     } catch (e) {
       await showError("Could not export", e instanceof Error ? e.message : String(e));
     } finally {
@@ -469,11 +535,31 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
   }
 
   const selectedCount = selectionList.reduce((n, s) => n + s.values.length, 0);
-  const chosen = q.columns ?? [];
-  const columnName = (key: string) => available?.find((c) => c.key === key);
+  // The columns the table is showing: the ones this query names, or - until it names any - the ones
+  // the type answered with. Reading them off the result rather than seeding the query with them
+  // keeps "no choice made" a state of its own, so the type's own set can change under a query that
+  // never asked for anything else, and touching a chip is what writes a list of its own.
+  const shownColumns = q.columns ?? result?.columns?.map((c) => c.key) ?? [];
+  const columnLabel = (key: string): { name: string; type: string; declaredBy: string | null } => {
+    const picked = available?.find((c) => c.key === key);
+    if (picked) return picked;
+    const shown = result?.columns?.find((c) => c.key === key);
+    return { name: shown?.name ?? key, type: shown?.type ?? "", declaredBy: null };
+  };
+
+  // "all" says how many that is, so choosing it is not a guess. A set larger than one page can hold
+  // says so too: it is still all of them, read a page at a time.
+  const allRowsLabel = !result
+    ? "All"
+    : result.total > maxPageRows
+      ? `All (${formatCount(maxPageRows)} of ${formatCount(result.total)})`
+      : `All (${formatCount(result.total)})`;
 
   const semanticAvailable = model.hasAi && model.hasSemanticIndex;
-  const lastPage = result ? Math.max(0, Math.ceil(result.total / pageSize) - 1) : 0;
+  // a knob this query has moved off the database's own default, and so a search whose text is not the
+  // only thing deciding the answer
+  const semanticSet = semanticRatio !== null || minSimilarity !== null;
+  const lastPage = result ? Math.max(0, Math.ceil(result.total / pageRows) - 1) : 0;
   return (
     <>
       <div className="query-toolbar">
@@ -486,7 +572,7 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
               typeId: id,
               selections: [], // the facets of another type are different properties
               sort: null, // and its columns are different properties too
-              columns: null, // as are the ones the select mode chose
+              columns: null, // and the columns of the table are that type's, not this one's
               pivot: null, // and what the summaries group by
               groups: null,
             });
@@ -533,6 +619,24 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
             </button>
           ))}
         </div>
+        {/* The semantic knobs are two sliders most searches never touch, so they are folded away and
+            this says where. A value set while they were open keeps the button lit with them closed:
+            a search running at a ratio nobody can see is the one thing this must not allow. */}
+        <button
+          // lit while the panel is open, and lit with it closed when a knob is set: the panel below
+          // says which, and red (armed) is for something dangerous, which this is not
+          className={"icon-button" + (showSemantic || semanticSet ? " active" : "")}
+          title={
+            showSemantic
+              ? "Hide the semantic search sliders"
+              : semanticSet
+                ? `Semantic search: ratio ${semanticRatio ?? model.defaultSemanticRatio}, minimum similarity ${minSimilarity ?? model.defaultMinimumSimilarity} — click to show`
+                : "Show the semantic search sliders — how much of the search is vectors, and how close a match has to be"
+          }
+          onClick={() => onChange({ showSemantic: !showSemantic })}
+        >
+          <IconSparkles size={16} stroke={1.8} />
+        </button>
         <button className="icon-button" title="Run the query again" onClick={refreshAll}>
           <IconRefresh size={16} stroke={1.8} className={loading ? "spinning" : ""} />
         </button>
@@ -541,11 +645,10 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
         </button>
       </div>
 
-      {/* Always here, whatever the database can do: a control that comes and goes is one nobody
-          trusts, and where the two knobs stand is worth reading even when they are not in play.
-          They are live as soon as this database can search semantically - setting the ratio before
-          typing is a perfectly good order to work in - and only greyed when it cannot, with a note
-          saying which half is missing. */}
+      {/* Open, they are live as soon as this database can search semantically - setting the ratio
+          before typing is a perfectly good order to work in - and only greyed when it cannot, with a
+          note saying which half is missing. */}
+      {showSemantic && (
       <div className="query-sliders">
         <Slider
           label="Semantic ratio"
@@ -566,18 +669,22 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
         {!model.hasAi && <span className="query-note">No AI provider is configured for this database, so a search matches words only.</span>}
         {model.hasAi && !model.hasSemanticIndex && <span className="query-note">Nothing in this data model is semantically indexed, so both sliders are inert.</span>}
       </div>
+      )}
 
-      {select && (
-        // the columns of the select mode, in the order they were chosen; a column is added from what
-        // the type has left to offer and taken away on its own chip
+      {table && (
+        // What the table shows, in the order it shows it: a column is added from what the type has
+        // left to offer, and taken away on its own chip. Ordering is the order they were added; a
+        // column removed from the middle leaves the rest as they were.
         <div className="query-columns">
-          <span className="pivot-builder-label">Columns</span>
-          {chosen.map((key) => {
-            const column = columnName(key);
+          <span className="pivot-builder-label">
+            <IconColumns3 size={13} stroke={1.8} /> Columns
+          </span>
+          {shownColumns.map((key) => {
+            const column = columnLabel(key);
             return (
-              <span className="query-column" key={key} title={column ? column.type + (column.declaredBy ? " · from " + column.declaredBy : "") : key}>
-                {column?.name ?? key}
-                <button className="icon-button" title="Remove this column" onClick={() => onChange({ columns: chosen.filter((k) => k !== key) })}>
+              <span className="query-column" key={key} title={column.type + (column.declaredBy ? " · from " + column.declaredBy : "")}>
+                {column.name}
+                <button className="icon-button" title="Remove this column" onClick={() => removeColumn(key)}>
                   <IconX size={12} stroke={2} />
                 </button>
               </span>
@@ -588,11 +695,11 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
             value=""
             disabled={available === null}
             title="Add a column"
-            onChange={(e) => e.target.value && onChange({ columns: [...chosen, e.target.value] })}
+            onChange={(e) => e.target.value && onChange({ columns: [...shownColumns, e.target.value] })}
           >
             <option value="">{available === null ? "loading…" : "+ add column…"}</option>
             {available
-              ?.filter((c) => !chosen.includes(c.key))
+              ?.filter((c) => !shownColumns.includes(c.key))
               .map((c) => (
                 <option key={c.key} value={c.key}>
                   {c.name}
@@ -600,15 +707,17 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
                 </option>
               ))}
           </select>
-          {chosen.length > 0 && (
-            <button className="link-button" onClick={() => onChange({ columns: [] })}>
-              clear
+          {q.columns !== null && (
+            // back to no choice at all, which is not the same as choosing what the type happens to
+            // show today: a query that never asked follows the type as the model changes
+            <button className="link-button" title="Show the columns this type comes with" onClick={() => onChange({ columns: null })}>
+              reset
             </button>
           )}
         </div>
       )}
 
-      {showQuery && result && !summary && <div className="query-string">{result.query}</div>}
+      {showQuery && result && !summary && <div className="query-string">{formatQuery(result.query)}</div>}
       {error && !summary && <div className="query-error">{error}</div>}
 
       <div
@@ -676,11 +785,12 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
             )}
             <div className="query-spacer" />
             <button
-              className={"icon-button" + (showFacets ? " active" : "")}
+              className={"icon-button labelled" + (showFacets ? " active" : "")}
               title={showFacets ? "Hide the facets" : "Show the facets — the search then counts their values"}
               onClick={() => onChange({ showFacets: !showFacets })}
             >
               <IconFilter size={16} stroke={1.8} />
+              Filter
             </button>
             {mode === "search" && (
               // how the hits are shown; the other modes are each one view
@@ -702,27 +812,29 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
               // typing into the cells; off by default, because a table people read should not change
               // under a stray keystroke, and on it costs a value per cell on the wire
               <button
-                className={"icon-button" + (editCells ? " active" : "")}
+                className={"icon-button labelled" + (editCells ? " active" : "")}
                 title={editCells ? "Stop editing in the table" : "Edit in the table — arrows move, typing edits, enter saves"}
                 onClick={() => onChange({ editCells: !editCells })}
               >
                 <IconPencil size={16} stroke={1.8} />
+                Edit
               </button>
             )}
             {!summary && (
               <select className="select compact" value={pageSize} title="Rows per page" onChange={(e) => reset({ pageSize: Number(e.target.value) })}>
                 {pageSizes.map((size) => (
                   <option key={size} value={size}>
-                    {size} / page
+                    {formatCount(size)} / page
                   </option>
                 ))}
+                <option value={0}>{allRowsLabel}</option>
               </select>
             )}
             {!summary && (
               <button
                 className="icon-button"
                 disabled={exporting || !result || result.total === 0}
-                title={`Download the whole result set as csv (up to ${formatCount(csvRowLimit)} rows)`}
+                title="Download the result as csv — choose how many rows"
                 onClick={download}
               >
                 <IconDownload size={16} stroke={1.8} />
@@ -736,13 +848,13 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
                 table={() => ({ header: result?.columns?.map((c) => c.name) ?? [], rows: result?.hits.map((h) => h.cells ?? []) ?? [] })}
               />
             )}
-            {!summary && result && result.total > pageSize && (
+            {!summary && result && result.total > pageRows && (
               <div className="query-paging">
                 <button className="icon-button" disabled={page === 0} title="Previous page" onClick={() => setPage(page - 1)}>
                   <IconChevronLeft size={15} stroke={1.8} />
                 </button>
                 <span className="muted">
-                  {page * pageSize + 1}–{Math.min((page + 1) * pageSize, result.total)}
+                  {page * pageRows + 1}–{Math.min((page + 1) * pageRows, result.total)}
                 </span>
                 <button className="icon-button" disabled={page >= lastPage} title="Next page" onClick={() => setPage(page + 1)}>
                   <IconChevronRight size={15} stroke={1.8} />
@@ -755,8 +867,8 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
             <PivotView key={typeId} base={pivotBase} definition={q.pivot} onChange={(pivot) => onChange({ pivot })} refreshToken={epoch} showQuery={showQuery} onDrill={drill} />
           ) : groups ? (
             <GroupByView key={typeId} base={pivotBase} definition={q.groups} onChange={(groups) => onChange({ groups })} refreshToken={epoch} showQuery={showQuery} onDrill={drill} />
-          ) : select && chosen.length === 0 ? (
-            <div className="query-empty">Choose at least one column.</div>
+          ) : table && q.columns?.length === 0 ? (
+            <div className="query-empty">No columns: add one to see the rows.</div>
           ) : table && result?.columns && editCells ? (
             <EditableTable
               // keyed by type only: a cell save re-runs the search, and rebuilding the grid on every
@@ -764,9 +876,8 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
               key={typeId}
               storeId={db.id}
               columns={result.columns}
-              hits={result.hits}
+              hits={hits}
               selected={selected}
-              onSelect={setSelected}
               sort={sort}
               sortApplied={result.sortApplied}
               onSort={toggleSort}
@@ -774,7 +885,7 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
               loading={loading}
             />
           ) : table && result?.columns ? (
-            <div className={"query-table-wrap" + (loading ? " loading" : "")}>
+            <div className={"query-table-wrap" + (loading ? " loading" : "")} onScroll={rowWindow.onScroll}>
               <table className="query-table">
                 <thead>
                   <tr>
@@ -798,7 +909,7 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
                   </tr>
                 </thead>
                 <tbody>
-                  {result.hits.map((hit) => (
+                  {hits.slice(0, rowWindow.count).map((hit) => (
                     <tr key={hit.id} className={selected === hit.id ? "selected" : ""} onClick={() => setSelected(hit.id)}>
                       {(hit.cells ?? []).map((value, i) => (
                         <td key={result.columns![i]?.key ?? i} title={value}>
@@ -809,12 +920,12 @@ function QueryTab({ db, model, query: q, onChange }: { db: DatabaseInfo; model: 
                   ))}
                 </tbody>
               </table>
-              {result.hits.length === 0 && <div className="query-empty">Nothing matched.</div>}
+              {hits.length === 0 && <div className="query-empty">Nothing matched.</div>}
             </div>
           ) : (
-            <div className={"query-hits" + (loading ? " loading" : "")}>
-              {result?.hits.length === 0 && <div className="query-empty">Nothing matched.</div>}
-              {result?.hits.map((hit) => (
+            <div className={"query-hits" + (loading ? " loading" : "")} onScroll={rowWindow.onScroll}>
+              {result && hits.length === 0 && <div className="query-empty">Nothing matched.</div>}
+              {hits.slice(0, rowWindow.count).map((hit) => (
                 <button className={"query-hit" + (selected === hit.id ? " selected" : "")} key={hit.id} onClick={() => setSelected(hit.id)}>
                   <div className="query-hit-head">
                     <span className="query-hit-name" title={hit.displayName}>

@@ -4,6 +4,7 @@ import { sections } from "../navigation";
 import { describeInterval, refreshSteps, setRefreshInterval, useRefreshInterval } from "../refresh";
 import type { DatabaseInfo } from "../server/serverInfo";
 import type { Theme } from "../theme";
+import { GlobalSearch } from "./GlobalSearch";
 import { Logo, LogoMark } from "./Logo";
 import { RevertControl } from "./RevertControl";
 
@@ -12,11 +13,20 @@ interface HeaderProps {
   activeDb: DatabaseInfo | null;
   onSelectDb: (id: string) => void;
   activeSectionId: string;
+  onSelectSection: (id: string) => void;
   theme: Theme;
   onToggleTheme: () => void;
   navCollapsed: boolean;
   onToggleNav: () => void;
 }
+
+/**
+ * What the bar shows where the search box now is. The page title said what you were already looking
+ * at; the search box is how you get somewhere else, which is worth more in a bar that is on every
+ * page. The title is kept here rather than deleted: it is one flag to go back to, and the two are
+ * the same slot.
+ */
+const headerCentre: "search" | "title" = "search";
 
 export function Header(p: HeaderProps) {
   const section = sections.find((s) => s.id === p.activeSectionId);
@@ -36,10 +46,14 @@ export function Header(p: HeaderProps) {
           <LogoMark height={13} />
         </span>
       </button>
-      <div className="header-title">
-        <div className="page-kicker">{isServerScope ? "Server" : (p.activeDb?.name ?? "Database")}</div>
-        <h2>{section?.label}</h2>
-      </div>
+      {headerCentre === "search" ? (
+        <GlobalSearch activeDb={p.activeDb} onSelectSection={p.onSelectSection} />
+      ) : (
+        <div className="header-title">
+          <div className="page-kicker">{isServerScope ? "Server" : (p.activeDb?.name ?? "Database")}</div>
+          <h2>{section?.label}</h2>
+        </div>
+      )}
       <div className="header-spacer" />
       {/* the revert window is a mode the whole database is in, so it sits with the database rather
           than on the page that happens to be open */}

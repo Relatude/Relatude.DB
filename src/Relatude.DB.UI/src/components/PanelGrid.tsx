@@ -196,8 +196,6 @@ export function PanelGrid({ id, rows, defaultSplit = 0.62 }: { id: string; rows:
     });
   }
 
-  const customized = layout.split !== defaultSplit || Object.keys(layout.heights).length > 0;
-
   // a row is "sized" once it has a height of its own, dragged or given: a panel there has room to
   // hand to a body that wants to fill it, which a row sizing itself to its content does not. A
   // maximized panel has the whole page, so it is sized whatever its row is.
@@ -301,13 +299,6 @@ export function PanelGrid({ id, rows, defaultSplit = 0.62 }: { id: string; rows:
 
   return (
     <div className={"panel-grid-wrap" + (dragging ? " dragging" : "") + (maximized ? " has-max" : "")} ref={box}>
-      {customized && (
-        <div className="panel-grid-tools">
-          <button className="link-button" onClick={() => setLayout({ split: defaultSplit, heights: {} })}>
-            Reset layout
-          </button>
-        </div>
-      )}
       <div
         className="panel-grid"
         style={{ gridTemplateColumns: `minmax(0, ${layout.split}fr) ${barSize}px minmax(0, ${1 - layout.split}fr)`, gridTemplateRows: templateRows }}

@@ -28,3 +28,37 @@ export function formatTime(iso: string): string {
   const sameDay = date.toDateString() === today.toDateString();
   return sameDay ? date.toLocaleTimeString() : date.toLocaleString();
 }
+
+/**
+ * A query string as lines: what is being queried, then one call per line.
+ *
+ * The page shows the query it sends so it can be read as an explanation of the result and pasted
+ * into code, and both want it shaped like the C# it is - a single four-hundred character line
+ * scrolling sideways is neither. Only the dots BETWEEN calls break: a dot inside a string
+ * ("id|Name"), inside a lambda (n => n.Name) or anywhere else inside an argument list belongs to
+ * what it is part of, so the split tracks quotes and bracket depth rather than splitting on ".".
+ */
+export function formatQuery(query: string): string {
+  const parts: string[] = [];
+  let start = 0;
+  let depth = 0;
+  let inString = false;
+  for (let i = 0; i < query.length; i++) {
+    const c = query[i];
+    if (inString) {
+      if (c === "\\") i++; // an escaped quote does not end the string
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') inString = true;
+    else if (c === "(" || c === "[") depth++;
+    else if (c === ")" || c === "]") depth--;
+    else if (c === "." && depth === 0 && i > start) {
+      parts.push(query.slice(start, i));
+      start = i;
+    }
+  }
+  parts.push(query.slice(start));
+  if (parts.length < 2) return query;
+  return parts[0] + "\n" + parts.slice(1).map((p) => "  " + p).join("\n");
+}

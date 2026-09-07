@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { IconArrowBackUp, IconArrowsMaximize, IconArrowsShuffle, IconBinoculars, IconCrosshair, IconFileTypePng, IconFocusCentered, IconHierarchy3, IconPencil, IconPlayerPause, IconPlayerPlay, IconRotate360, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
+import { IconArrowBackUp, IconArrowsMaximize, IconArrowsShuffle, IconBinoculars, IconCrosshair, IconFileTypePng, IconFocusCentered, IconHierarchy3, IconPencil, IconPlayerPause, IconPlayerPlay, IconRotate360, IconVolume, IconVolumeOff, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
 import type { EditorContext, Selection } from "./DatamodelEditors";
 import type { GraphShell } from "./DatamodelGraphView";
 import { embeddedColor, kindMeta, propertyColor, relationColor } from "./DatamodelIcons";
@@ -11,6 +11,7 @@ import { FlyCamera } from "../graph3d/camera";
 import { createRenderer, type Renderer, type RGB } from "../graph3d/renderer";
 import { add, cross, distance, dot, lerp3, multiply, normalize, perspective, rayPlane, raySphere, scale, sub, transform, view as viewMatrix, type Vec3 } from "../graph3d/math";
 import { createScenery, scenePalette, type ScenePalette, type Scenery } from "../graph3d/scenery";
+import { startEngineSound, type EngineSound } from "../graph3d/enginesound";
 import { groundAt as terrainGroundAt } from "../graph3d/terrain";
 import { AC, bodyMatrix, newAircraft, newControls, placeAircraft, stepFlight, toward, V_STALL, V_TRIM, type Aircraft, type Controls } from "../graph3d/flight";
 
@@ -100,6 +101,7 @@ const badgeR = 10.5;
 const orbitKey = (storeId: string) => "dmGraph3dOrbit:" + storeId;
 const funKey = (storeId: string) => "dmGraph3dFun:" + storeId;
 const invertKey = (storeId: string) => "dmGraph3dInvert:" + storeId;
+const soundKey = "dmGraph3dSound"; // not per database: whether a page may make a noise is about the room
 
 // ---- fun mode's scales ----
 // The flight model works in metres; the graph is drawn in its own units. Two graph units to the
@@ -109,15 +111,18 @@ const invertKey = (storeId: string) => "dmGraph3dInvert:" + storeId;
 const unitsPerMetre = 0.5;
 const metresPerUnit = 1 / unitsPerMetre;
 // The range is modelled small and drawn large, so a peak stands a kilometre and a half over the
-// valley the graph floats in and the mesh still covers eight kilometres of country.
-const terrainScale = 6;
+// valley the graph floats in and the mesh still covers eleven kilometres of country.
+const terrainScale = 7;
 const terrainY = -420;
 /** the low sun of the front page, ahead and to the left */
 const sunDir: Vec3 = normalize([-0.42, 0.3, 0.85]);
 const funKeys = new Set([
   "KeyW", "KeyA", "KeyS", "KeyD", "KeyZ", "KeyX", "KeyQ", "KeyE",
   "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
-  "KeyB", "Period", "ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight", "PageUp", "PageDown",
+  "ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight", "PageUp", "PageDown",
+  // N centres a stick that does not centre itself; Home does the same, and has to be swallowed here
+  // or it scrolls the page out from under the aeroplane
+  "KeyN", "Home",
 ]);
 const relationRgb = parseColor(relationColor);
 const embeddedRgb = parseColor(embeddedColor);
@@ -146,6 +151,9 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
   const [fun, setFun] = useState<boolean>(() => recall(funKey(storeId)) === true);
   /** mirrors flight.paused so the toolbar's button shows what the space bar did */
   const [paused, setPaused] = useState(false);
+  // The engine, on unless someone has turned it off - and then off for good, across databases and
+  // reloads: a page that makes a noise the reader has already declined is worse than a silent one.
+  const [engineOn, setEngineOn] = useState<boolean>(() => recall(soundKey) !== false);
   /** the menu a right-click on a type opens, at the point it was clicked */
   const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null);
   const q = query.trim().toLowerCase();
@@ -162,18 +170,29 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
       flight.current.invertRoll = (v as { roll?: boolean }).roll === true;
     }
   }, [storeId]);
-  // leaving fun mode puts the aeroplane away and hands the view back to the camera where it was
+  // leaving fun mode puts the aeroplane away and hands the view back to the camera where it was -
+  // and takes the engine with it, quietly: a page that keeps making a noise after the aeroplane has
+  // gone is a bug people report as a haunted browser tab
   useEffect(() => {
     if (fun) {
       flight.current.started = false;
       setPaused(false);
+      // entering fun mode is a keystroke, which is the gesture a browser wants before a page may
+      // make a sound; started here rather than on the first frame so that is still true
+      if (engineOn) sound.current = startEngineSound();
       invalidate();
     } else {
       camera.current.stop();
       keys.current.clear();
     }
+    return () => {
+      sound.current?.stop();
+      sound.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- invalidate is stable enough for this
-  }, [fun]);
+  }, [fun, engineOn]);
+
+  useEffect(() => remember(soundKey, engineOn), [engineOn]);
 
   const world = useMemo(() => buildWorld(ctx, visibleTypes, edges), [ctx, visibleTypes, edges]);
   // the start type has to be one that is still there and still shown; otherwise it is picked again
@@ -200,6 +219,7 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
   const projected = useRef(new Map<string, Projected>());
   // ---- fun mode ----
   const scenery = useRef<Scenery | null>(null);
+  const sound = useRef<EngineSound | null>(null);
   const ac = useRef<Aircraft>(newAircraft());
   const ctl = useRef<Controls>(newControls());
   const flight = useRef({
@@ -510,10 +530,13 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
       const eye = add(p, add(scale(a.fwd, 1.1 * unitsPerMetre), scale(a.up, 0.75 * unitsPerMetre)));
       return { eye, at: add(eye, scale(a.fwd, 100)) };
     }
-    // the seat is behind and above, and it looks a little ahead of the aeroplane rather than at it,
-    // so what you are about to fly into is on screen and not behind the tail
+    // The seat is behind and above, and it looks a little ahead of the aeroplane rather than at it,
+    // so what you are about to fly into is on screen and not behind the tail. "Above" is above in
+    // the WORLD, not above the aeroplane: a camera that took its height from the wing swung out
+    // sideways through every turn and hung upside down through a roll, and the horizon went with it.
+    // Along the fuselage it still follows the nose, so the camera trails the flight path.
     const back = 22 + Math.min(18, a.V * 0.22);
-    const eye = add(p, add(scale(a.fwd, -back), scale(a.up, 7)));
+    const eye = add(p, add(scale(a.fwd, -back), scale([0, 1, 0] as Vec3, 7)));
     return { eye, at: add(p, scale(a.fwd, 26)) };
   }
 
@@ -530,7 +553,7 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
     let ail = 0;
     let elev = 0;
     let rud = 0;
-    let air = 0;
+    let centre = false;
     if (!f.paused && !a.crashed) {
       // Roll and yaw are mapped the way the glider maps them: the left key rolls right. Reversed at
       // the input rather than in the aerodynamics, so the moments and the surfaces still agree.
@@ -543,15 +566,26 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
       if (f.invertPitch) elev = -elev;
       if (held("KeyZ")) rud += AC.RUD_MAX;
       if (held("KeyX")) rud -= AC.RUD_MAX;
-      if (held("KeyB", "Period")) air = 1;
+      centre = held("KeyN", "Home");
       const up = held("ShiftLeft", "ShiftRight", "PageUp", "KeyE") ? 1 : 0;
       const dn = held("ControlLeft", "ControlRight", "PageDown", "KeyQ") ? 1 : 0;
       c.throttle = Math.max(0, Math.min(1, c.throttle + (up - dn) * dt * 0.55));
     }
-    c.ail = toward(c.ail, ail, 6.5, dt);
-    c.elev = toward(c.elev, elev, 3.5, dt); // a column, not a switch
+    // The stick STAYS WHERE IT IS PUT. A key moves it and letting go leaves it there, which is how
+    // the glider flew and what makes trimming out a climb or holding a turn possible with a
+    // keyboard: a stick that springs back to neutral has to be held against the whole flight, and
+    // every manoeuvre becomes a key held down rather than an attitude set and left. C centres both
+    // again, which is the one thing a stick that does not self-centre has to offer.
+    const stickRate = 1.9; // full travel in about half a second of holding the key
+    if (centre) {
+      c.ail = toward(c.ail, 0, 7, dt);
+      c.elev = toward(c.elev, 0, 7, dt);
+    } else {
+      if (ail !== 0) c.ail = Math.max(-1, Math.min(1, c.ail + ail * stickRate * dt));
+      if (elev !== 0) c.elev = Math.max(-1, Math.min(1, c.elev + elev * stickRate * dt));
+    }
+    // the pedals do spring back: a rudder left standing in a corner is a spin nobody asked for
     c.rud = toward(c.rud, rud, 5.0, dt);
-    c.air = toward(c.air, air, 2.0, dt); // airbrakes take half a second
 
     // ---- the flight ----
     // Pausing does not cut the film: time slows over about a second and a half and the aeroplane
@@ -595,6 +629,10 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
         if (f.down > 1.6) launch();
       }
     }
+    // The engine answers to the throttle and the canopy to the airspeed. Outside the stepped block
+    // on purpose: pausing has to be heard, and the step is skipped entirely once time has stopped.
+    sound.current?.update(c.throttle, a.V, a.crashed || f.timeScale < 0.05);
+
     // the orbit keeps turning a moment after the hand lets go, like everything else here
     if (f.orbit.ready && drag.current === null) {
       const o = f.orbit;
@@ -637,8 +675,16 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
     const kAt = 1 - Math.exp(-dt * (f.cockpit || f.orbit.ready ? 60 : 8));
     f.eye = lerp3(f.eye, want.eye, kEye);
     f.at = lerp3(f.at, want.at, kAt);
-    // the horizon rolls with the aeroplane, but only most of the way, or a spin is unwatchable
-    const wantUp: Vec3 = f.cockpit ? a.up : f.orbit.ready ? [0, 1, 0] : normalize(lerp3([0, 1, 0], a.up, 0.55));
+    // The horizon stays level. In the cockpit it cannot - the aeroplane is what you are strapped
+    // into, and the world turning round you is the whole point - but from the chase seat a horizon
+    // that rolls with the wing is what makes a barrel roll unwatchable and a spin unflyable. The one
+    // exception is a view line straight up or straight down, where the world's up and the line of
+    // sight are the same direction and there is no frame to build from them: there the aeroplane's
+    // own up breaks the tie, and it is the only thing that can.
+    const dir = normalize(sub(want.at, want.eye));
+    const vertical = Math.abs(dir[1]);
+    const level: Vec3 = vertical > 0.985 ? normalize(lerp3([0, 1, 0], a.up, Math.min(1, (vertical - 0.985) / 0.014))) : [0, 1, 0];
+    const wantUp: Vec3 = f.cockpit ? a.up : level;
     f.up = normalize(lerp3(f.up, wantUp, 1 - Math.exp(-dt * 6)));
   }
 
@@ -1057,6 +1103,9 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
           launch();
           invalidate();
           return;
+        case "KeyM":
+          setEngineOn((v) => !v);
+          return;
         case "KeyI":
           f.invertPitch = !f.invertPitch;
           rememberInvert();
@@ -1201,7 +1250,8 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
     const camFwd = flying ? normalize(sub(f.at, f.eye)) : cam.forward();
     const right = normalize(cross(camFwd, flying ? f.up : [0, 1, 0]));
     const up = cross(right, camFwd);
-    const pal = flying ? scenePalette(th.panelRgb, th.bgRgb, th.textRgb, th.accentRgb, th.dark) : null;
+    // built either way: the aeroplane flies through it, and the graph on its own takes the motes from it
+    const pal = scenePalette(th.panelRgb, th.bgRgb, th.textRgb, th.dark);
 
     r.begin({
       view: viewM,
@@ -1209,14 +1259,14 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
       eye,
       width: Math.round(w * dpr),
       height: Math.round(h * dpr),
-      fog: pal ? pal.fog : th.panelRgb,
+      fog: pal.fog,
       fogNear,
       fogFar,
       near,
       far,
       // a dark shadow side reads as depth on a dark page and as dirt on a light one
       ambient: th.dark ? 0.42 : 0.7,
-      background: pal ? () => drawScenery(viewProj, eye, pal) : undefined,
+      background: flying ? () => drawScenery(viewProj, eye, pal) : undefined,
     });
 
     // the lines, from border to border, with their arrowheads
@@ -1262,12 +1312,16 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
       const head = style.head;
       const lineEnd = head > 0 ? sub(p2, scale(dir, head * 0.85)) : p2;
       r.line(p1, lineEnd, style.color, width, style.dash, style.alpha);
-      if (head > 0) r.cone(p2, dir, head, style.headColor, style.alpha);
+      // A body is opaque, whatever the line it belongs to is drawn at: an arrowhead or an end dot
+      // with the light coming through it is a body the eye refuses to read as one, and these are
+      // the only solid things in the picture besides the balls. The lines themselves keep their
+      // alpha - they are drawn as ribbons in the see-through pass and want to be slightly soft.
+      if (head > 0) r.cone(p2, dir, head, style.headColor, 1);
       if (l.kind === "relation" && !l.directed) {
-        r.sphere(p1, 3, style.color, style.alpha);
-        r.sphere(p2, 3, style.color, style.alpha);
+        r.sphere(p1, 3, style.color, 1);
+        r.sphere(p2, 3, style.color, 1);
       }
-      if (l.kind === "embeds") r.sphere(add(p1, scale(dir, 3)), 3.5, style.color, style.alpha);
+      if (l.kind === "embeds") r.sphere(add(p1, scale(dir, 3)), 3.5, style.color, 1);
       if ("label" in l) {
         const sa = proj.get(a.id);
         const sb = proj.get(b.id);
@@ -1293,11 +1347,24 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
       const hovered = hov !== null && hov.id === n.id && !hov.badge;
       const rim: RGB = selected ? th.accentRgb : th.textRgb;
       const rimStrength = selected ? 0.9 : hovered ? 0.55 : 0;
-      r.sphere(c, n.r, color, 1, rim, rimStrength);
+      // A type is a dodecahedron and a property a little cube: the two kinds of node are told apart
+      // by shape before colour or size say anything, and a solid turned off the axes shows several
+      // faces at several brightnesses, which is what makes either read as an object rather than a
+      // circle. Twelve faces is nearly a ball at a distance and clearly a made thing up close, and
+      // its corners sit exactly where the sphere's surface was, so nothing grew and a click still
+      // lands where it did. The cube's side is a shade under the ball's diameter for the same reason.
+      if (n.kind === "property") r.box(c, n.r * 1.45, color, 1, rim, rimStrength, spinOf(n.id));
+      else r.dodeca(c, n.r, color, 1, rim, rimStrength, spinOf(n.id));
       // the ring round the start type, and round every unfolded type in its own colour
       if (n.kind === "type" && (n.root || n.open)) r.halo(c, n.r + 5, n.root ? th.textFaintRgb : color, n.root ? 0.1 : 0.12);
     }
     r.end();
+
+    // A few motes in the air round the graph, over everything the renderer just drew. Not the
+    // aeroplane's dust - a fraction of it, at a fraction of its brightness: enough that turning the
+    // camera shows something moving between it and the nodes, which is what tells the eye the space
+    // is a space and not a picture of one. Fun mode draws its own, thicker, behind the graph instead.
+    if (!flying && scenery.current) scenery.current.dust(viewProj, eye, pal, th.dark, performance.now() / 1000, 0.35);
 
     // ---- the writing over it ----
 
@@ -1417,7 +1484,17 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
       writeText(g, f.buzz.label, cx, h - 98, "600 17px system-ui, sans-serif", ink, th.panel, "center", alpha);
       writeText(g, f.buzz.kind + " · " + f.visited.size + " of " + total + " flown through", cx, h - 80, "10.5px system-ui, sans-serif", dim, th.panel, "center", alpha * 0.9);
     }
-    writeText(g, "arrows or W A S D fly · Z X rudder · shift and ctrl throttle · B airbrakes · space stops · C view · R restart · Esc lands", cx, 16, "10.5px system-ui, sans-serif", dim, th.panel, "center", 0.7);
+    writeText(
+      g,
+      "arrows or W A S D fly · N centres the stick · Z X rudder · shift and ctrl throttle · M sound · space stops · C view · R restart · Esc lands",
+      cx,
+      16,
+      "10.5px system-ui, sans-serif",
+      dim,
+      th.panel,
+      "center",
+      0.7,
+    );
   }
 
   // ---- what is on the page ----
@@ -1469,6 +1546,19 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
             }}
           >
             {paused ? <IconPlayerPlay size={16} stroke={1.9} /> : <IconPlayerPause size={16} stroke={1.9} />}
+          </button>
+        )}
+        {fun && (
+          <button
+            className={"icon-button" + (engineOn ? " active" : "")}
+            aria-pressed={engineOn}
+            title={engineOn ? "Silence the engine (M)" : "Let the engine be heard (M)"}
+            onClick={() => {
+              setEngineOn((v) => !v);
+              stageRef.current?.focus({ preventScroll: true });
+            }}
+          >
+            {engineOn ? <IconVolume size={16} stroke={1.9} /> : <IconVolumeOff size={16} stroke={1.9} />}
           </button>
         )}
         <span className="dm-tools-gap" />
@@ -1671,6 +1761,19 @@ function lineStyle(l: GraphLink, th: Theme, highlighted: boolean): LineStyle {
   }
 }
 
+/**
+ * How a node's solid is turned: a base tilt that shows several faces, varied per node so a row of
+ * them does not read as one crystal lattice. Derived from the id, so a solid keeps its own angle
+ * across frames, layouts and reloads - a tilt that changed as the graph settled would be the one
+ * thing on screen moving for no reason.
+ */
+function spinOf(id: string): [number, number] {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  const spread = (bits: number) => ((bits >>> 0) % 1000) / 1000 - 0.5; // -0.5..0.5
+  return [0.62 + spread(hash) * 0.9, 0.34 + spread(hash >> 10) * 0.5];
+}
+
 function writeText(g: CanvasRenderingContext2D, text: string, x: number, y: number, font: string, fill: string, halo: string, align: CanvasTextAlign, alpha: number) {
   g.globalAlpha = alpha;
   g.font = font;
@@ -1804,7 +1907,7 @@ function readTheme(el: HTMLElement): Theme {
   const textMuted = v("--text-muted", "#6f6c66");
   const textSoft = v("--text-soft", "#45433f");
   const textFaint = v("--text-faint", "#a6a39d");
-  const border = v("--border", "#e2e0dc");
+  const border = v("--border", "#c6c1b9");
   const accent = v("--accent", "#0960b2");
   const bg = v("--bg", "#f5f4f2");
   const panelRgb = parseColor(panel);

@@ -49,8 +49,19 @@ export interface Renderer {
   sphere(center: Vec3, r: number, color: RGB, alpha: number, rim?: RGB, rimStrength?: number): void;
   /** A translucent shell, drawn after everything opaque. */
   halo(center: Vec3, r: number, color: RGB, alpha: number): void;
-  /** An axis-aligned box, lit and fogged like the spheres. A number is a cube of that side. */
-  box(center: Vec3, size: Vec3 | number, color: RGB, alpha: number, rim?: RGB, rimStrength?: number): void;
+  /**
+   * A box with its edges chamfered, lit and fogged like the spheres. A number is a cube of that side.
+   * `spin` turns it about the vertical and then the horizontal axis, in radians: a cube left
+   * axis-aligned faces the camera flat whenever the camera is, and a flat square is the one thing a
+   * cube must not look like.
+   */
+  box(center: Vec3, size: Vec3 | number, color: RGB, alpha: number, rim?: RGB, rimStrength?: number, spin?: [number, number]): void;
+  /**
+   * A chamfered dodecahedron of circumradius r, lit like the spheres and turned by `spin` - which is
+   * what a solid with faces needs and a ball does not: without it every one of them would show the
+   * camera the same face.
+   */
+  dodeca(center: Vec3, r: number, color: RGB, alpha: number, rim?: RGB, rimStrength?: number, spin?: [number, number]): void;
   /** A line from a to b, its width in device pixels, dashed in world units. */
   line(a: Vec3, b: Vec3, color: RGB, widthPx: number, dash: Dash, alpha: number): void;
   /** A cone with its tip at apex pointing along dir, size = its length in world units. */
@@ -67,6 +78,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
 
   const sphereMesh = buildSphere(gl, 28, 18);
   const boxMesh = buildBox(gl);
+  const dodecaMesh = buildDodeca(gl);
   const coneMesh = buildCone(gl, 16);
   const sphereProg = program(gl, sphereVert, sphereFrag);
   const lineProg = program(gl, lineVert, lineFrag);
@@ -75,7 +87,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
   // instance streams: interleaved floats, grown as needed, uploaded once per frame
   const spheres = new Stream(12); // x y z r | cr cg cb a | rr rg rb rs
   const halos = new Stream(12);
-  const boxes = new Stream(16); // x y z _ | cr cg cb a | rr rg rb rs | sx sy sz _
+  const boxes = new Stream(16); // x y z yaw | cr cg cb a | rr rg rb rs | sx sy sz pitch
+  const dodecas = new Stream(16); // the same layout, through the same shader
   const lines = new Stream(12); // ax ay az _ | bx by bz _ | cr cg cb a  + style in the pad slots: [3]=width [7]=dash
   const cones = new Stream(12); // ax ay az size | dx dy dz _ | cr cg cb a
 
@@ -93,6 +106,13 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
   // lighting and the fog are the sphere's, so the two read as the same material
   const boxProg = program(gl, boxVert, sphereFrag);
   const boxVao = instancedVao(gl, boxProg, boxMesh, boxes, [
+    ["aInst0", 0],
+    ["aInst1", 4],
+    ["aInst2", 8],
+    ["aInst3", 12],
+  ]);
+  // a dodecahedron is a box as far as the shader is concerned: a mesh, a size, and a turn
+  const dodecaVao = instancedVao(gl, boxProg, dodecaMesh, dodecas, [
     ["aInst0", 0],
     ["aInst1", 4],
     ["aInst2", 8],
@@ -162,7 +182,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       gl.bindVertexArray(sphereVao);
       gl.drawElementsInstanced(gl.TRIANGLES, sphereMesh.indexCount, gl.UNSIGNED_SHORT, 0, spheres.count);
     }
-    if (boxes.count > 0) {
+    // the boxes and the dodecahedrons go through one program, so its uniforms are set once
+    if (boxes.count > 0 || dodecas.count > 0) {
       gl.useProgram(boxProg);
       gl.uniformMatrix4fv(u(boxProg, "uViewProj"), false, viewProj);
       gl.uniform3fv(u(boxProg, "uEye"), s.eye);
@@ -170,9 +191,16 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       gl.uniform3fv(u(boxProg, "uFog"), s.fog);
       gl.uniform2f(u(boxProg, "uFogRange"), s.fogNear, s.fogFar);
       gl.uniform1f(u(boxProg, "uAmbient"), ambient);
-      boxes.upload(gl);
-      gl.bindVertexArray(boxVao);
-      gl.drawElementsInstanced(gl.TRIANGLES, boxMesh.indexCount, gl.UNSIGNED_SHORT, 0, boxes.count);
+      if (boxes.count > 0) {
+        boxes.upload(gl);
+        gl.bindVertexArray(boxVao);
+        gl.drawElementsInstanced(gl.TRIANGLES, boxMesh.indexCount, gl.UNSIGNED_SHORT, 0, boxes.count);
+      }
+      if (dodecas.count > 0) {
+        dodecas.upload(gl);
+        gl.bindVertexArray(dodecaVao);
+        gl.drawElementsInstanced(gl.TRIANGLES, dodecaMesh.indexCount, gl.UNSIGNED_SHORT, 0, dodecas.count);
+      }
       gl.useProgram(sphereProg);
     }
     if (cones.count > 0) {
@@ -232,17 +260,22 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       spheres.reset();
       halos.reset();
       boxes.reset();
+      dodecas.reset();
       lines.reset();
       cones.reset();
     },
     sphere(c, r, color, alpha, rim = [1, 1, 1], rimStrength = 0) {
       spheres.push(c[0], c[1], c[2], r, color[0], color[1], color[2], alpha, rim[0], rim[1], rim[2], rimStrength);
     },
-    box(c, size, color, alpha, rim = [1, 1, 1], rimStrength = 0) {
+    box(c, size, color, alpha, rim = [1, 1, 1], rimStrength = 0, spin) {
       const sx = typeof size === "number" ? size : size[0];
       const sy = typeof size === "number" ? size : size[1];
       const sz = typeof size === "number" ? size : size[2];
-      boxes.push(c[0], c[1], c[2], 0, color[0], color[1], color[2], alpha, rim[0], rim[1], rim[2], rimStrength, sx, sy, sz, 0);
+      // the two pad slots of the instance carry the spin: yaw beside the centre, pitch beside the size
+      boxes.push(c[0], c[1], c[2], spin?.[0] ?? 0, color[0], color[1], color[2], alpha, rim[0], rim[1], rim[2], rimStrength, sx, sy, sz, spin?.[1] ?? 0);
+    },
+    dodeca(c, r, color, alpha, rim = [1, 1, 1], rimStrength = 0, spin) {
+      dodecas.push(c[0], c[1], c[2], spin?.[0] ?? 0, color[0], color[1], color[2], alpha, rim[0], rim[1], rim[2], rimStrength, r, r, r, spin?.[1] ?? 0);
     },
     halo(c, r, color, alpha) {
       // a rim-only shell: the body colour is the halo colour at low alpha, the silhouette glows
@@ -261,14 +294,14 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       // the resources go, the context stays: the same canvas may be drawn on again by the next
       // renderer (a hot reload re-mounts on the element it has), and a lost context is never given back
       for (const p of [sphereProg, boxProg, lineProg, coneProg]) gl.deleteProgram(p);
-      for (const v of [sphereVao, haloVao, boxVao, coneVao, lineVao]) gl.deleteVertexArray(v);
-      for (const m of [sphereMesh, boxMesh, coneMesh]) {
+      for (const v of [sphereVao, haloVao, boxVao, dodecaVao, coneVao, lineVao]) gl.deleteVertexArray(v);
+      for (const m of [sphereMesh, boxMesh, dodecaMesh, coneMesh]) {
         gl.deleteBuffer(m.vertices);
         gl.deleteBuffer(m.indices);
       }
       gl.deleteBuffer(quad);
       boxes.release(gl);
-      for (const st of [spheres, halos, lines, cones]) st.release(gl);
+      for (const st of [spheres, halos, boxes, dodecas, lines, cones]) st.release(gl);
       setup = null;
     },
   };
@@ -353,7 +386,132 @@ function buildSphere(gl: WebGL2RenderingContext, segments: number, rings: number
  * along every edge instead, which is what makes a stack of them legible as separate solids. The
  * chamfer is a fraction of the mesh, so it scales with whatever the instance is scaled by.
  */
-function buildBox(gl: WebGL2RenderingContext, bevel = 0.022): Mesh {
+/**
+ * A dodecahedron with every edge and corner chamfered, circumradius 1.
+ *
+ * Twelve pentagons is the roundest solid that still reads as made rather than grown: at a distance
+ * it is a ball, and close up it is an object with faces that catch the light one at a time, which is
+ * the difference between a graph of spheres and a graph of things. The vertices sit exactly where
+ * the sphere's surface was, so nothing grew and a click still lands where it used to.
+ *
+ * The topology is derived rather than typed in. The twenty vertices are the standard three rings;
+ * the twelve face centres are an icosahedron's vertices, and a face's five corners are simply the
+ * five dodecahedron vertices nearest to it - which for a regular solid is unambiguous. The chamfer
+ * then falls out of adjacency: each face is shrunk towards its own middle, a quad bridges the gap
+ * along every one of the thirty edges, and a triangle fills each of the twenty corners where three
+ * faces meet. Every piece is emitted with its own flat normal, so an edge stays an edge.
+ */
+function buildDodeca(gl: WebGL2RenderingContext, bevel = 0.1): Mesh {
+  const phi = (1 + Math.sqrt(5)) / 2;
+  const inv = 1 / phi;
+  const raw: number[][] = [];
+  for (const x of [1, -1]) for (const y of [1, -1]) for (const z of [1, -1]) raw.push([x, y, z]);
+  for (const a of [inv, -inv]) for (const b of [phi, -phi]) raw.push([0, a, b], [a, b, 0], [b, 0, a]);
+  const norm = Math.sqrt(3); // the (1,1,1) vertices decide the circumradius
+  const V = raw.map((v) => [v[0] / norm, v[1] / norm, v[2] / norm]);
+
+  const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const sub3 = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const cross3 = (a: number[], b: number[]) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const len3 = (a: number[]) => Math.hypot(a[0], a[1], a[2]);
+
+  // Which vertices are joined: the shortest distance between any two of them IS the edge, and every
+  // vertex of a dodecahedron has exactly three.
+  let edgeLen = Infinity;
+  for (let i = 0; i < V.length; i++) for (let j = i + 1; j < V.length; j++) edgeLen = Math.min(edgeLen, len3(sub3(V[i], V[j])));
+  const near = V.map((v, i) => V.map((w, j) => ({ j, d: len3(sub3(v, w)) })).filter((x) => x.j !== i && Math.abs(x.d - edgeLen) < 1e-6).map((x) => x.j));
+
+  // The twelve face planes, found rather than tabulated: three consecutive corners of a pentagon
+  // determine its plane, so every vertex with two of its neighbours gives one - and the same plane
+  // comes up five times over, which is what the map is for. (A key has to treat -0 and 0 as the same
+  // number, or a face whose normal has a zero component is found twice and every count below doubles.)
+  const planes = new Map<string, { n: number[]; d: number }>();
+  for (let b = 0; b < V.length; b++) {
+    for (let p = 0; p < near[b].length; p++) {
+      for (let q = p + 1; q < near[b].length; q++) {
+        let n = normalize3(cross3(sub3(V[near[b][p]], V[b]), sub3(V[near[b][q]], V[b])));
+        let d = dot(n, V[b]);
+        if (d < 0) {
+          n = [-n[0], -n[1], -n[2]];
+          d = -d;
+        }
+        const key = n.map((x) => (Math.abs(x) < 1e-9 ? 0 : x).toFixed(4)).join(",");
+        if (!planes.has(key)) planes.set(key, { n, d });
+      }
+    }
+  }
+
+  /** Each face: its outward normal, its middle, and its five corners in order round the normal. */
+  const faces = [...planes.values()].map((plane) => {
+    const corners = V.map((v, i) => ({ i, off: Math.abs(dot(v, plane.n) - plane.d) }))
+      .filter((x) => x.off < 1e-6)
+      .map((x) => x.i);
+    const mid = [0, 0, 0];
+    for (const i of corners) for (let k = 0; k < 3; k++) mid[k] += V[i][k] / corners.length;
+    // a frame in the face's plane, to sort its corners by angle
+    const u = normalize3(sub3(V[corners[0]], mid));
+    const w = cross3(plane.n, u);
+    const angle = (i: number) => Math.atan2(dot(sub3(V[i], mid), w), dot(sub3(V[i], mid), u));
+    corners.sort((a, b) => angle(a) - angle(b));
+    return { n: plane.n, mid, corners };
+  });
+
+  // every face's corners pulled towards its middle: the gaps left behind are the chamfers
+  const inset = faces.map((f) => f.corners.map((i) => [0, 1, 2].map((k) => f.mid[k] + (V[i][k] - f.mid[k]) * (1 - bevel))));
+
+  const verts: number[] = [];
+  const idx: number[] = [];
+  /** A flat polygon, wound so it faces `outward` - the same trick buildBox uses. */
+  const face = (points: number[][], outward: number[]) => {
+    const e1 = sub3(points[1], points[0]);
+    const e2 = sub3(points[2], points[0]);
+    const c = cross3(e1, e2);
+    const p = dot(c, outward) < 0 ? [...points].reverse() : points;
+    const n = normalize3(outward);
+    const base = verts.length / 6;
+    for (const q of p) verts.push(q[0], q[1], q[2], n[0], n[1], n[2]);
+    for (let i = 2; i < p.length; i++) idx.push(base, base + i - 1, base + i);
+  };
+
+  faces.forEach((f, fi) => face(inset[fi], f.n));
+
+  // the thirty edges: an edge belongs to exactly two faces, and the strip between their two shrunken
+  // copies of it is the chamfer. Its normal is the two face normals added, which is the plane a
+  // symmetric bevel actually lies in.
+  const bridged = new Map<string, number>();
+  faces.forEach((f, fi) => {
+    f.corners.forEach((a, k) => {
+      const b = f.corners[(k + 1) % 5];
+      const key = Math.min(a, b) + ":" + Math.max(a, b);
+      const other = bridged.get(key);
+      if (other === undefined) {
+        bridged.set(key, fi);
+        return;
+      }
+      const at = (fj: number, v: number) => inset[fj][faces[fj].corners.indexOf(v)];
+      const outward = [0, 1, 2].map((k2) => faces[fi].n[k2] + faces[other].n[k2]);
+      face([at(fi, a), at(fi, b), at(other, b), at(other, a)], outward);
+    });
+  });
+
+  // and the twenty corners, where three faces meet: a triangle, so any order of the three is planar
+  V.forEach((v, vi) => {
+    const around: number[][] = [];
+    faces.forEach((f, fi) => {
+      const k = f.corners.indexOf(vi);
+      if (k >= 0) around.push(inset[fi][k]);
+    });
+    if (around.length >= 3) face(around, v);
+  });
+  return mesh(gl, verts, idx);
+}
+
+/**
+ * A box with its twelve edges and eight corners chamfered. The chamfer is small - a face keeps
+ * nearly all of its width - but it is what gives an edge a highlight of its own, so a cube reads as
+ * a solid rather than three flat quadrilaterals meeting at a line.
+ */
+function buildBox(gl: WebGL2RenderingContext, bevel = 0.07): Mesh {
   const verts: number[] = [];
   const idx: number[] = [];
   const h = 0.5;
@@ -426,30 +584,72 @@ function buildBox(gl: WebGL2RenderingContext, bevel = 0.022): Mesh {
 }
 
 /** Tip at the origin, base ring at z = -1, base radius 0.42: a slim arrowhead. */
+/**
+ * The arrowhead: a cone with its edges taken off.
+ *
+ * A sharp cone has two edges that give it away as a triangle that happens to be shaded - the point,
+ * which stays a single dark pixel however the light falls, and the rim of its base, which is a hard
+ * line between the flank and the cap. Both get a small bevel: the point becomes a tiny disc and the
+ * rim a 45 degree chamfer, each a face of its own, so both catch the light at an angle nothing else
+ * on the arrowhead does. That narrow bright line along the rim is most of what makes it read as a
+ * solid object rather than a drawing of one, and at the size these are on screen the bevels cost
+ * nothing but a few triangles.
+ *
+ * Built from rings along the axis: the tip disc at z ≈ 0, the flank down to where the chamfer starts,
+ * the chamfer, and the base cap. Every face keeps its own normal (no ring is shared between two
+ * faces), which is what keeps the edges reading as edges instead of a smooth blur.
+ */
 function buildCone(gl: WebGL2RenderingContext, segments: number): Mesh {
   const verts: number[] = [];
   const idx: number[] = [];
   const r = 0.42;
-  // the side: the tip is repeated per segment so each face keeps its own normal
-  for (let i = 0; i < segments; i++) {
-    const t0 = (i / segments) * Math.PI * 2;
-    const t1 = ((i + 1) / segments) * Math.PI * 2;
-    const p0 = [Math.cos(t0) * r, Math.sin(t0) * r, -1];
-    const p1 = [Math.cos(t1) * r, Math.sin(t1) * r, -1];
-    const tm = (t0 + t1) / 2;
-    const n = normalize3([Math.cos(tm), Math.sin(tm), r]);
-    const base = verts.length / 6;
-    verts.push(0, 0, 0, ...n, ...p0, ...n, ...p1, ...n);
-    idx.push(base, base + 1, base + 2);
-  }
-  // the base cap
-  const capCenter = verts.length / 6;
-  verts.push(0, 0, -1, 0, 0, -1);
-  for (let i = 0; i < segments; i++) {
-    const t = (i / segments) * Math.PI * 2;
-    verts.push(Math.cos(t) * r, Math.sin(t) * r, -1, 0, 0, -1);
-  }
-  for (let i = 0; i < segments; i++) idx.push(capCenter, capCenter + 1 + ((i + 1) % segments), capCenter + 1 + i);
+  const bevel = 0.07; // of the cone's own length, and the same off the radius
+  const tipR = r * 0.16;
+  const tipZ = -bevel * 1.5; // the tip disc sits a little down the axis, so the silhouette barely moves
+  const rimZ = -1 + bevel;
+  const capR = r - bevel;
+
+  /** One ring of faces between two circles of the profile, each face with the normal of its own slope. */
+  const ring = (r0: number, z0: number, r1: number, z1: number) => {
+    const dr = r1 - r0;
+    const dz = z1 - z0;
+    for (let i = 0; i < segments; i++) {
+      const t0 = (i / segments) * Math.PI * 2;
+      const t1 = ((i + 1) / segments) * Math.PI * 2;
+      const tm = (t0 + t1) / 2;
+      // the profile's outward normal, turned around the axis: radial -dz, axial dr
+      const n = normalize3([Math.cos(tm) * -dz, Math.sin(tm) * -dz, dr]);
+      const base = verts.length / 6;
+      const a0 = [Math.cos(t0) * r0, Math.sin(t0) * r0, z0];
+      const a1 = [Math.cos(t1) * r0, Math.sin(t1) * r0, z0];
+      const b0 = [Math.cos(t0) * r1, Math.sin(t0) * r1, z1];
+      const b1 = [Math.cos(t1) * r1, Math.sin(t1) * r1, z1];
+      verts.push(...a0, ...n, ...b0, ...n, ...b1, ...n, ...a1, ...n);
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
+  };
+
+  /** A flat disc closing the profile, facing along the axis. */
+  const cap = (radius: number, z: number, towardsTip: boolean) => {
+    const center = verts.length / 6;
+    const nz = towardsTip ? 1 : -1;
+    verts.push(0, 0, z, 0, 0, nz);
+    for (let i = 0; i < segments; i++) {
+      const t = (i / segments) * Math.PI * 2;
+      verts.push(Math.cos(t) * radius, Math.sin(t) * radius, z, 0, 0, nz);
+    }
+    for (let i = 0; i < segments; i++) {
+      const a = center + 1 + i;
+      const b = center + 1 + ((i + 1) % segments);
+      if (towardsTip) idx.push(center, a, b);
+      else idx.push(center, b, a);
+    }
+  };
+
+  cap(tipR, tipZ, true);
+  ring(tipR, tipZ, r, rimZ); // the flank
+  ring(r, rimZ, capR, -1); // the chamfer round the base
+  cap(capR, -1, false);
   return mesh(gl, verts, idx);
 }
 
@@ -526,10 +726,17 @@ const boxVert = `#version 300 es
   uniform mat4 uViewProj;
   out vec3 vN; out vec3 vW; out vec4 vColor; out vec4 vRim;
   void main() {
-    vec3 w = aInst0.xyz + aPos * aInst3.xyz;
+    // yaw then pitch, both zero for a box that wants to stay square to the world. The scale is per
+    // axis and the rotation follows it, so a cube keeps its normals as they are; a box scaled
+    // unevenly AND turned would need them fixed up, and nothing asks for that.
+    float cy = cos(aInst0.w), sy = sin(aInst0.w);
+    float cp = cos(aInst3.w), sp = sin(aInst3.w);
+    mat3 yaw = mat3(cy, 0.0, -sy, 0.0, 1.0, 0.0, sy, 0.0, cy);
+    mat3 pitch = mat3(1.0, 0.0, 0.0, 0.0, cp, sp, 0.0, -sp, cp);
+    mat3 turn = yaw * pitch;
+    vec3 w = aInst0.xyz + turn * (aPos * aInst3.xyz);
     gl_Position = uViewProj * vec4(w, 1.0);
-    // the mesh is axis aligned and only ever scaled, so its normals need no fixing up
-    vN = aNormal; vW = w; vColor = aInst1; vRim = aInst2;
+    vN = turn * aNormal; vW = w; vColor = aInst1; vRim = aInst2;
   }`;
 
 const sphereFrag = `#version 300 es
@@ -544,10 +751,16 @@ const sphereFrag = `#version 300 es
     float diff = max(dot(n, uLight), 0.0);
     float head = max(dot(n, v), 0.0);
     vec3 h = normalize(uLight + v);
-    float spec = pow(max(dot(n, h), 0.0), 40.0) * 0.35;
-    // the lit share runs 0..1 and is scaled into what is left above the ambient floor, so the
-    // brightest point stays at 1.1 of the colour whatever the floor is set to
-    float lit = (0.46 * diff + 0.22 * head) / 0.68;
+    float ndh = max(dot(n, h), 0.0);
+    // Two highlights: a tight one that says the surface is smooth and hard, and a broad sheen that
+    // keeps the half turned away from the light from going flat. Together they are most of what
+    // makes a circle read as a ball.
+    float spec = pow(ndh, 46.0) * 0.55 + pow(ndh, 7.0) * 0.10;
+    // The lit share runs 0..1 and is scaled into what is left above the ambient floor, so the
+    // brightest point stays at 1.1 of the colour whatever the floor is set to. The light does nearly
+    // all the shaping: a body lit by where the camera is (head) rather than by where the light is
+    // reads as a bubble lit from inside, which is exactly what a solid ball must not look like.
+    float lit = (0.60 * diff + 0.08 * head) / 0.68;
     vec3 body = vColor.rgb * (uAmbient + (1.1 - uAmbient) * lit);
     vec3 c = body + spec;
     float rim = pow(1.0 - head, 2.2) * vRim.a;
@@ -584,7 +797,12 @@ const coneFrag = `#version 300 es
     float diff = max(dot(n, uLight), 0.0);
     vec3 v = normalize(uEye - vW);
     float head = max(dot(n, v), 0.0);
-    vec3 c = vColor.rgb * (0.5 + 0.35 * diff + 0.2 * head);
+    // the same two highlights the spheres have, so an arrowhead and a ball read as one material -
+    // and it is the bevels (see buildCone) that give the tight one somewhere to land
+    vec3 h = normalize(uLight + v);
+    float ndh = max(dot(n, h), 0.0);
+    float spec = pow(ndh, 42.0) * 0.5 + pow(ndh, 7.0) * 0.09;
+    vec3 c = vColor.rgb * (0.5 + 0.42 * diff + 0.08 * head) + spec;
     c = mix(c, uFog, fogAmount(vW) * 0.85);
     outColor = vec4(c, vColor.a);
   }`;

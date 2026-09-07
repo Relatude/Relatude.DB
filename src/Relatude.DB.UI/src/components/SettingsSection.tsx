@@ -14,6 +14,7 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconDatabase,
+  IconExternalLink,
   IconFileText,
   IconFolders,
   IconGauge,
@@ -34,6 +35,7 @@ import {
 import { ColorField } from "./ColorField";
 import { sourceColor } from "../server/datamodel";
 import { showConfirm, showError } from "../dialogs";
+import { peekSettingsTarget, takeSettingsTarget, useNavigationRequest } from "../navigate";
 import {
   addListItem,
   fetchDatabaseSettings,
@@ -49,6 +51,13 @@ import {
   type SettingVisibility,
   type SettingsPage,
 } from "../server/settings";
+
+// Where a programmatic scroll leaves a group's heading, and the line at which the contents counts a
+// heading as passed. The line sits a hair below the landing point, so a group that was scrolled to
+// exactly counts as the one being read rather than falling a fraction of a pixel short of its own
+// highlight.
+const scrollOffset = 12;
+const spyLine = scrollOffset + 2;
 
 /**
  * The settings pages, server scope and database scope alike. The server sends the whole page -
@@ -161,7 +170,7 @@ export function SettingsSection({
   const syncActive = useCallback(() => {
     const container = pane.current;
     if (!container) return;
-    const top = container.getBoundingClientRect().top + 12;
+    const top = container.getBoundingClientRect().top + spyLine;
     let active: string | null = null;
     for (const [key, element] of groupElements.current) {
       if (element.getBoundingClientRect().top <= top) active = key;
@@ -184,12 +193,43 @@ export function SettingsSection({
     scrollToGroup(section.id + "/" + section.groups[0].id);
   });
 
+  // Someone asked for one particular setting - from the global search - and the shell has switched
+  // to this page. The group holding it is scrolled to and the setting itself is marked for a moment:
+  // a settings page is a long scroll of fields, and landing near the right one is not the same as
+  // being shown it. Taken once, on the render after the page arrives, so a remount does not repeat it.
+  const [marked, setMarked] = useState<string | null>(null);
+  const navigation = useNavigationRequest();
+  useEffect(() => {
+    if (!page) return;
+    const target = peekSettingsTarget();
+    if (!target) return;
+    // the other scope's page is a different mount of this component; it takes its own target
+    if ((target.scope === "database") !== (storeId != null)) return;
+    takeSettingsTarget();
+    setFilter("");
+    setOnlyChanged(false);
+    setMarked(target.path ?? null);
+    // after the render that clearing the filter causes, so the group is in the dom to scroll to
+    requestAnimationFrame(() => scrollToGroup(target.sectionId + "/" + target.groupId));
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the request is taken, not watched
+  }, [navigation, page]);
+  useEffect(() => {
+    if (!marked) return;
+    const timer = setTimeout(() => setMarked(null), 2600);
+    return () => clearTimeout(timer);
+  }, [marked]);
+
   function scrollToGroup(key: string): void {
     const container = pane.current;
     const element = groupElements.current.get(key);
     if (!container || !element) return;
-    container.scrollTop += element.getBoundingClientRect().top - container.getBoundingClientRect().top - 12;
+    container.scrollTop += element.getBoundingClientRect().top - container.getBoundingClientRect().top - scrollOffset;
     setActiveGroup(key);
+    // The scroll event this causes runs the scroll-spy, which can land mid-render - the group refs
+    // are re-attached on every render - and leave the contents highlighting a group nobody is
+    // looking at. One more pass once everything has settled, so the highlight matches the pane.
+    requestAnimationFrame(syncActive);
   }
 
   function revert(path: string): void {
@@ -370,6 +410,7 @@ export function SettingsSection({
                           edit={edits[setting.path]}
                           edited={edits[setting.path] !== undefined}
                           showComment={showComments}
+                          marked={setting.path === marked}
                           onChange={(value) => setValue(setting.path, value)}
                           onRevert={() => revert(setting.path)}
                         />
@@ -594,6 +635,7 @@ function SettingRow({
   edit,
   edited,
   showComment,
+  marked,
   onChange,
   onRevert,
   fallbackColor,
@@ -603,6 +645,8 @@ function SettingRow({
   edit: unknown;
   edited: boolean;
   showComment: boolean;
+  /** someone was sent to this setting from somewhere else: it says so for a moment */
+  marked?: boolean;
   onChange: (value: unknown) => void;
   onRevert: () => void;
   /** for a colour field: what the value in force is while nothing is set */
@@ -613,13 +657,21 @@ function SettingRow({
   // emptying a secret field is the only way to remove a stored secret, so say so before it is saved
   const clearsSecret = setting.secret && edited && (edit === "" || edit === null);
   return (
-    <div className={"setting" + (edited ? " edited" : "") + (locked ? " locked" : "")}>
+    <div className={"setting" + (edited ? " edited" : "") + (locked ? " locked" : "") + (marked ? " marked" : "")}>
       <div className="setting-text">
         <div className="setting-label">
           <span>{setting.label}</span>
           <Badges setting={setting} edited={edited} clearsSecret={clearsSecret} />
         </div>
         {showComment && setting.help && <div className="setting-help">{setting.help}</div>}
+        {/* the link stays whether or not the help text is showing: it is the answer to the question
+            the field asks, not a footnote to the sentence above it */}
+        {setting.link && (
+          <a className="setting-link" href={setting.link.url} target="_blank" rel="noreferrer" title={setting.link.url + " — opens in a new tab"}>
+            {setting.link.text}
+            <IconExternalLink size={12} stroke={1.8} />
+          </a>
+        )}
         {setting.overridden && (
           <div className="setting-override">
             <IconLock size={13} stroke={1.8} />

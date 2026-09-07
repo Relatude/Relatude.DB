@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { IconArrowNarrowDown, IconArrowNarrowUp } from "@tabler/icons-react";
 import { saveNode, type Column, type Hit } from "../server/query";
+import { useRowWindow } from "../rowWindow";
 
 interface Props {
   storeId: string;
   columns: Column[];
   hits: Hit[];
+  /** the node the form beside the table has open, if any: its row is marked */
   selected: string | null;
-  onSelect: (id: string) => void;
   sort: { key: string; descending: boolean } | null;
   sortApplied: boolean;
   onSort: (key: string) => void;
@@ -39,7 +40,7 @@ interface Cursor {
  * embedded document each need a control of their own, and the form beside the table is where they
  * are edited; their columns are marked read only here rather than pretending otherwise.
  */
-export function EditableTable({ storeId, columns, hits, selected, onSelect, sort, sortApplied, onSort, onSaved, loading }: Props) {
+export function EditableTable({ storeId, columns, hits, selected, sort, sortApplied, onSort, onSaved, loading }: Props) {
   const [cursor, setCursor] = useState<Cursor>({ row: 0, col: 0 });
   const [editing, setEditing] = useState<{ row: number; col: number; value: string } | null>(null);
   // what was written here since the last search, keyed "<node id>/<column key>": the table shows
@@ -53,6 +54,8 @@ export function EditableTable({ storeId, columns, hits, selected, onSelect, sort
   // off the input, which would otherwise commit it a second time from its own blur - with whatever
   // the detached input happens to hold by then.
   const cellOpen = useRef(false);
+  // a large page is built a chunk at a time; the cursor may not walk out of what is built
+  const { count: builtRows, onScroll, ensure } = useRowWindow(hits);
 
   useEffect(() => setWritten({}), [hits]);
   useEffect(() => {
@@ -190,13 +193,25 @@ export function EditableTable({ storeId, columns, hits, selected, onSelect, sort
     }
   }
 
-  // the cursor has to stay in view when the keyboard moves it past the edge of the scroller
+  // The cursor has to stay in view when the keyboard moves it past the edge of the scroller. On a
+  // large page the row may not be built yet, so moving there builds it and the scroll waits for the
+  // render that has it - but only a move asks to be scrolled to. Rows built because someone scrolled
+  // must not pull the view back to wherever the cursor was left.
+  const wantScroll = useRef(false);
   useEffect(() => {
-    bodyRef.current?.querySelector<HTMLElement>("td.cursor")?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [cursor]);
+    wantScroll.current = true;
+    ensure(cursor.row + 1);
+  }, [cursor, ensure]);
+  useEffect(() => {
+    if (!wantScroll.current) return;
+    const cell = bodyRef.current?.querySelector<HTMLElement>("td.cursor");
+    if (!cell) return; // still to be built; the render that builds it scrolls to it
+    wantScroll.current = false;
+    cell.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [cursor, builtRows]);
 
   return (
-    <div className={"query-table-wrap grid" + (loading ? " loading" : "")} ref={bodyRef} tabIndex={0} onKeyDown={onKeyDown}>
+    <div className={"query-table-wrap grid" + (loading ? " loading" : "")} ref={bodyRef} tabIndex={0} onKeyDown={onKeyDown} onScroll={onScroll}>
       <table className="query-table editable">
         <thead>
           <tr>
@@ -214,7 +229,7 @@ export function EditableTable({ storeId, columns, hits, selected, onSelect, sort
           </tr>
         </thead>
         <tbody>
-          {hits.map((hit, row) => (
+          {hits.slice(0, builtRows).map((hit, row) => (
             <tr key={hit.id} className={selected === hit.id ? "selected" : ""}>
               {columns.map((column, col) => {
                 const cellKey = key(hit, column);
@@ -228,13 +243,13 @@ export function EditableTable({ storeId, columns, hits, selected, onSelect, sort
                     onMouseDown={(e) => {
                       setCursor({ row, col });
                       // a click on the control in a cell - the checkbox, or the input of the cell being
-                      // edited - is about that value and nothing else: it neither opens the node in the
-                      // form nor takes the keyboard away from the control it landed on
+                      // edited - is about that value and nothing else: it must not take the keyboard
+                      // away from the control it landed on
                       if (isControl(e.target)) return;
-                      onSelect(hit.id);
-                      // the scroller holds the keyboard; a click on a cell inside it has to hand it back,
-                      // because selecting the row re-renders the page around it
-                      queueMicrotask(() => bodyRef.current?.focus());
+                      // and a click anywhere else only moves the cursor. In a sheet a click picks the
+                      // cell to type in; opening the node form here would take half the width away and
+                      // reflow the row under the pointer, which is not what the click asked for
+                      bodyRef.current?.focus();
                     }}
                     onDoubleClick={() => {
                       setCursor({ row, col });

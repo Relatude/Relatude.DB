@@ -44,11 +44,15 @@ sealed class UIQuery {
     const int maxSampledProperties = 20;
     const int maxLookupResults = 50;
     const int maxInnerNodesShown = 20;
-    const int maxPageSize = 200;
+    // What one page of hits may hold. Large pages are asked for on purpose - the page size list goes
+    // up to a hundred thousand, and "all" means this - but every row is a node read, and a row of the
+    // table view is a read per cell, so the ceiling stays: past it the page would be building a scan
+    // of the whole store on the request thread. A result larger than one page is still paged through.
+    const int maxPageSize = 100_000;
     const int maxTableColumns = 50;
     const int maxTableCellLength = 300;
     const int maxReferencesInCell = 5;
-    internal const int maxCsvRows = 50_000;
+    internal const int maxCsvRows = 1_000_000;
     const int maxPreviewSize = 4000; // the largest image the media route will render, per side
     const double videoThumbnailAt = 10; // percent into a clip: the first frame of one is often black
 
@@ -320,7 +324,7 @@ sealed class UIQuery {
 
     /// <summary>
     /// The columns a request wants: none for the list, the type's own table for the table view, and
-    /// exactly the ones named - in the order named - when the page has chosen them (its select mode).
+    /// exactly the ones named - in the order named - when the page has chosen them in its column picker.
     /// A key that is not a column of this type is skipped rather than failing the query: the choice
     /// was made against the type as it was, and the type may have changed since.
     /// </summary>
@@ -331,7 +335,7 @@ sealed class UIQuery {
         return p.Columns.Distinct(StringComparer.OrdinalIgnoreCase).Where(all.ContainsKey).Select(k => all[k]).ToArray();
     }
 
-    /// <summary>Every column a type can show, uncapped: what the select mode picks from.</summary>
+    /// <summary>Every column a type can show, uncapped: what the table's column picker picks from.</summary>
     object columnsOf(ColumnsPayload p) {
         var s = store(p.StoreId);
         var dm = s.Datastore.Datamodel;
@@ -434,9 +438,10 @@ sealed class UIQuery {
     // ---- the result set as a csv file ----
 
     /// <summary>
-    /// Streams the whole matching set as csv, not just the page on screen. Capped: this runs on the
-    /// request thread and holds the store's read lock, so an unbounded export of a large database
-    /// would be a way to stall it. The header row says when the cap was reached.
+    /// Streams the matching set as csv: as much of it as the export asked for (CsvRows, from Page),
+    /// which is normally more than the page on screen. Capped: this runs on the request thread and
+    /// holds the store's read lock, so an unbounded export of a large database would be a way to
+    /// stall it. The page says what the cap is, so a set larger than it is not silently trimmed.
     /// </summary>
     internal async Task WriteCsv(HttpContext http, SearchPayload p) {
         var s = store(p.StoreId);
@@ -444,8 +449,9 @@ sealed class UIQuery {
         var typeId = queriedType(dm, p.TypeId);
         var nodeType = dm.NodeTypes[typeId];
         var columns = columnsFor(dm, nodeType, p with { Table = true }) ?? tableColumns(dm, nodeType);
+        var rows = p.CsvRows <= 0 ? maxCsvRows : Math.Min(p.CsvRows, maxCsvRows);
         // whatever the page is showing, an export reads no buckets: ask for none
-        var queryString = queryFor(s, dm, p with { Facets = false }, typeId, 0, maxCsvRows);
+        var queryString = queryFor(s, dm, p with { Facets = false }, typeId, Math.Max(0, p.Page), rows);
         var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
         // with a facet selection to apply the answer is a facet result and the rows are inside it;
         // with nothing to filter by there is no facet clause at all and the rows are the answer
@@ -1530,6 +1536,32 @@ sealed class UIQuery {
 
     // ---- picking a node to relate or refer to ----
 
+    /// <summary>
+    /// The nodes a free-text search finds anywhere in the database, for the global search box: the
+    /// base type, so every type at once, by the same prefix search the query page runs.
+    ///
+    /// It answers with nothing rather than throwing when the database cannot be searched - closed,
+    /// opening, no text index - because this runs on every keystroke beside results that have
+    /// nothing to do with nodes, and the box must not turn into an error message while someone types.
+    /// </summary>
+    internal object[] QuickNodeSearch(Guid storeId, string text, int take) {
+        if (string.IsNullOrWhiteSpace(text)) return [];
+        try {
+            var s = store(storeId);
+            var dm = s.Datastore.Datamodel;
+            var q = s.QueryType(NodeConstants.BaseNodeTypeId, adminContext).WhereSearch(prefixEachWord(text));
+            if (s.Datastore.Query(paged(q, 0, take), [], adminContext) is not IStoreNodeDataCollection nodes) return [];
+            return [.. nodes.NodeValues.Select(n => (object)new {
+                n.Id,
+                Name = displayNameOf(dm, n),
+                TypeName = typeName(dm, n),
+                TypeId = n.NodeType,
+            })];
+        } catch {
+            return [];
+        }
+    }
+
     object lookup(LookupPayload p) {
         var s = store(p.StoreId);
         var dm = s.Datastore.Datamodel;
@@ -1892,7 +1924,10 @@ sealed class UIQuery {
     internal sealed record FacetSelection(Guid PropertyId, FacetSelectionValue[]? Values);
     internal sealed record SearchPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity,
         FacetSelection[]? Selections, Guid[]? Expanded, int Page = 0, int PageSize = 25, bool Table = false, bool Facets = true,
-        string? SortBy = null, bool SortDescending = false, string[]? Columns = null, bool Edit = false);
+        string? SortBy = null, bool SortDescending = false, string[]? Columns = null, bool Edit = false,
+        // the csv export only: how many rows the file is to hold, 0 for as many as there are. Where they
+        // start is Page, as it is for the search: exporting the page on screen is the same numbers again.
+        int CsvRows = 0);
     internal sealed record ColumnsPayload(Guid StoreId, Guid? TypeId);
     sealed record SavePayload(Guid StoreId, Guid Id, Dictionary<string, JsonElement>? Values, Dictionary<string, Guid[]>? Relations);
     sealed record CreatePayload(Guid StoreId, Guid TypeId);

@@ -20,7 +20,7 @@ import {
   type PivotResult,
 } from "../server/query";
 import { useLiveResult } from "../server/hooks";
-import { formatCount } from "../format";
+import { formatCount, formatQuery } from "../format";
 import type { PivotDefinition, SummaryView } from "../queryTabs";
 import { BarChart, maxSeries, type BarSeries } from "./BarChart";
 
@@ -304,7 +304,7 @@ export function PivotView({
         </div>
       </div>
 
-      {showQuery && result && <div className="query-string">{result.query}</div>}
+      {showQuery && result && <div className="query-string">{formatQuery(result.query)}</div>}
       {error && <div className="query-error">{error}</div>}
 
       {result && (

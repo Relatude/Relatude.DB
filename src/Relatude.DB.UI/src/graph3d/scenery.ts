@@ -27,15 +27,21 @@ export interface ScenePalette {
   top: RGB;
   /** the starfield only belongs on a dark sky */
   star: number;
+  /** the aeroplane's paint: its lit surfaces, its shadowed ones, and its outline where it needs one */
+  planeBody: RGB;
+  planeShadow: RGB;
+  /** an outline drawn along every facet edge, or null where the silhouette carries itself */
+  planeEdge: RGB | null;
 }
 
 /**
  * The scene's colours, read off the admin UI's theme tokens. On a dark theme the rock rises out of
  * the page's own black toward the text colour, so peaks catch the light; on a light one the ramp is
  * inverted and the ridges read as silhouettes against a bright sky, which is the only way a range
- * shows up on white at all.
+ * shows up on white at all. Nothing here takes the accent: the weather is colourless, and the one
+ * accented thing in the scene - the aeroplane's canopy - is painted by `plane()` itself.
  */
-export function scenePalette(panel: RGB, bg: RGB, text: RGB, accent: RGB, dark: boolean): ScenePalette {
+export function scenePalette(panel: RGB, bg: RGB, text: RGB, dark: boolean): ScenePalette {
   const mix = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
   const scale = (a: RGB, s: number): RGB => [a[0] * s, a[1] * s, a[2] * s];
   if (dark) {
@@ -45,9 +51,17 @@ export function scenePalette(panel: RGB, bg: RGB, text: RGB, accent: RGB, dark: 
       lit: mix(panel, text, 0.58),
       hot: mix(panel, text, 0.93),
       fog: panel,
-      sun: mix(panel, accent, 0.55),
+      // The haze is colourless. It used to be the page's accent, which put a blue wash over the
+      // whole range and the aeroplane in it: a tinted atmosphere reads as a filter over the picture
+      // rather than as air, and the accent belongs to the interface, not to the weather.
+      sun: mix(panel, [1, 1, 1], 0.3),
       top: scale(bg, 0.5),
       star: 1,
+      // White against the night: the aeroplane is the brightest thing in the scene, which is what
+      // keeps it findable over rock at any distance. Its own silhouette is outline enough.
+      planeBody: [0.95, 0.96, 0.97],
+      planeShadow: [0.36, 0.39, 0.45],
+      planeEdge: null,
     };
   }
   return {
@@ -56,7 +70,14 @@ export function scenePalette(panel: RGB, bg: RGB, text: RGB, accent: RGB, dark: 
     lit: mix(panel, text, 0.23),
     hot: mix(panel, text, 0.08),
     fog: panel,
-    sun: mix(panel, accent, 0.8),
+    // barely there on a white sky, which is what a colourless haze on a bright day amounts to
+    sun: mix(panel, text, 0.05),
+    // and light on the day, which on a pale sky leaves it with no silhouette at all - so every
+    // facet edge is drawn in the page's own ink, and what reads the shape is the line work rather
+    // than the shading. A white aeroplane on white is a drawing, not a solid.
+    planeBody: [0.97, 0.97, 0.96],
+    planeShadow: [0.66, 0.67, 0.68],
+    planeEdge: mix(text, panel, 0.12),
     top: mix(bg, text, 0.2),
     star: 0,
   };
@@ -70,7 +91,12 @@ export interface Scenery {
   /** The aeroplane, from its position, its body axes and how far round the propeller is. */
   plane(viewProj: Mat4, eye: Vec3, light: Vec3, pal: ScenePalette, model: Mat4, spin: number, accent: RGB): void;
   /** Motes in the air, wrapped in a box that travels with the camera so there are always some about. */
-  dust(viewProj: Mat4, eye: Vec3, pal: ScenePalette, dark: boolean, time: number): void;
+  /**
+   * Motes in the air. `strength` scales both how many are drawn and how far they carry: 1 for the
+   * air an aeroplane flies through, a fraction of it for the graph sitting on its own, where the
+   * specks are meant to say the space has depth and nothing more.
+   */
+  dust(viewProj: Mat4, eye: Vec3, pal: ScenePalette, dark: boolean, time: number, strength?: number): void;
   destroy(): void;
 }
 
@@ -83,7 +109,7 @@ export function createScenery(gl: WebGL2RenderingContext): Scenery {
   // The motes. Each is a fixed point inside a box that travels with the camera, so however far the
   // aeroplane flies there is always the same handful of specks going past the canopy. Size and
   // phase are baked in, so nothing has to be uploaded again once they are made.
-  const dustCount = 900;
+  const dustCount = 2600;
   const dustData = new Float32Array(dustCount * 4);
   for (let i = 0; i < dustCount; i++) {
     dustData[i * 4] = Math.random();
@@ -101,8 +127,11 @@ export function createScenery(gl: WebGL2RenderingContext): Scenery {
   gl.vertexAttribPointer(dstLoc, 4, gl.FLOAT, false, 0, 0);
   gl.bindVertexArray(null);
 
-  // one patch of ground, moved with the aeroplane rather than rebuilt around it
-  const mesh: TerrainMesh = buildTerrainMesh(224, 224, 0, 0);
+  // One patch of ground, moved with the aeroplane rather than rebuilt around it. 320 quads of 2.6
+  // terrain units reach 832 units in every direction, which at the scene's scale is eleven
+  // kilometres of country - and the whole field is still cheaper to rebuild than the smaller,
+  // coarser one was before the noise was tightened up (see terrain.ts).
+  const mesh: TerrainMesh = buildTerrainMesh(320, 320, 0, 0);
   const terVao = gl.createVertexArray()!;
   const terPos = gl.createBuffer()!;
   const terIdx = gl.createBuffer()!;
@@ -134,6 +163,29 @@ export function createScenery(gl: WebGL2RenderingContext): Scenery {
   }
   gl.bindVertexArray(null);
   const planeCount = planeMesh.length / 5;
+
+  // The same aeroplane as a set of lines: every triangle's three edges. A triangle soup carries no
+  // adjacency, so an edge shared by two facets is drawn twice - which costs nothing and looks the
+  // same - and the result is the whole facet structure in line work rather than just a silhouette,
+  // which is what a white aeroplane on a white sky needs to read as a shape at all.
+  const planeEdges = buildEdges(planeMesh);
+  const edgVao = gl.createVertexArray()!;
+  const edgBuf = gl.createBuffer()!;
+  gl.bindVertexArray(edgVao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, edgBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, planeEdges, gl.STATIC_DRAW);
+  for (const [name, size, offset] of [
+    ["aPos", 3, 0],
+    ["aTint", 1, 3],
+    ["aSpin", 1, 4],
+  ] as const) {
+    const loc = gl.getAttribLocation(plnProg, name);
+    if (loc < 0) continue;
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 5 * 4, offset * 4);
+  }
+  gl.bindVertexArray(null);
+  const edgeCount = planeEdges.length / 5;
 
   const u = (p: WebGLProgram, n: string) => gl.getUniformLocation(p, n);
   const pal3 = (p: WebGLProgram, pal: ScenePalette) => {
@@ -202,17 +254,31 @@ export function createScenery(gl: WebGL2RenderingContext): Scenery {
       gl.uniform3fv(u(plnProg, "uCam"), eye);
       gl.uniform3fv(u(plnProg, "uLight"), light);
       gl.uniform1f(u(plnProg, "uSpin"), spin);
-      // Red, and the same red whatever the page's theme: an aeroplane is a painted object rather
-      // than part of the scenery, and it has to be findable against rock, snow and sky alike.
-      gl.uniform3fv(u(plnProg, "C_BODY"), planeRed);
-      gl.uniform3fv(u(plnProg, "C_DARK"), planeRedDark);
+      // White on the night, light on the day: the aeroplane is painted out of the theme like
+      // everything else here, because what it has to stand out against is the theme's own sky.
+      gl.uniform3fv(u(plnProg, "C_BODY"), pal.planeBody);
+      gl.uniform3fv(u(plnProg, "C_DARK"), pal.planeShadow);
       gl.uniform3fv(u(plnProg, "C_ACCENT"), accent);
       gl.uniform3fv(u(plnProg, "C_FOG"), pal.fog);
+      gl.uniform3fv(u(plnProg, "C_EDGE"), pal.planeEdge ?? pal.planeBody);
+      gl.uniform1f(u(plnProg, "uFlat"), 0);
+      // the fill is pushed a hair further away so the lines over it are not in a fight with it
+      if (pal.planeEdge) {
+        gl.enable(gl.POLYGON_OFFSET_FILL);
+        gl.polygonOffset(1.2, 1.2);
+      }
       gl.bindVertexArray(plnVao);
       gl.drawArrays(gl.TRIANGLES, 0, planeCount);
+      if (pal.planeEdge) {
+        gl.disable(gl.POLYGON_OFFSET_FILL);
+        // flat: a line has no facet, so the derivative the shader lights by would be nonsense
+        gl.uniform1f(u(plnProg, "uFlat"), 1);
+        gl.bindVertexArray(edgVao);
+        gl.drawArrays(gl.LINES, 0, edgeCount);
+      }
       gl.bindVertexArray(null);
     },
-    dust(viewProj, eye, pal, dark, time) {
+    dust(viewProj, eye, pal, dark, time, strength = 1) {
       gl.useProgram(dstProg);
       gl.enable(gl.DEPTH_TEST);
       gl.depthMask(false); // motes do not hide one another, and nothing hides behind a mote
@@ -225,24 +291,43 @@ export function createScenery(gl: WebGL2RenderingContext): Scenery {
       gl.uniform3fv(u(dstProg, "uCam"), eye);
       gl.uniform1f(u(dstProg, "uTime"), time);
       gl.uniform1f(u(dstProg, "uSpan"), dustSpan);
+      gl.uniform1f(u(dstProg, "uLevel"), Math.max(0, Math.min(1, strength)));
       gl.uniform3fv(u(dstProg, "uTint"), dark ? pal.hot : pal.deep);
       gl.bindVertexArray(dstVao);
-      gl.drawArrays(gl.POINTS, 0, dustCount);
+      // fewer of them as well as fainter: a thinner air, not a dimmer one
+      gl.drawArrays(gl.POINTS, 0, Math.max(1, Math.round(dustCount * Math.max(0.05, Math.min(1, strength)))));
       gl.bindVertexArray(null);
       gl.depthMask(true);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     },
     destroy() {
       for (const p of [skyProg, terProg, plnProg, dstProg]) gl.deleteProgram(p);
-      for (const v of [terVao, plnVao, dstVao]) gl.deleteVertexArray(v);
-      for (const b of [terPos, terIdx, plnBuf, dstBuf]) gl.deleteBuffer(b);
+      for (const v of [terVao, plnVao, edgVao, dstVao]) gl.deleteVertexArray(v);
+      for (const b of [terPos, terIdx, plnBuf, edgBuf, dstBuf]) gl.deleteBuffer(b);
     },
   };
 }
 
-/** The paint: a warm signal red for the lit surfaces, and the same red in shadow underneath. */
-const planeRed: RGB = [0.84, 0.18, 0.14];
-const planeRedDark: RGB = [0.44, 0.08, 0.07];
+/**
+ * Every triangle of a soup as its three edges, in the same 5-float layout - so the same program,
+ * with the same propeller spin, can draw the line work over the solid.
+ */
+function buildEdges(soup: Float32Array): Float32Array {
+  const out = new Float32Array((soup.length / 15) * 6 * 5);
+  let o = 0;
+  const copy = (from: number) => {
+    for (let k = 0; k < 5; k++) out[o++] = soup[from + k];
+  };
+  for (let t = 0; t < soup.length; t += 15) {
+    const a = t;
+    const b = t + 5;
+    const c = t + 10;
+    copy(a); copy(b);
+    copy(b); copy(c);
+    copy(c); copy(a);
+  }
+  return out;
+}
 
 // ---- the aeroplane ----
 
@@ -283,11 +368,55 @@ function buildPlane(): Float32Array {
     const b = ring(rings[i + 1]);
     for (let k = 0; k < 4; k++) {
       const k2 = (k + 1) % 4;
-      // the top of the forward fuselage is the canopy
-      const tint = k === 1 && rings[i].z > 0.3 ? 2 : 0;
-      quad(a[k], b[k], b[k2], a[k2], tint);
+      quad(a[k], b[k], b[k2], a[k2], 0);
     }
   }
+
+  // The canopy: a glasshouse of its own over the front of the fuselage, rather than a tint on the
+  // skin. Tinting one facet of the spindle put the glass on whichever side that facet faced - a blue
+  // patch running down one flank - because the ring is a diamond and its "top" is a single vertex,
+  // so there is no top face to paint. This is a ridge above the spine with a panel sloping to each
+  // shoulder: symmetrical about the centreline, and it reads as glass from either side.
+  //
+  // Every station sits ON the skin. The ring is a diamond, so at a fraction `s` of its half width
+  // the surface is at y + (h/2)(1 - s) - which is where the panels start, and the ridge stands a
+  // little over the top vertex above it.
+  const shoulder = 0.55; // how far out along the ring the glass reaches before the fuselage takes over
+  const at = (z: number) => {
+    // the ring the fuselage would have at this station, interpolated between the two it has
+    let i = 0;
+    while (i < rings.length - 2 && rings[i + 1].z > z) i++;
+    const r0 = rings[i];
+    const r1 = rings[i + 1];
+    const t = Math.max(0, Math.min(1, (r0.z - z) / (r0.z - r1.z)));
+    const w = r0.w + (r1.w - r0.w) * t;
+    const h = r0.h + (r1.h - r0.h) * t;
+    const y = r0.y + (r1.y - r0.y) * t;
+    return { x: w * shoulder, base: y + (h * 0.5) * (1 - shoulder), top: y + h * 0.5 };
+  };
+  // nose to just behind the wing, the ridge rising over the shoulders and settling back into the deck
+  const glass = [
+    { z: 2.75, lift: 0.03 },
+    { z: 2.1, lift: 0.14 },
+    { z: 1.3, lift: 0.17 },
+    { z: 0.4, lift: 0.13 },
+    { z: -0.45, lift: 0.0 },
+  ].map((g) => {
+    const r = at(g.z);
+    return { z: g.z, x: r.x, base: r.base, ridge: r.top + g.lift };
+  });
+  for (let i = 0; i < glass.length - 1; i++) {
+    const a2 = glass[i];
+    const b2 = glass[i + 1];
+    for (const side of [1, -1]) {
+      quad([side * a2.x, a2.base, a2.z], [0, a2.ridge, a2.z], [0, b2.ridge, b2.z], [side * b2.x, b2.base, b2.z], 2);
+    }
+  }
+  // the windscreen and the fairing behind, so the glasshouse is closed at both ends
+  const first = glass[0];
+  const last = glass[glass.length - 1];
+  tri([-first.x, first.base, first.z], [0, first.ridge, first.z], [first.x, first.base, first.z], 2);
+  tri([-last.x, last.base, last.z], [0, last.ridge, last.z], [last.x, last.base, last.z], 2);
 
   // wing: straight taper, a little sweep back and a little dihedral
   const span = 7.5;
@@ -512,7 +641,7 @@ precision highp float;
 in float vFade;
 in float vPhase;
 uniform vec3 uTint;
-uniform float uTime;
+uniform float uTime, uLevel;
 out vec4 frag;
 void main(){
   vec2 d = gl_PointCoord - 0.5;
@@ -520,7 +649,7 @@ void main(){
   if (r > 1.0) discard;
   float soft = 1.0 - r * r;
   float tw = 0.65 + 0.35 * sin(uTime * 1.7 + vPhase * 31.0);
-  frag = vec4(uTint, soft * vFade * tw * 0.5);
+  frag = vec4(uTint, soft * vFade * tw * 0.5 * uLevel);
 }`;
 
 const PLN_VS = `#version 300 es
@@ -548,9 +677,11 @@ precision highp float;
 in vec3 vW;
 in float vTint;
 uniform vec3 uCam, uLight;
-uniform vec3 C_BODY, C_DARK, C_ACCENT, C_FOG;
+uniform vec3 C_BODY, C_DARK, C_ACCENT, C_FOG, C_EDGE;
+uniform float uFlat;
 out vec4 frag;
 void main(){
+  if (uFlat > 0.5) { frag = vec4(C_EDGE, 1.0); return; }
   vec3 n = normalize(cross(dFdx(vW), dFdy(vW)));
   vec3 toCam = uCam - vW;
   float dist = length(toCam);

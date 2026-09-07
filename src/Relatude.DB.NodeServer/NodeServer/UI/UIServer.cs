@@ -37,6 +37,7 @@ public sealed class UIServer {
         new UIDatabases(server).Register(Commands);
         _query = new UIQuery(server);
         _query.Register(Commands);
+        new UISearch(server, _query).Register(Commands);
         _containerWatch = new Timer(_ => watchContainers(), null, containerWatchIntervalMs, Timeout.Infinite);
     }
     // broadcasts a "containers" event whenever the container list changes (state, node count, name),

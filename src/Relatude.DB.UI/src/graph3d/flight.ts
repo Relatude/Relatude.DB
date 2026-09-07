@@ -52,8 +52,6 @@ export const AC = {
   Cndr: 0.085,
   Cnda: -0.03,
 
-  brakeCD: 0.085,
-  brakeCL: 0.15, // airbrakes: much more drag, some lift lost
   RUD_MAX: 0.55,
 
   // The engine. 1600 N standing still is about half the weight, so it climbs willingly, and the
@@ -80,7 +78,6 @@ export interface Controls {
   ail: number;
   elev: number;
   rud: number;
-  air: number;
   throttle: number;
 }
 
@@ -137,7 +134,7 @@ export function newAircraft(): Aircraft {
 }
 
 export function newControls(): Controls {
-  return { ail: 0, elev: 0, rud: 0, air: 0, throttle: 0.65 };
+  return { ail: 0, elev: 0, rud: 0, throttle: 0.65 };
 }
 
 /** Sets the aeroplane flying straight and level on a heading, at its trim speed. */
@@ -250,7 +247,7 @@ export function stepFlight(ac: Aircraft, ctl: Controls, dt: number, t: number, g
     const sep = smoothstep(AC.aStall, AC.aStall + AC.aFade, Math.abs(alpha));
     const CLlin = AC.CL0 + AC.CLa * alpha;
     const CLsep = 1.05 * Math.sin(2 * alpha);
-    const CL = CLlin * (1 - sep) + CLsep * sep - AC.brakeCL * ctl.air;
+    const CL = CLlin * (1 - sep) + CLsep * sep;
     ac.stall = sep;
 
     // Ground effect: within about a span of the ground the downwash is blocked and induced drag
@@ -258,7 +255,7 @@ export function stepFlight(ac: Aircraft, ctl: Controls, dt: number, t: number, g
     const ge = clamp(1 - ac.agl / (AC.b * 0.95), 0, 1);
     const Keff = AC.K * (1 - 0.4 * ge * ge);
 
-    const CD = AC.CD0 + Keff * CL * CL + 1.35 * sep * Math.abs(Math.sin(alpha)) + 0.3 * beta * beta + AC.brakeCD * ctl.air;
+    const CD = AC.CD0 + Keff * CL * CL + 1.35 * sep * Math.abs(Math.sin(alpha)) + 0.3 * beta * beta;
 
     const qbar = 0.5 * RHO * V * V;
     const L = qbar * AC.S * CL;
@@ -305,7 +302,7 @@ export function stepFlight(ac: Aircraft, ctl: Controls, dt: number, t: number, g
     // stops a fast dive plus a bootful of elevator from folding the wings.
     const auth = Math.min(1, (AC.vA / Math.max(V, 12)) * (AC.vA / Math.max(V, 12)));
     const elev = clamp(ctl.elev * auth, -1, 1);
-    const Cm = AC.Cm0 + AC.Cma * alpha + AC.Cmq * qh + AC.Cmde * elev - 0.05 * ctl.air;
+    const Cm = AC.Cm0 + AC.Cma * alpha + AC.Cmq * qh + AC.Cmde * elev;
     let Cm2 = Cm;
     // Past the stall the roll damping changes sign: a wing that starts down meets the air at a
     // larger angle than the rising one, deeper into the stall, making less lift still. That is

@@ -46,12 +46,16 @@ export function useLiveResult<TRequest, TResult>(request: TRequest | null, run: 
   current.current = request;
   const runner = useRef(run);
   runner.current = run;
-  useEffect(
-    () => () => {
+  // Set on the way in as well as cleared on the way out: a component whose effects are torn down and
+  // re-run on the same instance - React's fast refresh in development, StrictMode's double mount -
+  // would otherwise be left permanently dead, dropping every answer it asked for and never turning
+  // its loading state off. It is one line to make the hook survive that.
+  useEffect(() => {
+    alive.current = true;
+    return () => {
       alive.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   const pump = useCallback(async () => {
     if (running.current) return; // the call in flight picks up whatever is newest when it returns

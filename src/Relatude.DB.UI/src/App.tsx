@@ -15,7 +15,7 @@ import { Sidebar } from "./components/Sidebar";
 import { StorageSection } from "./components/StorageSection";
 import { TasksSection } from "./components/TasksSection";
 import { sections } from "./navigation";
-import { peekDatamodelTarget, peekQueryTarget, useNavigationRequest } from "./navigate";
+import { peekDatamodelTarget, peekQueryTarget, peekSettingsTarget, useNavigationRequest } from "./navigate";
 import { isLoggedIn, logout } from "./server/auth";
 import { disconnect, subscribe, subscribeResync, subscribeUnauthorized } from "./server/channel";
 import { fetchServerInfo, type DatabaseInfo, type ServerInfo } from "./server/serverInfo";
@@ -90,6 +90,18 @@ export function App() {
   useEffect(() => {
     if (peekDatamodelTarget()) setActiveSectionId("datamodel");
     else if (peekQueryTarget()) setActiveSectionId("query");
+    else {
+      // a setting can be one of another database's, so the database moves with the page; the
+      // settings page itself takes the target and scrolls to the group once it has loaded
+      const settings = peekSettingsTarget();
+      if (!settings) return;
+      if (settings.scope === "database") {
+        if (settings.storeId) setActiveDbId(settings.storeId);
+        setActiveSectionId("db-settings");
+      } else {
+        setActiveSectionId("server-settings");
+      }
+    }
   }, [navigation]);
   async function handleLogout() {
     try {
@@ -117,6 +129,7 @@ export function App() {
         activeDb={activeDb}
         onSelectDb={setActiveDbId}
         activeSectionId={activeSectionId}
+        onSelectSection={setActiveSectionId}
         theme={theme}
         onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
         navCollapsed={!navOpen}

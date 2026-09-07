@@ -168,11 +168,13 @@ export interface SearchRequest {
   /** The property id of the column the table is sorted by, or null for the store's own order. */
   sortBy: string | null;
   sortDescending: boolean;
-  /** The columns wanted, by key and in order (the select mode); null is the type's own table. Read only with `table`. */
+  /** The columns wanted, by key and in order; null is the type's own set of them. Read only with `table`. */
   columns: string[] | null;
+  /** The csv export only: how many rows the file is to hold, from `page`; 0 or unset for as many as there are. */
+  csvRows?: number;
 }
 
-/** A column the select mode can pick: a node field or a property of the type. */
+/** A column the table view can be told to show: a node field or a property of the type. */
 export interface SelectColumn extends Column {
   /** The type that declares it when inherited; null for the type's own properties and the node fields. */
   declaredBy: string | null;
@@ -183,7 +185,13 @@ export function fetchColumns(storeId: string, typeId: string | null): Promise<{ 
 }
 
 /** How many rows the csv export covers before it stops; the server's own cap, repeated for the UI. */
-export const csvRowLimit = 50_000;
+export const csvRowLimit = 1_000_000;
+
+/**
+ * The largest page of hits the server will build, and so what "all rows" on the page size list asks
+ * for. A result bigger than this is still reachable - it is paged, in pages of this size.
+ */
+export const maxPageRows = 100_000;
 
 export type EditorKind =
   | "text"

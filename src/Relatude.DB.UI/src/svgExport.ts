@@ -11,7 +11,7 @@
 const printPalette: Record<string, string> = {
   "--bg": "#f5f4f2",
   "--panel": "#ffffff",
-  "--border": "#e2e0dc",
+  "--border": "#c6c1b9",
   "--text": "#1d1c1a",
   "--text-muted": "#6f6c66",
   "--text-soft": "#45433f",

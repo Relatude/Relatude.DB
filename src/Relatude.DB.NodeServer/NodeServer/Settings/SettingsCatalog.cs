@@ -58,6 +58,16 @@ public sealed class SettingDefinition {
     /// <summary>Shown, but not editable from here.</summary>
     public bool ReadOnly { get; init; }
     public string? Placeholder { get; init; }
+    /// <summary>A page worth reading before choosing, shown as a link under the help text. For a
+    /// setting whose choice deserves more than the sentence there is room for here.</summary>
+    public SettingLink? Link { get; init; }
+}
+
+/// <summary>Somewhere to read more about a setting, opened in a new tab from under its help text.</summary>
+public sealed class SettingLink {
+    public required string Url { get; init; }
+    /// <summary>What the link says. A few words on what is on the other side, never "click here".</summary>
+    public required string Text { get; init; }
 }
 
 /// <summary>The kinds of value the settings page can make up on the spot, see <see cref="SettingDefinition.Generate"/>.</summary>
@@ -152,7 +162,7 @@ public static class SettingsCatalog {
     /// suggestion is recognised), the memory budget, and the id that the defaults refer to.
     /// </summary>
     static SettingGroupDefinition indexEngineList(string id, string title, string path, string help, string emptyHelp,
-        string newItemType, SettingSuggestion[] types, string typeHelp, string memoryHelp) {
+        string newItemType, SettingSuggestion[] types, string typeHelp, string memoryHelp, SettingLink? typeLink = null) {
         return new() {
             Id = id,
             Title = title,
@@ -164,7 +174,7 @@ public static class SettingsCatalog {
                 EmptyHelp = emptyHelp,
                 NewItem = new() { ["TypeName"] = newItemType, ["MaxMemoryUsageInMb"] = new IndexEngineSettings().MaxMemoryUsageInMb.ToString() },
                 Fields = [
-                    new() { Path = "TypeName", Label = "Engine", Suggestions = types, Help = typeHelp },
+                    new() { Path = "TypeName", Label = "Engine", Suggestions = types, Help = typeHelp, Link = typeLink },
                     new() { Path = "MaxMemoryUsageInMb", Label = "Memory budget", Unit = "MB", Help = memoryHelp },
                     new() {
                         Path = "Id", Label = "Engine id", ReadOnly = true,
@@ -859,7 +869,10 @@ public static class SettingsCatalog {
                         new() { Value = IndexEngineTypes.IVS, Hint = "clustered index, cheaper to build" },
                     ],
                     "HNSW keeps a navigation graph in memory and reaches high recall at a higher build cost. IVS clusters the vectors and reads the nearest clusters from disk, which is cheaper to build and to hold. Anything else is taken as the full type name of a custom engine.",
-                    "How much memory the engine may use. For HNSW the graph itself always stays resident - that is the floor, and a smaller budget is exceeded with a warning - and the budget decides whether the full vectors are mirrored beside it. For IVS it is the cluster cache. 0 keeps only what the engine cannot do without."),
+                    "How much memory the engine may use. For HNSW the graph itself always stays resident - that is the floor, and a smaller budget is exceeded with a warning - and the budget decides whether the full vectors are mirrored beside it. For IVS it is the cluster cache. 0 keeps only what the engine cannot do without.",
+                    // the choice between them turns on recall, build time and memory at a given corpus
+                    // size, which is a table rather than a sentence
+                    new SettingLink { Url = "https://db.relatude.com/vector-matrix.html", Text = "Compare the vector index engines" }),
                 new() {
                     Id = "ai",
                     Title = "AI provider",

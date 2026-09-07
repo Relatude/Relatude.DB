@@ -296,11 +296,15 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
         <Chart kind="sum" points={points} groups={[]} interval="Second" format={formatRate} height="fill" />
       )}
       <div className="logs-chart-foot">
-        <span className="muted">
-          {level
-            ? "the whole server process, not this database alone — one heap serves every database on it, the cpu share is of all its cores, and “collect garbage” below acts on the same process"
-            : `measured here, ${measuredEvery === "Off" ? "when the page is refreshed" : "every " + measuredEvery}`}
-        </span>
+        {level ? (
+          // the two lines are on scales of their own, so which is which is worth saying in one word
+          // each, in the colour it is drawn in; what the numbers are about takes four more
+          <span className="muted">
+            <span className="chart-key chart-key-second">CPU</span> · <span className="chart-key chart-key-first">Memory</span> · the whole server process
+          </span>
+        ) : (
+          <span className="muted">measured here, {measuredEvery === "Off" ? "when the page is refreshed" : "every " + measuredEvery}</span>
+        )}
       </div>
     </section>
   );
@@ -349,11 +353,14 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
     </section>
   );
 
+  // the three caches take the middle of the panel; the two actions and the line explaining them sit
+  // at the bottom, where an action belongs when what it acts on is above it
   const cachePanel = (
-    <section className="panel">
+    <section className="panel panel-fill">
       <h3>
         Caches <span className="panel-sub">what is being answered from memory</span>
       </h3>
+      <div className="fill-body dash-cache-list">
       <CacheRow
         label="Nodes"
         count={live?.nodeCacheCount ?? 0}
@@ -378,6 +385,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
         hits={info.cache?.aggregateCacheHits ?? 0}
         misses={info.cache?.aggregateCacheMisses ?? 0}
       />
+      </div>
       {/* half a page wide, so the two actions sit side by side with one line under them,
           rather than each button pushing its own hint into a column too narrow to read */}
       <div className="dash-cache-actions">
@@ -519,8 +527,10 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
       : [
           // rows given a height of their own hold a panel that fills whatever it is handed - a chart
           // or a terminal sized to its own content has no height at all
-          { id: "activity", height: 300, cells: [activityPanel, nowPanel] },
-          { id: "engines", cells: [enginesPanel, cachePanel] },
+          // the caches take the sized row: three rows and two buttons have a shape of their own, and
+          // what is running is a list of nothing most of the time, which does not need the height
+          { id: "activity", height: 300, cells: [activityPanel, cachePanel] },
+          { id: "engines", cells: [enginesPanel, nowPanel] },
           { id: "trace", height: 260, cells: [tracePanel, <ContentPanel key="content" info={info} storeId={db.id} />] },
         ];
 
@@ -938,6 +948,15 @@ function CacheRow({
         </span>
       )}
       <span className="num">{rate == null ? "—" : rate + "% hit"}</span>
+      {/* The rate on its own hides how much work it stands for: 100% over four lookups and 90% over
+          two million are not the same cache, and only the second says the cache is earning its
+          memory. The two counts run from the moment the database opened, or from the last clearing;
+          the total is their sum, which is not worth a third number. */}
+      <span className="muted dash-cache-lookups">
+        {lookups === 0
+          ? "nothing has asked yet"
+          : `${formatCount(hits)} ${hits === 1 ? "hit" : "hits"} · ${formatCount(misses)} ${misses === 1 ? "miss" : "misses"}`}
+      </span>
     </div>
   );
 }

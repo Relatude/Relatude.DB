@@ -163,6 +163,7 @@ sealed class UISettings {
             definition.Placeholder,
             definition.Picker,
             definition.Generate,
+            definition.Link,
             // the sibling is named relative to the element, so it needs the same prefix to be found
             VisibleWhen = VisibilityView.From(definition.VisibleWhen, prefix),
             Secret = isSecret,

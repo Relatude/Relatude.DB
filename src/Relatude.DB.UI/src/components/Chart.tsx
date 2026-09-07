@@ -12,9 +12,12 @@ import type { IntervalType, SeriesKind, SeriesPoint } from "../server/logs";
 //   - the buckets are intervals, not instants. A point is drawn at the middle of its interval and
 //     the tooltip names the interval, so the last (still running) bucket is not read as a drop.
 //
-// A live update redraws the curve as it is: the values are not eased from the previous ones. At the
-// rates the refresh slider allows, a tween is either invisible or still running when the next update
-// arrives, and either way it draws numbers the database never reported.
+// A live update redraws the curve as it is: the values are not eased from the previous ones, and the
+// plot does not creep along between samples either. At the rates the refresh slider allows, a tween
+// is either invisible or still running when the next update arrives, and either way it draws numbers
+// the database never reported. (A continuous leftward slide was tried and taken out again: with the
+// samples arriving as unevenly as they do, it reads as the chart hunting rather than as time
+// passing.)
 
 const palette = [
   "#4c8dd8",

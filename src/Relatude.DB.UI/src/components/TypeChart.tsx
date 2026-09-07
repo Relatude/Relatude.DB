@@ -90,6 +90,15 @@ interface Rect {
 
 /** The height the treemap has on its own; in a panel with room to spare it takes the room instead. */
 const treemapMinHeight = 230;
+/**
+ * The space between two tiles. The layout partitions the whole rectangle, so the gap is taken out of
+ * the tiles themselves - half of it on each side of the edge they share - which is also what keeps
+ * every tile's own border inside the picture instead of half of it falling on the edge of the svg or
+ * under its neighbour. A tile too small to give the gap away keeps a quarter of its size instead, so
+ * a sliver stays a sliver rather than disappearing into the margin.
+ */
+const tileGap = 4;
+const inset = (size: number) => Math.min(tileGap / 2, size / 4);
 /** How long a tile takes to get where the layout wants it. */
 const tweenMs = 380;
 
@@ -192,13 +201,27 @@ function Treemap({ slices, total, onTileClick }: { slices: TypeSlice[]; total: n
           {tiles.map(({ slice: s, rect: r, opacity, leaving }) => {
             const clickable = !leaving && onTileClick !== undefined && s.type.id !== otherSliceId;
             return (
-              <g key={s.type.id} className={"dash-tile-g" + (clickable ? " clickable" : "")} opacity={opacity} onClick={clickable ? (e) => onTileClick(s, { x: e.clientX, y: e.clientY }) : undefined}>
+              <g
+                key={s.type.id}
+                className={"dash-tile-g" + (clickable ? " clickable" : "")}
+                opacity={opacity}
+                // the type's colour, which the stylesheet washes into the panel for the fill and
+                // keeps at strength for the border - so one value serves both themes
+                style={{ "--tile": s.color } as React.CSSProperties}
+                onClick={clickable ? (e) => onTileClick(s, { x: e.clientX, y: e.clientY }) : undefined}
+              >
                 <title>{title(s, total)}</title>
-                <rect x={r.x} y={r.y} width={Math.max(0, r.w)} height={Math.max(0, r.h)} fill={s.color} className="dash-tile-rect" />
+                <rect
+                  x={r.x + inset(r.w)}
+                  y={r.y + inset(r.h)}
+                  width={Math.max(0, r.w - inset(r.w) * 2)}
+                  height={Math.max(0, r.h - inset(r.h) * 2)}
+                  className="dash-tile-rect"
+                />
                 {/* below the size where a name fits, the tile is a colour and a tooltip */}
                 {r.w > 54 && r.h > 26 && (
-                  <foreignObject x={r.x} y={r.y} width={r.w} height={r.h}>
-                    <div className="dash-tile-label" style={{ color: readable(s.color) }}>
+                  <foreignObject x={r.x + inset(r.w)} y={r.y + inset(r.h)} width={Math.max(0, r.w - inset(r.w) * 2)} height={Math.max(0, r.h - inset(r.h) * 2)}>
+                    <div className="dash-tile-label">
                       <span className="dash-tile-name">{s.type.name}</span>
                       {r.h > 40 && <span className="dash-tile-count">{formatCount(s.value)}</span>}
                     </div>
@@ -354,13 +377,6 @@ export function shade(hex: string, amount: number): string {
   const t = Math.abs(amount);
   const mix = (c: number) => Math.round(c + (target - c) * t);
   return `#${[mix(r), mix(g), mix(b)].map((c) => c.toString(16).padStart(2, "0")).join("")}`;
-}
-
-/** Black or white, whichever can be read on the colour. */
-export function readable(hex: string): string {
-  const { r, g, b } = parseHex(hex);
-  // perceived luminance, the sRGB weights
-  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 ? "#14130f" : "#ffffff";
 }
 
 function parseHex(hex: string): { r: number; g: number; b: number } {
