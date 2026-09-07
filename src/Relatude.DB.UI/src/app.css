@@ -2308,6 +2308,13 @@ a {
   font-size: 11px;
 }
 
+/* the two fillers standing in for the rows outside the window (see useVirtualWindow): they hold the
+   height those rows would have taken, so they have to span the grid rather than sit in one column */
+.file-window-pad {
+  grid-column: 1 / -1;
+  pointer-events: none;
+}
+
 /* ---- storage ---- */
 
 .storage {

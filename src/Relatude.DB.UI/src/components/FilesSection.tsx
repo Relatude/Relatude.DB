@@ -60,6 +60,7 @@ import type { DatabaseInfo } from "../server/serverInfo";
 import { formatBytes, formatTime } from "../format";
 import { runWithProgress, showConfirm, showError, showPrompt, type ProgressController } from "../dialogs";
 import { displayType } from "../code/language";
+import { useVirtualWindow, windowPad } from "../virtualWindow";
 import { FileTile } from "./FileTile";
 import { FileViewer } from "./FileViewer";
 
@@ -69,10 +70,15 @@ import { FileViewer } from "./FileViewer";
 //
 // The list itself has two switches. "Include subfolders" replaces the open folder's files with every
 // file below it as well, gathered folder by folder behind a progress dialog so a big tree can be
-// watched and given up on. "Thumbnails" draws the same files as pictures instead of rows - a scaled
-// down copy from the server for an image, a frame for a video, its type icon for everything else -
-// and only the tiles the eye can reach ask for theirs (see useInView), so opening a folder of
-// thousands of photographs costs the screenful that is showing and nothing more.
+// watched and given up on; it starts off and goes off again with every folder opened, since it asks
+// about one folder and nobody means to walk a tree by clicking through it. "Thumbnails" draws the
+// same files as pictures instead of rows - a scaled down copy from the server for an image, a frame
+// for a video, its type icon for everything else.
+//
+// Either way only what is on screen is built (see useVirtualWindow), with two fillers standing in
+// for the rows above and below, and a tile only asks for its picture once it is there (see
+// useInView), so a listing of tens of thousands of files costs a screenful of dom and a screenful
+// of thumbnails rather than all of either.
 
 type SortColumn = "name" | "type" | "size" | "modified";
 interface SortState {
@@ -117,8 +123,11 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   const showPath = useCallback((p: string) => (friendly ? friendlyPath(p, names) : p), [friendly, names]);
   // rows or pictures
   const [view, setView] = useState<ViewMode>(() => (localStorage.getItem(viewModeKey) === "thumbnails" ? "thumbnails" : "list"));
-  // the list reaches into the subfolders as well; the walk that gathers them is below
-  const [recursive, setRecursive] = useState(() => localStorage.getItem(recursiveKey) === "true");
+  // The list reaches into the subfolders as well; the walk that gathers them is below. Off to begin
+  // with, and off again with every folder opened: it is a question asked of one folder ("what is
+  // under here?"), and a walk of thousands of files is not what anyone means to arrive at by opening
+  // a folder or by coming back to the section, so it is never remembered.
+  const [recursive, setRecursive] = useState(false);
   // what that walk found, and the folder it was made from: a listing kept until something makes it
   // stale (another folder, another provider, a file written or deleted)
   const [deepFiles, setDeepFiles] = useState<({ ioId: string; path: string } & DeepListing) | null>(null);
@@ -138,7 +147,6 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   function toggleRecursive() {
     const next = !recursive;
     setRecursive(next);
-    localStorage.setItem(recursiveKey, String(next));
     if (!next) setDeepFiles(null);
   }
 
@@ -151,6 +159,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     selectionAnchor.current = null;
     setTreeSizes({});
     setFilter("");
+    setRecursive(false);
     setDeepFiles(null);
     viewerDirty.current = false;
   }
@@ -215,6 +224,21 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     [files, matcher, rowName, show, sort, typeOf],
   );
   const listedSize = shownFiles.reduce((sum, f) => sum + f.size, 0);
+  // A listing that reaches into the subfolders is often thousands of files and can be tens of
+  // thousands: only the ones on screen are built, and two fillers stand in for the rest so the
+  // scrollbar and the scroll position stay honest (see useVirtualWindow).
+  const listWindow = useVirtualWindow({ count: shownFiles.length, item: "[data-file-row]", layout: view });
+  const builtFiles = shownFiles.slice(listWindow.first, listWindow.last);
+  // Two things want the scroller, so they share one callback - and the same one every render: an
+  // inline ref would be a new function each time, which react reads as a different ref and hands the
+  // element to again.
+  const attachList = useCallback(
+    (el: HTMLDivElement | null) => {
+      listRef.current = el; // the tiles observe it, and the keyboard lands on it
+      listWindow.ref(el);
+    },
+    [listWindow.ref],
+  );
   const allSelected = shownFiles.length > 0 && shownFiles.every((f) => selected.has(f.key));
   // the open folder belongs to the database's own storage: everything in it is the real data
   const primaryData = listing?.isPrimaryData === true;
@@ -241,7 +265,6 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
       scanning.current = false;
     }
     setRecursive(false);
-    localStorage.setItem(recursiveKey, "false");
   }, []);
 
   // the walk runs whenever the switch is on and there is no listing for the open folder: it was just
@@ -310,6 +333,9 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
       if (!(await confirmDiscard())) return;
       setSelected(new Set());
       selectionAnchor.current = null;
+      // the switch is the open folder's question, so the folder just opened is asked the plain one
+      setRecursive(false);
+      setDeepFiles(null);
     }
     setPath(folderPath);
     if (ioId) loadFolder(ioId, folderPath);
@@ -398,7 +424,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     const keys = shownFiles.map((f) => f.key);
     const last = keys.length - 1;
     const current = cursorFile.current === null ? -1 : keys.indexOf(cursorFile.current);
-    const perRow = view === "thumbnails" ? tilesPerRow(listRef.current) : 1;
+    const perRow = listWindow.perRow; // one down a list, however many tiles fit across a grid
     let next: number;
     switch (e.key) {
       case "ArrowDown":
@@ -441,7 +467,9 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
       selectionAnchor.current = key;
       void changeSelection(new Set([key]));
     }
-    listRef.current?.querySelectorAll<HTMLElement>("[data-file-row]")[next]?.scrollIntoView({ block: "nearest" });
+    // the row walked onto may not be built yet, so the scroller is moved by where the row would be
+    // rather than by the element (see useVirtualWindow)
+    listWindow.reveal(next);
   }
 
   function toggleSort(column: SortColumn) {
@@ -1043,7 +1071,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
           )}
           <div
             className={view === "thumbnails" ? "file-grid" : "file-table" + (compact ? " compact" : "")}
-            ref={listRef}
+            ref={attachList}
             tabIndex={0}
             onKeyDown={onListKeyDown}
           >
@@ -1057,8 +1085,9 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
                 <span />
               </div>
             )}
+            <div {...windowPad} className="file-window-pad" style={{ height: listWindow.above }} />
             {view === "list" &&
-              shownFiles.map((f) => (
+              builtFiles.map((f) => (
                 <div
                   key={f.key}
                   data-file-row=""
@@ -1094,7 +1123,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
               ))}
             {view === "thumbnails" &&
               ioId &&
-              shownFiles.map((f) => (
+              builtFiles.map((f) => (
                 <FileTile
                   key={f.key}
                   ioId={ioId}
@@ -1108,6 +1137,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
                   onDragStart={(e) => onFileDragStart(e, f)}
                 />
               ))}
+            <div {...windowPad} className="file-window-pad" style={{ height: listWindow.below }} />
             {listing && files.length === 0 && <div className="muted files-empty">No files in this folder{deep ? " or below it" : ""}.</div>}
             {listing && files.length > 0 && shownFiles.length === 0 && <div className="muted files-empty">No file name matches the filter.</div>}
           </div>
@@ -1156,7 +1186,6 @@ const treeWidthKey = "filesTreeWidth";
 const viewerWidthKey = "filesViewerWidth";
 const sortKey = "filesSort";
 const viewModeKey = "filesViewMode";
-const recursiveKey = "filesRecursive";
 
 function readSort(): SortState {
   try {
@@ -1216,18 +1245,6 @@ function sortFiles(files: FileInfo[], sort: SortState, typeOf: (f: FileInfo) => 
 function fileName(key: string): string {
   const i = key.lastIndexOf("/");
   return i < 0 ? key : key.slice(i + 1);
-}
-
-/**
- * How many tiles the thumbnail grid fits across, which is what the vertical arrows step by. Read off
- * the grid itself rather than worked out from the widths: the track list computed style holds one
- * entry per column, whatever the container turned out to be.
- */
-function tilesPerRow(grid: HTMLElement | null): number {
-  if (!grid) return 1;
-  const tracks = getComputedStyle(grid).gridTemplateColumns;
-  const columns = tracks && tracks !== "none" ? tracks.split(" ").length : 0;
-  return Math.max(1, columns);
 }
 
 // the key as it reads below the open folder; the key itself for anything not under it
