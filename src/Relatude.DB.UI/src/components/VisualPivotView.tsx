@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { IconArrowNarrowDown, IconArrowNarrowUp, IconFocusCentered, IconListDetails } from "@tabler/icons-react";
 import type { PivotBase } from "./PivotView";
-import { bytesOf, fetchNodeGuid, fetchPivotModel, runVisual, type FacetSelection, type PivotModel, type PivotProperty, type VisualGroup, type VisualRequest, type VisualResult } from "../server/query";
+import { bytesOf, fetchNodeGuid, fetchPivotModel, runVisual, type PivotModel, type PivotProperty, type VisualGroup, type VisualRequest, type VisualResult } from "../server/query";
 import { useLiveResult } from "../server/hooks";
 import { formatCount, formatQuery } from "../format";
 import type { VisualDefinition } from "../queryTabs";
@@ -93,7 +93,6 @@ export function VisualPivotView({
   showQuery,
   onOpen,
   selected,
-  onDrill,
 }: {
   base: PivotBase;
   /** The definition as the page keeps it - null until this view has opened once for the type. */
@@ -106,7 +105,6 @@ export function VisualPivotView({
   onOpen: (nodeId: string) => void;
   /** The node the form has open, so the picture can stop marking a card once the form is closed. */
   selected: string | null;
-  onDrill: (selections: FacetSelection[]) => void;
 }) {
   const [model, setModel] = useState<PivotModel | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
@@ -271,23 +269,34 @@ export function VisualPivotView({
     layoutRef.current = layout;
     const prev = previous.current;
     if (prev === null || !sameValues(prev.decoded.ids, decoded.ids)) {
-      // a new set of cards: the ones that were already on screen leave from where they are, the
-      // rest appear where they belong
+      // A new set of cards: the ones that were already on screen leave from where they are, and the
+      // ones that were not fade in where they belong - so what carried over is seen to travel and
+      // what is new is seen to arrive, rather than the whole picture being replaced at once.
       let from: Float32Array | null = null;
+      let fresh: Uint8Array | null = null;
       if (prev !== null && prev.decoded.count > 0 && decoded.count > 0) {
         const where = f.positions();
         const byId = new IntMap(prev.decoded.count);
         for (let j = 0; j < prev.decoded.count; j++) byId.set(prev.decoded.ids[j], j);
         from = new Float32Array(layout.positions);
+        const newborn = new Uint8Array(decoded.count);
+        let arriving = 0;
         for (let i = 0; i < decoded.count; i++) {
           const j = byId.get(decoded.ids[i]);
           if (j >= 0) {
             from[i * 2] = where[j * 2];
             from[i * 2 + 1] = where[j * 2 + 1];
+          } else {
+            newborn[i] = 1;
+            arriving++;
           }
         }
+        if (arriving > 0) fresh = newborn;
+      } else if (decoded.count > 0) {
+        // the first picture of a query: every card of it is new, so the whole of it washes in
+        fresh = new Uint8Array(decoded.count).fill(1);
       }
-      f.setCards(decoded.count, from, layout.positions);
+      f.setCards(decoded.count, from, layout.positions, fresh);
       setSelectedIndex(-1);
       // the camera keeps pace with the cards: it arrives on the new picture as the last of them do
       f.fit(fitBounds(layout), fitPadding, prev !== null ? transitionSeconds : 0);
@@ -431,11 +440,6 @@ export function VisualPivotView({
     setTooltip(null);
   }
 
-  function legendDrill(group: DecodedGroup) {
-    if (!colorData || group.kind === "other") return;
-    onDrill([{ propertyId: colorData.propertyId, values: [{ value: group.value, value2: group.value2 }] }]);
-  }
-
   if (modelError) return <div className="query-error">{modelError}</div>;
   if (!model) return null;
   const colorInfo = groupable.find((p) => p.id === colorProperty);
@@ -563,8 +567,11 @@ export function VisualPivotView({
               <button
                 className="visual-legend-item"
                 key={i}
-                title={g.kind === "other" ? "The values with fewer nodes than the groups kept" : "Show only these nodes"}
-                onClick={() => legendDrill(g)}
+                title={
+                  (g.kind === "other" ? "The values with fewer nodes than the groups kept" : g.kind === "none" ? "The nodes without a value" : g.label) +
+                  " \u2014 click to see where these cards are"
+                }
+                onClick={() => field.current?.pulseGroup(i)}
               >
                 <span className="visual-swatch" style={{ background: swatchCss(g, palette, theme) }} />
                 <span className="visual-legend-label">{g.label}</span>
@@ -689,9 +696,8 @@ function readTheme(el: HTMLElement): Theme {
   return {
     dark,
     clear: f(panel),
-    dim: f(panel),
     outline: f(accent),
-    hover: f(text),
+    ink: f(text),
     // the nodes without a value, and the ones outside the groups kept: two greys the palette does not use
     none: faint,
     other: border,

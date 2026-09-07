@@ -64,8 +64,13 @@ export interface SavedQuery {
   minimumSimilarity: number | null;
   selections: FacetSelection[];
   showFacets: boolean;
-  /** the semantic ratio / minimum similarity panel; off unless someone asked for it */
-  showSemantic?: boolean;
+  /**
+   * The semantic ratio / minimum similarity panel: true or false is a choice someone made on this
+   * query, null is no choice at all - the panel then follows the database, open wherever there is an
+   * AI provider to search with. Same shape as the two knobs it holds, where null is the database's
+   * own default rather than a value.
+   */
+  showSemantic?: boolean | null;
   mode: QueryMode;
   hitsView: HitsView;
   /** the table view with its cells open for typing; off unless someone asked for it */
@@ -83,7 +88,16 @@ export interface SavedQuery {
 export interface QueryTabs {
   active: string;
   queries: SavedQuery[];
+  /**
+   * What the saved set was written by. Bumped only when a field has to be reinterpreted rather than
+   * merely added: a value an older page wrote means something else now, and migrate says what. An
+   * absent version is anything written before this was kept.
+   */
+  version?: number;
 }
+
+/** see QueryTabs.version and migrateTabs */
+const tabsVersion = 1;
 
 const storageKey = (storeId: string) => "queryTabs:" + storeId;
 
@@ -97,7 +111,7 @@ export function newQuery(): SavedQuery {
     minimumSimilarity: null,
     selections: [],
     showFacets: false,
-    showSemantic: false,
+    showSemantic: null, // no choice made: the panel follows the database
     mode: "search",
     hitsView: "list",
     editCells: false,
@@ -118,16 +132,29 @@ export function loadTabs(storeId: string): QueryTabs {
       const parsed = JSON.parse(raw) as Partial<QueryTabs>;
       if (Array.isArray(parsed.queries) && parsed.queries.length > 0) {
         // a field added later is missing from an older save; the fresh query supplies it
-        const queries = parsed.queries.map((q) => migrate({ ...newQuery(), ...q }));
+        const queries = parsed.queries.map((q) => migrate(migrateTabs({ ...newQuery(), ...q }, parsed.version ?? 0)));
         const active = queries.some((q) => q.id === parsed.active) ? parsed.active! : queries[0].id;
-        return { active, queries };
+        return { active, queries, version: tabsVersion };
       }
     }
   } catch {
     // fall through to a fresh set
   }
   const first = newQuery();
-  return { active: first.id, queries: [first] };
+  return { active: first.id, queries: [first], version: tabsVersion };
+}
+
+/**
+ * A saved query whose fields have to be read the way the page that wrote them meant them.
+ *
+ * Version 1: the semantic panel used to start closed everywhere, so every query was saved with
+ * showSemantic false whether or not anyone had touched it. It follows the database now, and a false
+ * from before that cannot be told apart from a choice - so they are all dropped back to "no choice",
+ * once. A false written since is a choice and is kept, which is what the version is for.
+ */
+function migrateTabs(q: SavedQuery, version: number): SavedQuery {
+  if (version < 1 && q.showSemantic === false) return { ...q, showSemantic: null };
+  return q;
 }
 
 /**
@@ -144,7 +171,9 @@ function migrate(q: SavedQuery): SavedQuery {
 
 export function saveTabs(storeId: string, tabs: QueryTabs) {
   try {
-    localStorage.setItem(storageKey(storeId), JSON.stringify(tabs));
+    // stamped here rather than carried through the page's state, so a set rebuilt anywhere still
+    // says which page wrote it
+    localStorage.setItem(storageKey(storeId), JSON.stringify({ ...tabs, version: tabsVersion }));
   } catch {
     // storage full or unavailable: the page still works, it just will not remember
   }

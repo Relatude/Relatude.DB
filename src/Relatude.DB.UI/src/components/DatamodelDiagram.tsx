@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { IconAffiliate, IconArrowsMaximize, IconArrowsShuffle, IconCircleDotted, IconFileTypeSvg, IconLayoutColumns, IconLayoutGrid, IconLayoutRows, IconPalette, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
+import { IconAffiliate, IconArrowsMaximize, IconArrowsShuffle, IconCircleDotted, IconFileTypeSvg, IconLayoutColumns, IconLayoutGrid, IconLayoutRows, IconPalette, IconRouteSquare2, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
 import { downloadSvg } from "../svgExport";
 import { FullscreenButton } from "./DatamodelGraph";
 import type { EditorContext, Selection } from "./DatamodelEditors";
 import { embeddedColor, indexMarks, kindMeta, propertyColor, relationColor, relationMeta } from "./DatamodelIcons";
+import { blend, borderPoint, cornerRadius, crossingGaps, labelPlace, moveSegment, orthoPath, plainPath, routeAll, routeMargin, routeTouches, simplify, validManual, type Gap, type PreferredAxis, type Pt, type Route } from "./orthoRouter";
 import type { NodeTypeJson } from "../server/datamodel";
 
 interface Props {
@@ -76,6 +77,38 @@ function positionsKey(storeId: string, mode: LayoutMode) {
   return "dmDiagram:" + storeId + ":" + mode;
 }
 const layoutKey = (storeId: string) => "dmDiagramLayout:" + storeId;
+// lines a hand has moved go with the positions: they are drawn between boxes where those boxes sit
+const linesKey = (storeId: string, mode: LayoutMode) => "dmDiagramLines:" + storeId + ":" + mode;
+// how the lines are drawn is a preference of the reader rather than a fact about a model, so it is
+// kept once, for every database
+const orthoKey = "dmDiagramOrtho";
+
+/**
+ * Which way right-angled lines leave a box when the other box is both beside and above or below it:
+ * the way the arrangement reads. Layers read top down, columns left to right; the rest have no
+ * direction and let the wider gap decide.
+ */
+const routingAxis: Record<LayoutMode, PreferredAxis> = { layers: "v", columns: "h", grid: "auto", sources: "auto", circle: "auto", force: "auto" };
+
+/** How much of a horizontal line is left out either side of a line crossing it. */
+const gapRadius = 3.5;
+
+function readLines(storeId: string, mode: LayoutMode): Record<string, Pt[]> {
+  try {
+    const raw = localStorage.getItem(linesKey(storeId, mode));
+    return raw ? (JSON.parse(raw) as Record<string, Pt[]>) : {};
+  } catch {
+    return {};
+  }
+}
+function writeLines(storeId: string, mode: LayoutMode, lines: Record<string, Pt[]>) {
+  try {
+    if (Object.keys(lines).length === 0) localStorage.removeItem(linesKey(storeId, mode));
+    else localStorage.setItem(linesKey(storeId, mode), JSON.stringify(lines));
+  } catch {
+    // storage may be unavailable; the lines then simply are not remembered
+  }
+}
 
 function readPositions(storeId: string, mode: LayoutMode): Record<string, { x: number; y: number }> {
   try {
@@ -355,15 +388,29 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
     return layouts.some((l) => l.id === saved) ? (saved as LayoutMode) : "layers";
   });
   const [positions, setPositions] = useState(() => readPositions(storeId, layout));
+  // right-angled lines going round the boxes, or straight ones from box to box
+  const [ortho, setOrtho] = useState(() => localStorage.getItem(orthoKey) === "true");
+  // lines a hand has moved, by edge id: drawn as they are for as long as they still fit the boxes
+  const [lines, setLines] = useState(() => readLines(storeId, layout));
   // types whose box shows every property rather than the first few
   const [openBoxes, setOpenBoxes] = useState<Set<string>>(new Set());
   const [view, setView] = useState<View>({ x: 20, y: 20, k: 1 });
   const [fitted, setFitted] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);
-  const drag = useRef<{ kind: "pan"; sx: number; sy: number; ox: number; oy: number } | { kind: "node"; id: string; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null);
+  const drag = useRef<
+    | { kind: "pan"; sx: number; sy: number; ox: number; oy: number }
+    | { kind: "node"; id: string; sx: number; sy: number; ox: number; oy: number; moved: boolean }
+    | { kind: "segment"; id: string; from: string; to: string; seg: number; points: Pt[]; sx: number; sy: number; moved: boolean; select?: () => void }
+    | null
+  >(null);
   const q = query.trim().toLowerCase();
   // where each box is drawn this frame, so the next rearrangement starts from where the eye left it
   const drawn = useRef(new Map<string, { x: number; y: number }>());
+  // the lines as drawn this frame, and where they set out from while a rearrangement is on its way
+  const drawnRoutes = useRef(new Map<string, Pt[]>());
+  const routeMove = useRef<Map<string, Pt[]> | null>(null);
+  // the right-angled lines last worked out, where they cross, and the picture they were worked out for
+  const routeCache = useRef<{ sig: string; routes: Map<string, Route>; gaps: Map<string, Gap[]> }>({ sig: "", routes: new Map(), gaps: new Map() });
   // a rearrangement on its way: where the boxes set out from, and when
   const move = useRef<{ from: Map<string, { x: number; y: number }>; start: number } | null>(null);
   const viewMove = useRef<{ from: View; to: View; start: number } | null>(null);
@@ -517,6 +564,7 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
   /** Sets the boxes off from wherever they are drawn now toward wherever the new arrangement puts them. */
   function startMove() {
     move.current = { from: new Map(drawn.current), start: performance.now() };
+    routeMove.current = new Map(drawnRoutes.current);
     setRearranged((n) => n + 1);
     runMove();
   }
@@ -623,34 +671,86 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
     drag.current = { kind: "node", id: b.id, sx: e.clientX, sy: e.clientY, ox: b.x, oy: b.y, moved: false };
     svgRef.current!.setPointerCapture(e.pointerId);
   }
+  /** A hand on one piece of a right-angled line: it is about to be pushed sideways or, if it does not move, clicked. */
+  function onSegmentPointerDown(e: React.PointerEvent, edge: Edge, route: Route, seg: number, select?: () => void) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    viewMove.current = null;
+    drag.current = { kind: "segment", id: edge.id, from: edge.from, to: edge.to, seg, points: route.points, sx: e.clientX, sy: e.clientY, moved: false, select };
+    svgRef.current!.setPointerCapture(e.pointerId);
+  }
   function onPointerMove(e: React.PointerEvent) {
     const d = drag.current;
     if (!d) return;
-    if (d.kind === "pan") setView((v) => ({ ...v, x: d.ox + (e.clientX - d.sx), y: d.oy + (e.clientY - d.sy) }));
-    else {
-      const dx = (e.clientX - d.sx) / view.k;
-      const dy = (e.clientY - d.sy) / view.k;
-      if (Math.abs(dx) + Math.abs(dy) > 2) d.moved = true;
-      setPositions((prev) => ({ ...prev, [d.id]: { x: d.ox + dx, y: d.oy + dy } }));
+    if (d.kind === "pan") {
+      setView((v) => ({ ...v, x: d.ox + (e.clientX - d.sx), y: d.oy + (e.clientY - d.sy) }));
+      return;
+    }
+    const dx = (e.clientX - d.sx) / view.k;
+    const dy = (e.clientY - d.sy) / view.k;
+    if (Math.abs(dx) + Math.abs(dy) > 2) d.moved = true;
+    if (d.kind === "node") setPositions((prev) => ({ ...prev, [d.id]: { x: d.ox + dx, y: d.oy + dy } }));
+    else if (d.moved) {
+      const a = boxes.find((x) => x.id === d.from);
+      const b = boxes.find((x) => x.id === d.to);
+      if (!a || !b) return;
+      // a horizontal piece goes up and down, a vertical one left and right
+      const horizontal = Math.abs(d.points[d.seg].y - d.points[d.seg + 1].y) < 0.01;
+      const moved = moveSegment(d.points, d.seg, horizontal ? dy : dx, a, b);
+      setLines((prev) => ({ ...prev, [d.id]: moved }));
     }
   }
+  // two clicks in quick succession on a hand-placed line hand it back to the router
+  const lastLineClick = useRef<{ id: string; at: number } | null>(null);
   function onPointerUp() {
     const d = drag.current;
     drag.current = null;
     if (d?.kind === "node") {
       if (!d.moved) ctx.select({ kind: "type", id: d.id });
       else writePositions(storeId, layout, { ...positions, [d.id]: positions[d.id] ?? { x: d.ox, y: d.oy } });
+    } else if (d?.kind === "segment") {
+      if (d.moved) {
+        // let go: pieces pushed into line with their neighbours fold away, and a line pushed through
+        // a box is not kept - it goes back to finding its own way round
+        setLines((prev) => {
+          const pts = prev[d.id];
+          if (!pts) return prev;
+          const next = { ...prev };
+          const tidy = simplify(pts);
+          const a = boxes.find((x) => x.id === d.from);
+          const b = boxes.find((x) => x.id === d.to);
+          if (validManual(tidy, a, b, boxes)) next[d.id] = tidy;
+          else delete next[d.id];
+          return next;
+        });
+      } else {
+        const now = performance.now();
+        const last = lastLineClick.current;
+        if (last && last.id === d.id && now - last.at < 400 && lines[d.id]) {
+          setLines((prev) => {
+            const next = { ...prev };
+            delete next[d.id];
+            return next;
+          });
+          lastLineClick.current = null;
+        } else {
+          lastLineClick.current = { id: d.id, at: now };
+          d.select?.();
+        }
+      }
     }
   }
   // the last drag's position is in state by now; persist whatever is there
   useEffect(() => {
     if (Object.keys(positions).length > 0) writePositions(storeId, layout, positions);
   }, [positions, storeId, layout]);
+  useEffect(() => writeLines(storeId, layout, lines), [lines, storeId, layout]);
 
   /** Back to the computed places, forgetting what was dragged here - and the boxes walk back. */
   function autoLayout() {
     startMove();
     setPositions({});
+    setLines({});
     try {
       localStorage.removeItem(positionsKey(storeId, layout));
     } catch {
@@ -664,8 +764,23 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
     startMove();
     setLayout(mode);
     setPositions(readPositions(storeId, mode));
+    setLines(readLines(storeId, mode));
     try {
       localStorage.setItem(layoutKey(storeId), mode);
+    } catch {
+      // the choice then simply is not remembered
+    }
+  }
+
+  /** Right-angled lines or straight ones. The lines travel from the one kind to the other; the boxes stay. */
+  function toggleOrtho() {
+    const next = !ortho;
+    move.current = { from: new Map(drawn.current), start: performance.now() };
+    routeMove.current = new Map(drawnRoutes.current);
+    runMove();
+    setOrtho(next);
+    try {
+      localStorage.setItem(orthoKey, String(next));
     } catch {
       // the choice then simply is not remembered
     }
@@ -699,18 +814,57 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
   const selectedType = selection?.kind === "type" ? selection.id : selection?.kind === "property" ? selection.typeId : null;
   const selectedRelation = selection?.kind === "relation" ? selection.id : null;
 
-  /** The point on the border of a box where a line to (tx, ty) leaves it. */
-  function anchor(b: Box, tx: number, ty: number) {
-    const cx = b.x + b.w / 2;
-    const cy = b.y + b.h / 2;
-    const dx = tx - cx;
-    const dy = ty - cy;
-    if (dx === 0 && dy === 0) return { x: cx, y: cy };
-    const sx = dx === 0 ? Infinity : b.w / 2 / Math.abs(dx);
-    const sy = dy === 0 ? Infinity : b.h / 2 / Math.abs(dy);
-    const s = Math.min(sx, sy);
-    return { x: cx + dx * s, y: cy + dy * s };
+  // ---- the lines ----
+
+  /**
+   * The right-angled lines for the boxes where they belong (not where they are drawn on the way
+   * there), kept until the picture changes. A box being dragged changes the picture every frame, so
+   * then only the lines it disturbs are found again: those into it and those it has been dragged
+   * onto; the rest stay as they were and are what the new ones get round. A line pushed by hand
+   * disturbs nothing: the others stay where they are.
+   */
+  function currentRoutes(): { routes: Map<string, Route>; gaps: Map<string, Gap[]> } {
+    const draggingLine = drag.current?.kind === "segment" ? drag.current.id : null;
+    const settled = new Map(boxes.map((b) => [b.id, b]));
+    const manual = new Map<string, Pt[]>();
+    for (const e of edges) {
+      const pts = lines[e.id];
+      if (!pts) continue;
+      // the line under the hand is drawn wherever the hand has it; it is judged when let go
+      if (e.id === draggingLine || validManual(pts, settled.get(e.from), settled.get(e.to), boxes)) manual.set(e.id, pts);
+    }
+    const sig = layout + "|" + boxes.map((b) => `${b.id}:${b.x},${b.y},${b.w},${b.h}`).join(";") + "|" + edges.map((e) => e.id).join(",");
+    const cache = routeCache.current;
+    const keep = new Map<string, Route>();
+    if (sig === cache.sig) {
+      // the same picture: only the hand-placed lines can have changed
+      for (const [id, r] of cache.routes) if (r.manual ? manual.get(id) === r.points : !manual.has(id)) keep.set(id, r);
+    } else if (drag.current?.kind === "node" && cache.routes.size > 0) {
+      const moving = settled.get(drag.current.id);
+      const edgeById = new Map(edges.map((e) => [e.id, e]));
+      if (moving) {
+        const reach = { ...moving, x: moving.x - routeMargin, y: moving.y - routeMargin, w: moving.w + 2 * routeMargin, h: moving.h + 2 * routeMargin };
+        for (const [id, r] of cache.routes) {
+          const e = edgeById.get(id);
+          if (!e || e.from === moving.id || e.to === moving.id) continue;
+          if (r.manual ? manual.get(id) !== r.points : routeTouches(r.points, reach)) continue;
+          keep.set(id, r);
+        }
+      }
+    }
+    const routed = routeAll(boxes, edges, manual, keep, routingAxis[layout]);
+    // where lines cross is worked out again only when some line is new; a pan or a zoom changes none
+    let changed = routed.size !== cache.routes.size;
+    if (!changed) for (const [id, r] of routed) if (cache.routes.get(id) !== r) changed = true;
+    const gaps = changed ? crossingGaps(routed.values(), gapRadius + cornerRadius + 1) : cache.gaps;
+    routeCache.current = { sig, routes: routed, gaps };
+    return { routes: routed, gaps };
   }
+  const routing = ortho ? currentRoutes() : null;
+  const routes = routing?.routes ?? null;
+  // the gaps are drawn once the lines are where they belong; while they travel nothing crosses cleanly
+  const gaps = routing && t >= 1 ? routing.gaps : null;
+  drawnRoutes.current = new Map();
 
   return (
     <div className="dm-diagram" ref={viewRef}>
@@ -735,6 +889,18 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
           <IconFileTypeSvg size={16} stroke={1.9} />
         </button>
         <FullscreenButton on={fullscreen} onToggle={toggleFullscreen} what="diagram" />
+        <button
+          className={"icon-button" + (ortho ? " active" : "")}
+          aria-pressed={ortho}
+          title={
+            ortho
+              ? "Right-angled lines: horizontal and vertical only, going round the boxes. A gap in a horizontal line is another line crossing it; drag any piece of a line to move it sideways, click a moved line twice to have it routed again. Click for straight lines"
+              : "Right-angled lines: horizontal and vertical only, going round the boxes rather than through them"
+          }
+          onClick={toggleOrtho}
+        >
+          <IconRouteSquare2 size={16} stroke={1.9} />
+        </button>
         {/* how the boxes are arranged; each layout keeps whatever was dragged in it */}
         <div className="dm-layout-picker" role="tablist">
           {layouts.map((l) => (
@@ -776,15 +942,39 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
             const b = boxById.get(e.to);
             if (!a || !b) return null;
             const selfLoop = a.id === b.id;
-            const ac = { x: a.x + a.w / 2, y: a.y + a.h / 2 };
-            const bc = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
-            const p1 = selfLoop ? { x: a.x + a.w, y: a.y + 20 } : anchor(a, bc.x, bc.y);
-            const p2 = selfLoop ? { x: a.x + a.w, y: a.y + a.h - 20 } : anchor(b, ac.x, ac.y);
             const highlighted = (selectedType !== null && (e.from === selectedType || e.to === selectedType)) || (e.kind === "relation" && selectedRelation !== null && e.id.startsWith(selectedRelation + ":"));
             const dim = (a.ghost && b.ghost) || (q && !(a.type.CodeName.toLowerCase().includes(q) || b.type.CodeName.toLowerCase().includes(q)));
             const cls = "dm-edge " + e.kind + (highlighted ? " highlighted" : "") + (dim ? " dim" : "");
-            const d = selfLoop ? `M${p1.x} ${p1.y} C ${p1.x + 60} ${p1.y - 10}, ${p2.x + 60} ${p2.y + 10}, ${p2.x} ${p2.y}` : `M${p1.x} ${p1.y} L${p2.x} ${p2.y}`;
-            const mid = { x: (p1.x + p2.x) / 2 + (selfLoop ? 45 : 0), y: (p1.y + p2.y) / 2 };
+            // the line itself: its right-angled route, a blend of two lines while the picture changes
+            // under it, or the straight line from box to box
+            const route = routes?.get(e.id) ?? null;
+            const from = t < 1 ? routeMove.current?.get(e.id) : undefined;
+            let pts: Pt[];
+            let d: string;
+            let label: { x: number; y: number; anchor: "middle" | "start" };
+            let handles: Route | null = null;
+            if (route && !from) {
+              pts = route.points;
+              d = route.orthogonal ? orthoPath(pts, gaps?.get(e.id), gapRadius) : plainPath(pts);
+              label = labelPlace(pts);
+              if (route.orthogonal) handles = route;
+            } else {
+              const ac = { x: a.x + a.w / 2, y: a.y + a.h / 2 };
+              const bc = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+              const p1 = selfLoop ? { x: a.x + a.w, y: a.y + 20 } : borderPoint(a, bc);
+              const p2 = selfLoop ? { x: a.x + a.w, y: a.y + a.h - 20 } : borderPoint(b, ac);
+              if (from) {
+                pts = blend(from, route ? route.points : [p1, p2], t);
+                d = plainPath(pts);
+                const m = pts[pts.length >> 1];
+                label = { x: m.x, y: m.y - 4, anchor: "middle" };
+              } else {
+                pts = [p1, p2];
+                d = selfLoop ? `M${p1.x} ${p1.y} C ${p1.x + 60} ${p1.y - 10}, ${p2.x + 60} ${p2.y + 10}, ${p2.x} ${p2.y}` : `M${p1.x} ${p1.y} L${p2.x} ${p2.y}`;
+                label = { x: (p1.x + p2.x) / 2 + (selfLoop ? 45 : 0), y: (p1.y + p2.y) / 2 - 4, anchor: "middle" };
+              }
+            }
+            drawnRoutes.current.set(e.id, pts);
             const marker =
               e.kind === "inherits" ? "url(#dm-arrow-inherit)" : e.kind === "reference" ? "url(#dm-arrow-reference)" : e.kind === "embeds" ? "url(#dm-arrow-embed)" : e.directed ? "url(#dm-arrow-relation)" : "url(#dm-dot-relation)";
             const markerStart = e.kind === "embeds" ? "url(#dm-diamond-embed)" : e.kind === "relation" && e.symmetric ? "url(#dm-dot-relation)" : undefined;
@@ -803,13 +993,22 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
                 onPointerDown={select && ((ev) => ev.stopPropagation())}
                 onClick={select}
               >
-                <path d={d} className="dm-edge-hit" />
+                {handles && <title>{handles.manual ? "Placed by hand. Drag a piece to move it; click the line twice to have it routed again" : "Drag a piece of the line to move it sideways"}</title>}
+                <path d={handles ? plainPath(pts) : d} className="dm-edge-hit" />
                 <path d={d} className="dm-edge-line" markerEnd={marker} markerStart={markerStart} />
                 {e.kind !== "inherits" && (
-                  <text x={mid.x} y={mid.y - 4} className="dm-edge-label" textAnchor="middle">
+                  <text x={label.x} y={label.y} className="dm-edge-label" textAnchor={label.anchor}>
                     {e.label}
                   </text>
                 )}
+                {/* every piece of a right-angled line is a handle: a horizontal one goes up and down, a vertical one sideways */}
+                {handles &&
+                  handles.points.slice(0, -1).map((p, i) => {
+                    const r = handles!;
+                    const n = r.points[i + 1];
+                    const horizontal = Math.abs(p.y - n.y) < 0.01;
+                    return <path key={i} d={`M${p.x} ${p.y} L${n.x} ${n.y}`} className={"dm-edge-seg " + (horizontal ? "h" : "v")} onPointerDown={(ev) => onSegmentPointerDown(ev, e, r, i, select)} />;
+                  })}
               </g>
             );
           })}

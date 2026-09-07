@@ -271,7 +271,9 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
  * The two sliders are the search itself, not a filter on it: the semantic ratio decides how much
  * of the ranking comes from the vector index rather than the word index, and the similarity floor
  * decides how close a vector match has to be to count at all. Both are left at the database's own
- * defaults until someone moves them, which is why they can be reset rather than only set.
+ * defaults until someone moves them, which is why they can be reset rather than only set, and they
+ * are on screen from the start wherever the database has an AI provider - a search there is already
+ * half vectors whether or not anyone opened the panel.
  *
  * Every change runs at once - see useLiveResult for why nothing is debounced.
  *
@@ -295,7 +297,11 @@ function QueryTab({
   // a type the model no longer has - or never named - falls back to the base type
   const typeId = q.typeId !== null && model.types.some((t) => t.id === q.typeId) ? q.typeId : model.baseTypeId;
   const { text, semanticRatio, minimumSimilarity: minSimilarity, selections, showFacets, mode, hitsView, sort, pageSize } = q;
-  const showSemantic = q.showSemantic === true;
+  // The panel is open wherever there is an AI provider to search with, until someone on this query
+  // says otherwise: a search against such a database is already part vectors - the engine resolves
+  // the unset knobs to the database's own ratio - so how it is ranked should be on screen rather
+  // than a click away. Without a provider it stays folded: nothing there would ever move.
+  const showSemantic = q.showSemantic ?? model.hasAi;
   const [expanded, setExpanded] = useState<string[]>([]);
   const [page, setPage] = useState(0);
   // what one page actually holds: "all" (0) asks for the largest page the server will build, and a
@@ -401,11 +407,9 @@ function QueryTab({
 
   // a pivot cell clicked: its groups become the facet selection, and the list shows the nodes behind
   // the number. A selection on a property the rail already filters by is replaced, not added to.
-  // The visual pivot narrows its own picture instead - the cards it keeps flow together - so it
-  // stays in its mode.
-  function drill(from: FacetSelection[], to: QueryMode = "search") {
+  function drill(from: FacetSelection[]) {
     const next = selections.filter((s) => !from.some((f) => f.propertyId === s.propertyId));
-    reset({ selections: [...next, ...from], mode: to });
+    reset({ selections: [...next, ...from], mode: "search" });
   }
 
   // Any change to what is being searched starts the result list over, and closes the node open
@@ -636,9 +640,9 @@ function QueryTab({
             </button>
           ))}
         </div>
-        {/* The semantic knobs are two sliders most searches never touch, so they are folded away and
-            this says where. A value set while they were open keeps the button lit with them closed:
-            a search running at a ratio nobody can see is the one thing this must not allow. */}
+        {/* The semantic knobs, folded away and back. A value set while they were open keeps the
+            button lit with them closed: a search running at a ratio nobody can see is the one thing
+            this must not allow. */}
         <button
           // lit while the panel is open, and lit with it closed when a knob is set: the panel below
           // says which, and red (armed) is for something dangerous, which this is not
@@ -892,7 +896,6 @@ function QueryTab({
               showQuery={showQuery}
               onOpen={setSelected}
               selected={selected}
-              onDrill={(from) => drill(from, "visual")}
             />
           ) : groups ? (
             <GroupByView key={typeId} base={pivotBase} definition={q.groups} onChange={(groups) => onChange({ groups })} refreshToken={epoch} showQuery={showQuery} onDrill={drill} />

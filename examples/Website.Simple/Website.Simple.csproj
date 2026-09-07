@@ -13,14 +13,6 @@
          store opens, not by the project build (see relatude.db.json and Models/CSharp/Campaign.cs) -->
     <Compile Remove="Models\CSharp\**" />
     <None Include="Models\CSharp\**" />
-    <Compile Remove="relatude.db.index\**" />
-    <Compile Remove="relatude.db.second\**" />
-    <Content Remove="relatude.db.index\**" />
-    <Content Remove="relatude.db.second\**" />
-    <EmbeddedResource Remove="relatude.db.index\**" />
-    <EmbeddedResource Remove="relatude.db.second\**" />
-    <None Remove="relatude.db.index\**" />
-    <None Remove="relatude.db.second\**" />
   </ItemGroup>
 
   <ItemGroup>

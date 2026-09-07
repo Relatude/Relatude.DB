@@ -16,7 +16,12 @@ import type { Bounds } from "./layouts";
  *    current positions are captured once on the CPU (the same curve, evaluated per card) and become
  *    the new starting points, so nothing ever jumps.
  *  - Colour is a group index per card (two bytes) and a palette texture the shader reads it from.
- *    Colouring by another property is one small buffer upload, not a rewrite of the picture.
+ *    Colouring by another property is one small buffer upload, not a rewrite of the picture. The
+ *    group index is also what a pulse addresses, so drawing attention to one value of a property
+ *    costs two uniforms rather than a pass over the cards.
+ *  - A card that was not on screen before grows out of nothing and fades in as it arrives, on its
+ *    own place in the same staggered timeline, so a result that brings new cards washes in rather
+ *    than appearing at once.
  *  - Picking is done by the GPU: a click renders the ids as colours into a single pixel under the
  *    pointer. It is exact for whatever is on the screen, including cards half way through a move,
  *    and costs one extra draw on a click rather than a spatial index for every card.
@@ -35,12 +40,14 @@ export type RGBf = [number, number, number];
 export interface FieldTheme {
   /** what the frame is cleared to: the panel behind the picture */
   clear: RGBf;
-  /** what a card fades toward when another group is highlighted */
-  dim: RGBf;
   /** the ring around the selected card */
   outline: RGBf;
-  /** what the hovered card is mixed toward: the page's text colour, so it darkens on light and lightens on dark */
-  hover: RGBf;
+  /**
+   * The page's own text colour: what a card is mixed toward to stand out, under the pointer and
+   * through a pulse. Being the text colour it is light on a dark page and dark on a light one, so
+   * "stands out" is brighter or darker according to the theme rather than always one of them.
+   */
+  ink: RGBf;
 }
 
 export interface Camera {
@@ -54,9 +61,11 @@ export interface CardField {
   /**
    * A new set of cards. `to` is where they go (two floats each); `from` is where they start, or null
    * for "in place". Cards that carried over from the previous set are handed their old positions by
-   * the caller, which is what makes a filtered result flow out of the full one.
+   * the caller, which is what makes a filtered result flow out of the full one. `fresh` marks the
+   * cards that were not on screen before, one byte each, and those fade in where they land; null
+   * when none of them are new.
    */
-  setCards(count: number, from: Float32Array | null, to: Float32Array): void;
+  setCards(count: number, from: Float32Array | null, to: Float32Array, fresh?: Uint8Array | null): void;
   /** New targets for the same cards; they leave where they are now, staggered over `stagger` seconds and travelling for `duration` (the field's own pace unless given). */
   moveTo(to: Float32Array, stagger?: number, duration?: number): void;
   /** Where every card is right now, mid-flight or not; a fresh array. */
@@ -66,8 +75,12 @@ export interface CardField {
   setTheme(theme: FieldTheme): void;
   setHover(index: number): void;
   setSelected(index: number): void;
-  /** Dims every card outside this group; -1 for none. */
-  setHighlightGroup(group: number): void;
+  /**
+   * Draws the cards of one group in and lets them back out to the size they were, holding them
+   * brighter (darker on a light page) while it lasts, so it can be seen where in the picture they
+   * are; -1 stops it. A card too small to see the movement of still keeps a few pixels of it.
+   */
+  pulseGroup(group: number): void;
   /** The card under a css pixel of the canvas, or -1. */
   pick(cssX: number, cssY: number): number;
   /** Brings the bounds into view with a margin, gliding there over `seconds` (0 jumps). */
@@ -118,6 +131,18 @@ export const moveStagger = 0.6;
 /** the whole of a transition: the last card sets off at the end of the stagger and travels the full move */
 export const transitionSeconds = moveDuration + moveStagger;
 
+/** how long a card takes to arrive where it lands, in seconds, and the size it starts out at */
+const fadeSeconds = 0.75;
+const bornScale = 0.35;
+/**
+ * The pulse: how long it lasts, how far into its cell a card is drawn, the least of that movement it
+ * keeps whatever the scale, and how far toward the page's ink it is taken at the turn.
+ */
+export const pulseSeconds = 1.25;
+const pulseAmount = 0.42;
+const pulseMinPx = 2.5;
+const pulseGlow = 0.45;
+
 /** how much of the pitch a card fills when there is room to see the gap */
 const cardFill = 0.84;
 const maxZoom = 640; // css px per unit: a card fills most of a panel
@@ -130,7 +155,7 @@ precision highp int;
 layout(location = 0) in vec2 aCorner;
 layout(location = 1) in vec2 aFrom;
 layout(location = 2) in vec2 aTo;
-layout(location = 3) in float aDelay;
+layout(location = 3) in vec2 aTiming;  // when this card sets off, and whether it is fading in
 layout(location = 4) in uint aGroup;
 uniform vec2 uCenter;
 uniform float uZoom;      // device pixels per world unit
@@ -138,18 +163,23 @@ uniform vec2 uHalfSize;   // half the canvas, device pixels
 uniform float uTime;      // seconds since the move began
 uniform float uDuration;
 uniform float uFill;
+uniform float uFade;      // how long a newborn card takes to come up to full colour
 uniform sampler2D uPalette;
 uniform int uHover;
 uniform int uSelected;
-uniform int uHighlightGroup;
-uniform vec3 uDim;
-uniform vec3 uHoverTint;
+uniform vec3 uInk;
 uniform int uPick;
+uniform int uPulseGroup;  // the group pulsing right now, or -1
+uniform float uPulseT;    // how far through its pulse that group is, 0..1
 out vec2 vUv;
 out vec4 vColor;
 flat out float vHalfPx;
 flat out int vFlags;
 const float OVERSHOOT = ${overshoot.toFixed(4)};
+const float PULSE = ${pulseAmount.toFixed(4)};
+const float PULSE_MIN_PX = ${pulseMinPx.toFixed(4)};
+const float PULSE_GLOW = ${pulseGlow.toFixed(4)};
+const float BORN = ${bornScale.toFixed(4)};
 float ease(float t) {
   if (t <= 0.0) return 0.0;
   if (t >= 1.0) return 1.0;
@@ -157,16 +187,37 @@ float ease(float t) {
   float back = 1.0 - t;
   return t3 * (t * (t * 6.0 - 15.0) + 10.0) + OVERSHOOT * t3 * back * back;
 }
+// One movement, inward and back: a card is drawn into its cell and let out again to the size it
+// was, and no further. Squaring the half sine leaves the curve flat at both ends as well as at
+// nothing, so the card sets off and comes to rest without a kick at either.
+float pulse(float t) {
+  if (t <= 0.0 || t >= 1.0) return 0.0;
+  float s = sin(3.1415927 * t);
+  return -s * s;
+}
 void main() {
-  float t = (uTime - aDelay) / uDuration;
+  float t = (uTime - aTiming.x) / uDuration;
   vec2 pos = mix(aFrom, aTo, ease(t));
   // the gap between cards appears as they get room for it; a card a few pixels wide fills its cell
   float fill = mix(1.0, uFill, smoothstep(2.5, 7.0, uZoom));
-  vec2 corner = (aCorner - 0.5) * fill + 0.5;
+  // a card that was not on screen before grows out of nothing into its place as it fades in
+  float born = 1.0;
+  if (aTiming.y > 0.5) {
+    born = clamp((uTime - aTiming.x) / uFade, 0.0, 1.0);
+    born = born * born * (3.0 - 2.0 * born);
+  }
+  float base = fill * (BORN + (1.0 - BORN) * born);
+  // -1 at the turn of a pulse, 0 for every card outside the group pulsing
+  float p = int(aGroup) == uPulseGroup ? pulse(uPulseT) : 0.0;
+  float side = base * (1.0 + PULSE * p);
+  // zoomed out to the whole set a card is a pixel or two, and taking a fraction off that is no
+  // signal at all, so what is left of it is worth a couple of pixels of the screen
+  side = max(side, min(base, 2.0 * PULSE_MIN_PX / uZoom));
+  vec2 corner = (aCorner - 0.5) * side + 0.5;
   vec2 px = (pos + corner - uCenter) * uZoom;
   gl_Position = vec4(px.x / uHalfSize.x, -px.y / uHalfSize.y, 0.0, 1.0);
   vUv = aCorner;
-  vHalfPx = 0.5 * fill * uZoom;
+  vHalfPx = 0.5 * side * uZoom;
   int id = gl_InstanceID;
   vFlags = id == uSelected ? 1 : 0;
   if (uPick == 1) {
@@ -174,8 +225,12 @@ void main() {
     return;
   }
   vec4 c = texelFetch(uPalette, ivec2(int(aGroup), 0), 0);
-  if (uHighlightGroup >= 0 && int(aGroup) != uHighlightGroup) c.rgb = mix(c.rgb, uDim, 0.82);
-  if (id == uHover) c.rgb = mix(c.rgb, uHoverTint, 0.28);
+  if (id == uHover) c.rgb = mix(c.rgb, uInk, 0.28);
+  // through a pulse the group is held toward the page's ink as well as moved, so it stands out for
+  // the whole of the movement - brighter on a dark page, darker on a light one
+  c.rgb = mix(c.rgb, uInk, PULSE_GLOW * abs(p));
+  // a new card comes up to its colour as it grows, so it arrives rather than appearing at once
+  c.a *= born;
   vColor = c;
 }`;
 
@@ -220,14 +275,15 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   const uTime = u("uTime");
   const uDuration = u("uDuration");
   const uFill = u("uFill");
+  const uFade = u("uFade");
   const uPalette = u("uPalette");
   const uHover = u("uHover");
   const uSelected = u("uSelected");
-  const uHighlightGroup = u("uHighlightGroup");
-  const uDim = u("uDim");
-  const uHoverTint = u("uHoverTint");
+  const uInk = u("uInk");
   const uPick = u("uPick");
   const uOutline = u("uOutline");
+  const uPulseGroup = u("uPulseGroup");
+  const uPulseT = u("uPulseT");
 
   // the quad every card is an instance of, corner (0,0) to (1,1)
   const quad = gl.createBuffer()!;
@@ -235,7 +291,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
   const fromBuffer = gl.createBuffer()!;
   const toBuffer = gl.createBuffer()!;
-  const delayBuffer = gl.createBuffer()!;
+  const timingBuffer = gl.createBuffer()!;
   const groupBuffer = gl.createBuffer()!;
   const vao = gl.createVertexArray()!;
   gl.bindVertexArray(vao);
@@ -245,7 +301,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   for (const [location, buffer, size] of [
     [1, fromBuffer, 2],
     [2, toBuffer, 2],
-    [3, delayBuffer, 1],
+    [3, timingBuffer, 2],
   ] as const) {
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     gl.enableVertexAttribArray(location);
@@ -283,7 +339,8 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   let count = 0;
   let from: Float32Array = new Float32Array(0);
   let to: Float32Array = new Float32Array(0);
-  let delay: Float32Array = new Float32Array(0);
+  // two floats per card: when it sets off, and 1 when it is fading in where it lands
+  let timing: Float32Array = new Float32Array(0);
   let moveStart = 0; // performance.now() when the current move began
   let duration = 1;
   let maxDelay = 0;
@@ -291,8 +348,9 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   let paletteSize = 1;
   let hover = -1;
   let selected = -1;
-  let highlight = -1;
-  let theme: FieldTheme = { clear: [1, 1, 1], dim: [1, 1, 1], outline: [0.04, 0.38, 0.7], hover: [0.1, 0.1, 0.1] };
+  let pulsedGroup = -1;
+  let pulseStart = 0;
+  let theme: FieldTheme = { clear: [1, 1, 1], outline: [0.04, 0.38, 0.7], ink: [0.1, 0.1, 0.1] };
   let width = 1;
   let height = 1;
   let dpr = 1;
@@ -317,6 +375,10 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
 
   function elapsed(now: number): number {
     return (now - moveStart) / 1000;
+  }
+
+  function pulsing(): boolean {
+    return pulsedGroup >= 0;
   }
 
   function cameraMoving(): boolean {
@@ -367,11 +429,12 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     gl.uniform1f(uTime, cardsMoving ? elapsed(now) : 1e6);
     gl.uniform1f(uDuration, duration);
     gl.uniform1f(uFill, cardFill);
+    gl.uniform1f(uFade, fadeSeconds);
     gl.uniform1i(uHover, hover);
     gl.uniform1i(uSelected, selected);
-    gl.uniform1i(uHighlightGroup, highlight);
-    gl.uniform3fv(uDim, theme.dim);
-    gl.uniform3fv(uHoverTint, theme.hover);
+    gl.uniform1i(uPulseGroup, pulsedGroup);
+    gl.uniform1f(uPulseT, pulsing() ? (now - pulseStart) / 1000 / pulseSeconds : 1);
+    gl.uniform3fv(uInk, theme.ink);
     gl.uniform3fv(uOutline, theme.outline);
     gl.uniform1i(uPick, pickMode ? 1 : 0);
     gl.activeTexture(gl.TEXTURE0);
@@ -379,6 +442,8 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     gl.uniform1i(uPalette, 0);
   }
 
+  // One pass, whatever is happening: a pulsing card is drawn into its own cell and never past it,
+  // so it can never cover the card beside it and there is no order to get right.
   function draw() {
     if (count === 0) return;
     gl.bindVertexArray(vao);
@@ -390,7 +455,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     raf = 0;
     if (destroyed) return;
     // a frame asked for by something that then turned out to change nothing draws nothing
-    if (!dirty && !cardsMoving && !cameraMoving()) {
+    if (!dirty && !cardsMoving && !pulsing() && !cameraMoving()) {
       lastFrame = 0;
       return;
     }
@@ -398,6 +463,8 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     lastFrame = now;
     stepCamera(dt, now);
     if (cardsMoving && elapsed(now) > duration + maxDelay) cardsMoving = false;
+    // ended before the uniforms are set, so the last frame of a pulse is the picture at rest
+    if (pulsing() && (now - pulseStart) / 1000 >= pulseSeconds) pulsedGroup = -1;
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, width, height);
@@ -411,7 +478,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     draw();
     dirty = false;
     frameCallback?.();
-    if (cardsMoving || cameraMoving()) schedule();
+    if (cardsMoving || pulsing() || cameraMoving()) schedule();
     else lastFrame = 0;
   }
 
@@ -420,20 +487,22 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
   }
 
-  // every card leaves a little after the one before it, in result order, with a little jitter so
-  // the wave has a soft front rather than a ruled edge
-  function planDelays(stagger: number) {
-    if (delay.length !== count) delay = new Float32Array(count);
+  // Every card leaves a little after the one before it, in result order, with a little jitter so
+  // the wave has a soft front rather than a ruled edge. `fresh` marks the cards that fade in as
+  // they arrive rather than being there already.
+  function planTiming(stagger: number, fresh: Uint8Array | null) {
+    if (timing.length !== count * 2) timing = new Float32Array(count * 2);
     let h = 0x9e3779b9;
     for (let i = 0; i < count; i++) {
       h = (h ^ (h << 13)) >>> 0;
       h = (h ^ (h >>> 17)) >>> 0;
       h = (h ^ (h << 5)) >>> 0;
       const jitter = (h & 0xffff) / 0xffff;
-      delay[i] = stagger * (0.72 * (i / Math.max(1, count - 1)) + 0.28 * jitter);
+      timing[i * 2] = stagger * (0.72 * (i / Math.max(1, count - 1)) + 0.28 * jitter);
+      timing[i * 2 + 1] = fresh !== null && fresh[i] !== 0 ? 1 : 0;
     }
     maxDelay = stagger;
-    upload(delayBuffer, delay);
+    upload(timingBuffer, timing);
   }
 
   function currentPositions(): Float32Array {
@@ -444,7 +513,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     }
     const time = elapsed(performance.now());
     for (let i = 0; i < count; i++) {
-      const s = ease((time - delay[i]) / duration);
+      const s = ease((time - timing[i * 2]) / duration);
       out[i * 2] = from[i * 2] + (to[i * 2] - from[i * 2]) * s;
       out[i * 2 + 1] = from[i * 2 + 1] + (to[i * 2 + 1] - from[i * 2 + 1]) * s;
     }
@@ -452,14 +521,16 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   }
 
   const field: CardField = {
-    setCards(n, start, targets) {
+    setCards(n, start, targets, fresh = null) {
       count = n;
       to = targets;
       from = start ?? targets;
-      cardsMoving = start !== null && n > 0;
+      // the timeline runs for a move, for a fade, or for both: a card with nowhere to travel from
+      // still has to come up to its colour
+      cardsMoving = n > 0 && (start !== null || fresh !== null);
       moveStart = performance.now();
       duration = moveDuration;
-      planDelays(cardsMoving ? moveStagger : 0);
+      planTiming(cardsMoving ? moveStagger : 0, fresh);
       upload(fromBuffer, from);
       upload(toBuffer, to);
       // a fresh set of cards has no groups yet; until it is told, every card is group 0
@@ -477,7 +548,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       cardsMoving = true;
       moveStart = performance.now();
       duration = seconds;
-      planDelays(stagger);
+      planTiming(stagger, null); // the same cards, so none of them are new
       upload(fromBuffer, from);
       upload(toBuffer, to);
       dirty = true;
@@ -509,9 +580,10 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       dirty = true;
       schedule();
     },
-    setHighlightGroup(g) {
-      if (highlight === g) return;
-      highlight = g;
+    pulseGroup(group) {
+      // clicked again while it is still going: it starts over, which is what a second click means
+      pulsedGroup = group;
+      pulseStart = performance.now();
       dirty = true;
       schedule();
     },
@@ -589,7 +661,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       return [(x - cur.x) * cur.zoom + width / dpr / 2, (y - cur.y) * cur.zoom + height / dpr / 2];
     },
     camera: () => ({ ...cur }),
-    moving: () => cardsMoving || cameraMoving(),
+    moving: () => cardsMoving || pulsing() || cameraMoving(),
     onFrame(callback) {
       frameCallback = callback;
     },
@@ -616,7 +688,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       gl.deleteBuffer(quad);
       gl.deleteBuffer(fromBuffer);
       gl.deleteBuffer(toBuffer);
-      gl.deleteBuffer(delayBuffer);
+      gl.deleteBuffer(timingBuffer);
       gl.deleteBuffer(groupBuffer);
       gl.deleteVertexArray(vao);
       gl.deleteTexture(palette);

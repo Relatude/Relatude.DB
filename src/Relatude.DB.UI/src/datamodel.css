@@ -1341,6 +1341,21 @@ button.dm-source-card {
   stroke-width: 12;
 }
 
+/* the pieces of a right-angled line, each a handle to push the line sideways by */
+.dm-edge-seg {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12;
+}
+
+.dm-edge-seg.h {
+  cursor: ns-resize;
+}
+
+.dm-edge-seg.v {
+  cursor: ew-resize;
+}
+
 .dm-edge-line {
   fill: none;
   stroke: var(--text-faint);
