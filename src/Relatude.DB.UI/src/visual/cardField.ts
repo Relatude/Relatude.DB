@@ -10,11 +10,11 @@ import type { Bounds } from "./layouts";
  *
  *  - Motion is computed in the vertex shader. Each card carries where it came from, where it is
  *    going, and when it leaves; a frame is one uniform (the time) and one draw call. A layout change
- *    uploads a new set of targets and the cards travel on their own, on a spring that starts slow
- *    and settles with a small overshoot, each leaving a little after the one before it, so a change
- *    is a flow across the picture rather than a jump. When targets change mid-flight the current
- *    positions are captured once on the CPU (the same spring, evaluated per card) and become the
- *    new starting points, so nothing ever jumps.
+ *    uploads a new set of targets and the cards travel on their own, on an eased curve that starts
+ *    from rest and settles with a hint of overshoot, each leaving a little after the one before it,
+ *    so a change is a flow across the picture rather than a jump. When targets change mid-flight the
+ *    current positions are captured once on the CPU (the same curve, evaluated per card) and become
+ *    the new starting points, so nothing ever jumps.
  *  - Colour is a group index per card (two bytes) and a palette texture the shader reads it from.
  *    Colouring by another property is one small buffer upload, not a rewrite of the picture.
  *  - Picking is done by the GPU: a click renders the ids as colours into a single pixel under the
@@ -57,8 +57,8 @@ export interface CardField {
    * the caller, which is what makes a filtered result flow out of the full one.
    */
   setCards(count: number, from: Float32Array | null, to: Float32Array): void;
-  /** New targets for the same cards; they leave where they are now, staggered over `stagger` seconds and travelling for `duration`. */
-  moveTo(to: Float32Array, stagger: number, duration: number): void;
+  /** New targets for the same cards; they leave where they are now, staggered over `stagger` seconds and travelling for `duration` (the field's own pace unless given). */
+  moveTo(to: Float32Array, stagger?: number, duration?: number): void;
   /** Where every card is right now, mid-flight or not; a fresh array. */
   positions(): Float32Array;
   /** The group of every card (uint16, an index into the palette) and the palette itself, rgba bytes per group. */
@@ -70,8 +70,8 @@ export interface CardField {
   setHighlightGroup(group: number): void;
   /** The card under a css pixel of the canvas, or -1. */
   pick(cssX: number, cssY: number): number;
-  /** Brings the bounds into view with a margin, animated unless told to jump. */
-  fit(bounds: Bounds, paddingPx: number, animate: boolean): void;
+  /** Brings the bounds into view with a margin, gliding there over `seconds` (0 jumps). */
+  fit(bounds: Bounds, paddingPx: number, seconds: number): void;
   /** Zooms by a factor about a css pixel of the canvas, which stays put. */
   zoomBy(factor: number, cssX: number, cssY: number): void;
   /** Moves the view by css pixels, with no easing: this is the picture following a drag. */
@@ -91,20 +91,32 @@ export interface CardField {
   destroy(): void;
 }
 
-// The spring the cards travel on: underdamped, so it starts from rest, arrives with a little
-// overshoot and settles. ζ (damping) sets the overshoot - 0.66 is about six percent - and ζω the
-// settling: e^-6 has it done by t = 1. Normalised by its value at 1 so t = 1 is exactly there, with
-// no snap at the end. The GLSL below is this function, character for character in what matters.
-const zeta = 0.66;
-const omega = 6 / zeta;
-const omegaD = omega * Math.sqrt(1 - zeta * zeta);
-const springAtOne = 1 - Math.exp(-zeta * omega) * (Math.cos(omegaD) + ((zeta * omega) / omegaD) * Math.sin(omegaD));
-function spring(t: number): number {
+// The curve a card travels on. A quintic ease-in-out (6t⁵ - 15t⁴ + 10t³: no velocity and no
+// acceleration at either end, so a move starts from a standstill and comes to rest, with its speed
+// spread over the whole of the move rather than spent in a dash) plus a small bump, t³(1-t)², that
+// carries the card a touch past its place around t ≈ 0.88 and brings it back by t = 1 - about one
+// percent of the distance, felt as weight rather than seen as a bounce. Both terms are flat at t = 0
+// and t = 1, so the overshoot never adds a kick at either end. The GLSL below is this function.
+const overshoot = 2.55;
+function ease(t: number): number {
   if (t <= 0) return 0;
   if (t >= 1) return 1;
-  const e = Math.exp(-zeta * omega * t);
-  return (1 - e * (Math.cos(omegaD * t) + ((zeta * omega) / omegaD) * Math.sin(omegaD * t))) / springAtOne;
+  const t3 = t * t * t;
+  const back = 1 - t;
+  return t3 * (t * (t * 6 - 15) + 10) + overshoot * t3 * back * back;
 }
+/** the same quintic without the bump: what the camera glides on */
+function smootherstep(t: number): number {
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+/** how long one move takes, in seconds, and over how many seconds the cards set off */
+export const moveDuration = 1.6;
+export const moveStagger = 0.6;
+/** the whole of a transition: the last card sets off at the end of the stagger and travels the full move */
+export const transitionSeconds = moveDuration + moveStagger;
 
 /** how much of the pitch a card fills when there is room to see the gap */
 const cardFill = 0.84;
@@ -137,19 +149,17 @@ out vec2 vUv;
 out vec4 vColor;
 flat out float vHalfPx;
 flat out int vFlags;
-const float ZETA = ${zeta.toFixed(6)};
-const float OMEGA = ${omega.toFixed(6)};
-const float OMEGA_D = ${omegaD.toFixed(6)};
-const float AT_ONE = ${springAtOne.toFixed(8)};
-float spring(float t) {
+const float OVERSHOOT = ${overshoot.toFixed(4)};
+float ease(float t) {
   if (t <= 0.0) return 0.0;
   if (t >= 1.0) return 1.0;
-  float e = exp(-ZETA * OMEGA * t);
-  return (1.0 - e * (cos(OMEGA_D * t) + (ZETA * OMEGA / OMEGA_D) * sin(OMEGA_D * t))) / AT_ONE;
+  float t3 = t * t * t;
+  float back = 1.0 - t;
+  return t3 * (t * (t * 6.0 - 15.0) + 10.0) + OVERSHOOT * t3 * back * back;
 }
 void main() {
   float t = (uTime - aDelay) / uDuration;
-  vec2 pos = mix(aFrom, aTo, spring(t));
+  vec2 pos = mix(aFrom, aTo, ease(t));
   // the gap between cards appears as they get room for it; a card a few pixels wide fills its cell
   float fill = mix(1.0, uFill, smoothstep(2.5, 7.0, uZoom));
   vec2 corner = (aCorner - 0.5) * fill + 0.5;
@@ -288,6 +298,11 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   let dpr = 1;
   const cur: Camera = { x: 0, y: 0, zoom: 20 };
   const target: Camera = { x: 0, y: 0, zoom: 20 };
+  // A fit glides on a timed curve (from, to, start, seconds) so it can keep pace with the cards: the
+  // exponential chase below is right for a wheel step, which should answer at once, but wrong for a
+  // layout change, where it would swing the whole picture in its first tenth of a second while the
+  // cards had barely set off. Zoom glides in log space, so a two-fold zoom in feels like a two-fold zoom out.
+  let glide: { fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; start: number; seconds: number } | null = null;
   let minZoom = 0.01;
   let flingV: [number, number] = [0, 0];
   let frameCallback: (() => void) | null = null;
@@ -306,6 +321,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
 
   function cameraMoving(): boolean {
     return (
+      glide !== null ||
       Math.abs(target.x - cur.x) * cur.zoom > 0.05 ||
       Math.abs(target.y - cur.y) * cur.zoom > 0.05 ||
       Math.abs(Math.log(target.zoom / cur.zoom)) > 0.0005 ||
@@ -314,7 +330,15 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     );
   }
 
-  function stepCamera(dt: number) {
+  function stepCamera(dt: number, now: number) {
+    if (glide !== null) {
+      const p = smootherstep((now - glide.start) / 1000 / glide.seconds);
+      cur.x = glide.fx + (glide.tx - glide.fx) * p;
+      cur.y = glide.fy + (glide.ty - glide.fy) * p;
+      cur.zoom = Math.exp(glide.fz + (glide.tz - glide.fz) * p);
+      if (p >= 1) glide = null;
+      return;
+    }
     if (flingV[0] !== 0 || flingV[1] !== 0) {
       cur.x -= (flingV[0] * dt) / cur.zoom;
       cur.y -= (flingV[1] * dt) / cur.zoom;
@@ -372,7 +396,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     }
     const dt = lastFrame === 0 ? 1 / 60 : Math.min(0.1, (now - lastFrame) / 1000);
     lastFrame = now;
-    stepCamera(dt);
+    stepCamera(dt, now);
     if (cardsMoving && elapsed(now) > duration + maxDelay) cardsMoving = false;
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -420,7 +444,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     }
     const time = elapsed(performance.now());
     for (let i = 0; i < count; i++) {
-      const s = spring((time - delay[i]) / duration);
+      const s = ease((time - delay[i]) / duration);
       out[i * 2] = from[i * 2] + (to[i * 2] - from[i * 2]) * s;
       out[i * 2 + 1] = from[i * 2 + 1] + (to[i * 2 + 1] - from[i * 2 + 1]) * s;
     }
@@ -434,8 +458,8 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       from = start ?? targets;
       cardsMoving = start !== null && n > 0;
       moveStart = performance.now();
-      duration = 1.1;
-      planDelays(cardsMoving ? 0.45 : 0);
+      duration = moveDuration;
+      planDelays(cardsMoving ? moveStagger : 0);
       upload(fromBuffer, from);
       upload(toBuffer, to);
       // a fresh set of cards has no groups yet; until it is told, every card is group 0
@@ -446,7 +470,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       dirty = true;
       schedule();
     },
-    moveTo(targets, stagger, seconds) {
+    moveTo(targets, stagger = moveStagger, seconds = moveDuration) {
       if (count === 0) return;
       from = currentPositions();
       to = targets;
@@ -510,7 +534,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       const id = pickPixel[0] | (pickPixel[1] << 8) | (pickPixel[2] << 16);
       return id === 0xffffff || id >= count ? -1 : id;
     },
-    fit(bounds, padding, animate) {
+    fit(bounds, padding, seconds) {
       const cssW = width / dpr;
       const cssH = height / dpr;
       const bw = Math.max(1e-6, bounds.x1 - bounds.x0);
@@ -521,7 +545,10 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       target.y = (bounds.y0 + bounds.y1) / 2;
       target.zoom = zoom;
       flingV = [0, 0];
-      if (!animate) {
+      if (seconds > 0) {
+        glide = { fx: cur.x, fy: cur.y, fz: Math.log(cur.zoom), tx: target.x, ty: target.y, tz: Math.log(zoom), start: performance.now(), seconds };
+      } else {
+        glide = null;
         cur.x = target.x;
         cur.y = target.y;
         cur.zoom = target.zoom;
@@ -540,6 +567,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       target.y = wy - (cssY - cssH / 2) / zoom;
       target.zoom = zoom;
       flingV = [0, 0];
+      glide = null; // a hand on the wheel takes the camera back
       schedule();
     },
     panBy(dx, dy) {
@@ -549,6 +577,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       target.y = cur.y;
       target.zoom = cur.zoom;
       flingV = [0, 0];
+      glide = null;
       dirty = true;
       schedule();
     },

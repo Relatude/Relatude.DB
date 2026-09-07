@@ -1,17 +1,17 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { IconFocusCentered, IconListDetails } from "@tabler/icons-react";
+import { IconArrowNarrowDown, IconArrowNarrowUp, IconFocusCentered, IconListDetails } from "@tabler/icons-react";
 import type { PivotBase } from "./PivotView";
 import { bytesOf, fetchNodeGuid, fetchPivotModel, runVisual, type FacetSelection, type PivotModel, type PivotProperty, type VisualGroup, type VisualRequest, type VisualResult } from "../server/query";
 import { useLiveResult } from "../server/hooks";
 import { formatCount, formatQuery } from "../format";
 import type { VisualDefinition } from "../queryTabs";
-import { createCardField, type CardField, type FieldTheme, type RGBf } from "../visual/cardField";
+import { createCardField, transitionSeconds, type CardField, type FieldTheme, type RGBf } from "../visual/cardField";
 import { barLayout, gridLayout, type Bar, type Layout } from "../visual/layouts";
 import { buildPalette, parseCssColor, type PaletteColor } from "../visual/palette";
 import { IntMap } from "../visual/intMap";
 
-/** A visual pivot before anyone has chosen anything: a grid of one colour. */
-export const emptyVisual: VisualDefinition = { colorProperty: null, colorMode: "auto", barProperty: null, barMode: "auto", legend: true };
+/** A visual pivot before anyone has chosen anything: a grid of one colour, in the result's order. */
+export const emptyVisual: VisualDefinition = { colorProperty: null, colorMode: "auto", barProperty: null, barMode: "auto", sortProperty: null, sortDescending: false, legend: true };
 
 /** what a group stands for: a value of the property, the nodes without one, or the ones outside the groups kept */
 type GroupKind = "value" | "none" | "other";
@@ -35,6 +35,8 @@ interface Decoded {
   count: number;
   total: number;
   ids: Int32Array;
+  /** the cards as sorted by the sort property, as indexes into `ids`; null for the result's order */
+  order: Int32Array | null;
   byProperty: Map<string, DecodedProperty>;
 }
 
@@ -68,6 +70,7 @@ const modeOptions = [
 const paletteSize = 512; // above the server's cap of groups per property
 const fitPadding = 28;
 const labelMinWidth = 64; // css px a bar label needs before its neighbours are thinned out
+const refitSeconds = 0.7; // a fit asked for on its own - the button, a double-click, a resize - with nothing else moving
 
 /**
  * The visual pivot: every node of the result on screen as a card, in a grid or stacked into bars by
@@ -131,6 +134,11 @@ export function VisualPivotView({
 
   const colorProperty = groupable.some((p) => p.id === def.colorProperty) ? def.colorProperty : null;
   const barProperty = groupable.some((p) => p.id === def.barProperty) ? def.barProperty : null;
+  // sorting needs a single value per node with an order to it, which is what an indexed scalar is
+  const sortable = useMemo(() => model?.properties.filter((p) => p.aggregatable) ?? [], [model]);
+  // read defensively: a definition saved before there was a sort has neither field
+  const sortProperty = sortable.some((p) => p.id === def.sortProperty) ? def.sortProperty! : null;
+  const sortDescending = def.sortDescending === true;
 
   const request = useMemo<VisualRequest | null>(() => {
     if (model === null || definition === null) return null;
@@ -145,10 +153,12 @@ export function VisualPivotView({
       minimumSimilarity: base.minimumSimilarity,
       selections: base.selections,
       properties,
+      sortBy: sortProperty,
+      sortDescending,
     };
     // the token is not part of the request; a new object is how the runner is told to run again
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model, definition === null, base, colorProperty, def.colorMode, barProperty, def.barMode, refreshToken]);
+  }, [model, definition === null, base, colorProperty, def.colorMode, barProperty, def.barMode, sortProperty, sortDescending, refreshToken]);
   const { result, loading, error } = useLiveResult(request, runVisual);
   const decoded = useMemo(() => (result ? decode(result) : null), [result]);
 
@@ -166,7 +176,7 @@ export function VisualPivotView({
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const drag = useRef<Drag | null>(null);
   const lastHoverPick = useRef(0);
-  const previous = useRef<{ decoded: Decoded; layoutKey: string } | null>(null);
+  const previous = useRef<{ decoded: Decoded; layout: Layout } | null>(null);
   const refit = useRef(0);
   // the canvas exists once the model is known (nothing is rendered before), so the field is made then
   const hasStage = model !== null && glOk;
@@ -199,7 +209,7 @@ export function VisualPivotView({
       // the picture is fitted to its new room, once the resizing has settled: a dragged splitter
       // fires this many times a second and a fit per event would fight the drag
       window.clearTimeout(refit.current);
-      refit.current = window.setTimeout(() => fitToLayout(true), 180);
+      refit.current = window.setTimeout(() => fitToLayout(refitSeconds), 180);
     });
     ro.observe(canvas);
     const mo = new MutationObserver(() => {
@@ -230,25 +240,37 @@ export function VisualPivotView({
 
   const palette = useMemo(() => buildPalette(paletteSize, theme?.dark ?? false), [theme?.dark]);
 
-  const colorData = decoded && colorProperty ? (decoded.byProperty.get(colorProperty) ?? null) : null;
-  const barData = decoded && barProperty ? (decoded.byProperty.get(barProperty) ?? null) : null;
+  // What the picture is coloured and stacked by. When a picker changes, the answer for the new
+  // property is a round trip away and the answer on hand has nothing for it - so until it arrives
+  // the old grouping stays on screen. Without that the legend would vanish for the wait, the canvas
+  // widen into its place, the cards fall back to one colour and the grid be re-laid for the wider
+  // canvas, and the picture would jump twice for a change that moves nothing at all.
+  const colorNow = decoded && colorProperty ? (decoded.byProperty.get(colorProperty) ?? null) : null;
+  const barNow = decoded && barProperty ? (decoded.byProperty.get(barProperty) ?? null) : null;
+  const lastColor = useRef<DecodedProperty | null>(null);
+  const lastBar = useRef<DecodedProperty | null>(null);
+  const colorData = colorNow ?? (colorProperty !== null ? lastColor.current : null);
+  const barData = barNow ?? (barProperty !== null ? lastBar.current : null);
+  lastColor.current = colorData;
+  lastBar.current = barData;
 
-  // The picture follows the data: a new result is a new set of cards, a new bar property (or a new
-  // colouring with the bars on, since the bars are banded by colour) is a move of the same cards,
-  // and a new colouring alone is a new palette. What changed is worked out here, so a colour change
-  // never rebuilds the picture and a result change never leaves cards behind.
+  // The picture follows the data. What changed is worked out from the answer itself rather than
+  // from which picker was touched: other cards (the ids differ) are a new set, and the ones that
+  // were already on screen leave from where they are; the same cards with other positions - bars
+  // by something else, another sort, a colouring that re-bands the bars - are a move; the same
+  // cards in the same places are a new palette and nothing else, so a colour change never moves
+  // the camera, resets the selection or rebuilds anything.
   useEffect(() => {
     const f = field.current;
     if (!f || !decoded || !theme) return;
     const canvas = canvasRef.current;
     const aspect = canvas && canvas.clientHeight > 0 ? canvas.clientWidth / canvas.clientHeight : 1.6;
     const layout = barData
-      ? barLayout(decoded.count, barData.assignment, barData.groups.length, colorData?.assignment ?? null, aspect)
-      : gridLayout(decoded.count, aspect);
+      ? barLayout(decoded.count, barData.assignment, barData.groups.length, colorData?.assignment ?? null, aspect, decoded.order)
+      : gridLayout(decoded.count, aspect, decoded.order);
     layoutRef.current = layout;
-    const layoutKey = (barData?.propertyId ?? "") + "|" + (barData ? (colorData?.propertyId ?? "") : "");
     const prev = previous.current;
-    if (prev === null || prev.decoded !== decoded) {
+    if (prev === null || !sameValues(prev.decoded.ids, decoded.ids)) {
       // a new set of cards: the ones that were already on screen leave from where they are, the
       // rest appear where they belong
       let from: Float32Array | null = null;
@@ -267,12 +289,13 @@ export function VisualPivotView({
       }
       f.setCards(decoded.count, from, layout.positions);
       setSelectedIndex(-1);
-      f.fit(fitBounds(layout), fitPadding, prev !== null);
-    } else if (prev.layoutKey !== layoutKey) {
-      f.moveTo(layout.positions, 0.45, 1.1);
-      f.fit(fitBounds(layout), fitPadding, true);
+      // the camera keeps pace with the cards: it arrives on the new picture as the last of them do
+      f.fit(fitBounds(layout), fitPadding, prev !== null ? transitionSeconds : 0);
+    } else if (!sameValues(prev.layout.positions, layout.positions)) {
+      f.moveTo(layout.positions);
+      f.fit(fitBounds(layout), fitPadding, transitionSeconds);
     }
-    previous.current = { decoded, layoutKey };
+    previous.current = { decoded, layout };
     f.setGroups(colorData ? colorData.assignment : new Uint16Array(decoded.count), paletteBytes(colorData, palette, theme));
     setBars(layout.bars ? layout.bars.map((bar) => ({ bar, group: barData!.groups[bar.group] })) : []);
     setTooltip(null);
@@ -292,10 +315,10 @@ export function VisualPivotView({
     return layout.bars ? { ...b, y1: b.y1 + (b.y1 - b.y0) * 0.16 } : b;
   }
 
-  function fitToLayout(animate: boolean) {
+  function fitToLayout(seconds: number) {
     const f = field.current;
     const layout = layoutRef.current;
-    if (f && layout) f.fit(fitBounds(layout), fitPadding, animate);
+    if (f && layout) f.fit(fitBounds(layout), fitPadding, seconds);
   }
 
   // The labels under the bars, placed straight on the elements from the camera of the frame just
@@ -452,8 +475,34 @@ export function VisualPivotView({
             {propertySelect(barProperty, "(grid)", "The property whose values the cards are stacked into bars by; without one they form a grid", (id) => onChange({ ...def, barProperty: id }))}
             {modeSelect(barInfo, def.barMode, (mode) => onChange({ ...def, barMode: mode }))}
           </span>
+          <span className="pivot-builder-label visual-label-2">Sort by</span>
+          <span className="pivot-chip">
+            <select
+              className="select"
+              value={sortProperty ?? ""}
+              title="The property the cards are laid in the order of: along the grid, and up each bar; without one they keep the order the search found them in"
+              onChange={(e) => onChange({ ...def, sortProperty: e.target.value || null })}
+            >
+              <option value="">(result order)</option>
+              {sortable.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.declaredBy ? " (" + p.declaredBy + ")" : ""}
+                </option>
+              ))}
+            </select>
+            {sortProperty && (
+              <button
+                className="icon-button"
+                title={sortDescending ? "Largest first — click for smallest first" : "Smallest first — click for largest first"}
+                onClick={() => onChange({ ...def, sortDescending: !sortDescending })}
+              >
+                {sortDescending ? <IconArrowNarrowDown size={14} stroke={2} /> : <IconArrowNarrowUp size={14} stroke={2} />}
+              </button>
+            )}
+          </span>
           <div className="pivot-options">
-            <button className="icon-button" title="Fit the whole picture in view (or double-click it)" onClick={() => fitToLayout(true)}>
+            <button className="icon-button" title="Fit the whole picture in view (or double-click it)" onClick={() => fitToLayout(refitSeconds)}>
               <IconFocusCentered size={16} stroke={1.9} />
             </button>
             <button className={"icon-button" + (def.legend ? " active" : "")} title={def.legend ? "Hide the legend" : "Show the legend"} onClick={() => onChange({ ...def, legend: !def.legend })}>
@@ -485,7 +534,7 @@ export function VisualPivotView({
       <div className="visual-stage" ref={stageRef}>
         <div className="visual-canvas">
           {glOk ? (
-            <canvas ref={canvasRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onPointerLeave={onPointerLeave} onDoubleClick={() => fitToLayout(true)} />
+            <canvas ref={canvasRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onPointerLeave={onPointerLeave} onDoubleClick={() => fitToLayout(refitSeconds)} />
           ) : (
             <div className="query-empty">This browser has no WebGL 2, which the picture is drawn with.</div>
           )}
@@ -508,14 +557,13 @@ export function VisualPivotView({
           {selectedIndex >= 0 && <span className="visual-selected-note">card {formatCount(selectedIndex + 1)} open</span>}
         </div>
         {def.legend && colorData && theme && (
-          <div className="visual-legend" onMouseLeave={() => field.current?.setHighlightGroup(-1)}>
+          <div className="visual-legend">
             <div className="visual-legend-head">{colorData.name}</div>
             {colorData.groups.map((g, i) => (
               <button
                 className="visual-legend-item"
                 key={i}
                 title={g.kind === "other" ? "The values with fewer nodes than the groups kept" : "Show only these nodes"}
-                onMouseEnter={() => field.current?.setHighlightGroup(i)}
                 onClick={() => legendDrill(g)}
               >
                 <span className="visual-swatch" style={{ background: swatchCss(g, palette, theme) }} />
@@ -530,6 +578,13 @@ export function VisualPivotView({
   );
 }
 
+/** Element-wise equality of two typed arrays: a pass over a million in a millisecond or two. */
+function sameValues(a: Int32Array | Float32Array, b: Int32Array | Float32Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 /** Numbers, dates and durations can be grouped by ranges as well as by value. */
 function hasModes(property: PivotProperty): boolean {
   return property.numeric || property.isDate || property.type === "TimeSpan";
@@ -538,6 +593,11 @@ function hasModes(property: PivotProperty): boolean {
 function decode(result: VisualResult): Decoded {
   const idBytes = bytesOf(result.ids);
   const ids = new Int32Array(idBytes.buffer, idBytes.byteOffset, result.count);
+  let order: Int32Array | null = null;
+  if (result.order) {
+    const orderBytes = bytesOf(result.order);
+    if (orderBytes.length === result.count * 4) order = new Int32Array(orderBytes.buffer, orderBytes.byteOffset, result.count);
+  }
   const byProperty = new Map<string, DecodedProperty>();
   for (const p of result.properties) {
     const bytes = bytesOf(p.assignment);
@@ -556,7 +616,7 @@ function decode(result: VisualResult): Decoded {
     }
     byProperty.set(p.propertyId, { propertyId: p.propertyId, name: p.name, groups, assignment });
   }
-  return { count: result.count, total: result.total, ids, byProperty };
+  return { count: result.count, total: result.total, ids, order, byProperty };
 }
 
 /**

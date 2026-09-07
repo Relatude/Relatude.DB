@@ -1946,6 +1946,25 @@ sealed class UIQuery {
             ?? throw new Exception("The query did not return a collection of nodes. ");
         var ids = nodes.NodeIds.ToArray();
         var position = positionsOf(ids);
+        // The order the cards are laid in when a sort property is asked for: the result reordered by
+        // that property's index (the same reorder OrderBy uses, so it works under a facet selection
+        // too, where the query string cannot carry an OrderBy), as positions into the result. Nodes
+        // the index has no value for come last, in the result's own order.
+        byte[]? order = null;
+        if (p.SortBy is Guid sortId && dm.Properties.TryGetValue(sortId, out var sortProperty) && isSortable(sortProperty) && ids.Length > 0
+            && nodes.TryOrderByIndexes(sortProperty.CodeName, p.SortDescending)) {
+            order = new byte[ids.Length * 4];
+            var placed = new bool[ids.Length];
+            var k = 0;
+            void place(int at) {
+                if (at < 0 || placed[at]) return;
+                placed[at] = true;
+                BitConverter.TryWriteBytes(order.AsSpan(k * 4, 4), at);
+                k++;
+            }
+            foreach (var id in nodes.NodeIds) place(position(id));
+            for (var at = 0; at < ids.Length; at++) place(at);
+        }
         var properties = new List<object>();
         foreach (var level in (p.Properties ?? []).DistinctBy(l => l.PropertyId)) {
             if (!dm.Properties.TryGetValue(level.PropertyId, out var property)) continue; // a property the picker has not settled on yet
@@ -1991,6 +2010,7 @@ sealed class UIQuery {
             DurationMs = sw.Elapsed.TotalMilliseconds,
             Query = queryString,
             Ids = idBytes,
+            Order = order,
             Properties = properties,
         };
     }
@@ -2029,7 +2049,7 @@ sealed class UIQuery {
     /// <summary>A property the visual pivot groups by; Mode: auto | values | ranges.</summary>
     internal sealed record VisualLevelPayload(Guid PropertyId, string? Mode);
     internal sealed record VisualPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity, FacetSelection[]? Selections,
-        VisualLevelPayload[]? Properties, int MaxCards = 0);
+        VisualLevelPayload[]? Properties, int MaxCards = 0, Guid? SortBy = null, bool SortDescending = false);
     sealed record NodeIntPayload(Guid StoreId, int Id);
     internal sealed record FacetSelectionValue(string? Value, string? Value2);
     internal sealed record FacetSelection(Guid PropertyId, FacetSelectionValue[]? Values);

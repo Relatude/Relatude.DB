@@ -46,6 +46,9 @@ export interface VisualDefinition {
   /** the property whose values the cards are stacked into bars by; null is the grid */
   barProperty: string | null;
   barMode: string;
+  /** the property the cards are laid in the order of - along the grid, up each bar; null is the result's order */
+  sortProperty?: string | null;
+  sortDescending?: boolean;
   /** the legend beside the picture */
   legend: boolean;
 }

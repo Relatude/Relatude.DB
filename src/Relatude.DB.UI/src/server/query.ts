@@ -615,6 +615,9 @@ export interface VisualRequest {
   properties: PivotLevelSpec[];
   /** How many cards at most; 0 is the server's own ceiling. */
   maxCards?: number;
+  /** The property the cards are laid out in the order of; null keeps the result's own order. */
+  sortBy?: string | null;
+  sortDescending?: boolean;
 }
 
 /** One value (or range) of a grouping property; `value`/`value2` are selection tokens (see the top of this file). */
@@ -649,6 +652,11 @@ export interface VisualResult {
   query: string;
   /** One int32 per card, little-endian, base64: the node's int id, in result order. */
   ids: string;
+  /**
+   * The cards in the order of the sort property, as int32 positions into `ids`, base64; null when
+   * no sort was asked for or the property cannot be sorted on (then the result's order stands).
+   */
+  order: string | null;
   properties: VisualProperty[];
 }
 

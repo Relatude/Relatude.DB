@@ -4,8 +4,11 @@
  * the cards there from wherever they are. Everything here is a typed-array pass over the cards, so a
  * layout of a million is milliseconds; nothing is ever made per card but two floats.
  *
- * y grows downward, the way a screen does: the grid reads top-left to bottom-right in result order,
+ * y grows downward, the way a screen does: the grid reads top-left to bottom-right in card order,
  * and the bars stand on the line y = 0 and grow into negative y, so a bar is stacked upward.
+ *
+ * The card order is the result's own unless an `order` is given: a permutation of the card indexes,
+ * the cards as sorted by some property, which the grid follows and every bar follows from its foot.
  */
 
 export interface Bounds {
@@ -32,13 +35,14 @@ export interface Layout {
   bars: Bar[] | null;
 }
 
-/** A grid in result order, about as wide as the screen is: `aspect` is width over height. */
-export function gridLayout(count: number, aspect: number): Layout {
+/** A grid in card order, about as wide as the screen is: `aspect` is width over height. */
+export function gridLayout(count: number, aspect: number, order: Int32Array | null = null): Layout {
   const columns = Math.max(1, Math.round(Math.sqrt(count * Math.max(0.2, aspect))));
   const positions = new Float32Array(count * 2);
-  for (let i = 0; i < count; i++) {
-    positions[i * 2] = i % columns;
-    positions[i * 2 + 1] = Math.floor(i / columns);
+  for (let k = 0; k < count; k++) {
+    const i = order === null ? k : order[k];
+    positions[i * 2] = k % columns;
+    positions[i * 2 + 1] = Math.floor(k / columns);
   }
   const rows = Math.ceil(count / Math.max(1, columns));
   return { positions, bounds: { x0: 0, y0: 0, x1: Math.min(count, columns), y1: rows }, bars: null };
@@ -52,17 +56,20 @@ export function gridLayout(count: number, aspect: number): Layout {
  * Within a bar the cards are laid in the order of `within` when given - the colour group - so that
  * bars by one property, coloured by another, come out as stacked bars: every bar is banded by the
  * second property, and the bands are in the same order in every bar. Cards in the same band keep
- * their result order.
+ * the card order.
  */
-export function barLayout(count: number, groupOf: Uint16Array, groupCount: number, within: Uint16Array | null, aspect: number): Layout {
+export function barLayout(count: number, groupOf: Uint16Array, groupCount: number, within: Uint16Array | null, aspect: number, cardOrder: Int32Array | null = null): Layout {
   const counts = new Int32Array(groupCount);
   for (let i = 0; i < count; i++) counts[groupOf[i]]++;
-  // a stable counting sort by group: the cards of each bar, contiguous, in result order
+  // a stable counting sort by group: the cards of each bar, contiguous, in card order
   const starts = new Int32Array(groupCount + 1);
   for (let g = 0; g < groupCount; g++) starts[g + 1] = starts[g] + counts[g];
   const order = new Int32Array(count);
   const fill = starts.slice(0, groupCount);
-  for (let i = 0; i < count; i++) order[fill[groupOf[i]]++] = i;
+  for (let k = 0; k < count; k++) {
+    const i = cardOrder === null ? k : cardOrder[k];
+    order[fill[groupOf[i]]++] = i;
+  }
   if (within !== null && count > 0) sortWithin(order, starts, groupCount, within);
 
   let maxCount = 0;

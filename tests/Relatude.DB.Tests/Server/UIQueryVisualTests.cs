@@ -113,6 +113,31 @@ public class UIQueryVisualTests {
             Assert.IsNotNull(prop(sizeGroups[0], "value").GetString());
             Assert.IsNotNull(prop(sizeGroups[0], "value2").GetString());
 
+            // sorted by size: the order is the cards' positions, smallest size first, and every card is placed once
+            var sortedVisual = await command(host, "query-visual", new {
+                storeId, typeId, text = "", selections = Array.Empty<object>(),
+                properties = new[] { new { propertyId = properties["Title"], mode = "values" } },
+                sortBy = properties["Size"], sortDescending = false,
+            });
+            var order = ids(prop(sortedVisual, "order"), count); // the same wire form: int32 positions
+            CollectionAssert.AreEquivalent(Enumerable.Range(0, count).ToArray(), order, "a permutation of the cards");
+            var sortedIds = ids(prop(sortedVisual, "ids"), count);
+            var sizes = new List<int>();
+            foreach (var at in order) {
+                var guid = prop(await command(host, "query-node-id", new { storeId, id = sortedIds[at] }), "id").GetGuid();
+                sizes.Add(byGuid[guid].Size);
+            }
+            CollectionAssert.AreEqual(sizes.OrderBy(x => x).ToArray(), sizes.ToArray(), "cards in ascending size order");
+            var descending = await command(host, "query-visual", new {
+                storeId, typeId, text = "", selections = Array.Empty<object>(),
+                properties = Array.Empty<object>(), sortBy = properties["Size"], sortDescending = true,
+            });
+            var firstDescending = ids(prop(descending, "order"), count)[0];
+            var largest = prop(await command(host, "query-node-id", new { storeId, id = ids(prop(descending, "ids"), count)[firstDescending] }), "id").GetGuid();
+            Assert.AreEqual(articles.Max(a => a.Size), byGuid[largest].Size, "descending puts the largest first");
+            // no sort asked for: no order is sent, the result's own stands
+            Assert.AreEqual(JsonValueKind.Null, prop(visual, "order").ValueKind);
+
             // a facet selection narrows the picture to the cards behind it, like every other view
             var token = prop(titleGroups[0], "value").GetString();
             var narrowed = await command(host, "query-visual", new {
