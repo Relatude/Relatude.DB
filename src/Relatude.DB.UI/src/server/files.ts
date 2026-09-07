@@ -85,8 +85,8 @@ export function friendlyPath(path: string, names: NameMap): string {
     .join("/");
 }
 
-export function fetchFolder(ioId: string, path: string): Promise<FolderListing> {
-  return send<FolderListing>("io-folder", { ioId, path });
+export function fetchFolder(ioId: string, path: string, signal?: AbortSignal): Promise<FolderListing> {
+  return send<FolderListing>("io-folder", { ioId, path }, signal);
 }
 
 export function fetchFolderRecursive(ioId: string, path: string): Promise<FolderListing> {
@@ -133,6 +133,47 @@ export async function deleteFolderWithProgress(ctl: ProgressController, ioId: st
   return failed;
 }
 
+export interface DeepListing {
+  files: FileInfo[];
+  // The folders walked that hold the database's own data. A file below one of them is primary data
+  // however innocent the folder it was listed from looks, which is what the extra warning in front
+  // of deleting one goes by.
+  primaryFolders: string[];
+}
+
+/**
+ * Every file at or below the folder, gathered one folder at a time. rootLabel is what to call the
+ * folder itself while it is being listed, since its path is the empty string at the storage root.
+ *
+ * The server can answer the whole tree in a single call (fetchFolderRecursive, which the folder
+ * download and delete use), but a big tree then takes minutes with nothing to show for it and no way
+ * out; walking it here costs a request per folder and gives both. Folders are listed several at a
+ * time, and the total grows as more of them are found, so the bar moves towards an end that is only
+ * known once the walk is over.
+ */
+export async function scanFolderRecursive(ctl: ProgressController, ioId: string, path: string, rootLabel: string): Promise<DeepListing> {
+  const found: FileInfo[] = [];
+  const primaryFolders: string[] = [];
+  const queue: string[] = [path];
+  let visited = 0;
+  const parallel = 8;
+  while (queue.length > 0) {
+    throwIfAborted(ctl.signal);
+    const batch = queue.splice(0, parallel);
+    ctl.set({ label: batch[0] || rootLabel, total: visited + batch.length + queue.length, done: visited });
+    const listings = await Promise.all(batch.map((folder) => fetchFolder(ioId, folder, ctl.signal)));
+    for (let i = 0; i < listings.length; i++) {
+      const folder = batch[i];
+      if (listings[i].isPrimaryData === true) primaryFolders.push(folder);
+      for (const file of listings[i].files) found.push(file);
+      for (const sub of listings[i].subFolders) queue.push(folder === "" ? sub.name : `${folder}/${sub.name}`);
+    }
+    visited += batch.length;
+    ctl.set({ done: visited, total: visited + queue.length, meta: `${visited} folder${visited === 1 ? "" : "s"} · ${found.length} file${found.length === 1 ? "" : "s"}` });
+  }
+  return { files: found, primaryFolders };
+}
+
 // renames within the folder: newName is a single name, not a path
 export function renameFile(ioId: string, key: string, newName: string): Promise<{ key: string }> {
   return send<{ key: string }>("io-rename-file", { ioId, key, newName });
@@ -156,6 +197,16 @@ export function downloadUrl(storeId: string, ioId: string, key: string): string 
 // changed file out of the browser cache
 export function fileUrl(ioId: string, key: string, version?: string): string {
   return `${adminBase}/ui/file?ioId=${ioId}&key=${encodeURIComponent(key)}${version ? "&v=" + encodeURIComponent(version) : ""}`;
+}
+
+/**
+ * A small picture of an image file, made on the server and scaled to fit a tile `width` wide. Answers
+ * 415 for anything it cannot draw - a document, a video, an image format no converter reads - which
+ * is the thumbnail grid's signal to show the file's type icon instead. The version keeps a replaced
+ * file out of the browser cache; without one changing, the answer may be cached for a day.
+ */
+export function thumbUrl(ioId: string, key: string, width: number, version?: string): string {
+  return `${adminBase}/ui/thumb?ioId=${ioId}&key=${encodeURIComponent(key)}&w=${width}${version ? "&v=" + encodeURIComponent(version) : ""}`;
 }
 
 // A text file as the editor gets it, plus what a textarea would silently lose: the byte order

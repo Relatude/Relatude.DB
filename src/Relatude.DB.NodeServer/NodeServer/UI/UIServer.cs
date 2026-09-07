@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.DataStores;
+using Relatude.DB.FileConversion;
 using Relatude.DB.IO;
 using Relatude.DB.NodeServer.API;
 using Relatude.DB.NodeServer.Json;
@@ -152,6 +153,16 @@ public sealed class UIServer {
                 return Results.Json(new { error = error.Message }, RelatudeDBJsonOptions.Default, statusCode: 500);
             }
         });
+        // a small picture of a file, for the thumbnail view of the files section: the image scaled
+        // down to the tile, so browsing a folder of photographs never pulls the originals across.
+        // A format no converter reads answers 415 and the tile shows its file type icon instead
+        app.MapGet(path + "thumb", async (HttpContext ctx, Guid ioId, string key, int? w) => {
+            try {
+                return await serveThumbnailAsync(ctx, ioId, key, w ?? 256);
+            } catch (Exception error) when (!ctx.Response.HasStarted) {
+                return Results.Json(new { error = error.Message }, RelatudeDBJsonOptions.Default, statusCode: 500);
+            }
+        });
         // zip downloads (binary, so not commands): GET zips a whole folder (also the url behind
         // dragging a folder out to the desktop), POST zips a set of selected files
         app.MapGet(path + "zip", async (HttpContext ctx, Guid ioId, string? folder) => {
@@ -162,31 +173,114 @@ public sealed class UIServer {
         });
         mapStaticUI(app);
     }
-    // Disk backed files are opened directly (shared with writers, so a log being written still
-    // shows) for the same reason as in the download endpoint: the provider's OpenRead retries an OS
-    // locked file for minutes while holding the provider lock. The wrapped provider stream is
-    // seekable, so a video player's range requests work against either.
     async Task<IResult> serveFileAsync(HttpContext ctx, Guid ioId, string key) {
         var io = _server.GetIO(ioId);
         var fileKey = key.SplitKey();
         if (fileKey.Length == 0) return Results.BadRequest(new { error = "No file given. " });
-        Stream stream;
-        if (io.TryGetLocalFilePath(fileKey, out var localFilePath)) {
-            try {
-                stream = new FileStream(localFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, useAsync: true);
-            } catch (FileNotFoundException) {
-                return Results.NotFound();
-            } catch (DirectoryNotFoundException) {
-                return Results.NotFound();
-            } catch (IOException) {
-                return Results.StatusCode(StatusCodes.Status423Locked);
-            }
-        } else {
-            if (!io.Exists(fileKey)) return Results.NotFound();
-            stream = ReadStreamWrapper.Wrap(io.OpenRead(fileKey, 0));
+        Stream? stream;
+        try {
+            stream = openFileForReading(io, fileKey);
+        } catch (IOException) {
+            return Results.StatusCode(StatusCodes.Status423Locked);
         }
+        if (stream == null) return Results.NotFound();
         return await FileHandler.HandleFileAsync(ctx, stream, fileKey.FileName(), false, contentTypeOf(fileKey.FileName()), false);
     }
+    // ---- thumbnails ----
+    // Decoding an image costs a core and holds the whole picture in memory, and a thumbnail grid
+    // asks for every tile it shows at once, so no more than this many are made at a time.
+    readonly SemaphoreSlim _thumbnailWork = new(Math.Max(2, Environment.ProcessorCount / 2));
+    // the built in converter is always there; a host that registered Skia (or anything else) gets
+    // the formats that one adds on top
+    static readonly NativeImageConverter _nativeImages = new();
+    const int maxThumbnailSourceBytes = 64 * 1024 * 1024; // an "image" bigger than this is not decoded
+
+    /// <summary>
+    /// The image at the key, scaled to fit a tile of the given width. Only images are answered:
+    /// anything else - a video, a document, an image format no converter reads - is a 415, which the
+    /// client shows as the file's type icon. Vector images are sent as they are: they are small, and
+    /// nothing is gained by rasterising one.
+    /// </summary>
+    async Task<IResult> serveThumbnailAsync(HttpContext ctx, Guid ioId, string key, int width) {
+        width = Math.Clamp(width, 16, 1024);
+        var io = _server.GetIO(ioId);
+        var fileKey = key.SplitKey();
+        if (fileKey.Length == 0) return Results.BadRequest(new { error = "No file given. " });
+        var format = FileFormatUtil.GetDetailedFormat(fileKey.FileName());
+        if (FileFormatUtil.GetFileType(format) != FileType.Image) return Results.StatusCode(StatusCodes.Status415UnsupportedMediaType);
+        if (format == FileFormat.Svg) return await serveFileAsync(ctx, ioId, key); // the browser draws it better than any resize would
+        if (!tryGetImageConverter(format, out var converter, out var outFormat)) return Results.StatusCode(StatusCodes.Status415UnsupportedMediaType);
+        if (io.GetFileSizeOrZeroIfUnknown(fileKey) > maxThumbnailSourceBytes) return Results.StatusCode(StatusCodes.Status415UnsupportedMediaType);
+        byte[] bytes;
+        await _thumbnailWork.WaitAsync(ctx.RequestAborted);
+        try {
+            var opened = openFileForReading(io, fileKey);
+            if (opened == null) return Results.NotFound();
+            using var stream = opened;
+            using var image = converter.Load(stream);
+            // a picture already smaller than the tile is only re-encoded, never blown up
+            var scaled = image.Width > width ? image.Adjust(new FileAdjustmentImage { Width = width, CropMode = ImageCropMode.Fit }) : image;
+            try {
+                bytes = scaled.Encode(outFormat, 80);
+            } finally {
+                if (!ReferenceEquals(scaled, image)) scaled.Dispose();
+            }
+        } catch (IOException) {
+            return Results.StatusCode(StatusCodes.Status423Locked);
+        } catch (Exception) {
+            // a picture the decoder cannot make sense of is not an error worth a 500: the tile
+            // falls back to the file type icon exactly as it does for a format nothing reads
+            return Results.StatusCode(StatusCodes.Status415UnsupportedMediaType);
+        } finally {
+            _thumbnailWork.Release();
+        }
+        // the url carries the file's modified time, so a thumbnail can be kept for as long as the
+        // browser likes: a replaced file is a different url
+        ctx.Response.Headers.CacheControl = "private, max-age=86400";
+        return Results.Bytes(bytes, FileFormatUtil.GetContentType(outFormat));
+    }
+
+    /// <summary>
+    /// A converter that reads the format, and what it should write. Png keeps transparency, which a
+    /// thumbnail of an icon or a logo needs; everything else is jpeg, which is far smaller.
+    /// </summary>
+    bool tryGetImageConverter(FileFormat format, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out ImageConverterBase? converter, out FileFormat outFormat) {
+        outFormat = format is FileFormat.Png or FileFormat.Gif or FileFormat.Webp ? FileFormat.Png : FileFormat.Jpeg;
+        foreach (var candidate in _server.Options?.FileConverters ?? []) {
+            if (candidate is ImageConverterBase image && image.SupportsConversion(format, outFormat)) {
+                converter = image;
+                return true;
+            }
+        }
+        if (_nativeImages.SupportsConversion(format, outFormat)) {
+            converter = _nativeImages;
+            return true;
+        }
+        converter = null;
+        return false;
+    }
+
+    /// <summary>
+    /// The file's bytes. Disk backed files are opened directly (shared with writers, so a log being
+    /// written still shows) for the same reason as in the download endpoint: the provider's OpenRead
+    /// retries an OS locked file for minutes while holding the provider lock. The wrapped provider
+    /// stream is seekable, so a video player's range requests work against either. Null when the file
+    /// is gone; an IOException means it is locked.
+    /// </summary>
+    static Stream? openFileForReading(IIOProvider io, string[] fileKey) {
+        if (io.TryGetLocalFilePath(fileKey, out var localFilePath)) {
+            try {
+                return new FileStream(localFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, useAsync: true);
+            } catch (FileNotFoundException) {
+                return null;
+            } catch (DirectoryNotFoundException) {
+                return null;
+            }
+        }
+        if (!io.Exists(fileKey)) return null;
+        return ReadStreamWrapper.Wrap(io.OpenRead(fileKey, 0));
+    }
+
     static readonly Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider _contentTypes = new();
     // the code and config files a project folder holds, which the standard map either lacks or gets
     // wrong for this purpose (.ts is a video format there); everything text is served as utf-8

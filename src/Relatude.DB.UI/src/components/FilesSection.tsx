@@ -15,6 +15,8 @@ import {
   IconFolderPlus,
   IconFolderUp,
   IconFolderX,
+  IconLayoutGrid,
+  IconList,
   IconPencil,
   IconRefresh,
   IconSearch,
@@ -42,8 +44,10 @@ import {
   renameFile,
   renameFolder,
   resolveDroppedItems,
+  scanFolderRecursive,
   uploadEntries,
   zipFolderUrl,
+  type DeepListing,
   type FileInfo,
   type FolderListing,
   type FolderSize,
@@ -56,17 +60,27 @@ import type { DatabaseInfo } from "../server/serverInfo";
 import { formatBytes, formatTime } from "../format";
 import { runWithProgress, showConfirm, showError, showPrompt, type ProgressController } from "../dialogs";
 import { displayType } from "../code/language";
+import { FileTile } from "./FileTile";
 import { FileViewer } from "./FileViewer";
 
 // Selection is one thing here: a click on a file row selects that file (ctrl toggles, shift takes a
 // range, the checkbox toggles), and folders are ticked in the tree. Exactly one selected file and no
 // selected folder opens the viewer panel to the right; anything else gives the list the whole width.
+//
+// The list itself has two switches. "Include subfolders" replaces the open folder's files with every
+// file below it as well, gathered folder by folder behind a progress dialog so a big tree can be
+// watched and given up on. "Thumbnails" draws the same files as pictures instead of rows - a scaled
+// down copy from the server for an image, a frame for a video, its type icon for everything else -
+// and only the tiles the eye can reach ask for theirs (see useInView), so opening a folder of
+// thousands of photographs costs the screenful that is showing and nothing more.
 
 type SortColumn = "name" | "type" | "size" | "modified";
 interface SortState {
   column: SortColumn;
   ascending: boolean;
 }
+
+type ViewMode = "list" | "thumbnails";
 
 export function FilesSection({ db }: { db: DatabaseInfo }) {
   const [ios, setIos] = useState<IoInfo[]>([]);
@@ -101,11 +115,31 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   const [friendly, setFriendly] = useState(() => localStorage.getItem(friendlyNamesKey) === "true");
   const show = useCallback((name: string) => (friendly ? friendlyName(name, names) : name), [friendly, names]);
   const showPath = useCallback((p: string) => (friendly ? friendlyPath(p, names) : p), [friendly, names]);
+  // rows or pictures
+  const [view, setView] = useState<ViewMode>(() => (localStorage.getItem(viewModeKey) === "thumbnails" ? "thumbnails" : "list"));
+  // the list reaches into the subfolders as well; the walk that gathers them is below
+  const [recursive, setRecursive] = useState(() => localStorage.getItem(recursiveKey) === "true");
+  // what that walk found, and the folder it was made from: a listing kept until something makes it
+  // stale (another folder, another provider, a file written or deleted)
+  const [deepFiles, setDeepFiles] = useState<({ ioId: string; path: string } & DeepListing) | null>(null);
+  const scanning = useRef(false); // no second walk while one is running: only one progress dialog exists
 
   function toggleFriendly() {
     const next = !friendly;
     setFriendly(next);
     localStorage.setItem(friendlyNamesKey, String(next));
+  }
+
+  function chooseView(next: ViewMode) {
+    setView(next);
+    localStorage.setItem(viewModeKey, next);
+  }
+
+  function toggleRecursive() {
+    const next = !recursive;
+    setRecursive(next);
+    localStorage.setItem(recursiveKey, String(next));
+    if (!next) setDeepFiles(null);
   }
 
   function resetView() {
@@ -117,6 +151,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     selectionAnchor.current = null;
     setTreeSizes({});
     setFilter("");
+    setDeepFiles(null);
     viewerDirty.current = false;
   }
 
@@ -159,18 +194,25 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   }, [ioId, loadFolder]);
 
   const listing = listings[path];
-  const files = listing?.files ?? [];
+  // the deep listing counts only while it is the one made for this provider and this folder; until
+  // the walk below has caught up, the open folder's own files are what the list shows
+  const deep = recursive && deepFiles?.ioId === ioId && deepFiles.path === path ? deepFiles : null;
+  const files = deep ? deep.files : (listing?.files ?? []);
   const io = ios.find((candidate) => candidate.id === ioId) ?? null;
   // the website project folder: not database storage, so the type column reads from the extension
   // and the notice is a different one
   const projectRoot = io?.kind === "projectRoot";
   const typeOf = useCallback((f: FileInfo) => (projectRoot ? displayType(fileName(f.key)) : (f.description ?? "")), [projectRoot]);
+  // What a file is called in the list: its name, or - once the list reaches into the subfolders -
+  // the path it sits at below the open folder, so two files with the same name are told apart and
+  // the filter can be pointed at a folder ("images/*.png").
+  const rowName = useCallback((key: string) => (deep ? relativeKey(key, path) : fileName(key)), [deep, path]);
   // the list is the open folder's files, narrowed by the filter to the names it matches - the name
   // as it is shown as well as the real one, so a friendly name is found too while those are on
   const matcher = useMemo(() => nameMatcher(filter), [filter]);
   const shownFiles = useMemo(
-    () => sortFiles(matcher ? files.filter((f) => matcher(fileName(f.key)) || matcher(show(fileName(f.key)))) : files, sort, typeOf),
-    [files, matcher, show, sort, typeOf],
+    () => sortFiles(matcher ? files.filter((f) => matcher(rowName(f.key)) || matcher(show(rowName(f.key)))) : files, sort, typeOf, rowName),
+    [files, matcher, rowName, show, sort, typeOf],
   );
   const listedSize = shownFiles.reduce((sum, f) => sum + f.size, 0);
   const allSelected = shownFiles.length > 0 && shownFiles.every((f) => selected.has(f.key));
@@ -178,6 +220,46 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   const primaryData = listing?.isPrimaryData === true;
   // the viewer: exactly one file and no folder selected
   const viewFile = selected.size === 1 && selectedFolders.size === 0 ? (files.find((f) => selected.has(f.key)) ?? null) : null;
+
+  // Gathers the open folder and everything below it, behind the progress dialog. Giving up (or a
+  // failure, which the dialog has already reported) turns the switch off rather than leaving the
+  // list saying it reaches into the subfolders when it does not.
+  const scanDeep = useCallback(async (io: string, folderPath: string, where: string) => {
+    if (scanning.current) return;
+    scanning.current = true;
+    try {
+      // runWithProgress reports what went wrong itself and answers undefined; it only throws when
+      // another task holds the one progress dialog, and then there is nothing to say either
+      const found = await runWithProgress(`List ${where} and everything below it`, (ctl) => scanFolderRecursive(ctl, io, folderPath, where));
+      if (found) {
+        setDeepFiles({ ioId: io, path: folderPath, ...found });
+        return;
+      }
+    } catch {
+      // the dialog was busy
+    } finally {
+      scanning.current = false;
+    }
+    setRecursive(false);
+    localStorage.setItem(recursiveKey, "false");
+  }, []);
+
+  // the walk runs whenever the switch is on and there is no listing for the open folder: it was just
+  // switched on, another folder was opened, or something invalidated the one there was
+  useEffect(() => {
+    if (!recursive || !ioId || (deepFiles?.ioId === ioId && deepFiles.path === path)) return;
+    void scanDeep(ioId, path, showPath(path) || (projectRoot ? "the server root" : "the storage root"));
+  }, [recursive, ioId, path, deepFiles, projectRoot, scanDeep, showPath]);
+
+  // Reloads what the list shows after something changed it. The open folder is always reloaded (the
+  // tree reads its listing too); a deep listing is dropped, and the walk above makes it again.
+  const reloadList = useCallback(
+    (io: string, folderPath: string) => {
+      loadFolder(io, folderPath);
+      setDeepFiles((prev) => (prev && prev.ioId === io && prev.path === folderPath ? null : prev));
+    },
+    [loadFolder],
+  );
 
   // The selection follows the filter: a file the filter hides is no longer selected, so what the
   // buttons say they act on is what the list shows. The one exception is the file open in the viewer
@@ -253,6 +335,14 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     changeSelection(selected, next);
   }
 
+  // Whether the file is one of the database's own: everything in the open folder is when that folder
+  // is, and a listing that reaches into the subfolders can hold files from data folders further down
+  // even when the folder standing open is nothing of the sort.
+  function isPrimaryFile(key: string): boolean {
+    if (primaryData) return true;
+    return deep !== null && deep.primaryFolders.some((folder) => key.startsWith(folder + "/"));
+  }
+
   // whether the folder is, or sits below, one of the database's own data folders: from its own
   // listing when loaded, else from the stub in its parent's listing
   function isPrimaryFolder(folderPath: string): boolean {
@@ -299,26 +389,37 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
 
   // The arrows walk the list the way they do in a file manager: down and up select the next or the
   // previous file - which opens it in the viewer, since one selected file is what the viewer shows -
-  // shift extends the selection from where it started, home and end jump, page keys take ten. The
-  // list is the one stop in the tab order; a click on a row lands the keyboard on it.
+  // shift extends the selection from where it started, home and end jump, page keys take ten rows.
+  // In the thumbnail view a row is however many tiles fit across, so down and up move by that and
+  // left and right by one; in the list a row is one file and the step is one either way. The list is
+  // the one stop in the tab order; a click on a row lands the keyboard on it.
   function onListKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (shownFiles.length === 0 || e.ctrlKey || e.metaKey || e.altKey) return;
     const keys = shownFiles.map((f) => f.key);
     const last = keys.length - 1;
     const current = cursorFile.current === null ? -1 : keys.indexOf(cursorFile.current);
+    const perRow = view === "thumbnails" ? tilesPerRow(listRef.current) : 1;
     let next: number;
     switch (e.key) {
       case "ArrowDown":
-        next = current < 0 ? 0 : Math.min(last, current + 1);
+        next = current < 0 ? 0 : Math.min(last, current + perRow);
         break;
       case "ArrowUp":
+        next = current < 0 ? last : Math.max(0, current - perRow);
+        break;
+      case "ArrowRight":
+        if (perRow === 1) return; // in a list the horizontal arrows are the caret's, not the cursor's
+        next = current < 0 ? 0 : Math.min(last, current + 1);
+        break;
+      case "ArrowLeft":
+        if (perRow === 1) return;
         next = current < 0 ? last : Math.max(0, current - 1);
         break;
       case "PageDown":
-        next = Math.min(last, Math.max(0, current) + 10);
+        next = Math.min(last, Math.max(0, current) + 10 * perRow);
         break;
       case "PageUp":
-        next = Math.max(0, Math.max(0, current) - 10);
+        next = Math.max(0, Math.max(0, current) - 10 * perRow);
         break;
       case "Home":
         next = 0;
@@ -340,7 +441,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
       selectionAnchor.current = key;
       void changeSelection(new Set([key]));
     }
-    listRef.current?.querySelectorAll<HTMLElement>(".file-row:not(.file-head)")[next]?.scrollIntoView({ block: "nearest" });
+    listRef.current?.querySelectorAll<HTMLElement>("[data-file-row]")[next]?.scrollIntoView({ block: "nearest" });
   }
 
   function toggleSort(column: SortColumn) {
@@ -392,7 +493,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
       });
       if (selectionAnchor.current === file.key) selectionAnchor.current = result.key;
       setMessage(`Renamed to ${fileName(result.key)}.`);
-      loadFolder(ioId, path);
+      reloadList(ioId, path);
     } catch (e) {
       showError("Rename failed", e instanceof Error ? e.message : String(e));
     }
@@ -500,7 +601,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     if (fileCount > 0) parts.push(`${fileCount} file${fileCount === 1 ? "" : "s"}`);
     if (folderCount > 0) parts.push(`${folderCount} folder${folderCount === 1 ? "" : "s"}`);
     const label = parts.join(" and ");
-    const touchesPrimary = (fileCount > 0 && primaryData) || topFolders.some(isPrimaryFolder);
+    const touchesPrimary = fileKeys.some(isPrimaryFile) || topFolders.some(isPrimaryFolder);
     if (touchesPrimary && !(await confirmPrimaryData(`Deleting ${label}.`))) return;
     const { ok } = await showConfirm(
       `Delete ${label}?`,
@@ -535,6 +636,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     setTreeSizes({});
     const gone = topFolders.find((f) => path === f || path.startsWith(f + "/"));
     for (const folder of topFolders) loadFolder(io, parentOf(folder));
+    setDeepFiles(null); // a deep listing held what was just deleted, wherever it stood
     if (gone) {
       setPath(parentOf(gone));
       loadFolder(io, parentOf(gone));
@@ -564,7 +666,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
         setMessage(`Uploaded ${entries.length} file${entries.length === 1 ? "" : "s"}.`);
       }
     }
-    loadFolder(io, target); // also after a cancel: some files may have landed
+    reloadList(io, target); // also after a cancel: some files may have landed
   }
 
   // drag and drop from the OS: any mix of files and folders, dropped anywhere in the section
@@ -711,6 +813,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
       }
     }
     setSelectedFolders((prev) => new Set([...prev].filter((f) => f !== folder && !f.startsWith(folder + "/"))));
+    setDeepFiles(null); // the folder that went may have been part of one
     openFolder(parent); // also after cancel or failures: shows what is left
   }
 
@@ -779,7 +882,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
             </option>
           ))}
         </select>
-        <button className="icon-button" title="Refresh" onClick={() => ioId && loadFolder(ioId, path)}>
+        <button className="icon-button" title="Refresh" onClick={() => ioId && reloadList(ioId, path)}>
           <IconRefresh size={16} stroke={1.8} />
         </button>
         <button className="icon-button" title="Upload files to this folder" onClick={() => fileInput.current?.click()} disabled={!ioId}>
@@ -843,6 +946,29 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
           <input type="checkbox" checked={friendly} onChange={toggleFriendly} />
           Friendly names
         </label>
+        <label
+          className="files-friendly"
+          title="List the files of every folder below this one as well. The folders are walked one by one, so a big tree can be watched and given up on"
+        >
+          <input type="checkbox" checked={recursive} onChange={toggleRecursive} disabled={!ioId} />
+          Include subfolders
+        </label>
+        <div className="files-view">
+          <button
+            className={"icon-button" + (view === "list" ? " active" : "")}
+            title="Show the files as a list"
+            onClick={() => chooseView("list")}
+          >
+            <IconList size={16} stroke={1.8} />
+          </button>
+          <button
+            className={"icon-button" + (view === "thumbnails" ? " active" : "")}
+            title="Show the files as thumbnails: a picture for images and videos, the file type for everything else"
+            onClick={() => chooseView("thumbnails")}
+          >
+            <IconLayoutGrid size={16} stroke={1.8} />
+          </button>
+        </div>
         <div className="header-spacer" />
         {message && <span className="muted files-message">{message}</span>}
         {selected.size > 0 && (
@@ -905,53 +1031,89 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
               </span>
             </div>
           )}
-          <div className={"file-table" + (compact ? " compact" : "")} ref={listRef} tabIndex={0} onKeyDown={onListKeyDown}>
-            <div className="file-row file-head">
-              <input type="checkbox" checked={allSelected} onChange={toggleAll} disabled={shownFiles.length === 0} />
+          {view === "thumbnails" && (
+            <div className="file-grid-head">
+              <input type="checkbox" checked={allSelected} onChange={toggleAll} disabled={shownFiles.length === 0} title="Select every file listed" />
+              <span className="muted">Sort by</span>
               {sortHeader("name", "Name")}
-              {!compact && sortHeader("type", "Type")}
-              {sortHeader("size", "Size", true)}
-              {!compact && sortHeader("modified", "Modified")}
-              <span />
+              {sortHeader("type", "Type")}
+              {sortHeader("size", "Size")}
+              {sortHeader("modified", "Modified")}
             </div>
-            {shownFiles.map((f) => (
-              <div
-                key={f.key}
-                className={"file-row" + (selected.has(f.key) ? " selected" : "") + (viewFile?.key === f.key ? " viewing" : "")}
-                draggable={!!ioId}
-                onDragStart={(e) => onFileDragStart(e, f)}
-                onClick={(e) => onRowClick(e, f)}
-              >
-                <input type="checkbox" checked={selected.has(f.key)} onChange={() => toggleOne(f.key)} onClick={(e) => e.stopPropagation()} />
-                <span className="file-name" title={fileName(f.key)}>
-                  <IconFile size={14} stroke={1.6} />
-                  {show(fileName(f.key))}
-                  {(f.readers > 0 || f.writers > 0) && (
-                    <span className="badge" title={`${f.readers} readers, ${f.writers} writers`}>
-                      in use
-                    </span>
-                  )}
-                </span>
-                {!compact && <span className="muted">{typeOf(f)}</span>}
-                <span className="num">{formatBytes(f.size)}</span>
-                {!compact && <span className="muted">{formatTime(f.lastModifiedUtc)}</span>}
-                <span className="file-actions" onClick={(e) => e.stopPropagation()}>
-                  {io?.canRenameFile && (
-                    <button className="icon-button" title="Rename" onClick={() => onRenameFile(f)}>
-                      <IconPencil size={15} stroke={1.8} />
-                    </button>
-                  )}
-                  <a className="icon-button" href={ioId ? downloadUrl(db.id, ioId, f.key) : "#"} title="Download" download>
-                    <IconDownload size={15} stroke={1.8} />
-                  </a>
-                </span>
+          )}
+          <div
+            className={view === "thumbnails" ? "file-grid" : "file-table" + (compact ? " compact" : "")}
+            ref={listRef}
+            tabIndex={0}
+            onKeyDown={onListKeyDown}
+          >
+            {view === "list" && (
+              <div className="file-row file-head">
+                <input type="checkbox" checked={allSelected} onChange={toggleAll} disabled={shownFiles.length === 0} />
+                {sortHeader("name", "Name")}
+                {!compact && sortHeader("type", "Type")}
+                {sortHeader("size", "Size", true)}
+                {!compact && sortHeader("modified", "Modified")}
+                <span />
               </div>
-            ))}
-            {listing && files.length === 0 && <div className="muted files-empty">No files in this folder.</div>}
+            )}
+            {view === "list" &&
+              shownFiles.map((f) => (
+                <div
+                  key={f.key}
+                  data-file-row=""
+                  className={"file-row" + (selected.has(f.key) ? " selected" : "") + (viewFile?.key === f.key ? " viewing" : "")}
+                  draggable={!!ioId}
+                  onDragStart={(e) => onFileDragStart(e, f)}
+                  onClick={(e) => onRowClick(e, f)}
+                >
+                  <input type="checkbox" checked={selected.has(f.key)} onChange={() => toggleOne(f.key)} onClick={(e) => e.stopPropagation()} />
+                  <span className="file-name" title={f.key}>
+                    <IconFile size={14} stroke={1.6} />
+                    {show(rowName(f.key))}
+                    {(f.readers > 0 || f.writers > 0) && (
+                      <span className="badge" title={`${f.readers} readers, ${f.writers} writers`}>
+                        in use
+                      </span>
+                    )}
+                  </span>
+                  {!compact && <span className="muted">{typeOf(f)}</span>}
+                  <span className="num">{formatBytes(f.size)}</span>
+                  {!compact && <span className="muted">{formatTime(f.lastModifiedUtc)}</span>}
+                  <span className="file-actions" onClick={(e) => e.stopPropagation()}>
+                    {io?.canRenameFile && (
+                      <button className="icon-button" title="Rename" onClick={() => onRenameFile(f)}>
+                        <IconPencil size={15} stroke={1.8} />
+                      </button>
+                    )}
+                    <a className="icon-button" href={ioId ? downloadUrl(db.id, ioId, f.key) : "#"} title="Download" download>
+                      <IconDownload size={15} stroke={1.8} />
+                    </a>
+                  </span>
+                </div>
+              ))}
+            {view === "thumbnails" &&
+              ioId &&
+              shownFiles.map((f) => (
+                <FileTile
+                  key={f.key}
+                  ioId={ioId}
+                  file={f}
+                  name={show(rowName(f.key))}
+                  scroller={listRef}
+                  selected={selected.has(f.key)}
+                  viewing={viewFile?.key === f.key}
+                  onClick={(e) => onRowClick(e, f)}
+                  onToggle={() => toggleOne(f.key)}
+                  onDragStart={(e) => onFileDragStart(e, f)}
+                />
+              ))}
+            {listing && files.length === 0 && <div className="muted files-empty">No files in this folder{deep ? " or below it" : ""}.</div>}
             {listing && files.length > 0 && shownFiles.length === 0 && <div className="muted files-empty">No file name matches the filter.</div>}
           </div>
           <div className="files-footer muted">
             {matcher ? `${shownFiles.length} of ${files.length}` : files.length} files · {formatBytes(listedSize)}
+            {deep ? " · including subfolders" : ""}
             {selected.size > 0 ? ` · ${selected.size} selected` : ""}
             {selectedFolders.size > 0 ? ` · ${selectedFolders.size} folder${selectedFolders.size === 1 ? "" : "s"} ticked` : ""}
             {!compact && files.length > 0 && (
@@ -977,7 +1139,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
                 ioId={ioId}
                 file={viewFile}
                 name={show(fileName(viewFile.key))}
-                onSaved={() => loadFolder(ioId, path)}
+                onSaved={() => reloadList(ioId, path)}
                 onDirtyChange={onViewerDirty}
                 onClose={() => changeSelection(new Set())}
               />
@@ -993,6 +1155,8 @@ const barSize = 14; // the same divider as the dashboard's panel grid (see Panel
 const treeWidthKey = "filesTreeWidth";
 const viewerWidthKey = "filesViewerWidth";
 const sortKey = "filesSort";
+const viewModeKey = "filesViewMode";
+const recursiveKey = "filesRecursive";
 
 function readSort(): SortState {
   try {
@@ -1026,9 +1190,11 @@ function nameMatcher(filter: string): ((name: string) => boolean) | null {
   return (name) => re.test(name);
 }
 
-function sortFiles(files: FileInfo[], sort: SortState, typeOf: (f: FileInfo) => string): FileInfo[] {
+function sortFiles(files: FileInfo[], sort: SortState, typeOf: (f: FileInfo) => string, nameOf: (key: string) => string): FileInfo[] {
   const direction = sort.ascending ? 1 : -1;
-  const byName = (a: FileInfo, b: FileInfo) => nameCollator.compare(fileName(a.key), fileName(b.key));
+  // by the name as the list shows it, so a listing that reaches into the subfolders sorts by path
+  // and the files of one folder stay together
+  const byName = (a: FileInfo, b: FileInfo) => nameCollator.compare(nameOf(a.key), nameOf(b.key));
   return [...files].sort((a, b) => {
     let result = 0;
     switch (sort.column) {
@@ -1050,6 +1216,24 @@ function sortFiles(files: FileInfo[], sort: SortState, typeOf: (f: FileInfo) => 
 function fileName(key: string): string {
   const i = key.lastIndexOf("/");
   return i < 0 ? key : key.slice(i + 1);
+}
+
+/**
+ * How many tiles the thumbnail grid fits across, which is what the vertical arrows step by. Read off
+ * the grid itself rather than worked out from the widths: the track list computed style holds one
+ * entry per column, whatever the container turned out to be.
+ */
+function tilesPerRow(grid: HTMLElement | null): number {
+  if (!grid) return 1;
+  const tracks = getComputedStyle(grid).gridTemplateColumns;
+  const columns = tracks && tracks !== "none" ? tracks.split(" ").length : 0;
+  return Math.max(1, columns);
+}
+
+// the key as it reads below the open folder; the key itself for anything not under it
+function relativeKey(key: string, basePath: string): string {
+  if (basePath === "") return key;
+  return key.startsWith(basePath + "/") ? key.slice(basePath.length + 1) : key;
 }
 
 function parentOf(folderPath: string): string {

@@ -9,6 +9,9 @@
 		<Version>0.3.0.172</Version>
 	</PropertyGroup>
 	<ItemGroup>
+	  <InternalsVisibleTo Include="Relatude.DB.Tests" />
+	</ItemGroup>
+	<ItemGroup>
 	  <ProjectReference Include="..\Relatude.DB.Common\Relatude.DB.Common.csproj" />
 	  <ProjectReference Include="..\Relatude.DB.FileStorage\Relatude.DB.FileStorage.csproj" />
 	  <ProjectReference Include="..\Relatude.DB.IO\Relatude.DB.IO.csproj" />

@@ -23,11 +23,12 @@ export class CommandError extends Error {
   }
 }
 
-export async function send<T = unknown>(type: string, payload?: unknown): Promise<T> {
+export async function send<T = unknown>(type: string, payload?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${base}/command`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ type, payload: payload ?? null }),
+    signal, // a long running listing can be abandoned when its progress dialog is cancelled
   });
   if (!response.ok) {
     if (response.status === 401) notifyUnauthorized(); // session expired or logged out elsewhere

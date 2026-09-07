@@ -2163,6 +2163,151 @@ a {
   border-top: 1px solid var(--border);
 }
 
+/* the list / thumbnail switch: one pair of buttons rather than two loose ones, so it reads as a
+   choice between two states instead of two more actions in a toolbar full of them */
+.files-view {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--button-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+/* the thumbnail view has no column headings to click, so the sort lives on its own line */
+.file-grid-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 2px 6px;
+  font-size: 11px;
+  border-bottom: 1px solid var(--border);
+}
+
+.file-grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 6px;
+  align-content: start;
+  padding: 10px 2px;
+  font-size: 12px;
+}
+
+/* same as the list: a soft ring when the keyboard got here by key, the selection is the cursor */
+.file-grid:focus {
+  outline: none;
+}
+
+.file-grid:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent-soft);
+}
+
+.file-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.file-tile:hover {
+  background: var(--hover);
+}
+
+.file-tile.selected {
+  background: var(--accent-soft);
+}
+
+.file-tile.viewing {
+  border-color: var(--accent);
+}
+
+/* The picture area is a square whatever the file turns out to be: a grid of tiles that each took
+   their own shape would leave the names at a different height in every column. The checkerboard is
+   the viewer's, so a transparent png reads as transparent here too. */
+.file-tile-frame {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 6px;
+  color: var(--text-faint);
+  background-color: var(--bg);
+  background-image: repeating-conic-gradient(var(--hover) 0 25%, transparent 0 50%);
+  background-size: 16px 16px;
+}
+
+/* a frame out of a video is never transparent, so the checkerboard behind it would only be a noisy
+   letterbox: black, the way every video player pads one */
+.file-tile-frame.video {
+  background-image: none;
+  background-color: #000;
+}
+
+.file-tile-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* over the corner of a video's frame, so a still is not mistaken for a photograph */
+.file-tile-play {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+/* the tick shows on hover and stays visible once the tile is selected */
+.file-tile-check {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  opacity: 0;
+}
+
+.file-tile:hover .file-tile-check,
+.file-tile.selected .file-tile-check,
+.file-tile-check:focus-visible {
+  opacity: 1;
+}
+
+.file-tile-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+
+/* two lines of name, then the ellipsis: enough for a file name, and the same height in every tile */
+.file-tile-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  min-height: 2.6em;
+  line-height: 1.3;
+}
+
+.file-tile-size {
+  font-size: 11px;
+}
+
 /* ---- storage ---- */
 
 .storage {
