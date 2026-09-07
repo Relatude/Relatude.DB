@@ -328,6 +328,10 @@ a {
 }
 
 .global-search-panel h4 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin: 0;
   padding: 8px 8px 4px;
   font-size: 10px;
@@ -335,6 +339,24 @@ a {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-muted);
+}
+
+/* beside a group's name: the same words, handed to the page that can really search for them */
+.global-search-more {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 4px;
+  border-radius: 5px;
+  font: inherit;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  opacity: 0.85;
+}
+
+.global-search-more:hover {
+  background: var(--accent-soft);
+  opacity: 1;
 }
 
 .global-search-hit {
@@ -5946,6 +5968,15 @@ body.pg-resizing {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
+}
+
+/* A chip is dragged by its grip, and a drag that starts on the grip would otherwise select the
+   label text of every chip it passes over. The row is marked unselectable rather than the grip:
+   what the browser selects is the text under the pointer as it MOVES, not what it started on. */
+.pivot-builder-row,
+.query-columns {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* the grip a chip is dragged by. The chip itself is not draggable: it is mostly selects, and a

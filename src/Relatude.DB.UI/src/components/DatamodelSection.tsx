@@ -64,7 +64,7 @@ import {
 import { formatTime } from "../format";
 import { KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, kindMeta, relationColor } from "./DatamodelIcons";
 import { PropertyEditor, readOnlyNote, RelationEditor, SourceEditor, SourcePickerDialog, TypeEditor, type EditorContext, type Selection } from "./DatamodelEditors";
-import { takeDatamodelTarget, useNavigationRequest, type DatamodelTarget } from "../navigate";
+import { peekSearchTarget, takeDatamodelTarget, takeSearchTarget, useNavigationRequest, type DatamodelTarget } from "../navigate";
 import { HistoryView, MatrixView, ModelsView, RelationsView, SourcesView } from "./DatamodelViews";
 import { DatamodelDiagram } from "./DatamodelDiagram";
 import { DatamodelGraphView } from "./DatamodelGraphView";
@@ -519,6 +519,8 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
   useEffect(() => {
     const target = takeDatamodelTarget();
     if (target) setPendingTarget(target);
+    // words handed over from the global search box: they go in the page's own one
+    if (peekSearchTarget()?.section === "datamodel") setQuery(takeSearchTarget()!.text);
   }, [navigation]);
 
   // Held until the model is there: selecting a property of a type the editor has not loaded yet

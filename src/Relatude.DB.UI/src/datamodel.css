@@ -1208,6 +1208,9 @@ button.dm-source-card {
   border-top-color: #b84cc0;
 }
 
+/* Dragging the drawing must not sweep up its own labels. Every diagram here is dragged - the canvas
+   pans, a node moves - and the text on it is real text, so without this the browser does what it
+   does to any text under a moving pointer: selects it, blue and jagged, until the next click. */
 .dm-diagram-svg {
   flex: 1;
   width: 100%;
@@ -1215,6 +1218,8 @@ button.dm-source-card {
   cursor: grab;
   touch-action: none;
   font-family: inherit;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .dm-diagram-svg:active {

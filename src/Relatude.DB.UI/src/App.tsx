@@ -15,7 +15,7 @@ import { Sidebar } from "./components/Sidebar";
 import { StorageSection } from "./components/StorageSection";
 import { TasksSection } from "./components/TasksSection";
 import { sections } from "./navigation";
-import { peekDatamodelTarget, peekQueryTarget, peekSettingsTarget, useNavigationRequest } from "./navigate";
+import { peekDatamodelTarget, peekQueryTarget, peekSearchTarget, peekSettingsTarget, useNavigationRequest } from "./navigate";
 import { isLoggedIn, logout } from "./server/auth";
 import { disconnect, subscribe, subscribeResync, subscribeUnauthorized } from "./server/channel";
 import { fetchServerInfo, type DatabaseInfo, type ServerInfo } from "./server/serverInfo";
@@ -90,7 +90,11 @@ export function App() {
   useEffect(() => {
     if (peekDatamodelTarget()) setActiveSectionId("datamodel");
     else if (peekQueryTarget()) setActiveSectionId("query");
-    else {
+    else if (peekSearchTarget()) {
+      // a search carried from the global box into a module's own: the page takes the words itself
+      const search = peekSearchTarget()!;
+      setActiveSectionId(search.section === "settings" ? "db-settings" : search.section);
+    } else {
       // a setting can be one of another database's, so the database moves with the page; the
       // settings page itself takes the target and scrolls to the group once it has loaded
       const settings = peekSettingsTarget();

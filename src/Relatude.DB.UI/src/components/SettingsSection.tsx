@@ -35,7 +35,7 @@ import {
 import { ColorField } from "./ColorField";
 import { sourceColor } from "../server/datamodel";
 import { showConfirm, showError } from "../dialogs";
-import { peekSettingsTarget, takeSettingsTarget, useNavigationRequest } from "../navigate";
+import { peekSearchTarget, peekSettingsTarget, takeSearchTarget, takeSettingsTarget, useNavigationRequest } from "../navigate";
 import {
   addListItem,
   fetchDatabaseSettings,
@@ -199,6 +199,13 @@ export function SettingsSection({
   // being shown it. Taken once, on the render after the page arrives, so a remount does not repeat it.
   const [marked, setMarked] = useState<string | null>(null);
   const navigation = useNavigationRequest();
+  // words handed over from the global search box: they go in the page's own search, which narrows
+  // every section at once rather than offering the handful the box had room for
+  useEffect(() => {
+    if (peekSearchTarget()?.section !== "settings") return;
+    setFilter(takeSearchTarget()!.text);
+    setOnlyChanged(false);
+  }, [navigation]);
   useEffect(() => {
     if (!page) return;
     const target = peekSettingsTarget();

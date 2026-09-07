@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
-import { IconCornerDownLeft, IconDatabaseSearch, IconSearch, IconSettings, IconX } from "@tabler/icons-react";
+import { IconArrowRight, IconCornerDownLeft, IconDatabaseSearch, IconSearch, IconSettings, IconX } from "@tabler/icons-react";
 import { sections } from "../navigation";
-import { openInDatamodel, openInQuery, openInSettings } from "../navigate";
+import { openInDatamodel, openInQuery, openInSettings, openSearch, type SearchTarget } from "../navigate";
 import { useLiveResult } from "../server/hooks";
 import { globalSearch, minSearchLength, type SearchResults } from "../server/search";
 import type { DatabaseInfo } from "../server/serverInfo";
@@ -128,6 +128,19 @@ export function GlobalSearch({
     else groups.push({ name: hit.group, hits: [hit] });
   }
 
+  /**
+   * The page that owns a search of its own for this kind of thing. The box here shows a handful and
+   * stops; the module's own search is where the same words can be paged, sorted, filtered and kept -
+   * so every group that has one offers to hand the words over rather than pretending to be it.
+   */
+  const handOver = (group: string): SearchTarget["section"] | null =>
+    group === "Data model" ? "datamodel" : group === "Settings" ? "settings" : group === "Nodes" ? "query" : null;
+  const handOverLabel: Record<SearchTarget["section"], string> = {
+    datamodel: "Search the data model for this",
+    settings: "Search the settings for this",
+    query: "Search the nodes for this in Query & Edit",
+  };
+
   const showPanel = open && trimmed.length > 0;
   return (
     <div className="global-search" ref={box}>
@@ -160,7 +173,23 @@ export function GlobalSearch({
         <div className="global-search-panel">
           {groups.map((group) => (
             <section key={group.name}>
-              <h4>{group.name}</h4>
+              <h4>
+                {group.name}
+                {handOver(group.name) && (
+                  <button
+                    className="global-search-more"
+                    title={handOverLabel[handOver(group.name)!]}
+                    onClick={() => {
+                      openSearch({ section: handOver(group.name)!, text: trimmed });
+                      setOpen(false);
+                      setText("");
+                      input.current?.blur();
+                    }}
+                  >
+                    search all <IconArrowRight size={12} stroke={2} />
+                  </button>
+                )}
+              </h4>
               {group.hits.map((hit) => (
                 <button
                   key={hit.key}
@@ -245,9 +274,11 @@ function build(
     });
   }
 
-  for (const setting of answer?.settings ?? []) {
+  (answer?.settings ?? []).forEach((setting, i) => {
     hits.push({
-      key: "setting/" + setting.scope + "/" + setting.path,
+      // Its place in the answer, not its path: a path is relative to the list it belongs to, so the
+      // same one - "Name" - is a setting in several groups, and even a group can hold two of them.
+      key: "setting/" + i + "/" + setting.scope + "/" + setting.path,
       group: "Settings",
       icon: <IconSettings size={16} stroke={1.8} />,
       label: setting.label,
@@ -261,7 +292,7 @@ function build(
           path: setting.path,
         }),
     });
-  }
+  });
 
   for (const node of answer?.nodes ?? []) {
     hits.push({

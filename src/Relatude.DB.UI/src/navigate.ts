@@ -56,6 +56,8 @@ export function takeDatamodelTarget(): DatamodelTarget | null {
 /** Where in the query page to open: a type, as a new query on it, and a node of it to have open. */
 export interface QueryTarget {
   typeId: string;
+  /** free text to start the query with, for a search carried in from somewhere else */
+  text?: string;
   /** the node to open in the form beside the list; the query itself is still the whole type */
   nodeId?: string;
 }
@@ -110,6 +112,36 @@ export function peekSettingsTarget(): SettingsTarget | null {
 export function takeSettingsTarget(): SettingsTarget | null {
   const target = pendingSettings;
   if (target) pendingSettings = null;
+  return target;
+}
+
+/**
+ * A search handed to the page that owns one: the same words the global search box was given, put
+ * into that module's own filter. It is not a result but a starting point - the global box shows a
+ * handful of hits and stops, while the module's own search is the one that pages, sorts and narrows.
+ */
+export interface SearchTarget {
+  section: "datamodel" | "settings" | "query";
+  text: string;
+}
+
+let pendingSearch: SearchTarget | null = null;
+
+/** Asks for that page, with this text in its own search box. */
+export function openSearch(target: SearchTarget): void {
+  pendingSearch = target;
+  notify();
+}
+
+/** The request, without taking it: what the shell watches to know it has to switch section. */
+export function peekSearchTarget(): SearchTarget | null {
+  return pendingSearch;
+}
+
+/** The request, taken: the page that owns the box consumes it, so a remount does not repeat it. */
+export function takeSearchTarget(): SearchTarget | null {
+  const target = pendingSearch;
+  if (target) pendingSearch = null;
   return target;
 }
 

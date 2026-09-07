@@ -26,7 +26,7 @@ import { EditableTable } from "./EditableTable";
 import { CopyButton } from "./CopyButton";
 import { NewNodeDialog, TypePicker } from "./TypePicker";
 import { showChoice, showError } from "../dialogs";
-import { takeQueryTarget, useNavigationRequest } from "../navigate";
+import { peekSearchTarget, takeQueryTarget, takeSearchTarget, useNavigationRequest } from "../navigate";
 import {
   createNode,
   csvRowLimit,
@@ -134,10 +134,20 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
   const navigation = useNavigationRequest();
   useEffect(() => {
     const target = takeQueryTarget();
-    if (!target) return;
+    if (target) {
+      const q = newQuery();
+      q.typeId = target.typeId;
+      if (target.text) q.text = target.text;
+      setOpenNode(target.nodeId ? { tabId: q.id, nodeId: target.nodeId } : null);
+      setTabs((t) => ({ active: q.id, queries: [...t.queries, q] }));
+      return;
+    }
+    // words handed over from the global search box: a fresh tab searching every type for them,
+    // which is the same search the box ran, with the paging and the facets it had no room for
+    if (peekSearchTarget()?.section !== "query") return;
     const q = newQuery();
-    q.typeId = target.typeId;
-    setOpenNode(target.nodeId ? { tabId: q.id, nodeId: target.nodeId } : null);
+    q.text = takeSearchTarget()!.text;
+    setOpenNode(null);
     setTabs((t) => ({ active: q.id, queries: [...t.queries, q] }));
   }, [navigation]);
 
