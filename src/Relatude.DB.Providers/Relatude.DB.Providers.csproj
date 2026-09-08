@@ -5,7 +5,7 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<RootNamespace>Relatude.DB</RootNamespace>
-		<Version>0.3.0.175</Version>
+		<Version>0.3.0.176</Version>
 	</PropertyGroup>
 	<ItemGroup>
 		<!-- no package references on purpose: every provider in this plugin speaks
