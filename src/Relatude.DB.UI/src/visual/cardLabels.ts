@@ -24,6 +24,8 @@ export interface LabelColors {
    * page - so the name is read against the page and takes its ink from that instead.
    */
   shaped: boolean;
+  /** the silhouette of every card, or null when they are plain: what a pulse on the shape legend addresses */
+  shapes: Uint16Array | null;
   /** the page behind the cards, rgb */
   panel: [number, number, number];
 }
@@ -103,6 +105,11 @@ export function createCardLabels(canvas: HTMLCanvasElement): CardLabels | null {
       ctx!.globalAlpha = detail;
       const palette = colors?.palette ?? null;
       const assignment = colors?.assignment ?? null;
+      // a pulse takes the cards it addresses into the page; their names go with them, or they would
+      // be left hanging over the gap. One group fades at a time, so the alpha is set when it changes
+      const pulse = field.pulseFade();
+      const shapes = colors?.shapes ?? null;
+      let alpha = detail;
       const onPage = colors?.shaped === true ? inkFor(colors.panel[0], colors.panel[1], colors.panel[2]) : null;
       let lastGroup = -2;
       let ink = onPage ?? lightInk;
@@ -115,6 +122,14 @@ export function createCardLabels(canvas: HTMLCanvasElement): CardLabels | null {
         const y0 = cy - side / 2 + side * imageShare;
         if (x0 > width || x0 + side < 0 || y0 > height || y0 + strip < 0) continue;
         const group = assignment !== null ? assignment[i] : 0;
+        if (pulse !== null) {
+          const faded = group === pulse.group || (shapes !== null && shapes[i] === pulse.shape);
+          const a = faded ? detail * (1 - pulse.amount) : detail;
+          if (a !== alpha) {
+            alpha = a;
+            ctx!.globalAlpha = a;
+          }
+        }
         if (onPage === null && group !== lastGroup) {
           lastGroup = group;
           ink = palette !== null && group * 4 + 2 < palette.length ? inkFor(palette[group * 4], palette[group * 4 + 1], palette[group * 4 + 2]) : lightInk;

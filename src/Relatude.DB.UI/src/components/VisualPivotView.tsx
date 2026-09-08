@@ -347,8 +347,9 @@ export function VisualPivotView({
     media.current?.setLayout(layout);
     const colors = paletteBytes(colorData, palette, theme);
     f.setGroups(colorData ? colorData.assignment : new Uint16Array(decoded.count), colors);
-    f.setShapes(shapeData ? cardShapes(shapeData, decoded.count) : null);
-    labelColors.current = { assignment: colorData ? colorData.assignment : null, palette: colors, shaped: shapeData !== null, panel: theme.panel };
+    const shapes = shapeData ? cardShapes(shapeData, decoded.count) : null;
+    f.setShapes(shapes);
+    labelColors.current = { assignment: colorData ? colorData.assignment : null, palette: colors, shaped: shapeData !== null, shapes, panel: theme.panel };
     setBars(layout.bars ? layout.bars.map((bar) => ({ bar, group: barData!.groups[bar.group] })) : []);
     setTooltip(null);
   }, [decoded, colorData, barData, shapeData, theme, palette]);

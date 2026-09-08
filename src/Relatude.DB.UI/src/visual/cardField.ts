@@ -57,11 +57,18 @@ export interface FieldTheme {
   /** the ring around the selected card */
   outline: RGBf;
   /**
-   * The page's own text colour: what a card is mixed toward to stand out, under the pointer and
-   * through a pulse. Being the text colour it is light on a dark page and dark on a light one, so
-   * "stands out" is brighter or darker according to the theme rather than always one of them.
+   * The page's own text colour: what a card is mixed toward to stand out under the pointer, and the
+   * ink of the placeholder glyph. Being the text colour it is light on a dark page and dark on a
+   * light one, so "stands out" is brighter or darker according to the theme rather than always one.
    */
   ink: RGBf;
+}
+
+/** A pulse in progress: the group being pulsed or the silhouette slot (the other is -1), and how far into the page those cards are faded at this moment. */
+export interface PulseFade {
+  group: number;
+  shape: number;
+  amount: number;
 }
 
 export interface Camera {
@@ -110,13 +117,15 @@ export interface CardField {
   setHover(index: number): void;
   setSelected(index: number): void;
   /**
-   * Draws the cards of one group in and lets them back out to the size they were, holding them
-   * brighter (darker on a light page) while it lasts, so it can be seen where in the picture they
-   * are; -1 stops it. A card too small to see the movement of still keeps a few pixels of it.
+   * Fades the cards of one group into the page and back, twice, so it can be seen where in the
+   * picture they are; -1 stops it. Nothing moves and nothing is laid over the picture, so a card of
+   * one pixel blinks as plainly as one that fills the screen, and the frame costs what it did.
    */
   pulseGroup(group: number): void;
   /** The same, for the cards cut out to one silhouette; -1 stops it. */
   pulseShape(slot: number): void;
+  /** The pulse going on right now, or null; for the labels, which are drawn over the canvas and fade with the cards they name. */
+  pulseFade(): PulseFade | null;
   /** The card under a css pixel of the canvas, or -1. */
   pick(cssX: number, cssY: number): number;
   /** Brings the bounds into view with a margin, gliding there over `seconds` (0 jumps). */
@@ -199,13 +208,12 @@ export const transitionSeconds = moveDuration + moveStagger;
 const fadeSeconds = 0.75;
 const bornScale = 0.35;
 /**
- * The pulse: how long it lasts, how far into its cell a card is drawn, the least of that movement it
- * keeps whatever the scale, and how far toward the page's ink it is taken at the turn.
+ * The pulse: the cards addressed fade into the page and back, twice. How long the two blinks take
+ * together, and how far into the page a card is taken at the turn of one - not the whole way, so a
+ * ghost of the group is left where it is rather than a hole in the picture.
  */
-export const pulseSeconds = 1.25;
-const pulseAmount = 0.42;
-const pulseMinPx = 2.5;
-const pulseGlow = 0.45;
+export const pulseSeconds = 0.8;
+const pulseFadeDepth = 0.9;
 
 /** how much of the pitch a card fills when there is room to see the gap */
 export const cardFill = 0.84;
@@ -287,15 +295,14 @@ flat out float vHalfPx;
 flat out int vFlags;
 flat out uvec3 vTex;
 flat out float vDetail;
+flat out float vFade;     // how far into the page this card is faded by a pulse, 0 at rest
 flat out int vTileMask;
 flat out vec4 vShape;     // the turn (cos, sin), one over the scale, and the layer of the field; w < 0 is a plain card
 flat out float vShapeMix; // how much of the silhouette is cut out, see below
 const int TILE_SLOTS = ${tileSlots};
 const int VARIANTS = ${shapeVariants.length};
 const float OVERSHOOT = ${overshoot.toFixed(4)};
-const float PULSE = ${pulseAmount.toFixed(4)};
-const float PULSE_MIN_PX = ${pulseMinPx.toFixed(4)};
-const float PULSE_GLOW = ${pulseGlow.toFixed(4)};
+const float PULSE_FADE = ${pulseFadeDepth.toFixed(4)};
 const float BORN = ${bornScale.toFixed(4)};
 float ease(float t) {
   if (t <= 0.0) return 0.0;
@@ -304,13 +311,13 @@ float ease(float t) {
   float back = 1.0 - t;
   return t3 * (t * (t * 6.0 - 15.0) + 10.0) + OVERSHOOT * t3 * back * back;
 }
-// One movement, inward and back: a card is drawn into its cell and let out again to the size it
-// was, and no further. Squaring the half sine leaves the curve flat at both ends as well as at
-// nothing, so the card sets off and comes to rest without a kick at either.
+// Two blinks: out into the page and back, twice. The squared whole sine is flat where it leaves,
+// where it comes back between the two, and where it ends, so there is no kick anywhere in the fade -
+// and it is one sine, which is what lets every card work its own fade out in the vertex shader.
 float pulse(float t) {
   if (t <= 0.0 || t >= 1.0) return 0.0;
-  float s = sin(3.1415927 * t);
-  return -s * s;
+  float s = sin(6.2831853 * t);
+  return s * s;
 }
 void main() {
   float t = (uTime - aTiming.x) / uDuration;
@@ -323,24 +330,22 @@ void main() {
     born = clamp((uTime - aTiming.x) / uFade, 0.0, 1.0);
     born = born * born * (3.0 - 2.0 * born);
   }
-  float base = fill * (BORN + (1.0 - BORN) * born);
-  // -1 at the turn of a pulse, 0 for every card outside the group pulsing (which is addressed by
-  // its colour or by its silhouette, whichever legend was clicked)
+  float side = fill * (BORN + (1.0 - BORN) * born);
+  // A pulse fades the cards addressed into the page - by their colour or by their silhouette,
+  // whichever legend was clicked - and leaves every other card alone. Nothing moves and nothing is
+  // drawn over the picture, so a pulse never disturbs what is being looked at, and a card of a
+  // pixel blinks as clearly as one that fills the screen: a fade does not depend on the size.
   int slot = int(aShape);
   bool pulsed = int(aGroup) == uPulseGroup || slot == uPulseShape;
-  float p = pulsed ? pulse(uPulseT) : 0.0;
-  float side = base * (1.0 + PULSE * p);
-  // zoomed out to the whole set a card is a pixel or two, and taking a fraction off that is no
-  // signal at all, so what is left of it is worth a couple of pixels of the screen
-  side = max(side, min(base, 2.0 * PULSE_MIN_PX / uZoom));
+  vFade = pulsed ? PULSE_FADE * pulse(uPulseT) : 0.0;
   vec2 corner = (aCorner - 0.5) * side + 0.5;
   vec2 px = ((pos - uCenterHi) - uCenterLo + corner) * uZoom;
   gl_Position = vec4(px.x / uHalfSize.x, -px.y / uHalfSize.y, 0.0, 1.0);
   vUv = aCorner;
   vHalfPx = 0.5 * side * uZoom;
   vTex = aTex;
-  // the picture and the name come in as the card passes the width they are readable at; measured
-  // on the card at rest, so a pulse at that width does not flicker them
+  // the picture and the name come in as the card passes the width they are readable at, measured on
+  // the card at its full size so that one still growing into place does not flicker them
   vDetail = smoothstep(uDetailPx * 0.9, uDetailPx * 1.1, fill * uZoom);
   // The silhouette, if this card has one. A card a couple of pixels across has no room to show a
   // shape and a screen of them is meant to read as a solid mosaic, so the shape comes in with the
@@ -366,9 +371,6 @@ void main() {
   }
   vec4 c = texelFetch(uPalette, ivec2(int(aGroup), 0), 0);
   if (id == uHover) c.rgb = mix(c.rgb, uInk, 0.28);
-  // through a pulse the group is held toward the page's ink as well as moved, so it stands out for
-  // the whole of the movement - brighter on a dark page, darker on a light one
-  c.rgb = mix(c.rgb, uInk, PULSE_GLOW * abs(p));
   // a new card comes up to its colour as it grows, so it arrives rather than appearing at once
   c.a *= born;
   vColor = c;
@@ -383,6 +385,7 @@ flat in float vHalfPx;
 flat in int vFlags;
 flat in uvec3 vTex;
 flat in float vDetail;
+flat in float vFade;
 flat in int vTileMask;
 flat in vec4 vShape;
 flat in float vShapeMix;
@@ -517,7 +520,9 @@ void main() {
     c = mix(c, pic, vDetail * show);
   }
   if (vFlags == 1 && vHalfPx > 4.0) c = mix(c, uOutline, clamp(d + 2.5, 0.0, 1.0));
-  outColor = vec4(c, alpha * vColor.a);
+  // the pulse, last of all: the whole card - picture, name strip and edge - is taken into the page
+  // by the blend, which is a multiply here rather than anything drawn over the picture
+  outColor = vec4(c, alpha * vColor.a * (1.0 - vFade));
 }`;
 
 export function createCardField(canvas: HTMLCanvasElement): CardField | null {
@@ -704,6 +709,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   let frameCallback: (() => void) | null = null;
   let raf = 0;
   let lastFrame = 0;
+  let frameNow = 0; // the clock the last frame was drawn on: what the labels over the canvas share
   let dirty = true;
   let destroyed = false;
 
@@ -717,6 +723,14 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
 
   function pulsing(): boolean {
     return pulsedGroup >= 0 || pulsedShape >= 0;
+  }
+
+  /** the shader's pulse curve, for the labels: two blinks, flat at both ends and in the middle */
+  function pulseAmountAt(now: number): number {
+    const t = (now - pulseStart) / 1000 / pulseSeconds;
+    if (t <= 0 || t >= 1) return 0;
+    const s = Math.sin(2 * Math.PI * t);
+    return pulseFadeDepth * s * s;
   }
 
   function fading(now: number): boolean {
@@ -840,6 +854,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
 
   function frame(now: number) {
     raf = 0;
+    frameNow = now;
     if (destroyed) return;
     // a frame asked for by something that then turned out to change nothing draws nothing
     if (!dirty && !cardsMoving && !pulsing() && !cameraMoving() && !fading(now) && texDirty.size === 0) {
@@ -1035,6 +1050,10 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       pulseStart = performance.now();
       dirty = true;
       schedule();
+    },
+    pulseFade() {
+      if (!pulsing()) return null;
+      return { group: pulsedGroup, shape: pulsedShape, amount: pulseAmountAt(frameNow) };
     },
     pick(cssX, cssY) {
       if (count === 0) return -1;
