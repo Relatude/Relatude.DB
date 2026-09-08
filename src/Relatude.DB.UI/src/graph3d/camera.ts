@@ -19,7 +19,6 @@ export interface Pose {
 
 const worldUp: Vec3 = [0, 1, 0];
 const maxPitch = 1.5;
-const minDist = 12;
 const damping = 4.5; // per second: after half a second roughly a tenth is left
 const flyDamping = 5;
 const dollyDamping = 6;
@@ -30,8 +29,14 @@ export class FlyCamera {
   pitch = 0;
   dist = 500;
   readonly fov = (50 * Math.PI) / 180;
-  readonly near = 1;
-  readonly far = 40000;
+  near = 1;
+  far = 40000;
+  /**
+   * How near the focus point may come. It is what a world unit means to the view that owns the
+   * camera: a graph of types measures in hundreds of units and never wants a closer look than a
+   * dozen, a field of cards is one unit a card and has to be able to fill the screen with one.
+   */
+  minDist = 12;
   /**
    * How far the heading may tip, in radians. A view that stands on a floor sets a negative upper
    * bound, so the camera can be brought down to eye level but never under the ground - where it
@@ -93,7 +98,7 @@ export class FlyCamera {
     this.pos = [...p.pos];
     this.yaw = p.yaw;
     this.pitch = Math.max(this.pitchLimit[0], Math.min(this.pitchLimit[1], p.pitch));
-    this.dist = Math.max(minDist, p.dist);
+    this.dist = Math.max(this.minDist, p.dist);
   }
   /** Placed so the target is in the middle at the given distance, heading kept. */
   poseLookingAt(target: Vec3, dist: number, yaw = this.yaw, pitch = this.pitch): Pose {
@@ -168,6 +173,22 @@ export class FlyCamera {
     this.tween = { from: this.pose(), to, start: performance.now(), ms };
   }
 
+  /**
+   * Whether anything is still in motion: a flight to a pose, a hand on a channel, or a velocity
+   * that has not bled away yet. A read: what a renderer asks to know whether it owes another frame.
+   */
+  moving(): boolean {
+    if (this.tween !== null || this.held.size > 0) return true;
+    if (this.autoOrbit) return true;
+    return (
+      Math.abs(this.vYaw) + Math.abs(this.vPitch) > 1e-4 ||
+      Math.abs(this.vLookYaw) + Math.abs(this.vLookPitch) > 1e-4 ||
+      Math.abs(this.vPanX) + Math.abs(this.vPanY) > 0.01 * this.dist ||
+      Math.abs(this.vDolly) > 1e-3 ||
+      Math.hypot(...this.vFly) > 0.5
+    );
+  }
+
   // ---- time passing ----
 
   /** Advances every motion by dt seconds and says whether anything still moves. */
@@ -232,7 +253,7 @@ export class FlyCamera {
       const amount = Math.max(-0.5, Math.min(0.5, this.vDolly * dt));
       const move = this.dist * amount;
       this.pos = add(this.pos, scale(this.dollyRay, move));
-      this.dist = Math.max(minDist, this.dist - move);
+      this.dist = Math.max(this.minDist, this.dist - move);
       this.vDolly *= Math.exp(-dollyDamping * dt);
       moving = true;
     }

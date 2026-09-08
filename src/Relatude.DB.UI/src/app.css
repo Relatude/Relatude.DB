@@ -7886,7 +7886,8 @@ body.pg-resizing {
 .visual-labels,
 .visual-tooltip,
 .visual-empty,
-.visual-selected-note {
+.visual-selected-note,
+.visual-detail-note {
   position: absolute;
   pointer-events: none;
 }
@@ -7952,6 +7953,15 @@ body.pg-resizing {
   color: var(--text-faint);
 }
 
+/* the solid picture had to be drawn more simply to keep up: said quietly, where it can be seen */
+.visual-detail-note {
+  left: 8px;
+  bottom: 6px;
+  font-size: 11px;
+  color: var(--text-faint);
+  pointer-events: auto;
+}
+
 /* the legend: one row per colour, biggest groups no different from the rest - it is a key, not a ranking */
 .visual-legend {
   flex: none;
@@ -7984,6 +7994,35 @@ body.pg-resizing {
 
 .visual-legend-item:hover {
   background: var(--hover);
+}
+
+/* a row that says something rather than doing something: a thickness is nothing to click */
+.visual-legend-item.static {
+  cursor: default;
+  font-size: inherit;
+}
+
+.visual-legend-item.static:hover {
+  background: none;
+}
+
+/* how thick this group's cards are, as a column filled from the bottom of a box */
+.visual-depth {
+  flex: none;
+  width: 11px;
+  height: 13px;
+  display: flex;
+  align-items: flex-end;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.visual-depth i {
+  display: block;
+  width: 100%;
+  height: calc(var(--depth, 0.5) * 100%);
+  background: var(--text-soft);
 }
 
 .visual-swatch {

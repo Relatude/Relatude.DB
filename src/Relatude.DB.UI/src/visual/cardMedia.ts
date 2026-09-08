@@ -1,4 +1,4 @@
-import { CardKind, cardFill, detailCssPx, imageLevels, imageShare, tileSlots, tileWidths, type CardField, type TileOnScreen } from "./cardField";
+import { CardKind, cardFill, detailCssPx, imageLevels, imageShare, tileSlots, tileWidths, type FieldSurface, type TileOnScreen } from "./cardField";
 import type { Layout } from "./layouts";
 import { IntMap } from "./intMap";
 import { fetchCards, streamCardImages } from "../server/query";
@@ -157,7 +157,17 @@ interface TileSlot extends TileWanted {
   lastWanted: number;
 }
 
-export function createCardMedia(field: CardField, initialStoreId: string): CardMedia {
+export interface CardMediaOptions {
+  /**
+   * Whether a card zoomed past the largest picture level shows tiles of its picture. The flat
+   * picture does; the three-dimensional one does not - a card there is a face of a solid seen at an
+   * angle, and there is no part of a picture "in view" to cut out - so it stops at the largest level.
+   */
+  tiles?: boolean;
+}
+
+export function createCardMedia(field: FieldSurface, initialStoreId: string, options: CardMediaOptions = {}): CardMedia {
+  const useTiles = options.tiles !== false;
   let storeId = initialStoreId;
   let ids: Int32Array = new Int32Array(0);
   let count = 0;
@@ -728,6 +738,7 @@ export function createCardMedia(field: CardField, initialStoreId: string): CardM
   }
 
   function tileFrame(now: number) {
+    if (!useTiles) return;
     const wanted = wantedTiles(now);
     for (const w of wanted) {
       const held = tiles.find((t) => t !== null && sameTile(t, w));

@@ -4,8 +4,10 @@ import type { PivotBase } from "./PivotView";
 import { bytesOf, fetchNodeGuid, fetchPivotModel, runVisual, type PivotModel, type PivotProperty, type VisualGroup, type VisualRequest, type VisualResult } from "../server/query";
 import { useLiveResult } from "../server/hooks";
 import { formatCount, formatQuery } from "../format";
+import { showConfirm } from "../dialogs";
 import type { VisualDefinition } from "../queryTabs";
-import { createCardField, transitionSeconds, type CardField, type FieldTheme, type RGBf } from "../visual/cardField";
+import { createCardField, transitionSeconds, type CardField, type CardFieldCommon, type FieldSurface, type FieldTheme, type RGBf } from "../visual/cardField";
+import { createCardField3D, DetailLevel, type CardField3D } from "../visual/cardField3d";
 import { barLayout, gridLayout, type Bar, type Layout } from "../visual/layouts";
 import { buildPalette, palettes, parseCssColor, type PaletteColor, type RGB } from "../visual/palette";
 import { shapeLabel, shapeMaskUrl, shapeSlotFor } from "../visual/shapes";
@@ -14,7 +16,7 @@ import { createCardMedia, type CardMedia } from "../visual/cardMedia";
 import { createCardLabels, type CardLabels, type LabelColors } from "../visual/cardLabels";
 
 /** A visual pivot before anyone has chosen anything: a grid of one colour, in the result's order. */
-export const emptyVisual: VisualDefinition = { colorProperty: null, colorMode: "auto", shapeProperty: null, shapeMode: "auto", barProperty: null, barMode: "auto", sortProperty: null, sortDescending: false, legend: true, palette: palettes[0].id };
+export const emptyVisual: VisualDefinition = { colorProperty: null, colorMode: "auto", shapeProperty: null, shapeMode: "auto", depthProperty: null, depthMode: "auto", barProperty: null, barMode: "auto", sortProperty: null, sortDescending: false, legend: true, palette: palettes[0].id };
 
 /** what a group stands for: a value of the property, the nodes without one, or the ones outside the groups kept */
 type GroupKind = "value" | "none" | "other";
@@ -60,7 +62,7 @@ interface Tooltip {
   lines: string[];
 }
 
-/** what the pointer is doing between down and up */
+/** what the pointer is doing between down and up; `kind` is which camera channel it holds in 3D */
 interface Drag {
   x: number;
   y: number;
@@ -68,6 +70,7 @@ interface Drag {
   moved: boolean;
   vx: number;
   vy: number;
+  kind: "flat" | "orbit" | "pan" | "look";
 }
 
 const modeOptions = [
@@ -77,8 +80,33 @@ const modeOptions = [
 ];
 const paletteSize = 512; // above the server's cap of groups per property
 const fitPadding = 28;
+/**
+ * and the margin a picture of solids is fitted with. Smaller, because a solid picture already keeps
+ * room round itself: what is fitted is the box the cards stand in, and a box seen at an angle takes
+ * up more of the view than the cards inside it do.
+ */
+const solidFitPadding = 10;
 const labelMinWidth = 64; // css px a bar label needs before its neighbours are thinned out
 const refitSeconds = 0.7; // a fit asked for on its own - the button, a double-click, a resize - with nothing else moving
+/**
+ * How thick a card can be, in cells of the grid, so 1 is as deep as a card is wide. The thinnest is
+ * a card that still reads as a solid seen edge on; the thickest is a tower two cards deep, which is
+ * as far as a picture can go before the near ones start hiding the ones behind them.
+ */
+const depthMin = 0.16;
+const depthMax = 2;
+/**
+ * How many cards are enough to ask before the picture is drawn as solids. A card is six triangles
+ * there rather than two, with a face to shade rather than a quad, so a set that the flat picture
+ * carries comfortably can be several times the work - and the browser has no way back from a frame
+ * it has already begun. Past this the question is put; the guard in cardField3d.ts then gives up
+ * detail on its own if the frames still run long.
+ */
+const heavyCards = 250_000;
+/** and past this the raymarched solid is not offered at all until the frames prove there is room for it */
+const veryHeavyCards = 600_000;
+/** a frame this long, with every bit of detail already given up, is a picture this machine cannot draw */
+const hopelessFrameMs = 130;
 
 /**
  * The visual pivot: every node of the result on screen as a card, in a grid or stacked into bars by
@@ -89,6 +117,16 @@ const refitSeconds = 0.7; // a fit asked for on its own - the button, a double-c
  * bytes a card, and everything from there on is a pass over typed arrays: a layout is a position per
  * card (visual/layouts.ts), a colouring is an index per card into a palette. Changing either uploads
  * the new arrays and the cards travel there themselves.
+ *
+ * Choosing a depth property turns the picture into a picture of solids: the layout is the same one,
+ * every card given a thickness by its group and seen through a camera that orbits (drag), slides
+ * (shift-drag, or the right button) and closes in on what is under the pointer (the wheel). That is
+ * a second renderer
+ * (visual/cardField3d.ts) on a canvas of its own rather than a mode of the first, so the flat
+ * picture goes on costing exactly what it did; only one of the two exists at a time, and switching
+ * builds the other. Everything else about the picture - what the server is asked, how a result is
+ * decoded, the layouts, the palette, the pictures on the cards, the legend - is shared, which is why
+ * turning depth on and off does not move a card.
  *
  * What is laid over the canvas in html - the bar labels, the tooltip, the legend - follows the
  * camera through the field's frame callback, without going through React on every frame.
@@ -143,6 +181,10 @@ export function VisualPivotView({
   // read defensively: a definition saved before there were shapes has neither field
   const shapeProperty = groupable.some((p) => p.id === def.shapeProperty) ? def.shapeProperty! : null;
   const shapeMode = def.shapeMode ?? "auto";
+  // and the same for depth, which is also what says whether the picture is flat or solid
+  const depthProperty = groupable.some((p) => p.id === def.depthProperty) ? def.depthProperty! : null;
+  const depthMode = def.depthMode ?? "auto";
+  const solidPicture = depthProperty !== null;
   // sorting needs a single value per node with an order to it, which is what an indexed scalar is
   const sortable = useMemo(() => model?.properties.filter((p) => p.aggregatable) ?? [], [model]);
   // read defensively: a definition saved before there was a sort has neither field
@@ -151,10 +193,18 @@ export function VisualPivotView({
 
   const request = useMemo<VisualRequest | null>(() => {
     if (model === null || definition === null) return null;
-    const properties = [];
-    if (colorProperty) properties.push({ propertyId: colorProperty, mode: def.colorMode });
-    if (shapeProperty && shapeProperty !== colorProperty) properties.push({ propertyId: shapeProperty, mode: shapeMode });
-    if (barProperty && barProperty !== colorProperty && barProperty !== shapeProperty) properties.push({ propertyId: barProperty, mode: def.barMode });
+    const properties: { propertyId: string; mode: string }[] = [];
+    const asked = new Set<string>();
+    // one grouping per property however many channels it feeds: the answer is the same either way
+    const ask = (id: string | null, mode: string) => {
+      if (id === null || asked.has(id)) return;
+      asked.add(id);
+      properties.push({ propertyId: id, mode });
+    };
+    ask(colorProperty, def.colorMode);
+    ask(shapeProperty, shapeMode);
+    ask(depthProperty, depthMode);
+    ask(barProperty, def.barMode);
     return {
       storeId: base.storeId,
       typeId: base.typeId,
@@ -168,7 +218,7 @@ export function VisualPivotView({
     };
     // the token is not part of the request; a new object is how the runner is told to run again
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model, definition === null, base, colorProperty, def.colorMode, shapeProperty, shapeMode, barProperty, def.barMode, sortProperty, sortDescending, refreshToken]);
+  }, [model, definition === null, base, colorProperty, def.colorMode, shapeProperty, shapeMode, depthProperty, depthMode, barProperty, def.barMode, sortProperty, sortDescending, refreshToken]);
   const { result, loading, error } = useLiveResult(request, runVisual);
   const decoded = useMemo(() => (result ? decode(result) : null), [result]);
 
@@ -178,7 +228,11 @@ export function VisualPivotView({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textRef = useRef<HTMLCanvasElement>(null);
   const labelsRef = useRef<HTMLDivElement>(null);
-  const field = useRef<CardField | null>(null);
+  /** whichever of the two renderers is drawing: everything the picture is driven with is common to both */
+  const field = useRef<(CardFieldCommon & FieldSurface) | null>(null);
+  /** and the one that is drawing, when it is that one: the camera is worked differently in each */
+  const flat = useRef<CardField | null>(null);
+  const solid = useRef<CardField3D | null>(null);
   // the names and pictures of the cards in view, and the names drawn over the picture
   const media = useRef<CardMedia | null>(null);
   const labels = useRef<CardLabels | null>(null);
@@ -189,9 +243,15 @@ export function VisualPivotView({
   const layoutRef = useRef<Layout | null>(null);
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(-1);
+  /** why the solids are being drawn more simply than they can be, or null when they are not */
+  const [reduced, setReduced] = useState<"size" | "frames" | null>(null);
+  /** whether the way back to the flat picture has already been offered for this picture */
+  const askedTheWayBack = useRef(false);
+  /** and the offer itself, kept fresh: the watcher that calls it was set up with the field, renders ago */
+  const wayBack = useRef<() => void>(() => {});
   const drag = useRef<Drag | null>(null);
   const lastHoverPick = useRef(0);
-  const previous = useRef<{ decoded: Decoded; layout: Layout } | null>(null);
+  const previous = useRef<{ decoded: Decoded; layout: Layout; depths: Float32Array | null } | null>(null);
   const refit = useRef(0);
   // the canvas exists once the model is known (nothing is rendered before), so the field is made then
   const hasStage = model !== null && glOk;
@@ -200,9 +260,11 @@ export function VisualPivotView({
     const stage = stageRef.current;
     const canvas = canvasRef.current;
     if (!stage || !canvas) return;
-    let f: CardField | null = null;
+    // The canvas is a new element on either side of the switch (it carries the mode as its key), so
+    // each renderer gets a drawing context of its own: a canvas hands out one context for its life.
+    let f: (CardFieldCommon & FieldSurface) | null = null;
     try {
-      f = createCardField(canvas);
+      f = solidPicture ? createCardField3D(canvas) : createCardField(canvas);
     } catch (e) {
       console.error("The visual pivot could not set up its drawing:", e);
       f = null;
@@ -212,21 +274,29 @@ export function VisualPivotView({
       return;
     }
     field.current = f;
+    flat.current = solidPicture ? null : (f as CardField);
+    solid.current = solidPicture ? (f as CardField3D) : null;
     previous.current = null;
+    setReduced(null);
+    askedTheWayBack.current = false;
     const t = readTheme(stage);
     setTheme(t);
     f.setTheme(t);
     f.resize();
-    const m = createCardMedia(f, base.storeId);
+    // a solid stops at the largest picture level: there is no part of a picture "in view" to cut a
+    // sharper tile out of when what is on screen is a face seen at an angle
+    const m = createCardMedia(f, base.storeId, { tiles: !solidPicture });
     media.current = m;
-    const l = textRef.current ? createCardLabels(textRef.current) : null;
+    // the names on the cards belong to the flat picture: they are drawn over the canvas in two
+    // dimensions, and a face turned away from the camera has no upright strip to write them in
+    const l = !solidPicture && textRef.current ? createCardLabels(textRef.current) : null;
     labels.current = l;
     // the labels follow the camera on every frame the field draws; the pictures of the cards in view
     // are kept coming from the same place, and the names drawn over them
     f.onFrame(() => {
       placeLabels();
       m.frame(performance.now());
-      l?.draw(f, m, labelColors.current);
+      l?.draw(f!, m, labelColors.current);
     });
     const ro = new ResizeObserver(() => {
       f!.resize();
@@ -248,22 +318,69 @@ export function VisualPivotView({
       e.preventDefault();
       const rect = canvas.getBoundingClientRect();
       const step = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
-      f!.zoomBy(Math.exp(-step * 0.0016), e.clientX - rect.left, e.clientY - rect.top);
+      if (solid.current) {
+        // a notch is a hundred units on most mice; a trackpad sends many small ones that add up the same
+        solid.current.zoomAt(Math.max(-1, Math.min(1, step / 100)) * -1.2, e.clientX - rect.left, e.clientY - rect.top);
+      } else {
+        flat.current?.zoomBy(Math.exp(-step * 0.0016), e.clientX - rect.left, e.clientY - rect.top);
+      }
     };
     canvas.addEventListener("wheel", wheel, { passive: false });
+    // Whether the guard has had to give up detail is asked for now and then rather than watched: it
+    // changes a few times in the life of a picture, and a frame must not go through React. When it
+    // has given up everything it has and the frames are still long, there is nothing left for it to
+    // do and the way out is offered instead - which is the last thing standing between a picture
+    // someone asked for and a tab that will not answer.
+    const watch = solidPicture
+      ? window.setInterval(() => {
+          const d = solid.current?.detail();
+          if (d === undefined) return;
+          // said whether the guard gave the detail up or the size of the set never allowed it: both
+          // are worth knowing, and only one of them is about this machine
+          setReduced(d.level >= DetailLevel.Solid ? null : d.level < d.ceiling ? "frames" : "size");
+          if (d.level === DetailLevel.Flat && d.frameMs > hopelessFrameMs) wayBack.current();
+        }, 1000)
+      : 0;
     return () => {
       ro.disconnect();
       mo.disconnect();
       window.clearTimeout(refit.current);
+      window.clearInterval(watch);
       canvas.removeEventListener("wheel", wheel);
       m.destroy();
       media.current = null;
       labels.current = null;
       f!.destroy();
       field.current = null;
+      flat.current = null;
+      solid.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- lives with the canvas element
-  }, [hasStage]);
+  }, [hasStage, solidPicture]);
+
+  // How much the picture may cost before it has drawn a frame anyone can measure. A very large set
+  // starts as plain boxes; the guard in the field takes it up to solids if the frames allow.
+  useEffect(() => {
+    solid.current?.setDetailCeiling((decoded?.count ?? 0) > veryHeavyCards ? DetailLevel.Boxes : DetailLevel.Solid);
+  }, [decoded]);
+
+  /**
+   * The frames are long, the picture has given up every bit of detail it has, and it is still not
+   * keeping up: the only thing left is the flat picture, and that is a question rather than a
+   * decision. Asked once, and not again for this picture however long it goes on taking.
+   */
+  wayBack.current = offerTheWayBack;
+
+  async function offerTheWayBack() {
+    if (askedTheWayBack.current) return;
+    askedTheWayBack.current = true;
+    const answer = await showConfirm(
+      "This machine cannot draw the solids smoothly",
+      "The picture is already drawn as simply as it can be and the frames are still slow. Going back to the flat picture will make it answer again; fewer cards - a search, or a facet - would let the solids back.",
+      { confirmLabel: "Back to the flat picture" },
+    );
+    if (answer.ok) onChange({ ...def, depthProperty: null });
+  }
 
   const palette = useMemo(() => buildPalette(paletteSize, theme?.panel ?? [255, 255, 255], theme?.accent ?? [9, 96, 178], def.palette), [theme, def.palette]);
 
@@ -280,15 +397,19 @@ export function VisualPivotView({
   const colorNow = decoded && colorProperty ? (decoded.byProperty.get(colorProperty) ?? null) : null;
   const barNow = decoded && barProperty ? (decoded.byProperty.get(barProperty) ?? null) : null;
   const shapeNow = decoded && shapeProperty ? (decoded.byProperty.get(shapeProperty) ?? null) : null;
+  const depthNow = decoded && depthProperty ? (decoded.byProperty.get(depthProperty) ?? null) : null;
   const lastColor = useRef<DecodedProperty | null>(null);
   const lastBar = useRef<DecodedProperty | null>(null);
   const lastShape = useRef<DecodedProperty | null>(null);
+  const lastDepth = useRef<DecodedProperty | null>(null);
   const colorData = colorNow ?? (colorProperty !== null ? lastColor.current : null);
   const barData = barNow ?? (barProperty !== null ? lastBar.current : null);
   const shapeData = shapeNow ?? (shapeProperty !== null ? lastShape.current : null);
+  const depthData = depthNow ?? (depthProperty !== null ? lastDepth.current : null);
   lastColor.current = colorData;
   lastBar.current = barData;
   lastShape.current = shapeData;
+  lastDepth.current = depthData;
 
   // The picture follows the data. What changed is worked out from the answer itself rather than
   // from which picker was touched: other cards (the ids differ) are a new set, and the ones that
@@ -305,6 +426,9 @@ export function VisualPivotView({
       ? barLayout(decoded.count, barData.assignment, barData.groups.length, colorData?.assignment ?? null, aspect, decoded.order)
       : gridLayout(decoded.count, aspect, decoded.order);
     layoutRef.current = layout;
+    // how thick every card is, when the picture is one of solids
+    const depths = solid.current && depthData ? cardDepths(depthData, decoded.count) : null;
+    const padding = solid.current ? solidFitPadding : fitPadding;
     const prev = previous.current;
     if (prev === null || !sameValues(prev.decoded.ids, decoded.ids)) {
       // A new set of cards: the ones that were already on screen leave from where they are, and the
@@ -335,15 +459,23 @@ export function VisualPivotView({
         fresh = new Uint8Array(decoded.count).fill(1);
       }
       f.setCards(decoded.count, from, layout.positions, fresh);
+      // the thickness is told before the fit, which has to know how far the picture stands out
+      solid.current?.setDepths(depths, 0);
       media.current?.setCards(decoded.ids);
       setSelectedIndex(-1);
       // the camera keeps pace with the cards: it arrives on the new picture as the last of them do
-      f.fit(fitBounds(layout), fitPadding, prev !== null ? transitionSeconds : 0);
+      f.fit(fitBounds(layout), padding, prev !== null ? transitionSeconds : 0);
     } else if (!sameValues(prev.layout.positions, layout.positions)) {
+      solid.current?.setDepths(depths, transitionSeconds);
       f.moveTo(layout.positions);
-      f.fit(fitBounds(layout), fitPadding, transitionSeconds);
+      f.fit(fitBounds(layout), padding, transitionSeconds);
+    } else if (!sameDepths(prev.depths, depths)) {
+      // the same cards in the same places, given another thickness: they grow or shrink where they
+      // stand, and the camera draws back or comes in as the picture changes height
+      solid.current?.setDepths(depths, transitionSeconds);
+      f.fit(fitBounds(layout), padding, transitionSeconds);
     }
-    previous.current = { decoded, layout };
+    previous.current = { decoded, layout, depths };
     media.current?.setLayout(layout);
     const colors = paletteBytes(colorData, palette, theme);
     f.setGroups(colorData ? colorData.assignment : new Uint16Array(decoded.count), colors);
@@ -352,7 +484,7 @@ export function VisualPivotView({
     labelColors.current = { assignment: colorData ? colorData.assignment : null, palette: colors, shaped: shapeData !== null, shapes, panel: theme.panel };
     setBars(layout.bars ? layout.bars.map((bar) => ({ bar, group: barData!.groups[bar.group] })) : []);
     setTooltip(null);
-  }, [decoded, colorData, barData, shapeData, theme, palette]);
+  }, [decoded, colorData, barData, shapeData, depthData, theme, palette]);
 
   // the form closed: the card it showed is no longer the one being looked at
   useEffect(() => {
@@ -371,7 +503,7 @@ export function VisualPivotView({
   function fitToLayout(seconds: number) {
     const f = field.current;
     const layout = layoutRef.current;
-    if (f && layout) f.fit(fitBounds(layout), fitPadding, seconds);
+    if (f && layout) f.fit(fitBounds(layout), solid.current ? solidFitPadding : fitPadding, seconds);
   }
 
   // The labels under the bars, placed straight on the elements from the camera of the frame just
@@ -409,10 +541,25 @@ export function VisualPivotView({
     return [e.clientX - rect.left, e.clientY - rect.top];
   }
 
+  /**
+   * The mouse. Flat, a drag pans the picture and coasts on when it is let go. Solid, it works the
+   * way the 3D datamodel graph does: the left button turns the picture about the point in focus, the
+   * right button (or shift and the left) slides it, the middle button turns the camera where it
+   * stands, and the wheel flies toward what is under the cursor.
+   */
   function onPointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
-    if (e.button !== 0) return;
+    const s = solid.current;
+    let kind: Drag["kind"] = "flat";
+    if (s) {
+      if (e.button === 1 || (e.button === 0 && (e.ctrlKey || e.altKey))) kind = "look";
+      else if (e.button === 2 || (e.button === 0 && e.shiftKey)) kind = "pan";
+      else if (e.button === 0) kind = "orbit";
+      else return;
+      e.preventDefault();
+      s.hold(kind);
+    } else if (e.button !== 0) return;
     const [x, y] = canvasPoint(e);
-    drag.current = { x, y, t: performance.now(), moved: false, vx: 0, vy: 0 };
+    drag.current = { x, y, t: performance.now(), moved: false, vx: 0, vy: 0, kind };
     e.currentTarget.setPointerCapture(e.pointerId);
     field.current?.setHover(-1);
     setTooltip(null);
@@ -429,7 +576,14 @@ export function VisualPivotView({
       const dx = x - d.x;
       const dy = y - d.y;
       if (!d.moved && Math.hypot(dx, dy) > 4) d.moved = true;
-      if (d.moved) f.panBy(dx, dy);
+      const s = solid.current;
+      if (d.moved && s) {
+        if (d.kind === "orbit") s.orbit(dx, dy, dt);
+        else if (d.kind === "look") s.look(dx, dy, dt);
+        else s.panBy(dx, dy, dt);
+      } else if (d.moved) {
+        flat.current?.panBy(dx, dy);
+      }
       // a running estimate of the speed, for the coast after the drag ends
       d.vx = d.vx * 0.6 + (dx / dt) * 0.4;
       d.vy = d.vy * 0.6 + (dy / dt) * 0.4;
@@ -438,9 +592,10 @@ export function VisualPivotView({
       d.t = now;
       return;
     }
-    // the card under the pointer, asked of the GPU no more than about thirty times a second
+    // the card under the pointer, asked of the GPU no more than about thirty times a second - and
+    // half as often in a picture of solids, where the question is a raymarched pass over the cards
     const now = performance.now();
-    if (now - lastHoverPick.current < 33) return;
+    if (now - lastHoverPick.current < (solid.current ? 66 : 33)) return;
     lastHoverPick.current = now;
     const i = f.pick(x, y);
     f.setHover(i);
@@ -451,7 +606,7 @@ export function VisualPivotView({
     const lines: string[] = [];
     const name = media.current?.nameOf(i);
     if (name) lines.push(name);
-    for (const p of [colorData, shapeData, barData]) {
+    for (const p of [colorData, shapeData, depthData, barData]) {
       if (!p || lines.some((l) => l.startsWith(p.name + ": "))) continue;
       lines.push(p.name + ": " + p.groups[p.assignment[i]].label);
     }
@@ -463,9 +618,11 @@ export function VisualPivotView({
     const d = drag.current;
     drag.current = null;
     if (!f || !d) return;
+    if (d.kind !== "flat") solid.current?.release(d.kind);
     if (d.moved) {
-      // a hand that stopped before letting go leaves the picture where it is
-      if (performance.now() - d.t < 80) f.fling(d.vx, d.vy);
+      // a hand that stopped before letting go leaves the picture where it is (the solid picture
+      // keeps its own speed per channel, which is what release has just let go of)
+      if (d.kind === "flat" && performance.now() - d.t < 80) flat.current?.fling(d.vx, d.vy);
       return;
     }
     const [x, y] = canvasPoint(e);
@@ -491,6 +648,26 @@ export function VisualPivotView({
   const colorInfo = groupable.find((p) => p.id === colorProperty);
   const barInfo = groupable.find((p) => p.id === barProperty);
   const shapeInfo = groupable.find((p) => p.id === shapeProperty);
+  const depthInfo = groupable.find((p) => p.id === depthProperty);
+
+  /**
+   * Turning depth on is what turns the picture into a picture of solids, and that is several times
+   * the work of the flat one - so past a certain number of cards it is asked for rather than done.
+   * A machine has no way back out of a frame it has begun, and the browser would be the thing that
+   * stopped answering, so this is the one choice in the builder that is put as a question.
+   */
+  async function chooseDepth(id: string | null) {
+    const cards = decoded?.count ?? 0;
+    if (id !== null && !solidPicture && cards > heavyCards) {
+      const answer = await showConfirm(
+        "Draw " + formatCount(cards) + " cards as solids?",
+        "Every card becomes a solid with sides of its own, which is several times the work of the flat picture. On a machine without much of a graphics card this one may be slow to answer, or stop answering for a while. The picture gives up detail on its own if the frames run long.",
+        { confirmLabel: "Show the solids" },
+      );
+      if (!answer.ok) return;
+    }
+    onChange({ ...def, depthProperty: id });
+  }
   const propertySelect = (value: string | null, none: string, title: string, onPick: (id: string | null) => void) => (
     <select className="select" value={value ?? ""} title={title} onChange={(e) => onPick(e.target.value || null)}>
       <option value="">{none}</option>
@@ -532,6 +709,11 @@ export function VisualPivotView({
           <span className="pivot-chip">
             {propertySelect(shapeProperty, "(one shape)", "The property whose values give the cards their shapes; without one every card is a square", (id) => onChange({ ...def, shapeProperty: id }))}
             {modeSelect(shapeInfo, shapeMode, (mode) => onChange({ ...def, shapeMode: mode }))}
+          </span>
+          <span className="pivot-builder-label visual-label-2">Depth by</span>
+          <span className="pivot-chip">
+            {propertySelect(depthProperty, "(flat)", "The property whose values give the cards their thickness; choosing one draws the picture as solids you can turn", chooseDepth)}
+            {modeSelect(depthInfo, depthMode, (mode) => onChange({ ...def, depthMode: mode }))}
           </span>
           <span className="pivot-builder-label visual-label-2">Bars by</span>
           <span className="pivot-chip">
@@ -591,15 +773,26 @@ export function VisualPivotView({
           <span>{loading ? "Loading the cards…" : ""}</span>
         )}
         <div className="query-spacer" />
-        <span className="muted">drag to pan · wheel to zoom · click a card to open it</span>
+        <span className="muted">{solidPicture ? "drag to turn · shift-drag or right-drag to slide · wheel to zoom · click a card to open it" : "drag to pan · wheel to zoom · click a card to open it"}</span>
       </div>
 
       <div className="visual-stage" ref={stageRef}>
         <div className="visual-canvas">
           {glOk ? (
             <>
-              <canvas ref={canvasRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onPointerLeave={onPointerLeave} onDoubleClick={() => fitToLayout(refitSeconds)} />
-              <canvas className="visual-text" ref={textRef} />
+              {/* the mode is the canvas' key: a canvas hands out one drawing context for its life, so each renderer gets an element of its own */}
+              <canvas
+                key={solidPicture ? "solid" : "flat"}
+                ref={canvasRef}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerUp}
+                onPointerLeave={onPointerLeave}
+                onDoubleClick={() => fitToLayout(refitSeconds)}
+                onContextMenu={(e) => solidPicture && e.preventDefault()}
+              />
+              {!solidPicture && <canvas className="visual-text" ref={textRef} />}
             </>
           ) : (
             <div className="query-empty">This browser has no WebGL 2, which the picture is drawn with.</div>
@@ -621,8 +814,20 @@ export function VisualPivotView({
           )}
           {decoded && decoded.count === 0 && <div className="visual-empty">Nothing matched.</div>}
           {selectedIndex >= 0 && <span className="visual-selected-note">card {formatCount(selectedIndex + 1)} open</span>}
+          {reduced && (
+            <span
+              className="visual-detail-note"
+              title={
+                reduced === "size"
+                  ? "There are enough cards here that they are drawn as plain boxes with a shaded edge rather than as the shapes cut out and extruded. A smaller set - a search, or a facet - gets those back."
+                  : "The frames were running long, so the solids are drawn more simply. A smaller set, or a closer view, takes the detail back."
+              }
+            >
+              drawn simply
+            </span>
+          )}
         </div>
-        {def.legend && theme && (colorData || shapeData) && (
+        {def.legend && theme && (colorData || shapeData || depthData) && (
           <div className="visual-legend">
             {colorData && (
               <>
@@ -631,6 +836,7 @@ export function VisualPivotView({
                   <button className="visual-legend-item" key={"colour" + i} title={groupTitle(g)} onClick={() => field.current?.pulseGroup(i)}>
                     {/* the swatch carries the shape as well when the picture is shaped by the same property, so one row says all of it */}
                     <span className={"visual-swatch" + (shapeData?.propertyId === colorData.propertyId ? " shaped" : "")} style={{ background: swatchCss(g, palette, theme), ...maskOf(shapeData?.propertyId === colorData.propertyId ? g.shape : null) }} />
+                    {depthData?.propertyId === colorData.propertyId && depthBar(depthData, i)}
                     <span className="visual-legend-label">{g.label}</span>
                     <span className="visual-legend-count">{formatCount(g.count)}</span>
                   </button>
@@ -643,9 +849,24 @@ export function VisualPivotView({
                 {shapeData.groups.map((g, i) => (
                   <button className="visual-legend-item" key={"shape" + i} title={groupTitle(g) + " \u2014 " + shapeLabel(g.shape).toLowerCase()} onClick={() => field.current?.pulseShape(g.shape)}>
                     <span className="visual-swatch shaped" style={maskOf(g.shape)} />
+                    {depthData?.propertyId === shapeData.propertyId && depthBar(depthData, i)}
                     <span className="visual-legend-label">{g.label}</span>
                     <span className="visual-legend-count">{formatCount(g.count)}</span>
                   </button>
+                ))}
+              </>
+            )}
+            {/* depth on a property of its own: the rows say how thick, and nothing else - a thickness
+                is not a colour or a silhouette, so there is no swatch to blink and nothing to click */}
+            {depthData && depthData.propertyId !== colorData?.propertyId && depthData.propertyId !== shapeData?.propertyId && (
+              <>
+                <div className="visual-legend-head">{depthData.name}</div>
+                {depthData.groups.map((g, i) => (
+                  <span className="visual-legend-item static" key={"depth" + i} title={groupTitle(g)}>
+                    {depthBar(depthData, i)}
+                    <span className="visual-legend-label">{g.label}</span>
+                    <span className="visual-legend-count">{formatCount(g.count)}</span>
+                  </span>
                 ))}
               </>
             )}
@@ -654,6 +875,52 @@ export function VisualPivotView({
       </div>
     </div>
   );
+}
+
+/**
+ * How thick each group's cards are: the value groups run from the thinnest to the deepest in the
+ * order the server sent them, which for ranges of a number or a date is ascending, so a deeper card
+ * is a larger value. The nodes with no value, and the ones outside the groups kept, stay as thin as
+ * a card gets - the same thing a plain card says in the flat picture.
+ */
+function cardDepths(property: DecodedProperty, count: number): Float32Array {
+  const groups = property.groups;
+  const rank = new Int32Array(groups.length).fill(-1);
+  let ranks = 0;
+  for (let g = 0; g < groups.length; g++) if (groups[g].kind === "value") rank[g] = ranks++;
+  const byGroup = new Float32Array(groups.length);
+  for (let g = 0; g < groups.length; g++) {
+    if (rank[g] < 0) byGroup[g] = depthMin;
+    // one value on its own has no scale to be read against, so it takes the middle of the range
+    else byGroup[g] = ranks <= 1 ? (depthMin + depthMax) / 2 : depthMin + (depthMax - depthMin) * (rank[g] / (ranks - 1));
+  }
+  const out = new Float32Array(count);
+  for (let i = 0; i < count; i++) out[i] = byGroup[property.assignment[i]];
+  return out;
+}
+
+/** The legend's picture of a thickness: how far up the range this group's cards stand. */
+function depthBar(property: DecodedProperty, group: number): React.ReactNode {
+  const groups = property.groups;
+  let ranks = 0;
+  let rank = -1;
+  for (let g = 0; g < groups.length; g++) {
+    if (groups[g].kind !== "value") continue;
+    if (g === group) rank = ranks;
+    ranks++;
+  }
+  const share = rank < 0 ? 0 : ranks <= 1 ? 0.5 : rank / (ranks - 1);
+  return (
+    <span className="visual-depth" style={{ ["--depth" as string]: (0.12 + 0.88 * share).toFixed(3) }}>
+      <i />
+    </span>
+  );
+}
+
+/** Element-wise equality of two typed arrays, either of which may be absent. */
+function sameDepths(a: Float32Array | null, b: Float32Array | null): boolean {
+  if (a === null || b === null) return a === b;
+  return sameValues(a, b);
 }
 
 /** Element-wise equality of two typed arrays: a pass over a million in a millisecond or two. */

@@ -46,6 +46,13 @@ export interface VisualDefinition {
   /** the property whose values give the cards their shapes; null (and absent, in an older save) is the plain card */
   shapeProperty?: string | null;
   shapeMode?: string;
+  /**
+   * The property whose values give the cards their thickness. Choosing one is what turns the
+   * picture into a picture of solids, seen through a camera that orbits; null (and absent, in an
+   * older save) is the flat picture.
+   */
+  depthProperty?: string | null;
+  depthMode?: string;
   /** the property whose values the cards are stacked into bars by; null is the grid */
   barProperty: string | null;
   barMode: string;

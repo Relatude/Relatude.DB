@@ -1,4 +1,4 @@
-import { cardFill, imageShare, type CardField } from "./cardField";
+import { cardFill, imageShare, type FieldSurface } from "./cardField";
 import type { CardMedia } from "./cardMedia";
 
 /**
@@ -32,7 +32,7 @@ export interface LabelColors {
 
 export interface CardLabels {
   /** Draws the names of the cards in view; called after every frame the field draws. */
-  draw(field: CardField, media: CardMedia, colors: LabelColors | null): void;
+  draw(field: FieldSurface, media: CardMedia, colors: LabelColors | null): void;
   clear(): void;
 }
 

@@ -177,14 +177,60 @@ export interface CardField {
   destroy(): void;
 }
 
+/**
+ * What the pictures (cardMedia.ts) and the names (cardLabels.ts) need of the field they follow.
+ * Both renderers - this one and the three-dimensional one in cardField3d.ts - provide it, so the
+ * machinery that keeps the cards in view supplied with their pictures is written once and knows
+ * nothing about which of the two is drawing.
+ */
+export type FieldSurface = Pick<
+  CardField,
+  "positionsOf" | "pulseFade" | "worldToCss" | "camera" | "cameraTarget" | "size" | "invalidate" | "ensureImageLevel" | "imageLayers" | "uploadImage" | "setCardImage" | "setTiles" | "uploadTile" | "freeTiles"
+>;
+
+/**
+ * What the view drives a field with, whichever of the two it is: everything but the flat camera
+ * (a wheel step, a drag) and the three-dimensional one (an orbit), which the view works differently.
+ */
+export type CardFieldCommon = Pick<
+  CardField,
+  | "setCards"
+  | "moveTo"
+  | "positions"
+  | "positionsOf"
+  | "setGroups"
+  | "setShapes"
+  | "setTheme"
+  | "setHover"
+  | "setSelected"
+  | "pulseGroup"
+  | "pulseShape"
+  | "pulseFade"
+  | "pick"
+  | "fit"
+  | "size"
+  | "moving"
+  | "onFrame"
+  | "invalidate"
+  | "resize"
+  | "ensureImageLevel"
+  | "imageLayers"
+  | "uploadImage"
+  | "setCardImage"
+  | "setTiles"
+  | "uploadTile"
+  | "freeTiles"
+  | "destroy"
+>;
+
 // The curve a card travels on. A quintic ease-in-out (6t⁵ - 15t⁴ + 10t³: no velocity and no
 // acceleration at either end, so a move starts from a standstill and comes to rest, with its speed
 // spread over the whole of the move rather than spent in a dash) plus a small bump, t³(1-t)², that
 // carries the card a touch past its place around t ≈ 0.88 and brings it back by t = 1 - about one
 // percent of the distance, felt as weight rather than seen as a bounce. Both terms are flat at t = 0
 // and t = 1, so the overshoot never adds a kick at either end. The GLSL below is this function.
-const overshoot = 2.55;
-function ease(t: number): number {
+export const overshoot = 2.55;
+export function ease(t: number): number {
   if (t <= 0) return 0;
   if (t >= 1) return 1;
   const t3 = t * t * t;
@@ -205,15 +251,15 @@ export const moveStagger = 0.6;
 export const transitionSeconds = moveDuration + moveStagger;
 
 /** how long a card takes to arrive where it lands, in seconds, and the size it starts out at */
-const fadeSeconds = 0.75;
-const bornScale = 0.35;
+export const fadeSeconds = 0.75;
+export const bornScale = 0.35;
 /**
  * The pulse: the cards addressed fade into the page and back, twice. How long the two blinks take
  * together, and how far into the page a card is taken at the turn of one - not the whole way, so a
  * ghost of the group is left where it is rather than a hole in the picture.
  */
 export const pulseSeconds = 0.8;
-const pulseFadeDepth = 0.9;
+export const pulseFadeDepth = 0.9;
 
 /** how much of the pitch a card fills when there is room to see the gap */
 export const cardFill = 0.84;
