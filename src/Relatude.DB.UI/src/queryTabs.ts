@@ -43,6 +43,9 @@ export interface VisualDefinition {
   /** the property whose values colour the cards; null is one colour for all of them */
   colorProperty: string | null;
   colorMode: string;
+  /** the property whose values give the cards their shapes; null (and absent, in an older save) is the plain card */
+  shapeProperty?: string | null;
+  shapeMode?: string;
   /** the property whose values the cards are stacked into bars by; null is the grid */
   barProperty: string | null;
   barMode: string;

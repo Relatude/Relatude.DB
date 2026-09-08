@@ -7993,6 +7993,21 @@ body.pg-resizing {
   border-radius: 3px;
 }
 
+/* a swatch that carries a shape: the silhouette is a mask over the colour, so the swatch is the
+   card in miniature. Without a colour property to paint it, it is drawn in the page's own ink. */
+.visual-swatch.shaped {
+  width: 15px;
+  height: 15px;
+  border-radius: 0;
+  background: var(--text-soft);
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+}
+
 .visual-legend-label {
   flex: 1;
   min-width: 0;

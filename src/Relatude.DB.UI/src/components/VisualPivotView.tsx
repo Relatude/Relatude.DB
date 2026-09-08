@@ -8,12 +8,13 @@ import type { VisualDefinition } from "../queryTabs";
 import { createCardField, transitionSeconds, type CardField, type FieldTheme, type RGBf } from "../visual/cardField";
 import { barLayout, gridLayout, type Bar, type Layout } from "../visual/layouts";
 import { buildPalette, palettes, parseCssColor, type PaletteColor, type RGB } from "../visual/palette";
+import { shapeLabel, shapeMaskUrl, shapeSlotFor } from "../visual/shapes";
 import { IntMap } from "../visual/intMap";
 import { createCardMedia, type CardMedia } from "../visual/cardMedia";
 import { createCardLabels, type CardLabels, type LabelColors } from "../visual/cardLabels";
 
 /** A visual pivot before anyone has chosen anything: a grid of one colour, in the result's order. */
-export const emptyVisual: VisualDefinition = { colorProperty: null, colorMode: "auto", barProperty: null, barMode: "auto", sortProperty: null, sortDescending: false, legend: true, palette: palettes[0].id };
+export const emptyVisual: VisualDefinition = { colorProperty: null, colorMode: "auto", shapeProperty: null, shapeMode: "auto", barProperty: null, barMode: "auto", sortProperty: null, sortDescending: false, legend: true, palette: palettes[0].id };
 
 /** what a group stands for: a value of the property, the nodes without one, or the ones outside the groups kept */
 type GroupKind = "value" | "none" | "other";
@@ -22,6 +23,8 @@ interface DecodedGroup extends VisualGroup {
   kind: GroupKind;
   /** the group's place in the palette (see paletteSlots); -1 for the two greys */
   ordinal: number;
+  /** the silhouette this group's cards are cut out to when the picture is shaped by this property (see shapeSlotFor); 0 is the plain card */
+  shape: number;
 }
 
 interface DecodedProperty {
@@ -137,6 +140,9 @@ export function VisualPivotView({
 
   const colorProperty = groupable.some((p) => p.id === def.colorProperty) ? def.colorProperty : null;
   const barProperty = groupable.some((p) => p.id === def.barProperty) ? def.barProperty : null;
+  // read defensively: a definition saved before there were shapes has neither field
+  const shapeProperty = groupable.some((p) => p.id === def.shapeProperty) ? def.shapeProperty! : null;
+  const shapeMode = def.shapeMode ?? "auto";
   // sorting needs a single value per node with an order to it, which is what an indexed scalar is
   const sortable = useMemo(() => model?.properties.filter((p) => p.aggregatable) ?? [], [model]);
   // read defensively: a definition saved before there was a sort has neither field
@@ -147,7 +153,8 @@ export function VisualPivotView({
     if (model === null || definition === null) return null;
     const properties = [];
     if (colorProperty) properties.push({ propertyId: colorProperty, mode: def.colorMode });
-    if (barProperty && barProperty !== colorProperty) properties.push({ propertyId: barProperty, mode: def.barMode });
+    if (shapeProperty && shapeProperty !== colorProperty) properties.push({ propertyId: shapeProperty, mode: shapeMode });
+    if (barProperty && barProperty !== colorProperty && barProperty !== shapeProperty) properties.push({ propertyId: barProperty, mode: def.barMode });
     return {
       storeId: base.storeId,
       typeId: base.typeId,
@@ -161,7 +168,7 @@ export function VisualPivotView({
     };
     // the token is not part of the request; a new object is how the runner is told to run again
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model, definition === null, base, colorProperty, def.colorMode, barProperty, def.barMode, sortProperty, sortDescending, refreshToken]);
+  }, [model, definition === null, base, colorProperty, def.colorMode, shapeProperty, shapeMode, barProperty, def.barMode, sortProperty, sortDescending, refreshToken]);
   const { result, loading, error } = useLiveResult(request, runVisual);
   const decoded = useMemo(() => (result ? decode(result) : null), [result]);
 
@@ -272,12 +279,16 @@ export function VisualPivotView({
   // canvas, and the picture would jump twice for a change that moves nothing at all.
   const colorNow = decoded && colorProperty ? (decoded.byProperty.get(colorProperty) ?? null) : null;
   const barNow = decoded && barProperty ? (decoded.byProperty.get(barProperty) ?? null) : null;
+  const shapeNow = decoded && shapeProperty ? (decoded.byProperty.get(shapeProperty) ?? null) : null;
   const lastColor = useRef<DecodedProperty | null>(null);
   const lastBar = useRef<DecodedProperty | null>(null);
+  const lastShape = useRef<DecodedProperty | null>(null);
   const colorData = colorNow ?? (colorProperty !== null ? lastColor.current : null);
   const barData = barNow ?? (barProperty !== null ? lastBar.current : null);
+  const shapeData = shapeNow ?? (shapeProperty !== null ? lastShape.current : null);
   lastColor.current = colorData;
   lastBar.current = barData;
+  lastShape.current = shapeData;
 
   // The picture follows the data. What changed is worked out from the answer itself rather than
   // from which picker was touched: other cards (the ids differ) are a new set, and the ones that
@@ -336,10 +347,11 @@ export function VisualPivotView({
     media.current?.setLayout(layout);
     const colors = paletteBytes(colorData, palette, theme);
     f.setGroups(colorData ? colorData.assignment : new Uint16Array(decoded.count), colors);
-    labelColors.current = { assignment: colorData ? colorData.assignment : null, palette: colors };
+    f.setShapes(shapeData ? cardShapes(shapeData, decoded.count) : null);
+    labelColors.current = { assignment: colorData ? colorData.assignment : null, palette: colors, shaped: shapeData !== null, panel: theme.panel };
     setBars(layout.bars ? layout.bars.map((bar) => ({ bar, group: barData!.groups[bar.group] })) : []);
     setTooltip(null);
-  }, [decoded, colorData, barData, theme, palette]);
+  }, [decoded, colorData, barData, shapeData, theme, palette]);
 
   // the form closed: the card it showed is no longer the one being looked at
   useEffect(() => {
@@ -438,7 +450,7 @@ export function VisualPivotView({
     const lines: string[] = [];
     const name = media.current?.nameOf(i);
     if (name) lines.push(name);
-    for (const p of [colorData, barData]) {
+    for (const p of [colorData, shapeData, barData]) {
       if (!p || lines.some((l) => l.startsWith(p.name + ": "))) continue;
       lines.push(p.name + ": " + p.groups[p.assignment[i]].label);
     }
@@ -477,6 +489,7 @@ export function VisualPivotView({
   if (!model) return null;
   const colorInfo = groupable.find((p) => p.id === colorProperty);
   const barInfo = groupable.find((p) => p.id === barProperty);
+  const shapeInfo = groupable.find((p) => p.id === shapeProperty);
   const propertySelect = (value: string | null, none: string, title: string, onPick: (id: string | null) => void) => (
     <select className="select" value={value ?? ""} title={title} onChange={(e) => onPick(e.target.value || null)}>
       <option value="">{none}</option>
@@ -513,6 +526,11 @@ export function VisualPivotView({
                 </option>
               ))}
             </select>
+          </span>
+          <span className="pivot-builder-label visual-label-2">Shape by</span>
+          <span className="pivot-chip">
+            {propertySelect(shapeProperty, "(one shape)", "The property whose values give the cards their shapes; without one every card is a square", (id) => onChange({ ...def, shapeProperty: id }))}
+            {modeSelect(shapeInfo, shapeMode, (mode) => onChange({ ...def, shapeMode: mode }))}
           </span>
           <span className="pivot-builder-label visual-label-2">Bars by</span>
           <span className="pivot-chip">
@@ -603,24 +621,33 @@ export function VisualPivotView({
           {decoded && decoded.count === 0 && <div className="visual-empty">Nothing matched.</div>}
           {selectedIndex >= 0 && <span className="visual-selected-note">card {formatCount(selectedIndex + 1)} open</span>}
         </div>
-        {def.legend && colorData && theme && (
+        {def.legend && theme && (colorData || shapeData) && (
           <div className="visual-legend">
-            <div className="visual-legend-head">{colorData.name}</div>
-            {colorData.groups.map((g, i) => (
-              <button
-                className="visual-legend-item"
-                key={i}
-                title={
-                  (g.kind === "other" ? "The values with fewer nodes than the groups kept" : g.kind === "none" ? "The nodes without a value" : g.label) +
-                  " \u2014 click to see where these cards are"
-                }
-                onClick={() => field.current?.pulseGroup(i)}
-              >
-                <span className="visual-swatch" style={{ background: swatchCss(g, palette, theme) }} />
-                <span className="visual-legend-label">{g.label}</span>
-                <span className="visual-legend-count">{formatCount(g.count)}</span>
-              </button>
-            ))}
+            {colorData && (
+              <>
+                <div className="visual-legend-head">{colorData.name}</div>
+                {colorData.groups.map((g, i) => (
+                  <button className="visual-legend-item" key={"colour" + i} title={groupTitle(g)} onClick={() => field.current?.pulseGroup(i)}>
+                    {/* the swatch carries the shape as well when the picture is shaped by the same property, so one row says all of it */}
+                    <span className={"visual-swatch" + (shapeData?.propertyId === colorData.propertyId ? " shaped" : "")} style={{ background: swatchCss(g, palette, theme), ...maskOf(shapeData?.propertyId === colorData.propertyId ? g.shape : null) }} />
+                    <span className="visual-legend-label">{g.label}</span>
+                    <span className="visual-legend-count">{formatCount(g.count)}</span>
+                  </button>
+                ))}
+              </>
+            )}
+            {shapeData && shapeData.propertyId !== colorData?.propertyId && (
+              <>
+                <div className="visual-legend-head">{shapeData.name}</div>
+                {shapeData.groups.map((g, i) => (
+                  <button className="visual-legend-item" key={"shape" + i} title={groupTitle(g) + " \u2014 " + shapeLabel(g.shape).toLowerCase()} onClick={() => field.current?.pulseShape(g.shape)}>
+                    <span className="visual-swatch shaped" style={maskOf(g.shape)} />
+                    <span className="visual-legend-label">{g.label}</span>
+                    <span className="visual-legend-count">{formatCount(g.count)}</span>
+                  </button>
+                ))}
+              </>
+            )}
           </div>
         )}
       </div>
@@ -656,12 +683,14 @@ function decode(result: VisualResult): Decoded {
       ...g,
       kind: g.value === null && g.value2 === null ? "none" : "value",
       ordinal: -1,
+      shape: 0,
     }));
     paletteSlots(groups);
+    shapeSlots(groups);
     if (p.unassigned > 0) {
       // the cards outside the groups kept become one group of their own, so every card has a place
       const other = groups.length;
-      groups.push({ label: "(other)", value: null, value2: null, count: p.unassigned, kind: "other", ordinal: -1 });
+      groups.push({ label: "(other)", value: null, value2: null, count: p.unassigned, kind: "other", ordinal: -1, shape: 0 });
       for (let i = 0; i < assignment.length; i++) if (assignment[i] === 0xffff) assignment[i] = other;
     }
     byProperty.set(p.propertyId, { propertyId: p.propertyId, name: p.name, groups, assignment });
@@ -687,6 +716,22 @@ function paletteSlots(groups: DecodedGroup[]) {
   }
 }
 
+/**
+ * Which silhouette each value gets when the picture is shaped by this property. Hashed from the
+ * value like the colour is, and for the same reason - a value keeps its shape when the picture is
+ * narrowed - but handed out through shapeSlotFor, which gives out whole shapes before it starts
+ * turning and shrinking them. The nodes with no value, and the ones outside the groups kept, stay
+ * plain cards: the plain card is what "nothing to say here" looks like.
+ */
+function shapeSlots(groups: DecodedGroup[]) {
+  const taken = new Set<number>();
+  for (const g of groups) {
+    if (g.kind !== "value") continue;
+    g.shape = shapeSlotFor(hashText((g.value ?? "") + "|" + (g.value2 ?? "")), taken);
+    taken.add(g.shape);
+  }
+}
+
 /** FNV-1a, 32 bits: the same slot for the same value on every visit. */
 function hashText(text: string): number {
   let h = 0x811c9dc5;
@@ -706,6 +751,27 @@ function groupColor(g: DecodedGroup, palette: PaletteColor[], theme: Theme): [nu
 function swatchCss(g: DecodedGroup, palette: PaletteColor[], theme: Theme): string {
   const [r, gg, b] = groupColor(g, palette, theme);
   return `rgb(${r} ${gg} ${b})`;
+}
+
+function groupTitle(g: DecodedGroup): string {
+  const what = g.kind === "other" ? "The values with fewer nodes than the groups kept" : g.kind === "none" ? "The nodes without a value" : g.label;
+  return what + " — click to see where these cards are";
+}
+
+/** The legend's swatch wears the silhouette as a mask, so it is the shape its cards are cut out to, in whatever colour the swatch is painted. */
+function maskOf(slot: number | null): React.CSSProperties {
+  if (slot === null) return {};
+  const url = `url("${shapeMaskUrl(slot)}")`;
+  return { maskImage: url, WebkitMaskImage: url };
+}
+
+/** The silhouette of every card: its group's, looked up through a table of the groups' own. */
+function cardShapes(property: DecodedProperty, count: number): Uint16Array {
+  const byGroup = new Uint16Array(property.groups.length);
+  property.groups.forEach((g, i) => (byGroup[i] = g.shape));
+  const shapes = new Uint16Array(count);
+  for (let i = 0; i < count; i++) shapes[i] = byGroup[property.assignment[i]];
+  return shapes;
 }
 
 /** The palette texture: rgba bytes per group of the colour property, or one colour when there is none. */

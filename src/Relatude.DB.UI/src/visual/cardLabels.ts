@@ -7,7 +7,8 @@ import type { CardMedia } from "./cardMedia";
  * or React in the loop. A few hundred fillText calls a frame is a millisecond or two; that is what a
  * screen of readable cards holds.
  *
- * A name sits in the strip below the picture, in a light or dark ink according to the card's colour,
+ * A name sits in the strip below the picture, in a light or dark ink according to what is behind it -
+ * the card's own colour, or the page where the card is cut out to a shape that does not reach there -
  * at a size that follows the strip, trimmed to the card with an ellipsis. It comes in with the same
  * curve the shader brings the pictures in on, so pictures and names appear as one thing.
  */
@@ -17,6 +18,14 @@ export interface LabelColors {
   assignment: Uint16Array | null;
   /** rgba bytes per group: the palette the field draws with */
   palette: Uint8Array;
+  /**
+   * Whether the cards are cut out to shapes. A name is drawn where a plain card keeps its colour,
+   * but a shaped card mostly does not reach down there - a circle or a star leaves the strip to the
+   * page - so the name is read against the page and takes its ink from that instead.
+   */
+  shaped: boolean;
+  /** the page behind the cards, rgb */
+  panel: [number, number, number];
 }
 
 export interface CardLabels {
@@ -94,8 +103,9 @@ export function createCardLabels(canvas: HTMLCanvasElement): CardLabels | null {
       ctx!.globalAlpha = detail;
       const palette = colors?.palette ?? null;
       const assignment = colors?.assignment ?? null;
+      const onPage = colors?.shaped === true ? inkFor(colors.panel[0], colors.panel[1], colors.panel[2]) : null;
       let lastGroup = -2;
-      let ink = lightInk;
+      let ink = onPage ?? lightInk;
       for (let k = 0; k < count; k++) {
         const i = indexes[k];
         const name = media.nameOf(i);
@@ -105,7 +115,7 @@ export function createCardLabels(canvas: HTMLCanvasElement): CardLabels | null {
         const y0 = cy - side / 2 + side * imageShare;
         if (x0 > width || x0 + side < 0 || y0 > height || y0 + strip < 0) continue;
         const group = assignment !== null ? assignment[i] : 0;
-        if (group !== lastGroup) {
+        if (onPage === null && group !== lastGroup) {
           lastGroup = group;
           ink = palette !== null && group * 4 + 2 < palette.length ? inkFor(palette[group * 4], palette[group * 4 + 1], palette[group * 4 + 2]) : lightInk;
         }

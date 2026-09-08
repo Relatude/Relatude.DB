@@ -1,4 +1,5 @@
 import type { Bounds } from "./layouts";
+import { shapeCount, shapeField, shapeFieldSize, shapeVariants } from "./shapes";
 
 /**
  * Draws the cards of the visual pivot: one instanced quad per card, WebGL 2, and nothing per card on
@@ -19,6 +20,11 @@ import type { Bounds } from "./layouts";
  *    Colouring by another property is one small buffer upload, not a rewrite of the picture. The
  *    group index is also what a pulse addresses, so drawing attention to one value of a property
  *    costs two uniforms rather than a pass over the cards.
+ *  - Shape works the same way and is the second thing a card can say without being read: another
+ *    two bytes say which silhouette it is cut out to, and the silhouettes are distance fields in an
+ *    array texture (see shapes.ts), so a card is a heart or a crown for one texture read and keeps a
+ *    clean edge at any size. A card told nothing is the plain rounded card it has always been, and
+ *    the shader never looks at the texture - a picture with no shape property costs what it did.
  *  - A card that was not on screen before grows out of nothing and fades in as it arrives, on its
  *    own place in the same staggered timeline, so a result that brings new cards washes in rather
  *    than appearing at once.
@@ -94,6 +100,12 @@ export interface CardField {
   positionsOf(indexes: ArrayLike<number>, count: number, out: Float32Array): void;
   /** The group of every card (uint16, an index into the palette) and the palette itself, rgba bytes per group. */
   setGroups(assignment: Uint16Array, palette: Uint8Array): void;
+  /**
+   * The silhouette of every card (uint16, a slot of shapes.ts; 0 is the plain card), or null for a
+   * picture of plain cards. The fields of the silhouettes actually used are built here, the first
+   * time they are asked for.
+   */
+  setShapes(assignment: Uint16Array | null): void;
   setTheme(theme: FieldTheme): void;
   setHover(index: number): void;
   setSelected(index: number): void;
@@ -103,6 +115,8 @@ export interface CardField {
    * are; -1 stops it. A card too small to see the movement of still keeps a few pixels of it.
    */
   pulseGroup(group: number): void;
+  /** The same, for the cards cut out to one silhouette; -1 stops it. */
+  pulseShape(slot: number): void;
   /** The card under a css pixel of the canvas, or -1. */
   pick(cssX: number, cssY: number): number;
   /** Brings the bounds into view with a margin, gliding there over `seconds` (0 jumps). */
@@ -245,6 +259,7 @@ layout(location = 2) in vec2 aTo;
 layout(location = 3) in vec2 aTiming;  // when this card sets off, and whether it is fading in
 layout(location = 4) in uint aGroup;
 layout(location = 5) in uvec3 aTex;    // the picture words, see setCardImage
+layout(location = 6) in uint aShape;   // which silhouette this card is cut out to, see shapes.ts
 uniform vec2 uCenterHi;   // the camera's centre, split into a whole part and a fraction so that at
 uniform vec2 uCenterLo;   // a deep zoom the subtraction from an integer cell is exact in float32
 uniform float uZoom;      // device pixels per world unit
@@ -260,7 +275,11 @@ uniform int uSelected;
 uniform vec3 uInk;
 uniform int uPick;
 uniform int uPulseGroup;  // the group pulsing right now, or -1
+uniform int uPulseShape;  // the silhouette pulsing right now, or -1
 uniform float uPulseT;    // how far through its pulse that group is, 0..1
+uniform int uShaped;      // 1 when the cards have silhouettes of their own
+uniform vec2 uShapeTurn[${shapeVariants.length}];  // what each variation turns a shape by (cos, sin)
+uniform float uShapeInvScale[${shapeVariants.length}]; // and one over how much it scales it
 uniform int uTileCard[${tileSlots}]; // the card each tile slot belongs to, -1 for none
 out vec2 vUv;
 out vec4 vColor;
@@ -269,7 +288,10 @@ flat out int vFlags;
 flat out uvec3 vTex;
 flat out float vDetail;
 flat out int vTileMask;
+flat out vec4 vShape;     // the turn (cos, sin), one over the scale, and the layer of the field; w < 0 is a plain card
+flat out float vShapeMix; // how much of the silhouette is cut out, see below
 const int TILE_SLOTS = ${tileSlots};
+const int VARIANTS = ${shapeVariants.length};
 const float OVERSHOOT = ${overshoot.toFixed(4)};
 const float PULSE = ${pulseAmount.toFixed(4)};
 const float PULSE_MIN_PX = ${pulseMinPx.toFixed(4)};
@@ -302,8 +324,11 @@ void main() {
     born = born * born * (3.0 - 2.0 * born);
   }
   float base = fill * (BORN + (1.0 - BORN) * born);
-  // -1 at the turn of a pulse, 0 for every card outside the group pulsing
-  float p = int(aGroup) == uPulseGroup ? pulse(uPulseT) : 0.0;
+  // -1 at the turn of a pulse, 0 for every card outside the group pulsing (which is addressed by
+  // its colour or by its silhouette, whichever legend was clicked)
+  int slot = int(aShape);
+  bool pulsed = int(aGroup) == uPulseGroup || slot == uPulseShape;
+  float p = pulsed ? pulse(uPulseT) : 0.0;
   float side = base * (1.0 + PULSE * p);
   // zoomed out to the whole set a card is a pixel or two, and taking a fraction off that is no
   // signal at all, so what is left of it is worth a couple of pixels of the screen
@@ -317,6 +342,19 @@ void main() {
   // the picture and the name come in as the card passes the width they are readable at; measured
   // on the card at rest, so a pulse at that width does not flicker them
   vDetail = smoothstep(uDetailPx * 0.9, uDetailPx * 1.1, fill * uZoom);
+  // The silhouette, if this card has one. A card a couple of pixels across has no room to show a
+  // shape and a screen of them is meant to read as a solid mosaic, so the shape comes in with the
+  // gap between the cards, on the same measure: below it the card is the plain rounded square.
+  if (uShaped == 1 && slot > 0) {
+    // the slot is the shape in its low byte and the variation in its high one (see shapes.ts), and
+    // what the variation does to the shape is two uniforms rather than anything worked out here
+    int variant = clamp(slot >> 8, 0, VARIANTS - 1);
+    vShape = vec4(uShapeTurn[variant], uShapeInvScale[variant], float(slot & 255));
+    vShapeMix = smoothstep(2.5, 7.0, uZoom);
+  } else {
+    vShape = vec4(1.0, 0.0, 1.0, -1.0);
+    vShapeMix = 0.0;
+  }
   int id = gl_InstanceID;
   vFlags = id == uSelected ? 1 : 0;
   int mask = 0;
@@ -346,6 +384,9 @@ flat in int vFlags;
 flat in uvec3 vTex;
 flat in float vDetail;
 flat in int vTileMask;
+flat in vec4 vShape;
+flat in float vShapeMix;
+uniform highp sampler2DArray uShapeAtlas; // one layer per shape: how far every point of a card is from its outline
 uniform int uPick;
 uniform vec3 uOutline;
 uniform vec3 uInk;
@@ -417,6 +458,20 @@ void main() {
   float r = clamp(vHalfPx * 0.16, 0.0, 6.0);
   vec2 q = abs(p) - (vHalfPx - r);
   float d = length(max(q, 0.0)) - r;
+  // A card with a silhouette is cut out to it instead: the card's own square is turned and scaled
+  // into the shape's box and the distance to the outline read from the field there. The field is
+  // kept in fractions of the card, so it becomes pixels the same way the rectangle just did, and
+  // the edge is one pixel wide whether the card is twenty pixels across or two thousand. Blending
+  // the two distances is what lets the shape grow out of the square as the cards get room for it.
+  if (vShapeMix > 0.002) {
+    vec2 c = (vUv - 0.5) * vShape.z;
+    vec2 uv = vec2(c.x * vShape.x + c.y * vShape.y, c.y * vShape.x - c.x * vShape.y) + 0.5;
+    float ds = texture(uShapeAtlas, vec3(uv, vShape.w)).r;
+    // past the shape's own box nothing was measured; what is there is the distance to the box
+    vec2 e = max(abs(uv - 0.5) - 0.5, 0.0);
+    ds = max(ds, length(e)) / vShape.z;
+    d = mix(d, ds * 2.0 * vHalfPx, vShapeMix);
+  }
   if (uPick == 1) {
     if (d > 0.0) discard;
     outColor = vColor;
@@ -492,12 +547,19 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   const uPick = u("uPick");
   const uOutline = u("uOutline");
   const uPulseGroup = u("uPulseGroup");
+  const uPulseShape = u("uPulseShape");
   const uPulseT = u("uPulseT");
+  const uShaped = u("uShaped");
+  const uShapeAtlas = u("uShapeAtlas");
   const uLevels = imageLevels.map((_, i) => u("uLevel" + i));
   const uTiles = Array.from({ length: tileSlots }, (_, i) => u("uTile" + i));
   const uTileCard = u("uTileCard");
   const uTileRect = u("uTileRect");
   const uTileTime = u("uTileTime");
+  // what a variation of a shape does to it: the same for every card, so it is said once
+  gl.useProgram(prog);
+  gl.uniform2fv(u("uShapeTurn"), shapeVariants.flatMap((v) => [Math.cos(v.angle), Math.sin(v.angle)]));
+  gl.uniform1fv(u("uShapeInvScale"), shapeVariants.map((v) => 1 / v.scale));
 
   // the quad every card is an instance of, corner (0,0) to (1,1)
   const quad = gl.createBuffer()!;
@@ -508,6 +570,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   const timingBuffer = gl.createBuffer()!;
   const groupBuffer = gl.createBuffer()!;
   const texBuffer = gl.createBuffer()!;
+  const shapeBuffer = gl.createBuffer()!;
   const vao = gl.createVertexArray()!;
   gl.bindVertexArray(vao);
   gl.bindBuffer(gl.ARRAY_BUFFER, quad);
@@ -531,6 +594,10 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   gl.enableVertexAttribArray(5);
   gl.vertexAttribIPointer(5, 3, gl.UNSIGNED_INT, 0, 0);
   gl.vertexAttribDivisor(5, 1);
+  gl.bindBuffer(gl.ARRAY_BUFFER, shapeBuffer);
+  gl.enableVertexAttribArray(6);
+  gl.vertexAttribIPointer(6, 1, gl.UNSIGNED_SHORT, 0, 0);
+  gl.vertexAttribDivisor(6, 1);
   gl.bindVertexArray(null);
 
   // the palette: one texel per group
@@ -567,6 +634,27 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   // a bitmap that is not the size of its level is drawn onto this first, so a layer is always whole
   let resizeCanvas: HTMLCanvasElement | null = null;
 
+  // The silhouettes: a layer per shape, each holding how far every point of a card is from that
+  // shape's outline. Made when a picture first asks for a shape, and a layer filled in when a shape
+  // is first seen, so a database nobody groups by shape pays nothing for any of it.
+  let shapeAtlas: WebGLTexture | null = null;
+  const shapeFilled = new Uint8Array(shapeCount);
+
+  function ensureShape(shape: number) {
+    if (shapeFilled[shape] === 1) return;
+    if (shapeAtlas === null) {
+      shapeAtlas = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, shapeAtlas);
+      gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.R16F, shapeFieldSize, shapeFieldSize, shapeCount);
+      arrayTextureParameters(gl);
+    } else {
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, shapeAtlas);
+    }
+    gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, shape, shapeFieldSize, shapeFieldSize, 1, gl.RED, gl.FLOAT, shapeField(shape));
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);
+    shapeFilled[shape] = 1;
+  }
+
   // one pixel to pick into
   const pickTexture = gl.createTexture()!;
   gl.bindTexture(gl.TEXTURE_2D, pickTexture);
@@ -597,7 +685,9 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   let hover = -1;
   let selected = -1;
   let pulsedGroup = -1;
+  let pulsedShape = -1;
   let pulseStart = 0;
+  let shaped = false;
   let theme: FieldTheme = { clear: [1, 1, 1], outline: [0.04, 0.38, 0.7], ink: [0.1, 0.1, 0.1] };
   let width = 1;
   let height = 1;
@@ -626,7 +716,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   }
 
   function pulsing(): boolean {
-    return pulsedGroup >= 0;
+    return pulsedGroup >= 0 || pulsedShape >= 0;
   }
 
   function fading(now: number): boolean {
@@ -696,7 +786,9 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     gl.uniform1i(uHover, hover);
     gl.uniform1i(uSelected, selected);
     gl.uniform1i(uPulseGroup, pulsedGroup);
+    gl.uniform1i(uPulseShape, pulsedShape);
     gl.uniform1f(uPulseT, pulsing() ? (now - pulseStart) / 1000 / pulseSeconds : 1);
+    gl.uniform1i(uShaped, shaped ? 1 : 0);
     gl.uniform3fv(uInk, theme.ink);
     gl.uniform3fv(uClear, theme.clear);
     gl.uniform3fv(uOutline, theme.outline);
@@ -720,6 +812,10 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     gl.uniform1iv(uTileCard, tileCards);
     gl.uniform4fv(uTileRect, tileRects);
     gl.uniform1fv(uTileTime, tileTimes);
+    const shapeUnit = tileBase + tileSlots;
+    gl.activeTexture(gl.TEXTURE0 + shapeUnit);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, shapeAtlas ?? emptyLevel);
+    gl.uniform1i(uShapeAtlas, shapeUnit);
     gl.activeTexture(gl.TEXTURE0);
   }
 
@@ -755,7 +851,10 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     stepCamera(dt, now);
     if (cardsMoving && elapsed(now) > duration + maxDelay) cardsMoving = false;
     // ended before the uniforms are set, so the last frame of a pulse is the picture at rest
-    if (pulsing() && (now - pulseStart) / 1000 >= pulseSeconds) pulsedGroup = -1;
+    if (pulsing() && (now - pulseStart) / 1000 >= pulseSeconds) {
+      pulsedGroup = -1;
+      pulsedShape = -1;
+    }
 
     flushTexWords();
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -832,9 +931,12 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       planTiming(cardsMoving ? moveStagger : 0, fresh);
       upload(fromBuffer, from);
       upload(toBuffer, to);
-      // a fresh set of cards has no groups yet; until it is told, every card is group 0
+      // a fresh set of cards has no groups yet; until it is told, every card is group 0 and a plain
+      // card (the buffers are still uploaded: an attribute must have as many of them as there are cards)
       const groups = new Uint16Array(n);
       upload(groupBuffer, groups);
+      upload(shapeBuffer, groups);
+      shaped = false;
       // and no pictures: every card is flat until it is told what it shows
       texWords = new Uint32Array(n * 3);
       texDirty.clear();
@@ -878,6 +980,30 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       dirty = true;
       schedule();
     },
+    setShapes(assignment) {
+      if (assignment === null) {
+        shaped = false;
+      } else {
+        // which silhouettes the picture actually holds: a pass over the cards, so that only those
+        // shapes are measured and put in the texture (a card is a slot, a slot is a shape and a
+        // variation of it, and slot 0 - the plain card - needs no field at all)
+        const seen = new Uint8Array(shapeCount);
+        let distinct = 0;
+        for (let i = 0; i < assignment.length; i++) {
+          const slot = assignment[i];
+          if (slot === 0) continue;
+          const shape = slot & 0xff;
+          if (seen[shape] === 1) continue;
+          seen[shape] = 1;
+          ensureShape(shape);
+          if (++distinct === shapeCount) break;
+        }
+        upload(shapeBuffer, assignment);
+        shaped = true;
+      }
+      dirty = true;
+      schedule();
+    },
     setTheme(t) {
       theme = t;
       dirty = true;
@@ -898,6 +1024,14 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     pulseGroup(group) {
       // clicked again while it is still going: it starts over, which is what a second click means
       pulsedGroup = group;
+      pulsedShape = -1;
+      pulseStart = performance.now();
+      dirty = true;
+      schedule();
+    },
+    pulseShape(slot) {
+      pulsedGroup = -1;
+      pulsedShape = slot;
       pulseStart = performance.now();
       dirty = true;
       schedule();
@@ -1102,9 +1236,11 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       gl.deleteBuffer(timingBuffer);
       gl.deleteBuffer(groupBuffer);
       gl.deleteBuffer(texBuffer);
+      gl.deleteBuffer(shapeBuffer);
       gl.deleteVertexArray(vao);
       gl.deleteTexture(palette);
       gl.deleteTexture(emptyLevel);
+      if (shapeAtlas !== null) gl.deleteTexture(shapeAtlas);
       gl.deleteTexture(emptyTile);
       for (const t of levelTextures) if (t !== null) gl.deleteTexture(t);
       for (const t of tileTextures) if (t !== null) gl.deleteTexture(t);
