@@ -27,19 +27,9 @@ public sealed partial class DataStoreLocal : IDataStore {
             }, out transactionCount, out actionCount, out bytesWritten);
             TaskQueuePersisted?.FlushDisk();
             if (Engines.Any) {
-                // Persisted indexes commit only in memory at transaction execution and are made
-                // durable here, AFTER the WAL flush � so the durable indexes can never contain
-                // transactions the durable log is missing. The write lock (briefly, the lock
-                // supports recursion) excludes executes, and the final drain covers transactions
-                // that executed while the flush above was writing, so at the durable write the
-                // log provably contains every committed index transaction.
                 _lock.EnterWriteLock();
                 try {
                     _wal.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(deepFlush);
-                    // during a revert window the engines must not persist past the window start, so
-                    // they can reopen there after a rollback; the log itself stays fully durable
-                    // (checked inside the lock: a racing BeginRevertWindow cannot be trailed by a
-                    // stale MakeDurable that would stamp the engines past the window start)
                     if (_revertWindow == null) Engines.MakeDurable(_wal.LastTimestamp);
                 } finally {
                     _lock.ExitWriteLock();
@@ -248,11 +238,12 @@ public sealed partial class DataStoreLocal : IDataStore {
         // filtered facet query does not pay the cold rebuild inline
         if (a.HasFlag(MaintenanceAction.ClearCache) && State == DataStoreState.Open) warmIndexesInBackground();
     }
-    // Only a blocking, compacting, aggressive collect actually shrinks the process; see MemoryReclaim
-    // for why, and for why one pass is not enough. It is a pause, but these maintenance actions exist
-    // precisely to reclaim memory. One finalizer round rather than the default two: this runs holding
-    // the write lock, so every pass is time no query can be served, and the caches just dropped hold
-    // arrays and nodes, not finalizable objects whose finalizers release further objects.
+    // Only a blocking, compacting, aggressive collect actually shrinks the process, and one pass on
+    // its own reclaims nothing that has a finalizer - see MemoryReclaim, which measures both. It is a
+    // pause, but these maintenance actions exist precisely to reclaim memory. One finalizer round
+    // rather than the default two: this runs holding the write lock, so every pass is time no query
+    // can be served, and one round already covers the file handles and streams the dropped caches let
+    // go of. The button in the admin UI, which holds nothing, takes the deeper default.
     static void collectAndReleaseMemory() => MemoryReclaim.Collect(finalizerRounds: 1);
     public Task MaintenanceAsync(MaintenanceAction actions) {
         Maintenance(actions);
