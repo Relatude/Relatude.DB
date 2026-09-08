@@ -1,4 +1,4 @@
-using LibAvifSharp;
+﻿using LibAvifSharp;
 using LibAvifSharp.NativeTypes;
 using Relatude.DB.Common;
 using SkiaSharp;
@@ -9,23 +9,11 @@ namespace Relatude.DB.FileConversion;
 /// <summary>SkiaSharp-backed implementation of <see cref="IImage"/>.</summary>
 internal sealed class SkiaImage : IImage {
     readonly SKBitmap _bitmap;
-    readonly int? _focusX;
-    readonly int? _focusY;
-    readonly int? _offsetX;
-    readonly int? _offsetY;
-    readonly string? _backgroundColor;
 
     public int Width => _bitmap.Width;
     public int Height => _bitmap.Height;
 
-    public SkiaImage(SKBitmap bitmap, int? focusX = null, int? focusY = null, int? offsetX = null, int? offsetY = null, string? backgroundColor = null) {
-        _bitmap = bitmap;
-        _focusX = focusX;
-        _focusY = focusY;
-        _offsetX = offsetX;
-        _offsetY = offsetY;
-        _backgroundColor = backgroundColor;
-    }
+    public SkiaImage(SKBitmap bitmap) => _bitmap = bitmap;
 
     public static SkiaImage Load(Stream stream) => new(SKBitmap.Decode(stream) ?? throw new InvalidOperationException("Failed to decode image."));
 
@@ -56,17 +44,17 @@ internal sealed class SkiaImage : IImage {
     }
 
 
-    // ── Crop hints ──────────────────────────────────────────────────────────
-
-    public IImage SetFocus(int? focusX, int? focusY) => new SkiaImage(_bitmap.Copy(), focusX, focusY, _offsetX, _offsetY, _backgroundColor);
-    public IImage SetOffset(int? offsetX, int? offsetY) => new SkiaImage(_bitmap.Copy(), _focusX, _focusY, offsetX, offsetY, _backgroundColor);
-    public IImage SetBackgroundColor(string? color) => new SkiaImage(_bitmap.Copy(), _focusX, _focusY, _offsetX, _offsetY, color);
-
     // ── Geometry ────────────────────────────────────────────────────────────
+
+    public IImage Crop(int x, int y, int width, int height) {
+        var w = Math.Clamp(width, 1, Width);
+        var h = Math.Clamp(height, 1, Height);
+        return new SkiaImage(CropBitmap(_bitmap, Math.Clamp(x, 0, Width - w), Math.Clamp(y, 0, Height - h), w, h));
+    }
 
     public IImage Rotate(double degrees) {
         double norm = ((degrees % 360) + 360) % 360;
-        if (norm == 0) return new SkiaImage(_bitmap.Copy(), _focusX, _focusY, _offsetX, _offsetY);
+        if (norm == 0) return new SkiaImage(_bitmap.Copy());
 
         // Fast paths for cardinal angles
         if (norm == 90) return new SkiaImage(Rotate90CW(_bitmap));
@@ -88,34 +76,7 @@ internal sealed class SkiaImage : IImage {
         return new SkiaImage(SKBitmap.FromImage(surface.Snapshot()));
     }
 
-    public IImage Zoom(double zoom) {
-        if (zoom <= 0 || zoom == 100) return new SkiaImage(_bitmap.Copy(), _focusX, _focusY, _offsetX, _offsetY, _backgroundColor);
-        // Zoom > 100 = zoom in: crop to a smaller source window then scale up to original size
-        // Zoom < 100 = zoom out: scale down the image onto a canvas the original size (with transparent border)
-        if (zoom > 100) {
-            double factor = 100.0 / zoom;
-            int cropW = Math.Max(1, (int)Math.Round(Width * factor));
-            int cropH = Math.Max(1, (int)Math.Round(Height * factor));
-            int fx = _focusX ?? Width / 2, fy = _focusY ?? Height / 2;
-            int x = Math.Clamp(fx - cropW / 2, 0, Width - cropW);
-            int y = Math.Clamp(fy - cropH / 2, 0, Height - cropH);
-            using var cropped = new SKBitmap(cropW, cropH);
-            using var c2 = new SKCanvas(cropped);
-            c2.DrawBitmap(_bitmap, new SKRect(x, y, x + cropW, y + cropH), new SKRect(0, 0, cropW, cropH));
-            return new SkiaImage(ResizeBitmap(cropped, Width, Height));
-        } else {
-            int scaledW = Math.Max(1, (int)Math.Round(Width * zoom / 100.0));
-            int scaledH = Math.Max(1, (int)Math.Round(Height * zoom / 100.0));
-            using var scaled = ResizeBitmap(_bitmap, scaledW, scaledH);
-            var canvas = new SKBitmap(Width, Height);
-            using var c2 = new SKCanvas(canvas);
-            c2.Clear(ParseColor(_backgroundColor));
-            c2.DrawBitmap(scaled, (Width - scaledW) / 2f, (Height - scaledH) / 2f);
-            return new SkiaImage(canvas);
-        }
-    }
-
-    public IImage Resize(int? width, int? height, ImageCropMode cropMode = ImageCropMode.Fill, string? backgroundColor = null, bool autoBackgroundColor = false) {
+    public IImage Resize(int? width, int? height, ImageCropMode cropMode = ImageCropMode.Fill, CropHints hints = default) {
         int srcW = Width, srcH = Height;
         // Derive missing dimension preserving aspect ratio (unless Stretch)
         int targetW, targetH;
@@ -135,14 +96,13 @@ internal sealed class SkiaImage : IImage {
 
         if (targetW == srcW && targetH == srcH) return new SkiaImage(_bitmap.Copy());
 
-        var bg = ParseColor(backgroundColor);
+        var bg = ParseColor(hints.BackgroundColor);
 
         return cropMode switch {
             ImageCropMode.Stretch => new SkiaImage(ResizeBitmap(_bitmap, targetW, targetH)),
-            ImageCropMode.Fill => new SkiaImage(ResizeAndCrop(_bitmap, targetW, targetH, _focusX, _focusY, _offsetX, _offsetY)),
+            ImageCropMode.Fill => new SkiaImage(ResizeAndCrop(_bitmap, targetW, targetH, hints.FocusX, hints.FocusY, hints.OffsetX, hints.OffsetY)),
             ImageCropMode.Fit => new SkiaImage(ResizeToFit(_bitmap, targetW, targetH, bg)),
-            ImageCropMode.Auto => new SkiaImage(ResizeAuto(_bitmap, targetW, targetH, _focusX, _focusY, _offsetX, _offsetY, bg)),
-            _ => new SkiaImage(ResizeAuto(_bitmap, targetW, targetH, _focusX, _focusY, _offsetX, _offsetY, bg)),
+            _ => new SkiaImage(ResizeAuto(_bitmap, targetW, targetH, hints.FocusX, hints.FocusY, hints.OffsetX, hints.OffsetY, bg)),
         };
     }
 

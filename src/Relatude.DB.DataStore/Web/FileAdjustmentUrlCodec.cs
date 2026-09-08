@@ -1,4 +1,4 @@
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 using Relatude.DB.FileConversion;
 using System.Globalization;
 using System.Text;
@@ -28,6 +28,10 @@ public static class FileAdjustmentUrlCodec {
         new("q", kind.Int),       // Quality
         new("crop", kind.Name),   // CropMode, enum name
         new("zm", kind.Double),   // Zoom
+        new("sx", kind.Int),      // SourceX
+        new("sy", kind.Int),      // SourceY
+        new("sw", kind.Int),      // SourceWidth
+        new("sh", kind.Int),      // SourceHeight
         new("fx", kind.Int),      // FocusX
         new("fy", kind.Int),      // FocusY
         new("ox", kind.Int),      // OffsetX
@@ -78,6 +82,8 @@ public static class FileAdjustmentUrlCodec {
                 num(sb, "w", img.Width); num(sb, "h", img.Height); num(sb, "q", img.Quality);
                 if (img.CropMode != null) pair(sb, "crop", name(img.CropMode.Value));
                 dbl(sb, "zm", img.Zoom);
+                num(sb, "sx", img.SourceX); num(sb, "sy", img.SourceY);
+                num(sb, "sw", img.SourceWidth); num(sb, "sh", img.SourceHeight);
                 num(sb, "fx", img.FocusX); num(sb, "fy", img.FocusY);
                 num(sb, "ox", img.OffsetX); num(sb, "oy", img.OffsetY);
                 dbl(sb, "rot", img.Rotation);
@@ -225,6 +231,10 @@ public static class FileAdjustmentUrlCodec {
                 case "q": img.Quality = i(value); break;
                 case "crop": if (!tryEnumName<ImageCropMode>(value, out var crop)) return false; img.CropMode = crop; break;
                 case "zm": img.Zoom = d(value); break;
+                case "sx": img.SourceX = i(value); break;
+                case "sy": img.SourceY = i(value); break;
+                case "sw": img.SourceWidth = i(value); break;
+                case "sh": img.SourceHeight = i(value); break;
                 case "fx": img.FocusX = i(value); break;
                 case "fy": img.FocusY = i(value); break;
                 case "ox": img.OffsetX = i(value); break;

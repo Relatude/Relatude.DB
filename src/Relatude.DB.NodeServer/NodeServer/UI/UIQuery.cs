@@ -2108,16 +2108,12 @@ sealed class UIQuery {
     /// <summary>
     /// The adjustment that cuts a tile out of a card's picture: the part from (X, Y) spanning Size
     /// of the picture's width and height - fractions of the picture, which is the 4:3 middle of the
-    /// original that the whole-picture levels show - made Width pixels wide. Zoom crops a window of
-    /// the original's own proportions about a focus point and the Fill resize keeps the 4:3 middle
-    /// of that window, so the window is made as high as the tile (as wide, for a tall original).
-    /// The encoders round to whole pixels on the way, so the region that actually comes out is
-    /// worked out here the same way they do and returned in picture fractions, and the browser
-    /// places the tile by that rather than by what it asked for.
+    /// original that the whole-picture levels show - made Width pixels wide. The adjustment names
+    /// the rectangle of the original, so it is one resample however deep the zoom, and the region
+    /// handed back to the browser is exactly what was cut.
     /// </summary>
     internal static FileAdjustmentImage tileAdjustment(int w, int h, CardTilePayload tile, out float[] region) {
         var tw = cardTileWidths.Contains(tile.Width) ? tile.Width : cardTileWidths[1];
-        var th = tw * 3 / 4;
         var size = Math.Clamp(tile.Size, 1.0 / 4096, 0.5); // a tile is at most half the picture: the whole of it is a level
         var x0 = Math.Clamp(tile.X, 0, 1 - size);
         var y0 = Math.Clamp(tile.Y, 0, 1 - size);
@@ -2125,33 +2121,23 @@ sealed class UIQuery {
         double pw = wide ? h * 4.0 / 3 : w; // the picture, in original pixels
         double ph = wide ? h : w * 3.0 / 4;
         double px0 = (w - pw) / 2, py0 = (h - ph) / 2;
-        double tx = px0 + x0 * pw, ty = py0 + y0 * ph, tileW = size * pw, tileH = size * ph;
-        var zoom = wide ? 100.0 * h / tileH : 100.0 * w / tileW;
+        // 4:3 to the pixel, so the Fill resize scales the rectangle without cropping any of it
+        var sw = Math.Clamp((int)Math.Round(size * pw) / 4 * 4, 4, w / 4 * 4);
+        var sh = sw * 3 / 4;
+        var sx = Math.Clamp((int)Math.Round(px0 + x0 * pw), 0, w - sw);
+        var sy = Math.Clamp((int)Math.Round(py0 + y0 * ph), 0, h - sh);
         var adj = new FileAdjustmentImage {
             Width = tw,
-            Height = th,
+            Height = tw * 3 / 4,
             CropMode = ImageCropMode.Fill,
             Quality = 80,
-            Zoom = zoom,
-            FocusX = (int)Math.Round(tx + tileW / 2),
-            FocusY = (int)Math.Round(ty + tileH / 2),
+            SourceX = sx,
+            SourceY = sy,
+            SourceWidth = sw,
+            SourceHeight = sh,
         };
         adj.BasicSanitization();
-        // the encoders' steps: the zoom window, scaled up to the original's size, then the 4:3
-        // middle of that at the tile's size - each rounded as they round
-        var factor = 100.0 / adj.Zoom!.Value;
-        var cropW = Math.Max(1, (int)Math.Round(w * factor));
-        var cropH = Math.Max(1, (int)Math.Round(h * factor));
-        var wx = Math.Clamp(adj.FocusX!.Value - cropW / 2, 0, Math.Max(0, w - cropW));
-        var wy = Math.Clamp(adj.FocusY!.Value - cropH / 2, 0, Math.Max(0, h - cropH));
-        var scale = Math.Max((double)tw / w, (double)th / h);
-        var scaledW = Math.Max(1, (int)Math.Round(w * scale));
-        var scaledH = Math.Max(1, (int)Math.Round(h * scale));
-        var cx = Math.Clamp(scaledW / 2 - tw / 2, 0, Math.Max(0, scaledW - tw));
-        var cy = Math.Clamp(scaledH / 2 - th / 2, 0, Math.Max(0, scaledH - th));
-        double ox0 = wx + cx / scale * cropW / w, ox1 = wx + (cx + tw) / scale * cropW / w;
-        double oy0 = wy + cy / scale * cropH / h, oy1 = wy + (cy + th) / scale * cropH / h;
-        region = [(float)((ox0 - px0) / pw), (float)((oy0 - py0) / ph), (float)((ox1 - px0) / pw), (float)((oy1 - py0) / ph)];
+        region = [(float)((sx - px0) / pw), (float)((sy - py0) / ph), (float)((sx + sw - px0) / pw), (float)((sy + sh - py0) / ph)];
         return adj;
     }
 
@@ -2175,7 +2161,9 @@ sealed class UIQuery {
         http.Response.Headers.CacheControl = "no-store";
         var body = http.Response.Body;
         var gate = new SemaphoreSlim(1, 1); // one record at a time on the wire; the conversions run beside each other
-        var options = new ParallelOptions { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 4, 16), CancellationToken = http.RequestAborted };
+        // a tile conversion holds the whole source in memory, so fewer of those run at once
+        var lanes = items.Any(i => i.Tile != null) ? Math.Clamp(Environment.ProcessorCount / 4, 1, 4) : Math.Clamp(Environment.ProcessorCount, 4, 16);
+        var options = new ParallelOptions { MaxDegreeOfParallelism = lanes, CancellationToken = http.RequestAborted };
         await Parallel.ForEachAsync(items, options, async (item, ct) => {
             byte status;
             byte[] bytes = [];

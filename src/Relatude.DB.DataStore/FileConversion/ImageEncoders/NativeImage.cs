@@ -1,27 +1,15 @@
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 
 namespace Relatude.DB.FileConversion.ImageEncoders;
 
 /// <summary>Pure C# implementation. </summary>
 public sealed class NativeImage : IImage {
     readonly InternalImage _image;
-    readonly int? _focusX;
-    readonly int? _focusY;
-    readonly int? _offsetX;
-    readonly int? _offsetY;
-    readonly string? _backgroundColor;
 
     public int Width => _image.Width;
     public int Height => _image.Height;
 
-    internal NativeImage(InternalImage image, int? focusX = null, int? focusY = null, int? offsetX = null, int? offsetY = null, string? backgroundColor = null) {
-        _image = image;
-        _focusX = focusX;
-        _focusY = focusY;
-        _offsetX = offsetX;
-        _offsetY = offsetY;
-        _backgroundColor = backgroundColor;
-    }
+    internal NativeImage(InternalImage image) => _image = image;
     
     public static NativeImage Load(Stream stream) => new(InternalImage.Load(stream));
     public static NativeImage Create(int width, int height) => new(InternalImage.Create(width, height));
@@ -31,46 +19,17 @@ public sealed class NativeImage : IImage {
         return null;
     }
 
-    // ── Crop hints ──────────────────────────────────────────────────────────
-
-    public IImage SetFocus(int? focusX, int? focusY) => new NativeImage(_image, focusX, focusY, _offsetX, _offsetY, _backgroundColor);
-    public IImage SetOffset(int? offsetX, int? offsetY) => new NativeImage(_image, _focusX, _focusY, offsetX, offsetY, _backgroundColor);
-    public IImage SetBackgroundColor(string? color) => new NativeImage(_image, _focusX, _focusY, _offsetX, _offsetY, color);
-
     // ── Geometry ────────────────────────────────────────────────────────────
 
     public IImage Rotate(double degrees) => new NativeImage(_image.Rotate(degrees));
 
-    public IImage Zoom(double zoom) {
-        if (zoom <= 0 || zoom == 100) return new NativeImage(_image, _focusX, _focusY, _offsetX, _offsetY, _backgroundColor);
-        if (zoom > 100) {
-            // Zoom in: crop a smaller source window centred on focus, then scale back up to original size
-            double factor = 100.0 / zoom;
-            int cropW = Math.Max(1, (int)Math.Round(Width * factor));
-            int cropH = Math.Max(1, (int)Math.Round(Height * factor));
-            int fx = _focusX ?? Width / 2;
-            int fy = _focusY ?? Height / 2;
-            int x = Math.Clamp(fx - cropW / 2, 0, Width - cropW);
-            int y = Math.Clamp(fy - cropH / 2, 0, Height - cropH);
-            var cropped = _image.Crop(new RectangleI(x, y, cropW, cropH));
-            return new NativeImage(cropped.Resize(Width, Height));
-        } else {
-            // Zoom out: shrink image and centre on a canvas of the original size
-            int scaledW = Math.Max(1, (int)Math.Round(Width * zoom / 100.0));
-            int scaledH = Math.Max(1, (int)Math.Round(Height * zoom / 100.0));
-            var scaled = _image.Resize(scaledW, scaledH);
-            int offX = (Width - scaledW) / 2;
-            int offY = (Height - scaledH) / 2;
-            var bg = ParseBackground(_backgroundColor);
-            var canvas = InternalImage.Create(Width, Height, (px, py) => {
-                int sx = px - offX, sy = py - offY;
-                return sx >= 0 && sy >= 0 && sx < scaledW && sy < scaledH ? scaled[sx, sy] : bg;
-            });
-            return new NativeImage(canvas);
-        }
+    public IImage Crop(int x, int y, int width, int height) {
+        var w = Math.Clamp(width, 1, Width);
+        var h = Math.Clamp(height, 1, Height);
+        return new NativeImage(_image.Crop(new RectangleI(Math.Clamp(x, 0, Width - w), Math.Clamp(y, 0, Height - h), w, h)));
     }
 
-    public IImage Resize(int? width, int? height, ImageCropMode cropMode = ImageCropMode.Fill, string? backgroundColor = null, bool autoBackgroundColor = false) {
+    public IImage Resize(int? width, int? height, ImageCropMode cropMode = ImageCropMode.Fill, CropHints hints = default) {
         int srcW = Width, srcH = Height;
 
         int targetW, targetH;
@@ -90,13 +49,13 @@ public sealed class NativeImage : IImage {
 
         if (targetW == srcW && targetH == srcH) return new NativeImage(_image);
 
-        var bg = ParseBackground(backgroundColor);
+        var bg = ParseBackground(hints.BackgroundColor);
 
         return cropMode switch {
             ImageCropMode.Stretch => new NativeImage(_image.Resize(targetW, targetH)),
-            ImageCropMode.Fill => new NativeImage(ResizeAndCrop(_image, targetW, targetH, _focusX, _focusY, _offsetX, _offsetY)),
+            ImageCropMode.Fill => new NativeImage(ResizeAndCrop(_image, targetW, targetH, hints.FocusX, hints.FocusY, hints.OffsetX, hints.OffsetY)),
             ImageCropMode.Fit => new NativeImage(ResizeToFit(_image, targetW, targetH, bg)),
-            _ => new NativeImage(ResizeAuto(_image, targetW, targetH, _focusX, _focusY, _offsetX, _offsetY, bg)),
+            _ => new NativeImage(ResizeAuto(_image, targetW, targetH, hints.FocusX, hints.FocusY, hints.OffsetX, hints.OffsetY, bg)),
         };
     }
 

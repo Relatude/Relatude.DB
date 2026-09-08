@@ -245,9 +245,8 @@ public class UIQueryVisualTests {
             var tileRecord = tiles.Single();
             Assert.AreEqual(0, tileRecord.Status, "the tile is ready");
             Assert.IsNotNull(tileRecord.Region);
-            var region = tileRecord.Region!;
-            Assert.IsTrue(Math.Abs(region[0] - 0.5) < 0.02 && Math.Abs(region[1] - 0.5) < 0.02 && Math.Abs(region[2] - 1.0) < 0.02 && Math.Abs(region[3] - 1.0) < 0.02,
-                "the region is the quarter asked for: " + string.Join(", ", region));
+            // the adjustment names the rectangle, so the region is exactly the quarter asked for
+            CollectionAssert.AreEqual(new[] { 0.5f, 0.5f, 1f, 1f }, tileRecord.Region, "the region is the quarter asked for");
             using (var decoded = NativeImage.Load(new MemoryStream(tileRecord.Bytes))) {
                 Assert.AreEqual(1024, decoded.Width);
                 Assert.AreEqual(768, decoded.Height);

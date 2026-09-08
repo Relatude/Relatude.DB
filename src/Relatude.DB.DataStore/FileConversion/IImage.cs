@@ -1,10 +1,27 @@
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 using System.Data;
 using System.Diagnostics.CodeAnalysis;
 using System.Net.NetworkInformation;
 
 namespace Relatude.DB.FileConversion;
 
+/// <summary>What a resize needs beyond its dimensions: where to keep the crop, and what to pad with.</summary>
+public readonly struct CropHints {
+    public int? FocusX { get; init; }
+    public int? FocusY { get; init; }
+    public int? OffsetX { get; init; }
+    public int? OffsetY { get; init; }
+    public string? BackgroundColor { get; init; }
+    public bool AutoBackgroundColor { get; init; }
+    public static CropHints From(FileAdjustmentImage adj) => new() {
+        FocusX = adj.FocusX, FocusY = adj.FocusY, OffsetX = adj.OffsetX, OffsetY = adj.OffsetY,
+        BackgroundColor = adj.BackgroundColor, AutoBackgroundColor = adj.AutoBackgroundColor ?? false,
+    };
+    /// <summary>What is left once a crop has already consumed the focus and the offset.</summary>
+    public static CropHints Background(FileAdjustmentImage adj) => new() {
+        BackgroundColor = adj.BackgroundColor, AutoBackgroundColor = adj.AutoBackgroundColor ?? false,
+    };
+}
 public static class IImageExt {
     public static IImage Adjust(this IImage source, FileAdjustmentImage adj) {
         var img = source;
@@ -13,22 +30,20 @@ public static class IImageExt {
         if (adj.Rotation is double rot && rot != 0)
             img = img.Rotate(rot);
 
-        // 2. Crop hints — influence how the implementation positions the image during resize
-        if (adj.FocusX.HasValue || adj.FocusY.HasValue)
-            img = img.SetFocus(adj.FocusX, adj.FocusY);
-        if (adj.OffsetX.HasValue || adj.OffsetY.HasValue)
-            img = img.SetOffset(adj.OffsetX, adj.OffsetY);
+        // 2. The part of the source to work from: the rectangle asked for, or the window a zoom
+        //    means. Cropping to it first is what keeps any magnification to a single resample.
+        var cropped = SourceRect(img.Width, img.Height, adj, out var cropX, out var cropY, out var cropW, out var cropH);
+        if (cropped) {
+            img = img.Crop(cropX, cropY, cropW, cropH);
+            // a zoom with no size asked for keeps the canvas it had, which is what zoom has always meant
+            if (adj.SourceWidth == null && adj.SourceHeight == null && adj.Width == null && adj.Height == null)
+                img = img.Resize(source.Width, source.Height, ImageCropMode.Stretch);
+        }
 
-        // 3. Zoom — scale the viewport before resize
-        if (adj.BackgroundColor != null || adj.AutoBackgroundColor == true)
-            img = img.SetBackgroundColor(adj.BackgroundColor);
-        if (adj.Zoom is double zoom && zoom != 100)
-            img = img.Zoom(zoom);
-
-        // 4. Resize — proportions are preserved unless CropMode is Stretch
+        // 3. Resize — proportions are preserved unless CropMode is Stretch
         if (adj.Width.HasValue || adj.Height.HasValue) {
             var cropMode = adj.CropMode ?? ImageCropMode.Fit;
-            img = img.Resize(adj.Width, adj.Height, cropMode, adj.BackgroundColor, adj.AutoBackgroundColor ?? false);
+            img = img.Resize(adj.Width, adj.Height, cropMode, cropped ? CropHints.Background(adj) : CropHints.From(adj));
         }
 
         // 5. Light/dark adaptation — before the fine-grained colour adjustments below, so that those
@@ -46,6 +61,33 @@ public static class IImageExt {
         if (adj.Sharpness is double sh && sh != 0) img = img.AdjustSharpness(sh);
 
         return img;
+    }
+
+    /// <summary>
+    /// The rectangle of a source of these dimensions that an adjustment works from, clamped to it:
+    /// the one it names, or the one a zoom above 100% implies about the focus point. False when the
+    /// whole source is the subject.
+    /// </summary>
+    public static bool SourceRect(int width, int height, FileAdjustmentImage adj, out int x, out int y, out int w, out int h) {
+        if (adj.SourceWidth != null || adj.SourceHeight != null) {
+            w = adj.SourceWidth ?? width;
+            h = adj.SourceHeight ?? height;
+            x = adj.SourceX ?? 0;
+            y = adj.SourceY ?? 0;
+        } else if (adj.Zoom is double zoom && zoom > 100) {
+            w = Math.Max(1, (int)Math.Round(width * 100 / zoom));
+            h = Math.Max(1, (int)Math.Round(height * 100 / zoom));
+            x = (adj.FocusX ?? width / 2) - w / 2 + (adj.OffsetX ?? 0);
+            y = (adj.FocusY ?? height / 2) - h / 2 + (adj.OffsetY ?? 0);
+        } else {
+            x = y = w = h = 0;
+            return false;
+        }
+        w = Math.Clamp(w, 1, width);
+        h = Math.Clamp(h, 1, height);
+        x = Math.Clamp(x, 0, width - w);
+        y = Math.Clamp(y, 0, height - h);
+        return w != width || h != height || x != 0 || y != 0;
     }
     public static IImage GetStatusImage(this IImage img, List<string> text, string textColor, string fillColor) {
         var fontSizePx = 13;
@@ -98,20 +140,11 @@ public interface IImage : IDisposable {
     int Height { get; }
     string? GetJsonDetails();
 
+    /// <summary>The given rectangle of this image, which is expected to be within it.</summary>
+    IImage Crop(int x, int y, int width, int height);
+
     /// <summary>Resize the canvas to the given dimensions.</summary>
-    IImage Resize(int? width, int? height, ImageCropMode cropMode = ImageCropMode.Fill, string? backgroundColor = null, bool autoBackgroundColor = false);
-
-    /// <summary>Zoom into/out of the image. 100 = 1:1, 200 = 2x, 50 = zoom out.</summary>
-    IImage Zoom(double zoom);
-
-    /// <summary>Set the background color used when padding (e.g. zoom-out, fit). Hex #RRGGBB or #RRGGBBAA.</summary>
-    IImage SetBackgroundColor(string? color);
-
-    /// <summary>Set the focus point (relative to the original image) used when cropping.</summary>
-    IImage SetFocus(int? focusX, int? focusY);
-
-    /// <summary>Apply an offset to the image (relative to the original image).</summary>
-    IImage SetOffset(int? offsetX, int? offsetY);
+    IImage Resize(int? width, int? height, ImageCropMode cropMode = ImageCropMode.Fill, CropHints hints = default);
 
     /// <summary>Rotate the image by the given number of degrees.</summary>
     IImage Rotate(double degrees);

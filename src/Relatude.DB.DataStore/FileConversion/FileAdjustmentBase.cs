@@ -90,7 +90,13 @@ public class FileAdjustmentImage : FileAdjustmentBase {
     public override FileAdjustmentType GetAdjustmentType() => FileAdjustmentType.Image;
     public int? Width { get; set; } // canvas width
     public int? Height { get; set; } // canvas height
-    public double? Zoom { get; set; } = null; // in percentage. 100 means 1:1 (no zoom), 200 means 2x zoom into the image, 50 means zoom out.
+    // The rectangle of the original to work from, in its own pixels; everything else applies to it.
+    // A conversion that names its rectangle costs one resample whatever the magnification.
+    public int? SourceX { get; set; }
+    public int? SourceY { get; set; }
+    public int? SourceWidth { get; set; }
+    public int? SourceHeight { get; set; }
+    public double? Zoom { get; set; } = null; // in percentage, 100 or below meaning the whole picture; above it, the window about the focus point that fills the canvas
     public int? FocusX { get; set; } // in reference to the original image
     public int? FocusY { get; set; } // in reference to the original image
     public int? OffsetX { get; set; } // in reference to the original image
@@ -141,7 +147,8 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         || Rotation != null || Brightness != null || Contrast != null || Saturation != null
         || HueShift != null || Sharpness != null || InvertLuminance != null || AutoLightDarkMode != null
         || BackgroundColor != null || AutoBackgroundColor != null || CropMode != null || Quality != null
-        || TimeOffsetMs != null || TimeOffsetPercentage != null;
+        || TimeOffsetMs != null || TimeOffsetPercentage != null
+        || SourceX != null || SourceY != null || SourceWidth != null || SourceHeight != null;
     bool dimensionsSameOrAbsent(int originalWidth, int originalHeight) =>
         (Width == null || (originalWidth > 0 && Width == originalWidth))
         && (Height == null || (originalHeight > 0 && Height == originalHeight));
@@ -169,6 +176,8 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         BitConverter.TryWriteBytes(buf[p..], TimeOffsetPercentage ?? double.NaN); p += 8;
         BitConverter.TryWriteBytes(buf[p..], (int)(AutoLightDarkMode ?? (AutoLightDarkSwitch)(-1)));
         var key = Convert.ToHexString(buf);
+        // appended only when asked for, so every key handed out before the rectangle existed still holds
+        if (SourceWidth.HasValue || SourceHeight.HasValue) key += "S" + SourceX + "," + SourceY + "," + SourceWidth + "," + SourceHeight;
         if (AutoBackgroundColor.HasValue) key += AutoBackgroundColor.Value.ToString();
         if (InvertLuminance.HasValue) key += "Inv" + InvertLuminance.Value.ToString();
         if (BackgroundColor != null) key += BackgroundColor;
@@ -179,7 +188,11 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         base.BasicSanitization();
         if (Width.HasValue) Width = Width <= 0 ? null : Math.Clamp(Width.Value, 1, 10_000);
         if (Height.HasValue) Height = Height <= 0 ? null : Math.Clamp(Height.Value, 1, 10_000);
-        if (Zoom.HasValue) Zoom = Zoom <= 0 ? null : Math.Clamp(Zoom.Value, 0.1, 10_000);
+        if (Zoom.HasValue) Zoom = Zoom <= 100 ? null : Math.Min(Zoom.Value, 1_000_000);
+        if (SourceX.HasValue) SourceX = Math.Max(0, SourceX.Value);
+        if (SourceY.HasValue) SourceY = Math.Max(0, SourceY.Value);
+        if (SourceWidth.HasValue) SourceWidth = SourceWidth <= 0 ? null : SourceWidth;
+        if (SourceHeight.HasValue) SourceHeight = SourceHeight <= 0 ? null : SourceHeight;
         if (FocusX.HasValue) FocusX = Math.Clamp(FocusX.Value, -10_000, 10_000);
         if (FocusY.HasValue) FocusY = Math.Clamp(FocusY.Value, -10_000, 10_000);
         if (OffsetX.HasValue) OffsetX = Math.Clamp(OffsetX.Value, -10_000, 10_000);
@@ -196,8 +209,8 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         if (CropMode.HasValue && !Enum.IsDefined(CropMode.Value)) CropMode = null;
         if (AutoLightDarkMode.HasValue && !Enum.IsDefined(AutoLightDarkMode.Value)) AutoLightDarkMode = null;
     }
-    const int CURRENT_VERSION = 3;
-    const int FIXED_SIZE = 120; // 1+4+4+4+4+8+4+4+4+4+8+8+8+8+8+8+4+4+8+8+1+1+1+4
+    const int CURRENT_VERSION = 4;
+    const int FIXED_SIZE = 136; // as below, plus the four source rectangle ints
     public override byte[] ToBytes() {
         var bgBytes = BackgroundColor != null ? System.Text.Encoding.UTF8.GetBytes(BackgroundColor) : [];
         var buf = new byte[FIXED_SIZE + 2 + bgBytes.Length];
@@ -227,6 +240,10 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         s[p++] = Temporary ? (byte)1 : (byte)0;
         s[p++] = InvertLuminance.HasValue ? (byte)(InvertLuminance.Value ? 2 : 1) : (byte)0;
         BinaryPrimitives.WriteInt32LittleEndian(s[p..], (int)(AutoLightDarkMode ?? (AutoLightDarkSwitch)(-1))); p += 4;
+        BinaryPrimitives.WriteInt32LittleEndian(s[p..], SourceX ?? int.MinValue); p += 4;
+        BinaryPrimitives.WriteInt32LittleEndian(s[p..], SourceY ?? int.MinValue); p += 4;
+        BinaryPrimitives.WriteInt32LittleEndian(s[p..], SourceWidth ?? int.MinValue); p += 4;
+        BinaryPrimitives.WriteInt32LittleEndian(s[p..], SourceHeight ?? int.MinValue); p += 4;
         BinaryPrimitives.WriteUInt16LittleEndian(s[p..], (ushort)bgBytes.Length); p += 2;
         bgBytes.CopyTo(s[p..]);
         return buf;
@@ -262,6 +279,12 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         if (version >= 3) {
             var inv = s[p++]; obj.InvertLuminance = inv == 0 ? null : inv == 2;
             obj.AutoLightDarkMode = (ri = BinaryPrimitives.ReadInt32LittleEndian(s[p..])) == -1 ? null : (AutoLightDarkSwitch)ri; p += 4;
+        }
+        if (version >= 4) {
+            obj.SourceX = (ri = BinaryPrimitives.ReadInt32LittleEndian(s[p..])) == int.MinValue ? null : ri; p += 4;
+            obj.SourceY = (ri = BinaryPrimitives.ReadInt32LittleEndian(s[p..])) == int.MinValue ? null : ri; p += 4;
+            obj.SourceWidth = (ri = BinaryPrimitives.ReadInt32LittleEndian(s[p..])) == int.MinValue ? null : ri; p += 4;
+            obj.SourceHeight = (ri = BinaryPrimitives.ReadInt32LittleEndian(s[p..])) == int.MinValue ? null : ri; p += 4;
         }
         var bgLen = BinaryPrimitives.ReadUInt16LittleEndian(s[p..]); p += 2;
         obj.BackgroundColor = bgLen == 0 ? null : System.Text.Encoding.UTF8.GetString(s.Slice(p, bgLen));

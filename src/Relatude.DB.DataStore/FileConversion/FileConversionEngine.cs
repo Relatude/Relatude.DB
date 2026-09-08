@@ -206,7 +206,7 @@ public class FileConversionEngine : IDisposable {
         while (_conversions.TryGet(key, out entry)) {
             if (sw.ElapsedMilliseconds >= maxWaitMs) break;
             var remaining = maxWaitMs - sw.ElapsedMilliseconds;
-            var min = sw.ElapsedMilliseconds switch { < 100 => 20, < 1000 => 100, < 5000 => 500, _ => 1000 };
+            var min = sw.ElapsedMilliseconds switch { < 100 => 10, < 1000 => 25, < 5000 => 100, _ => 500 };
             var delay = (int)Math.Min(min, remaining);
             if (delay <= 0) break;
             await Task.Delay(delay);
