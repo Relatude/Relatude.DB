@@ -7843,6 +7843,31 @@ body.pg-resizing {
   margin-left: 12px;
 }
 
+/* the two sliders that stretch a solid picture: narrow, to sit on the builder line with the pickers */
+.visual-stretch {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.visual-stretch-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.visual-stretch input[type="range"] {
+  width: 74px;
+  margin: 0;
+}
+
+.visual-stretch-value {
+  width: 34px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
 /* the picture and its legend, framed like a panel; the canvas takes what the legend leaves */
 .visual-stage {
   position: relative;
@@ -7875,6 +7900,18 @@ body.pg-resizing {
   width: 100%;
   height: 100%;
   display: block;
+}
+
+/* The picture takes the keyboard - the arrows slide it, plus and minus close in - so it has to be
+   able to take focus. A ring round the whole picture would be noise for a hand on the mouse, which
+   is how it is usually given focus, so only a tab shows one. */
+.visual-canvas canvas:focus {
+  outline: none;
+}
+
+.visual-canvas canvas:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 /* the names on the cards, drawn over the picture from the same frame; the pointer goes through to the cards */
@@ -7933,8 +7970,8 @@ body.pg-resizing {
   color: var(--text-soft);
 }
 
-/* the name of a row of a depth grouping: off the right-hand end of the picture, reading outward
-   rather than centred under something, so it does not fight the bar labels below it */
+/* the name of a row of a depth grouping: off the near end of its line on the floor, on one line so
+   it does not fight the bar names, which are two */
 .visual-row-label {
   left: 0;
   top: 0;

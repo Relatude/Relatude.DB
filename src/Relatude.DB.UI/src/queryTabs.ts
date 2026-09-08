@@ -60,6 +60,12 @@ export interface VisualDefinition {
    */
   depthGroupProperty?: string | null;
   depthGroupMode?: string;
+  /**
+   * How far the picture of solids is stretched along each axis, 1 being the shape the layout chooses
+   * for itself: `xScale` how far it reaches across, `depthScale` how far it reaches back. Absent is 1.
+   */
+  xScale?: number;
+  depthScale?: number;
   /** the property whose values the cards are stacked into bars by; null is the grid */
   barProperty: string | null;
   barMode: string;
@@ -68,6 +74,8 @@ export interface VisualDefinition {
   sortDescending?: boolean;
   /** the legend beside the picture */
   legend: boolean;
+  /** whether the two folded-away channels - thickness and shape - are on show; absent is folded */
+  extras?: boolean;
   /** the colours the cards are painted with (visual/palette.ts); absent is the first palette */
   palette?: string;
 }

@@ -141,7 +141,11 @@ export interface CardField {
   panBy(dx: number, dy: number): void;
   /** Lets the view coast on after a drag ends, at css pixels per second, slowing to a stop. */
   fling(vx: number, vy: number): void;
-  /** A point of the picture in css pixels of the canvas; `z` is the depth axis, which the flat field has none of and ignores. */
+  /**
+   * A point of the picture in css pixels of the canvas; `z` is the depth axis, which the flat field
+   * has none of and ignores. A point at or behind the camera has no place on the canvas and comes
+   * back as NaN, which whatever is being laid over the picture is expected to leave out.
+   */
   worldToCss(x: number, y: number, z?: number): [number, number];
   camera(): Camera;
   /** Where the camera is going: the end of a glide or of a wheel step, the camera itself when it is still. */

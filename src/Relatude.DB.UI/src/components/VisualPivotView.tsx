@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { IconArrowNarrowDown, IconArrowNarrowUp, IconFocusCentered, IconListDetails } from "@tabler/icons-react";
+import { IconArrowNarrowDown, IconArrowNarrowUp, IconFocusCentered, IconListDetails, IconMinus, IconPlus } from "@tabler/icons-react";
 import type { PivotBase } from "./PivotView";
 import { bytesOf, fetchNodeGuid, fetchPivotModel, runVisual, type PivotModel, type PivotProperty, type VisualGroup, type VisualRequest, type VisualResult } from "../server/query";
 import { useLiveResult } from "../server/hooks";
@@ -8,7 +8,7 @@ import { showConfirm } from "../dialogs";
 import type { VisualDefinition } from "../queryTabs";
 import { createCardField, transitionSeconds, type CardField, type CardFieldCommon, type FieldSurface, type FieldTheme, type RGBf } from "../visual/cardField";
 import { createCardField3D, defaultDepth, DetailLevel, type CardField3D } from "../visual/cardField3d";
-import { barLayout, gridLayout, type Bar, type DepthGrouping, type Layout, type Row } from "../visual/layouts";
+import { barLayout, gridLayout, type Bar, type DepthGrouping, type Layout, type Row, type Spread } from "../visual/layouts";
 import { buildPalette, palettes, parseCssColor, type PaletteColor, type RGB } from "../visual/palette";
 import { shapeLabel, shapeMaskUrl, shapeSlotFor } from "../visual/shapes";
 import { IntMap } from "../visual/intMap";
@@ -94,11 +94,40 @@ const fitPadding = 28;
  */
 const solidFitPadding = 10;
 const labelMinWidth = 64; // css px a bar label needs before its neighbours are thinned out
+/**
+ * How fast the keys work the camera: the arrows in pointer pixels a second, so they read against the
+ * same measure a drag does, and the wheel's own notch is about 1.2 - so plus and minus held down are
+ * a bit under three notches a second.
+ */
+const keySlidePxPerSecond = 560;
+const keyTurnPxPerSecond = 210;
+const keyZoomPerSecond = 3.2;
+/** how often a held key is acted on, in milliseconds */
+const keyTickMs = 16;
+const ourKeys = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Shift", "+", "=", "-", "_", "Add", "Subtract"]);
+const keyIsOurs = (key: string) => ourKeys.has(key);
 /** the clear space a name in a solid picture keeps around itself, in css pixels */
 const namePad = 3;
+/** and how far past the end of its line it stands, away from the middle of the picture */
+const nameStandoff = 13;
+/** how many cards may be seen flying out of the picture at once; past this a filter simply replaces them */
+const maxLeaving = 150_000;
+/**
+ * The two sliders that stretch a solid picture. The slider runs 0 to 100 and the scale it stands for
+ * doubles every `scaleSteps` of it, so the middle is the shape the layout chose for itself and the
+ * ends are a tenth and ten times it. A scale is stored rather than a position, so the sliders mean
+ * the same thing whatever the range is set to later.
+ */
+const scaleSteps = 15;
+const scaleToSlider = (scale: number) => Math.round(50 + scaleSteps * Math.log2(Math.max(0.05, scale)));
+const sliderToScale = (at: number) => Math.round(Math.pow(2, (at - 50) / scaleSteps) * 100) / 100;
+/** how long after the last nudge of a slider the picture is laid out again */
+const slideSettleMs = 140;
 /** how far past the picture a line on the floor runs to reach its name, as a share of the picture */
 const leadShare = 0.07;
 const refitSeconds = 0.7; // a fit asked for on its own - the button, a double-click, a resize - with nothing else moving
+/** how long the solid picture takes to settle back into place after its canvas has changed shape */
+const driftSeconds = 0.55;
 /**
  * How thick a card can be, in cells of the grid, so 1 is as deep as a card is wide. The thinnest is
  * a card that still reads as a solid seen edge on; the thickest is a tower two cards deep, which is
@@ -200,6 +229,33 @@ export function VisualPivotView({
   const rowProperty = groupable.some((p) => p.id === def.depthGroupProperty) ? def.depthGroupProperty! : null;
   const rowMode = def.depthGroupMode ?? "auto";
   const solidPicture = depthProperty !== null || rowProperty !== null;
+  // thickness and shape are folded away unless asked for, or unless one of them is being used
+  const inUse = depthProperty !== null || shapeProperty !== null;
+  const extras = inUse || def.extras === true;
+  /**
+   * The two stretches. What is laid out is the committed value, and what the thumb shows is the one
+   * being dragged: a nudge of a slider re-lays every card and hands the whole picture to the card
+   * field again, which at a million of them is not something to do sixty times a second, so the
+   * commit waits for the hand to settle. The thumb follows it all the way regardless.
+   */
+  const [dragged, setDragged] = useState<{ xScale?: number; depthScale?: number }>({});
+  const settle = useRef(0);
+  const pending = useRef<{ xScale?: number; depthScale?: number }>({});
+  const xScale = def.xScale ?? 1;
+  const depthScale = def.depthScale ?? 1;
+  const spread: Spread = { x: xScale, z: depthScale };
+
+  function slide(patch: { xScale?: number; depthScale?: number }) {
+    pending.current = { ...pending.current, ...patch };
+    setDragged({ ...dragged, ...patch });
+    window.clearTimeout(settle.current);
+    settle.current = window.setTimeout(() => {
+      const done = pending.current;
+      pending.current = {};
+      setDragged({});
+      onChange({ ...def, ...done });
+    }, slideSettleMs);
+  }
   // sorting needs a single value per node with an order to it, which is what an indexed scalar is
   const sortable = useMemo(() => model?.properties.filter((p) => p.aggregatable) ?? [], [model]);
   // read defensively: a definition saved before there was a sort has neither field
@@ -259,7 +315,14 @@ export function VisualPivotView({
   const [bars, setBars] = useState<{ bar: Bar; group: DecodedGroup }[]>([]);
   const [rowLabels, setRowLabels] = useState<{ row: Row; group: DecodedGroup }[]>([]);
   /** where the names go in a picture of solids, in the same order as `bars` and `rowLabels` */
-  const anchors = useRef<{ bars: Anchor[]; rows: Anchor[] }>({ bars: [], rows: [] });
+  const anchors = useRef<{ bars: Anchor[]; rows: Anchor[]; middle: Anchor }>({ bars: [], rows: [], middle: { x: 0, y: 0, z: 0 } });
+  /**
+   * Which side of the picture the lines on the floor run out to, and the names with them: +1 or -1
+   * along each axis, whichever way the camera is. Kept so it can be seen to change.
+   */
+  const facing = useRef<{ x: number; z: number }>({ x: 1, z: 1 });
+  /** how thick the thickest card is, which is how far forward of its row the picture reaches */
+  const thickestRef = useRef(defaultDepth);
   const layoutRef = useRef<Layout | null>(null);
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(-1);
@@ -270,8 +333,13 @@ export function VisualPivotView({
   /** and the offer itself, kept fresh: the watcher that calls it was set up with the field, renders ago */
   const wayBack = useRef<() => void>(() => {});
   const drag = useRef<Drag | null>(null);
+  /** the keys being held down, the gesture they are driving, and the clock they are driven on */
+  const keys = useRef(new Set<string>());
+  const keyClock = useRef(0);
+  const keyGesture = useRef<"pan" | "orbit" | null>(null);
+  const keyTimer = useRef(0);
   const lastHoverPick = useRef(0);
-  const previous = useRef<{ decoded: Decoded; layout: Layout; depths: Float32Array | null } | null>(null);
+  const previous = useRef<{ decoded: Decoded; layout: Layout; depths: Float32Array | null; colorData: DecodedProperty | null; shapeData: DecodedProperty | null } | null>(null);
   const refit = useRef(0);
   // the canvas exists once the model is known (nothing is rendered before), so the field is made then
   const hasStage = model !== null && glOk;
@@ -318,12 +386,28 @@ export function VisualPivotView({
       m.frame(performance.now());
       l?.draw(f!, m, labelColors.current);
     });
+    let was = f.size();
     const ro = new ResizeObserver(() => {
       f!.resize();
-      // the picture is fitted to its new room, once the resizing has settled: a dragged splitter
-      // fires this many times a second and a fit per event would fight the drag
+      const now = f!.size();
+      const grewBy = now.width - was.width;
+      const roseBy = now.height - was.height;
+      was = now;
+      // A dragged splitter fires this many times a second, so what is done about it waits for the
+      // resizing to settle. The flat picture is fitted to whatever room it has and is simply fitted
+      // again. A solid one is NOT: someone who has turned and closed in on a corner of it does not
+      // want that thrown away because a form opened beside the picture. The canvas keeps its middle
+      // where the middle of the canvas is, so a canvas that narrows from the right carries the
+      // picture left with it - and all that is wanted is to undo that much, gently: half the width
+      // it lost, panned back, so the picture stays where it was on the screen.
       window.clearTimeout(refit.current);
-      refit.current = window.setTimeout(() => fitToLayout(refitSeconds), 180);
+      refit.current = window.setTimeout(() => {
+        if (solid.current) {
+          if (Math.abs(grewBy) >= 1 || Math.abs(roseBy) >= 1) solid.current.driftBy(-grewBy / 2, -roseBy / 2, driftSeconds);
+        } else {
+          fitToLayout(refitSeconds);
+        }
+      }, 180);
     });
     ro.observe(canvas);
     const mo = new MutationObserver(() => {
@@ -377,6 +461,9 @@ export function VisualPivotView({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- lives with the canvas element
   }, [hasStage, solidPicture]);
+
+  // a key held as the view goes would otherwise leave its clock running for the life of the page
+  useEffect(() => () => window.clearInterval(keyTimer.current), []);
 
   // How much the picture may cost before it has drawn a frame anyone can measure. A very large set
   // starts as plain boxes; the guard in the field takes it up to solids if the frames allow.
@@ -448,55 +535,41 @@ export function VisualPivotView({
     const aspect = canvas && canvas.clientHeight > 0 ? canvas.clientWidth / canvas.clientHeight : 1.6;
     // how thick every card is, when the picture is one of solids; worked out before the layout,
     // which has to leave room behind each row for the thickest card standing on it
-    const depths = solid.current && depthData ? cardDepths(depthData, decoded.count) : null;
+    const depths = solid.current && depthData ? cardDepths(depthData, decoded.count, depthScale) : null;
     const thickest = depths === null ? defaultDepth : depths.reduce((a, b) => (b > a ? b : a), 0);
     const grouping: DepthGrouping | null = solid.current && rowData ? { groupOf: rowData.assignment, groupCount: rowData.groups.length, clearance: thickest } : null;
     const layout = barData
-      ? barLayout(decoded.count, barData.assignment, barData.groups.length, colorData?.assignment ?? null, aspect, decoded.order, grouping)
-      : gridLayout(decoded.count, aspect, decoded.order, grouping);
+      ? barLayout(decoded.count, barData.assignment, barData.groups.length, colorData?.assignment ?? null, aspect, decoded.order, grouping, solid.current ? spread : undefined)
+      : gridLayout(decoded.count, aspect, decoded.order, grouping, solid.current ? spread : undefined);
     layoutRef.current = layout;
     const padding = solid.current ? solidFitPadding : fitPadding;
     const prev = previous.current;
+    /** the cards flying out of the picture, whose colours and silhouettes are appended to the new ones */
+    let leaving: Leaving | null = null;
     if (prev === null || !sameValues(prev.decoded.ids, decoded.ids)) {
       // A new set of cards: the ones that were already on screen leave from where they are, and the
       // ones that were not fade in where they belong - so what carried over is seen to travel and
       // what is new is seen to arrive, rather than the whole picture being replaced at once.
-      let from: Float32Array | null = null;
-      let fresh: Uint8Array | null = null;
-      // and, when the picture is one of solids laid in rows, the row each of them leaves from: a
-      // filter that empties a group moves every row behind it forward, and a card that was on screen
-      // should be seen to travel there rather than to appear on its new row
-      let rowsFrom: Float32Array | null = null;
-      if (prev !== null && prev.decoded.count > 0 && decoded.count > 0) {
-        const where = f.positions();
-        const wereOn = solid.current?.rows() ?? null;
-        const byId = new IntMap(prev.decoded.count);
-        for (let j = 0; j < prev.decoded.count; j++) byId.set(prev.decoded.ids[j], j);
-        from = new Float32Array(layout.positions);
-        if (layout.rows !== null && wereOn !== null) rowsFrom = new Float32Array(layout.rows);
-        const newborn = new Uint8Array(decoded.count);
-        let arriving = 0;
-        for (let i = 0; i < decoded.count; i++) {
-          const j = byId.get(decoded.ids[i]);
-          if (j >= 0) {
-            from[i * 2] = where[j * 2];
-            from[i * 2 + 1] = where[j * 2 + 1];
-            if (rowsFrom !== null && j < wereOn!.length) rowsFrom[i] = wereOn![j];
-          } else {
-            newborn[i] = 1;
-            arriving++;
-          }
-        }
-        if (arriving > 0) fresh = newborn;
-      } else if (decoded.count > 0) {
-        // the first picture of a query: every card of it is new, so the whole of it washes in
-        fresh = new Uint8Array(decoded.count).fill(1);
-      }
-      f.setCards(decoded.count, from, layout.positions, fresh);
+      const flight = planFlight({
+        solid: solid.current !== null,
+        prev,
+        decoded,
+        layout,
+        depths,
+        where: prev !== null && prev.decoded.count > 0 ? f.positions() : null,
+        wereOn: solid.current?.rows() ?? null,
+        colorData,
+        palette,
+        theme,
+      });
+      leaving = flight.leaving;
+      f.setCards(flight.count, flight.from, flight.to, flight.state);
       // the rows and the thickness are told before the fit, which has to know how far back the
       // picture reaches and how far it stands out
-      solid.current?.setRows(layout.rows, rowsFrom);
-      solid.current?.setDepths(depths, 0);
+      solid.current?.setRows(flight.rows, flight.rowsFrom);
+      solid.current?.setDepths(flight.depths, 0);
+      // the pictures are only ever asked for the cards of the result; the ones on their way out
+      // fly out in their own colour
       media.current?.setCards(decoded.ids);
       setSelectedIndex(-1);
       // the camera keeps pace with the cards: it arrives on the new picture as the last of them do
@@ -515,22 +588,30 @@ export function VisualPivotView({
       solid.current?.setDepths(depths, transitionSeconds);
       f.fit(fitBounds(layout), padding, transitionSeconds);
     }
-    previous.current = { decoded, layout, depths };
+    previous.current = { decoded, layout, depths, colorData, shapeData };
     media.current?.setLayout(layout);
     const colors = paletteBytes(colorData, palette, theme);
-    f.setGroups(colorData ? colorData.assignment : new Uint16Array(decoded.count), colors);
+    const groups = colorData ? colorData.assignment : new Uint16Array(decoded.count);
     const shapes = shapeData ? cardShapes(shapeData, decoded.count) : null;
-    f.setShapes(shapes);
+    if (leaving === null) {
+      f.setGroups(groups, colors);
+      f.setShapes(shapes);
+    } else {
+      // the leavers' own colours follow the new palette rather than replacing anything in it, so a
+      // card flying out keeps exactly the colour it had while it was in the picture
+      f.setGroups(joinGroups(groups, leaving.groups), joinBytes(colors, leaving.palette));
+      f.setShapes(shapes !== null || leaving.shaped ? joinGroups(shapes ?? new Uint16Array(decoded.count), leaving.shapes) : null);
+    }
     labelColors.current = { assignment: colorData ? colorData.assignment : null, palette: colors, shaped: shapeData !== null, shapes, panel: theme.panel };
     setBars(layout.bars ? layout.bars.map((bar) => ({ bar, group: barData!.groups[bar.group] })) : []);
     setRowLabels(layout.rowSlots && rowData ? layout.rowSlots.map((row) => ({ row, group: rowData.groups[row.group] })) : []);
     if (solid.current) {
-      const floor = floorGeometry(layout, thickest);
-      anchors.current = { bars: floor.bars, rows: floor.rows };
-      solid.current.setFloorLines(floor.points);
+      thickestRef.current = thickest;
+      keepNamesFacing();
+      applyFloor(layout);
     }
     setTooltip(null);
-  }, [decoded, colorData, barData, shapeData, depthData, rowData, theme, palette]);
+  }, [decoded, colorData, barData, shapeData, depthData, rowData, theme, palette, xScale, depthScale]);
 
   // the form closed: the card it showed is no longer the one being looked at
   useEffect(() => {
@@ -551,12 +632,18 @@ export function VisualPivotView({
    * name at the end of a line that visibly comes out from under one block cannot be read as
    * belonging to another, which is what the names hanging in the air beside the picture were.
    */
-  function floorGeometry(layout: Layout, thickest: number): { points: Float32Array; bars: Anchor[]; rows: Anchor[] } {
+  function floorGeometry(layout: Layout, thickest: number, side: { x: number; z: number }): { points: Float32Array; bars: Anchor[]; rows: Anchor[]; middle: Anchor } {
     const b = layout.bounds;
     const back = b.z0 ?? 0;
     const front = (b.z1 ?? 0) + thickest;
     const lead = Math.max(0.8, Math.max(b.x1 - b.x0, front - back) * leadShare);
     const floor = b.y1;
+    // out to whichever side the camera is on: a name written on the far side of the picture is a
+    // name read through it
+    const zEnd = side.z > 0 ? front + lead : back - lead;
+    const zStart = side.z > 0 ? back : front;
+    const xEnd = side.x > 0 ? b.x1 + lead : b.x0 - lead;
+    const xStart = side.x > 0 ? b.x0 - lead * 0.35 : b.x1 + lead * 0.35;
     const points: number[] = [];
     const bars: Anchor[] = [];
     const rows: Anchor[] = [];
@@ -565,19 +652,52 @@ export function VisualPivotView({
     if (layout.bars) {
       for (const bar of layout.bars) {
         const middle = (bar.x0 + bar.x1) / 2;
-        line(middle, back, middle, front + lead);
-        bars.push({ x: middle, y: floor, z: front + lead });
+        line(middle, zStart, middle, zEnd);
+        bars.push({ x: middle, y: floor, z: zEnd });
       }
     }
     if (layout.rowSlots) {
       for (const row of layout.rowSlots) {
         // a row is several cells deep in a chart of bars, and its line runs down the middle of it
         const middle = row.z - (layout.rowDepth - 1) / 2;
-        line(b.x0 - lead * 0.35, middle, b.x1 + lead, middle);
-        rows.push({ x: b.x1 + lead, y: floor, z: middle });
+        line(xStart, middle, xEnd, middle);
+        rows.push({ x: xEnd, y: floor, z: middle });
       }
     }
-    return { points: new Float32Array(points), bars, rows };
+    return { points: new Float32Array(points), bars, rows, middle: { x: (b.x0 + b.x1) / 2, y: floor, z: (back + front) / 2 } };
+  }
+
+  /** Lays the lines on the floor and works out where the names go, for the side now facing. */
+  function applyFloor(layout: Layout) {
+    const s = solid.current;
+    if (!s) return;
+    const floor = floorGeometry(layout, thickestRef.current, facing.current);
+    anchors.current = { bars: floor.bars, rows: floor.rows, middle: floor.middle };
+    s.setFloorLines(floor.points);
+  }
+
+  /**
+   * Turning the picture round brings another side of it toward the camera, and the names go with it:
+   * they always stand off the near side, never behind the picture where they would be read through
+   * it. Asked on every frame, acted on only when the answer changes, and with a margin about the
+   * middle so a camera hovering over it does not flip them back and forth.
+   */
+  function keepNamesFacing() {
+    const s = solid.current;
+    const layout = layoutRef.current;
+    if (!s || !layout) return;
+    const b = layout.bounds;
+    const eye = s.eye();
+    const midX = (b.x0 + b.x1) / 2;
+    const midZ = ((b.z0 ?? 0) + (b.z1 ?? 0) + thickestRef.current) / 2;
+    const marginX = Math.max(0.5, (b.x1 - b.x0) * 0.06);
+    const marginZ = Math.max(0.5, ((b.z1 ?? 0) - (b.z0 ?? 0) + thickestRef.current) * 0.06);
+    const now = facing.current;
+    const x = eye[0] > midX + marginX ? 1 : eye[0] < midX - marginX ? -1 : now.x;
+    const z = eye[2] > midZ + marginZ ? 1 : eye[2] < midZ - marginZ ? -1 : now.z;
+    if (x === now.x && z === now.z) return;
+    facing.current = { x, z };
+    applyFloor(layout);
   }
 
   function fitBounds(layout: Layout) {
@@ -587,8 +707,15 @@ export function VisualPivotView({
       // the names are at the ends of the lines on the floor, which run out past the front of the
       // picture and past its right-hand end: both need room in view
       const span = Math.max(1, b.x1 - b.x0);
-      if (layout.bars) room.z1 = (b.z1 ?? 0) + span * (leadShare + 0.05);
-      if (layout.rowSlots) room.x1 = b.x1 + span * (leadShare + 0.06);
+      const side = facing.current;
+      if (layout.bars) {
+        if (side.z > 0) room.z1 = (b.z1 ?? 0) + span * (leadShare + 0.05);
+        else room.z0 = (b.z0 ?? 0) - span * (leadShare + 0.05);
+      }
+      if (layout.rowSlots) {
+        if (side.x > 0) room.x1 = b.x1 + span * (leadShare + 0.06);
+        else room.x0 = b.x0 - span * (leadShare + 0.06);
+      }
       return room;
     }
     // flat, the bars stand on their labels, which need a strip of the picture below the baseline
@@ -606,6 +733,7 @@ export function VisualPivotView({
   // frame just drawn. Flat, a name sits centred under its bar and is given the room of the bars it
   // stands under. Solid, it sits at the far end of that bar's line on the floor.
   function placeLabels() {
+    keepNamesFacing();
     placeBarLabels();
     placeRowLabels();
   }
@@ -616,9 +744,12 @@ export function VisualPivotView({
    * would land on the last one shown, rather than every n-th of them being kept the way the flat
    * picture does it.
    */
-  function placeAtAnchors(host: HTMLDivElement, list: Anchor[], beside: boolean) {
+  function placeAtAnchors(host: HTMLDivElement, list: Anchor[]) {
     const f = field.current;
     if (!f) return;
+    const middle = anchors.current.middle;
+    const [mx, my] = f.worldToCss(middle.x, middle.y, middle.z);
+    const room = f.size();
     const children = host.children;
     // What is already written, as boxes on the screen. A name is dropped when it would land on one
     // of them - measured against the whole name rather than against the point it hangs from, because
@@ -631,9 +762,29 @@ export function VisualPivotView({
       const [x, y] = f.worldToCss(list[i].x, list[i].y, list[i].z);
       const w = el.offsetWidth;
       const h = el.offsetHeight;
-      // beside the end of the line for a row, just past the end of it for a bar
-      const left = (beside ? x + 7 : x - w / 2) - namePad;
-      const top = (beside ? y - h / 2 : y + 3) - namePad;
+      // Nothing to write when the end of the line has no place on the canvas: behind the camera, or
+      // - a view along the floor being what it is - away toward the horizon, thousands of pixels
+      // off the side. Either way there is nowhere sensible for the name to stand.
+      if (!isFinite(x) || !isFinite(y) || x < -w || y < -h || x > room.width + w || y > room.height + h) {
+        el.style.visibility = "hidden";
+        continue;
+      }
+      // a step further out from the middle of the picture, along the line the name already stands
+      // on: whichever way the picture has been turned, a name sits outside it rather than over it
+      let ax = x - mx;
+      let ay = y - my;
+      const reach = Math.hypot(ax, ay);
+      if (reach < 1) {
+        ax = 0;
+        ay = 1;
+      } else {
+        ax /= reach;
+        ay /= reach;
+      }
+      const px = x + ax * nameStandoff;
+      const py = y + ay * nameStandoff;
+      const left = px - w / 2 - namePad;
+      const top = py - h / 2 - namePad;
       const box = { x0: left, y0: top, x1: left + w + 2 * namePad, y1: top + h + 2 * namePad };
       let clash = false;
       for (const t of taken) {
@@ -648,14 +799,14 @@ export function VisualPivotView({
       }
       taken.push(box);
       el.style.visibility = "visible";
-      el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(${beside ? "7px, -50%" : "-50%, 3px"})`;
+      el.style.transform = `translate(${px.toFixed(1)}px, ${py.toFixed(1)}px) translate(-50%, -50%)`;
     }
   }
 
   function placeRowLabels() {
     const host = rowLabelsRef.current;
     if (!host || !solid.current) return;
-    placeAtAnchors(host, anchors.current.rows, true);
+    placeAtAnchors(host, anchors.current.rows);
   }
 
   function placeBarLabels() {
@@ -664,7 +815,7 @@ export function VisualPivotView({
     const layout = layoutRef.current;
     if (!f || !host || !layout?.bars) return;
     if (solid.current) {
-      placeAtAnchors(host, anchors.current.bars, false);
+      placeAtAnchors(host, anchors.current.bars);
       return;
     }
     const bars = layout.bars;
@@ -686,6 +837,86 @@ export function VisualPivotView({
       el.style.transform = `translate(${x0.toFixed(1)}px, ${(y + 5).toFixed(1)}px)`;
       el.style.width = width.toFixed(1) + "px";
     }
+  }
+
+  /**
+   * The keys, applied on a clock of their own while they are held: the arrows slide the picture, the
+   * arrows with shift turn it, and plus and minus close in and draw back. A held key has to be acted
+   * on over and over rather than once per press, and on a timer rather than on the frames the
+   * picture happens to be drawing: a picture of three quarters of a million solids may be drawing
+   * five frames a second, and a hand on a key should move the camera at the same rate whether it is
+   * drawing five or sixty. The camera is told where to go in real time and the picture catches up.
+   *
+   * They go through the same three calls the pointer does, holds and all, so a keyboard slide is
+   * measured at the depth of whatever is in the middle of the view and a keyboard turn goes about
+   * the same point a drag there would - which is the only reason they feel like the same camera.
+   */
+  function applyKeys() {
+    const s = solid.current;
+    const held = keys.current;
+    if (!s || held.size === 0) {
+      if (s !== null && keyGesture.current !== null) {
+        s.release(keyGesture.current);
+        keyGesture.current = null;
+      }
+      window.clearInterval(keyTimer.current);
+      keyTimer.current = 0;
+      keyClock.current = 0;
+      return;
+    }
+    const now = performance.now();
+    const dt = keyClock.current === 0 ? 1 / 60 : Math.min(0.1, (now - keyClock.current) / 1000);
+    keyClock.current = now;
+    const room = s.size();
+    const midX = room.width / 2;
+    const midY = room.height / 2;
+    let dx = 0;
+    let dy = 0;
+    if (held.has("ArrowLeft")) dx -= 1;
+    if (held.has("ArrowRight")) dx += 1;
+    if (held.has("ArrowUp")) dy -= 1;
+    if (held.has("ArrowDown")) dy += 1;
+    const turning = held.has("Shift");
+    // a hold is taken on the middle of the view, and given up when the arrows are, so switching
+    // between sliding and turning takes hold afresh of whatever is there now
+    const wants = dx !== 0 || dy !== 0 ? (turning ? "orbit" : "pan") : null;
+    if (wants !== keyGesture.current) {
+      if (keyGesture.current !== null) s.release(keyGesture.current);
+      if (wants !== null) s.hold(wants, midX, midY);
+      keyGesture.current = wants;
+    }
+    // an arrow is a hand on the picture: it takes it the way it points, the same way a drag in that
+    // direction would, which is also what shift and an arrow already do to turn it
+    if (wants === "orbit") s.orbit(dx * keyTurnPxPerSecond * dt, dy * keyTurnPxPerSecond * dt);
+    else if (wants === "pan") s.panBy(dx * keySlidePxPerSecond * dt, dy * keySlidePxPerSecond * dt);
+    const closer = held.has("+") || held.has("=") || held.has("Add");
+    const further = held.has("-") || held.has("_") || held.has("Subtract");
+    if (closer !== further) s.zoomAt((closer ? 1 : -1) * keyZoomPerSecond * dt, midX, midY);
+    // nothing else may be moving, so the next frame has to be asked for here
+    s.invalidate();
+  }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (!solid.current || !keyIsOurs(e.key)) return;
+    e.preventDefault();
+    if (e.repeat) return; // the key is already held; the clock below is what repeats it
+    keys.current.add(e.key === "Shift" ? "Shift" : e.key);
+    if (e.shiftKey) keys.current.add("Shift");
+    if (keyTimer.current === 0) keyTimer.current = window.setInterval(() => applyKeys(), keyTickMs);
+    applyKeys();
+  }
+
+  function onKeyUp(e: React.KeyboardEvent) {
+    if (!keyIsOurs(e.key)) return;
+    keys.current.delete(e.key);
+    if (!e.shiftKey) keys.current.delete("Shift");
+    if (keys.current.size === 0) applyKeys();
+  }
+
+  /** Letting go of the picture lets go of every key: a key held through a blur is never released. */
+  function onCanvasBlur() {
+    keys.current.clear();
+    applyKeys();
   }
 
   // ---- the pointer ----
@@ -710,10 +941,13 @@ export function VisualPivotView({
       else if (e.button === 0) kind = "orbit";
       else return;
       e.preventDefault();
-      s.hold(kind);
+      const [hx, hy] = canvasPoint(e);
+      s.hold(kind, hx, hy);
     } else if (e.button !== 0) return;
     const [x, y] = canvasPoint(e);
     drag.current = { x, y, t: performance.now(), moved: false, vx: 0, vy: 0, kind };
+    // the keys are the canvas', so a hand on the picture is what gives them to it
+    e.currentTarget.focus({ preventScroll: true });
     e.currentTarget.setPointerCapture(e.pointerId);
     field.current?.setHover(-1);
     setTooltip(null);
@@ -732,9 +966,9 @@ export function VisualPivotView({
       if (!d.moved && Math.hypot(dx, dy) > 4) d.moved = true;
       const s = solid.current;
       if (d.moved && s) {
-        if (d.kind === "orbit") s.orbit(dx, dy, dt);
-        else if (d.kind === "look") s.look(dx, dy, dt);
-        else s.panBy(dx, dy, dt);
+        if (d.kind === "orbit") s.orbit(dx, dy);
+        else if (d.kind === "look") s.look(dx, dy);
+        else s.panBy(dx, dy);
       } else if (d.moved) {
         flat.current?.panBy(dx, dy);
       }
@@ -753,7 +987,10 @@ export function VisualPivotView({
     lastHoverPick.current = now;
     const i = f.pick(x, y);
     f.setHover(i);
-    if (i < 0 || !decoded) {
+    // a card flying out of the picture is still one of the field's, but it is no longer one of the
+    // result's: there is nothing to say about it and nothing to open
+    if (i < 0 || !decoded || i >= decoded.count) {
+      f.setHover(-1);
       setTooltip(null);
       return;
     }
@@ -781,7 +1018,7 @@ export function VisualPivotView({
     }
     const [x, y] = canvasPoint(e);
     const i = f.pick(x, y);
-    if (i < 0 || !decoded) return;
+    if (i < 0 || !decoded || i >= decoded.count) return;
     setSelectedIndex(i);
     f.setSelected(i);
     fetchNodeGuid(base.storeId, decoded.ids[i])
@@ -824,6 +1061,18 @@ export function VisualPivotView({
     }
     onChange({ ...def, [field]: id });
   }
+  /** One of the two stretches: a slider whose middle is the shape the layout chose for itself. */
+  const stretch = (label: string, title: string, committed: number, dragging: number | undefined, onSlide: (scale: number) => void) => {
+    const scale = dragging ?? committed;
+    return (
+      <span className="visual-stretch" title={title}>
+        <span className="visual-stretch-label">{label}</span>
+        <input type="range" min={0} max={100} step={1} value={scaleToSlider(scale)} onChange={(e) => onSlide(sliderToScale(Number(e.target.value)))} />
+        <span className="visual-stretch-value">{scale.toFixed(2)}×</span>
+      </span>
+    );
+  };
+
   const propertySelect = (value: string | null, none: string, title: string, onPick: (id: string | null) => void) => (
     <select className="select" value={value ?? ""} title={title} onChange={(e) => onPick(e.target.value || null)}>
       <option value="">{none}</option>
@@ -861,17 +1110,12 @@ export function VisualPivotView({
               ))}
             </select>
           </span>
-          <span className="pivot-builder-label visual-label-2">Shape by</span>
+          <span className="pivot-builder-label visual-label-2">Bars by</span>
           <span className="pivot-chip">
-            {propertySelect(shapeProperty, "(one shape)", "The property whose values give the cards their shapes; without one every card is a square", (id) => onChange({ ...def, shapeProperty: id }))}
-            {modeSelect(shapeInfo, shapeMode, (mode) => onChange({ ...def, shapeMode: mode }))}
+            {propertySelect(barProperty, "(grid)", "The property whose values the cards are stacked into bars by; without one they form a grid", (id) => onChange({ ...def, barProperty: id }))}
+            {modeSelect(barInfo, def.barMode, (mode) => onChange({ ...def, barMode: mode }))}
           </span>
-          <span className="pivot-builder-label visual-label-2">Depth by</span>
-          <span className="pivot-chip">
-            {propertySelect(depthProperty, "(flat)", "The property whose values give the cards their thickness; choosing one draws the picture as solids you can turn", (id) => chooseDepth("depthProperty", id))}
-            {modeSelect(depthInfo, depthMode, (mode) => onChange({ ...def, depthMode: mode }))}
-          </span>
-          <span className="pivot-builder-label visual-label-2">Depth grouping</span>
+          <span className="pivot-builder-label visual-label-2">Depth</span>
           <span className="pivot-chip">
             {propertySelect(
               rowProperty,
@@ -880,11 +1124,6 @@ export function VisualPivotView({
               (id) => chooseDepth("depthGroupProperty", id),
             )}
             {modeSelect(rowInfo, rowMode, (mode) => onChange({ ...def, depthGroupMode: mode }))}
-          </span>
-          <span className="pivot-builder-label visual-label-2">Bars by</span>
-          <span className="pivot-chip">
-            {propertySelect(barProperty, "(grid)", "The property whose values the cards are stacked into bars by; without one they form a grid", (id) => onChange({ ...def, barProperty: id }))}
-            {modeSelect(barInfo, def.barMode, (mode) => onChange({ ...def, barMode: mode }))}
           </span>
           <span className="pivot-builder-label visual-label-2">Sort by</span>
           <span className="pivot-chip">
@@ -912,7 +1151,44 @@ export function VisualPivotView({
               </button>
             )}
           </span>
+          {/* The two channels the picture can do without: how thick a card is, and what it is cut out
+              to. They are folded away behind the plus at the end of the line, and unfolded when one
+              of them is in use - a picture whose cards are hearts has to say somewhere why. */}
+          {extras && (
+            <>
+              <span className="pivot-builder-label visual-label-2">Thickness</span>
+              <span className="pivot-chip">
+                {propertySelect(depthProperty, "(all alike)", "The property whose values give the cards their thickness; choosing one draws the picture as solids you can turn", (id) => chooseDepth("depthProperty", id))}
+                {modeSelect(depthInfo, depthMode, (mode) => onChange({ ...def, depthMode: mode }))}
+              </span>
+              <span className="pivot-builder-label visual-label-2">Shape by</span>
+              <span className="pivot-chip">
+                {propertySelect(shapeProperty, "(one shape)", "The property whose values give the cards their shapes; without one every card is a square", (id) => onChange({ ...def, shapeProperty: id }))}
+                {modeSelect(shapeInfo, shapeMode, (mode) => onChange({ ...def, shapeMode: mode }))}
+              </span>
+            </>
+          )}
+          {/* only in a picture of solids: there is nothing to stretch in a flat one, which is fitted
+              to the panel it is drawn in */}
+          {solidPicture && (
+            <>
+              <span className="pivot-builder-label visual-label-2">Stretch</span>
+              <span className="pivot-chip">
+                {stretch("Across", "How far the picture reaches across: wider bars, standing lower", xScale, dragged.xScale, (v) => slide({ xScale: v }))}
+                {stretch("Deep", "How far the picture reaches back: more floor between the rows, and thicker cards", depthScale, dragged.depthScale, (v) => slide({ depthScale: v }))}
+              </span>
+            </>
+          )}
           <div className="pivot-options">
+            {/* forced open while one of them is in use, so it cannot be folded away and forgotten */}
+            <button
+              className={"icon-button" + (extras ? " active" : "")}
+              disabled={inUse}
+              title={inUse ? "Thickness and shape are in use, so they stay on show" : extras ? "Hide thickness and shape" : "Show thickness and shape"}
+              onClick={() => onChange({ ...def, extras: !extras })}
+            >
+              {extras ? <IconMinus size={16} stroke={1.9} /> : <IconPlus size={16} stroke={1.9} />}
+            </button>
             <button className="icon-button" title="Fit the whole picture in view (or double-click it)" onClick={() => fitToLayout(refitSeconds)}>
               <IconFocusCentered size={16} stroke={1.9} />
             </button>
@@ -939,7 +1215,7 @@ export function VisualPivotView({
           <span>{loading ? "Loading the cards…" : ""}</span>
         )}
         <div className="query-spacer" />
-        <span className="muted">{solidPicture ? "drag to turn · shift-drag or right-drag to slide · wheel to zoom · click a card to open it" : "drag to pan · wheel to zoom · click a card to open it"}</span>
+        <span className="muted">{solidPicture ? "drag to turn · shift-drag to slide · wheel or +/− to zoom · arrows to pan, with shift to turn · click a card to open it" : "drag to pan · wheel to zoom · click a card to open it"}</span>
       </div>
 
       <div className="visual-stage" ref={stageRef}>
@@ -950,6 +1226,10 @@ export function VisualPivotView({
               <canvas
                 key={solidPicture ? "solid" : "flat"}
                 ref={canvasRef}
+                tabIndex={0}
+                onKeyDown={onKeyDown}
+                onKeyUp={onKeyUp}
+                onBlur={onCanvasBlur}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
@@ -1057,16 +1337,18 @@ export function VisualPivotView({
  * is a larger value. The nodes with no value, and the ones outside the groups kept, stay as thin as
  * a card gets - the same thing a plain card says in the flat picture.
  */
-function cardDepths(property: DecodedProperty, count: number): Float32Array {
+function cardDepths(property: DecodedProperty, count: number, scale: number): Float32Array {
   const groups = property.groups;
   const rank = new Int32Array(groups.length).fill(-1);
   let ranks = 0;
   for (let g = 0; g < groups.length; g++) if (groups[g].kind === "value") rank[g] = ranks++;
   const byGroup = new Float32Array(groups.length);
   for (let g = 0; g < groups.length; g++) {
-    if (rank[g] < 0) byGroup[g] = depthMin;
+    const low = depthMin * scale;
+    const high = depthMax * scale;
+    if (rank[g] < 0) byGroup[g] = low;
     // one value on its own has no scale to be read against, so it takes the middle of the range
-    else byGroup[g] = ranks <= 1 ? (depthMin + depthMax) / 2 : depthMin + (depthMax - depthMin) * (rank[g] / (ranks - 1));
+    else byGroup[g] = ranks <= 1 ? (low + high) / 2 : low + (high - low) * (rank[g] / (ranks - 1));
   }
   const out = new Float32Array(count);
   for (let i = 0; i < count; i++) out[i] = byGroup[property.assignment[i]];
@@ -1089,6 +1371,173 @@ function depthBar(property: DecodedProperty, group: number): React.ReactNode {
       <i />
     </span>
   );
+}
+
+/**
+ * What a card is doing on the way to where it belongs: nothing (it was already there), arriving, or
+ * leaving. The renderer grows an arriving card into place and shrinks a leaving one away.
+ */
+const CardState = { Settled: 0, Arriving: 1, Leaving: 2 } as const;
+
+/** The cards flying out of the picture: what they are coloured and cut out to, appended to the new ones. */
+interface Leaving {
+  groups: Uint16Array;
+  shapes: Uint16Array;
+  palette: Uint8Array;
+  shaped: boolean;
+}
+
+/** Where every card sets off from, where it is going, and what it is doing on the way. */
+interface Flight {
+  count: number;
+  from: Float32Array;
+  to: Float32Array;
+  state: Uint8Array | null;
+  rows: Float32Array | null;
+  rowsFrom: Float32Array | null;
+  depths: Float32Array | null;
+  leaving: Leaving | null;
+}
+
+/**
+ * What the cards do when the result changes.
+ *
+ * A card that was on screen and still is travels from where it stands to where it now belongs. In a
+ * picture of solids the other two also have somewhere to be: a card the result has just gained comes
+ * DOWN out of the sky onto its place, growing and colouring as it descends, and one the result has
+ * just lost is DROPPED - it falls straight down under its own weight, shrinking and paling, and is
+ * gone before it lands anywhere. Both start or end well outside what the camera is fitted to, so a
+ * filter reads as the picture gaining and letting go of things rather than as a redraw.
+ *
+ * The leavers are simply appended to the set of cards. They are not in the result and nothing asks
+ * them anything - no pictures, no picking - and by the end of the move they are nothing, standing
+ * outside the picture at no size at all until the next result drops them. Past `maxLeaving` none of
+ * them fly: a filter that takes a million cards away would otherwise double the geometry for two
+ * seconds, exactly when the machine is busiest, and at that density nobody is following one card.
+ *
+ * The flat picture keeps what it always did: the cards it gains come up where they land.
+ */
+function planFlight(input: {
+  solid: boolean;
+  prev: { decoded: Decoded; layout: Layout; depths: Float32Array | null; colorData: DecodedProperty | null; shapeData: DecodedProperty | null } | null;
+  decoded: Decoded;
+  layout: Layout;
+  depths: Float32Array | null;
+  where: Float32Array | null;
+  wereOn: Float32Array | null;
+  colorData: DecodedProperty | null;
+  palette: PaletteColor[];
+  theme: Theme;
+}): Flight {
+  const { solid, prev, decoded, layout, depths, where, wereOn, colorData, palette, theme } = input;
+  const real = decoded.count;
+  const b = layout.bounds;
+  // How far above the picture a card starts, and how far below it a dropped one gets: y grows
+  // downward in a layout, so up is the smaller number. Both are a good deal more than the picture is
+  // tall, since the camera is fitted to the picture and anything that far off it is off the screen.
+  const tall = b.y1 - b.y0;
+  const sky = Math.max(8, tall * 1.8);
+  const abyss = Math.max(10, tall * 2.4);
+
+  // which of the old cards the result no longer has
+  let leavers: number[] = [];
+  if (solid && prev !== null && where !== null) {
+    const now = new IntMap(Math.max(1, real));
+    for (let i = 0; i < real; i++) now.set(decoded.ids[i], i);
+    for (let j = 0; j < prev.decoded.count && leavers.length <= maxLeaving; j++) {
+      if (now.get(prev.decoded.ids[j]) < 0) leavers.push(j);
+    }
+    if (leavers.length > maxLeaving) leavers = [];
+  }
+  const count = real + leavers.length;
+  const wide = count !== real;
+
+  const to = wide ? new Float32Array(count * 2) : layout.positions;
+  if (wide) to.set(layout.positions);
+  const from = new Float32Array(count * 2);
+  const state = new Uint8Array(count);
+  let moving = false;
+  const rows = layout.rows === null ? null : wide ? new Float32Array(count) : layout.rows;
+  if (rows !== null && wide) rows.set(layout.rows as Float32Array);
+  const rowsFrom = rows === null ? null : new Float32Array(count);
+  const thickness = wide ? new Float32Array(count) : depths;
+  if (wide && thickness !== null) {
+    if (depths !== null) thickness.set(depths);
+    else thickness.fill(defaultDepth, 0, real);
+  }
+
+  const byId = prev !== null && where !== null ? new IntMap(Math.max(1, prev.decoded.count)) : null;
+  if (byId !== null && prev !== null) for (let j = 0; j < prev.decoded.count; j++) byId.set(prev.decoded.ids[j], j);
+  for (let i = 0; i < real; i++) {
+    const x = layout.positions[i * 2];
+    const y = layout.positions[i * 2 + 1];
+    const z = layout.rows === null ? 0 : layout.rows[i];
+    const j = byId === null ? -1 : byId.get(decoded.ids[i]);
+    if (j >= 0 && where !== null) {
+      from[i * 2] = where[j * 2];
+      from[i * 2 + 1] = where[j * 2 + 1];
+      if (rowsFrom !== null) rowsFrom[i] = wereOn !== null && j < wereOn.length ? wereOn[j] : z;
+      continue;
+    }
+    state[i] = CardState.Arriving;
+    moving = true;
+    // straight down out of the sky onto its own place, in the solid picture; the flat one still has
+    // its cards come up where they land
+    from[i * 2] = x;
+    from[i * 2 + 1] = solid ? y - sky : y;
+    if (rowsFrom !== null) rowsFrom[i] = z;
+  }
+
+  let leaving: Leaving | null = null;
+  if (leavers.length > 0 && prev !== null && where !== null) {
+    const prevColor = prev.colorData;
+    const prevShape = prev.shapeData;
+    const groupCount = colorData ? colorData.groups.length : 1;
+    const groups = new Uint16Array(leavers.length);
+    const shapes = new Uint16Array(leavers.length);
+    let shaped = false;
+    for (let k = 0; k < leavers.length; k++) {
+      const j = leavers[k];
+      const i = real + k;
+      const x = where[j * 2];
+      const y = where[j * 2 + 1];
+      const z = wereOn !== null && j < wereOn.length ? wereOn[j] : 0;
+      from[i * 2] = x;
+      from[i * 2 + 1] = y;
+      // dropped: straight down, and nowhere else
+      to[i * 2] = x;
+      to[i * 2 + 1] = y + abyss;
+      state[i] = CardState.Leaving;
+      moving = true;
+      if (rows !== null && rowsFrom !== null) {
+        rowsFrom[i] = z;
+        rows[i] = z;
+      }
+      if (thickness !== null) thickness[i] = prev.depths !== null && j < prev.depths.length ? prev.depths[j] : defaultDepth;
+      groups[k] = groupCount + (prevColor !== null ? prevColor.assignment[j] : 0);
+      const slot = prevShape !== null ? prevShape.groups[prevShape.assignment[j]].shape : 0;
+      shapes[k] = slot;
+      if (slot !== 0) shaped = true;
+    }
+    leaving = { groups, shapes, palette: paletteBytes(prevColor, palette, theme), shaped };
+  }
+
+  return { count, from, to, state: moving ? state : null, rows, rowsFrom, depths: thickness, leaving };
+}
+
+/** Two typed arrays end to end: the cards of the result, and the ones flying out behind them. */
+function joinGroups(a: Uint16Array, b: Uint16Array): Uint16Array {
+  const out = new Uint16Array(a.length + b.length);
+  out.set(a);
+  out.set(b, a.length);
+  return out;
+}
+
+function joinBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a);
+  out.set(b, a.length);
+  return out;
 }
 
 /** Element-wise equality of two typed arrays, either of which may be absent. */

@@ -47,6 +47,14 @@ export const palettes: PaletteSpec[] = [
   { id: "mono", name: "Mono", hue: [0, 0], tone: [0, 1], chroma: [0, 0.012] },
 ];
 
+/**
+ * What every palette's chroma is multiplied by. One number rather than thirteen edited ranges: the
+ * bands above say how each palette is shaped and this says how colourful the lot of them are, so
+ * they can all be lifted or calmed at once without any of them losing its character. A colour that
+ * lands outside sRGB has its chroma pulled back in by oklchToRgb, so this cannot clip a channel.
+ */
+const chromaLift = 1.28;
+
 export function paletteSpec(id: string | null | undefined): PaletteSpec {
   return palettes.find((p) => p.id === id) ?? palettes[0];
 }
@@ -63,7 +71,7 @@ export function buildPalette(count: number, background: RGB, accent: RGB, id?: s
   for (let i = 0; i < count; i++) {
     const h = hue[0] + frac(i * 0.6180339887) * (hue[1] - hue[0]);
     const tone = p.tone[0] + frac(0.5 + i * 0.7548776662) * (p.tone[1] - p.tone[0]);
-    const C = p.chroma[0] + frac(0.5 + i * 0.569840291) * (p.chroma[1] - p.chroma[0]);
+    const C = (p.chroma[0] + frac(0.5 + i * 0.569840291) * (p.chroma[1] - p.chroma[0])) * chromaLift;
     const rgb = oklchToRgb(near + tone * (far - near), C, h);
     colors.push({ rgb, css: `rgb(${rgb[0]} ${rgb[1]} ${rgb[2]})` });
   }

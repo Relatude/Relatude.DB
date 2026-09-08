@@ -136,7 +136,8 @@ const embeddedRgb = parseColor(embeddedColor);
  *
  * The mouse: the left button orbits round the point in focus, the right button pans, the middle
  * button turns the camera where it stands, the wheel flies toward what is under the cursor, and
- * W A S D Q E fly. Every motion carries on a little after the hand lets go. Double-click a type to
+ * W A S D Q E fly, the arrows pan and turn, plus and minus close in. Every motion carries on a
+ * little after the hand lets go. Double-click a type to
  * fly to it, double-click the space around to fit everything in. Dragging a type moves it in the
  * plane facing the camera and leaves it pinned there; the shake button lets go of every pinned type.
  */
@@ -382,11 +383,32 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
     const cam = camera.current;
     if (keys.current.size > 0) {
       const k = keys.current;
-      const fast = k.has("ShiftLeft") || k.has("ShiftRight") ? 2.5 : 1;
-      const x = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
+      const shift = k.has("ShiftLeft") || k.has("ShiftRight");
+      const fast = shift ? 2.5 : 1;
+      // the letters fly the camera, as they always have
+      const x = (k.has("KeyD") ? 1 : 0) - (k.has("KeyA") ? 1 : 0);
       const y = (k.has("KeyE") || k.has("PageUp") ? 1 : 0) - (k.has("KeyQ") || k.has("PageDown") ? 1 : 0);
-      const z = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0);
+      const z = (k.has("KeyW") ? 1 : 0) - (k.has("KeyS") ? 1 : 0);
       if (x || y || z) cam.thrust(x * fast, y * fast, z * fast, dt);
+      // and the arrows work the graph the way they work the visual pivot's solids: an arrow is a
+      // hand on the picture, taking it the way it points, and with shift it turns it instead. They
+      // used to be a second set of letters, which the letters did not need.
+      const ax = (k.has("ArrowRight") ? 1 : 0) - (k.has("ArrowLeft") ? 1 : 0);
+      const ay = (k.has("ArrowDown") ? 1 : 0) - (k.has("ArrowUp") ? 1 : 0);
+      if (ax || ay) {
+        const px = keySlidePxPerSecond * dt;
+        if (shift) {
+          const perPixel = (Math.PI * 1.4) / size.current.h;
+          cam.orbit(ax * keyTurnPxPerSecond * dt * perPixel, -ay * keyTurnPxPerSecond * dt * perPixel, dt);
+        } else {
+          const u = cam.unitsPerPixel(size.current.h);
+          cam.pan(-ax * px * u, ay * px * u, dt);
+        }
+      }
+      // and plus and minus fly it in and out along the line of sight, the way the wheel does
+      const closer = k.has("Equal") || k.has("NumpadAdd");
+      const further = k.has("Minus") || k.has("NumpadSubtract");
+      if (closer !== further) cam.dolly((closer ? 1 : -1) * keyZoomPerSecond * dt, cam.forward());
       busy = true;
     }
     if (cam.step(dt, now)) busy = true;
@@ -1149,7 +1171,7 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
         </span>
         {/* it takes a wide toolbar before spelling out the camera is worth the room */}
         <span className="muted dm-diagram-legend dg-hint dg-hint-long">
-          left drag orbits · right drag pans · middle drag looks · wheel flies · W A S D Q E · double-click a type to fly to it
+          left drag orbits · right drag pans · middle drag looks · wheel or +/− flies · arrows pan, with shift to turn · W A S D Q E · double-click a type to fly to it
         </span>
       </div>
       {glOk ? (
@@ -1293,7 +1315,35 @@ function NodeMenu({
   );
 }
 
-const flyKeys = new Set(["KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "ShiftLeft", "ShiftRight"]);
+const flyKeys = new Set([
+  "KeyW",
+  "KeyA",
+  "KeyS",
+  "KeyD",
+  "KeyQ",
+  "KeyE",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "PageUp",
+  "PageDown",
+  "ShiftLeft",
+  "ShiftRight",
+  "Equal",
+  "Minus",
+  "NumpadAdd",
+  "NumpadSubtract",
+]);
+
+/**
+ * How fast the arrows and plus and minus work the camera, in pointer pixels a second - the same
+ * measure a drag is read against, and the same numbers the visual pivot's solids use, so the two
+ * pictures answer a hand on the keyboard alike.
+ */
+const keySlidePxPerSecond = 560;
+const keyTurnPxPerSecond = 210;
+const keyZoomPerSecond = 3.2;
 
 // ---- how a line looks ----
 

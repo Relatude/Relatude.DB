@@ -63,6 +63,20 @@ export interface DepthGrouping {
   clearance: number;
 }
 
+/**
+ * How far the picture is stretched along each axis, 1 being the shape these layouts choose for
+ * themselves. `x` scales how wide a bar is (and a grid's columns), so the picture reaches further
+ * across and stands lower; `z` scales the empty floor between the rows, so it reaches further back.
+ * Both leave a block solid: what is stretched is how much room a group is given, never the spacing
+ * of the cards inside it, which is always one cell.
+ */
+export interface Spread {
+  x: number;
+  z: number;
+}
+
+const noSpread: Spread = { x: 1, z: 1 };
+
 export interface Layout {
   /** x, y per card */
   positions: Float32Array;
@@ -107,10 +121,10 @@ function rowsUsed(depth: DepthGrouping, totals: Int32Array): number {
  * grouping it becomes one grid per row, laid one behind another - a stack of contact sheets - all
  * with the same number of columns so that they line up.
  */
-export function gridLayout(count: number, aspect: number, order: Int32Array | null = null, depth: DepthGrouping | null = null): Layout {
+export function gridLayout(count: number, aspect: number, order: Int32Array | null = null, depth: DepthGrouping | null = null, spread: Spread = noSpread): Layout {
   const positions = new Float32Array(count * 2);
   if (depth === null) {
-    const columns = Math.max(1, Math.round(Math.sqrt(count * Math.max(0.2, aspect))));
+    const columns = Math.max(1, Math.round(Math.sqrt(count * Math.max(0.2, aspect)) * spread.x));
     for (let k = 0; k < count; k++) {
       const i = order === null ? k : order[k];
       positions[i * 2] = k % columns;
@@ -125,12 +139,12 @@ export function gridLayout(count: number, aspect: number, order: Int32Array | nu
   for (let g = 0; g < depth.groupCount; g++) if (totals[g] > biggest) biggest = totals[g];
   // the widest row sets the columns, so every row is as wide as the screen at most and none of them
   // is laid to a different shape than its neighbours
-  const columns = Math.max(1, Math.round(Math.sqrt(biggest * Math.max(0.2, aspect))));
+  const columns = Math.max(1, Math.round(Math.sqrt(biggest * Math.max(0.2, aspect)) * spread.x));
   // The rows are a share of the grid's own width apart - a fixed few cells would be nothing at all
   // between two sheets seven hundred cells wide - and the whole stack is held to a few times the
   // width of one sheet, so a property with fifty values does not become an endless tunnel.
   const used = rowsUsed(depth, totals);
-  const pitch = Math.max(Math.ceil(depth.clearance) + 2, Math.min(Math.round(columns * 0.48), Math.round((columns * 3.6) / Math.max(1, used - 1))));
+  const pitch = Math.max(Math.ceil(depth.clearance) + 2, Math.min(Math.round(columns * 0.48 * spread.z), Math.round((columns * 3.6 * spread.z) / Math.max(1, used - 1))));
   const { zOf, slots } = rowPlaces(depth, totals, pitch);
   const rows = new Float32Array(count);
   const filled = new Int32Array(depth.groupCount);
@@ -171,6 +185,7 @@ export function barLayout(
   aspect: number,
   cardOrder: Int32Array | null = null,
   depth: DepthGrouping | null = null,
+  spread: Spread = noSpread,
 ): Layout {
   // a card belongs to one cell of the (bar, row) grid; with no depth grouping there is one row and
   // a cell is a bar, which is the two-dimensional chart unchanged
@@ -212,13 +227,14 @@ export function barLayout(
    * is about as high as the chart is wide or deep - which is what makes a bar read as a bar rather
    * than as a tower a hundred cards high on a footprint of one, or as a slab an inch tall.
    */
-  const width = depth === null ? Math.max(1, Math.ceil(Math.sqrt((Math.max(0.2, aspect) * biggest) / Math.max(1, bars)))) : Math.max(1, Math.round(Math.cbrt(biggest / (1.08 * Math.max(1, bars, used)))));
-  const deep = depth === null ? 1 : width;
+  const chosen = depth === null ? Math.ceil(Math.sqrt((Math.max(0.2, aspect) * biggest) / Math.max(1, bars))) : Math.round(Math.cbrt(biggest / (1.08 * Math.max(1, bars, used))));
+  const width = Math.max(1, Math.round(chosen * spread.x));
+  const deep = depth === null ? 1 : Math.max(1, chosen);
   const gap = Math.max(1, Math.round(width * 0.35));
   // behind each block, several block-depths of empty floor - which is what makes a row a row rather
   // than part of the block in front of it - and never less than the thickest card standing at the
   // front of the next one, which grows toward the viewer
-  const pitch = depth === null ? 1 : deep + Math.max(Math.ceil(depth.clearance) + 1, Math.round(deep * rowGapShare));
+  const pitch = depth === null ? 1 : deep + Math.max(Math.ceil(depth.clearance) + 1, Math.round(deep * rowGapShare * spread.z));
   const places = depth === null ? null : rowPlaces(depth, rowTotals, pitch);
   const positions = new Float32Array(count * 2);
   const rows = depth === null ? null : new Float32Array(count);

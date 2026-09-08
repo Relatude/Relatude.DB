@@ -18,11 +18,12 @@ import {
   type FieldSurface,
   type FieldTheme,
   type PulseFade,
+  type RGBf,
 } from "./cardField";
 import type { Bounds } from "./layouts";
 import { shapeCount, shapeField, shapeFieldSize, shapeVariants } from "./shapes";
 import { FlyCamera, type Channel, type Pose } from "../graph3d/camera";
-import { add, cross, multiply, normalize, perspective, rayPlane, scale, view, type Mat4, type Vec3 } from "../graph3d/math";
+import { add, cross, distance, dot, multiply, normalize, perspective, rayPlane, scale, sub, view, type Mat4, type Vec3 } from "../graph3d/math";
 
 /**
  * Draws the cards of the visual pivot as solids: the same picture as the flat field (cardField.ts),
@@ -104,15 +105,25 @@ export interface CardField3D extends CardFieldCommon, FieldSurface {
    * under the cards. An empty array draws none.
    */
   setFloorLines(points: Float32Array): void;
-  /** The camera, driven the way the 3D datamodel graph's is: a channel is held while a button is down. */
-  hold(channel: Channel): void;
+  /**
+   * A button has gone down at this point of the canvas. What is under it becomes what the drag works
+   * about: the point the picture turns around, and the depth a slide is measured at.
+   */
+  hold(channel: Channel, cssX: number, cssY: number): void;
   release(channel: Channel): void;
-  /** Turns the picture about the point in focus; the deltas are pointer pixels. */
-  orbit(dxPx: number, dyPx: number, dt: number): void;
+  /** Turns the picture about the point taken hold of; the deltas are pointer pixels. */
+  orbit(dxPx: number, dyPx: number): void;
   /** Turns the camera where it stands. */
-  look(dxPx: number, dyPx: number, dt: number): void;
-  /** Slides the picture under the pointer. */
-  panBy(dxPx: number, dyPx: number, dt: number): void;
+  look(dxPx: number, dyPx: number): void;
+  /** Slides the picture, so that the point taken hold of follows the pointer. */
+  panBy(dxPx: number, dyPx: number): void;
+  /**
+   * The same slide, taken slowly and without a hold: what a canvas that has changed shape under the
+   * picture asks for, so the view is nudged along rather than fitted afresh.
+   */
+  driftBy(dxPx: number, dyPx: number, seconds: number): void;
+  /** Where the camera stands, in world units: what the picture is being looked at from. */
+  eye(): Vec3;
   /** A wheel step: closer to, or further from, whatever is under the pointer, which stays put. */
   zoomAt(amount: number, cssX: number, cssY: number): void;
   /** Brings the camera to a halt: what a menu or a modal does to a drag in progress. */
@@ -142,10 +153,22 @@ const shapeZoomLow = 2.5;
 const shapeZoomHigh = 7;
 /** a plain box is raymarched as a filleted solid once it is this many device pixels across, where a straight corner starts to show */
 const roundZoom = 40;
-/** the light, and how much of a card's own colour is left where no light reaches it */
-const lightDir = normalize([0.42, 0.72, 0.55]);
+/**
+ * The key light, well off to one side and above, and a dim fill from the opposite side and below.
+ * The key is a touch warm and the fill a touch cool, which is what makes the two sides of a block
+ * read as two different faces rather than as one face and its shadow.
+ */
+const lightDir = normalize([0.62, 0.66, 0.43]);
+const keyLight: RGBf = [1.24, 1.18, 1.1];
+const fillLight: RGBf = [0.27, 0.32, 0.42];
 /** the most layers a picture level is ever given (see cardField.ts, which bounds it the same way) */
 const maxLayersWanted = 2048;
+/**
+ * How fast the camera closes on where the wheel is taking it, as a share of what is left per second,
+ * and how long a wheel gesture is held to be still going after its last notch.
+ */
+const zoomFollowRate = 13;
+const gestureGapMs = 400;
 /** the guard: a frame this long, this many times running, takes a level of detail away */
 const slowFrameMs = 45;
 const slowFramesBeforeDrop = 30;
@@ -158,7 +181,7 @@ precision highp int;
 layout(location = 0) in vec3 aVert;   // which of the three faces, and the corner of it: axis, u, v
 layout(location = 1) in vec2 aFrom;
 layout(location = 2) in vec2 aTo;
-layout(location = 3) in vec2 aTiming; // when this card sets off, and whether it is growing into place
+layout(location = 3) in vec2 aTiming; // when this card sets off, and whether it is arriving (1) or leaving (2)
 layout(location = 4) in uint aGroup;
 layout(location = 5) in uvec3 aTex;   // the picture words, see setCardImage
 layout(location = 6) in uint aShape;  // which silhouette this card is cut out to, see shapes.ts
@@ -223,15 +246,31 @@ float pulse(float t) {
 }
 void main() {
   float t = (uTime - aTiming.x) / uDuration;
-  float travelled = ease(t);
+  bool leaving = aTiming.y > 1.5;
+  bool arriving = !leaving && aTiming.y > 0.5;
+  // A card that is only moving travels on the eased curve, which starts from rest and settles. One
+  // that is leaving FALLS: the same curve squared, which is a constant acceleration - what a dropped
+  // thing does - and it never settles, because there is nothing left of it by the time it would.
+  float dropped = clamp(t, 0.0, 1.0);
+  float travelled = leaving ? dropped * dropped : ease(t);
   vec2 flat2 = mix(aFrom, aTo, travelled);
   float row = mix(aRow.x, aRow.y, travelled);
   float fill = mix(1.0, uFill, smoothstep(2.5, 7.0, uZoom));
+  // A card coming down out of the sky grows and colours as it descends, and is itself by the time it
+  // lands; one that has been dropped shrinks and pales as it falls, and is nothing before it is far
+  // enough away to be missed. Paling is mixing toward the colour of the page rather than any kind of
+  // transparency: a picture of solids is opaque, and a card blended over its neighbours in whatever
+  // order they happen to be drawn in is not a fade, it is a fault.
   float born = 1.0;
-  if (aTiming.y > 0.5) {
-    born = clamp((uTime - aTiming.x) / uFade, 0.0, 1.0);
-    born = born * born * (3.0 - 2.0 * born);
-    born = BORN + (1.0 - BORN) * born;
+  float paled = 0.0;
+  float over = clamp(t, 0.0, 1.0);
+  float settling = over * over * (3.0 - 2.0 * over);
+  if (leaving) {
+    born = 1.0 - settling;
+    paled = settling;
+  } else if (arriving) {
+    born = BORN + (1.0 - BORN) * settling;
+    paled = 1.0 - settling;
   }
   float side = fill * born;
   float thick = max(0.02, mix(aDepth.x, aDepth.y, smoother(uDepthT))) * born;
@@ -275,7 +314,9 @@ void main() {
   vTex = aTex;
   int slot = int(aShape);
   bool pulsed = int(aGroup) == uPulseGroup || slot == uPulseShape;
-  vFadeOut = pulsed ? PULSE_FADE * pulse(uPulseT) : 0.0;
+  // one measure of how far into the page a card is, whether that is a pulse or a card on its way in
+  // or out; the fragment shader mixes the lot toward the page at the end
+  vFadeOut = max(paled, pulsed ? PULSE_FADE * pulse(uPulseT) : 0.0);
   if (uShaped == 1 && slot > 0) {
     int variant = clamp(slot >> 8, 0, VARIANTS - 1);
     vShape = vec4(uShapeTurn[variant], uShapeInvScale[variant], float(slot & 255));
@@ -370,19 +411,33 @@ vec3 cardFace(vec3 c, vec2 uv0, out float shown) {
   return mix(c, pic, shown);
 }
 /**
- * The material: a tight highlight that says the surface is hard and smooth, a broad sheen that keeps
- * the side turned away from the light from going flat, and an ambient floor the theme sets. It is
- * the material of the 3D datamodel graph, so the two read as the same world.
+ * The material. A field of boxes lives or dies by how differently its three visible faces are lit,
+ * so the light is made to do as much of the work as it can:
+ *
+ *  - A key light well off to one side, and a hemisphere over it - the ambient is not a flat floor
+ *    but brighter overhead than underfoot, which is what lifts the top of every block away from its
+ *    sides without a second light being aimed at it.
+ *  - A dim fill from the other side, cool against the warm key, so the face turned away from the key
+ *    is dark but not a hole. Two lights from opposite sides is what stops a box reading as two
+ *    tones; it gives every face its own.
+ *  - A tight highlight and a broad sheen, both stronger than a matte surface would have, so an edge
+ *    or a fillet catches the light as something moulded rather than printed. Damped over a picture,
+ *    which has no business being washed out by the gloss on top of it.
  */
 vec3 shade(vec3 c, vec3 n, vec3 world, float pictured) {
   vec3 v = normalize(uEye - world);
   float diff = max(dot(n, uLight), 0.0);
+  float back = max(dot(n, -uLight), 0.0);
   float head = max(dot(n, v), 0.0);
   vec3 h = normalize(uLight + v);
   float ndh = max(dot(n, h), 0.0);
-  float spec = (pow(ndh, 46.0) * 0.55 + pow(ndh, 7.0) * 0.10) * mix(1.0, 0.45, pictured);
-  float lit = (0.60 * diff + 0.08 * head) / 0.68;
-  return c * (uAmbient + (1.1 - uAmbient) * lit) + spec * uShine;
+  float spec = (pow(ndh, 64.0) * 0.78 + pow(ndh, 10.0) * 0.13) * mix(1.0, 0.4, pictured);
+  // overhead against underfoot: the ambient a face sees depends on which way it is turned
+  float sky = 0.5 + 0.5 * n.y;
+  vec3 ambient = c * uAmbient * mix(0.5, 1.35, sky * sky);
+  vec3 key = c * uKey * (0.86 * diff + 0.07 * head);
+  vec3 opposite = c * uFillLight * back;
+  return ambient + key + opposite + spec * uShine;
 }
 /** The face's normal and the world directions its two picture axes run in (see the vertex shader). */
 void faceBasis(out vec3 n, out vec3 ux, out vec3 uy) {
@@ -423,6 +478,8 @@ uniform vec3 uInk;
 uniform vec3 uClear;
 uniform vec3 uOutline;
 uniform float uAmbient;
+uniform vec3 uKey;
+uniform vec3 uFillLight;
 uniform float uShine;
 uniform float uNowMs;
 uniform int uPick;
@@ -669,6 +726,8 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     "uOutline",
     "uLight",
     "uAmbient",
+    "uKey",
+    "uFillLight",
     "uShine",
     "uNowMs",
     "uPick",
@@ -857,11 +916,20 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
   let origin: Vec3 = [0, 0, 0];
 
   /**
-   * Where the wheel is taking the camera. Kept so that a spin of the wheel goes on closing in on
-   * what is under the pointer rather than each notch starting again from wherever the easing of the
-   * one before it had reached; let go of as soon as anything else takes hold of the camera.
+   * Where the wheel is taking the camera, or null when it is not taking it anywhere. A notch moves
+   * this and `stepZoom` walks the camera toward it, so a spin of the wheel goes on closing in on one
+   * point rather than each notch starting an animation of its own. Let go of as soon as anything
+   * else takes hold of the camera.
    */
   let zoomTo: Pose | null = null;
+  /**
+   * What the drag in progress works about: the point of the picture that was under the pointer when
+   * the button went down. The picture turns about it and stays put under the pointer while it does,
+   * and a slide is measured at its depth so that it follows the pointer exactly. Null between drags.
+   */
+  let held: Vec3 | null = null;
+  /** the last point worked out under the pointer, so a spin of the wheel does not ask again per notch */
+  let asked: { x: number; y: number; at: number; point: Vec3 } | null = null;
 
   const cam = new FlyCamera();
   cam.minDist = 0.04;
@@ -958,6 +1026,8 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     gl.uniform3fv(u.uOutline, theme.outline);
     gl.uniform3fv(u.uLight, lightDir);
     gl.uniform1f(u.uAmbient, ambient);
+    gl.uniform3fv(u.uKey, keyLight);
+    gl.uniform3fv(u.uFillLight, fillLight);
     gl.uniform1f(u.uShine, detailLevel >= DetailLevel.Boxes ? 1 : 0.5);
     gl.uniform1f(u.uNowMs, now);
     gl.uniform1i(u.uPick, pickMode ? 1 : 0);
@@ -1059,8 +1129,10 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     raf = 0;
     frameNow = now;
     if (destroyed) return;
-    const cameraMoving = cam.moving();
-    if (cameraMoving) cam.step(lastFrame === 0 ? 1 / 60 : Math.min(0.1, (now - lastFrame) / 1000), now);
+    const dt = lastFrame === 0 ? 1 / 60 : Math.min(0.1, (now - lastFrame) / 1000);
+    const cameraMoving = cam.moving() || zoomTo !== null;
+    if (cam.moving()) cam.step(dt, now);
+    stepZoom(dt);
     const depthMoving = depthProgress(now) < 1;
     if (!dirty && !cardsMoving && !depthMoving && !pulsing() && !cameraMoving && !fading(now) && texDirty.size === 0) {
       lastFrame = 0;
@@ -1088,7 +1160,7 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     drawFloorLines();
     dirty = false;
     frameCallback?.();
-    if (cardsMoving || depthProgress(now) < 1 || pulsing() || cam.moving() || fading(now) || texDirty.size > 0) schedule();
+    if (cardsMoving || depthProgress(now) < 1 || pulsing() || cam.moving() || zoomTo !== null || fading(now) || texDirty.size > 0) schedule();
     else lastFrame = 0;
   }
 
@@ -1106,7 +1178,8 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
       h = (h ^ (h << 5)) >>> 0;
       const jitter = (h & 0xffff) / 0xffff;
       timing[i * 2] = stagger * (0.72 * (i / Math.max(1, count - 1)) + 0.28 * jitter);
-      timing[i * 2 + 1] = fresh !== null && fresh[i] !== 0 ? 1 : 0;
+      // 0 settled, 1 arriving, 2 leaving - handed over as it is, since a leaver is drawn differently
+      timing[i * 2 + 1] = fresh === null ? 0 : fresh[i];
     }
     maxDelay = stagger;
     upload(timingBuffer, timing);
@@ -1186,19 +1259,134 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     return [w, Math.round(w * imageShare)];
   }
 
-  /** The heading of a pose as a unit vector, and a ray through a point of the viewport from it. */
-  function headingOf(p: Pose): Vec3 {
-    const cp = Math.cos(p.pitch);
-    return [Math.sin(p.yaw) * cp, Math.sin(p.pitch), -Math.cos(p.yaw) * cp];
+  function pickAt(cssX: number, cssY: number): number {
+    if (count === 0) return -1;
+    const px = Math.floor(cssX * dpr);
+    const py = Math.floor(cssY * dpr);
+    if (px < 0 || py < 0 || px >= width || py >= height) return -1;
+    flushTexWords();
+    const { eye } = matrices();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, pickFramebuffer);
+    // the whole canvas is drawn, shifted so that the pixel under the pointer is the one pixel the
+    // framebuffer has; everything else is rasterized away
+    gl.viewport(-px, -(height - 1 - py), width, height);
+    drawingState(false);
+    gl.clearColor(1, 1, 1, 1);
+    gl.clearDepth(1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    setUniforms(currentProgram(), performance.now(), true, eye);
+    draw();
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pickPixel);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    const id = pickPixel[0] | (pickPixel[1] << 8) | (pickPixel[2] << 16);
+    return id === 0xffffff || id >= count ? -1 : id;
   }
 
-  function rayFrom(p: Pose, ndcX: number, ndcY: number, aspect: number): Vec3 {
-    const f = headingOf(p);
-    const r = normalize(cross(f, [0, 1, 0]));
-    const u = cross(r, f);
-    const t = Math.tan(cam.fov / 2);
-    return normalize(add(f, add(scale(r, ndcX * t * aspect), scale(u, ndcY * t))));
+  /** Where one card stands right now, mid-move or not; O(1), unlike asking for all of them. */
+  function cardCentre(i: number): Vec3 {
+    const time = elapsed(performance.now());
+    const travelled = cardsMoving ? ease((time - timing[i * 2]) / duration) : 1;
+    const x = from[i * 2] + (to[i * 2] - from[i * 2]) * travelled;
+    const y = from[i * 2 + 1] + (to[i * 2 + 1] - from[i * 2 + 1]) * travelled;
+    const z = i < rowTo.length ? rowFrom[i] + (rowTo[i] - rowFrom[i]) * travelled : 0;
+    const thick = i < depths.length ? depths[i] : defaultDepth;
+    return [x + 0.5, -(y + 0.5), z + thick * 0.5];
   }
+
+  /** The middle of the whole picture: what the camera falls back to when the pointer is over nothing. */
+  function sceneCentre(): Vec3 {
+    return [(bounds.x0 + bounds.x1) / 2, -(bounds.y0 + bounds.y1) / 2, (rowSpan[0] + rowSpan[1] + maxDepth) / 2];
+  }
+
+  /**
+   * The point of the picture under a pixel of the canvas: what a drag or a wheel step works about.
+   *
+   * This is the whole of what makes the camera answerable. A view that turns about a focus distance
+   * of its own turns about nothing in particular - the further that distance is from what is being
+   * looked at, the more the picture swings when the hand asks it to turn - and a slide measured at
+   * that distance runs faster or slower than the hand. So the card under the pointer is asked for,
+   * by the same one-pixel pass a click uses; whatever comes back is a real point of the picture, so
+   * turning holds it still under the pointer and sliding moves it exactly as far as the hand does.
+   *
+   * Over empty space it is the plane through the middle of the picture facing the camera - never the
+   * floor, however tempting: a floor met almost edge on is met hundreds of units away, and turning
+   * about a point out there swings the camera right across the picture for a short drag. The middle
+   * of the picture is always about as far off as what is being looked at, which is the point.
+   */
+  function pointUnder(cssX: number, cssY: number): Vec3 {
+    const i = pickAt(cssX, cssY);
+    if (i >= 0) return cardCentre(i);
+    const cssW = width / dpr;
+    const cssH = height / dpr;
+    const dir = cam.ray((2 * cssX) / Math.max(1, cssW) - 1, 1 - (2 * cssY) / Math.max(1, cssH), cssW / Math.max(1, cssH));
+    const centre = sceneCentre();
+    return rayPlane(cam.pos, dir, centre, scale(cam.forward(), -1)) ?? centre;
+  }
+
+  /**
+   * The same, asked for once per gesture rather than once per notch of the wheel.
+   *
+   * This matters more than it looks. Asking costs a whole extra pass over the cards and a read back
+   * from the card the driver has not finished drawing yet, which at three quarters of a million of
+   * them is about what a frame costs - so asking per notch halves the frame rate for as long as the
+   * wheel is turning, and that is felt as a stutter. Worse, the answer would be a DIFFERENT point
+   * each time, because by then the picture has moved: the zoom would keep changing its mind about
+   * what it was closing in on. The window slides from the last USE, so a wheel spun without moving
+   * the pointer asks once and keeps the answer for the whole spin.
+   */
+  function pointUnderCached(cssX: number, cssY: number): Vec3 {
+    const now = performance.now();
+    if (asked !== null && now - asked.at < gestureGapMs && Math.abs(asked.x - cssX) < 5 && Math.abs(asked.y - cssY) < 5) {
+      asked.at = now;
+      return asked.point;
+    }
+    const point = pointUnder(cssX, cssY);
+    asked = { x: cssX, y: cssY, at: now, point };
+    return point;
+  }
+
+  /**
+   * The camera closing on where the wheel is taking it. A notch does not start an animation of its
+   * own: it moves the target, and this walks the camera toward it by the same fraction of what is
+   * left every second, which is the one way of following a target that does not care how often or
+   * how unevenly the target moves. A tween per notch, restarted each time, gives a spin of the wheel
+   * a stop-start crawl - an ease-out begun again and again never gets past its own slow beginning.
+   *
+   * The distance closes in log space, so a step feels the same size wherever the camera is; the
+   * position closes straight, which stays exactly on the line to the anchor because the target is
+   * on that line to begin with.
+   */
+  function stepZoom(dt: number) {
+    const goal = zoomTo;
+    if (goal === null) return;
+    const k = 1 - Math.exp(-zoomFollowRate * dt);
+    cam.pos = [cam.pos[0] + (goal.pos[0] - cam.pos[0]) * k, cam.pos[1] + (goal.pos[1] - cam.pos[1]) * k, cam.pos[2] + (goal.pos[2] - cam.pos[2]) * k];
+    cam.dist = Math.exp(Math.log(cam.dist) + (Math.log(goal.dist) - Math.log(cam.dist)) * k);
+    // near enough to be there: arriving exactly is what lets the frames stop
+    if (distance(cam.pos, goal.pos) < Math.max(1e-4, goal.dist * 1e-4) && Math.abs(Math.log(cam.dist / goal.dist)) < 1e-4) {
+      cam.pos = [...goal.pos];
+      cam.dist = goal.dist;
+      zoomTo = null;
+    }
+  }
+
+  /** A vector turned about a unit axis (Rodrigues). */
+  function turnAbout(v: Vec3, axis: Vec3, angle: number): Vec3 {
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    const k = dot(axis, v) * (1 - c);
+    const x = cross(axis, v);
+    return [v[0] * c + x[0] * s + axis[0] * k, v[1] * c + x[1] * s + axis[1] * k, v[2] * c + x[2] * s + axis[2] * k];
+  }
+
+  /** How far the heading may tip, given the camera's own limits. */
+  function clampPitch(pitch: number): number {
+    return Math.max(cam.pitchLimit[0], Math.min(cam.pitchLimit[1], pitch));
+  }
+
+
+
+
 
   /**
    * How far a pointer pixel turns the view, sideways and up. Each is measured against the canvas
@@ -1343,7 +1531,9 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
       // the floor under the shading: high on a light page, where a body in shadow would otherwise
       // be a hole in the picture, and low on a dark one, where the light does the shaping
       const luminance = 0.2126 * t.clear[0] + 0.7152 * t.clear[1] + 0.0722 * t.clear[2];
-      ambient = luminance > 0.5 ? 0.62 : 0.42;
+      // Lower than a floor that had to keep a body in shadow legible on its own: the fill light
+      // does that now, and the room left over is what the key light shapes the solids with.
+      ambient = luminance > 0.5 ? 0.5 : 0.33;
       dirty = true;
       schedule();
     },
@@ -1377,28 +1567,7 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
       if (!pulsing()) return null;
       return { group: pulsedGroup, shape: pulsedShape, amount: pulseAmountAt(frameNow) };
     },
-    pick(cssX, cssY) {
-      if (count === 0) return -1;
-      const px = Math.floor(cssX * dpr);
-      const py = Math.floor(cssY * dpr);
-      if (px < 0 || py < 0 || px >= width || py >= height) return -1;
-      flushTexWords();
-      const { eye } = matrices();
-      gl.bindFramebuffer(gl.FRAMEBUFFER, pickFramebuffer);
-      // the whole canvas is drawn, shifted so that the pixel under the pointer is the one pixel the
-      // framebuffer has; everything else is rasterized away
-      gl.viewport(-px, -(height - 1 - py), width, height);
-      drawingState(false);
-      gl.clearColor(1, 1, 1, 1);
-      gl.clearDepth(1);
-      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      setUniforms(currentProgram(), performance.now(), true, eye);
-      draw();
-      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pickPixel);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      const id = pickPixel[0] | (pickPixel[1] << 8) | (pickPixel[2] << 16);
-      return id === 0xffffff || id >= count ? -1 : id;
-    },
+    pick: pickAt,
     fit(next, paddingPx, seconds) {
       bounds = next;
       const cssW = width / dpr;
@@ -1446,33 +1615,76 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
       dirty = true;
       schedule();
     },
-    hold(channel) {
+    hold(channel, cssX, cssY) {
       zoomTo = null;
-      cam.hold(channel);
+      // the camera has no momentum of its own here: it goes where the hand puts it and stops when
+      // the hand stops. A view with weight is right for flying through a graph and wrong for reading
+      // a chart, where a short drag that carries on turning for another second is just a view lost.
+      cam.stop();
+      held = channel === "look" ? null : pointUnder(cssX, cssY);
+      asked = null;
       schedule();
     },
-    release(channel) {
-      cam.release(channel);
+    release() {
+      held = null;
       schedule();
     },
-    orbit(dxPx, dyPx, dt) {
-      const [x, y] = turnRates();
-      cam.orbit(dxPx * x, -dyPx * y, dt);
+    /**
+     * The picture turns about the point taken hold of, and that point stays exactly where it is on
+     * the screen while it does: the camera and its heading are turned together about it, which is a
+     * rigid turn of the whole frame, and a rigid turn leaves the centre of itself alone.
+     */
+    orbit(dxPx, dyPx) {
+      const [rx, ry] = turnRates();
+      const pivot = held ?? cam.target();
+      const dYaw = dxPx * rx;
+      const pitch = clampPitch(cam.pitch - dyPx * ry);
+      const dPitch = pitch - cam.pitch;
+      const yaw = cam.yaw + dYaw;
+      // a turn about the world's up axis raises the yaw, which is the other way round from the
+      // right-handed turn of the same axis; the tip is about the camera's own right, after the yaw
+      let arm = turnAbout(sub(cam.pos, pivot), [0, 1, 0], -dYaw);
+      arm = turnAbout(arm, [Math.cos(yaw), 0, Math.sin(yaw)], dPitch);
+      cam.yaw = yaw;
+      cam.pitch = pitch;
+      cam.pos = add(pivot, arm);
+      // the focus distance follows what is being turned about, so a slide or a wheel step after the
+      // turn is measured against the same thing
+      cam.dist = Math.max(cam.minDist, distance(cam.pos, pivot));
       dirty = true;
       schedule();
     },
-    look(dxPx, dyPx, dt) {
-      const [x, y] = turnRates();
-      cam.look(dxPx * x * 0.7, -dyPx * y * 0.7, dt);
+    look(dxPx, dyPx) {
+      const [rx, ry] = turnRates();
+      cam.yaw += dxPx * rx * 0.7;
+      cam.pitch = clampPitch(cam.pitch - dyPx * ry * 0.7);
       dirty = true;
       schedule();
     },
-    panBy(dxPx, dyPx, dt) {
-      const u = cam.unitsPerPixel(height / dpr);
-      cam.pan(-dxPx * u, dyPx * u, dt);
+    /**
+     * The picture slides with the hand: the camera moves across its own view by exactly what a pixel
+     * is worth at the depth of the point taken hold of, so that point stays under the pointer
+     * however near or far the picture is.
+     */
+    panBy(dxPx, dyPx) {
+      const pivot = held ?? cam.target();
+      const reach = Math.max(cam.minDist, distance(pivot, cam.pos));
+      const perPixel = (2 * reach * Math.tan(cam.fov / 2)) / Math.max(1, height / dpr);
+      cam.pos = add(cam.pos, add(scale(cam.right(), -dxPx * perPixel), scale(cam.up(), dyPx * perPixel)));
       dirty = true;
       schedule();
     },
+    driftBy(dxPx, dyPx, seconds) {
+      const pivot = cam.target();
+      const reach = Math.max(cam.minDist, distance(pivot, cam.pos));
+      const perPixel = (2 * reach * Math.tan(cam.fov / 2)) / Math.max(1, height / dpr);
+      const move = add(scale(cam.right(), -dxPx * perPixel), scale(cam.up(), dyPx * perPixel));
+      zoomTo = null;
+      cam.animateTo({ pos: add(cam.pos, move), yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist }, seconds * 1000);
+      dirty = true;
+      schedule();
+    },
+    eye: () => [...cam.pos],
     /**
      * The wheel closes in on the point of the plane under the pointer, which stays under it, rather
      * than flying along the line of sight the way the 3D graph's wheel does. A graph is a cloud and
@@ -1483,33 +1695,29 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
      * got to, so spinning it keeps closing in instead of chasing its own easing.
      */
     zoomAt(amount, cssX, cssY) {
-      const cssW = width / dpr;
-      const cssH = height / dpr;
-      const aspect = cssW / Math.max(1, cssH);
       const base = zoomTo ?? cam.pose();
-      const dir = rayFrom(base, (2 * cssX) / Math.max(1, cssW) - 1, 1 - (2 * cssY) / Math.max(1, cssH), aspect);
-      const forward = headingOf(base);
-      const middle = add(base.pos, scale(forward, base.dist));
-      // the plane the cards stand on. A view from nearly edge on meets it a long way off, or not at
-      // all, and closing in on a point out there is a leap rather than a zoom: then the middle of
-      // the view is what the wheel works toward.
-      const onPlane = rayPlane(base.pos, dir, [0, 0, 0], [0, 0, 1]);
-      const anchor = onPlane !== null && Math.hypot(onPlane[0] - base.pos[0], onPlane[1] - base.pos[1], onPlane[2] - base.pos[2]) < base.dist * 6 ? onPlane : middle;
+      // what is under the pointer, whatever it is: the card, the floor, or the middle of the picture
+      const anchor = pointUnderCached(cssX, cssY);
+      const reach = Math.max(cam.minDist, distance(anchor, base.pos));
       const far = Math.max(cam.minDist * 4, sceneRadius() * 30);
-      const dist = Math.max(cam.minDist, Math.min(far, base.dist * Math.exp(-amount * 0.35)));
-      const k = base.dist > 1e-9 ? dist / base.dist : 1;
+      // a fifth of the way in per notch, geometric, so a step is the same size to the eye however
+      // near or far the picture is - and small enough that a spin lands where it was aimed
+      const wanted = Math.max(cam.minDist, Math.min(far, reach * Math.exp(-amount * 0.2)));
+      const k = wanted / reach;
+      // the target is on the line from the anchor through where the camera is heading, so the follow
+      // below can walk straight toward it without leaving that line
       zoomTo = {
         pos: [anchor[0] + (base.pos[0] - anchor[0]) * k, anchor[1] + (base.pos[1] - anchor[1]) * k, anchor[2] + (base.pos[2] - anchor[2]) * k],
         yaw: base.yaw,
         pitch: base.pitch,
-        dist,
+        dist: Math.max(cam.minDist, base.dist * k),
       };
-      cam.animateTo(zoomTo, 180);
       dirty = true;
       schedule();
     },
     stop() {
       zoomTo = null;
+      held = null;
       cam.stop();
       schedule();
     },
@@ -1537,13 +1745,15 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
       const cx = viewProj[0] * wx + viewProj[4] * wy + viewProj[8] * wz + viewProj[12];
       const cy = viewProj[1] * wx + viewProj[5] * wy + viewProj[9] * wz + viewProj[13];
       const cw = viewProj[3] * wx + viewProj[7] * wy + viewProj[11] * wz + viewProj[15];
-      const w = Math.abs(cw) < 1e-9 ? 1e-9 : cw;
-      return [((cx / w + 1) / 2) * (width / dpr), ((1 - cy / w) / 2) * (height / dpr)];
+      // at or behind the camera there is no answer: dividing anyway would put the point on the
+      // canvas mirrored through the middle, which is worse than saying nothing
+      if (cw <= 1e-6) return [NaN, NaN];
+      return [((cx / cw + 1) / 2) * (width / dpr), ((1 - cy / cw) / 2) * (height / dpr)];
     },
     camera: flatCamera,
     cameraTarget: flatCamera,
     size: () => ({ width: width / dpr, height: height / dpr, dpr }),
-    moving: () => cardsMoving || depthProgress(performance.now()) < 1 || pulsing() || cam.moving() || fading(performance.now()),
+    moving: () => cardsMoving || depthProgress(performance.now()) < 1 || pulsing() || cam.moving() || zoomTo !== null || fading(performance.now()),
     onFrame(callback) {
       frameCallback = callback;
     },
