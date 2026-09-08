@@ -178,6 +178,10 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
   let cellX0 = 0;
   let cellY0 = 0;
   let spanX = 1;
+  let spanY = 1;
+  let cellZ0 = 0;
+  /** how many cells deep the picture is: one when it lies in a plane */
+  let spanZ = 1;
   // what is known about the nodes, by node id: kept across results
   const names = new Map<number, string>();
   const images = new Map<number, { p: string; v: string; w: number; h: number }>();
@@ -364,10 +368,20 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
     cellX0 = Math.floor(b.x0) - 1;
     cellY0 = Math.floor(b.y0) - 1;
     spanX = Math.ceil(b.x1) - cellX0 + 2;
+    spanY = Math.ceil(b.y1) - cellY0 + 2;
+    // A depth grouping puts several cards on the same cell of the plane - one per row - so the row
+    // has to be part of the key, or every row but one would be invisible to this and go without a
+    // picture. The row is keyed by its place in the list rather than by its z.
+    const rows = layout.rows;
+    cellZ0 = rows === null ? 0 : Math.floor(b.z0 ?? 0) - 1;
+    spanZ = rows === null ? 1 : Math.ceil(b.z1 ?? 0) - cellZ0 + 2;
     const map = new IntMap(count);
     const p = layout.positions;
     for (let i = 0; i < count; i++) {
-      const k = (Math.round(p[i * 2 + 1]) - cellY0) * spanX + (Math.round(p[i * 2]) - cellX0);
+      const cx = Math.round(p[i * 2]) - cellX0;
+      const cy = Math.round(p[i * 2 + 1]) - cellY0;
+      const cz = rows === null ? 0 : Math.round(rows[i]) - cellZ0;
+      const k = (cz * spanY + cy) * spanX + cx;
       if (k >= 0 && k < 0x7fffffff) map.set(k, i);
     }
     cells = map;
@@ -391,16 +405,30 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
     const y0 = Math.max(Math.floor(b.y0), Math.floor(cam.y - halfH - marginCells));
     const y1 = Math.min(Math.ceil(b.y1), Math.ceil(cam.y + halfH + marginCells));
     const set = new Set<number>();
-    for (let cy = y0; cy <= y1 && visibleCount < maxVisible; cy++) {
-      for (let cx = x0; cx <= x1 && visibleCount < maxVisible; cx++) {
-        const i = map.get((cy - cellY0) * spanX + (cx - cellX0));
-        if (i < 0) continue;
-        visibleIndexes[visibleCount] = i;
-        const dx = cx + 0.5 - cam.x;
-        const dy = cy + 0.5 - cam.y;
-        visibleDist[visibleCount] = dx * dx + dy * dy;
-        visibleCount++;
-        set.add(i);
+    // A depth grouping puts several cards on one cell of the plane - a block of them, one behind
+    // another - so the depth is walked as well, outward from where the camera is looking: what the
+    // cap on the scan then takes away is the far side of the picture, which is the part standing
+    // behind the rest of it. A picture that lies in a plane walks one cell and is as it was.
+    const camZ = Math.round(cam.z ?? 0) - cellZ0;
+    const zMin = 0;
+    const zMax = spanZ - 1;
+    for (let step = 0; step < spanZ && visibleCount < maxVisible; step++) {
+      // 0, +1, -1, +2, -2 … about the camera, skipping what is outside the picture
+      const offset = step === 0 ? 0 : (step % 2 === 1 ? (step + 1) / 2 : -step / 2);
+      const cz = camZ + offset;
+      if (cz < zMin || cz > zMax) continue;
+      const dz = offset;
+      for (let cy = y0; cy <= y1 && visibleCount < maxVisible; cy++) {
+        for (let cx = x0; cx <= x1 && visibleCount < maxVisible; cx++) {
+          const i = map.get((cz * spanY + (cy - cellY0)) * spanX + (cx - cellX0));
+          if (i < 0) continue;
+          visibleIndexes[visibleCount] = i;
+          const dx = cx + 0.5 - cam.x;
+          const dy = cy + 0.5 - cam.y;
+          visibleDist[visibleCount] = dx * dx + dy * dy + dz * dz;
+          visibleCount++;
+          set.add(i);
+        }
       }
     }
     visibleSet = set;

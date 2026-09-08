@@ -88,6 +88,22 @@ export interface CardField3D extends CardFieldCommon, FieldSurface {
    * for one thickness for all of them. The cards grow or shrink to it over `seconds`.
    */
   setDepths(depths: Float32Array | null, seconds?: number): void;
+  /**
+   * Which row along the depth axis every card stands on, in cells of the grid; null for one plane.
+   * The cards travel there on the timeline of the move that follows, so a change of the depth
+   * grouping is told as setRows and then moveTo. `from` says where they leave from: left out, it is
+   * where they are now (the same cards, moved); null puts them there without travelling (a picture
+   * that is starting); an array is the rows of a set of cards that is partly new, the carried-over
+   * ones handed the row they were on.
+   */
+  setRows(rows: Float32Array | null, from?: Float32Array | null): void;
+  /** Where every card stands along the depth axis right now, mid-move or not; a fresh array. */
+  rows(): Float32Array;
+  /**
+   * The lines on the floor of the picture: pairs of points, three world coordinates each, drawn
+   * under the cards. An empty array draws none.
+   */
+  setFloorLines(points: Float32Array): void;
   /** The camera, driven the way the 3D datamodel graph's is: a channel is held while a button is down. */
   hold(channel: Channel): void;
   release(channel: Channel): void;
@@ -110,8 +126,11 @@ export interface CardField3D extends CardFieldCommon, FieldSurface {
   setHeading(yaw: number, pitch: number): void;
 }
 
-/** the thickness a card is given when nothing has said otherwise */
-const defaultDepth = 0.5;
+/**
+ * The thickness a card is given when nothing has said otherwise: as deep as it is wide, so a card
+ * with no thickness property is a cube rather than a card standing on edge.
+ */
+export const defaultDepth = cardFill;
 /** the fillet on a raymarched solid, as a fraction of the card's width */
 const roundShare = 0.045;
 /** the shaded bevel on a plain box, as a fraction of the card's width */
@@ -144,6 +163,7 @@ layout(location = 4) in uint aGroup;
 layout(location = 5) in uvec3 aTex;   // the picture words, see setCardImage
 layout(location = 6) in uint aShape;  // which silhouette this card is cut out to, see shapes.ts
 layout(location = 7) in vec2 aDepth;  // the thickness it had, and the one it is going to
+layout(location = 8) in vec2 aRow;    // the row it stood on, and the one it is going to
 uniform mat4 uViewProj;
 uniform vec3 uEye;        // the camera, and everything else, measured from uOrigin: at a deep zoom
 uniform vec3 uOrigin;     // the difference of two large coordinates is not a small one in float32
@@ -203,7 +223,9 @@ float pulse(float t) {
 }
 void main() {
   float t = (uTime - aTiming.x) / uDuration;
-  vec2 flat2 = mix(aFrom, aTo, ease(t));
+  float travelled = ease(t);
+  vec2 flat2 = mix(aFrom, aTo, travelled);
+  float row = mix(aRow.x, aRow.y, travelled);
   float fill = mix(1.0, uFill, smoothstep(2.5, 7.0, uZoom));
   float born = 1.0;
   if (aTiming.y > 0.5) {
@@ -213,9 +235,10 @@ void main() {
   }
   float side = fill * born;
   float thick = max(0.02, mix(aDepth.x, aDepth.y, smoother(uDepthT))) * born;
-  // the card's box: a cell of the grid wide, standing on the plane of the layout. y grows downward
-  // in a layout and upward in the world, so the picture keeps the way up it had when it was flat.
-  vec3 centre = vec3(flat2.x + 0.5, -(flat2.y + 0.5), thick * 0.5) - uOrigin;
+  // The card's box: a cell of the grid wide, standing on the plane of its own row. y grows downward
+  // in a layout and upward in the world, so the picture keeps the way up it had when it was flat; z
+  // is 0 for the row nearest the viewer and negative behind it, and a card is extruded toward them.
+  vec3 centre = vec3(flat2.x + 0.5, -(flat2.y + 0.5), row + thick * 0.5) - uOrigin;
   vec3 half3 = vec3(side * 0.5, side * 0.5, thick * 0.5);
   // Which three faces can be seen, and the two world directions that span each of them. The axes
   // are taken in cyclic order so that the cross product of the two spanning ones is the outward
@@ -580,6 +603,30 @@ void main() {
   outColor = vec4(mix(lit, uClear, vFadeOut), alpha);
 }`;
 
+/**
+ * The lines on the floor: a straight run under each bar and each row, out past the picture to where
+ * its name is written. They are drawn a hair below the cards, so a line is hidden under the block it
+ * belongs to and shows in the empty floor between the blocks and beyond them - which is what makes
+ * a name at the end of one read as belonging to what the line comes from, rather than floating
+ * somewhere near it.
+ */
+const lineVertexSource = `#version 300 es
+precision highp float;
+layout(location = 0) in vec3 aPoint;
+uniform mat4 uViewProj;
+uniform vec3 uOrigin;
+void main() {
+  gl_Position = uViewProj * vec4(aPoint - uOrigin, 1.0);
+}`;
+
+const lineFragmentSource = `#version 300 es
+precision highp float;
+uniform vec4 uColor;
+out vec4 outColor;
+void main() {
+  outColor = uColor;
+}`;
+
 type Uniforms = Record<string, WebGLUniformLocation | null>;
 
 export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null {
@@ -590,6 +637,18 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
 
   const plain = program(gl, vertexSource, plainFragmentSource);
   const solid = program(gl, vertexSource, solidFragmentSource);
+  const lineProgram = program(gl, lineVertexSource, lineFragmentSource);
+  const lineViewProj = gl.getUniformLocation(lineProgram, "uViewProj");
+  const lineOrigin = gl.getUniformLocation(lineProgram, "uOrigin");
+  const lineColor = gl.getUniformLocation(lineProgram, "uColor");
+  const lineBuffer = gl.createBuffer()!;
+  const lineVao = gl.createVertexArray()!;
+  gl.bindVertexArray(lineVao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, lineBuffer);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
+  let linePoints = 0;
   const names = [
     "uViewProj",
     "uEye",
@@ -663,6 +722,7 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
   const texBuffer = gl.createBuffer()!;
   const shapeBuffer = gl.createBuffer()!;
   const depthBuffer = gl.createBuffer()!;
+  const rowBuffer = gl.createBuffer()!;
   const vao = gl.createVertexArray()!;
   gl.bindVertexArray(vao);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
@@ -674,6 +734,7 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     [2, toBuffer, 2],
     [3, timingBuffer, 2],
     [7, depthBuffer, 2],
+    [8, rowBuffer, 2],
   ] as const) {
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     gl.enableVertexAttribArray(location);
@@ -756,6 +817,11 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
   let depthStart = 0;
   let depthDuration = depthSeconds;
   let maxDepth = defaultDepth;
+  // the row every card stood on and the one it is going to, in cells; both zero when the picture
+  // lies in one plane, which is what a card field without a depth grouping is
+  let rowFrom: Float32Array = new Float32Array(0);
+  let rowTo: Float32Array = new Float32Array(0);
+  let rowSpan: [number, number] = [0, 0];
   let texWords: Uint32Array = new Uint32Array(0);
   const texDirty = new Set<number>();
   let fadeUntil = 0;
@@ -833,7 +899,8 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
   function sceneRadius(): number {
     const bx = (bounds.x1 - bounds.x0) / 2 + 1;
     const by = (bounds.y1 - bounds.y0) / 2 + 1;
-    return Math.hypot(bx, by, maxDepth) + 1;
+    const bz = (rowSpan[1] - rowSpan[0]) / 2 + maxDepth;
+    return Math.hypot(bx, by, bz) + 1;
   }
 
   /** device pixels per world unit at the point the camera is focused on: the picture's own zoom */
@@ -925,6 +992,24 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     gl.bindVertexArray(null);
   }
 
+  /** The floor, over the cards' own pass: depth-tested, so a line goes behind whatever stands on it. */
+  function drawFloorLines() {
+    if (linePoints === 0) return;
+    gl.useProgram(lineProgram);
+    gl.uniformMatrix4fv(lineViewProj, false, viewProj);
+    gl.uniform3fv(lineOrigin, origin);
+    // the page's own ink, well faded: a rule on the floor, not a line drawn over the picture
+    gl.uniform4f(lineColor, theme.ink[0], theme.ink[1], theme.ink[2], 0.34);
+    gl.disable(gl.CULL_FACE);
+    gl.disable(gl.SAMPLE_ALPHA_TO_COVERAGE);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.bindVertexArray(lineVao);
+    gl.drawArrays(gl.LINES, 0, linePoints);
+    gl.bindVertexArray(null);
+    gl.disable(gl.BLEND);
+  }
+
   /**
    * Solids are opaque and the depth buffer sorts them; nothing here is ever blended. The outline of
    * a raymarched solid is the one thing without geometry of its own, so its edge pixels say how much
@@ -1000,6 +1085,7 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     setUniforms(prog, now, false, eye);
     draw();
+    drawFloorLines();
     dirty = false;
     frameCallback?.();
     if (cardsMoving || depthProgress(now) < 1 || pulsing() || cam.moving() || fading(now) || texDirty.size > 0) schedule();
@@ -1053,6 +1139,33 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     return out;
   }
 
+  /** Where every card stands along the depth axis right now, mid-move or not: what a change leaves from. */
+  function currentRows(): Float32Array {
+    if (!cardsMoving) return rowTo.slice(0, count);
+    const time = elapsed(performance.now());
+    const out = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      const s = ease((time - timing[i * 2]) / duration);
+      out[i] = rowFrom[i] + (rowTo[i] - rowFrom[i]) * s;
+    }
+    return out;
+  }
+
+  function uploadRows() {
+    const pairs = new Float32Array(count * 2);
+    let low = 0;
+    let high = 0;
+    for (let i = 0; i < count; i++) {
+      pairs[i * 2] = rowFrom[i];
+      pairs[i * 2 + 1] = rowTo[i];
+      const z = rowTo[i];
+      if (z < low) low = z;
+      if (z > high) high = z;
+    }
+    upload(rowBuffer, pairs);
+    rowSpan = [low, high];
+  }
+
   function uploadDepths() {
     const pairs = new Float32Array(count * 2);
     for (let i = 0; i < count; i++) {
@@ -1101,7 +1214,7 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
   /** The camera as the pictures read it: where it looks on the plane of the layout, and its zoom there. */
   function flatCamera(): Camera {
     const t = cam.target();
-    return { x: t[0], y: -t[1], zoom: zoomDev() / dpr };
+    return { x: t[0], y: -t[1], z: t[2], zoom: zoomDev() / dpr };
   }
 
   const field: CardField3D = {
@@ -1124,6 +1237,9 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
       depthStart = 0;
       depthDuration = 0;
       uploadDepths();
+      rowFrom = new Float32Array(n);
+      rowTo = new Float32Array(n);
+      uploadRows();
       texWords = new Uint32Array(n * 3);
       texDirty.clear();
       upload(texBuffer, texWords);
@@ -1172,6 +1288,25 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
       depthStart = performance.now();
       depthDuration = seconds;
       uploadDepths();
+      dirty = true;
+      schedule();
+    },
+    setRows(next, from) {
+      if (count === 0) return;
+      const wanted = new Float32Array(count);
+      if (next !== null) for (let i = 0; i < count; i++) wanted[i] = next[i] ?? 0;
+      const leaving = from === undefined ? currentRows() : from;
+      rowFrom = leaving !== null && leaving.length === count ? Float32Array.from(leaving) : wanted.slice();
+      rowTo = wanted;
+      uploadRows();
+      dirty = true;
+      schedule();
+    },
+    rows: currentRows,
+    setFloorLines(points) {
+      linePoints = Math.floor(points.length / 3);
+      gl.bindBuffer(gl.ARRAY_BUFFER, lineBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, points, gl.DYNAMIC_DRAW);
       dirty = true;
       schedule();
     },
@@ -1268,10 +1403,14 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
       bounds = next;
       const cssW = width / dpr;
       const cssH = height / dpr;
-      const centre: Vec3 = [(next.x0 + next.x1) / 2, -(next.y0 + next.y1) / 2, maxDepth / 2];
+      // the rows reach from z0 back to z1, and the thickest card standing on a row reaches forward
+      // of it, so the picture is that span grown by one card's depth
+      const back = next.z0 ?? 0;
+      const front = (next.z1 ?? 0) + maxDepth;
+      const centre: Vec3 = [(next.x0 + next.x1) / 2, -(next.y0 + next.y1) / 2, (back + front) / 2];
       const hx = (next.x1 - next.x0) / 2 + cardFill / 2;
       const hy = (next.y1 - next.y0) / 2 + cardFill / 2;
-      const hz = Math.max(0.05, maxDepth / 2);
+      const hz = Math.max(0.05, (front - back) / 2);
       const t = Math.tan(cam.fov / 2);
       const aspect = cssW / Math.max(1, cssH);
       const roomW = Math.max(0.15, 1 - (2 * paddingPx) / Math.max(1, cssW));
@@ -1390,11 +1529,11 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
       dirty = true;
       schedule();
     },
-    worldToCss(x, y) {
-      // the point on the plane of the layout, through the matrix of the frame just drawn
+    worldToCss(x, y, z = 0) {
+      // the point of the picture, through the matrix of the frame just drawn
       const wx = x - origin[0];
       const wy = -y - origin[1];
-      const wz = -origin[2];
+      const wz = z - origin[2];
       const cx = viewProj[0] * wx + viewProj[4] * wy + viewProj[8] * wz + viewProj[12];
       const cy = viewProj[1] * wx + viewProj[5] * wy + viewProj[9] * wz + viewProj[13];
       const cw = viewProj[3] * wx + viewProj[7] * wy + viewProj[11] * wz + viewProj[15];
@@ -1489,7 +1628,10 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
       gl.deleteBuffer(texBuffer);
       gl.deleteBuffer(shapeBuffer);
       gl.deleteBuffer(depthBuffer);
+      gl.deleteBuffer(rowBuffer);
+      gl.deleteBuffer(lineBuffer);
       gl.deleteVertexArray(vao);
+      gl.deleteVertexArray(lineVao);
       gl.deleteTexture(palette);
       gl.deleteTexture(emptyLevel);
       if (shapeAtlas !== null) gl.deleteTexture(shapeAtlas);
@@ -1499,6 +1641,7 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
       gl.deleteFramebuffer(pickFramebuffer);
       gl.deleteProgram(plain);
       gl.deleteProgram(solid);
+      gl.deleteProgram(lineProgram);
     },
   };
   return field;

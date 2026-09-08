@@ -53,6 +53,13 @@ export interface VisualDefinition {
    */
   depthProperty?: string | null;
   depthMode?: string;
+  /**
+   * The property whose values lay the cards in rows one behind another along the depth axis - a
+   * second axis for the bars, the way bars are the first. Choosing one also turns the picture into a
+   * picture of solids; null (and absent) keeps it in a single plane.
+   */
+  depthGroupProperty?: string | null;
+  depthGroupMode?: string;
   /** the property whose values the cards are stacked into bars by; null is the grid */
   barProperty: string | null;
   barMode: string;

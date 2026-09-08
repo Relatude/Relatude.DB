@@ -7,8 +7,8 @@ import { formatCount, formatQuery } from "../format";
 import { showConfirm } from "../dialogs";
 import type { VisualDefinition } from "../queryTabs";
 import { createCardField, transitionSeconds, type CardField, type CardFieldCommon, type FieldSurface, type FieldTheme, type RGBf } from "../visual/cardField";
-import { createCardField3D, DetailLevel, type CardField3D } from "../visual/cardField3d";
-import { barLayout, gridLayout, type Bar, type Layout } from "../visual/layouts";
+import { createCardField3D, defaultDepth, DetailLevel, type CardField3D } from "../visual/cardField3d";
+import { barLayout, gridLayout, type Bar, type DepthGrouping, type Layout, type Row } from "../visual/layouts";
 import { buildPalette, palettes, parseCssColor, type PaletteColor, type RGB } from "../visual/palette";
 import { shapeLabel, shapeMaskUrl, shapeSlotFor } from "../visual/shapes";
 import { IntMap } from "../visual/intMap";
@@ -16,7 +16,7 @@ import { createCardMedia, type CardMedia } from "../visual/cardMedia";
 import { createCardLabels, type CardLabels, type LabelColors } from "../visual/cardLabels";
 
 /** A visual pivot before anyone has chosen anything: a grid of one colour, in the result's order. */
-export const emptyVisual: VisualDefinition = { colorProperty: null, colorMode: "auto", shapeProperty: null, shapeMode: "auto", depthProperty: null, depthMode: "auto", barProperty: null, barMode: "auto", sortProperty: null, sortDescending: false, legend: true, palette: palettes[0].id };
+export const emptyVisual: VisualDefinition = { colorProperty: null, colorMode: "auto", shapeProperty: null, shapeMode: "auto", depthProperty: null, depthMode: "auto", depthGroupProperty: null, depthGroupMode: "auto", barProperty: null, barMode: "auto", sortProperty: null, sortDescending: false, legend: true, palette: palettes[0].id };
 
 /** what a group stands for: a value of the property, the nodes without one, or the ones outside the groups kept */
 type GroupKind = "value" | "none" | "other";
@@ -56,6 +56,13 @@ interface Theme extends FieldTheme {
   other: RGB;
 }
 
+/** Where a name is written: the far end of its line on the floor, in the picture's own coordinates. */
+interface Anchor {
+  x: number;
+  y: number;
+  z: number;
+}
+
 interface Tooltip {
   x: number;
   y: number;
@@ -87,6 +94,10 @@ const fitPadding = 28;
  */
 const solidFitPadding = 10;
 const labelMinWidth = 64; // css px a bar label needs before its neighbours are thinned out
+/** the clear space a name in a solid picture keeps around itself, in css pixels */
+const namePad = 3;
+/** how far past the picture a line on the floor runs to reach its name, as a share of the picture */
+const leadShare = 0.07;
 const refitSeconds = 0.7; // a fit asked for on its own - the button, a double-click, a resize - with nothing else moving
 /**
  * How thick a card can be, in cells of the grid, so 1 is as deep as a card is wide. The thinnest is
@@ -118,15 +129,17 @@ const hopelessFrameMs = 130;
  * card (visual/layouts.ts), a colouring is an index per card into a palette. Changing either uploads
  * the new arrays and the cards travel there themselves.
  *
- * Choosing a depth property turns the picture into a picture of solids: the layout is the same one,
- * every card given a thickness by its group and seen through a camera that orbits (drag), slides
- * (shift-drag, or the right button) and closes in on what is under the pointer (the wheel). That is
- * a second renderer
- * (visual/cardField3d.ts) on a canvas of its own rather than a mode of the first, so the flat
- * picture goes on costing exactly what it did; only one of the two exists at a time, and switching
- * builds the other. Everything else about the picture - what the server is asked, how a result is
- * decoded, the layouts, the palette, the pictures on the cards, the legend - is shared, which is why
- * turning depth on and off does not move a card.
+ * Two things turn the picture into a picture of solids, and either alone will do it: a thickness
+ * property, which says how deep each card is, and a depth grouping, which lays the cards in rows one
+ * behind another - bars by one property across and rows by another into the distance, which is a bar
+ * chart on two axes. Solids are seen through a camera that orbits (drag), slides (shift-drag, or the
+ * right button) and closes in on what is under the pointer (the wheel).
+ *
+ * That is a second renderer (visual/cardField3d.ts) on a canvas of its own rather than a mode of the
+ * first, so the flat picture goes on costing exactly what it did; only one of the two exists at a
+ * time, and switching builds the other. Everything else about the picture - what the server is
+ * asked, how a result is decoded, the layouts, the palette, the pictures on the cards, the legend -
+ * is shared, which is why turning depth on and off does not move a card sideways.
  *
  * What is laid over the canvas in html - the bar labels, the tooltip, the legend - follows the
  * camera through the field's frame callback, without going through React on every frame.
@@ -181,10 +194,12 @@ export function VisualPivotView({
   // read defensively: a definition saved before there were shapes has neither field
   const shapeProperty = groupable.some((p) => p.id === def.shapeProperty) ? def.shapeProperty! : null;
   const shapeMode = def.shapeMode ?? "auto";
-  // and the same for depth, which is also what says whether the picture is flat or solid
+  // and the same for the two depth channels, either of which makes the picture a solid one
   const depthProperty = groupable.some((p) => p.id === def.depthProperty) ? def.depthProperty! : null;
   const depthMode = def.depthMode ?? "auto";
-  const solidPicture = depthProperty !== null;
+  const rowProperty = groupable.some((p) => p.id === def.depthGroupProperty) ? def.depthGroupProperty! : null;
+  const rowMode = def.depthGroupMode ?? "auto";
+  const solidPicture = depthProperty !== null || rowProperty !== null;
   // sorting needs a single value per node with an order to it, which is what an indexed scalar is
   const sortable = useMemo(() => model?.properties.filter((p) => p.aggregatable) ?? [], [model]);
   // read defensively: a definition saved before there was a sort has neither field
@@ -204,6 +219,7 @@ export function VisualPivotView({
     ask(colorProperty, def.colorMode);
     ask(shapeProperty, shapeMode);
     ask(depthProperty, depthMode);
+    ask(rowProperty, rowMode);
     ask(barProperty, def.barMode);
     return {
       storeId: base.storeId,
@@ -218,7 +234,7 @@ export function VisualPivotView({
     };
     // the token is not part of the request; a new object is how the runner is told to run again
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model, definition === null, base, colorProperty, def.colorMode, shapeProperty, shapeMode, depthProperty, depthMode, barProperty, def.barMode, sortProperty, sortDescending, refreshToken]);
+  }, [model, definition === null, base, colorProperty, def.colorMode, shapeProperty, shapeMode, depthProperty, depthMode, rowProperty, rowMode, barProperty, def.barMode, sortProperty, sortDescending, refreshToken]);
   const { result, loading, error } = useLiveResult(request, runVisual);
   const decoded = useMemo(() => (result ? decode(result) : null), [result]);
 
@@ -228,6 +244,7 @@ export function VisualPivotView({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textRef = useRef<HTMLCanvasElement>(null);
   const labelsRef = useRef<HTMLDivElement>(null);
+  const rowLabelsRef = useRef<HTMLDivElement>(null);
   /** whichever of the two renderers is drawing: everything the picture is driven with is common to both */
   const field = useRef<(CardFieldCommon & FieldSurface) | null>(null);
   /** and the one that is drawing, when it is that one: the camera is worked differently in each */
@@ -240,6 +257,9 @@ export function VisualPivotView({
   const [glOk, setGlOk] = useState(true);
   const [theme, setTheme] = useState<Theme | null>(null);
   const [bars, setBars] = useState<{ bar: Bar; group: DecodedGroup }[]>([]);
+  const [rowLabels, setRowLabels] = useState<{ row: Row; group: DecodedGroup }[]>([]);
+  /** where the names go in a picture of solids, in the same order as `bars` and `rowLabels` */
+  const anchors = useRef<{ bars: Anchor[]; rows: Anchor[] }>({ bars: [], rows: [] });
   const layoutRef = useRef<Layout | null>(null);
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(-1);
@@ -398,18 +418,22 @@ export function VisualPivotView({
   const barNow = decoded && barProperty ? (decoded.byProperty.get(barProperty) ?? null) : null;
   const shapeNow = decoded && shapeProperty ? (decoded.byProperty.get(shapeProperty) ?? null) : null;
   const depthNow = decoded && depthProperty ? (decoded.byProperty.get(depthProperty) ?? null) : null;
+  const rowNow = decoded && rowProperty ? (decoded.byProperty.get(rowProperty) ?? null) : null;
   const lastColor = useRef<DecodedProperty | null>(null);
   const lastBar = useRef<DecodedProperty | null>(null);
   const lastShape = useRef<DecodedProperty | null>(null);
   const lastDepth = useRef<DecodedProperty | null>(null);
+  const lastRow = useRef<DecodedProperty | null>(null);
   const colorData = colorNow ?? (colorProperty !== null ? lastColor.current : null);
   const barData = barNow ?? (barProperty !== null ? lastBar.current : null);
   const shapeData = shapeNow ?? (shapeProperty !== null ? lastShape.current : null);
   const depthData = depthNow ?? (depthProperty !== null ? lastDepth.current : null);
+  const rowData = rowNow ?? (rowProperty !== null ? lastRow.current : null);
   lastColor.current = colorData;
   lastBar.current = barData;
   lastShape.current = shapeData;
   lastDepth.current = depthData;
+  lastRow.current = rowData;
 
   // The picture follows the data. What changed is worked out from the answer itself rather than
   // from which picker was touched: other cards (the ids differ) are a new set, and the ones that
@@ -422,12 +446,15 @@ export function VisualPivotView({
     if (!f || !decoded || !theme) return;
     const canvas = canvasRef.current;
     const aspect = canvas && canvas.clientHeight > 0 ? canvas.clientWidth / canvas.clientHeight : 1.6;
-    const layout = barData
-      ? barLayout(decoded.count, barData.assignment, barData.groups.length, colorData?.assignment ?? null, aspect, decoded.order)
-      : gridLayout(decoded.count, aspect, decoded.order);
-    layoutRef.current = layout;
-    // how thick every card is, when the picture is one of solids
+    // how thick every card is, when the picture is one of solids; worked out before the layout,
+    // which has to leave room behind each row for the thickest card standing on it
     const depths = solid.current && depthData ? cardDepths(depthData, decoded.count) : null;
+    const thickest = depths === null ? defaultDepth : depths.reduce((a, b) => (b > a ? b : a), 0);
+    const grouping: DepthGrouping | null = solid.current && rowData ? { groupOf: rowData.assignment, groupCount: rowData.groups.length, clearance: thickest } : null;
+    const layout = barData
+      ? barLayout(decoded.count, barData.assignment, barData.groups.length, colorData?.assignment ?? null, aspect, decoded.order, grouping)
+      : gridLayout(decoded.count, aspect, decoded.order, grouping);
+    layoutRef.current = layout;
     const padding = solid.current ? solidFitPadding : fitPadding;
     const prev = previous.current;
     if (prev === null || !sameValues(prev.decoded.ids, decoded.ids)) {
@@ -436,11 +463,17 @@ export function VisualPivotView({
       // what is new is seen to arrive, rather than the whole picture being replaced at once.
       let from: Float32Array | null = null;
       let fresh: Uint8Array | null = null;
+      // and, when the picture is one of solids laid in rows, the row each of them leaves from: a
+      // filter that empties a group moves every row behind it forward, and a card that was on screen
+      // should be seen to travel there rather than to appear on its new row
+      let rowsFrom: Float32Array | null = null;
       if (prev !== null && prev.decoded.count > 0 && decoded.count > 0) {
         const where = f.positions();
+        const wereOn = solid.current?.rows() ?? null;
         const byId = new IntMap(prev.decoded.count);
         for (let j = 0; j < prev.decoded.count; j++) byId.set(prev.decoded.ids[j], j);
         from = new Float32Array(layout.positions);
+        if (layout.rows !== null && wereOn !== null) rowsFrom = new Float32Array(layout.rows);
         const newborn = new Uint8Array(decoded.count);
         let arriving = 0;
         for (let i = 0; i < decoded.count; i++) {
@@ -448,6 +481,7 @@ export function VisualPivotView({
           if (j >= 0) {
             from[i * 2] = where[j * 2];
             from[i * 2 + 1] = where[j * 2 + 1];
+            if (rowsFrom !== null && j < wereOn!.length) rowsFrom[i] = wereOn![j];
           } else {
             newborn[i] = 1;
             arriving++;
@@ -459,13 +493,19 @@ export function VisualPivotView({
         fresh = new Uint8Array(decoded.count).fill(1);
       }
       f.setCards(decoded.count, from, layout.positions, fresh);
-      // the thickness is told before the fit, which has to know how far the picture stands out
+      // the rows and the thickness are told before the fit, which has to know how far back the
+      // picture reaches and how far it stands out
+      solid.current?.setRows(layout.rows, rowsFrom);
       solid.current?.setDepths(depths, 0);
       media.current?.setCards(decoded.ids);
       setSelectedIndex(-1);
       // the camera keeps pace with the cards: it arrives on the new picture as the last of them do
       f.fit(fitBounds(layout), padding, prev !== null ? transitionSeconds : 0);
-    } else if (!sameValues(prev.layout.positions, layout.positions)) {
+    } else if (!sameValues(prev.layout.positions, layout.positions) || !sameDepths(prev.layout.rows, layout.rows)) {
+      // the same cards somewhere else: across, or into another row, or both. The rows are handed
+      // over first, while the old timeline is still there for them to leave from, and the move that
+      // follows is what carries them - even when nothing moves across and only the rows change.
+      solid.current?.setRows(layout.rows);
       solid.current?.setDepths(depths, transitionSeconds);
       f.moveTo(layout.positions);
       f.fit(fitBounds(layout), padding, transitionSeconds);
@@ -483,8 +523,14 @@ export function VisualPivotView({
     f.setShapes(shapes);
     labelColors.current = { assignment: colorData ? colorData.assignment : null, palette: colors, shaped: shapeData !== null, shapes, panel: theme.panel };
     setBars(layout.bars ? layout.bars.map((bar) => ({ bar, group: barData!.groups[bar.group] })) : []);
+    setRowLabels(layout.rowSlots && rowData ? layout.rowSlots.map((row) => ({ row, group: rowData.groups[row.group] })) : []);
+    if (solid.current) {
+      const floor = floorGeometry(layout, thickest);
+      anchors.current = { bars: floor.bars, rows: floor.rows };
+      solid.current.setFloorLines(floor.points);
+    }
     setTooltip(null);
-  }, [decoded, colorData, barData, shapeData, depthData, theme, palette]);
+  }, [decoded, colorData, barData, shapeData, depthData, rowData, theme, palette]);
 
   // the form closed: the card it showed is no longer the one being looked at
   useEffect(() => {
@@ -494,10 +540,60 @@ export function VisualPivotView({
     }
   }, [selected]);
 
+  /**
+   * The lines on the floor of a solid picture, and where each name goes: one line under every bar,
+   * running the whole depth of the picture and out past its front, and one under every row, running
+   * its whole width and out past its right-hand end. The name sits at the far end of its own line.
+   *
+   * The lines are laid on the floor the cards stand on - y = 0 under the bars, the underside of the
+   * sheet in a grid - which is a hair below their feet, so a line disappears under the block it
+   * belongs to and shows in the empty floor between the blocks. That is the whole point of them: a
+   * name at the end of a line that visibly comes out from under one block cannot be read as
+   * belonging to another, which is what the names hanging in the air beside the picture were.
+   */
+  function floorGeometry(layout: Layout, thickest: number): { points: Float32Array; bars: Anchor[]; rows: Anchor[] } {
+    const b = layout.bounds;
+    const back = b.z0 ?? 0;
+    const front = (b.z1 ?? 0) + thickest;
+    const lead = Math.max(0.8, Math.max(b.x1 - b.x0, front - back) * leadShare);
+    const floor = b.y1;
+    const points: number[] = [];
+    const bars: Anchor[] = [];
+    const rows: Anchor[] = [];
+    // the shader takes world coordinates, where the depth of the layout is up
+    const line = (x0: number, z0: number, x1: number, z1: number) => points.push(x0, -floor, z0, x1, -floor, z1);
+    if (layout.bars) {
+      for (const bar of layout.bars) {
+        const middle = (bar.x0 + bar.x1) / 2;
+        line(middle, back, middle, front + lead);
+        bars.push({ x: middle, y: floor, z: front + lead });
+      }
+    }
+    if (layout.rowSlots) {
+      for (const row of layout.rowSlots) {
+        // a row is several cells deep in a chart of bars, and its line runs down the middle of it
+        const middle = row.z - (layout.rowDepth - 1) / 2;
+        line(b.x0 - lead * 0.35, middle, b.x1 + lead, middle);
+        rows.push({ x: b.x1 + lead, y: floor, z: middle });
+      }
+    }
+    return { points: new Float32Array(points), bars, rows };
+  }
+
   function fitBounds(layout: Layout) {
     const b = layout.bounds;
-    // the bars stand on their labels, which need a strip of the picture below the baseline
-    return layout.bars ? { ...b, y1: b.y1 + (b.y1 - b.y0) * 0.16 } : b;
+    const room = { ...b };
+    if (solid.current) {
+      // the names are at the ends of the lines on the floor, which run out past the front of the
+      // picture and past its right-hand end: both need room in view
+      const span = Math.max(1, b.x1 - b.x0);
+      if (layout.bars) room.z1 = (b.z1 ?? 0) + span * (leadShare + 0.05);
+      if (layout.rowSlots) room.x1 = b.x1 + span * (leadShare + 0.06);
+      return room;
+    }
+    // flat, the bars stand on their labels, which need a strip of the picture below the baseline
+    if (layout.bars) room.y1 = b.y1 + (b.y1 - b.y0) * 0.16;
+    return room;
   }
 
   function fitToLayout(seconds: number) {
@@ -506,14 +602,71 @@ export function VisualPivotView({
     if (f && layout) f.fit(fitBounds(layout), solid.current ? solidFitPadding : fitPadding, seconds);
   }
 
-  // The labels under the bars, placed straight on the elements from the camera of the frame just
-  // drawn. When the bars are narrower than a label, every n-th label is shown and given the room of
-  // the n bars it stands under, so labels never overlap and the ones shown are always readable.
+  // The names of the bars and of the rows, placed straight on the elements from the camera of the
+  // frame just drawn. Flat, a name sits centred under its bar and is given the room of the bars it
+  // stands under. Solid, it sits at the far end of that bar's line on the floor.
   function placeLabels() {
+    placeBarLabels();
+    placeRowLabels();
+  }
+
+  /**
+   * Names at the ends of the lines on the floor. The ends are not evenly spaced on the screen - seen
+   * at an angle the near ones are further apart than the far ones - so a name is dropped when it
+   * would land on the last one shown, rather than every n-th of them being kept the way the flat
+   * picture does it.
+   */
+  function placeAtAnchors(host: HTMLDivElement, list: Anchor[], beside: boolean) {
+    const f = field.current;
+    if (!f) return;
+    const children = host.children;
+    // What is already written, as boxes on the screen. A name is dropped when it would land on one
+    // of them - measured against the whole name rather than against the point it hangs from, because
+    // a name is sixty pixels wide and two of them twenty pixels apart are one illegible smudge.
+    const taken: { x0: number; y0: number; x1: number; y1: number }[] = [];
+    for (let i = 0; i < children.length && i < list.length; i++) {
+      const el = children[i] as HTMLElement;
+      // the flat picture gives its labels a width; this one lets them size to their text
+      if (el.style.width) el.style.width = "";
+      const [x, y] = f.worldToCss(list[i].x, list[i].y, list[i].z);
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      // beside the end of the line for a row, just past the end of it for a bar
+      const left = (beside ? x + 7 : x - w / 2) - namePad;
+      const top = (beside ? y - h / 2 : y + 3) - namePad;
+      const box = { x0: left, y0: top, x1: left + w + 2 * namePad, y1: top + h + 2 * namePad };
+      let clash = false;
+      for (const t of taken) {
+        if (box.x0 < t.x1 && box.x1 > t.x0 && box.y0 < t.y1 && box.y1 > t.y0) {
+          clash = true;
+          break;
+        }
+      }
+      if (clash) {
+        el.style.visibility = "hidden";
+        continue;
+      }
+      taken.push(box);
+      el.style.visibility = "visible";
+      el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(${beside ? "7px, -50%" : "-50%, 3px"})`;
+    }
+  }
+
+  function placeRowLabels() {
+    const host = rowLabelsRef.current;
+    if (!host || !solid.current) return;
+    placeAtAnchors(host, anchors.current.rows, true);
+  }
+
+  function placeBarLabels() {
     const f = field.current;
     const host = labelsRef.current;
     const layout = layoutRef.current;
     if (!f || !host || !layout?.bars) return;
+    if (solid.current) {
+      placeAtAnchors(host, anchors.current.bars, false);
+      return;
+    }
     const bars = layout.bars;
     const pitch = bars.length > 1 ? bars[1].x0 - bars[0].x0 : bars[0].x1 - bars[0].x0 + 1;
     const pitchCss = pitch * f.camera().zoom;
@@ -526,7 +679,8 @@ export function VisualPivotView({
         el.style.visibility = "hidden";
         continue;
       }
-      const [x0, y] = f.worldToCss(bar.x0, 0);
+      // at the front row: z 0 is the row nearest the viewer, and a label behind the picture would be read through it
+      const [x0, y] = f.worldToCss(bar.x0, 0, 0);
       const width = Math.max(pitchCss * step - 6, (bar.x1 - bar.x0) * f.camera().zoom);
       el.style.visibility = "visible";
       el.style.transform = `translate(${x0.toFixed(1)}px, ${(y + 5).toFixed(1)}px)`;
@@ -606,7 +760,7 @@ export function VisualPivotView({
     const lines: string[] = [];
     const name = media.current?.nameOf(i);
     if (name) lines.push(name);
-    for (const p of [colorData, shapeData, depthData, barData]) {
+    for (const p of [colorData, shapeData, depthData, rowData, barData]) {
       if (!p || lines.some((l) => l.startsWith(p.name + ": "))) continue;
       lines.push(p.name + ": " + p.groups[p.assignment[i]].label);
     }
@@ -649,14 +803,16 @@ export function VisualPivotView({
   const barInfo = groupable.find((p) => p.id === barProperty);
   const shapeInfo = groupable.find((p) => p.id === shapeProperty);
   const depthInfo = groupable.find((p) => p.id === depthProperty);
+  const rowInfo = groupable.find((p) => p.id === rowProperty);
 
   /**
-   * Turning depth on is what turns the picture into a picture of solids, and that is several times
-   * the work of the flat one - so past a certain number of cards it is asked for rather than done.
-   * A machine has no way back out of a frame it has begun, and the browser would be the thing that
-   * stopped answering, so this is the one choice in the builder that is put as a question.
+   * Turning either depth channel on is what turns the picture into a picture of solids, and that is
+   * several times the work of the flat one - so past a certain number of cards it is asked for
+   * rather than done. A machine has no way back out of a frame it has begun, and the browser would
+   * be the thing that stopped answering, so these are the two choices in the builder that are put as
+   * a question.
    */
-  async function chooseDepth(id: string | null) {
+  async function chooseDepth(field: "depthProperty" | "depthGroupProperty", id: string | null) {
     const cards = decoded?.count ?? 0;
     if (id !== null && !solidPicture && cards > heavyCards) {
       const answer = await showConfirm(
@@ -666,7 +822,7 @@ export function VisualPivotView({
       );
       if (!answer.ok) return;
     }
-    onChange({ ...def, depthProperty: id });
+    onChange({ ...def, [field]: id });
   }
   const propertySelect = (value: string | null, none: string, title: string, onPick: (id: string | null) => void) => (
     <select className="select" value={value ?? ""} title={title} onChange={(e) => onPick(e.target.value || null)}>
@@ -712,8 +868,18 @@ export function VisualPivotView({
           </span>
           <span className="pivot-builder-label visual-label-2">Depth by</span>
           <span className="pivot-chip">
-            {propertySelect(depthProperty, "(flat)", "The property whose values give the cards their thickness; choosing one draws the picture as solids you can turn", chooseDepth)}
+            {propertySelect(depthProperty, "(flat)", "The property whose values give the cards their thickness; choosing one draws the picture as solids you can turn", (id) => chooseDepth("depthProperty", id))}
             {modeSelect(depthInfo, depthMode, (mode) => onChange({ ...def, depthMode: mode }))}
+          </span>
+          <span className="pivot-builder-label visual-label-2">Depth grouping</span>
+          <span className="pivot-chip">
+            {propertySelect(
+              rowProperty,
+              "(one row)",
+              "The property whose values lay the cards in rows one behind another, into the distance — a second axis for the bars; choosing one draws the picture as solids you can turn",
+              (id) => chooseDepth("depthGroupProperty", id),
+            )}
+            {modeSelect(rowInfo, rowMode, (mode) => onChange({ ...def, depthGroupMode: mode }))}
           </span>
           <span className="pivot-builder-label visual-label-2">Bars by</span>
           <span className="pivot-chip">
@@ -797,11 +963,19 @@ export function VisualPivotView({
           ) : (
             <div className="query-empty">This browser has no WebGL 2, which the picture is drawn with.</div>
           )}
-          <div className="visual-labels" ref={labelsRef}>
+          <div className={"visual-labels" + (solidPicture ? " outlined" : "")} ref={labelsRef}>
             {bars.map(({ bar, group }) => (
               <div className="visual-label" key={bar.group} style={{ visibility: "hidden" }} title={group.label + " · " + formatCount(bar.count)}>
                 <span className="visual-label-name">{group.label}</span>
                 <span className="visual-label-count">{formatCount(bar.count)}</span>
+              </div>
+            ))}
+          </div>
+          <div className={"visual-labels" + (solidPicture ? " outlined" : "")} ref={rowLabelsRef}>
+            {rowLabels.map(({ row, group }) => (
+              <div className="visual-row-label" key={row.group} style={{ visibility: "hidden" }} title={group.label + " · " + formatCount(row.count)}>
+                <span className="visual-label-name">{group.label}</span>
+                <span className="visual-label-count">{formatCount(row.count)}</span>
               </div>
             ))}
           </div>

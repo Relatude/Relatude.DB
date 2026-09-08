@@ -7910,6 +7910,46 @@ body.pg-resizing {
   will-change: transform;
 }
 
+/* A name in a picture of solids stands at the end of a line on the floor, which can pass over the
+   picture itself, so it is given an outline to be read against whatever colour is behind it. The
+   outline is the opposite of the ink, which on a dark page is the black that was asked for and on a
+   light one is the page: a black outline round black text is a smudge rather than an outline. */
+.visual-labels.outlined .visual-label,
+.visual-labels.outlined .visual-row-label {
+  color: var(--text);
+  --name-outline: 255 255 255;
+  text-shadow:
+    0 0 2px rgb(var(--name-outline) / 0.95),
+    0 0 4px rgb(var(--name-outline) / 0.85),
+    0 1px 2px rgb(var(--name-outline) / 0.9);
+}
+
+[data-theme="dark"] .visual-labels.outlined .visual-label,
+[data-theme="dark"] .visual-labels.outlined .visual-row-label {
+  --name-outline: 0 0 0;
+}
+
+.visual-labels.outlined .visual-label-count {
+  color: var(--text-soft);
+}
+
+/* the name of a row of a depth grouping: off the right-hand end of the picture, reading outward
+   rather than centred under something, so it does not fight the bar labels below it */
+.visual-row-label {
+  left: 0;
+  top: 0;
+  position: absolute;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  max-width: 160px;
+  font-size: 11px;
+  line-height: 1.25;
+  color: var(--text-soft);
+  white-space: nowrap;
+  will-change: transform;
+}
+
 .visual-label-name,
 .visual-label-count {
   max-width: 100%;

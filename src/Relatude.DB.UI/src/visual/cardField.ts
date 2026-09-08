@@ -74,6 +74,11 @@ export interface PulseFade {
 export interface Camera {
   x: number;
   y: number;
+  /**
+   * Where the camera looks along the depth axis, in world units; 0 for the flat field, which has no
+   * such axis. What reads it is the picture supply (cardMedia.ts), to prefer the rows in front.
+   */
+  z?: number;
   /** css pixels per world unit */
   zoom: number;
 }
@@ -136,7 +141,8 @@ export interface CardField {
   panBy(dx: number, dy: number): void;
   /** Lets the view coast on after a drag ends, at css pixels per second, slowing to a stop. */
   fling(vx: number, vy: number): void;
-  worldToCss(x: number, y: number): [number, number];
+  /** A point of the picture in css pixels of the canvas; `z` is the depth axis, which the flat field has none of and ignores. */
+  worldToCss(x: number, y: number, z?: number): [number, number];
   camera(): Camera;
   /** Where the camera is going: the end of a glide or of a wheel step, the camera itself when it is still. */
   cameraTarget(): Camera;
