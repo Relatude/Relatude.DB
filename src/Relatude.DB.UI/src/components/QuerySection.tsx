@@ -328,6 +328,7 @@ function QueryTab({
     return Number.isFinite(saved) && saved >= minEditorWidth ? saved : null;
   });
   const [resizing, setResizing] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const body = useRef<HTMLDivElement>(null);
   const results = useRef<HTMLDivElement>(null);
   const editor = useRef<HTMLElement>(null);
@@ -440,6 +441,38 @@ function QueryTab({
     const key = keyOf(value);
     const values = current.some((v) => keyOf(v) === key) ? current.filter((v) => keyOf(v) !== key) : [...current, { value: value.value, value2: value.value2 }];
     reset({ selections: [...selections.filter((s) => s.propertyId !== facet.propertyId), { propertyId: facet.propertyId, values }] });
+  }
+
+  // ---- the whole screen ----
+
+  // The browser owns the fullscreen state - Escape and F11 change it without asking - so the button
+  // follows the document rather than the other way round. Both sides are null before the first
+  // paint, which is not the same as being fullscreen.
+  useEffect(() => {
+    const sync = () => setFullscreen(document.fullscreenElement !== null && document.fullscreenElement === body.current);
+    document.addEventListener("fullscreenchange", sync);
+    sync();
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
+  /**
+   * Fills the screen with the row rather than with the picture alone: the facet rail goes with it,
+   * and so does the form a card opens in, so a picture that fills the screen is still one a set can
+   * be narrowed down in without leaving it. The rail is opened on the way in if it was closed -
+   * there is room for it now - and the Filter button in the head still closes it again.
+   */
+  function toggleFullscreen() {
+    const el = body.current;
+    if (!el) return;
+    if (document.fullscreenElement === el) {
+      void document.exitFullscreen().catch(() => {});
+      return;
+    }
+    // refused (a permissions policy, or no gesture behind this call): the row stays where it is
+    void el
+      .requestFullscreen?.()
+      .then(() => !showFacets && onChange({ showFacets: true }))
+      .catch(() => {});
   }
 
   // How wide the editor may be pulled right now: never so wide that the list it belongs to is
@@ -896,6 +929,8 @@ function QueryTab({
               showQuery={showQuery}
               onOpen={setSelected}
               selected={selected}
+              fullscreen={fullscreen}
+              onToggleFullscreen={toggleFullscreen}
             />
           ) : groups ? (
             <GroupByView key={typeId} base={pivotBase} definition={q.groups} onChange={(groups) => onChange({ groups })} refreshToken={epoch} showQuery={showQuery} onDrill={drill} />

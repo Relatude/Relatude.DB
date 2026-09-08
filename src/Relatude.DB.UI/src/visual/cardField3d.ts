@@ -154,13 +154,20 @@ const shapeZoomHigh = 7;
 /** a plain box is raymarched as a filleted solid once it is this many device pixels across, where a straight corner starts to show */
 const roundZoom = 40;
 /**
- * The key light, well off to one side and above, and a dim fill from the opposite side and below.
- * The key is a touch warm and the fill a touch cool, which is what makes the two sides of a block
- * read as two different faces rather than as one face and its shadow.
+ * Three lamps, the way a thing on a table is lit for a photograph of it.
+ *
+ * The key is well off to one side and above; the fill comes from the opposite side and below, dim
+ * and a touch cool against the key's warmth, which is what makes the two sides of a block read as
+ * two different faces rather than as one face and its shadow. The third comes from behind and above
+ * the far shoulder and is only let through where the face is turning away from the eye, so it draws
+ * a bright edge along the silhouette of every solid instead of flooding the faces the other two
+ * already light. Between them there is no direction a face can be turned that has nothing on it.
  */
 const lightDir = normalize([0.62, 0.66, 0.43]);
-const keyLight: RGBf = [1.24, 1.18, 1.1];
-const fillLight: RGBf = [0.27, 0.32, 0.42];
+const keyLight: RGBf = [1.38, 1.32, 1.22];
+const fillLight: RGBf = [0.46, 0.51, 0.62];
+const rimDir = normalize([-0.55, 0.42, -0.72]);
+const rimLight: RGBf = [0.3, 0.34, 0.4];
 /** the most layers a picture level is ever given (see cardField.ts, which bounds it the same way) */
 const maxLayersWanted = 2048;
 /**
@@ -410,34 +417,64 @@ vec3 cardFace(vec3 c, vec2 uv0, out float shown) {
   shown = vDetail * show;
   return mix(c, pic, shown);
 }
+/** How far past the terminator the key still reaches: a lamp with a size to it, not a point. */
+#define KEYWRAP 0.18
+/** Where the light stops adding brightness and starts bending over, and what it never quite reaches. */
+#define KNEE 0.85
+/**
+ * The top of the range, rolled over rather than cut off. Three lamps and a sheen put more light on
+ * the face turned into the key than a screen can show, and a channel held at white there is a face
+ * with no shading left on it: the whole of it comes out one flat colour however it is curved. Bent
+ * over instead, it goes on separating - a fillet still catches more light than the face behind it.
+ *
+ * Each channel is bent on its own, which is what a bright surface does in a photograph: the channel
+ * that is already high gives way first and the colour walks toward white as it brightens. Scaling
+ * the three together would hold the hue, but it would also mean that a saturated colour stopped
+ * taking light the moment its strongest channel arrived, and a blue block lit from three sides would
+ * read as flat as a printed one. Nothing under the knee is touched, which is the body of the picture.
+ */
+float roll(float x) {
+  return x <= KNEE ? x : KNEE + (1.0 - KNEE) * (1.0 - exp(-(x - KNEE) / (1.0 - KNEE)));
+}
+vec3 shoulder(vec3 x) {
+  return vec3(roll(x.r), roll(x.g), roll(x.b));
+}
 /**
  * The material. A field of boxes lives or dies by how differently its three visible faces are lit,
  * so the light is made to do as much of the work as it can:
  *
  *  - A key light well off to one side, and a hemisphere over it - the ambient is not a flat floor
  *    but brighter overhead than underfoot, which is what lifts the top of every block away from its
- *    sides without a second light being aimed at it.
- *  - A dim fill from the other side, cool against the warm key, so the face turned away from the key
- *    is dark but not a hole. Two lights from opposite sides is what stops a box reading as two
- *    tones; it gives every face its own.
+ *    sides without a second light being aimed at it. The key is wrapped a little past the
+ *    terminator, so a fillet turning out of the light dims into it rather than falling off an edge.
+ *  - A fill from the other side, cool against the warm key, so the face turned away from the key is
+ *    darker but nowhere near a hole. Two lights from opposite sides is what stops a box reading as
+ *    two tones; it gives every face its own.
+ *  - A rim from behind the far shoulder, let through only where the face is turning away from the
+ *    eye. On a solid that is the last sliver before the silhouette, so every card is drawn round
+ *    with a line of light and reads as separate from whatever is standing behind it.
  *  - A tight highlight and a broad sheen, both stronger than a matte surface would have, so an edge
  *    or a fillet catches the light as something moulded rather than printed. Damped over a picture,
  *    which has no business being washed out by the gloss on top of it.
  */
 vec3 shade(vec3 c, vec3 n, vec3 world, float pictured) {
   vec3 v = normalize(uEye - world);
-  float diff = max(dot(n, uLight), 0.0);
-  float back = max(dot(n, -uLight), 0.0);
   float head = max(dot(n, v), 0.0);
+  float diff = max((dot(n, uLight) + KEYWRAP) / (1.0 + KEYWRAP), 0.0);
+  float back = max(dot(n, -uLight), 0.0);
+  // cubed, so this lamp is an edge and not a third flood: it is all but out by the time a face has
+  // turned far enough toward the eye to be read as a face
+  float rim = max(dot(n, uRim), 0.0) * pow(1.0 - head, 3.0);
   vec3 h = normalize(uLight + v);
   float ndh = max(dot(n, h), 0.0);
-  float spec = (pow(ndh, 64.0) * 0.78 + pow(ndh, 10.0) * 0.13) * mix(1.0, 0.4, pictured);
+  float spec = (pow(ndh, 64.0) * 0.78 + pow(ndh, 10.0) * 0.12) * mix(1.0, 0.4, pictured);
   // overhead against underfoot: the ambient a face sees depends on which way it is turned
   float sky = 0.5 + 0.5 * n.y;
-  vec3 ambient = c * uAmbient * mix(0.5, 1.35, sky * sky);
-  vec3 key = c * uKey * (0.86 * diff + 0.07 * head);
+  vec3 ambient = c * uAmbient * mix(0.58, 1.3, sky * sky);
+  vec3 key = c * uKey * (0.82 * diff + 0.06 * head);
   vec3 opposite = c * uFillLight * back;
-  return ambient + key + opposite + spec * uShine;
+  vec3 edge = c * uRimLight * rim;
+  return shoulder(ambient + key + opposite + edge + spec * uShine);
 }
 /** The face's normal and the world directions its two picture axes run in (see the vertex shader). */
 void faceBasis(out vec3 n, out vec3 ux, out vec3 uy) {
@@ -480,6 +517,8 @@ uniform vec3 uOutline;
 uniform float uAmbient;
 uniform vec3 uKey;
 uniform vec3 uFillLight;
+uniform vec3 uRim;
+uniform vec3 uRimLight;
 uniform float uShine;
 uniform float uNowMs;
 uniform int uPick;
@@ -728,6 +767,8 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     "uAmbient",
     "uKey",
     "uFillLight",
+    "uRim",
+    "uRimLight",
     "uShine",
     "uNowMs",
     "uPick",
@@ -1028,6 +1069,8 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     gl.uniform1f(u.uAmbient, ambient);
     gl.uniform3fv(u.uKey, keyLight);
     gl.uniform3fv(u.uFillLight, fillLight);
+    gl.uniform3fv(u.uRim, rimDir);
+    gl.uniform3fv(u.uRimLight, rimLight);
     gl.uniform1f(u.uShine, detailLevel >= DetailLevel.Boxes ? 1 : 0.5);
     gl.uniform1f(u.uNowMs, now);
     gl.uniform1i(u.uPick, pickMode ? 1 : 0);
@@ -1531,9 +1574,10 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
       // the floor under the shading: high on a light page, where a body in shadow would otherwise
       // be a hole in the picture, and low on a dark one, where the light does the shaping
       const luminance = 0.2126 * t.clear[0] + 0.7152 * t.clear[1] + 0.0722 * t.clear[2];
-      // Lower than a floor that had to keep a body in shadow legible on its own: the fill light
-      // does that now, and the room left over is what the key light shapes the solids with.
-      ambient = luminance > 0.5 ? 0.5 : 0.33;
+      // The fill and the rim keep a body in shadow legible on their own, so the floor is not what
+      // has to do it - but it is what decides how much of the picture sits in the well-lit middle,
+      // and the shoulder above means raising it no longer costs the bright faces their colour.
+      ambient = luminance > 0.5 ? 0.62 : 0.44;
       dirty = true;
       schedule();
     },

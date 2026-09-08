@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { IconArrowNarrowDown, IconArrowNarrowUp, IconFocusCentered, IconListDetails, IconMinus, IconPlus } from "@tabler/icons-react";
+import { FullscreenButton } from "./DatamodelGraph";
 import type { PivotBase } from "./PivotView";
 import { bytesOf, fetchNodeGuid, fetchPivotModel, runVisual, type PivotModel, type PivotProperty, type VisualGroup, type VisualRequest, type VisualResult } from "../server/query";
 import { useLiveResult } from "../server/hooks";
@@ -181,6 +182,8 @@ export function VisualPivotView({
   showQuery,
   onOpen,
   selected,
+  fullscreen,
+  onToggleFullscreen,
 }: {
   base: PivotBase;
   /** The definition as the page keeps it - null until this view has opened once for the type. */
@@ -193,6 +196,10 @@ export function VisualPivotView({
   onOpen: (nodeId: string) => void;
   /** The node the form has open, so the picture can stop marking a card once the form is closed. */
   selected: string | null;
+  /** Whether the row this picture is in - the facet rail with it - is filling the screen. */
+  fullscreen: boolean;
+  /** Fills the screen with that row, or hands it back; the page owns it, since the rail is not ours. */
+  onToggleFullscreen: () => void;
 }) {
   const [model, setModel] = useState<PivotModel | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
@@ -897,6 +904,13 @@ export function VisualPivotView({
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
+    // a keypress is a gesture the browser accepts fullscreen from, and it works in either picture;
+    // held down it is still one gesture, not a screen flickering in and out at the repeat rate
+    if (e.code === "KeyF" && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      onToggleFullscreen();
+      return;
+    }
     if (!solid.current || !keyIsOurs(e.key)) return;
     e.preventDefault();
     if (e.repeat) return; // the key is already held; the clock below is what repeats it
@@ -1195,6 +1209,7 @@ export function VisualPivotView({
             <button className={"icon-button" + (def.legend ? " active" : "")} title={def.legend ? "Hide the legend" : "Show the legend"} onClick={() => onChange({ ...def, legend: !def.legend })}>
               <IconListDetails size={16} stroke={1.9} />
             </button>
+            <FullscreenButton on={fullscreen} onToggle={onToggleFullscreen} what="picture" />
           </div>
         </div>
       </div>

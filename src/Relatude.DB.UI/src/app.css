@@ -5214,6 +5214,21 @@ body.pg-resizing {
   grid-template-columns: minmax(0, 1fr) var(--editor-width, minmax(340px, 38%));
 }
 
+/* Filling the screen with the picture (the button is in the visual pivot's own line of controls).
+   What goes fullscreen is the whole row rather than the canvas: the facet rail rides along, so a set
+   can still be narrowed down without leaving, and so does the form a card opens in. The row is bare
+   content - the panels inside it carry the frames - so here it takes the page's own ground and the
+   padding the page would have given it. */
+.query-body:fullscreen {
+  padding: 12px;
+  gap: 12px;
+  background: var(--bg);
+}
+
+.query-body:fullscreen::backdrop {
+  background: var(--bg);
+}
+
 /* while the bar is being dragged: the pointer owns the page, and a drag across a list of hits
    should not select their text on the way */
 .query-body.resizing {

@@ -70,6 +70,13 @@ export interface Renderer {
   destroy(): void;
 }
 
+/**
+ * How far the black silhouette hull stands proud of a dodecahedron, as a fraction of its size. It is
+ * relative rather than a count of pixels on purpose: a line of constant screen width turns a distant
+ * node into an ink blot, where a hull that shrinks with the solid simply thins away into the fog.
+ */
+const DODECA_OUTLINE = 0.008;
+
 export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
   const context = canvas.getContext("webgl2", { antialias: true, alpha: false, premultipliedAlpha: false, powerPreference: "high-performance" });
   if (!context) return null;
@@ -113,6 +120,15 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
   ]);
   // a dodecahedron is a box as far as the shader is concerned: a mesh, a size, and a turn
   const dodecaVao = instancedVao(gl, boxProg, dodecaMesh, dodecas, [
+    ["aInst0", 0],
+    ["aInst1", 4],
+    ["aInst2", 8],
+    ["aInst3", 12],
+  ]);
+  // and the same mesh and the same instances once more, grown a little and drawn in black: the
+  // silhouette (see the outline pass in draw)
+  const outlineProg = program(gl, outlineVert, outlineFrag);
+  const dodecaOutlineVao = instancedVao(gl, outlineProg, dodecaMesh, dodecas, [
     ["aInst0", 0],
     ["aInst1", 4],
     ["aInst2", 8],
@@ -198,6 +214,22 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       }
       if (dodecas.count > 0) {
         dodecas.upload(gl);
+        // The silhouette goes down first: the same solid a hair larger, flat black, with its
+        // near side culled so only the half facing away is drawn. The solid over it then covers all
+        // of that but a thin band round the outside, which is the outline. Being a hull and not a
+        // screen effect, it is occluded, depth-sorted and fogged like everything else, and it costs
+        // one more draw call rather than a pass over the frame.
+        gl.useProgram(outlineProg);
+        gl.uniformMatrix4fv(u(outlineProg, "uViewProj"), false, viewProj);
+        gl.uniform3fv(u(outlineProg, "uEye"), s.eye);
+        gl.uniform3fv(u(outlineProg, "uFog"), s.fog);
+        gl.uniform2f(u(outlineProg, "uFogRange"), s.fogNear, s.fogFar);
+        gl.uniform1f(u(outlineProg, "uGrow"), DODECA_OUTLINE);
+        gl.cullFace(gl.FRONT);
+        gl.bindVertexArray(dodecaOutlineVao);
+        gl.drawElementsInstanced(gl.TRIANGLES, dodecaMesh.indexCount, gl.UNSIGNED_SHORT, 0, dodecas.count);
+        gl.cullFace(gl.BACK);
+        gl.useProgram(boxProg);
         gl.bindVertexArray(dodecaVao);
         gl.drawElementsInstanced(gl.TRIANGLES, dodecaMesh.indexCount, gl.UNSIGNED_SHORT, 0, dodecas.count);
       }
@@ -293,8 +325,8 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
     destroy() {
       // the resources go, the context stays: the same canvas may be drawn on again by the next
       // renderer (a hot reload re-mounts on the element it has), and a lost context is never given back
-      for (const p of [sphereProg, boxProg, lineProg, coneProg]) gl.deleteProgram(p);
-      for (const v of [sphereVao, haloVao, boxVao, dodecaVao, coneVao, lineVao]) gl.deleteVertexArray(v);
+      for (const p of [sphereProg, boxProg, outlineProg, lineProg, coneProg]) gl.deleteProgram(p);
+      for (const v of [sphereVao, haloVao, boxVao, dodecaVao, dodecaOutlineVao, coneVao, lineVao]) gl.deleteVertexArray(v);
       for (const m of [sphereMesh, boxMesh, dodecaMesh, coneMesh]) {
         gl.deleteBuffer(m.vertices);
         gl.deleteBuffer(m.indices);
@@ -737,6 +769,39 @@ const boxVert = `#version 300 es
     vec3 w = aInst0.xyz + turn * (aPos * aInst3.xyz);
     gl_Position = uViewProj * vec4(w, 1.0);
     vN = turn * aNormal; vW = w; vColor = aInst1; vRim = aInst2;
+  }`;
+
+// The silhouette hull: the box shader with the solid pushed out from its own middle. For a convex
+// solid centred on the origin that widens it evenly, where pushing each face along its own flat
+// normal - which is all a chamfered mesh has - would tear it open along every edge. It keeps the
+// box's varyings so the instance layout and the attribute set are the box's exactly; the fragment
+// shader below uses two of them and ignores the rest.
+const outlineVert = `#version 300 es
+  in vec3 aPos; in vec3 aNormal;
+  in vec4 aInst0; in vec4 aInst1; in vec4 aInst2; in vec4 aInst3;
+  uniform mat4 uViewProj; uniform float uGrow;
+  out vec3 vN; out vec3 vW; out vec4 vColor; out vec4 vRim;
+  void main() {
+    float cy = cos(aInst0.w), sy = sin(aInst0.w);
+    float cp = cos(aInst3.w), sp = sin(aInst3.w);
+    mat3 yaw = mat3(cy, 0.0, -sy, 0.0, 1.0, 0.0, sy, 0.0, cy);
+    mat3 pitch = mat3(1.0, 0.0, 0.0, 0.0, cp, sp, 0.0, -sp, cp);
+    mat3 turn = yaw * pitch;
+    vec3 w = aInst0.xyz + turn * (aPos * aInst3.xyz * (1.0 + uGrow));
+    gl_Position = uViewProj * vec4(w, 1.0);
+    vN = turn * aNormal; vW = w; vColor = aInst1; vRim = aInst2;
+  }`;
+
+const outlineFrag = `#version 300 es
+  precision highp float;
+  in vec3 vN; in vec3 vW; in vec4 vColor; in vec4 vRim;
+  uniform vec3 uEye; uniform vec3 uFog; uniform vec2 uFogRange;
+  out vec4 outColor;
+  ${fogSnippet}
+  void main() {
+    // ink rather than a material: no light falls on it. It still goes into the fog with everything
+    // else, or a dodecahedron far down a pale distance would be ringed in soot.
+    outColor = vec4(mix(vec3(0.0), uFog, fogAmount(vW) * 0.85), vColor.a);
   }`;
 
 const sphereFrag = `#version 300 es
