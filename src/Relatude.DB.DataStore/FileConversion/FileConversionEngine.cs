@@ -215,7 +215,15 @@ public class FileConversionEngine : IDisposable {
         if (entry != null) return new(entry.ProgressInfo, null);
         return new(new(FileConversionStatus.Error, 0, 0, "Unknown status"), null);
     }
+    // The scheduler's heartbeat is a Timer, and a live Timer is rooted by the runtime's timer queue.
+    // Leaving it running keeps this engine - and through it the whole data store, indexes and WAL
+    // buffers included - alive for the rest of the process, so a store that is opened and closed
+    // repeatedly never gives its memory back. Stopping it here is what releases that graph.
     public void Dispose() {
+        _disposed = true;
+        _scheduler.Stop();
+        _conversions.ClearAll();
+        _statusCache.ClearAll_NotSize0();
     }
     Cache<Guid, byte[]> _statusCache = new(1024 * 1024 * 10); // 10mb for status responses, which are usually small and can be expensive to generate
 
@@ -318,8 +326,12 @@ public class FileConversionEngine : IDisposable {
         );
         return new MemoryStream(bytes);
     }
-    public void Start() => _scheduler.Start();
+    public void Start() {
+        if (_disposed) return; // never resurrect the heartbeat of a disposed engine
+        _scheduler.Start();
+    }
     public void Stop() => _scheduler.Stop();
+    bool _disposed;
     public void ClearCache(FileIdWithAdjustment id) => _fileCache.Clear(id);
     public void ClearAllCache() => _fileCache.ClearAll();
     public void ClearQueue() {

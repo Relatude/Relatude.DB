@@ -479,6 +479,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public void Dispose() {
         try { _scheduler.Stop(); } catch { }
+        try { _fileConversionEngine.Dispose(); } catch { } // stops its heartbeat timer; a live Timer roots this whole store
         try { TaskQueue?.TryGracefulShutdown(5000); } catch { }
         try { TaskQueuePersisted?.TryGracefulShutdown(5000); } catch { }
         try { endRevertWindowAsCommitIfActive(); } catch { } // before the flush, so the engines become durable at the head
@@ -492,9 +493,12 @@ public sealed partial class DataStoreLocal : IDataStore {
         try { TaskQueuePersisted?.Dispose(); } catch { }
         if (_state == DataStoreState.Open) _state = DataStoreState.Disposed; // if in error state, do not change state
         try { this._io.CloseAllOpenStreams(); } catch { }
+        try { this._ioIndex.CloseAllOpenStreams(); } catch { } // its own provider when indexIO was passed; a stream left by a failed state save holds the file open
         try { this._ioAutoBackup.CloseAllOpenStreams(); } catch { }
         try { this._ioLog.CloseAllOpenStreams(); } catch { }
         try { this._ioLog2.CloseAllOpenStreams(); } catch { }
         try { foreach (var fs in _fileStores.Values) fs.Dispose(); } catch { }
+        // the implicit default store is not in _fileStores (nothing configured it), so the loop above misses it
+        try { if (!_fileStores.ContainsValue(_defaultFileStore)) _defaultFileStore.Dispose(); } catch { }
     }
 }

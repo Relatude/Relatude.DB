@@ -6,6 +6,8 @@ internal class FileConversionScheduler(Action task, Action<Exception> onError) {
     Timer? _hart;
     public void Start() {
         lock (_pulseStateLock) {
+            _hart?.Dispose(); // a second Start would otherwise orphan the running timer, and an
+                              // undisposed Timer is rooted by the runtime for the life of the process
             _hart = new Timer(_ => pulse(), null, 1000, 1000);
         }
     }

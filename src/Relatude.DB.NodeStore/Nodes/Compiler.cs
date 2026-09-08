@@ -1,7 +1,9 @@
 ﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.Loader;
+using System.Security.Cryptography;
 using System.Text;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
@@ -17,7 +19,24 @@ namespace Relatude.DB.Nodes {
             var dllBytes = compileCode(sourceCode, datamodel);
             return dllBytes;
         }
+        // A load context is never unloadable once an assembly is loaded into it, so loading the same
+        // mapper DLL again on every store open would add an assembly and its loader heap to the
+        // process for good. The mapper types are stateless (only model derived static Guids), and the
+        // DLL bytes identify the model exactly, so the same bytes reuse the same loaded assembly.
+        // The Lazy makes two stores opening at once compile-and-load once rather than twice.
+        static readonly ConcurrentDictionary<string, Lazy<Dictionary<Guid, Type>>> _loadedDlls = new();
         public static Dictionary<Guid, Type> LoadDll(byte[] dll) {
+            var key = Convert.ToHexString(SHA256.HashData(dll));
+            var lazy = _loadedDlls.GetOrAdd(key, _ => new Lazy<Dictionary<Guid, Type>>(() => loadDll(dll), LazyThreadSafetyMode.ExecutionAndPublication));
+            try {
+                return new(lazy.Value); // a copy: callers own their dictionary, the cache keeps its own
+            } catch {
+                // a Lazy keeps its exception for good; the next caller gets a fresh load instead
+                _loadedDlls.TryRemove(new KeyValuePair<string, Lazy<Dictionary<Guid, Type>>>(key, lazy));
+                throw;
+            }
+        }
+        static Dictionary<Guid, Type> loadDll(byte[] dll) {
             var types = new Dictionary<Guid, Type>();
             var loader = new AssemblyLoadContext(null);
             using var dllStream = new MemoryStream(dll);

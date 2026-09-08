@@ -228,7 +228,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     void initializeCore() {
         AIEngine? ai = null;
         try {
-            if (_logger != null) _logger.Dispose();
+            // before anything reads the log files: the store opens its own logger on them
+            if (_logger != null) { _logger.Dispose(); _logger = null; }
             if (IsOpenOrOpening()) return;
             disposeCore();
             var local = settings.LocalSettings;
@@ -443,6 +444,12 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             Store.Dispose();
             Store = null;
             Datamodel = null;
+        }
+        // the standalone logger a closed container hands out holds the log files open; a soft restart
+        // drops the whole container, so leaving it behind leaks both the logger and its file handles
+        if (_logger != null) {
+            try { _logger.Dispose(); } catch { }
+            _logger = null;
         }
     }
 }

@@ -23,7 +23,9 @@ public static class HashGuidExtentions {
     /// <returns></returns>
     public static Guid GenerateHashGuid(this string value) {
         byte[] stringbytes = Encoding.UTF8.GetBytes(value);
-        byte[] hashedBytes = SHA1.Create().ComputeHash(stringbytes);
+        // the one shot API, not SHA1.Create(): an undisposed hash instance holds a native hash
+        // handle until it is finalized, and this runs on every file adjustment key and state hash
+        byte[] hashedBytes = SHA1.HashData(stringbytes);
         Array.Resize(ref hashedBytes, 16);
         return new Guid(hashedBytes);
     }
@@ -33,7 +35,7 @@ public static class HashGuidExtentions {
         byte[] combinedBytes = new byte[valueBytes.Length + otherBytes.Length];
         Buffer.BlockCopy(valueBytes, 0, combinedBytes, 0, valueBytes.Length);
         Buffer.BlockCopy(otherBytes, 0, combinedBytes, valueBytes.Length, otherBytes.Length);
-        byte[] hashedBytes = SHA1.Create().ComputeHash(combinedBytes);
+        byte[] hashedBytes = SHA1.HashData(combinedBytes);
         Array.Resize(ref hashedBytes, 16);
         return new Guid(hashedBytes);
     }
