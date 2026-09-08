@@ -1,4 +1,4 @@
-import { cardFill, imageShare, type FieldSurface } from "./cardField";
+import { cardFill, type FieldSurface } from "./cardField";
 import type { CardMedia } from "./cardMedia";
 
 /**
@@ -7,10 +7,11 @@ import type { CardMedia } from "./cardMedia";
  * or React in the loop. A few hundred fillText calls a frame is a millisecond or two; that is what a
  * screen of readable cards holds.
  *
- * A name sits in the strip below the picture, in a light or dark ink according to what is behind it -
- * the card's own colour, or the page where the card is cut out to a shape that does not reach there -
- * at a size that follows the strip, trimmed to the card with an ellipsis. It comes in with the same
- * curve the shader brings the pictures in on, so pictures and names appear as one thing.
+ * A name sits over the foot of the card - the picture reaches the bottom edge, so there is no strip
+ * of its own colour to write in - in a light or dark ink according to what is behind it, and outlined
+ * in the opposite so that it reads over a photograph as well as over a flat colour. Its size follows
+ * the card, and it is trimmed with an ellipsis. It comes in with the same curve the shader brings the
+ * pictures in on, so pictures and names appear as one thing.
  */
 
 export interface LabelColors {
@@ -36,8 +37,12 @@ export interface CardLabels {
   clear(): void;
 }
 
-/** how wide a card is, in css px, when its name comes in: the strip below the picture is a quarter of that, room for a small font */
+/** how wide a card is, in css px, when its name comes in: a quarter of that is room for a small font */
 const nameCssPx = 64;
+/** the band along the foot of the card the name is written in, as a share of the card */
+const nameBand = 0.25;
+/** the outline that carries the name over a picture, as a share of the font size */
+const nameOutline = 0.17;
 const lightInk = "rgba(255, 255, 255, 0.94)";
 const darkInk = "rgba(26, 24, 22, 0.92)";
 const fontFamily = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
@@ -94,7 +99,7 @@ export function createCardLabels(canvas: HTMLCanvasElement): CardLabels | null {
       if (count === 0) return;
       if (positions.length < count * 2) positions = new Float32Array(count * 2);
       field.positionsOf(indexes, count, positions);
-      const strip = side * (1 - imageShare);
+      const strip = side * nameBand;
       const fontPx = Math.max(7, Math.min(400, Math.round(strip * 0.42)));
       const padX = side * 0.06;
       const maxWidth = side - 2 * padX;
@@ -102,6 +107,12 @@ export function createCardLabels(canvas: HTMLCanvasElement): CardLabels | null {
       ctx!.font = `500 ${fontPx}px ${fontFamily}`;
       ctx!.textBaseline = "middle";
       ctx!.textAlign = "left";
+      // the name is over the picture now, and a picture can be any tone at all under any one letter,
+      // so every name is drawn twice: the opposite ink around it, then the ink itself. Rounded joins,
+      // or the outline grows spikes off the corners of the letters
+      ctx!.lineWidth = Math.max(1, fontPx * nameOutline);
+      ctx!.lineJoin = "round";
+      ctx!.miterLimit = 2;
       ctx!.globalAlpha = detail;
       const palette = colors?.palette ?? null;
       const assignment = colors?.assignment ?? null;
@@ -113,13 +124,14 @@ export function createCardLabels(canvas: HTMLCanvasElement): CardLabels | null {
       const onPage = colors?.shaped === true ? inkFor(colors.panel[0], colors.panel[1], colors.panel[2]) : null;
       let lastGroup = -2;
       let ink = onPage ?? lightInk;
+      let halo = haloFor(ink);
       for (let k = 0; k < count; k++) {
         const i = indexes[k];
         const name = media.nameOf(i);
         if (!name) continue;
         const [cx, cy] = field.worldToCss(positions[k * 2] + 0.5, positions[k * 2 + 1] + 0.5);
         const x0 = cx - side / 2;
-        const y0 = cy - side / 2 + side * imageShare;
+        const y0 = cy + side / 2 - strip;
         if (x0 > width || x0 + side < 0 || y0 > height || y0 + strip < 0) continue;
         const group = assignment !== null ? assignment[i] : 0;
         if (pulse !== null) {
@@ -133,9 +145,15 @@ export function createCardLabels(canvas: HTMLCanvasElement): CardLabels | null {
         if (onPage === null && group !== lastGroup) {
           lastGroup = group;
           ink = palette !== null && group * 4 + 2 < palette.length ? inkFor(palette[group * 4], palette[group * 4 + 1], palette[group * 4 + 2]) : lightInk;
+          halo = haloFor(ink);
         }
+        const text = fit(name, maxWidth, fontPx);
+        const tx = x0 + padX;
+        const ty = y0 + strip / 2 + fontPx * 0.04;
+        ctx!.strokeStyle = halo;
+        ctx!.strokeText(text, tx, ty);
         ctx!.fillStyle = ink;
-        ctx!.fillText(fit(name, maxWidth, fontPx), x0 + padX, y0 + strip / 2 + fontPx * 0.04);
+        ctx!.fillText(text, tx, ty);
       }
       ctx!.globalAlpha = 1;
     },
@@ -149,6 +167,11 @@ export function createCardLabels(canvas: HTMLCanvasElement): CardLabels | null {
 function smoothstep(a: number, b: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
+}
+
+/** what an ink is outlined in: the other one, softened, so the letters keep their shape over a photograph */
+function haloFor(ink: string): string {
+  return ink === lightInk ? "rgba(0, 0, 0, 0.55)" : "rgba(255, 255, 255, 0.62)";
 }
 
 /** light text on a dark card, dark text on a light one, by the card's relative luminance */

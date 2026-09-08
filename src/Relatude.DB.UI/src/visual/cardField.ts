@@ -163,6 +163,13 @@ export interface CardField {
 
   // ---- pictures ----
 
+  /**
+   * Whether a card wide enough to show one is given its picture at all. Off, no card is ever drawn
+   * with a picture or a placeholder however far it is zoomed into: every one of them stays a plain
+   * block of its colour. One switch in the shader (the width a picture appears at is put out of
+   * reach), so it costs nothing and takes effect on the next frame.
+   */
+  setPictures(on: boolean): void;
   /** Makes room for `layers` pictures at a level (an index into imageLevels); nothing if it has room already. */
   ensureImageLevel(level: number, layers: number): void;
   /** How many layers a level has room for; 0 before ensureImageLevel. */
@@ -223,6 +230,7 @@ export type CardFieldCommon = Pick<
   | "onFrame"
   | "invalidate"
   | "resize"
+  | "setPictures"
   | "ensureImageLevel"
   | "imageLayers"
   | "uploadImage"
@@ -275,7 +283,10 @@ export const pulseFadeDepth = 0.9;
 export const cardFill = 0.84;
 /** the least a card can be zoomed to, in css px per unit; the most is set by the canvas (see maxZoomFor) */
 const zoomLimitFloor = 640;
-const cameraRate = 11; // per second: how fast the camera closes on its target
+// per second: how fast the camera closes on its target. Low enough that a wheel step is a glide the
+// eye can follow rather than a jump, and that a spin of it keeps closing in after the hand has come
+// off - a step answers at once, and then carries a little way on its own.
+const cameraRate = 8;
 const flingDecay = 4.2; // per second
 
 // ---- pictures ----
@@ -295,8 +306,16 @@ export const imageLevels = [64, 128, 256, 512, 1024, 2048] as const;
  */
 export const tileSlots = 4;
 export const tileWidths = [1024, 2048, 4096] as const;
-/** a picture is this much of the card's height; the strip below it keeps the card's colour and carries the name */
-export const imageShare = 0.75;
+/**
+ * A picture is this much of the card's height, measured from the top. It is 1: the picture fills the
+ * card, edge to edge, and the name is written over the foot of it (see cardLabels) rather than in a
+ * strip of the card's own colour below it - a field of cards zoomed into is a field of pictures, and
+ * a band of flat colour under every one of them was a band of nothing. It is still a knob rather
+ * than a literal 1 because the whole chain is sized by it: the shaders lay the picture over this
+ * much of the face, the levels are asked for at this aspect (sizeOfLevel), and the server crops the
+ * original to it (UIQuery.cardAdjustment / tileAdjustment, which must agree).
+ */
+export const imageShare = 1;
 /**
  * How wide a card is, in css px, when its picture appears (it fades in over ±10% of this). Small on
  * purpose: a thumbnail this size is still recognizable as what it is, and a screen of them is the
@@ -499,15 +518,15 @@ float sdTriangle(vec2 p, vec2 p0, vec2 p1, vec2 p2) {
   return -sqrt(d.x) * sign(d.y);
 }
 // The placeholder: a sun and two hills, the way a missing picture is drawn everywhere, in a tone of
-// the card's own colour on a ground a little toward the panel. q spans 0..4/3 by 0..1 so the shapes
-// keep their proportions whatever the card's size; aa is a device pixel and a half in those units.
+// the card's own colour on a ground a little toward the panel. It is composed for the square the
+// picture fills (imageShare = 1), so uv is already isotropic and the shapes keep their proportions
+// whatever the card's size; aa is a device pixel and a half in those units.
 vec3 placeholder(vec3 c, vec2 uv, float aa) {
   vec3 ground = mix(c, uClear, 0.35);
   vec3 glyph = mix(c, uInk, 0.42);
-  vec2 q = vec2(uv.x * 1.3333, uv.y);
-  float sun = length(q - vec2(1.02, 0.30)) - 0.12;
-  float hill1 = sdTriangle(q, vec2(0.06, 1.0), vec2(0.90, 1.0), vec2(0.48, 0.42));
-  float hill2 = sdTriangle(q, vec2(0.62, 1.0), vec2(1.34, 1.0), vec2(0.99, 0.60));
+  float sun = length(uv - vec2(0.75, 0.25)) - 0.10;
+  float hill1 = sdTriangle(uv, vec2(0.02, 1.0), vec2(0.68, 1.0), vec2(0.35, 0.44));
+  float hill2 = sdTriangle(uv, vec2(0.44, 1.0), vec2(1.04, 1.0), vec2(0.74, 0.61));
   float d = min(sun, min(hill1, hill2));
   return mix(ground, glyph, 1.0 - smoothstep(-aa, aa, d));
 }
@@ -768,6 +787,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   let frameNow = 0; // the clock the last frame was drawn on: what the labels over the canvas share
   let dirty = true;
   let destroyed = false;
+  let picturesOn = true;
 
   function schedule() {
     if (raf === 0 && !destroyed) raf = requestAnimationFrame(frame);
@@ -852,7 +872,9 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     gl.uniform1f(uDuration, duration);
     gl.uniform1f(uFill, cardFill);
     gl.uniform1f(uFade, fadeSeconds);
-    gl.uniform1f(uDetailPx, detailCssPx * dpr);
+    // pictures off: the width one appears at is put out of every card's reach, so vDetail is 0 and
+    // the shader never lays a picture or a placeholder over the colour
+    gl.uniform1f(uDetailPx, picturesOn ? detailCssPx * dpr : 1e9);
     gl.uniform1i(uHover, hover);
     gl.uniform1i(uSelected, selected);
     gl.uniform1i(uPulseGroup, pulsedGroup);
@@ -1175,6 +1197,17 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       target.zoom = cur.zoom;
       flingV = [0, 0];
       glide = null;
+      dirty = true;
+      schedule();
+    },
+    setPictures(on) {
+      if (on === picturesOn) return;
+      picturesOn = on;
+      // and every card starts over: what it was showing points at a layer the media manager is
+      // about to let go of, and a card still holding one would come back wearing another's picture
+      texWords.fill(0);
+      texDirty.clear();
+      upload(texBuffer, texWords);
       dirty = true;
       schedule();
     },

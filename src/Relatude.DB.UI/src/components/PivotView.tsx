@@ -309,10 +309,9 @@ export function PivotView({
 
       {result && (
         <div className="pivot-head">
-          <span>
-            <strong>{formatCount(result.sourceCount)}</strong> nodes · {formatCount(result.rows.totalGroupCount)} {result.rows.totalGroupCount === 1 ? "row" : "rows"} ×{" "}
-            {formatCount(result.columns.groups.length)} {result.columns.groups.length === 1 ? "column" : "columns"} · {result.durationMs.toFixed(1)} ms
-          </span>
+          {/* what was found, and how long it took, is already on the result's own head a line above:
+              said twice it only cost the table a line of the height it is read in. What is left here
+              is what nothing else says - that the table was cut short. */}
           {result.capped && <span className="query-filters">cut short: too many cells — group by fewer values</span>}
           <div className="query-spacer" />
           <div className="query-view" role="tablist">

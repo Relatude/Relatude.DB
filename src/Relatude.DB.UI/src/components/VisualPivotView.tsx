@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { IconArrowNarrowDown, IconArrowNarrowUp, IconFocusCentered, IconListDetails, IconMinus, IconPlus } from "@tabler/icons-react";
+import { IconArrowNarrowDown, IconArrowNarrowUp, IconFocusCentered, IconListDetails, IconMinus, IconPhoto, IconPhotoOff, IconPlus } from "@tabler/icons-react";
 import { FullscreenButton } from "./DatamodelGraph";
 import type { PivotBase } from "./PivotView";
 import { bytesOf, fetchNodeGuid, fetchPivotModel, runVisual, type PivotModel, type PivotProperty, type VisualGroup, type VisualRequest, type VisualResult } from "../server/query";
@@ -184,6 +184,7 @@ export function VisualPivotView({
   selected,
   fullscreen,
   onToggleFullscreen,
+  head,
 }: {
   base: PivotBase;
   /** The definition as the page keeps it - null until this view has opened once for the type. */
@@ -200,6 +201,13 @@ export function VisualPivotView({
   fullscreen: boolean;
   /** Fills the screen with that row, or hands it back; the page owns it, since the rail is not ours. */
   onToggleFullscreen: () => void;
+  /**
+   * What the result's own head would say, when the page has folded that head away and handed it here
+   * instead: how many nodes were found, and the switch for the facet rail. Filling the screen with a
+   * picture and then giving a line of it back to a heading is not what filling the screen is for, so
+   * the page passes them down and they ride along with the picture's own controls.
+   */
+  head?: React.ReactNode;
 }) {
   const [model, setModel] = useState<PivotModel | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
@@ -236,6 +244,10 @@ export function VisualPivotView({
   const rowProperty = groupable.some((p) => p.id === def.depthGroupProperty) ? def.depthGroupProperty! : null;
   const rowMode = def.depthGroupMode ?? "auto";
   const solidPicture = depthProperty !== null || rowProperty !== null;
+  // The pictures on the cards, remembered once for each kind of picture: a flat field is a wall of
+  // photographs and starts with them on, a field of solids is usually read as a shape and starts with
+  // them off. Which of the two the switch writes follows which picture is on screen.
+  const picturesOn = solidPicture ? def.solidPictures === true : def.pictures !== false;
   // thickness and shape are folded away unless asked for, or unless one of them is being used
   const inUse = depthProperty !== null || shapeProperty !== null;
   const extras = inUse || def.extras === true;
@@ -317,6 +329,9 @@ export function VisualPivotView({
   const media = useRef<CardMedia | null>(null);
   const labels = useRef<CardLabels | null>(null);
   const labelColors = useRef<LabelColors | null>(null);
+  // read from the frame callback, which outlives the render that set it up
+  const showPictures = useRef(picturesOn);
+  showPictures.current = picturesOn;
   const [glOk, setGlOk] = useState(true);
   const [theme, setTheme] = useState<Theme | null>(null);
   const [bars, setBars] = useState<{ bar: Bar; group: DecodedGroup }[]>([]);
@@ -382,6 +397,8 @@ export function VisualPivotView({
     // sharper tile out of when what is on screen is a face seen at an angle
     const m = createCardMedia(f, base.storeId, { tiles: !solidPicture });
     media.current = m;
+    f.setPictures(showPictures.current);
+    m.setPictures(showPictures.current);
     // the names on the cards belong to the flat picture: they are drawn over the canvas in two
     // dimensions, and a face turned away from the camera has no upright strip to write them in
     const l = !solidPicture && textRef.current ? createCardLabels(textRef.current) : null;
@@ -391,7 +408,8 @@ export function VisualPivotView({
     f.onFrame(() => {
       placeLabels();
       m.frame(performance.now());
-      l?.draw(f!, m, labelColors.current);
+      if (showPictures.current) l?.draw(f!, m, labelColors.current);
+      else l?.clear();
     });
     let was = f.size();
     const ro = new ResizeObserver(() => {
@@ -502,6 +520,13 @@ export function VisualPivotView({
   useEffect(() => {
     media.current?.setStore(base.storeId);
   }, [base.storeId]);
+
+  // the switch, thrown on a picture that is already up (a picture built after it is told when it is
+  // made, above); off, what was fetched is let go of and the cards go back to plain colour
+  useEffect(() => {
+    (flat.current ?? solid.current)?.setPictures(picturesOn);
+    media.current?.setPictures(picturesOn);
+  }, [picturesOn]);
 
   // What the picture is coloured and stacked by. When a picker changes, the answer for the new
   // property is a round trip away and the answer on hand has nothing for it - so until it arrives
@@ -1023,11 +1048,12 @@ export function VisualPivotView({
     const d = drag.current;
     drag.current = null;
     if (!f || !d) return;
-    if (d.kind !== "flat") solid.current?.release(d.kind);
+    // a hand that stopped before letting go leaves the picture where it is; one still going hands
+    // its speed over and the picture carries it a little way further, turning or sliding
+    const carried = d.moved && performance.now() - d.t < 80;
+    if (d.kind !== "flat") solid.current?.release(d.kind, carried ? d.vx : 0, carried ? d.vy : 0);
     if (d.moved) {
-      // a hand that stopped before letting go leaves the picture where it is (the solid picture
-      // keeps its own speed per channel, which is what release has just let go of)
-      if (d.kind === "flat" && performance.now() - d.t < 80) flat.current?.fling(d.vx, d.vy);
+      if (d.kind === "flat" && carried) flat.current?.fling(d.vx, d.vy);
       return;
     }
     const [x, y] = canvasPoint(e);
@@ -1194,6 +1220,7 @@ export function VisualPivotView({
             </>
           )}
           <div className="pivot-options">
+            {head}
             {/* forced open while one of them is in use, so it cannot be folded away and forgotten */}
             <button
               className={"icon-button" + (extras ? " active" : "")}
@@ -1206,6 +1233,17 @@ export function VisualPivotView({
             <button className="icon-button" title="Fit the whole picture in view (or double-click it)" onClick={() => fitToLayout(refitSeconds)}>
               <IconFocusCentered size={16} stroke={1.9} />
             </button>
+            <button
+              className={"icon-button" + (picturesOn ? " active" : "")}
+              title={
+                picturesOn
+                  ? "Hide the pictures: the cards stay plain blocks of colour however far you close in" + (solidPicture ? " (remembered for the picture of solids)" : " (remembered for the flat picture)")
+                  : "Show the pictures: a card close enough to be read gets its own, or a placeholder with its name" + (solidPicture ? " (remembered for the picture of solids)" : " (remembered for the flat picture)")
+              }
+              onClick={() => onChange(solidPicture ? { ...def, solidPictures: !picturesOn } : { ...def, pictures: !picturesOn })}
+            >
+              {picturesOn ? <IconPhoto size={16} stroke={1.9} /> : <IconPhotoOff size={16} stroke={1.9} />}
+            </button>
             <button className={"icon-button" + (def.legend ? " active" : "")} title={def.legend ? "Hide the legend" : "Show the legend"} onClick={() => onChange({ ...def, legend: !def.legend })}>
               <IconListDetails size={16} stroke={1.9} />
             </button>
@@ -1217,22 +1255,9 @@ export function VisualPivotView({
       {showQuery && result && <div className="query-string">{formatQuery(result.query)}</div>}
       {error && <div className="query-error">{error}</div>}
 
-      <div className="pivot-head">
-        {decoded ? (
-          <span>
-            <strong>{formatCount(decoded.count)}</strong> {decoded.count === 1 ? "card" : "cards"}
-            {decoded.count < decoded.total && <span className="query-filters"> the first {formatCount(decoded.count)} of {formatCount(decoded.total)}</span>}
-            {" · "}
-            {result!.durationMs.toFixed(1)} ms
-            {loading && " · updating…"}
-          </span>
-        ) : (
-          <span>{loading ? "Loading the cards…" : ""}</span>
-        )}
-        <div className="query-spacer" />
-        <span className="muted">{solidPicture ? "drag to turn · shift-drag to slide · wheel or +/− to zoom · arrows to pan, with shift to turn · click a card to open it" : "drag to pan · wheel to zoom · click a card to open it"}</span>
-      </div>
-
+      {/* No line of its own between the controls and the picture: what was found is on the result's
+          own head above, and how to turn the picture is something the picture teaches by being
+          dragged. Both were costing the canvas height it is better off keeping. */}
       <div className="visual-stage" ref={stageRef}>
         <div className="visual-canvas">
           {glOk ? (
@@ -1281,7 +1306,14 @@ export function VisualPivotView({
               ))}
             </div>
           )}
-          {decoded && decoded.count === 0 && <div className="visual-empty">Nothing matched.</div>}
+          {decoded && decoded.count === 0 && !loading && <div className="visual-empty">Nothing matched.</div>}
+          {/* the one thing the head above still had to say, moved onto the picture itself */}
+          {loading && <span className="visual-loading-note">{decoded ? "updating…" : "loading the cards…"}</span>}
+          {decoded && decoded.count < decoded.total && (
+            <span className="visual-count-note" title={"The picture holds the first " + formatCount(decoded.count) + " of " + formatCount(decoded.total) + " nodes; narrow the set to see the rest."}>
+              first {formatCount(decoded.count)} of {formatCount(decoded.total)}
+            </span>
+          )}
           {selectedIndex >= 0 && <span className="visual-selected-note">card {formatCount(selectedIndex + 1)} open</span>}
           {reduced && (
             <span

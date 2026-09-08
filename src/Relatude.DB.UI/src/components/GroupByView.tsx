@@ -282,9 +282,8 @@ export function GroupByView({
 
       {result && (
         <div className="pivot-head">
-          <span>
-            <strong>{formatCount(result.sourceCount)}</strong> nodes · {formatCount(result.totalRows)} {result.totalRows === 1 ? "group" : "groups"} · {result.durationMs.toFixed(1)} ms
-          </span>
+          {/* what was found, and how long it took, is already on the result's own head a line above:
+              said twice it only cost the rows a line of the height they are read in */}
           <div className="query-spacer" />
           <div className="query-view" role="tablist">
             <button className={chart ? "" : "active"} title="The numbers, one row per group" onClick={() => setView("table")}>

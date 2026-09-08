@@ -76,6 +76,15 @@ export interface VisualDefinition {
   legend: boolean;
   /** whether the two folded-away channels - thickness and shape - are on show; absent is folded */
   extras?: boolean;
+  /**
+   * Whether a card close enough to show one is given its picture - the photograph, or the placeholder
+   * with the node's name on it - or stays a plain block of its colour. Kept twice, once for each kind
+   * of picture, because the answer is not the same in both: flat, a screen of photographs is what the
+   * view is for (absent is on); as solids, the pictures wrap every face of every block and what is
+   * being read is usually the shape of the field rather than what is in it (absent is off).
+   */
+  pictures?: boolean;
+  solidPictures?: boolean;
   /** the colours the cards are painted with (visual/palette.ts); absent is the first palette */
   palette?: string;
 }

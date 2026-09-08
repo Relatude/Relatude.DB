@@ -48,6 +48,13 @@ export interface CardMedia {
   setCards(ids: Int32Array): void;
   /** Where the cards are (or are going): the layout the viewport is read against. */
   setLayout(layout: Layout | null): void;
+  /**
+   * Whether the cards are given pictures at all. Off, nothing is asked for and nothing is held: what
+   * had been fetched is let go of, and only the names go on coming - they are what the tooltip over
+   * a card says, whether or not the card is showing anything. The field is told separately (its own
+   * setPictures), since it is the one that decides what a card draws.
+   */
+  setPictures(on: boolean): void;
   /** Called after every frame the field draws: keeps the pictures of the cards in view coming, within a time budget. */
   frame(now: number): void;
   /** The cards in view as of the last frame, by card index; valid until the next frame. */
@@ -168,6 +175,7 @@ export interface CardMediaOptions {
 
 export function createCardMedia(field: FieldSurface, initialStoreId: string, options: CardMediaOptions = {}): CardMedia {
   const useTiles = options.tiles !== false;
+  let pictures = true;
   let storeId = initialStoreId;
   let ids: Int32Array = new Int32Array(0);
   let count = 0;
@@ -469,6 +477,12 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
       outstanding = true;
       if (!namesInFlight) requestNames(needNames);
     }
+    // with the pictures turned off the names are the whole of it: a card draws nothing, but the
+    // tooltip over it still says what it is
+    if (!pictures) {
+      if (outstanding || namesInFlight) kick();
+      return;
+    }
     // then pictures, per level, nearest the centre first
     const wanted: { index: number; dist: number }[][] = imageLevels.map(() => []);
     for (let k = 0; k < visibleCount; k++) {
@@ -725,8 +739,9 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
       const id = ids[index];
       const info = images.get(id);
       if (info === undefined || noTiles.has(id) || info.w <= 0 || info.h <= 0) continue;
-      // the picture is the 4:3 middle of the original; tiles of it are sharp down to its pixels
-      const pictureW = info.w * 3 >= info.h * 4 ? (info.h * 4) / 3 : info.w;
+      // the picture is the middle of the original at the cards' own aspect (1 : imageShare); tiles
+      // of it are sharp down to its pixels
+      const pictureW = info.w * imageShare >= info.h ? info.h / imageShare : info.w;
       const pMax = Math.floor(Math.log2((tileMaxMagnification * pictureW) / tw));
       const p = Math.min(pMax, Math.floor(Math.log2(cardDev / tw)));
       if (p < 1) continue;
@@ -766,7 +781,7 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
   }
 
   function tileFrame(now: number) {
-    if (!useTiles) return;
+    if (!useTiles || !pictures) return;
     const wanted = wantedTiles(now);
     for (const w of wanted) {
       const held = tiles.find((t) => t !== null && sameTile(t, w));
@@ -1003,6 +1018,14 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
     setLayout(next) {
       layout = next;
       cells = null;
+    },
+    setPictures(on) {
+      if (on === pictures) return;
+      pictures = on;
+      // what was fetched is let go of either way: turned off there is nothing to hold it for, and
+      // turned back on the cards in view ask again from where the camera now is
+      reset();
+      kick();
     },
     frame(now) {
       if (destroyed) return;

@@ -2093,11 +2093,13 @@ sealed class UIQuery {
     /// The picture of a card at one of the widths in <see cref="cardImageLevels"/>: the image cropped
     /// to fill the card's picture area, converted by the store like any other adjusted file, so it
     /// lands in the store's conversion cache and is the same bytes a public url of it would serve.
+    /// Square, because the picture fills the whole of the card it is drawn on (imageShare in
+    /// cardField.ts, which this must agree with).
     /// </summary>
     internal static FileAdjustmentImage cardAdjustment(int level) {
         var adj = new FileAdjustmentImage {
             Width = level,
-            Height = level * 3 / 4,
+            Height = level,
             CropMode = ImageCropMode.Fill,
             Quality = level <= 256 ? 72 : 80, // a small picture is seen small; the larger ones are what is looked at
         };
@@ -2107,8 +2109,8 @@ sealed class UIQuery {
 
     /// <summary>
     /// The adjustment that cuts a tile out of a card's picture: the part from (X, Y) spanning Size
-    /// of the picture's width and height - fractions of the picture, which is the 4:3 middle of the
-    /// original that the whole-picture levels show - made Width pixels wide. The adjustment names
+    /// of the picture's width and height - fractions of the picture, which is the square middle of
+    /// the original that the whole-picture levels show - made Width pixels wide. The adjustment names
     /// the rectangle of the original, so it is one resample however deep the zoom, and the region
     /// handed back to the browser is exactly what was cut.
     /// </summary>
@@ -2117,18 +2119,17 @@ sealed class UIQuery {
         var size = Math.Clamp(tile.Size, 1.0 / 4096, 0.5); // a tile is at most half the picture: the whole of it is a level
         var x0 = Math.Clamp(tile.X, 0, 1 - size);
         var y0 = Math.Clamp(tile.Y, 0, 1 - size);
-        var wide = w * 3 >= h * 4;
-        double pw = wide ? h * 4.0 / 3 : w; // the picture, in original pixels
-        double ph = wide ? h : w * 3.0 / 4;
+        double pw = Math.Min(w, h); // the picture, in original pixels: the square middle of it
+        double ph = pw;
         double px0 = (w - pw) / 2, py0 = (h - ph) / 2;
-        // 4:3 to the pixel, so the Fill resize scales the rectangle without cropping any of it
-        var sw = Math.Clamp((int)Math.Round(size * pw) / 4 * 4, 4, w / 4 * 4);
-        var sh = sw * 3 / 4;
+        // square to the pixel, so the Fill resize scales the rectangle without cropping any of it
+        var sw = Math.Clamp((int)Math.Round(size * pw) / 4 * 4, 4, (int)pw / 4 * 4);
+        var sh = sw;
         var sx = Math.Clamp((int)Math.Round(px0 + x0 * pw), 0, w - sw);
         var sy = Math.Clamp((int)Math.Round(py0 + y0 * ph), 0, h - sh);
         var adj = new FileAdjustmentImage {
             Width = tw,
-            Height = tw * 3 / 4,
+            Height = tw,
             CropMode = ImageCropMode.Fill,
             Quality = 80,
             SourceX = sx,

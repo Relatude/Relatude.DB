@@ -110,7 +110,12 @@ export interface CardField3D extends CardFieldCommon, FieldSurface {
    * about: the point the picture turns around, and the depth a slide is measured at.
    */
   hold(channel: Channel, cssX: number, cssY: number): void;
-  release(channel: Channel): void;
+  /**
+   * The button is up. A speed in css pixels a second - what the hand was doing over the last few
+   * events - lets the picture coast on from there and settle; nothing, or a hand that had already
+   * stopped, leaves it exactly where it stands.
+   */
+  release(channel: Channel, vx?: number, vy?: number): void;
   /** Turns the picture about the point taken hold of; the deltas are pointer pixels. */
   orbit(dxPx: number, dyPx: number): void;
   /** Turns the camera where it stands. */
@@ -128,6 +133,12 @@ export interface CardField3D extends CardFieldCommon, FieldSurface {
   zoomAt(amount: number, cssX: number, cssY: number): void;
   /** Brings the camera to a halt: what a menu or a modal does to a drag in progress. */
   stop(): void;
+  /**
+   * Whether a card near enough to show one is given its picture at all. Off, no face of any solid is
+   * drawn with a picture or a placeholder however far it is zoomed into: every block stays its own
+   * colour. One switch in the shader, so it costs nothing and takes effect on the next frame.
+   */
+  setPictures(on: boolean): void;
   /** How the picture is being drawn and how long a frame is taking, for the note over the canvas. */
   detail(): { level: DetailLevel; ceiling: DetailLevel; frameMs: number };
   /** The most detail the picture may be drawn with. */
@@ -164,6 +175,17 @@ const roundZoom = 40;
  * already light. Between them there is no direction a face can be turned that has nothing on it.
  */
 const lightDir = normalize([0.62, 0.66, 0.43]);
+/**
+ * How far off the key lamp stands, as a share of how far the picture reaches from its middle.
+ *
+ * A lamp at infinity gives every card in the field the same light, which is exactly what made a wide
+ * field read flat: a thousand boxes all lit identically look printed rather than lit. Standing it a
+ * couple of the picture's own radii out turns the key into a real direction that swings across the
+ * field - the near shoulder of the picture is lit from one side, the far one from another - which is
+ * what gives the whole thing a form. Closer than this and the falloff across a wide field starts
+ * reading as a spotlight; further and it goes back to being flat.
+ */
+const lightDistance = 1.9;
 const keyLight: RGBf = [1.38, 1.32, 1.22];
 const fillLight: RGBf = [0.46, 0.51, 0.62];
 const rimDir = normalize([-0.55, 0.42, -0.72]);
@@ -174,7 +196,18 @@ const maxLayersWanted = 2048;
  * How fast the camera closes on where the wheel is taking it, as a share of what is left per second,
  * and how long a wheel gesture is held to be still going after its last notch.
  */
-const zoomFollowRate = 13;
+const zoomFollowRate = 8;
+/**
+ * The coast after a drag: the picture carries the hand's last speed a little way past letting go,
+ * dying away by this much a second, and is dropped when it falls below the floor. A drag has to be
+ * moving at least `coastMin` when it is let go to coast at all - letting go of a picture that had
+ * already been brought to a stop must leave it exactly where it was put - and it sets off at a share
+ * of that speed rather than all of it, which is what makes it read as a nudge rather than a throw.
+ */
+const coastDecay = 6;
+const coastFloorPxPerSecond = 20;
+const coastMinPxPerSecond = 90;
+const coastShare = 0.62;
 const gestureGapMs = 400;
 /** the guard: a frame this long, this many times running, takes a level of detail away */
 const slowFrameMs = 45;
@@ -376,10 +409,9 @@ float sdTriangle(vec2 p, vec2 p0, vec2 p1, vec2 p2) {
 vec3 placeholder(vec3 c, vec2 uv, float aa) {
   vec3 ground = mix(c, uClear, 0.35);
   vec3 glyph = mix(c, uInk, 0.42);
-  vec2 q = vec2(uv.x * 1.3333, uv.y);
-  float sun = length(q - vec2(1.02, 0.30)) - 0.12;
-  float hill1 = sdTriangle(q, vec2(0.06, 1.0), vec2(0.90, 1.0), vec2(0.48, 0.42));
-  float hill2 = sdTriangle(q, vec2(0.62, 1.0), vec2(1.34, 1.0), vec2(0.99, 0.60));
+  float sun = length(uv - vec2(0.75, 0.25)) - 0.10;
+  float hill1 = sdTriangle(uv, vec2(0.02, 1.0), vec2(0.68, 1.0), vec2(0.35, 0.44));
+  float hill2 = sdTriangle(uv, vec2(0.44, 1.0), vec2(1.04, 1.0), vec2(0.74, 0.61));
   float d = min(sun, min(hill1, hill2));
   return mix(ground, glyph, 1.0 - smoothstep(-aa, aa, d));
 }
@@ -459,13 +491,16 @@ vec3 shoulder(vec3 x) {
  */
 vec3 shade(vec3 c, vec3 n, vec3 world, float pictured) {
   vec3 v = normalize(uEye - world);
+  // the key stands a finite distance off (see lightDistance), so which way it comes from is a
+  // different answer at each end of the picture - which is what stops a wide field reading flat
+  vec3 l = normalize(uLightPos - world);
   float head = max(dot(n, v), 0.0);
-  float diff = max((dot(n, uLight) + KEYWRAP) / (1.0 + KEYWRAP), 0.0);
-  float back = max(dot(n, -uLight), 0.0);
+  float diff = max((dot(n, l) + KEYWRAP) / (1.0 + KEYWRAP), 0.0);
+  float back = max(dot(n, -l), 0.0);
   // cubed, so this lamp is an edge and not a third flood: it is all but out by the time a face has
   // turned far enough toward the eye to be read as a face
   float rim = max(dot(n, uRim), 0.0) * pow(1.0 - head, 3.0);
-  vec3 h = normalize(uLight + v);
+  vec3 h = normalize(l + v);
   float ndh = max(dot(n, h), 0.0);
   float spec = (pow(ndh, 64.0) * 0.78 + pow(ndh, 10.0) * 0.12) * mix(1.0, 0.4, pictured);
   // overhead against underfoot: the ambient a face sees depends on which way it is turned
@@ -510,7 +545,7 @@ uniform mediump sampler2DArray uLevel4;
 uniform mediump sampler2DArray uLevel5;
 uniform mat4 uViewProj;
 uniform vec3 uEye;
-uniform vec3 uLight;
+uniform vec3 uLightPos;
 uniform vec3 uInk;
 uniform vec3 uClear;
 uniform vec3 uOutline;
@@ -683,13 +718,32 @@ void main() {
   // the surface's own direction, from the gradient of the same distance
   float e = max(eps, 0.0015);
   vec3 n = normalize(vec3(sdSolid(q + vec3(e, 0.0, 0.0), hz, r) - d, sdSolid(q + vec3(0.0, e, 0.0), hz, r) - d, sdSolid(q + vec3(0.0, 0.0, e), hz, r) - d));
-  // the picture is on the two flat ends; the wall between them is the card's colour, which is what
-  // the thickness of a solid should read as
+  // The picture is on the two flat ends. A plain card is a box, though, and the box the other
+  // program draws wears the picture on every face it shows, so a square one takes it on its four
+  // walls too: closing in on a field until it is traced should not turn the pictures off on every
+  // card that happens to be facing edge-on. Each wall gets it in its own face's frame, the same
+  // frames the box's vertex shader lays out. A shaped card keeps the picture to its two ends, where
+  // its silhouette is - a heart has no walls to lay a photograph on.
   float pictured = 0.0;
   vec3 c = vColor.rgb;
-  if (abs(q.z) > hz - max(r, e) * 1.05) {
+  float pad = max(r, e) * 1.05;
+  float hzz = max(hz, 1e-5);
+  if (abs(q.z) > hz - pad) {
     vec2 uv = vec2(q.z > 0.0 ? q.x + 0.5 : 0.5 - q.x, 0.5 - q.y);
     c = cardFace(c, uv, pictured);
+  } else if (vShape.w < 0.0) {
+    float ax = abs(q.x);
+    float ay = abs(q.y);
+    if (ax >= ay && ax > 0.5 - pad) {
+      // the two side walls: across them runs the card's thickness, up them the card's own up
+      float u = (q.z + hzz) / (2.0 * hzz);
+      c = cardFace(c, vec2(q.x > 0.0 ? u : 1.0 - u, 0.5 - q.y), pictured);
+    } else if (ay > 0.5 - pad) {
+      // the top and the underside: across runs the card's width, and up runs back from its front
+      // face, so the band of picture sits along the front edge of either
+      float v = (hzz - q.z) / (2.0 * hzz);
+      c = cardFace(c, vec2(q.y > 0.0 ? q.x + 0.5 : 0.5 - q.x, v), pictured);
+    }
   }
   vec3 lit = shade(c, n, world, pictured);
   if (vFlags == 1) {
@@ -763,7 +817,7 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     "uInk",
     "uClear",
     "uOutline",
-    "uLight",
+    "uLightPos",
     "uAmbient",
     "uKey",
     "uFillLight",
@@ -942,6 +996,7 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
   let dpr = 1;
   let bounds: Bounds = { x0: 0, y0: 0, x1: 1, y1: 1 };
   let frameCallback: (() => void) | null = null;
+  let picturesOn = true;
   let raf = 0;
   let lastFrame = 0;
   let frameNow = 0;
@@ -969,6 +1024,12 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
    * and a slide is measured at its depth so that it follows the pointer exactly. Null between drags.
    */
   let held: Vec3 | null = null;
+  /**
+   * The drag the picture is still carrying after the hand has let go: the channel it was on, and the
+   * speed it was going, in css pixels a second. `held` is kept while this runs, so the coast turns
+   * and slides about exactly the point the drag did. Null when the picture is at rest.
+   */
+  let coasting: { channel: Channel; vx: number; vy: number } | null = null;
   /** the last point worked out under the pointer, so a spin of the wheel does not ask again per notch */
   let asked: { x: number; y: number; at: number; point: Vec3 } | null = null;
 
@@ -1010,6 +1071,18 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     const by = (bounds.y1 - bounds.y0) / 2 + 1;
     const bz = (rowSpan[1] - rowSpan[0]) / 2 + maxDepth;
     return Math.hypot(bx, by, bz) + 1;
+  }
+
+  /**
+   * Where the key lamp stands: out from the middle of the picture in the light's own direction, at a
+   * couple of the picture's radii (see lightDistance), and given to the shaders origin-relative like
+   * everything else. It follows the picture rather than the camera, so turning the picture round
+   * turns it through the light instead of carrying the light with it.
+   */
+  function lightPos(): Vec3 {
+    const c = sceneCentre();
+    const d = sceneRadius() * lightDistance;
+    return [c[0] + lightDir[0] * d - origin[0], c[1] + lightDir[1] * d - origin[1], c[2] + lightDir[2] * d - origin[2]];
   }
 
   /** device pixels per world unit at the point the camera is focused on: the picture's own zoom */
@@ -1054,7 +1127,9 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     gl.uniform1f(u.uFade, fadeSeconds);
     gl.uniform1f(u.uZoom, zoomDev());
     gl.uniform1f(u.uPxScale, height / 2 / Math.tan(cam.fov / 2));
-    gl.uniform1f(u.uDetailPx, detailCssPx * dpr);
+    // pictures off: the width one appears at is put out of every card's reach, so vDetail is 0 and
+    // no face ever gets a picture or a placeholder laid over its colour
+    gl.uniform1f(u.uDetailPx, picturesOn ? detailCssPx * dpr : 1e9);
     gl.uniform1i(u.uHover, hover);
     gl.uniform1i(u.uSelected, selected);
     gl.uniform1i(u.uPulseGroup, pulsedGroup);
@@ -1065,7 +1140,7 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     gl.uniform3fv(u.uInk, theme.ink);
     gl.uniform3fv(u.uClear, theme.clear);
     gl.uniform3fv(u.uOutline, theme.outline);
-    gl.uniform3fv(u.uLight, lightDir);
+    gl.uniform3fv(u.uLightPos, lightPos());
     gl.uniform1f(u.uAmbient, ambient);
     gl.uniform3fv(u.uKey, keyLight);
     gl.uniform3fv(u.uFillLight, fillLight);
@@ -1173,9 +1248,10 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     frameNow = now;
     if (destroyed) return;
     const dt = lastFrame === 0 ? 1 / 60 : Math.min(0.1, (now - lastFrame) / 1000);
-    const cameraMoving = cam.moving() || zoomTo !== null;
+    const cameraMoving = cam.moving() || zoomTo !== null || coasting !== null;
     if (cam.moving()) cam.step(dt, now);
     stepZoom(dt);
+    stepCoast(dt);
     const depthMoving = depthProgress(now) < 1;
     if (!dirty && !cardsMoving && !depthMoving && !pulsing() && !cameraMoving && !fading(now) && texDirty.size === 0) {
       lastFrame = 0;
@@ -1203,7 +1279,7 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     drawFloorLines();
     dirty = false;
     frameCallback?.();
-    if (cardsMoving || depthProgress(now) < 1 || pulsing() || cam.moving() || zoomTo !== null || fading(now) || texDirty.size > 0) schedule();
+    if (cardsMoving || depthProgress(now) < 1 || pulsing() || cam.moving() || zoomTo !== null || coasting !== null || fading(now) || texDirty.size > 0) schedule();
     else lastFrame = 0;
   }
 
@@ -1410,6 +1486,28 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
       cam.pos = [...goal.pos];
       cam.dist = goal.dist;
       zoomTo = null;
+    }
+  }
+
+  /**
+   * The picture carrying on after the hand has let go. It works the gesture the drag was working, by
+   * what the hand's speed covers in this frame, and lets that speed fall away; when there is too
+   * little of it left to see, the coast ends and the point it was working about is let go of too.
+   */
+  function stepCoast(dt: number) {
+    const c = coasting;
+    if (c === null) return;
+    const dx = c.vx * dt;
+    const dy = c.vy * dt;
+    if (c.channel === "orbit") field.orbit(dx, dy);
+    else if (c.channel === "look") field.look(dx, dy);
+    else field.panBy(dx, dy);
+    const k = Math.exp(-coastDecay * dt);
+    c.vx *= k;
+    c.vy *= k;
+    if (Math.hypot(c.vx, c.vy) < coastFloorPxPerSecond) {
+      coasting = null;
+      held = null;
     }
   }
 
@@ -1661,16 +1759,28 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     },
     hold(channel, cssX, cssY) {
       zoomTo = null;
-      // the camera has no momentum of its own here: it goes where the hand puts it and stops when
-      // the hand stops. A view with weight is right for flying through a graph and wrong for reading
-      // a chart, where a short drag that carries on turning for another second is just a view lost.
+      // whatever the picture was still carrying, a hand on it takes it back: the drag starts from
+      // where the picture is, not from where it was going
+      coasting = null;
       cam.stop();
       held = channel === "look" ? null : pointUnder(cssX, cssY);
       asked = null;
       schedule();
     },
-    release() {
-      held = null;
+    /**
+     * A little weight, and no more than a little: a hand still moving when it lets go leaves the
+     * picture going the same way, and it settles within a few tenths of a second. Enough that a turn
+     * ends softly rather than stopping dead under the pointer; not so much that a picture being read
+     * carries on drifting after it has been put where it was wanted. A hand that came to rest before
+     * letting go passes no speed, and the picture stays exactly where it was put.
+     */
+    release(channel, vx = 0, vy = 0) {
+      if (Math.hypot(vx, vy) >= coastMinPxPerSecond) {
+        coasting = { channel, vx: vx * coastShare, vy: vy * coastShare };
+      } else {
+        coasting = null;
+        held = null;
+      }
       schedule();
     },
     /**
@@ -1762,10 +1872,22 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     stop() {
       zoomTo = null;
       held = null;
+      coasting = null;
       cam.stop();
       schedule();
     },
     detail: () => ({ level: detailLevel, ceiling, frameMs }),
+    setPictures(on) {
+      if (on === picturesOn) return;
+      picturesOn = on;
+      // and every card starts over: what it was showing points at a layer the media manager is
+      // about to let go of, and a card still holding one would come back wearing another's picture
+      texWords.fill(0);
+      texDirty.clear();
+      upload(texBuffer, texWords);
+      dirty = true;
+      schedule();
+    },
     setDetailCeiling(next) {
       ceiling = next;
       if (detailLevel > next) detailLevel = next;
@@ -1797,7 +1919,7 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     camera: flatCamera,
     cameraTarget: flatCamera,
     size: () => ({ width: width / dpr, height: height / dpr, dpr }),
-    moving: () => cardsMoving || depthProgress(performance.now()) < 1 || pulsing() || cam.moving() || zoomTo !== null || fading(performance.now()),
+    moving: () => cardsMoving || depthProgress(performance.now()) < 1 || pulsing() || cam.moving() || zoomTo !== null || coasting !== null || fading(performance.now()),
     onFrame(callback) {
       frameCallback = callback;
     },

@@ -608,6 +608,43 @@ function QueryTab({
       ? `All (${formatCount(maxPageRows)} of ${formatCount(result.total)})`
       : `All (${formatCount(result.total)})`;
 
+  // Filling the screen with the picture: the result's own head is a line spent on a count and the
+  // switch for the facet rail, and in the visual pivot both of those fit on the line of controls the
+  // picture already has. So they go down there, and the head goes away - one more line of canvas.
+  const headInToolbar = visual && fullscreen;
+  const resultHead = (
+    <>
+      <span className="query-head-count">
+        {result ? (
+          <>
+            {formatCount(result.total)} {result.total === 1 ? "node" : "nodes"}
+            {result.total !== result.sourceCount ? ` of ${formatCount(result.sourceCount)}` : ""} · {result.durationMs.toFixed(1)} ms
+          </>
+        ) : (
+          "Searching…"
+        )}
+      </span>
+      {!showFacets && selectedCount > 0 && (
+        // as in the head it came from: with the rail closed, this is the difference between a
+        // filtered result and one that looks wrong
+        <span className="query-filters">
+          {formatCount(selectedCount)} {selectedCount === 1 ? "filter" : "filters"}
+          <button className="link-button" onClick={() => reset({ selections: [] })}>
+            clear
+          </button>
+        </span>
+      )}
+      <button
+        className={"icon-button labelled" + (showFacets ? " active" : "")}
+        title={showFacets ? "Hide the facets" : "Show the facets — the search then counts their values"}
+        onClick={() => onChange({ showFacets: !showFacets })}
+      >
+        <IconFilter size={16} stroke={1.8} />
+        Filter
+      </button>
+    </>
+  );
+
   const semanticAvailable = model.hasAi && model.hasSemanticIndex;
   // a knob this query has moved off the database's own default, and so a search whose text is not the
   // only thing deciding the answer
@@ -815,107 +852,112 @@ function QueryTab({
         )}
 
         <div className="query-results panel" ref={results}>
-          <div className="query-results-head">
-            {result ? (
-              <>
-                <strong>{formatCount(result.total)}</strong>
-                <span className="muted">
-                  {result.total === 1 ? "node" : "nodes"}
-                  {result.total !== result.sourceCount ? ` of ${formatCount(result.sourceCount)}` : ""} · {result.durationMs.toFixed(1)} ms
-                </span>
-              </>
-            ) : (
-              <span className="muted">Searching…</span>
-            )}
-            {!showFacets && selectedCount > 0 && (
-              // the rail is where a selection is normally seen and undone; with it closed, saying so
-              // here is the difference between a filtered result and one that looks wrong
-              <span className="query-filters">
-                {formatCount(selectedCount)} {selectedCount === 1 ? "filter" : "filters"}
-                <button className="link-button" onClick={() => reset({ selections: [] })}>
-                  clear
-                </button>
-              </span>
-            )}
-            <div className="query-spacer" />
-            <button
-              className={"icon-button labelled" + (showFacets ? " active" : "")}
-              title={showFacets ? "Hide the facets" : "Show the facets — the search then counts their values"}
-              onClick={() => onChange({ showFacets: !showFacets })}
-            >
-              <IconFilter size={16} stroke={1.8} />
-              Filter
-            </button>
-            {mode === "search" && (
-              // how the hits are shown; the other modes are each one view
-              <div className="query-view" role="tablist">
-                {(
-                  [
-                    { id: "list", label: "List", icon: IconLayoutList, hint: "Show the hits as a list" },
-                    { id: "table", label: "Table", icon: IconTable, hint: "Show the hits as a table, one column per property" },
-                  ] as { id: HitsView; label: string; icon: typeof IconTable; hint: string }[]
-                ).map((v) => (
-                  <button key={v.id} role="tab" aria-selected={hitsView === v.id} className={hitsView === v.id ? "active" : ""} title={v.hint} onClick={() => onChange({ hitsView: v.id })}>
-                    <v.icon size={14} stroke={1.8} />
-                    {v.label}
+          {/* Filling the screen with the picture gives every pixel of it to the picture: this head
+              would be a whole line of it spent on a count and one switch, so in that one case both
+              go down to the picture's own line of controls instead (see head, below). */}
+          {!headInToolbar && (
+            <div className="query-results-head">
+              {result ? (
+                <>
+                  <strong>{formatCount(result.total)}</strong>
+                  <span className="muted">
+                    {result.total === 1 ? "node" : "nodes"}
+                    {result.total !== result.sourceCount ? ` of ${formatCount(result.sourceCount)}` : ""} · {result.durationMs.toFixed(1)} ms
+                  </span>
+                </>
+              ) : (
+                <span className="muted">Searching…</span>
+              )}
+              {!showFacets && selectedCount > 0 && (
+                // the rail is where a selection is normally seen and undone; with it closed, saying so
+                // here is the difference between a filtered result and one that looks wrong
+                <span className="query-filters">
+                  {formatCount(selectedCount)} {selectedCount === 1 ? "filter" : "filters"}
+                  <button className="link-button" onClick={() => reset({ selections: [] })}>
+                    clear
                   </button>
-                ))}
-              </div>
-            )}
-            {table && (
-              // typing into the cells; off by default, because a table people read should not change
-              // under a stray keystroke, and on it costs a value per cell on the wire
-              <button
-                className={"icon-button labelled" + (editCells ? " active" : "")}
-                title={editCells ? "Stop editing in the table" : "Edit in the table — arrows move, typing edits, enter saves"}
-                onClick={() => onChange({ editCells: !editCells })}
-              >
-                <IconPencil size={16} stroke={1.8} />
-                Edit
-              </button>
-            )}
-            {!summary && (
-              <select className="select compact" value={pageSize} title="Rows per page" onChange={(e) => reset({ pageSize: Number(e.target.value) })}>
-                {pageSizes.map((size) => (
-                  <option key={size} value={size}>
-                    {formatCount(size)} / page
-                  </option>
-                ))}
-                <option value={0}>{allRowsLabel}</option>
-              </select>
-            )}
-            {!summary && (
-              <button
-                className="icon-button"
-                disabled={exporting || !result || result.total === 0}
-                title="Download the result as csv — choose how many rows"
-                onClick={download}
-              >
-                <IconDownload size={16} stroke={1.8} />
-              </button>
-            )}
-            {table && (
-              // this page of the table, as it is shown: what a spreadsheet or a message wants pasted
-              <CopyButton
-                title="Copy this page of the table to the clipboard"
-                disabled={!result?.columns || result.hits.length === 0}
-                table={() => ({ header: result?.columns?.map((c) => c.name) ?? [], rows: result?.hits.map((h) => h.cells ?? []) ?? [] })}
-              />
-            )}
-            {!summary && result && result.total > pageRows && (
-              <div className="query-paging">
-                <button className="icon-button" disabled={page === 0} title="Previous page" onClick={() => setPage(page - 1)}>
-                  <IconChevronLeft size={15} stroke={1.8} />
-                </button>
-                <span className="muted">
-                  {page * pageRows + 1}–{Math.min((page + 1) * pageRows, result.total)}
                 </span>
-                <button className="icon-button" disabled={page >= lastPage} title="Next page" onClick={() => setPage(page + 1)}>
-                  <IconChevronRight size={15} stroke={1.8} />
+              )}
+              <div className="query-spacer" />
+              <button
+                className={"icon-button labelled" + (showFacets ? " active" : "")}
+                title={showFacets ? "Hide the facets" : "Show the facets — the search then counts their values"}
+                onClick={() => onChange({ showFacets: !showFacets })}
+              >
+                <IconFilter size={16} stroke={1.8} />
+                Filter
+              </button>
+              {mode === "search" && (
+                // how the hits are shown; the other modes are each one view
+                <div className="query-view" role="tablist">
+                  {(
+                    [
+                      { id: "list", label: "List", icon: IconLayoutList, hint: "Show the hits as a list" },
+                      { id: "table", label: "Table", icon: IconTable, hint: "Show the hits as a table, one column per property" },
+                    ] as { id: HitsView; label: string; icon: typeof IconTable; hint: string }[]
+                  ).map((v) => (
+                    <button key={v.id} role="tab" aria-selected={hitsView === v.id} className={hitsView === v.id ? "active" : ""} title={v.hint} onClick={() => onChange({ hitsView: v.id })}>
+                      <v.icon size={14} stroke={1.8} />
+                      {v.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {table && (
+                // typing into the cells; off by default, because a table people read should not change
+                // under a stray keystroke, and on it costs a value per cell on the wire
+                <button
+                  className={"icon-button labelled" + (editCells ? " active" : "")}
+                  title={editCells ? "Stop editing in the table" : "Edit in the table — arrows move, typing edits, enter saves"}
+                  onClick={() => onChange({ editCells: !editCells })}
+                >
+                  <IconPencil size={16} stroke={1.8} />
+                  Edit
                 </button>
-              </div>
-            )}
-          </div>
+              )}
+              {!summary && (
+                <select className="select compact" value={pageSize} title="Rows per page" onChange={(e) => reset({ pageSize: Number(e.target.value) })}>
+                  {pageSizes.map((size) => (
+                    <option key={size} value={size}>
+                      {formatCount(size)} / page
+                    </option>
+                  ))}
+                  <option value={0}>{allRowsLabel}</option>
+                </select>
+              )}
+              {!summary && (
+                <button
+                  className="icon-button"
+                  disabled={exporting || !result || result.total === 0}
+                  title="Download the result as csv — choose how many rows"
+                  onClick={download}
+                >
+                  <IconDownload size={16} stroke={1.8} />
+                </button>
+              )}
+              {table && (
+                // this page of the table, as it is shown: what a spreadsheet or a message wants pasted
+                <CopyButton
+                  title="Copy this page of the table to the clipboard"
+                  disabled={!result?.columns || result.hits.length === 0}
+                  table={() => ({ header: result?.columns?.map((c) => c.name) ?? [], rows: result?.hits.map((h) => h.cells ?? []) ?? [] })}
+                />
+              )}
+              {!summary && result && result.total > pageRows && (
+                <div className="query-paging">
+                  <button className="icon-button" disabled={page === 0} title="Previous page" onClick={() => setPage(page - 1)}>
+                    <IconChevronLeft size={15} stroke={1.8} />
+                  </button>
+                  <span className="muted">
+                    {page * pageRows + 1}–{Math.min((page + 1) * pageRows, result.total)}
+                  </span>
+                  <button className="icon-button" disabled={page >= lastPage} title="Next page" onClick={() => setPage(page + 1)}>
+                    <IconChevronRight size={15} stroke={1.8} />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           {pivot ? (
             // keyed by type: another type has other properties, so the definition starts over with it
             <PivotView key={typeId} base={pivotBase} definition={q.pivot} onChange={(pivot) => onChange({ pivot })} refreshToken={epoch} showQuery={showQuery} onDrill={drill} />
@@ -931,6 +973,7 @@ function QueryTab({
               selected={selected}
               fullscreen={fullscreen}
               onToggleFullscreen={toggleFullscreen}
+              head={headInToolbar ? resultHead : undefined}
             />
           ) : groups ? (
             <GroupByView key={typeId} base={pivotBase} definition={q.groups} onChange={(groups) => onChange({ groups })} refreshToken={epoch} showQuery={showQuery} onDrill={drill} />
