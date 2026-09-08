@@ -2,7 +2,6 @@ using Relatude.DB.Common;
 using Relatude.DB.IO;
 using Relatude.DB.Tasks;
 using System.Diagnostics;
-using System.Runtime;
 namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
@@ -249,13 +248,12 @@ public sealed partial class DataStoreLocal : IDataStore {
         // filtered facet query does not pay the cold rebuild inline
         if (a.HasFlag(MaintenanceAction.ClearCache) && State == DataStoreState.Open) warmIndexesInBackground();
     }
-    // A background, non-compacting collect leaves the freed bytes as holes in committed regions and
-    // returns nothing to the OS. Only a blocking, compacting, aggressive collect actually shrinks
-    // the process. It is a pause, but these maintenance actions exist precisely to reclaim memory.
-    static void collectAndReleaseMemory() {
-        GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
-        GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
-    }
+    // Only a blocking, compacting, aggressive collect actually shrinks the process; see MemoryReclaim
+    // for why, and for why one pass is not enough. It is a pause, but these maintenance actions exist
+    // precisely to reclaim memory. One finalizer round rather than the default two: this runs holding
+    // the write lock, so every pass is time no query can be served, and the caches just dropped hold
+    // arrays and nodes, not finalizable objects whose finalizers release further objects.
+    static void collectAndReleaseMemory() => MemoryReclaim.Collect(finalizerRounds: 1);
     public Task MaintenanceAsync(MaintenanceAction actions) {
         Maintenance(actions);
         return Task.CompletedTask;

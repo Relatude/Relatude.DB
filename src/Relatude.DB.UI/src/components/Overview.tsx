@@ -66,7 +66,7 @@ export function Overview() {
   const actionsPanel = (
     <section className="panel actions-panel">
       <h3>Process actions</h3>
-      <ProcessAction label="Garbage collection" hint="deep, blocking, compacting collection" disabled={false} run={collectGarbage} onDone={load} />
+      <ProcessAction label="Garbage collection" hint="the deepest collection the runtime allows, on the whole process" disabled={false} run={collectGarbage} onDone={load} />
       <ProcessAction
         label="Soft restart"
         hint="re-reads settings, closes and reopens every database"

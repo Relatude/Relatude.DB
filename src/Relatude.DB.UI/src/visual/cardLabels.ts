@@ -1,4 +1,4 @@
-import { cardFill, detailCssPx, imageShare, type CardField } from "./cardField";
+import { cardFill, imageShare, type CardField } from "./cardField";
 import type { CardMedia } from "./cardMedia";
 
 /**
@@ -25,6 +25,8 @@ export interface CardLabels {
   clear(): void;
 }
 
+/** how wide a card is, in css px, when its name comes in: the strip below the picture is a quarter of that, room for a small font */
+const nameCssPx = 64;
 const lightInk = "rgba(255, 255, 255, 0.94)";
 const darkInk = "rgba(26, 24, 22, 0.92)";
 const fontFamily = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
@@ -75,7 +77,7 @@ export function createCardLabels(canvas: HTMLCanvasElement): CardLabels | null {
       ctx!.clearRect(0, 0, w, h);
       const cam = field.camera();
       const side = cardFill * cam.zoom;
-      const detail = smoothstep(detailCssPx * 0.9, detailCssPx * 1.1, side);
+      const detail = smoothstep(nameCssPx * 0.9, nameCssPx * 1.1, side);
       if (detail <= 0.001) return;
       const { indexes, count } = media.visible();
       if (count === 0) return;

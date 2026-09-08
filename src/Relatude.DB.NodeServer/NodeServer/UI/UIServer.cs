@@ -1034,23 +1034,21 @@ public sealed class UIServer {
             if (!_server.GetContainers().Any(c => c.IsOpenOrOpening())) _server.ResetIOProviders();
             return (object?)new { Done = true };
         });
+        // Both "collect garbage" buttons in the UI - the one on the server overview and the one on a
+        // database dashboard - come here: there is one heap behind every database on the server, so
+        // there is nothing per-database to do. See MemoryReclaim for what makes the collection deep.
         Commands.Register("collect-garbage", ctx => {
             static string mb(long bytes) => (bytes / (1024.0 * 1024.0)).ToString("N1") + " MB";
-            var watch = System.Diagnostics.Stopwatch.StartNew();
-            var managedBefore = GC.GetTotalMemory(false);
-            // the deepest collection available: aggressive reclaims as much as possible (all generations,
-            // compacts large object heap, returns memory to the OS), finalizers run, then a second
-            // compacting pass picks up what finalization released
-            System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
-            GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
-            GC.WaitForPendingFinalizers();
-            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
-            var managedAfter = GC.GetTotalMemory(false);
-            watch.Stop();
-            using var process = System.Diagnostics.Process.GetCurrentProcess();
+            var r = MemoryReclaim.Collect();
             return (object?)new {
                 Started = true,
-                Message = $"Collected in {watch.ElapsedMilliseconds:N0} ms. Managed {mb(managedBefore)} → {mb(managedAfter)}, working set {mb(process.WorkingSet64)}.",
+                // resident is what the operating system got back, and the point of a compacting
+                // aggressive collection: the managed heap can fall while the process shrinks by
+                // nothing. Committed has no before to compare against, see MemoryReclaimResult.
+                Message = $"{r.Collections} collections in {r.ElapsedMs:N0} ms. "
+                    + $"Managed {mb(r.ManagedBefore)} → {mb(r.ManagedAfter)}, "
+                    + $"resident {mb(r.WorkingSetBefore)} → {mb(r.WorkingSetAfter)}, "
+                    + $"{mb(r.Committed)} still committed.",
             };
         });
         Commands.Register("soft-restart", ctx => {

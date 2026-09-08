@@ -677,6 +677,16 @@ export interface CardInfo {
   image: string | null;
   /** The file's version (its hash), so a picture can be kept for as long as the file is the same. */
   version: string | null;
+  /** The original picture's size in pixels; 0 until the store has read the file's metadata. */
+  width: number;
+  height: number;
+}
+
+/** One picture to fetch: a card's whole picture, or with `tile` a part of it (x, y, size as fractions of the picture; width in pixels). */
+export interface CardImageItem {
+  id: number;
+  p: string;
+  tile?: { x: number; y: number; size: number; width: number };
 }
 
 /** The names and picture properties of the cards on screen, by their int ids (up to a thousand). A node that is gone is left out. */
@@ -687,14 +697,15 @@ export function fetchCards(storeId: string, ids: number[]): Promise<{ cards: Car
 /**
  * The pictures of a batch of cards at one width (a level the server knows), streamed back as
  * records in the order they come ready: `onRecord` is called for each with the node id, a status -
- * 0 the picture follows, 1 it is still being converted (ask again later), 2 there is none - and the
- * encoded bytes. Resolves when the response has ended; rejects if it failed as a whole.
+ * 0 the picture follows, 1 it is still being converted (ask again later), 2 there is none, 3 a tile
+ * could not be made - the encoded bytes, and for a tile the part of the picture it shows (x0, y0,
+ * x1, y1 as fractions). Resolves when the response has ended; rejects if it failed as a whole.
  */
 export async function streamCardImages(
   storeId: string,
   level: number,
-  items: { id: number; p: string }[],
-  onRecord: (id: number, status: number, bytes: Uint8Array) => void,
+  items: CardImageItem[],
+  onRecord: (id: number, status: number, bytes: Uint8Array, region: Float32Array | null) => void,
   signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetch(`${adminBase}/ui/card-images`, {
@@ -713,22 +724,31 @@ export async function streamCardImages(
     }
     throw new Error(message);
   }
-  // records: int32 id, uint8 status, int32 length, bytes - parsed as the chunks come in
-  const headerSize = 9;
+  // records: int32 id, uint8 status, uint8 flags, int32 length, [4 float32 of region when flags bit 0], bytes -
+  // parsed as the chunks come in
+  const headerSize = 10;
   let buffer = new Uint8Array(64 * 1024);
   let end = 0; // bytes held
   let start = 0; // the first byte not yet consumed
   const consume = () => {
     while (end - start >= headerSize) {
       const view = new DataView(buffer.buffer, buffer.byteOffset + start, headerSize);
-      const length = view.getInt32(5, true);
+      const length = view.getInt32(6, true);
       if (length < 0) throw new Error("A picture record is malformed.");
-      if (end - start < headerSize + length) return;
+      const flags = view.getUint8(5);
+      const regionSize = (flags & 1) !== 0 ? 16 : 0;
+      if (end - start < headerSize + regionSize + length) return;
       const id = view.getInt32(0, true);
       const status = view.getUint8(4);
-      const bytes = buffer.slice(start + headerSize, start + headerSize + length);
-      start += headerSize + length;
-      onRecord(id, status, bytes);
+      let region: Float32Array | null = null;
+      if (regionSize > 0) {
+        const r = new DataView(buffer.buffer, buffer.byteOffset + start + headerSize, 16);
+        region = new Float32Array([r.getFloat32(0, true), r.getFloat32(4, true), r.getFloat32(8, true), r.getFloat32(12, true)]);
+      }
+      const at = start + headerSize + regionSize;
+      const bytes = buffer.slice(at, at + length);
+      start = at + length;
+      onRecord(id, status, bytes, region);
     }
   };
   const append = (chunk: Uint8Array) => {

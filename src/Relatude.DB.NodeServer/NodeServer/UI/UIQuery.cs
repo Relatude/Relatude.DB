@@ -1929,7 +1929,11 @@ sealed class UIQuery {
     // The widths a card picture is made at, each twice the one before: the browser asks for the
     // smallest that is at least as wide as the card on its screen and scales the rest itself. A
     // picture is three quarters as high as it is wide - the card's strip for the name takes the rest.
-    internal static readonly int[] cardImageLevels = [128, 256, 512, 1024, 2048];
+    internal static readonly int[] cardImageLevels = [64, 128, 256, 512, 1024, 2048];
+    // Past the largest level a card zoomed into shows tiles: parts of its picture cut out at one of
+    // these widths (the browser picks the one at least as wide as its canvas), so the zoom can go on
+    // to the pixels of the original without ever making a picture larger than a screen.
+    internal static readonly int[] cardTileWidths = [1024, 2048, 4096];
     // how long one picture of a batch is waited for before the browser is told to ask again
     const int cardImageWaitMs = 8000;
 
@@ -2064,6 +2068,8 @@ sealed class UIQuery {
             if (!s.Datastore.TryGet(id, out var n, adminContext)) continue; // a card of a node that is gone: the browser keeps it blank
             Guid? image = null;
             string? version = null;
+            var width = 0; // the original's size, 0 until the store has read the file's metadata
+            var height = 0;
             if (dm.NodeTypes.TryGetValue(n.NodeType, out var type)) {
                 foreach (var property in type.AllProperties.Values) {
                     if (property is not FilePropertyModel || property.Internal) continue;
@@ -2073,10 +2079,12 @@ sealed class UIQuery {
                     if (!s.Datastore.CanConvert(path, probe, adminContext)) continue; // a vector image, or a format no converter reads
                     image = property.Id;
                     version = file.Hash.Length > 8 ? file.Hash[..8] : file.Hash;
+                    width = file.Width;
+                    height = file.Height;
                     break;
                 }
             }
-            result.Add(new { Id = id, Name = displayNameOf(dm, n), Image = image, Version = version });
+            result.Add(new { Id = id, Name = displayNameOf(dm, n), Image = image, Version = version, Width = width, Height = height });
         }
         return new { Cards = result };
     }
@@ -2098,18 +2106,71 @@ sealed class UIQuery {
     }
 
     /// <summary>
-    /// The pictures of a batch of cards at one width, as one response: a stream of records, each an
-    /// int32 node id, a status byte (0 ready, 1 still converting, 2 no picture), an int32 length and
-    /// that many bytes of image. The records are written in the order the pictures come ready, each
-    /// flushed as it is, so the first pictures reach the browser while the rest are still being made.
-    /// One request for a batch rather than one per picture, because a browser on plain http gives a
-    /// host six connections, and a screen of cards is hundreds of pictures.
+    /// The adjustment that cuts a tile out of a card's picture: the part from (X, Y) spanning Size
+    /// of the picture's width and height - fractions of the picture, which is the 4:3 middle of the
+    /// original that the whole-picture levels show - made Width pixels wide. Zoom crops a window of
+    /// the original's own proportions about a focus point and the Fill resize keeps the 4:3 middle
+    /// of that window, so the window is made as high as the tile (as wide, for a tall original).
+    /// The encoders round to whole pixels on the way, so the region that actually comes out is
+    /// worked out here the same way they do and returned in picture fractions, and the browser
+    /// places the tile by that rather than by what it asked for.
+    /// </summary>
+    internal static FileAdjustmentImage tileAdjustment(int w, int h, CardTilePayload tile, out float[] region) {
+        var tw = cardTileWidths.Contains(tile.Width) ? tile.Width : cardTileWidths[1];
+        var th = tw * 3 / 4;
+        var size = Math.Clamp(tile.Size, 1.0 / 4096, 0.5); // a tile is at most half the picture: the whole of it is a level
+        var x0 = Math.Clamp(tile.X, 0, 1 - size);
+        var y0 = Math.Clamp(tile.Y, 0, 1 - size);
+        var wide = w * 3 >= h * 4;
+        double pw = wide ? h * 4.0 / 3 : w; // the picture, in original pixels
+        double ph = wide ? h : w * 3.0 / 4;
+        double px0 = (w - pw) / 2, py0 = (h - ph) / 2;
+        double tx = px0 + x0 * pw, ty = py0 + y0 * ph, tileW = size * pw, tileH = size * ph;
+        var zoom = wide ? 100.0 * h / tileH : 100.0 * w / tileW;
+        var adj = new FileAdjustmentImage {
+            Width = tw,
+            Height = th,
+            CropMode = ImageCropMode.Fill,
+            Quality = 80,
+            Zoom = zoom,
+            FocusX = (int)Math.Round(tx + tileW / 2),
+            FocusY = (int)Math.Round(ty + tileH / 2),
+        };
+        adj.BasicSanitization();
+        // the encoders' steps: the zoom window, scaled up to the original's size, then the 4:3
+        // middle of that at the tile's size - each rounded as they round
+        var factor = 100.0 / adj.Zoom!.Value;
+        var cropW = Math.Max(1, (int)Math.Round(w * factor));
+        var cropH = Math.Max(1, (int)Math.Round(h * factor));
+        var wx = Math.Clamp(adj.FocusX!.Value - cropW / 2, 0, Math.Max(0, w - cropW));
+        var wy = Math.Clamp(adj.FocusY!.Value - cropH / 2, 0, Math.Max(0, h - cropH));
+        var scale = Math.Max((double)tw / w, (double)th / h);
+        var scaledW = Math.Max(1, (int)Math.Round(w * scale));
+        var scaledH = Math.Max(1, (int)Math.Round(h * scale));
+        var cx = Math.Clamp(scaledW / 2 - tw / 2, 0, Math.Max(0, scaledW - tw));
+        var cy = Math.Clamp(scaledH / 2 - th / 2, 0, Math.Max(0, scaledH - th));
+        double ox0 = wx + cx / scale * cropW / w, ox1 = wx + (cx + tw) / scale * cropW / w;
+        double oy0 = wy + cy / scale * cropH / h, oy1 = wy + (cy + th) / scale * cropH / h;
+        region = [(float)((ox0 - px0) / pw), (float)((oy0 - py0) / ph), (float)((ox1 - px0) / pw), (float)((oy1 - py0) / ph)];
+        return adj;
+    }
+
+    /// <summary>
+    /// The pictures of a batch of cards, as one response: a stream of records, each an int32 node
+    /// id, a status byte (0 ready, 1 still converting, 2 no picture, 3 no tile), a flags byte (bit 0:
+    /// a region follows), an int32 length, then - for a tile - the region it shows as four floats
+    /// (x0, y0, x1, y1 in picture fractions), then that many bytes of image. A plain item is the
+    /// whole picture at the batch's level; an item with a Tile is a part of it (see
+    /// <see cref="tileAdjustment"/>). The records are written in the order the pictures come ready,
+    /// each flushed as it is, so the first pictures reach the browser while the rest are still being
+    /// made. One request for a batch rather than one per picture, because a browser on plain http
+    /// gives a host six connections, and a screen of cards is hundreds of pictures.
     /// </summary>
     internal async Task WriteCardImages(HttpContext http, CardImagesPayload p) {
         var s = store(p.StoreId);
-        var level = cardImageLevels.Contains(p.Level) ? p.Level : cardImageLevels[1];
+        var level = cardImageLevels.Contains(p.Level) ? p.Level : cardImageLevels[2];
         var items = (p.Items ?? []).Take(maxCardImagesPerBatch).ToArray();
-        var adj = cardAdjustment(level);
+        var levelAdj = cardAdjustment(level);
         http.Response.ContentType = "application/octet-stream";
         http.Response.Headers.CacheControl = "no-store";
         var body = http.Response.Body;
@@ -2118,8 +2179,16 @@ sealed class UIQuery {
         await Parallel.ForEachAsync(items, options, async (item, ct) => {
             byte status;
             byte[] bytes = [];
+            float[]? region = null;
             try {
                 var path = new PropertyPath(item.Id, item.P);
+                var adj = levelAdj;
+                if (item.Tile != null) {
+                    // a tile needs the original's size, which the store reads from the file after
+                    // the upload; until it has, the card keeps its whole picture
+                    if (!s.Datastore.TryGetValue<FileValue>(path, out var file, adminContext) || file.IsEmpty || file.Width <= 0 || file.Height <= 0) throw new TileUnavailable();
+                    adj = tileAdjustment(file.Width, file.Height, item.Tile, out region);
+                }
                 var state = await s.Datastore.GetFileStreamAndState(path, adj, cardImageWaitMs, adminContext);
                 if (state.IsReady) {
                     using var stream = state.Stream;
@@ -2131,17 +2200,22 @@ sealed class UIQuery {
                     state.Stream.Dispose(); // the engine's status picture, which is not for a card
                     // still on its way, or given up on: the browser asks again for the first and not the second
                     var failed = s.Datastore.TryGetConversionInfo(path, adj, false, out var progress, adminContext) && progress.Status == FileConversionStatus.Error;
-                    status = failed ? (byte)2 : (byte)1;
+                    status = failed ? (item.Tile != null ? (byte)3 : (byte)2) : (byte)1;
                 }
             } catch (OperationCanceledException) {
                 throw;
+            } catch (TileUnavailable) {
+                status = 3;
             } catch (Exception) {
-                status = 2; // the file is gone, or the property no longer holds one
+                status = item.Tile != null ? (byte)3 : (byte)2; // the file is gone, or the property no longer holds one
             }
-            var header = new byte[9];
+            if (status != 0) region = null;
+            var header = new byte[10 + (region != null ? 16 : 0)];
             BinaryPrimitives.WriteInt32LittleEndian(header, item.Id);
             header[4] = status;
-            BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(5), bytes.Length);
+            header[5] = region != null ? (byte)1 : (byte)0;
+            BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(6), bytes.Length);
+            if (region != null) for (var i = 0; i < 4; i++) BinaryPrimitives.WriteSingleLittleEndian(header.AsSpan(10 + i * 4), region[i]);
             await gate.WaitAsync(ct);
             try {
                 await body.WriteAsync(header, ct);
@@ -2152,6 +2226,7 @@ sealed class UIQuery {
             }
         });
     }
+    sealed class TileUnavailable : Exception { }
 
     sealed record StorePayload(Guid StoreId);
     sealed record NodePayload(Guid StoreId, Guid Id);
@@ -2172,8 +2247,10 @@ sealed class UIQuery {
     sealed record NodeIntPayload(Guid StoreId, int Id);
     /// <summary>The cards to name and find the picture of, by their int ids.</summary>
     sealed record CardsPayload(Guid StoreId, int[]? Ids);
-    /// <summary>One card's picture to make: the node's int id and the file property it is in.</summary>
-    internal sealed record CardImageItem(int Id, Guid P);
+    /// <summary>One card's picture to make: the node's int id and the file property it is in; with a Tile, a part of the picture instead of the whole.</summary>
+    internal sealed record CardImageItem(int Id, Guid P, CardTilePayload? Tile = null);
+    /// <summary>A part of a card's picture: from (X, Y), Size of the picture's width and height, all as fractions of it; made Width pixels wide (one of cardTileWidths).</summary>
+    internal sealed record CardTilePayload(double X, double Y, double Size, int Width);
     /// <summary>A batch of card pictures at one width (Level, one of cardImageLevels).</summary>
     internal sealed record CardImagesPayload(Guid StoreId, int Level, CardImageItem[]? Items);
     internal sealed record FacetSelectionValue(string? Value, string? Value2);

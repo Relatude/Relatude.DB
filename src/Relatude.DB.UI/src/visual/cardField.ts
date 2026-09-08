@@ -69,6 +69,14 @@ export interface Camera {
 export const CardKind = { Flat: 0, Image: 1, Placeholder: 2 } as const;
 export type CardKind = (typeof CardKind)[keyof typeof CardKind];
 
+/** A tile on screen: whose card, which texture slot holds it, the part of the picture it shows (x0, y0, x1, y1 as fractions) and when it arrived. */
+export interface TileOnScreen {
+  card: number;
+  slot: number;
+  rect: ArrayLike<number>;
+  arrivalMs: number;
+}
+
 export interface CardField {
   /**
    * A new set of cards. `to` is where they go (two floats each); `from` is where they start, or null
@@ -134,6 +142,15 @@ export interface CardField {
    * arrived, on the performance.now() clock. Cheap: the words are uploaded with the next frame.
    */
   setCardImage(index: number, kind: CardKind, level: number, layer: number, fromLevel: number, fromLayer: number, arrivalMs: number): void;
+  /**
+   * The tiles on screen, in the order they are laid over the picture - coarsest first, so a sharper
+   * tile covers the one it replaces while it fades in. At most tileSlots of them.
+   */
+  setTiles(tiles: ReadonlyArray<TileOnScreen>): void;
+  /** Puts a tile's picture into a texture slot, which takes the bitmap's size. */
+  uploadTile(slot: number, image: ImageBitmap): void;
+  /** Lets go of every tile texture and clears the tiles on screen. */
+  freeTiles(): void;
   destroy(): void;
 }
 
@@ -191,15 +208,33 @@ const flingDecay = 4.2; // per second
  * so the GPU never shrinks a picture by more than half - fine without mipmaps - and stretches the
  * last level as far as the zoom goes.
  */
-export const imageLevels = [128, 256, 512, 1024, 2048] as const;
+export const imageLevels = [64, 128, 256, 512, 1024, 2048] as const;
+/**
+ * Past the largest level a card zoomed into shows tiles: parts of its picture, cut out by the server
+ * at the width of the canvas (tileWidths, the browser picks), each laid over the part of the picture
+ * it shows. This many can be on screen at once - a card wider than the canvas is at most four tiles
+ * of it, and the ones a step coarser stay under the sharper ones while those arrive.
+ */
+export const tileSlots = 4;
+export const tileWidths = [1024, 2048, 4096] as const;
 /** a picture is this much of the card's height; the strip below it keeps the card's colour and carries the name */
 export const imageShare = 0.75;
-/** how wide a card is, in css px, when its picture and name appear (they fade in over ±10% of this) */
-export const detailCssPx = 100;
+/**
+ * How wide a card is, in css px, when its picture appears (it fades in over ±10% of this). Small on
+ * purpose: a thumbnail this size is still recognizable as what it is, and a screen of them is the
+ * picture the visual pivot is for. It sets how many layers the smallest level needs (see
+ * cardMedia's capacityFor), so lowering it costs texture memory rather than frame time.
+ */
+export const detailCssPx = 25;
 /** how long a picture takes to come up, or to take over from the level before it, in ms */
 export const imageFadeMs = 320;
-/** the most layers any level is ever given, and the bytes a texel takes: what bounds the GPU memory */
-const maxLayersPerLevel = 512;
+/**
+ * The most layers any level is ever given: what bounds the GPU memory, together with the sizes in
+ * imageLevels. The smallest level wants one layer per card on screen and a screen holds thousands
+ * of the smallest cards, so this is as high as WebGL 2 allows - and clamped to what the driver
+ * actually offers, which is 256 in the worst case the standard permits.
+ */
+const maxLayersWanted = 2048;
 
 const vertexSource = `#version 300 es
 precision highp float;
@@ -226,12 +261,15 @@ uniform vec3 uInk;
 uniform int uPick;
 uniform int uPulseGroup;  // the group pulsing right now, or -1
 uniform float uPulseT;    // how far through its pulse that group is, 0..1
+uniform int uTileCard[${tileSlots}]; // the card each tile slot belongs to, -1 for none
 out vec2 vUv;
 out vec4 vColor;
 flat out float vHalfPx;
 flat out int vFlags;
 flat out uvec3 vTex;
 flat out float vDetail;
+flat out int vTileMask;
+const int TILE_SLOTS = ${tileSlots};
 const float OVERSHOOT = ${overshoot.toFixed(4)};
 const float PULSE = ${pulseAmount.toFixed(4)};
 const float PULSE_MIN_PX = ${pulseMinPx.toFixed(4)};
@@ -281,6 +319,9 @@ void main() {
   vDetail = smoothstep(uDetailPx * 0.9, uDetailPx * 1.1, fill * uZoom);
   int id = gl_InstanceID;
   vFlags = id == uSelected ? 1 : 0;
+  int mask = 0;
+  for (int s = 0; s < TILE_SLOTS; s++) if (uTileCard[s] == id) mask |= (1 << s);
+  vTileMask = mask;
   if (uPick == 1) {
     vColor = vec4(float(id & 255) / 255.0, float((id >> 8) & 255) / 255.0, float((id >> 16) & 255) / 255.0, 1.0);
     return;
@@ -304,6 +345,7 @@ flat in float vHalfPx;
 flat in int vFlags;
 flat in uvec3 vTex;
 flat in float vDetail;
+flat in int vTileMask;
 uniform int uPick;
 uniform vec3 uOutline;
 uniform vec3 uInk;
@@ -314,6 +356,13 @@ uniform mediump sampler2DArray uLevel1;
 uniform mediump sampler2DArray uLevel2;
 uniform mediump sampler2DArray uLevel3;
 uniform mediump sampler2DArray uLevel4;
+uniform mediump sampler2DArray uLevel5;
+uniform mediump sampler2D uTile0;
+uniform mediump sampler2D uTile1;
+uniform mediump sampler2D uTile2;
+uniform mediump sampler2D uTile3;
+uniform vec4 uTileRect[${tileSlots}];  // the part of the picture each tile shows: x0, y0, x1, y1
+uniform float uTileTime[${tileSlots}]; // when each tile arrived
 out vec4 outColor;
 const float SHARE = ${imageShare.toFixed(4)};
 const float FADE_MS = ${imageFadeMs.toFixed(1)};
@@ -324,8 +373,17 @@ vec3 sampleLevel(int level, vec3 uv) {
     case 1: return texture(uLevel1, uv).rgb;
     case 2: return texture(uLevel2, uv).rgb;
     case 3: return texture(uLevel3, uv).rgb;
-    default: return texture(uLevel4, uv).rgb;
+    case 4: return texture(uLevel4, uv).rgb;
+    default: return texture(uLevel5, uv).rgb;
   }
+}
+// a tile laid over the picture: inside its part, the tile takes over as it fades in
+vec3 laidOver(vec3 pic, vec2 uv, vec4 r, float since, vec3 tile) {
+  if (uv.x < r.x || uv.y < r.y || uv.x > r.z || uv.y > r.w) return pic;
+  return mix(pic, tile, clamp((uNowMs - since) / FADE_MS, 0.0, 1.0));
+}
+vec2 tileUv(vec2 uv, vec4 r) {
+  return (uv - r.xy) / max(r.zw - r.xy, vec2(1e-6));
 }
 // signed distance to a triangle (Inigo Quilez)
 float sdTriangle(vec2 p, vec2 p0, vec2 p1, vec2 p2) {
@@ -389,6 +447,14 @@ void main() {
           show = fade;
         }
       }
+      // zoomed past the largest level: the tiles of the part in view, coarsest first
+      if (vTileMask != 0) {
+        if ((vTileMask & 1) != 0) pic = laidOver(pic, uv, uTileRect[0], uTileTime[0], texture(uTile0, tileUv(uv, uTileRect[0])).rgb);
+        if ((vTileMask & 2) != 0) pic = laidOver(pic, uv, uTileRect[1], uTileTime[1], texture(uTile1, tileUv(uv, uTileRect[1])).rgb);
+        if ((vTileMask & 4) != 0) pic = laidOver(pic, uv, uTileRect[2], uTileTime[2], texture(uTile2, tileUv(uv, uTileRect[2])).rgb);
+        if ((vTileMask & 8) != 0) pic = laidOver(pic, uv, uTileRect[3], uTileTime[3], texture(uTile3, tileUv(uv, uTileRect[3])).rgb);
+        show = 1.0;
+      }
     } else if (kind == 2) {
       pic = placeholder(c, uv, 1.5 / max(1.0, 2.0 * vHalfPx * SHARE));
       show = 1.0;
@@ -403,6 +469,8 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   const context = canvas.getContext("webgl2", { antialias: true, alpha: false, premultipliedAlpha: false, powerPreference: "high-performance" });
   if (!context) return null;
   const gl: WebGL2RenderingContext = context;
+
+  const maxLayers = Math.max(1, Math.min(maxLayersWanted, gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS) as number));
 
   const prog = program(gl, vertexSource, fragmentSource);
   const u = (name: string) => gl.getUniformLocation(prog, name);
@@ -426,6 +494,10 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   const uPulseGroup = u("uPulseGroup");
   const uPulseT = u("uPulseT");
   const uLevels = imageLevels.map((_, i) => u("uLevel" + i));
+  const uTiles = Array.from({ length: tileSlots }, (_, i) => u("uTile" + i));
+  const uTileCard = u("uTileCard");
+  const uTileRect = u("uTileRect");
+  const uTileTime = u("uTileTime");
 
   // the quad every card is an instance of, corner (0,0) to (1,1)
   const quad = gl.createBuffer()!;
@@ -479,6 +551,19 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   arrayTextureParameters(gl);
   const levelTextures: (WebGLTexture | null)[] = imageLevels.map(() => null);
   const levelLayers: number[] = imageLevels.map(() => 0);
+  // The tiles: a plain texture per slot, made at the size of the first picture put in it, and a
+  // grey pixel for a slot with none. Which slot is laid where is told per frame (setTiles), so
+  // the textures are bound in that order rather than by slot.
+  const emptyTile = gl.createTexture()!;
+  gl.bindTexture(gl.TEXTURE_2D, emptyTile);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([128, 128, 128, 255]));
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  const tileTextures: (WebGLTexture | null)[] = Array.from({ length: tileSlots }, () => null);
+  const tileOrder = new Int32Array(tileSlots).fill(-1); // the slot drawn at each place, -1 for none
+  const tileCards = new Int32Array(tileSlots).fill(-1);
+  const tileRects = new Float32Array(tileSlots * 4);
+  const tileTimes = new Float32Array(tileSlots);
   // a bitmap that is not the size of its level is drawn onto this first, so a layer is always whole
   let resizeCanvas: HTMLCanvasElement | null = null;
 
@@ -548,10 +633,11 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     return now < fadeUntil;
   }
 
-  // the most a card can be zoomed to: six canvas widths, so a picture can be looked into (the
-  // sharpest level is stretched a few times over by then, which is what looking into it means)
+  // the most a card can be zoomed to: 48 canvas widths. Past the largest level the picture is
+  // shown in tiles cut out at the canvas' width, so it stays sharp down to the pixels of the
+  // original; from there on those pixels are simply magnified, which is what looking into it means
   function maxZoomFor(): number {
-    return Math.max(zoomLimitFloor, (6 * width) / dpr / cardFill);
+    return Math.max(zoomLimitFloor, (48 * width) / dpr / cardFill);
   }
 
   function cameraMoving(): boolean {
@@ -624,6 +710,16 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       gl.bindTexture(gl.TEXTURE_2D_ARRAY, levelTextures[i] ?? emptyLevel);
       gl.uniform1i(uLevels[i], 1 + i);
     }
+    const tileBase = 1 + imageLevels.length;
+    for (let k = 0; k < tileSlots; k++) {
+      const slot = tileOrder[k];
+      gl.activeTexture(gl.TEXTURE0 + tileBase + k);
+      gl.bindTexture(gl.TEXTURE_2D, (slot >= 0 ? tileTextures[slot] : null) ?? emptyTile);
+      gl.uniform1i(uTiles[k], tileBase + k);
+    }
+    gl.uniform1iv(uTileCard, tileCards);
+    gl.uniform4fv(uTileRect, tileRects);
+    gl.uniform1fv(uTileTime, tileTimes);
     gl.activeTexture(gl.TEXTURE0);
   }
 
@@ -905,7 +1001,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     },
 
     ensureImageLevel(level, layers) {
-      layers = Math.max(1, Math.min(maxLayersPerLevel, Math.floor(layers)));
+      layers = Math.max(1, Math.min(maxLayers, Math.floor(layers)));
       if (levelTextures[level] !== null && levelLayers[level] >= layers) return;
       // storage is immutable once made: a level asked to grow is made anew (its pictures are gone,
       // which the owner knows, having asked)
@@ -952,6 +1048,50 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       dirty = true;
       schedule();
     },
+    setTiles(tiles) {
+      tileOrder.fill(-1);
+      tileCards.fill(-1);
+      tileRects.fill(0);
+      tileTimes.fill(0);
+      for (let k = 0; k < tiles.length && k < tileSlots; k++) {
+        const t = tiles[k];
+        if (t.slot < 0 || t.slot >= tileSlots || tileTextures[t.slot] === null) continue;
+        tileOrder[k] = t.slot;
+        tileCards[k] = t.card;
+        for (let c = 0; c < 4; c++) tileRects[k * 4 + c] = t.rect[c];
+        tileTimes[k] = t.arrivalMs;
+        fadeUntil = Math.max(fadeUntil, t.arrivalMs + imageFadeMs + 20);
+      }
+      dirty = true;
+      schedule();
+    },
+    uploadTile(slot, image) {
+      if (slot < 0 || slot >= tileSlots) return;
+      let texture = tileTextures[slot];
+      if (texture === null) {
+        texture = gl.createTexture()!;
+        tileTextures[slot] = texture;
+      }
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+    },
+    freeTiles() {
+      for (let i = 0; i < tileSlots; i++) {
+        if (tileTextures[i] !== null) gl.deleteTexture(tileTextures[i]);
+        tileTextures[i] = null;
+      }
+      tileOrder.fill(-1);
+      tileCards.fill(-1);
+      dirty = true;
+      schedule();
+    },
     destroy() {
       destroyed = true;
       if (raf !== 0) cancelAnimationFrame(raf);
@@ -965,7 +1105,9 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       gl.deleteVertexArray(vao);
       gl.deleteTexture(palette);
       gl.deleteTexture(emptyLevel);
+      gl.deleteTexture(emptyTile);
       for (const t of levelTextures) if (t !== null) gl.deleteTexture(t);
+      for (const t of tileTextures) if (t !== null) gl.deleteTexture(t);
       gl.deleteTexture(pickTexture);
       gl.deleteFramebuffer(pickFramebuffer);
       gl.deleteProgram(prog);

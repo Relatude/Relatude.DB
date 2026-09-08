@@ -1,4 +1,4 @@
-import { CardKind, cardFill, detailCssPx, imageLevels, imageShare, type CardField } from "./cardField";
+import { CardKind, cardFill, detailCssPx, imageLevels, imageShare, tileSlots, tileWidths, type CardField, type TileOnScreen } from "./cardField";
 import type { Layout } from "./layouts";
 import { IntMap } from "./intMap";
 import { fetchCards, streamCardImages } from "../server/query";
@@ -32,6 +32,13 @@ import { fetchCards, streamCardImages } from "../server/query";
  *
  * Encoded bytes are cached here too, keyed by node, file version and level, so a card that lost
  * its layer and comes back into view is a decode away rather than a request.
+ *
+ * Past the largest level the zoom goes on with tiles: the part of a card's picture that is in view,
+ * cut out by the server at the width of the canvas (through the same conversion cache, as a zoomed
+ * and focused adjustment), on a grid that halves with every doubling of the card - so a tile is
+ * never more than a screen of pixels, and the picture stays sharp down to the pixels of the
+ * original, past which the tiles are simply magnified. A card wider than the canvas is at most four
+ * tiles; coarser ones stay underneath while sharper ones arrive.
  */
 
 export interface CardMedia {
@@ -58,22 +65,39 @@ const marginCells = 1;
 const scheduleEveryMs = 100;
 /** a card's width on screen, as a share of detailCssPx, at which fetching starts: a little before the pictures show */
 const engageShare = 0.85;
-/** how many pictures one request asks for (the server allows 128), and how many names */
-const imagesPerBatch = 64;
+/** how many pictures one request asks for (the server allows 128; the small levels take the most, a screen holds thousands of them), and how many names */
+const imagesPerBatchFor = (level: number) => (level <= 1 ? 128 : 64);
+/**
+ * How many requests one level may have on its way at once. A screen of the smallest cards is
+ * thousands of pictures - a dozen batches - and one at a time would fill the screen in stages you
+ * could count; the small pictures are a few kilobytes each, so several batches at once cost little.
+ * The large levels stay at one: those requests are megabytes and seconds of conversion.
+ */
+const maxRequestsFor = (level: number) => (level <= 1 ? 4 : level <= 3 ? 2 : 1);
 const namesPerBatch = 500;
 /** texels uploaded per frame at most: a 2048 picture is three million, a 256 one fifty thousand */
 const uploadTexelBudget = 3_500_000;
+/** and pictures per frame at most, whatever their size: an upload is a driver call, and the small levels arrive in hundreds */
+const uploadsPerFrame = 64;
 /** decodes running at once */
 const maxDecoding = 6;
 /** encoded bytes kept, across results */
 const byteCacheBudget = 96 * 1024 * 1024;
 /**
- * The most layers each level is given. Each layer is a picture: 48 KB at 128, 192 KB at 256, 768 KB
- * at 512, 3 MB at 1024, 12 MB at 2048 - so these bound the GPU memory at about 150 MB with every
- * level in use, and a level is only made when the zoom first reaches it. Fewer layers than cards on
- * screen at a level means the rest draw the level below, one step softer.
+ * The most layers each level is given. Each layer is a picture: 12 KB at 64, 48 KB at 128, 192 KB
+ * at 256, 768 KB at 512, 3 MB at 1024, 12 MB at 2048 - so these bound the GPU memory at about 200 MB
+ * with every level in use, and a level is only made when the zoom first reaches it. Fewer layers
+ * than cards on screen at a level means the rest draw the level below, one step softer.
  */
-const layerCaps = [384, 160, 48, 12, 3];
+const layerCaps = [2048, 1024, 160, 48, 12, 2];
+/** how long tiles are kept after the zoom has left them before their textures are let go */
+const tileIdleMs = 8000;
+/** how far beyond the part in view a tile is asked for, as a share of the part in view */
+const tileMargin = 0.1;
+/** how far a tile may magnify the original's pixels before a sharper one is pointless: there is nothing sharper to show */
+const tileMaxMagnification = 2;
+/** tile requests in flight at once */
+const maxTileRequests = 2;
 /** how long to wait before asking again for a picture still being converted, doubling each time, and how often */
 const retryBaseMs = 1500;
 const maxRetries = 6;
@@ -96,7 +120,8 @@ interface Level {
   free: number[];
   /** card index → layer */
   cardSlot: Map<number, number>;
-  inFlight: boolean;
+  /** requests on their way for this level */
+  requests: number;
 }
 
 interface Shown {
@@ -113,6 +138,25 @@ interface Ready {
   bitmap: ImageBitmap;
 }
 
+/** a tile: the card, the node and file version, the grid it is on (p halvings, cell i, j) and the width it is made at */
+interface TileWanted {
+  index: number;
+  id: number;
+  v: string;
+  p: number;
+  i: number;
+  j: number;
+  width: number;
+  dist: number;
+}
+
+interface TileSlot extends TileWanted {
+  /** the part of the picture the tile shows, as the server made it */
+  rect: Float32Array;
+  arrival: number;
+  lastWanted: number;
+}
+
 export function createCardMedia(field: CardField, initialStoreId: string): CardMedia {
   let storeId = initialStoreId;
   let ids: Int32Array = new Int32Array(0);
@@ -126,11 +170,11 @@ export function createCardMedia(field: CardField, initialStoreId: string): CardM
   let spanX = 1;
   // what is known about the nodes, by node id: kept across results
   const names = new Map<number, string>();
-  const images = new Map<number, { p: string; v: string }>();
+  const images = new Map<number, { p: string; v: string; w: number; h: number }>();
   // per card of the current result
   let state: Uint8Array = new Uint8Array(0);
   const shown = new Map<number, Shown>();
-  const levels: Level[] = imageLevels.map(() => ({ layers: 0, slotCard: new Int32Array(0), slotSeen: new Float64Array(0), free: [], cardSlot: new Map(), inFlight: false }));
+  const levels: Level[] = imageLevels.map(() => ({ layers: 0, slotCard: new Int32Array(0), slotSeen: new Float64Array(0), free: [], cardSlot: new Map(), requests: 0 }));
   // the viewport, as of the last frame
   const visibleIndexes = new Int32Array(maxVisible);
   const visibleDist = new Float32Array(maxVisible);
@@ -150,6 +194,13 @@ export function createCardMedia(field: CardField, initialStoreId: string): CardM
   const toDecode: { index: number; id: number; level: number; bytes: Uint8Array }[] = [];
   let decoding = 0;
   const ready: Ready[] = [];
+  // tiles
+  const tiles: (TileSlot | null)[] = Array.from({ length: tileSlots }, () => null);
+  let tilesInFlight = 0; // tile requests on their way; a couple at a time, they are large and the server converts them beside each other
+  let tilesWantedAt = 0; // when a tile was last wanted, for letting the textures go
+  const noTiles = new Set<number>(); // node ids whose picture cannot be tiled (its size unknown, or the server said so)
+  const tileRegions = new Map<string, Float32Array>(); // by byte cache key: the part of the picture a cached tile shows
+  const tileReady: { want: TileWanted; bitmap: ImageBitmap; region: Float32Array }[] = [];
   let lastSchedule = 0;
   let timer = 0;
   let destroyed = false;
@@ -390,7 +441,7 @@ export function createCardMedia(field: CardField, initialStoreId: string): CardM
       if (best !== (shown.get(i)?.level ?? -1)) present(i, now);
       if (best < desired) {
         // nothing sharp enough: the level wanted, and a quick small one first when it has nothing at all
-        if (best < 0 && desired > 1) want(i, 1, visibleDist[k] + 1e6, wanted, now);
+        if (best < 0 && desired > 2) want(i, 2, visibleDist[k] + 1e6, wanted, now);
         want(i, desired, visibleDist[k], wanted, now);
       } else if (best > desired + 1) {
         // far sharper than the card is wide, which shimmers: the right level, after everything else
@@ -401,15 +452,23 @@ export function createCardMedia(field: CardField, initialStoreId: string): CardM
       const list = wanted[l];
       if (list.length === 0) continue;
       outstanding = true;
-      if (levels[l].inFlight) continue;
-      // a level whose every layer is in view has no room for more: asking would only waste the decode
       const L = levels[l];
+      let spare = maxRequestsFor(l) - L.requests;
+      if (spare <= 0) continue;
+      // a level whose every layer is in view has no room for more: asking would only waste the decode
       if (L.layers > 0 && L.free.length === 0 && L.cardSlot.size >= L.layers && everyLayerInView(L)) continue;
       // and no level is asked for more pictures than it has layers, nearest the centre first
-      const room = L.layers > 0 ? L.layers - L.cardSlot.size + countOutOfView(L) : capacityFor(l);
+      let room = L.layers > 0 ? L.layers - L.cardSlot.size + countOutOfView(L) : capacityFor(l);
       if (room <= 0) continue;
       list.sort((a, b) => a.dist - b.dist);
-      requestImages(l, list.slice(0, Math.min(imagesPerBatch, room)).map((w) => w.index));
+      // as many batches as the level will carry, the nearest cards in the first of them
+      const batch = imagesPerBatchFor(l);
+      for (let at = 0; at < list.length && spare > 0 && room > 0; at += batch) {
+        const take = Math.min(batch, room, list.length - at);
+        requestImages(l, list.slice(at, at + take).map((w) => w.index));
+        spare--;
+        room -= take;
+      }
     }
     if (outstanding || inFlight.size > 0 || namesInFlight || retries.size > 0) kick();
   }
@@ -473,7 +532,7 @@ export function createCardMedia(field: CardField, initialStoreId: string): CardM
         for (const card of answer.cards) {
           seen.add(card.id);
           names.set(card.id, card.name);
-          if (card.image) images.set(card.id, { p: card.image, v: card.version ?? "" });
+          if (card.image) images.set(card.id, { p: card.image, v: card.version ?? "", w: card.width ?? 0, h: card.height ?? 0 });
           else images.delete(card.id);
           const i = map.get(card.id);
           if (i >= 0) settle(i, card.id, now);
@@ -505,7 +564,7 @@ export function createCardMedia(field: CardField, initialStoreId: string): CardM
 
   function requestImages(level: number, indexes: number[]) {
     const L = levels[level];
-    L.inFlight = true;
+    L.requests++;
     const items: { id: number; p: string }[] = [];
     for (const i of indexes) {
       const id = ids[i];
@@ -515,7 +574,7 @@ export function createCardMedia(field: CardField, initialStoreId: string): CardM
       items.push({ id, p: info.p });
     }
     if (items.length === 0) {
-      L.inFlight = false;
+      L.requests--;
       return;
     }
     const signal = abort.signal;
@@ -560,7 +619,7 @@ export function createCardMedia(field: CardField, initialStoreId: string): CardM
       .finally(() => {
         if (signal.aborted) return;
         for (const item of items) inFlight.delete(key(item.id, level));
-        L.inFlight = false;
+        L.requests--;
         kick();
       });
   }
@@ -585,8 +644,225 @@ export function createCardMedia(field: CardField, initialStoreId: string): CardM
     for (const [oldest, value] of byteCache) {
       if (byteTotal <= byteCacheBudget) break;
       byteCache.delete(oldest);
+      tileRegions.delete(oldest);
       byteTotal -= value.byteLength;
     }
+  }
+
+  // ---- tiles: past the largest level, the part of the picture in view ----
+
+  function tileKey(w: TileWanted): string {
+    return w.id + ":" + w.v + ":t" + w.p + ":" + w.i + ":" + w.j + ":" + w.width;
+  }
+  function sameTile(a: TileWanted, b: TileWanted): boolean {
+    return a.id === b.id && a.v === b.v && a.p === b.p && a.i === b.i && a.j === b.j && a.width === b.width;
+  }
+  /** the tile width for a canvas: the first at least as wide as it, so a tile's pixels are never stretched over the screen's */
+  function tileWidthFor(canvasDevPx: number): number {
+    for (const w of tileWidths) if (w >= canvasDevPx) return w;
+    return tileWidths[tileWidths.length - 1];
+  }
+
+  /**
+   * The tiles the cards in view want, nearest the centre first. A card wants tiles once it is wider
+   * on screen than the largest level, on the grid whose tiles are at least as wide as the canvas
+   * (p halvings of the picture), and no finer than the original's own pixels allow.
+   */
+  function wantedTiles(now: number): TileWanted[] {
+    const wanted: TileWanted[] = [];
+    if (layout === null || visibleCount === 0) return wanted;
+    const cam = field.cameraTarget();
+    const { width, height, dpr } = field.size();
+    const cardDev = cardFill * cam.zoom * dpr;
+    const top = imageLevels[imageLevels.length - 1];
+    if (cardDev <= top) return wanted;
+    const tw = tileWidthFor(width * dpr);
+    const positions = layout.positions;
+    const halfW = width / 2 / cam.zoom;
+    const halfH = height / 2 / cam.zoom;
+    const pictureH = cardFill * imageShare;
+    for (let k = 0; k < visibleCount; k++) {
+      const index = visibleIndexes[k];
+      if (state[index] !== State.Image) continue;
+      const id = ids[index];
+      const info = images.get(id);
+      if (info === undefined || noTiles.has(id) || info.w <= 0 || info.h <= 0) continue;
+      // the picture is the 4:3 middle of the original; tiles of it are sharp down to its pixels
+      const pictureW = info.w * 3 >= info.h * 4 ? (info.h * 4) / 3 : info.w;
+      const pMax = Math.floor(Math.log2((tileMaxMagnification * pictureW) / tw));
+      const p = Math.min(pMax, Math.floor(Math.log2(cardDev / tw)));
+      if (p < 1) continue;
+      const n = 1 << p;
+      // the part of the picture in view, as fractions of the picture, with a margin around it
+      const x0 = positions[index * 2] + 0.5 - cardFill / 2;
+      const y0 = positions[index * 2 + 1] + 0.5 - cardFill / 2;
+      let u0 = (cam.x - halfW - x0) / cardFill;
+      let u1 = (cam.x + halfW - x0) / cardFill;
+      let v0 = (cam.y - halfH - y0) / pictureH;
+      let v1 = (cam.y + halfH - y0) / pictureH;
+      const mu = tileMargin * (u1 - u0);
+      const mv = tileMargin * (v1 - v0);
+      u0 = Math.max(0, u0 - mu);
+      u1 = Math.min(1, u1 + mu);
+      v0 = Math.max(0, v0 - mv);
+      v1 = Math.min(1, v1 + mv);
+      if (u1 <= u0 || v1 <= v0) continue;
+      const uc = (u0 + u1) / 2;
+      const vc = (v0 + v1) / 2;
+      const i0 = Math.min(n - 1, Math.floor(u0 * n));
+      const i1 = Math.min(n - 1, Math.floor(u1 * n));
+      const j0 = Math.min(n - 1, Math.floor(v0 * n));
+      const j1 = Math.min(n - 1, Math.floor(v1 * n));
+      for (let j = j0; j <= j1; j++) {
+        for (let i = i0; i <= i1; i++) {
+          const du = (i + 0.5) / n - uc;
+          const dv = (j + 0.5) / n - vc;
+          wanted.push({ index, id, v: info.v, p, i, j, width: tw, dist: du * du + dv * dv });
+        }
+      }
+    }
+    wanted.sort((a, b) => a.dist - b.dist);
+    if (wanted.length > tileSlots) wanted.length = tileSlots;
+    if (wanted.length > 0) tilesWantedAt = now;
+    return wanted;
+  }
+
+  function tileFrame(now: number) {
+    const wanted = wantedTiles(now);
+    for (const w of wanted) {
+      const held = tiles.find((t) => t !== null && sameTile(t, w));
+      if (held) {
+        held.lastWanted = now;
+        continue;
+      }
+      const k = tileKey(w);
+      if (inFlight.has(k)) continue;
+      const retry = retries.get(k);
+      if (retry !== undefined && retry.notBefore > now) continue;
+      const cached = byteCache.get(k);
+      const region = tileRegions.get(k);
+      if (cached !== undefined && region !== undefined) {
+        inFlight.add(k);
+        decodeTile(w, cached, region);
+      } else if (tilesInFlight < maxTileRequests) {
+        requestTile(w);
+      }
+    }
+    uploadTilesReady(now);
+    // tiles nobody has wanted for a while go, textures and all
+    if (wanted.length === 0 && tilesWantedAt > 0 && now - tilesWantedAt > tileIdleMs && tiles.some((t) => t !== null)) {
+      tiles.fill(null);
+      field.freeTiles();
+      tilesWantedAt = 0;
+    }
+  }
+
+  function requestTile(w: TileWanted) {
+    const info = images.get(w.id);
+    if (info === undefined) return;
+    const k = tileKey(w);
+    tilesInFlight++;
+    inFlight.add(k);
+    const signal = abort.signal;
+    const n = 1 << w.p;
+    streamCardImages(
+      storeId,
+      w.width,
+      [{ id: w.id, p: info.p, tile: { x: w.i / n, y: w.j / n, size: 1 / n, width: w.width } }],
+      (id, status, bytes, region) => {
+        if (signal.aborted || id !== w.id) return;
+        inFlight.delete(k);
+        if (status === 0 && region !== null) {
+          retries.delete(k);
+          cacheBytes(k, bytes);
+          tileRegions.set(k, region);
+          inFlight.add(k); // while it decodes
+          decodeTile(w, bytes, region);
+        } else if (status === 1) {
+          const r = retries.get(k) ?? { tries: 0, notBefore: 0 };
+          r.tries++;
+          r.notBefore = performance.now() + retryBaseMs * Math.pow(2, r.tries - 1);
+          retries.set(k, r);
+          if (r.tries > maxRetries) {
+            retries.delete(k);
+            noTiles.add(id);
+          }
+        } else {
+          noTiles.add(id); // no tile to be had for this picture; it keeps its largest level
+        }
+      },
+      signal,
+    )
+      .catch(() => {
+        // asked again on a later pass
+      })
+      .finally(() => {
+        if (signal.aborted) return;
+        inFlight.delete(k);
+        tilesInFlight--;
+        kick();
+        field.invalidate();
+      });
+  }
+
+  function decodeTile(w: TileWanted, bytes: Uint8Array, region: Float32Array) {
+    const signal = abort.signal;
+    createImageBitmap(new Blob([bytes as BlobPart]), { premultiplyAlpha: "none", colorSpaceConversion: "default" })
+      .then((bitmap) => {
+        if (signal.aborted || destroyed) {
+          bitmap.close();
+          return;
+        }
+        tileReady.push({ want: w, bitmap, region });
+        field.invalidate();
+      })
+      .catch(() => {
+        if (!signal.aborted) inFlight.delete(tileKey(w));
+      });
+  }
+
+  /** one tile a frame into a free slot, or the slot whose tile has gone unwanted longest */
+  function uploadTilesReady(now: number) {
+    while (tileReady.length > 0) {
+      const r = tileReady.shift()!;
+      inFlight.delete(tileKey(r.want));
+      if (ids[r.want.index] !== r.want.id || state[r.want.index] !== State.Image) {
+        r.bitmap.close();
+        continue;
+      }
+      let slot = tiles.findIndex((t) => t === null);
+      if (slot < 0) {
+        let oldest = Infinity;
+        for (let s = 0; s < tileSlots; s++) {
+          const t = tiles[s]!;
+          if (t.lastWanted < now && t.lastWanted < oldest) {
+            oldest = t.lastWanted;
+            slot = s;
+          }
+        }
+        if (slot < 0) {
+          r.bitmap.close(); // every slot is wanted as it is
+          continue;
+        }
+      }
+      field.uploadTile(slot, r.bitmap);
+      r.bitmap.close();
+      tiles[slot] = { ...r.want, rect: r.region, arrival: now, lastWanted: now };
+      showTiles();
+      break;
+    }
+    if (tileReady.length > 0) field.invalidate();
+  }
+
+  /** the field is told the tiles held, coarsest first, so a sharper one is laid over the one it replaces */
+  function showTiles() {
+    const shown: TileOnScreen[] = [];
+    for (let s = 0; s < tileSlots; s++) {
+      const t = tiles[s];
+      if (t !== null) shown.push({ card: t.index, slot: s, rect: t.rect, arrivalMs: t.arrival });
+    }
+    shown.sort((a, b) => tiles[a.slot]!.p - tiles[b.slot]!.p);
+    field.setTiles(shown);
   }
 
   // ---- decoding and uploading ----
@@ -618,7 +894,8 @@ export function createCardMedia(field: CardField, initialStoreId: string): CardM
 
   function uploadReady(now: number) {
     let budget = uploadTexelBudget;
-    while (ready.length > 0 && budget > 0) {
+    let uploads = uploadsPerFrame;
+    while (ready.length > 0 && budget > 0 && uploads > 0) {
       const r = ready.shift()!;
       inFlight.delete(key(r.id, r.level));
       // meanwhile the card may have left the screen, changed, or been given the level another way
@@ -634,6 +911,7 @@ export function createCardMedia(field: CardField, initialStoreId: string): CardM
       field.uploadImage(r.level, layer, r.bitmap);
       r.bitmap.close();
       budget -= imageLevels[r.level] * imageLevels[r.level] * imageShare;
+      uploads--;
       present(r.index, now);
     }
     if (ready.length > 0) field.invalidate(); // the rest next frame
@@ -647,10 +925,15 @@ export function createCardMedia(field: CardField, initialStoreId: string): CardM
     inFlight.clear();
     retries.clear();
     namesInFlight = false;
-    for (const L of levels) L.inFlight = false;
+    for (const L of levels) L.requests = 0;
     toDecode.length = 0;
     for (const r of ready) r.bitmap.close();
     ready.length = 0;
+    for (const r of tileReady) r.bitmap.close();
+    tileReady.length = 0;
+    tilesInFlight = 0;
+    tiles.fill(null);
+    field.setTiles([]);
     shown.clear();
     freeAllLayers();
     visibleCount = 0;
@@ -666,7 +949,9 @@ export function createCardMedia(field: CardField, initialStoreId: string): CardM
       reset();
       names.clear();
       images.clear();
+      noTiles.clear();
       byteCache.clear();
+      tileRegions.clear();
       byteTotal = 0;
       state.fill(0);
     },
@@ -700,11 +985,13 @@ export function createCardMedia(field: CardField, initialStoreId: string): CardM
           r.bitmap.close();
         }
         ready.length = 0;
+        tileFrame(now);
         return;
       }
       desired = levelFor(cardCss * dpr);
       scan(now);
       uploadReady(now);
+      tileFrame(now);
       if (now - lastSchedule >= scheduleEveryMs) schedule(now);
       else kick();
     },

@@ -401,7 +401,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
           className="action-button"
           onClick={onCollectGarbage}
           disabled={cacheBusy !== null}
-          title="Deep, blocking, compacting collection of the whole server process"
+          title="The deepest collection the runtime allows - blocking, compacting, repeated - on the whole server process"
         >
           <IconRecycle size={14} stroke={1.8} /> {cacheBusy === "collect" ? "Collecting…" : "Collect garbage"}
         </button>

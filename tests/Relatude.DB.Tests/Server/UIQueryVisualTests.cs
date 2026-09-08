@@ -222,13 +222,14 @@ public class UIQueryVisualTests {
 
             // the pictures: one record per card asked for, the picture at the level's width and
             // three quarters of it in height, and a card without one answered as such
-            var records = await cardImages(host, storeId, 128, new[] {
+            var records = await cardImages(host, storeId, 128, new object[] {
                 new { id = pictureCardId, p = fileProperty.Id },
                 new { id = clipCardId, p = fileProperty.Id },
             });
             Assert.AreEqual(2, records.Count);
             var picture = records.Single(r => r.Id == pictureCardId);
             Assert.AreEqual(0, picture.Status, "the picture is ready");
+            Assert.IsNull(picture.Region, "a whole picture carries no region");
             using (var decoded = NativeImage.Load(new MemoryStream(picture.Bytes))) {
                 Assert.AreEqual(128, decoded.Width);
                 Assert.AreEqual(96, decoded.Height);
@@ -236,19 +237,35 @@ public class UIQueryVisualTests {
             var clip = records.Single(r => r.Id == clipCardId);
             Assert.AreNotEqual(0, clip.Status, "a clip has no picture at this route");
             Assert.AreEqual(0, clip.Bytes.Length);
+
+            // a tile: the lower right quarter of the picture, made a level's width, with the region
+            // it shows reported back - which is what was asked for, give or take the encoder's pixels
+            Assert.AreEqual(320, prop(cards[pictureCardId], "width").GetInt32(), "the original's size is told");
+            var tiles = await cardImages(host, storeId, 128, new object[] { new { id = pictureCardId, p = fileProperty.Id, tile = new { x = 0.5, y = 0.5, size = 0.5, width = 1024 } } });
+            var tileRecord = tiles.Single();
+            Assert.AreEqual(0, tileRecord.Status, "the tile is ready");
+            Assert.IsNotNull(tileRecord.Region);
+            var region = tileRecord.Region!;
+            Assert.IsTrue(Math.Abs(region[0] - 0.5) < 0.02 && Math.Abs(region[1] - 0.5) < 0.02 && Math.Abs(region[2] - 1.0) < 0.02 && Math.Abs(region[3] - 1.0) < 0.02,
+                "the region is the quarter asked for: " + string.Join(", ", region));
+            using (var decoded = NativeImage.Load(new MemoryStream(tileRecord.Bytes))) {
+                Assert.AreEqual(1024, decoded.Width);
+                Assert.AreEqual(768, decoded.Height);
+            }
         } finally {
             await host.DisposeAsync();
             try { Directory.Delete(root, true); } catch { }
         }
     }
 
-    sealed record ImageRecord(int Id, byte Status, byte[] Bytes);
+    sealed record ImageRecord(int Id, byte Status, float[]? Region, byte[] Bytes);
     sealed class BodyPresent : Microsoft.AspNetCore.Http.Features.IHttpRequestBodyDetectionFeature {
         public bool CanHaveBody => true;
     }
 
     // the card-images route, driven through its endpoint the way the browser reaches it, and its
-    // binary answer parsed record by record: int32 id, status byte, int32 length, the bytes
+    // binary answer parsed record by record: int32 id, status byte, flags byte, int32 length, a
+    // region of four floats when the flags say so, the bytes
     static async Task<List<ImageRecord>> cardImages(TestServerHost host, Guid storeId, int level, object[] items) {
         var endpoint = ((IEndpointRouteBuilder)host.App).DataSources.SelectMany(d => d.Endpoints).OfType<RouteEndpoint>()
             .Single(e => e.RoutePattern.RawText != null && e.RoutePattern.RawText.EndsWith("/ui/card-images", StringComparison.Ordinal));
@@ -274,12 +291,19 @@ public class UIQueryVisualTests {
         var bytes = response.ToArray();
         var records = new List<ImageRecord>();
         var at = 0;
-        while (at + 9 <= bytes.Length) {
+        while (at + 10 <= bytes.Length) {
             var id = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(at));
             var status = bytes[at + 4];
-            var length = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(at + 5));
-            at += 9;
-            records.Add(new ImageRecord(id, status, bytes.AsSpan(at, length).ToArray()));
+            var flags = bytes[at + 5];
+            var length = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(at + 6));
+            at += 10;
+            float[]? region = null;
+            if ((flags & 1) != 0) {
+                region = new float[4];
+                for (var i = 0; i < 4; i++) region[i] = BinaryPrimitives.ReadSingleLittleEndian(bytes.AsSpan(at + i * 4));
+                at += 16;
+            }
+            records.Add(new ImageRecord(id, status, region, bytes.AsSpan(at, length).ToArray()));
             at += length;
         }
         Assert.AreEqual(bytes.Length, at, "the stream is whole records");
