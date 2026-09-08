@@ -51,6 +51,8 @@ export interface VisualDefinition {
   sortDescending?: boolean;
   /** the legend beside the picture */
   legend: boolean;
+  /** the colours the cards are painted with (visual/palette.ts); absent is the first palette */
+  palette?: string;
 }
 
 export interface SavedQuery {

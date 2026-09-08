@@ -1,12 +1,16 @@
 /**
- * The colours the visual pivot paints its cards with.
+ * The colours the visual pivot paints its cards with: one per distinct value of a property, and a
+ * property can have hundreds - so a palette is a band of OKLCH space (a span of hue, of tone and of
+ * chroma) filled by a low-discrepancy sequence, which spreads any number of colours evenly through
+ * the band without two of them landing on top of each other.
  *
- * One colour per distinct value of a property, and a property can have hundreds - so the palette is
- * computed, not drawn up by hand, and computed the same way every time: hues stepped around the
- * wheel by the golden angle, so any two neighbours in the sequence sit far apart, at a lightness and
- * a chroma that only wander a little (a seeded generator, the same seed every run). Holding those two
- * close is what makes five hundred different hues read as one family rather than as confetti; the
- * work is done in OKLCH, where "the same lightness" is what the eye agrees it is.
+ * Tone is distance from the page behind the cards rather than a lightness of its own: 0 is a card
+ * that barely lifts off the background, 1 one as far from it as the palette goes. The theme decides
+ * which way that is - down from white in the light theme, up from near-black in the dark one - so a
+ * palette keeps its character in both and never fades into the page in either.
+ *
+ * A palette that names no hue takes the one the app is already built on - the accent the buttons and
+ * links are drawn in - so the default picture is in the blue of the page around it, in both themes.
  */
 
 export type RGB = [number, number, number];
@@ -17,34 +21,88 @@ export interface PaletteColor {
   css: string;
 }
 
-/** Colours for `count` groups, in group order. The dark theme gets the same hues, lifted a little. */
-export function buildPalette(count: number, dark: boolean): PaletteColor[] {
-  const random = seeded(0x5eed);
+export interface PaletteSpec {
+  id: string;
+  name: string;
+  /** degrees; absent is a narrow band on the hue of the UI's accent colour */
+  hue?: [number, number];
+  /** 0..1, distance from the background (see the note above) */
+  tone: [number, number];
+  chroma: [number, number];
+}
+
+export const palettes: PaletteSpec[] = [
+  { id: "accent", name: "Accent", tone: [0, 0.95], chroma: [0.02, 0.15] },
+  { id: "spectrum", name: "Spectrum", hue: [0, 360], tone: [0.28, 0.5], chroma: [0.1, 0.16] },
+  { id: "pastel", name: "Pastel", hue: [0, 360], tone: [0.03, 0.2], chroma: [0.03, 0.08] },
+  { id: "vivid", name: "Vivid", hue: [0, 360], tone: [0.3, 0.72], chroma: [0.17, 0.3] },
+  { id: "warm", name: "Warm", hue: [5, 95], tone: [0, 0.82], chroma: [0.04, 0.19] },
+  { id: "cool", name: "Cool", hue: [175, 290], tone: [0, 0.85], chroma: [0.04, 0.17] },
+  { id: "forest", name: "Forest", hue: [100, 165], tone: [0, 0.92], chroma: [0.03, 0.16] },
+  { id: "berry", name: "Berry", hue: [295, 380], tone: [0, 0.85], chroma: [0.04, 0.18] },
+  { id: "ocean", name: "Ocean", hue: [220, 245], tone: [0, 1], chroma: [0.02, 0.16] },
+  { id: "amber", name: "Amber", hue: [60, 80], tone: [0, 0.94], chroma: [0.02, 0.17] },
+  { id: "rose", name: "Rose", hue: [10, 25], tone: [0, 0.96], chroma: [0.02, 0.17] },
+  { id: "slate", name: "Slate", hue: [235, 265], tone: [0, 1], chroma: [0.004, 0.05] },
+  { id: "mono", name: "Mono", hue: [0, 0], tone: [0, 1], chroma: [0, 0.012] },
+];
+
+export function paletteSpec(id: string | null | undefined): PaletteSpec {
+  return palettes.find((p) => p.id === id) ?? palettes[0];
+}
+
+/** Colours for `count` groups, in group order, for cards drawn on `background`. */
+export function buildPalette(count: number, background: RGB, accent: RGB, id?: string | null): PaletteColor[] {
+  const p = paletteSpec(id);
+  const bg = lightnessOf(background);
+  const near = bg > 0.5 ? bg - 0.15 : bg + 0.17;
+  const far = bg > 0.5 ? 0.36 : 0.92;
+  const ah = hueOf(accent);
+  const hue = p.hue ?? [ah - 10, ah + 10];
   const colors: PaletteColor[] = [];
-  const baseL = dark ? 0.74 : 0.66;
-  const baseC = dark ? 0.125 : 0.135;
   for (let i = 0; i < count; i++) {
-    const hue = (28 + i * 137.50776405) % 360;
-    // a little wander keeps neighbours in the sequence from looking like tints of one another once
-    // the wheel has been round a few times, without leaving the band the family lives in
-    const L = baseL + (random() - 0.5) * 0.09;
-    const C = baseC + (random() - 0.5) * 0.05;
-    const rgb = oklchToRgb(L, C, hue);
+    const h = hue[0] + frac(i * 0.6180339887) * (hue[1] - hue[0]);
+    const tone = p.tone[0] + frac(0.5 + i * 0.7548776662) * (p.tone[1] - p.tone[0]);
+    const C = p.chroma[0] + frac(0.5 + i * 0.569840291) * (p.chroma[1] - p.chroma[0]);
+    const rgb = oklchToRgb(near + tone * (far - near), C, h);
     colors.push({ rgb, css: `rgb(${rgb[0]} ${rgb[1]} ${rgb[2]})` });
   }
   return colors;
 }
 
-/** mulberry32: small, fast, and the same sequence for the same seed on every machine. */
-function seeded(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+/** An sRGB colour in OKLab: its lightness, and the two axes its hue is read from. */
+function oklabOf([r, g, b]: RGB): [number, number, number] {
+  const lin = (c: number) => {
+    const s = c / 255;
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
   };
+  const R = lin(r);
+  const G = lin(g);
+  const B = lin(b);
+  const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B);
+  const m = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B);
+  const s = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ];
+}
+
+/** What the eye reads as how light a colour is. */
+function lightnessOf(rgb: RGB): number {
+  return oklabOf(rgb)[0];
+}
+
+/** Where a colour sits on the hue wheel, in degrees. */
+function hueOf(rgb: RGB): number {
+  const [, a, b] = oklabOf(rgb);
+  const h = (Math.atan2(b, a) * 180) / Math.PI;
+  return h < 0 ? h + 360 : h;
+}
+
+function frac(x: number): number {
+  return x - Math.floor(x);
 }
 
 /**

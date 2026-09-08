@@ -7,13 +7,13 @@ import { formatCount, formatQuery } from "../format";
 import type { VisualDefinition } from "../queryTabs";
 import { createCardField, transitionSeconds, type CardField, type FieldTheme, type RGBf } from "../visual/cardField";
 import { barLayout, gridLayout, type Bar, type Layout } from "../visual/layouts";
-import { buildPalette, parseCssColor, type PaletteColor } from "../visual/palette";
+import { buildPalette, palettes, parseCssColor, type PaletteColor, type RGB } from "../visual/palette";
 import { IntMap } from "../visual/intMap";
 import { createCardMedia, type CardMedia } from "../visual/cardMedia";
 import { createCardLabels, type CardLabels, type LabelColors } from "../visual/cardLabels";
 
 /** A visual pivot before anyone has chosen anything: a grid of one colour, in the result's order. */
-export const emptyVisual: VisualDefinition = { colorProperty: null, colorMode: "auto", barProperty: null, barMode: "auto", sortProperty: null, sortDescending: false, legend: true };
+export const emptyVisual: VisualDefinition = { colorProperty: null, colorMode: "auto", barProperty: null, barMode: "auto", sortProperty: null, sortDescending: false, legend: true, palette: palettes[0].id };
 
 /** what a group stands for: a value of the property, the nodes without one, or the ones outside the groups kept */
 type GroupKind = "value" | "none" | "other";
@@ -43,9 +43,12 @@ interface Decoded {
 }
 
 interface Theme extends FieldTheme {
-  dark: boolean;
-  none: [number, number, number];
-  other: [number, number, number];
+  /** the page behind the cards: what the palette holds its contrast against */
+  panel: RGB;
+  /** the blue the app is drawn in: the hue a palette that names none of its own takes */
+  accent: RGB;
+  none: RGB;
+  other: RGB;
 }
 
 interface Tooltip {
@@ -255,7 +258,7 @@ export function VisualPivotView({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- lives with the canvas element
   }, [hasStage]);
 
-  const palette = useMemo(() => buildPalette(paletteSize, theme?.dark ?? false), [theme?.dark]);
+  const palette = useMemo(() => buildPalette(paletteSize, theme?.panel ?? [255, 255, 255], theme?.accent ?? [9, 96, 178], def.palette), [theme, def.palette]);
 
   // another database: nothing known about the cards carries over
   useEffect(() => {
@@ -503,6 +506,13 @@ export function VisualPivotView({
           <span className="pivot-chip">
             {propertySelect(colorProperty, "(one colour)", "The property whose values colour the cards", (id) => onChange({ ...def, colorProperty: id }))}
             {modeSelect(colorInfo, def.colorMode, (mode) => onChange({ ...def, colorMode: mode }))}
+            <select className="select" value={def.palette ?? palettes[0].id} title="The colours the cards are painted with" onChange={(e) => onChange({ ...def, palette: e.target.value })}>
+              {palettes.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
           </span>
           <span className="pivot-builder-label visual-label-2">Bars by</span>
           <span className="pivot-chip">
@@ -724,10 +734,10 @@ function readTheme(el: HTMLElement): Theme {
   const accent = parseCssColor(v("--accent", "#0960b2"));
   const faint = parseCssColor(v("--text-faint", "#a6a39d"));
   const border = parseCssColor(v("--border", "#c6c1b9"));
-  const dark = panel[0] + panel[1] + panel[2] < text[0] + text[1] + text[2];
-  const f = (c: [number, number, number]): RGBf => [c[0] / 255, c[1] / 255, c[2] / 255];
+  const f = (c: RGB): RGBf => [c[0] / 255, c[1] / 255, c[2] / 255];
   return {
-    dark,
+    panel,
+    accent,
     clear: f(panel),
     outline: f(accent),
     ink: f(text),
