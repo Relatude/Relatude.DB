@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { IconArrowNarrowDown, IconArrowNarrowUp, IconFocusCentered, IconListDetails, IconMinus, IconPhoto, IconPhotoOff, IconPlus } from "@tabler/icons-react";
-import { FullscreenButton } from "./DatamodelGraph";
+import { IconArrowNarrowDown, IconArrowNarrowUp, IconCube3dSphere, IconFocusCentered, IconListDetails, IconMinus, IconPhoto, IconPhotoOff, IconPlus, IconRestore, IconRotate360 } from "@tabler/icons-react";
+import { BareButton, FullscreenButton } from "./DatamodelGraph";
 import type { PivotBase } from "./PivotView";
 import { bytesOf, fetchNodeGuid, fetchPivotModel, runVisual, type PivotModel, type PivotProperty, type VisualGroup, type VisualRequest, type VisualResult } from "../server/query";
 import { useLiveResult } from "../server/hooks";
@@ -248,6 +248,8 @@ export function VisualPivotView({
   // photographs and starts with them on, a field of solids is usually read as a shape and starts with
   // them off. Which of the two the switch writes follows which picture is on screen.
   const picturesOn = solidPicture ? def.solidPictures === true : def.pictures !== false;
+  // only a picture of solids has anything to turn; the flat one is looked at square on
+  const spinning = solidPicture && def.spin === true;
   // thickness and shape are folded away unless asked for, or unless one of them is being used
   const inUse = depthProperty !== null || shapeProperty !== null;
   const extras = inUse || def.extras === true;
@@ -332,6 +334,9 @@ export function VisualPivotView({
   // read from the frame callback, which outlives the render that set it up
   const showPictures = useRef(picturesOn);
   showPictures.current = picturesOn;
+  // and read when a field is built, which happens on a render of its own
+  const showSpin = useRef(spinning);
+  showSpin.current = spinning;
   const [glOk, setGlOk] = useState(true);
   const [theme, setTheme] = useState<Theme | null>(null);
   const [bars, setBars] = useState<{ bar: Bar; group: DecodedGroup }[]>([]);
@@ -399,6 +404,7 @@ export function VisualPivotView({
     media.current = m;
     f.setPictures(showPictures.current);
     m.setPictures(showPictures.current);
+    solid.current?.setSpin(showSpin.current);
     // the names on the cards belong to the flat picture: they are drawn over the canvas in two
     // dimensions, and a face turned away from the camera has no upright strip to write them in
     const l = !solidPicture && textRef.current ? createCardLabels(textRef.current) : null;
@@ -514,7 +520,13 @@ export function VisualPivotView({
     if (answer.ok) onChange({ ...def, depthProperty: null });
   }
 
-  const palette = useMemo(() => buildPalette(paletteSize, theme?.panel ?? [255, 255, 255], theme?.accent ?? [9, 96, 178], def.palette), [theme, def.palette]);
+  // The quieter of the two brightnesses, which is all the switch does in the light theme: the page
+  // there is white and stays white, so what gives way is the cards. In the dark theme the ground has
+  // already gone black and the palette is left alone (buildPalette decides which of the two applies).
+  const palette = useMemo(
+    () => buildPalette(paletteSize, theme?.panel ?? [255, 255, 255], theme?.accent ?? [9, 96, 178], def.palette, def.bare === true),
+    [theme, def.palette, def.bare],
+  );
 
   // another database: nothing known about the cards carries over
   useEffect(() => {
@@ -527,6 +539,22 @@ export function VisualPivotView({
     (flat.current ?? solid.current)?.setPictures(picturesOn);
     media.current?.setPictures(picturesOn);
   }, [picturesOn]);
+
+  useEffect(() => {
+    solid.current?.setSpin(spinning);
+  }, [spinning]);
+
+  // The ground is a class on the stage rather than the page's theme, so the observer that watches
+  // for a light/dark switch never sees it: the picture is told again from here. The class is on the
+  // element by the time an effect runs, so what is read is the ground it has just been given.
+  useEffect(() => {
+    const stage = stageRef.current;
+    const f = field.current;
+    if (!stage || !f) return;
+    const next = readTheme(stage);
+    setTheme(next);
+    f.setTheme(next);
+  }, [def.bare]);
 
   // What the picture is coloured and stacked by. When a picker changes, the answer for the new
   // property is a round trip away and the answer on hand has nothing for it - so until it arrives
@@ -759,6 +787,13 @@ export function VisualPivotView({
     const f = field.current;
     const layout = layoutRef.current;
     if (f && layout) f.fit(fitBounds(layout), solid.current ? solidFitPadding : fitPadding, seconds);
+  }
+
+  /** back to the angle the picture opened at, and the whole of it on screen again */
+  function homeToLayout(seconds: number) {
+    const s = solid.current;
+    const layout = layoutRef.current;
+    if (s && layout) s.home(fitBounds(layout), solidFitPadding, seconds);
   }
 
   // The names of the bars and of the rows, placed straight on the elements from the camera of the
@@ -1155,7 +1190,11 @@ export function VisualPivotView({
             {propertySelect(barProperty, "(grid)", "The property whose values the cards are stacked into bars by; without one they form a grid", (id) => onChange({ ...def, barProperty: id }))}
             {modeSelect(barInfo, def.barMode, (mode) => onChange({ ...def, barMode: mode }))}
           </span>
-          <span className="pivot-builder-label visual-label-2">Depth</span>
+          {/* the one channel that turns the picture into a picture of solids, marked with the same
+              cube the datamodel graph marks its own three-dimensional view with */}
+          <span className="pivot-builder-label visual-label-2 with-icon">
+            <IconCube3dSphere size={13} stroke={1.8} /> 3D Depth
+          </span>
           <span className="pivot-chip">
             {propertySelect(
               rowProperty,
@@ -1233,6 +1272,21 @@ export function VisualPivotView({
             <button className="icon-button" title="Fit the whole picture in view (or double-click it)" onClick={() => fitToLayout(refitSeconds)}>
               <IconFocusCentered size={16} stroke={1.9} />
             </button>
+            {solidPicture && (
+              <button className="icon-button" title="Back to the angle the picture opened at" onClick={() => homeToLayout(refitSeconds)}>
+                <IconRestore size={16} stroke={1.9} />
+              </button>
+            )}
+            {solidPicture && (
+              <button
+                className={"icon-button" + (spinning ? " active" : "")}
+                aria-pressed={spinning}
+                title={spinning ? "Stop the slow turn" : "Turn the picture slowly, on its own"}
+                onClick={() => onChange({ ...def, spin: !spinning })}
+              >
+                <IconRotate360 size={16} stroke={1.9} />
+              </button>
+            )}
             <button
               className={"icon-button" + (picturesOn ? " active" : "")}
               title={
@@ -1244,6 +1298,12 @@ export function VisualPivotView({
             >
               {picturesOn ? <IconPhoto size={16} stroke={1.9} /> : <IconPhotoOff size={16} stroke={1.9} />}
             </button>
+            <BareButton
+              on={def.bare === true}
+              onToggle={() => onChange({ ...def, bare: def.bare !== true })}
+              what="picture"
+              offTitle="Quieten the picture — a black ground in the dark theme, deeper cards in the light one"
+            />
             <button className={"icon-button" + (def.legend ? " active" : "")} title={def.legend ? "Hide the legend" : "Show the legend"} onClick={() => onChange({ ...def, legend: !def.legend })}>
               <IconListDetails size={16} stroke={1.9} />
             </button>
@@ -1258,7 +1318,7 @@ export function VisualPivotView({
       {/* No line of its own between the controls and the picture: what was found is on the result's
           own head above, and how to turn the picture is something the picture teaches by being
           dragged. Both were costing the canvas height it is better off keeping. */}
-      <div className="visual-stage" ref={stageRef}>
+      <div className={"visual-stage" + (def.bare === true ? " bare" : "")} ref={stageRef}>
         <div className="visual-canvas">
           {glOk ? (
             <>
@@ -1483,7 +1543,11 @@ function planFlight(input: {
   // downward in a layout, so up is the smaller number. Both are a good deal more than the picture is
   // tall, since the camera is fitted to the picture and anything that far off it is off the screen.
   const tall = b.y1 - b.y0;
-  const sky = Math.max(8, tall * 1.8);
+  // The sky a card falls out of is deliberately short of what it used to be: from a whole picture
+  // and a half up, a card spent most of its fall off the top of the screen and arrived travelling
+  // fast, which read as a thing thrown in rather than a thing settling. The rest of the shortening
+  // is in the shader, which holds a card at nothing until it is a third of the way down (arriveFrom).
+  const sky = Math.max(5, tall * 0.9);
   const abyss = Math.max(10, tall * 2.4);
 
   // which of the old cards the result no longer has
@@ -1733,7 +1797,9 @@ function paletteBytes(property: DecodedProperty | null, palette: PaletteColor[],
 function readTheme(el: HTMLElement): Theme {
   const cs = getComputedStyle(el);
   const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
-  const panel = parseCssColor(v("--panel", "#ffffff"));
+  // the ground the picture is drawn on, which is the panel until a switch takes it to the far end of
+  // the theme (--stage, app.css): the canvas is cleared with it and the names are read against it
+  const panel = parseCssColor(v("--stage", v("--panel", "#ffffff")));
   const text = parseCssColor(v("--text", "#1d1c1a"));
   const accent = parseCssColor(v("--accent", "#0960b2"));
   const faint = parseCssColor(v("--text-faint", "#a6a39d"));

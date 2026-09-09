@@ -3,7 +3,7 @@ import { IconArrowBackUp, IconArrowsMaximize, IconArrowsShuffle, IconBinoculars,
 import type { EditorContext, Selection } from "./DatamodelEditors";
 import type { GraphShell } from "./DatamodelGraphView";
 import { embeddedColor, kindMeta, propertyColor, relationColor } from "./DatamodelIcons";
-import { FullscreenButton, GraphModeSwitch, NamesButton, TypePicker } from "./DatamodelGraph";
+import { BareButton, FullscreenButton, GraphModeSwitch, NamesButton, TypePicker } from "./DatamodelGraph";
 import { buildWorld, edgeKinds, edgesKey, expandedKey, readEdges, readExpanded, readRoot, recall, remember, rootKey, unfold, type EdgeKind, type GraphLink, type GraphNode } from "./datamodelGraphModel";
 import { fullName, type NodeTypeJson } from "../server/datamodel";
 import { formatCount } from "../format";
@@ -252,6 +252,13 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
       invalidate();
     });
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    // and the ground, which is a class on the view above this stage rather than the page's theme:
+    // the observer above would never see it change
+    const groundWatch = new MutationObserver(() => {
+      theme.current = readTheme(stage);
+      invalidate();
+    });
+    if (stage.parentElement) groundWatch.observe(stage.parentElement, { attributes: true, attributeFilter: ["class"] });
     const wheel = (e: WheelEvent) => wheelHandler.current(e);
     stage.addEventListener("wheel", wheel, { passive: false });
     // a context the GPU takes away can be given back, if the loss is not treated as final; the
@@ -276,6 +283,7 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
     }
     return () => {
       ro.disconnect();
+      groundWatch.disconnect();
       mo.disconnect();
       stage.removeEventListener("wheel", wheel);
       gl.removeEventListener("webglcontextlost", lost);
@@ -1157,6 +1165,7 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
         </button>
         <span className="dm-tools-gap" />
         <NamesButton on={shell.names} onToggle={shell.toggleNames} />
+        <BareButton on={shell.bare} onToggle={shell.toggleBare} />
         <button className="icon-button" title="Save what is on screen as a PNG image" onClick={exportPng}>
           <IconFileTypePng size={16} stroke={1.9} />
         </button>
@@ -1540,7 +1549,9 @@ function randomDirection(): Vec3 {
 function readTheme(el: HTMLElement): Theme {
   const cs = getComputedStyle(el);
   const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
-  const panel = v("--panel", "#ffffff");
+  // the ground the scene is cleared with and fogged into, which is the panel until a switch takes it
+  // to the far end of the theme (--stage, datamodel.css)
+  const panel = v("--stage", v("--panel", "#ffffff"));
   const text = v("--text", "#1d1c1a");
   const textMuted = v("--text-muted", "#6f6c66");
   const textSoft = v("--text-soft", "#45433f");

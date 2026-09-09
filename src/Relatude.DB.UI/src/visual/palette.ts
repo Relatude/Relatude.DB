@@ -44,7 +44,9 @@ export const palettes: PaletteSpec[] = [
   { id: "amber", name: "Amber", hue: [60, 80], tone: [0, 0.94], chroma: [0.02, 0.17] },
   { id: "rose", name: "Rose", hue: [10, 25], tone: [0, 0.96], chroma: [0.02, 0.17] },
   { id: "slate", name: "Slate", hue: [235, 265], tone: [0, 1], chroma: [0.004, 0.05] },
-  { id: "mono", name: "Mono", hue: [0, 0], tone: [0, 1], chroma: [0, 0.012] },
+  // the one palette with no colour in it at all: chroma 0 is grey whatever the hue says, and it
+  // stays grey through both of the lifts below, since nothing multiplies its way out of zero
+  { id: "mono", name: "Mono", hue: [0, 0], tone: [0, 1], chroma: [0, 0] },
 ];
 
 /**
@@ -54,24 +56,50 @@ export const palettes: PaletteSpec[] = [
  * lands outside sRGB has its chroma pulled back in by oklchToRgb, so this cannot clip a channel.
  */
 const chromaLift = 1.28;
+/**
+ * And what the dark theme's palettes are multiplied by on top of that. A card on a dark page has to
+ * carry its colour against a ground that gives it none, where one on a white page is read against a
+ * ground that lends it plenty; the same chroma reads as noticeably greyer there. Together with the
+ * lower ceiling on tone (see buildPalette) this is what keeps a dark picture coloured rather than
+ * chalky.
+ */
+const darkChroma = 1.22;
+/**
+ * How far the light theme's cards are pulled down when the picture is asked to be dimmer. Only the
+ * light theme has this: there the page is white and stays white - it cannot give way any further -
+ * so what gives way is the cards' own tone, and a wall of them stops glaring. The dark theme dims by
+ * taking the ground to black instead, and its palette is left exactly as it is.
+ */
+const dimTone = 0.11;
 
 export function paletteSpec(id: string | null | undefined): PaletteSpec {
   return palettes.find((p) => p.id === id) ?? palettes[0];
 }
 
-/** Colours for `count` groups, in group order, for cards drawn on `background`. */
-export function buildPalette(count: number, background: RGB, accent: RGB, id?: string | null): PaletteColor[] {
+/**
+ * Colours for `count` groups, in group order, for cards drawn on `background`. `dim` asks for the
+ * quieter of the two brightnesses the light theme offers (see dimTone); it does nothing in the dark
+ * theme, which dims its picture by another route.
+ */
+export function buildPalette(count: number, background: RGB, accent: RGB, id?: string | null, dim = false): PaletteColor[] {
   const p = paletteSpec(id);
   const bg = lightnessOf(background);
-  const near = bg > 0.5 ? bg - 0.15 : bg + 0.17;
-  const far = bg > 0.5 ? 0.36 : 0.92;
+  const dark = bg <= 0.5;
+  // How far a card stands off the page. The dark theme used to run all the way up to 0.92, which is
+  // very nearly white - and a colour that light has almost no room left for chroma inside sRGB, so
+  // the top half of every palette came out washed toward grey (and the lighting in the picture of
+  // solids, which multiplies the colour up, pushed it further). Held lower, the same hues keep their
+  // colour and the chroma above can go up rather than being pulled back in.
+  const lower = !dark && dim ? dimTone : 0;
+  const near = (dark ? bg + 0.13 : bg - 0.15) - lower;
+  const far = (dark ? 0.76 : 0.36) - lower;
   const ah = hueOf(accent);
   const hue = p.hue ?? [ah - 10, ah + 10];
   const colors: PaletteColor[] = [];
   for (let i = 0; i < count; i++) {
     const h = hue[0] + frac(i * 0.6180339887) * (hue[1] - hue[0]);
     const tone = p.tone[0] + frac(0.5 + i * 0.7548776662) * (p.tone[1] - p.tone[0]);
-    const C = (p.chroma[0] + frac(0.5 + i * 0.569840291) * (p.chroma[1] - p.chroma[0])) * chromaLift;
+    const C = (p.chroma[0] + frac(0.5 + i * 0.569840291) * (p.chroma[1] - p.chroma[0])) * chromaLift * (dark ? darkChroma : 1);
     const rgb = oklchToRgb(near + tone * (far - near), C, h);
     colors.push({ rgb, css: `rgb(${rgb[0]} ${rgb[1]} ${rgb[2]})` });
   }

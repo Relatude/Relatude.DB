@@ -272,6 +272,14 @@ export const transitionSeconds = moveDuration + moveStagger;
 export const fadeSeconds = 0.75;
 export const bornScale = 0.35;
 /**
+ * Where in a card's fall it begins to arrive: before this it is nothing at all - no size and the
+ * colour of the page - and over the rest of the fall it grows and colours into itself. The first
+ * part of a drop happens high up, where the eye has nothing to read a card against and a thing
+ * plummeting from the edge of the screen is a distraction from the picture that is forming; what is
+ * worth watching is the landing, so that is what is given the whole of the animation.
+ */
+export const arriveFrom = 0.34;
+/**
  * The pulse: the cards addressed fade into the page and back, twice. How long the two blinks take
  * together, and how far into the page a card is taken at the turn of one - not the whole way, so a
  * ghost of the group is left where it is rather than a hole in the picture.

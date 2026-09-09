@@ -864,9 +864,9 @@ public static class SettingsCatalog {
                 indexEngineList("vector-index-engines", "Vector index engines", "LocalSettings.VectorIndexes",
                     "The disk engines the semantic (vector) indexes can run on. Only the engine chosen as Vector index engine above actually runs, and only on a database with an AI provider.",
                     "No vector index engine is configured, so the semantic indexes can only live in memory, where every search scans every vector.",
-                    IndexEngineTypes.HNSW, [
-                        new() { Value = IndexEngineTypes.HNSW, Hint = "graph index, higher recall" },
+                    IndexEngineTypes.IVS, [
                         new() { Value = IndexEngineTypes.IVS, Hint = "clustered index, cheaper to build" },
+                        new() { Value = IndexEngineTypes.HNSW, Hint = "graph index, higher recall" },
                     ],
                     "HNSW keeps a navigation graph in memory and reaches high recall at a higher build cost. IVS clusters the vectors and reads the nearest clusters from disk, which is cheaper to build and to hold. Anything else is taken as the full type name of a custom engine.",
                     "How much memory the engine may use. For HNSW the graph itself always stays resident - that is the floor, and a smaller budget is exceeded with a warning - and the budget decides whether the full vectors are mirrored beside it. For IVS it is the cluster cache. 0 keeps only what the engine cannot do without.",

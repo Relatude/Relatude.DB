@@ -85,6 +85,16 @@ export interface VisualDefinition {
    */
   pictures?: boolean;
   solidPictures?: boolean;
+  /**
+   * Whether the picture of solids turns on its own, slowly, whenever it is left alone. Absent is
+   * still - a picture that will not hold still is no good for reading a chart, so it is asked for.
+   */
+  spin?: boolean;
+  /**
+   * Whether the picture stands on a bare ground - black under the dark theme, white under the light
+   * one - rather than on the panel it sits in. Absent is the panel.
+   */
+  bare?: boolean;
   /** the colours the cards are painted with (visual/palette.ts); absent is the first palette */
   palette?: string;
 }

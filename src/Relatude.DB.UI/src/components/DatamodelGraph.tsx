@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { IconArrowBackUp, IconArrowsMaximize, IconArrowsShuffle, IconCube3dSphere, IconFileTypeSvg, IconFocusCentered, IconHierarchy3, IconMaximize, IconMinimize, IconTopologyStar3, IconTypography, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
+import { IconArrowBackUp, IconArrowsMaximize, IconArrowsShuffle, IconContrast, IconCube3dSphere, IconFileTypeSvg, IconFocusCentered, IconHierarchy3, IconMaximize, IconMinimize, IconTopologyStar3, IconTypography, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
 import type { EditorContext, Selection } from "./DatamodelEditors";
 import type { GraphShell } from "./DatamodelGraphView";
 import { embeddedColor, kindMeta, propertyColor, relationColor } from "./DatamodelIcons";
@@ -419,6 +419,7 @@ export function DatamodelGraph({ ctx, visibleTypes, selection, query, storeId, s
         </button>
         <span className="dm-tools-gap" />
         <NamesButton on={shell.names} onToggle={shell.toggleNames} />
+        <BareButton on={shell.bare} onToggle={shell.toggleBare} />
         <button className="icon-button" title="Save what is on screen as an SVG file, ready to print" onClick={exportSvg}>
           <IconFileTypeSvg size={16} stroke={1.9} />
         </button>
@@ -632,6 +633,26 @@ export function NamesButton({ on, onToggle }: { on: boolean; onToggle: () => voi
   return (
     <button className={"icon-button" + (on ? " active" : "")} aria-pressed={on} title={on ? "Hide the names" : "Show the names"} onClick={onToggle}>
       <IconTypography size={16} stroke={1.9} />
+    </button>
+  );
+}
+
+/**
+ * The picture asked to be quieter. What that means is the theme's answer, and the two are not the
+ * same thing: a dark page can give way, all the way to black, so nothing is then lit on the screen
+ * but the drawing; a white page cannot go any further, so what gives way there is the drawing's own
+ * tone. `offTitle` is how a picture says which of the two it does. Whatever it is, the controls above
+ * the picture are never part of it.
+ */
+export function BareButton({ on, onToggle, what = "graph", offTitle }: { on: boolean; onToggle: () => void; what?: string; offTitle?: string }) {
+  return (
+    <button
+      className={"icon-button" + (on ? " active" : "")}
+      aria-pressed={on}
+      title={on ? "Back to the usual " + what : (offTitle ?? "Put the " + what + " on a bare black ground (dark theme)")}
+      onClick={onToggle}
+    >
+      <IconContrast size={16} stroke={1.9} />
     </button>
   );
 }

@@ -1,5 +1,6 @@
 import {
   CardKind,
+  arriveFrom,
   bornScale,
   cardFill,
   detailCssPx,
@@ -143,6 +144,16 @@ export interface CardField3D extends CardFieldCommon, FieldSurface {
   detail(): { level: DetailLevel; ceiling: DetailLevel; frameMs: number };
   /** The most detail the picture may be drawn with. */
   setDetailCeiling(level: DetailLevel): void;
+  /**
+   * The picture turning on its own, slowly and for as long as it is left alone. A hand on it, the
+   * coast after one, or a wheel step still closing in all hold the turn until they are done with.
+   */
+  setSpin(on: boolean): void;
+  /**
+   * Back to the angle the picture opened at, with the whole of it on screen again: the fit, taken at
+   * the opening heading rather than at whatever the picture has been turned to.
+   */
+  home(bounds: Bounds, paddingPx: number, seconds: number): void;
   /** Where the camera is, so the view can put it back after a rebuild. */
   pose(): { yaw: number; pitch: number };
   setHeading(yaw: number, pitch: number): void;
@@ -185,7 +196,19 @@ const lightDir = normalize([0.62, 0.66, 0.43]);
  * what gives the whole thing a form. Closer than this and the falloff across a wide field starts
  * reading as a spotlight; further and it goes back to being flat.
  */
-const lightDistance = 1.9;
+const lightDistance = 2.6;
+/**
+ * The angle a picture of solids opens at, and the one the reset goes back to: turned a little to the
+ * right and looked down on a little, which is enough to show a card's thickness and the rows behind
+ * it without the field reading as a wall seen from the side.
+ */
+export const homeHeading = { yaw: 0.34, pitch: -0.26 };
+/**
+ * The constant slow turn, in radians a second: a whole round in about a minute. Slow enough to read
+ * as the picture standing on a turntable rather than as something spinning, which is the only speed
+ * at which a field of a million cards can still be looked at while it moves.
+ */
+const spinPerSecond = 0.105;
 const keyLight: RGBf = [1.38, 1.32, 1.22];
 const fillLight: RGBf = [0.46, 0.51, 0.62];
 const rimDir = normalize([-0.55, 0.42, -0.72]);
@@ -268,6 +291,7 @@ const int VARIANTS = ${shapeVariants.length};
 const float OVERSHOOT = ${overshoot.toFixed(4)};
 const float PULSE_FADE = ${pulseFadeDepth.toFixed(4)};
 const float BORN = ${bornScale.toFixed(4)};
+const float ARRIVE = ${arriveFrom.toFixed(4)};
 float ease(float t) {
   if (t <= 0.0) return 0.0;
   if (t >= 1.0) return 1.0;
@@ -309,8 +333,13 @@ void main() {
     born = 1.0 - settling;
     paled = settling;
   } else if (arriving) {
-    born = BORN + (1.0 - BORN) * settling;
-    paled = 1.0 - settling;
+    // and one coming down is nothing at all for the first part of its fall - it is up in the empty
+    // sky, where there is nothing to read it against - and grows and colours over what is left of
+    // it, so the whole of the arrival happens where the picture is rather than off the top of it
+    float late = clamp((over - ARRIVE) / (1.0 - ARRIVE), 0.0, 1.0);
+    float landing = late * late * (3.0 - 2.0 * late);
+    born = BORN + (1.0 - BORN) * landing;
+    paled = 1.0 - landing;
   }
   float side = fill * born;
   float thick = max(0.02, mix(aDepth.x, aDepth.y, smoother(uDepthT))) * born;
@@ -502,10 +531,10 @@ vec3 shade(vec3 c, vec3 n, vec3 world, float pictured) {
   float rim = max(dot(n, uRim), 0.0) * pow(1.0 - head, 3.0);
   vec3 h = normalize(l + v);
   float ndh = max(dot(n, h), 0.0);
-  float spec = (pow(ndh, 64.0) * 0.78 + pow(ndh, 10.0) * 0.12) * mix(1.0, 0.4, pictured);
+  float spec = (pow(ndh, 64.0) * 1.15 + pow(ndh, 10.0) * 0.2) * mix(1.0, 0.4, pictured);
   // overhead against underfoot: the ambient a face sees depends on which way it is turned
   float sky = 0.5 + 0.5 * n.y;
-  vec3 ambient = c * uAmbient * mix(0.58, 1.3, sky * sky);
+  vec3 ambient = c * uAmbient * mix(0.58, uSky, sky * sky);
   vec3 key = c * uKey * (0.82 * diff + 0.06 * head);
   vec3 opposite = c * uFillLight * back;
   vec3 edge = c * uRimLight * rim;
@@ -550,6 +579,7 @@ uniform vec3 uInk;
 uniform vec3 uClear;
 uniform vec3 uOutline;
 uniform float uAmbient;
+uniform float uSky;
 uniform vec3 uKey;
 uniform vec3 uFillLight;
 uniform vec3 uRim;
@@ -745,11 +775,15 @@ void main() {
       c = cardFace(c, vec2(q.y > 0.0 ? q.x + 0.5 : 0.5 - q.x, v), pictured);
     }
   }
-  vec3 lit = shade(c, n, world, pictured);
+  // The card the form has open: every side of it wears the accent, not just the two flat ends, so a
+  // block turned edge-on to the eye is still plainly the one that is open. It takes the colour and
+  // is then lit like any other solid - painted flat it would lose the shading that says it is a
+  // block at all, and a selected card would read as a hole in the picture.
   if (vFlags == 1) {
-    float ring = 1.0 - smoothstep(2.0, 3.5, (hz - abs(q.z)) * vSide * vPxPerWorld);
-    lit = mix(lit, uOutline, ring * step(hz - max(r, e) * 1.05, abs(q.z)));
+    c = uOutline;
+    pictured = 0.0;
   }
+  vec3 lit = shade(c, n, world, pictured);
   outColor = vec4(mix(lit, uClear, vFadeOut), alpha);
 }`;
 
@@ -819,6 +853,7 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     "uOutline",
     "uLightPos",
     "uAmbient",
+    "uSky",
     "uKey",
     "uFillLight",
     "uRim",
@@ -991,6 +1026,7 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
   let shaped = false;
   let theme: FieldTheme = { clear: [1, 1, 1], outline: [0.04, 0.38, 0.7], ink: [0.1, 0.1, 0.1] };
   let ambient = 0.5;
+  let skyLight = 1.3;
   let width = 1;
   let height = 1;
   let dpr = 1;
@@ -1030,13 +1066,15 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
    * and slides about exactly the point the drag did. Null when the picture is at rest.
    */
   let coasting: { channel: Channel; vx: number; vy: number } | null = null;
+  /** whether the picture turns on its own when nothing else has hold of the camera */
+  let spinning = false;
   /** the last point worked out under the pointer, so a spin of the wheel does not ask again per notch */
   let asked: { x: number; y: number; at: number; point: Vec3 } | null = null;
 
   const cam = new FlyCamera();
   cam.minDist = 0.04;
-  cam.yaw = 0.34;
-  cam.pitch = -0.26;
+  cam.yaw = homeHeading.yaw;
+  cam.pitch = homeHeading.pitch;
 
   function schedule() {
     if (raf === 0 && !destroyed) raf = requestAnimationFrame(frame);
@@ -1142,6 +1180,7 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     gl.uniform3fv(u.uOutline, theme.outline);
     gl.uniform3fv(u.uLightPos, lightPos());
     gl.uniform1f(u.uAmbient, ambient);
+    gl.uniform1f(u.uSky, skyLight);
     gl.uniform3fv(u.uKey, keyLight);
     gl.uniform3fv(u.uFillLight, fillLight);
     gl.uniform3fv(u.uRim, rimDir);
@@ -1248,10 +1287,11 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     frameNow = now;
     if (destroyed) return;
     const dt = lastFrame === 0 ? 1 / 60 : Math.min(0.1, (now - lastFrame) / 1000);
-    const cameraMoving = cam.moving() || zoomTo !== null || coasting !== null;
+    const cameraMoving = cam.moving() || zoomTo !== null || coasting !== null || spinning;
     if (cam.moving()) cam.step(dt, now);
     stepZoom(dt);
     stepCoast(dt);
+    stepSpin(dt);
     const depthMoving = depthProgress(now) < 1;
     if (!dirty && !cardsMoving && !depthMoving && !pulsing() && !cameraMoving && !fading(now) && texDirty.size === 0) {
       lastFrame = 0;
@@ -1279,7 +1319,7 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     drawFloorLines();
     dirty = false;
     frameCallback?.();
-    if (cardsMoving || depthProgress(now) < 1 || pulsing() || cam.moving() || zoomTo !== null || coasting !== null || fading(now) || texDirty.size > 0) schedule();
+    if (cardsMoving || depthProgress(now) < 1 || pulsing() || cam.moving() || zoomTo !== null || coasting !== null || spinning || fading(now) || texDirty.size > 0) schedule();
     else lastFrame = 0;
   }
 
@@ -1511,6 +1551,17 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     }
   }
 
+  /**
+   * The picture turning on its own. It is held back while anything else has the camera: a hand on
+   * it, the coast after one, a flight to a pose - and a wheel step still closing in, whose target is
+   * a fixed point in space that the turn would pull the camera away from for as long as both ran.
+   */
+  function stepSpin(dt: number) {
+    if (!spinning || held !== null || coasting !== null || zoomTo !== null || cam.moving()) return;
+    const rx = turnRates()[0];
+    if (rx > 0) field.orbit((spinPerSecond * dt) / rx, 0);
+  }
+
   /** A vector turned about a unit axis (Rodrigues). */
   function turnAbout(v: Vec3, axis: Vec3, angle: number): Vec3 {
     const c = Math.cos(angle);
@@ -1544,6 +1595,65 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
   function flatCamera(): Camera {
     const t = cam.target();
     return { x: t[0], y: -t[1], z: t[2], zoom: zoomDev() / dpr };
+  }
+
+  /**
+   * The camera brought to where the whole picture is on screen, seen from a given heading. The
+   * distance is measured along the heading it will END on rather than the one it starts from, so
+   * that going back to the opening angle and fitting the picture there is one movement: a distance
+   * worked out at the old angle does not fit at the new one.
+   */
+  function fitAt(next: Bounds, paddingPx: number, seconds: number, yaw: number, pitch: number) {
+    const wasYaw = cam.yaw;
+    const wasPitch = cam.pitch;
+    cam.yaw = yaw;
+    cam.pitch = pitch;
+    const cssW = width / dpr;
+    const cssH = height / dpr;
+    // the rows reach from z0 back to z1, and the thickest card standing on a row reaches forward
+    // of it, so the picture is that span grown by one card's depth
+    const back = next.z0 ?? 0;
+    const front = (next.z1 ?? 0) + maxDepth;
+    const centre: Vec3 = [(next.x0 + next.x1) / 2, -(next.y0 + next.y1) / 2, (back + front) / 2];
+    const hx = (next.x1 - next.x0) / 2 + cardFill / 2;
+    const hy = (next.y1 - next.y0) / 2 + cardFill / 2;
+    const hz = Math.max(0.05, (front - back) / 2);
+    const t = Math.tan(cam.fov / 2);
+    const aspect = cssW / Math.max(1, cssH);
+    const roomW = Math.max(0.15, 1 - (2 * paddingPx) / Math.max(1, cssW));
+    const roomH = Math.max(0.15, 1 - (2 * paddingPx) / Math.max(1, cssH));
+    // The nearest the camera can stand and still have every corner of the picture on the screen.
+    // A corner sits at its own depth, so what it takes up is its offset across the view over its
+    // own distance rather than over the middle's: measuring the corners one by one is what keeps a
+    // picture seen at an angle from being fitted as though its near edge were as far off as its far
+    // one, which leaves it a third of the room it has.
+    const right = cam.right();
+    const up = cam.up();
+    const forward = cam.forward();
+    let dist = cam.minDist;
+    for (const sx of [-1, 1]) {
+      for (const sy of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          const p: Vec3 = [sx * hx, sy * hy, sz * hz];
+          const along = p[0] * forward[0] + p[1] * forward[1] + p[2] * forward[2];
+          const across = Math.abs(p[0] * up[0] + p[1] * up[1] + p[2] * up[2]);
+          const sideways = Math.abs(p[0] * right[0] + p[1] * right[1] + p[2] * right[2]);
+          dist = Math.max(dist, across / (t * roomH) - along, sideways / (t * aspect * roomW) - along);
+        }
+      }
+    }
+    cam.yaw = wasYaw;
+    cam.pitch = wasPitch;
+    const pose = cam.poseLookingAt(centre, dist, yaw, pitch);
+    zoomTo = null;
+    if (seconds > 0) {
+      cam.animateTo(pose, seconds * 1000);
+    } else {
+      cam.stop();
+      cam.setPose(pose);
+    }
+    dirty = true;
+    schedule();
   }
 
   const field: CardField3D = {
@@ -1676,6 +1786,10 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
       // has to do it - but it is what decides how much of the picture sits in the well-lit middle,
       // and the shoulder above means raising it no longer costs the bright faces their colour.
       ambient = luminance > 0.5 ? 0.62 : 0.44;
+      // How much more light a face turned up gets than one turned down. On a dark page the floor
+      // below is low and the whole picture leans on this, so the tops carry more of it there: it is
+      // what says which way is up in a field of blocks, and a dark theme has nothing else saying so.
+      skyLight = luminance > 0.5 ? 1.3 : 1.78;
       dirty = true;
       schedule();
     },
@@ -1712,50 +1826,11 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     pick: pickAt,
     fit(next, paddingPx, seconds) {
       bounds = next;
-      const cssW = width / dpr;
-      const cssH = height / dpr;
-      // the rows reach from z0 back to z1, and the thickest card standing on a row reaches forward
-      // of it, so the picture is that span grown by one card's depth
-      const back = next.z0 ?? 0;
-      const front = (next.z1 ?? 0) + maxDepth;
-      const centre: Vec3 = [(next.x0 + next.x1) / 2, -(next.y0 + next.y1) / 2, (back + front) / 2];
-      const hx = (next.x1 - next.x0) / 2 + cardFill / 2;
-      const hy = (next.y1 - next.y0) / 2 + cardFill / 2;
-      const hz = Math.max(0.05, (front - back) / 2);
-      const t = Math.tan(cam.fov / 2);
-      const aspect = cssW / Math.max(1, cssH);
-      const roomW = Math.max(0.15, 1 - (2 * paddingPx) / Math.max(1, cssW));
-      const roomH = Math.max(0.15, 1 - (2 * paddingPx) / Math.max(1, cssH));
-      // The nearest the camera can stand and still have every corner of the picture on the screen.
-      // A corner sits at its own depth, so what it takes up is its offset across the view over its
-      // own distance rather than over the middle's: measuring the corners one by one is what keeps a
-      // picture seen at an angle from being fitted as though its near edge were as far off as its far
-      // one, which leaves it a third of the room it has.
-      const right = cam.right();
-      const up = cam.up();
-      const forward = cam.forward();
-      let dist = cam.minDist;
-      for (const sx of [-1, 1]) {
-        for (const sy of [-1, 1]) {
-          for (const sz of [-1, 1]) {
-            const p: Vec3 = [sx * hx, sy * hy, sz * hz];
-            const along = p[0] * forward[0] + p[1] * forward[1] + p[2] * forward[2];
-            const across = Math.abs(p[0] * up[0] + p[1] * up[1] + p[2] * up[2]);
-            const sideways = Math.abs(p[0] * right[0] + p[1] * right[1] + p[2] * right[2]);
-            dist = Math.max(dist, across / (t * roomH) - along, sideways / (t * aspect * roomW) - along);
-          }
-        }
-      }
-      const pose = cam.poseLookingAt(centre, dist);
-      zoomTo = null;
-      if (seconds > 0) {
-        cam.animateTo(pose, seconds * 1000);
-      } else {
-        cam.stop();
-        cam.setPose(pose);
-      }
-      dirty = true;
-      schedule();
+      fitAt(next, paddingPx, seconds, cam.yaw, cam.pitch);
+    },
+    home(next, paddingPx, seconds) {
+      bounds = next;
+      fitAt(next, paddingPx, seconds, homeHeading.yaw, homeHeading.pitch);
     },
     hold(channel, cssX, cssY) {
       zoomTo = null;
@@ -1877,6 +1952,11 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
       schedule();
     },
     detail: () => ({ level: detailLevel, ceiling, frameMs }),
+    setSpin(on) {
+      if (on === spinning) return;
+      spinning = on;
+      schedule();
+    },
     setPictures(on) {
       if (on === picturesOn) return;
       picturesOn = on;
@@ -1919,7 +1999,7 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     camera: flatCamera,
     cameraTarget: flatCamera,
     size: () => ({ width: width / dpr, height: height / dpr, dpr }),
-    moving: () => cardsMoving || depthProgress(performance.now()) < 1 || pulsing() || cam.moving() || zoomTo !== null || coasting !== null || fading(performance.now()),
+    moving: () => cardsMoving || depthProgress(performance.now()) < 1 || pulsing() || cam.moving() || zoomTo !== null || coasting !== null || spinning || fading(performance.now()),
     onFrame(callback) {
       frameCallback = callback;
     },

@@ -1215,6 +1215,9 @@ button.dm-source-card {
   flex: 1;
   width: 100%;
   min-height: 0;
+  /* the drawing's own ground rather than the panel's, so a bare background leaves the toolbar above
+     it alone: what is switched off is the page behind the picture, not the controls */
+  background: var(--stage);
   cursor: grab;
   touch-action: none;
   font-family: inherit;
@@ -2466,9 +2469,23 @@ button.dm-source-card {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  /* under the canvas, which clears itself with the same colour (see readTheme): what shows in the
+     moment before the first frame is drawn */
+  background: var(--stage);
   cursor: grab;
   touch-action: none;
   outline: none;
+}
+
+/* the graph on a bare ground, in either mode - the switch is the shell's, so it survives a move
+   between the flat picture and the one in space. White is what a light page already is, so it is the
+   dark theme this actually does anything in */
+.dm-graph.bare {
+  --stage: #ffffff;
+}
+
+[data-theme="dark"] .dm-graph.bare {
+  --stage: #000000;
 }
 
 .dg3-stage:focus-visible::after {

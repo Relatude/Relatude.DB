@@ -21,6 +21,24 @@
   --danger: #b3261e;
   --danger-soft: rgba(179, 38, 30, 0.12);
   --ok: #2f7a44;
+  /* something the page is waiting on: an orange strong enough to catch the eye across the page,
+     since its whole job is to say that an answer is still coming - and neither the danger red nor
+     the data amber, because nothing is wrong and nothing is being touched */
+  --busy: #d1600a;
+  /**
+   * The ground a picture is drawn on: the graph's canvas, the visual pivot's field of cards. The
+   * panel by default, since the picture lives in one - a declaration on the same element, so it
+   * follows whichever panel the theme has won. A switch on either picture dims it instead, and what
+   * dim means is the theme's answer: all the way to black under a dark one, and to this grey under a
+   * light one, where a bright picture on white is the thing worth resting the eye from. Everything
+   * that reads the ground follows it: the css background, the canvas' own clear colour, and the fog
+   * in the distance.
+   *
+   * Only the dark theme has anywhere to go: its page is already a tone and can give way to black. A
+   * light page is white and stays white, so a picture asked to be quieter there dims its own drawing
+   * instead (see dimTone in palette.ts).
+   */
+  --stage: var(--panel);
   /* the database's own data: important enough to mark, but not an error - never the danger red */
   --data: #8a5a09;
   --data-soft: rgba(138, 90, 9, 0.12);
@@ -59,6 +77,7 @@
   --danger: #f2887f;
   --danger-soft: rgba(242, 136, 127, 0.14);
   --ok: #6fbf85;
+  --busy: #ff9436;
   --data: #e0a45c;
   --data-soft: rgba(224, 164, 92, 0.14);
   --revert: #c49bf0;
@@ -5409,6 +5428,15 @@ body.pg-resizing {
   border-bottom: 1px solid var(--border);
 }
 
+/* The three summary views put a panel of their own straight under this head, edge to edge with it,
+   and that panel's top border lands in the very same pixel row as the rule below the head. Along the
+   flat of it the two read as one thick line; at the panel's rounded top corners, where its border
+   curves down and away, the head's straight rule carries on - a stub of line hanging off each
+   corner. The panel's own border is the divider there, so the head gives its rule up. */
+.query-results-head.on-panel {
+  border-bottom: none;
+}
+
 /* list / table, one control with two states rather than two buttons that look independent */
 .query-view {
   display: flex;
@@ -7472,13 +7500,32 @@ body.pg-resizing {
 }
 
 /* an icon that turns while what it stands for is running */
+/**
+ * An icon that turns while what it stands for is running, and swells a little as it turns so that
+ * the movement is caught out of the corner of an eye rather than only when looked at. The two are
+ * separate animations on the separate `rotate` and `scale` properties rather than one on
+ * `transform`: written as transforms they would overwrite each other, and they want different
+ * periods - the turn steady, the swell breathing over it.
+ *
+ * `scale` is the only way to do the swell: it is drawn from the middle of the icon and takes no room
+ * on the page, so a line of buttons does not shuffle sideways twice a second while a query runs.
+ */
 .spinning {
-  animation: spin 0.9s linear infinite;
+  color: var(--busy);
+  animation:
+    spin 0.9s linear infinite,
+    swell 1.15s ease-in-out infinite;
 }
 
 @keyframes spin {
   to {
-    transform: rotate(360deg);
+    rotate: 360deg;
+  }
+}
+
+@keyframes swell {
+  50% {
+    scale: 1.22;
   }
 }
 
@@ -7878,6 +7925,13 @@ body.pg-resizing {
   margin-left: 12px;
 }
 
+/* a label that carries an icon: the two sit on one line and are spaced as a pair, not as text */
+.pivot-builder-label.with-icon {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
 /* the two sliders that stretch a solid picture: narrow, to sit on the builder line with the pickers */
 .visual-stretch {
   display: flex;
@@ -7960,14 +8014,25 @@ body.pg-resizing {
 }
 
 /* The picture and its legend; the canvas takes what the legend leaves. No frame of its own: the
-   panel it sits in already draws one, and a second line round the picture only made it smaller. */
+   panel it sits in already draws one, and a second line round the picture only made it smaller.
+
+   The canvas is cleared with the same property the css background is painted from (see readTheme),
+   so what the two paint cannot drift apart. */
 .visual-stage {
   position: relative;
   display: flex;
   flex: 1;
   min-height: 240px;
   overflow: hidden;
-  background: var(--panel);
+  background: var(--stage);
+}
+
+/* The picture asked to be quieter. In the dark theme the ground gives way, all the way to black, so
+   the only lit thing on the screen is what has been drawn. In the light theme the ground is white and
+   stays white; what gives way there is the cards' own tone, which is the palette's business rather
+   than this file's - so there is no light-theme rule here, and there should not be one. */
+[data-theme="dark"] .visual-stage.bare {
+  --stage: #000000;
 }
 
 .visual-canvas {

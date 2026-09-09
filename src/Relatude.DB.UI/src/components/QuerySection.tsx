@@ -21,9 +21,9 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { NodeEditor } from "./NodeEditor";
-import { PivotView, type PivotBase } from "./PivotView";
-import { GroupByView } from "./GroupByView";
-import { VisualPivotView } from "./VisualPivotView";
+import { PivotView, emptyPivot, type PivotBase } from "./PivotView";
+import { GroupByView, emptyGroupBy } from "./GroupByView";
+import { VisualPivotView, emptyVisual } from "./VisualPivotView";
 import { EditableTable } from "./EditableTable";
 import { CopyButton } from "./CopyButton";
 import { NewNodeDialog, TypePicker } from "./TypePicker";
@@ -42,6 +42,7 @@ import {
   type FacetValue,
   type QueryModel,
   type SearchRequest,
+  type PivotLevelSpec,
   type SelectColumn,
   type TextSample,
 } from "../server/query";
@@ -95,6 +96,83 @@ const modes: { id: QueryMode; label: string; icon: typeof IconSearch; hint: stri
   { id: "pivot", label: "Pivot", icon: IconChartBar, hint: "Groups by property on two axes, a count or sum per cell" },
   { id: "visual", label: "Visual pivot", icon: IconChartHistogram, hint: "Every node as a card: coloured by one property, stacked into bars by another" },
 ];
+
+/**
+ * The two groupings every summary is built on, in the order they read: what splits the picture one
+ * way, and what splits it the other. They are one pair of choices wearing three sets of names - the
+ * group by's first and second key, the pivot's rows and columns, the visual pivot's bars and colours
+ * - so moving between the views carries them along instead of asking for the same thing again in
+ * each. The hits have no groupings and give nothing.
+ */
+function groupingOf(q: SavedQuery, mode: QueryMode): [PivotLevelSpec | null, PivotLevelSpec | null] {
+  if (mode === "groups") return [q.groups?.keys[0] ?? null, q.groups?.keys[1] ?? null];
+  if (mode === "pivot") return [q.pivot?.rows[0] ?? null, q.pivot?.columns[0] ?? null];
+  if (mode === "visual" && q.visual !== null) {
+    const v = q.visual;
+    return [
+      v.barProperty === null ? null : { propertyId: v.barProperty, mode: v.barMode },
+      v.colorProperty === null ? null : { propertyId: v.colorProperty, mode: v.colorMode },
+    ];
+  }
+  return [null, null];
+}
+
+/**
+ * How a level is bucketed, said in the words the view being entered knows. The three vocabularies
+ * overlap without being the same: the group by has no "auto" - a key there is always bucketed some
+ * definite way - and the visual pivot knows nothing of the calendar intervals. What does not
+ * translate falls back to the nearest thing that means the same, so a level always arrives with a
+ * mode its new view can offer.
+ */
+function modeFor(view: QueryMode, mode: string): string {
+  if (view === "groups") return mode === "auto" ? "values" : mode;
+  if (view === "visual") return mode === "values" || mode === "ranges" ? mode : "auto";
+  return mode;
+}
+
+/**
+ * The summary definitions of `q` with the groupings of the view being left carried into the one
+ * being entered. Only a slot the old view actually filled is carried: a group by on one key does not
+ * empty the pivot's columns on the way past, and leaving the hits - which group by nothing - leaves
+ * every summary exactly as it was. What the new view has beyond those two slots (deeper levels, the
+ * aggregates, its own options) is untouched.
+ */
+function carryGrouping(q: SavedQuery, from: QueryMode, to: QueryMode): Partial<SavedQuery> {
+  if (from === to) return {};
+  const [first, second] = groupingOf(q, from);
+  if (first === null && second === null) return {};
+  const as = (view: QueryMode, l: PivotLevelSpec): PivotLevelSpec => ({ propertyId: l.propertyId, mode: modeFor(view, l.mode) });
+  if (to === "groups") {
+    const base = q.groups ?? emptyGroupBy;
+    // the two slots are the first two keys of one list here, so they are rebuilt as a pair: a
+    // grouping that arrives without a first one becomes the first key rather than leaving a hole
+    const k0 = first !== null ? as("groups", first) : (base.keys[0] ?? null);
+    const k1 = second !== null ? as("groups", second) : (base.keys[1] ?? null);
+    const keys = [k0, k1, ...base.keys.slice(2)].filter((k): k is PivotLevelSpec => k !== null);
+    return { groups: { ...base, keys } };
+  }
+  if (to === "pivot") {
+    const base = q.pivot ?? emptyPivot;
+    return {
+      pivot: {
+        ...base,
+        rows: first !== null ? [as("pivot", first), ...base.rows.slice(1)] : base.rows,
+        columns: second !== null ? [as("pivot", second), ...base.columns.slice(1)] : base.columns,
+      },
+    };
+  }
+  if (to === "visual") {
+    const base = q.visual ?? emptyVisual;
+    return {
+      visual: {
+        ...base,
+        ...(first !== null ? { barProperty: first.propertyId, barMode: modeFor("visual", first.mode) } : {}),
+        ...(second !== null ? { colorProperty: second.propertyId, colorMode: modeFor("visual", second.mode) } : {}),
+      },
+    };
+  }
+  return {};
+}
 
 /**
  * Search a database and edit what comes back - on as many queries at once as there are tabs.
@@ -704,7 +782,14 @@ function QueryTab({
         {/* what kind of query this is: the hits themselves, a table of chosen columns, or a summary */}
         <div className="query-view" role="tablist">
           {modes.map((m) => (
-            <button key={m.id} role="tab" aria-selected={mode === m.id} className={mode === m.id ? "active" : ""} title={m.hint} onClick={() => onChange({ mode: m.id })}>
+            <button
+              key={m.id}
+              role="tab"
+              aria-selected={mode === m.id}
+              className={mode === m.id ? "active" : ""}
+              title={m.hint}
+              onClick={() => onChange({ mode: m.id, ...carryGrouping(q, mode, m.id) })}
+            >
               <m.icon size={14} stroke={1.8} />
               {m.label}
             </button>
@@ -856,7 +941,7 @@ function QueryTab({
               would be a whole line of it spent on a count and one switch, so in that one case both
               go down to the picture's own line of controls instead (see head, below). */}
           {!headInToolbar && (
-            <div className="query-results-head">
+            <div className={"query-results-head" + (summary ? " on-panel" : "")}>
               {result ? (
                 <>
                   <strong>{formatCount(result.total)}</strong>

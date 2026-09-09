@@ -50,6 +50,7 @@ export const edgesKey = (storeId: string) => "dmGraphEdges:" + storeId;
 // unlike the start type and what is unfolded it is kept once, for every database
 export const modeKey = "dmGraphMode";
 export const namesKey = "dmGraphNames";
+export const bareKey = "dmGraphBare";
 
 /** Flat on the page, or in space with a camera flying through it. */
 export type GraphMode = "2d" | "3d";
@@ -205,4 +206,9 @@ export function readMode(): GraphMode {
 /** Whether names are written beside the nodes and lines; on unless switched off. */
 export function readNames(): boolean {
   return recall(namesKey) !== false;
+}
+
+/** Whether the graph is drawn on bare black or white rather than on the panel; off unless asked for. */
+export function readBare(): boolean {
+  return recall(bareKey) === true;
 }
