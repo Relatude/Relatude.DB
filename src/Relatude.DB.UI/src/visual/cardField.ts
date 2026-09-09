@@ -331,6 +331,17 @@ export const imageShare = 1;
  * cardMedia's capacityFor), so lowering it costs texture memory rather than frame time.
  */
 export const detailCssPx = 25;
+/**
+ * Below this many cards, the width above stops deciding anything and every card carries its picture
+ * however far the picture is zoomed out.
+ *
+ * The width is there to keep a screen of a million cards from asking for a million pictures - it is a
+ * budget, not a preference. A set this small has no such problem: the whole of it fits in the levels
+ * several times over, and someone who has narrowed a search down to a few hundred nodes wants to see
+ * what they are, not a field of coloured squares that only becomes a picture if they lean in. The
+ * switch on the toolbar still has the last word; this only decides what "on" means.
+ */
+export const alwaysPicturesBelow = 5000;
 /** how long a picture takes to come up, or to take over from the level before it, in ms */
 export const imageFadeMs = 320;
 /**
@@ -880,9 +891,12 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     gl.uniform1f(uDuration, duration);
     gl.uniform1f(uFill, cardFill);
     gl.uniform1f(uFade, fadeSeconds);
-    // pictures off: the width one appears at is put out of every card's reach, so vDetail is 0 and
-    // the shader never lays a picture or a placeholder over the colour
-    gl.uniform1f(uDetailPx, picturesOn ? detailCssPx * dpr : 1e9);
+    // Pictures off: the width one appears at is put out of every card's reach, so vDetail is 0 and
+    // the shader never lays a picture or a placeholder over the colour. A small enough set does the
+    // opposite - the width is brought down to a single device pixel, which every card on screen is
+    // wider than, so the zoom stops deciding (see alwaysPicturesBelow). Not 0: the shader smoothsteps
+    // between 0.9 and 1.1 of this, and those two edges must not meet.
+    gl.uniform1f(uDetailPx, !picturesOn ? 1e9 : count > 0 && count < alwaysPicturesBelow ? 1 : detailCssPx * dpr);
     gl.uniform1i(uHover, hover);
     gl.uniform1i(uSelected, selected);
     gl.uniform1i(uPulseGroup, pulsedGroup);

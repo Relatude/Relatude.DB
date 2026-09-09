@@ -1,5 +1,6 @@
 import {
   CardKind,
+  alwaysPicturesBelow,
   arriveFrom,
   bornScale,
   cardFill,
@@ -1165,9 +1166,11 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     gl.uniform1f(u.uFade, fadeSeconds);
     gl.uniform1f(u.uZoom, zoomDev());
     gl.uniform1f(u.uPxScale, height / 2 / Math.tan(cam.fov / 2));
-    // pictures off: the width one appears at is put out of every card's reach, so vDetail is 0 and
-    // no face ever gets a picture or a placeholder laid over its colour
-    gl.uniform1f(u.uDetailPx, picturesOn ? detailCssPx * dpr : 1e9);
+    // Pictures off: the width one appears at is put out of every card's reach, so vDetail is 0 and
+    // no face ever gets a picture or a placeholder laid over its colour. A small enough set does the
+    // opposite and brings the width down to a single device pixel, so the zoom stops deciding (see
+    // alwaysPicturesBelow); not 0, because the shader smoothsteps between 0.9 and 1.1 of it.
+    gl.uniform1f(u.uDetailPx, !picturesOn ? 1e9 : count > 0 && count < alwaysPicturesBelow ? 1 : detailCssPx * dpr);
     gl.uniform1i(u.uHover, hover);
     gl.uniform1i(u.uSelected, selected);
     gl.uniform1i(u.uPulseGroup, pulsedGroup);

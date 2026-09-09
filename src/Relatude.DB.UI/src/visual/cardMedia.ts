@@ -1,4 +1,4 @@
-import { CardKind, cardFill, detailCssPx, imageLevels, imageShare, tileSlots, tileWidths, type FieldSurface, type TileOnScreen } from "./cardField";
+import { CardKind, alwaysPicturesBelow, cardFill, detailCssPx, imageLevels, imageShare, tileSlots, tileWidths, type FieldSurface, type TileOnScreen } from "./cardField";
 import type { Layout } from "./layouts";
 import { IntMap } from "./intMap";
 import { fetchCards, streamCardImages } from "../server/query";
@@ -1037,7 +1037,11 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
       const cam = field.cameraTarget();
       const { dpr } = field.size();
       const cardCss = cardFill * cam.zoom;
-      engaged = cardCss >= detailCssPx * engageShare;
+      // Wide enough to be worth a picture - or few enough cards that the width was never the point:
+      // the threshold exists to keep a screen of a million from asking for a million pictures, and a
+      // small set has nothing to be kept from (see alwaysPicturesBelow). The field is told the same
+      // thing separately, through the width it draws them at.
+      engaged = count < alwaysPicturesBelow || cardCss >= detailCssPx * engageShare;
       if (!engaged) {
         visibleCount = 0;
         visibleSet = new Set();
