@@ -180,6 +180,7 @@ public partial class RelatudeDBServer {
         _settingsLoader = settings == null ? new LocalSettingsLoaderFile(Path.Combine(_rootDataFolderPath, _settingsFile)) : settings;
         if (tempCount == 0) Log("Loading settings using: " + _settingsLoader.GetType().FullName);
         await loadSettingsAndCreateContainersAsync(firstStart: true);
+        cleanUploadFolders();
         prepareAutoOpen();
         runAutoOpen();
         _authentication = new(this);
@@ -242,6 +243,37 @@ public partial class RelatudeDBServer {
         if (urlPath.EndsWith('/')) urlPath = urlPath[0..^1];
         if (!urlPath.StartsWith('/') && urlPath.Length > 0) urlPath = '/' + urlPath;
         return string.Equals(urlPath, ApiUrlRoot, StringComparison.OrdinalIgnoreCase);
+    }
+    /// <summary>
+    /// Drops what is left in the upload temp folders. An upload is written there and moved onto its
+    /// real key only when the last byte has arrived (see UIUpload), so anything still lying there is
+    /// the remains of one that never finished - and nothing can be in flight this early. Runs off
+    /// the startup thread: listing a blob container is a network call and no database waits on it.
+    /// </summary>
+    void cleanUploadFolders() {
+        var ioIds = (_serverSettings.ContainerSettings ?? []).SelectMany(c => c.IOSettings ?? []).Select(s => s.Id).Distinct().ToArray();
+        _ = Task.Run(async () => {
+            var ios = new List<IIOProvider>();
+            if (_projectRootIO != null) ios.Add(_projectRootIO);
+            foreach (var ioId in ioIds) {
+                try {
+                    if (TryGetIO(ioId, out var io)) ios.Add(io);
+                } catch { } // a provider that cannot even be created is not this method's problem
+            }
+            var deleted = 0;
+            foreach (var io in ios) {
+                try {
+                    var folder = await io.GetFolderAsync([FileKeyUtility.UploadFolderName], false, true);
+                    foreach (var file in folder.Files) {
+                        io.DeleteFileIfItExists(file.KeyOf());
+                        deleted++;
+                    }
+                } catch (Exception error) {
+                    Log("Could not clean the upload folder of one storage: " + error.Message);
+                }
+            }
+            if (deleted > 0) Log("Deleted " + deleted + " unfinished upload file(s).");
+        });
     }
     /// <summary>
     /// Works out which databases open by themselves and publishes the count. Separate from

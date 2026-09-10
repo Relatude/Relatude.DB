@@ -255,10 +255,35 @@ export function saveText(ioId: string, key: string, name: string, content: TextC
 // files costs one round trip per batch instead of one per file - which is what the time such an
 // upload takes is really made of.
 
-const sliceSize = 512 * 1024; // one slice of a file uploaded on its own
-const batchByteLimit = 4 * 1024 * 1024; // how much one packed request carries
-const batchFileLimit = 200; // ... and how many files
+// How many bytes one request carries - a slice of a big file, or the payload of a packed batch.
+// The size is not fixed: every request is timed and the next one is sized from what the link has
+// actually been doing, aiming at a request of around three quarters of a second. Long enough that
+// the round trip is a rounding error against the bytes, short enough that the bar keeps moving and
+// Cancel is answered at once. On a fast link it settles at the ceiling, on a slow one at the floor.
+const startRequestBytes = 512 * 1024;
+const minRequestBytes = 50 * 1024;
+const maxRequestBytes = 2 * 1024 * 1024;
+const targetRequestSeconds = 0.75;
+const batchFileLimit = 200; // files in one packed request, however little they weigh
 const sliceRetries = 3; // network failures survived per slice
+
+let observedBytesPerSecond = 0; // the requests this page has sent, the recent ones weighted most
+let measurements = 0;
+
+function requestBytes(): number {
+  if (measurements < 2) return startRequestBytes; // a single timing is noise, not a measurement
+  const wanted = observedBytesPerSecond * targetRequestSeconds;
+  return Math.round(Math.min(maxRequestBytes, Math.max(minRequestBytes, wanted)));
+}
+
+// A request too small to say anything about the link is ignored: the last, part-filled batch of a
+// folder of tiny files times the server's per-file work, not the wire.
+function noteRequest(bytes: number, ms: number): void {
+  if (bytes < minRequestBytes || ms < 1) return;
+  const rate = (bytes / ms) * 1000;
+  observedBytesPerSecond = measurements === 0 ? rate : observedBytesPerSecond * 0.7 + rate * 0.3;
+  measurements++;
+}
 
 class UploadError extends Error {
   readonly status: number;
@@ -332,9 +357,11 @@ export async function uploadFile(
     for (;;) {
       throwIfAborted(signal);
       const at = offset;
-      const slice = file.slice(at, Math.min(at + sliceSize, file.size));
+      const slice = file.slice(at, Math.min(at + requestBytes(), file.size));
       try {
+        const started = performance.now();
         const answer = await post(`${partUrl}&offset=${at}`, slice, (sent) => onProgress(Math.min(at + sent, file.size), file.size), signal);
+        noteRequest(slice.size, performance.now() - started);
         offset = (JSON.parse(answer) as { received: number }).received;
         attempt = 0;
       } catch (error) {
@@ -378,31 +405,35 @@ async function uploadBatch(
     parts.push(header, entry.file);
   }
   const url = `${adminBase}/ui/upload-batch?ioId=${ioId}&basePath=${encodeURIComponent(basePath)}`;
-  const answer = await post(url, new Blob(parts), onProgress, signal);
+  const body = new Blob(parts);
+  const started = performance.now();
+  const answer = await post(url, body, onProgress, signal);
+  noteRequest(body.size, performance.now() - started);
   return (JSON.parse(answer) as { errors: string[] }).errors;
 }
 
 // A file big enough to be worth a request of its own gets one and is sliced; everything smaller is
-// packed together until a batch is full.
-function planUpload(entries: UploadEntry[]): UploadEntry[][] {
-  const groups: UploadEntry[][] = [];
+// packed together until a batch is full. A generator, not a list: the budget a group is measured
+// against is the one that holds when the group is formed, so the plan follows the link as it is
+// learned rather than being fixed before the first byte has gone anywhere.
+function* planUpload(entries: UploadEntry[]): Generator<UploadEntry[]> {
   let batch: UploadEntry[] = [];
   let batchBytes = 0;
   for (const entry of entries) {
-    if (entry.file.size >= batchByteLimit) {
-      groups.push([entry]);
+    const budget = requestBytes();
+    if (entry.file.size >= budget) {
+      yield [entry];
       continue;
     }
-    if (batch.length >= batchFileLimit || batchBytes + entry.file.size > batchByteLimit) {
-      groups.push(batch);
+    if (batch.length >= batchFileLimit || batchBytes + entry.file.size > budget) {
+      yield batch;
       batch = [];
       batchBytes = 0;
     }
     batch.push(entry);
     batchBytes += entry.file.size;
   }
-  if (batch.length > 0) groups.push(batch);
-  return groups;
+  if (batch.length > 0) yield batch;
 }
 
 export interface UploadEntry {

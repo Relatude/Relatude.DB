@@ -66,7 +66,7 @@ import { KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, kindMeta, 
 import { PropertyEditor, readOnlyNote, RelationEditor, SourceEditor, SourcePickerDialog, TypeEditor, type EditorContext, type Selection } from "./DatamodelEditors";
 import { peekSearchTarget, takeDatamodelTarget, takeSearchTarget, useNavigationRequest, type DatamodelTarget } from "../navigate";
 import { HistoryView, MatrixView, ModelsView, RelationsView, SourcesView } from "./DatamodelViews";
-import { DatamodelDiagram } from "./DatamodelDiagram";
+import { DatamodelDiagram } from "./diagram/DatamodelDiagram";
 import { DatamodelGraphView } from "./DatamodelGraphView";
 import { modeKey, remember } from "./datamodelGraphModel";
 import "../datamodel.css";

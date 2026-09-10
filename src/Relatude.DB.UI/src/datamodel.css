@@ -1177,7 +1177,28 @@ button.dm-source-card {
   width: 22px;
   height: 0;
   border-top: 2px solid var(--text-faint);
-  margin-left: 6px;
+}
+
+/* every entry of the legend is the switch for its kind of line, off in the house way: dimmed and
+   struck through, as a source chip is */
+.dm-legend-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.dm-legend-toggle:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.dm-legend-toggle.off {
+  opacity: 0.45;
+  text-decoration: line-through;
 }
 
 .dm-legend-line.inherits {
@@ -1218,15 +1239,30 @@ button.dm-source-card {
   /* the drawing's own ground rather than the panel's, so a bare background leaves the toolbar above
      it alone: what is switched off is the page behind the picture, not the controls */
   background: var(--stage);
-  cursor: grab;
+  /* the hand draws a square over the boxes; in pan mode it takes hold of the drawing instead */
+  cursor: crosshair;
   touch-action: none;
   font-family: inherit;
   user-select: none;
   -webkit-user-select: none;
 }
 
-.dm-diagram-svg:active {
+.dm-diagram-svg.panning {
+  cursor: grab;
+}
+
+.dm-diagram-svg.panning:active {
   cursor: grabbing;
+}
+
+/* the dotted square dragged over the drawing to pick boxes up */
+.dm-select-band {
+  fill: var(--accent);
+  fill-opacity: 0.08;
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
 }
 
 .dm-node {

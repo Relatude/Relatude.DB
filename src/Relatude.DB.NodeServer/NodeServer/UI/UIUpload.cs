@@ -24,16 +24,13 @@ namespace Relatude.DB.NodeServer.UI;
 internal sealed class UIUpload {
     const int copyBufferSize = 128 * 1024;
     const int maxRelativeNameBytes = 4096;
-    static readonly TimeSpan staleTempAge = TimeSpan.FromDays(1);
-    static readonly TimeSpan staleSweepInterval = TimeSpan.FromMinutes(10);
     readonly RelatudeDBServer _server;
-    DateTime _lastSweepUtc = DateTime.MinValue;
     internal UIUpload(RelatudeDBServer server) => _server = server;
 
     internal void Map(WebApplication app, string path) {
         app.MapPost(path + "upload-part", (HttpContext ctx, Guid ioId, Guid uploadId, long offset) => uploadPartAsync(ctx, ioId, uploadId, offset));
-        app.MapPost(path + "upload-commit", (Guid ioId, Guid uploadId, string key, long size) => commitAsync(ioId, uploadId, key, size));
-        app.MapPost(path + "upload-abort", (Guid ioId, Guid uploadId) => abortAsync(ioId, uploadId));
+        app.MapPost(path + "upload-commit", (Guid ioId, Guid uploadId, string key, long size) => commit(ioId, uploadId, key, size));
+        app.MapPost(path + "upload-abort", (Guid ioId, Guid uploadId) => abort(ioId, uploadId));
         app.MapPost(path + "upload-batch", (HttpContext ctx, Guid ioId, string? basePath) => uploadBatchAsync(ctx, ioId, basePath));
     }
 
@@ -70,7 +67,7 @@ internal sealed class UIUpload {
         return Results.Json(new { received = io.GetFileSizeOrZeroIfUnknown(temp) }, RelatudeDBJsonOptions.Default);
     }
 
-    async Task<IResult> commitAsync(Guid ioId, Guid uploadId, string key, long size) {
+    IResult commit(Guid ioId, Guid uploadId, string key, long size) {
         var io = _server.GetIO(ioId);
         var temp = tempKey(uploadId);
         var fileKey = key.SplitKey();
@@ -89,14 +86,12 @@ internal sealed class UIUpload {
             io.DeleteFileIfItExists(temp);
             return Results.BadRequest(new { error = exception.Message }); // a locked destination, say
         }
-        await sweepStaleTempFilesAsync(io);
         return Results.Ok();
     }
 
-    async Task<IResult> abortAsync(Guid ioId, Guid uploadId) {
+    IResult abort(Guid ioId, Guid uploadId) {
         var io = _server.GetIO(ioId);
         io.DeleteFileIfItExists(tempKey(uploadId));
-        await sweepStaleTempFilesAsync(io);
         return Results.Ok();
     }
 
@@ -161,7 +156,6 @@ internal sealed class UIUpload {
                 errors.Add(name + ": " + failure);
             }
         }
-        await sweepStaleTempFilesAsync(io);
         return Results.Json(new { written, errors }, RelatudeDBJsonOptions.Default);
     }
 
@@ -190,23 +184,6 @@ internal sealed class UIUpload {
         }
         error = null;
         return true;
-    }
-
-    // An upload the browser never came back from leaves its temp file behind. Nothing else ever
-    // reads that folder, so it is swept here, at most once every few minutes and never on the
-    // hot path of a slice.
-    async Task sweepStaleTempFilesAsync(IIOProvider io) {
-        var now = DateTime.UtcNow;
-        if (now - _lastSweepUtc < staleSweepInterval) return;
-        _lastSweepUtc = now;
-        try {
-            var folder = await io.GetFolderAsync([FileKeyUtility.UploadFolderName], false, true);
-            foreach (var file in folder.Files) {
-                if (now - file.LastModifiedUtc > staleTempAge) io.DeleteFileIfItExists(file.KeyOf());
-            }
-        } catch (Exception error) {
-            RelatudeDBServer.Trace("UI upload temp sweep error: " + error.Message);
-        }
     }
 
     // an uploaded database file is far past the default request limit
