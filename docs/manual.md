@@ -620,6 +620,19 @@ Morton / Z-order code. Three consequences worth knowing:
 `null` so it survives a round trip. On read it also accepts `lat` / `lon` / `lng` aliases and a
 `"latitude, longitude"` string.
 
+### Seeing them
+
+The admin UI's query page has a **Map** view: pick a `GeoCoordinate` property and the result set —
+the same one the search box and the facets are already narrowing — is drawn on a world map or on a
+globe. A pin or a dot per node (coloured by a second property, as the visual pivot colours its
+cards), a heat field, one bubble per patch of the map with a count in it, or every country shaded by
+how many nodes it holds. Nodes whose coordinate is `Empty` are simply not on it, and the view says
+how many those were.
+
+An indexed property is read straight from the index there, so a map of a million nodes reads no
+nodes at all; an unindexed one has to be read node by node, which is one more reason to index a
+property you intend to look at.
+
 ---
 
 ## 6. Files

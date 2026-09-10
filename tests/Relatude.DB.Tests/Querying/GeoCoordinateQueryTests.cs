@@ -4,6 +4,7 @@ using Relatude.DB.DataStores;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.Query;
+using Relatude.DB.Query.Data;
 
 namespace Relatude.Querying;
 
@@ -205,6 +206,93 @@ public class GeoCoordinateQueryTests {
         var emptyCount = all.Count(p => p.Location.IsEmpty);
         var d = GeoCoordinate.Empty;
         Assert.AreEqual(emptyCount, store.Query<Place>().Where(p => p.Location == d).Count(), "Empty must survive persistence");
+        store.Dispose();
+    }
+
+    // ---- ICoordinateSource: where a whole result set is, read without reading the nodes ----
+
+    static CoordinateSet coordinatesOf(NodeStore store, string query, string propertyName) {
+        var propertyId = store.Datastore.Datamodel.Properties.Values.First(p => p.CodeName == propertyName).Id;
+        var data = store.Datastore.Query(query, [], QueryContext.Default);
+        var nodes = data as IStoreNodeDataCollection ?? throw new Exception("the query did not return a collection of nodes");
+        return ((ICoordinateSource)nodes).Coordinates(propertyId, QueryContext.Default);
+    }
+
+    /// <summary>What the answer says, as a lookup, so a test can compare it with the nodes it was built from.</summary>
+    static Dictionary<int, GeoCoordinate> asMap(CoordinateSet set) {
+        Assert.AreEqual(set.Ids.Length, set.Coordinates.Length, "one coordinate per id");
+        var map = new Dictionary<int, GeoCoordinate>(set.Count);
+        for (var i = 0; i < set.Count; i++) Assert.IsTrue(map.TryAdd(set.Ids[i], set.Coordinates[i]), "no node may appear twice");
+        return map;
+    }
+
+    /// <summary>
+    /// The places as the store has them, which is where their internal ids come from: the objects
+    /// handed to Insert never learn theirs, and the coordinate set is keyed by nothing else.
+    /// </summary>
+    static List<Place> stored(NodeStore store) => store.Query<Place>().Execute().ToList();
+
+    [TestMethod]
+    public void Coordinates_FromIndex_AreEveryPlacedNode() {
+        var store = OpenPlaceStore(out _);
+        var all = stored(store);
+        var map = asMap(coordinatesOf(store, "Place.Page(0, 5000)", nameof(Place.Location)));
+        var placed = all.Where(p => !p.Location.IsEmpty).ToList();
+        Assert.AreEqual(placed.Count, map.Count, "the located part of the set, and nothing else");
+        foreach (var p in placed) Assert.AreEqual(p.Location, map[p.Id], "the coordinate of " + p.Name);
+        foreach (var p in all.Where(p => p.Location.IsEmpty)) Assert.IsFalse(map.ContainsKey(p.Id), "an empty coordinate is not a place");
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void Coordinates_WithoutAnIndex_ReadFromTheNodes() {
+        // SecondaryLocation is deliberately unindexed: there is nothing to read but the nodes, and
+        // the answer has to come out the same either way
+        var store = OpenPlaceStore(out _);
+        var all = stored(store);
+        var map = asMap(coordinatesOf(store, "Place.Page(0, 5000)", nameof(Place.SecondaryLocation)));
+        Assert.AreEqual(all.Count(p => !p.SecondaryLocation.IsEmpty), map.Count);
+        foreach (var p in all.Where(p => !p.SecondaryLocation.IsEmpty)) Assert.AreEqual(p.SecondaryLocation, map[p.Id]);
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void Coordinates_OfAFilteredSet_AreOnlyThatSet() {
+        var store = OpenPlaceStore(out _);
+        var map = asMap(coordinatesOf(store, "Place.Where(p => p.Location.IsWithin(\"59.9139, 10.7522\", 50000)).Page(0, 5000)", nameof(Place.Location)));
+        var expected = stored(store).Where(p => p.Location.IsWithin(Oslo, 50_000)).ToList();
+        Assert.IsTrue(expected.Count > 0, "the filter has to leave something, or this proves nothing");
+        Assert.AreEqual(expected.Count, map.Count);
+        foreach (var p in expected) Assert.AreEqual(p.Location, map[p.Id]);
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void Coordinates_OfAnEmptySet_AreNone() {
+        var store = OpenPlaceStore(out _);
+        var set = coordinatesOf(store, "Place.Where(p => p.Name == \"nothing is called this\").Page(0, 5000)", nameof(Place.Location));
+        Assert.AreEqual(0, set.Count);
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void Coordinates_FromAPersistedIndex_MatchTheNodes() {
+        // a persisted index answers a set covering most of it from its own sequential walk rather
+        // than a tree read per id, and that comes out in the index's order and not the set's - so
+        // this checks the values and never the order
+        var io = new IOProviderMemory();
+        var store = OpenPlaceStore(out _, io);
+        var expected = stored(store).Where(p => !p.Location.IsEmpty).ToDictionary(p => p.Id, p => p.Location);
+        var map = asMap(coordinatesOf(store, "Place.Page(0, 5000)", nameof(Place.Location)));
+        CollectionAssert.AreEquivalent(expected.Keys.ToArray(), map.Keys.ToArray());
+        foreach (var (id, location) in expected) Assert.AreEqual(location, map[id]);
+        store.Dispose();
+
+        var dm = new Datamodel();
+        dm.Add<Place>();
+        store = new NodeStore(DataStoreLocal.Open(dm, null, io)); // reopen: the index is replayed from the log
+        var again = asMap(coordinatesOf(store, "Place.Page(0, 5000)", nameof(Place.Location)));
+        foreach (var (id, location) in expected) Assert.AreEqual(location, again[id], "a coordinate must survive a reopen");
         store.Dispose();
     }
 }

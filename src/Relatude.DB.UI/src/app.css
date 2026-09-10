@@ -8308,3 +8308,75 @@ body.pg-resizing {
   font-variant-numeric: tabular-nums;
   color: var(--text-faint);
 }
+
+/* ---- the map view ---- */
+
+/* The world and the nodes are two layers over one another: the svg (or the globe's canvas) draws
+   the world, the canvas above it draws the nodes. Both are given the whole stage and driven from
+   the same view, so nothing can slide out of register between them. */
+.map-canvas canvas.map-marks {
+  pointer-events: none;
+}
+
+.map-world {
+  position: absolute;
+  inset: 0;
+  display: block;
+  overflow: visible;
+}
+
+/* Coastlines and borders, drawn once each: the outlines share their arcs, so a border between two
+   countries is one line rather than two on top of each other. Never filled - a map of lines is
+   what the countries are shaded ON, and a fill here would hide whatever is under it. */
+.map-outline {
+  fill: none;
+  stroke: var(--text-faint);
+  stroke-width: 1;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+/* the lines of latitude and longitude, well behind the coastlines: a scale to read the map against */
+.map-graticule {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1;
+  opacity: 0.45;
+}
+
+/* a country shaded by what it holds; the fill comes from the ramp and is set per country */
+.map-country {
+  stroke: none;
+}
+
+.map-country:hover {
+  fill-opacity: 1;
+}
+
+/* the second note on the picture sits under the first, since both are counts about the same set */
+.visual-count-note.second {
+  top: 22px;
+}
+
+/* the colour scale beside a heat map or a field of bubbles: least at the bottom, most at the top */
+.map-scale {
+  display: flex;
+  gap: 8px;
+  height: 132px;
+  padding: 2px 2px 6px;
+}
+
+.map-scale-bar {
+  flex: none;
+  width: 14px;
+  border-radius: 3px;
+}
+
+.map-scale-ends {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-faint);
+}

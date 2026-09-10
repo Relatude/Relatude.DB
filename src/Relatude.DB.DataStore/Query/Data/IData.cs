@@ -95,6 +95,39 @@ public interface IBucketSource : IStoreNodeDataCollection {
     /// </summary>
     IReadOnlyList<ValueBucket> Bucket(Guid propertyId, bool? isRange, bool includeMissing, int maxBuckets, QueryContext ctx);
 }
+/// <summary>
+/// Where the nodes of a collection are: their coordinates, and nothing else about them. A node
+/// without one - <see cref="GeoCoordinate.Empty"/>, which is what "no location" is stored as - is
+/// left out, so the answer is the located part of the collection. In no particular order: it comes
+/// out in whichever order was cheaper to read it in, and what is done with it - drawn on a map,
+/// counted into cells - is a set rather than a sequence.
+/// </summary>
+public sealed class CoordinateSet {
+    public CoordinateSet(int[] ids, GeoCoordinate[] coordinates) {
+        Ids = ids;
+        Coordinates = coordinates;
+    }
+    /// <summary>The nodes that have a coordinate, in the collection's order.</summary>
+    public int[] Ids { get; }
+    /// <summary>Where each of them is: <c>Coordinates[i]</c> belongs to <c>Ids[i]</c>.</summary>
+    public GeoCoordinate[] Coordinates { get; }
+    public int Count => Ids.Length;
+}
+
+/// <summary>
+/// A collection that can say where its nodes are without reading them: the geo coordinate index,
+/// handed back as a value per id. What a map of a large result set needs - a point per node - in the
+/// same spirit as <see cref="IBucketSource"/>, which gives it a colour per node.
+/// </summary>
+public interface ICoordinateSource : IStoreNodeDataCollection {
+    /// <summary>
+    /// Where the nodes of this collection are, by a geo coordinate property of theirs. An indexed
+    /// property is read from its index; an unindexed one falls back to reading the nodes, which is
+    /// the only way to answer at all and is why indexing one is worth it.
+    /// </summary>
+    CoordinateSet Coordinates(Guid propertyId, QueryContext ctx);
+}
+
 public interface ISearchCollection : IStoreNodeDataCollection {
     ISearchQueryResultData Search(string search, Guid searchPropertyId, double? ratioSemantic, float? minimumVectorSimilarity, bool? orSearch, int pageIndex, int pageSize, int? maxHitsEvaluated, int? maxWordsEvaluated);
     IStoreNodeDataCollection FilterBySearch(string text, Guid propertyId, double? ratioSemantic, float? minimumVectorSimilarity, bool? orSearch, int? maxWordVariations);

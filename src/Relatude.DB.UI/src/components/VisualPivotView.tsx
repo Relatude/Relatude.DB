@@ -10,7 +10,7 @@ import type { VisualDefinition } from "../queryTabs";
 import { createCardField, transitionSeconds, type CardField, type CardFieldCommon, type FieldSurface, type FieldTheme, type RGBf } from "../visual/cardField";
 import { createCardField3D, defaultDepth, DetailLevel, type CardField3D } from "../visual/cardField3d";
 import { barLayout, gridLayout, type Bar, type DepthGrouping, type Layout, type Row, type Spread } from "../visual/layouts";
-import { buildPalette, palettes, parseCssColor, type PaletteColor, type RGB } from "../visual/palette";
+import { buildPalette, hashText, paletteSlot, palettes, parseCssColor, type PaletteColor, type RGB } from "../visual/palette";
 import { shapeLabel, shapeMaskUrl, shapeSlotFor } from "../visual/shapes";
 import { IntMap } from "../visual/intMap";
 import { createCardMedia, type CardMedia } from "../visual/cardMedia";
@@ -1711,11 +1711,13 @@ function paletteSlots(groups: DecodedGroup[]) {
   const taken = new Set<number>();
   for (const g of groups) {
     if (g.kind !== "value") continue;
-    let slot = hashText((g.value ?? "") + "|" + (g.value2 ?? "")) % paletteSize;
-    while (taken.has(slot)) slot = (slot + 1) % paletteSize;
-    taken.add(slot);
-    g.ordinal = slot;
+    g.ordinal = paletteSlot(groupKey(g), taken, paletteSize);
   }
+}
+
+/** What a group is hashed by: its value, which is the same string in every view that shows it. */
+function groupKey(g: DecodedGroup): string {
+  return (g.value ?? "") + "|" + (g.value2 ?? "");
 }
 
 /**
@@ -1729,19 +1731,9 @@ function shapeSlots(groups: DecodedGroup[]) {
   const taken = new Set<number>();
   for (const g of groups) {
     if (g.kind !== "value") continue;
-    g.shape = shapeSlotFor(hashText((g.value ?? "") + "|" + (g.value2 ?? "")), taken);
+    g.shape = shapeSlotFor(hashText(groupKey(g)), taken);
     taken.add(g.shape);
   }
-}
-
-/** FNV-1a, 32 bits: the same slot for the same value on every visit. */
-function hashText(text: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h >>> 0;
 }
 
 function groupColor(g: DecodedGroup, palette: PaletteColor[], theme: Theme): [number, number, number] {

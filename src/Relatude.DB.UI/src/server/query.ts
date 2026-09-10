@@ -418,6 +418,8 @@ export interface PivotProperty {
   numeric: boolean;
   /** A date: the grouping can be by calendar interval. */
   isDate: boolean;
+  /** A position (GeoCoordinate): what the map view places the nodes by. It can neither group nor aggregate. */
+  geo: boolean;
   /** The type that declares it, when inherited. */
   declaredBy: string | null;
 }
@@ -662,6 +664,48 @@ export interface VisualResult {
 
 export function runVisual(request: VisualRequest): Promise<VisualResult> {
   return send<VisualResult>("query-visual", request);
+}
+
+// ---- the map view: the nodes of the result as points on the world ----
+
+export interface MapRequest {
+  storeId: string;
+  typeId: string | null;
+  text: string;
+  semanticRatio: number | null;
+  minimumSimilarity: number | null;
+  selections: FacetSelection[];
+  /** The geo coordinate property the points are placed by. */
+  propertyId: string;
+  /** The properties the points are coloured by, grouped as the visual pivot's cards are. */
+  properties: PivotLevelSpec[];
+  /** How many points at most; 0 is the server's own ceiling. */
+  maxPoints?: number;
+}
+
+export interface MapResult {
+  typeId: string;
+  typeName: string;
+  /** The position property the points were placed by. */
+  propertyName: string;
+  /** How many nodes the search found. */
+  total: number;
+  /** How many of them this map looked at: all of them unless the result is larger than the ceiling. */
+  read: number;
+  /** And how many of those had a position - the points that are actually on the map. */
+  count: number;
+  durationMs: number;
+  query: string;
+  /** One int32 per point, little-endian, base64: the node's int id. */
+  ids: string;
+  /** Two int32 per point, little-endian, base64: latitude then longitude, at ten million to the degree. */
+  coordinates: string;
+  /** Same shape as the visual pivot's, over the points rather than the whole result. */
+  properties: VisualProperty[];
+}
+
+export function runMap(request: MapRequest): Promise<MapResult> {
+  return send<MapResult>("query-map", request);
 }
 
 /** The guid of a node from its int id, which is what the cards carry. */

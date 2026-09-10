@@ -376,6 +376,7 @@ nuget.exe
 .idea
 /examples/Website.Lucene/lucene.index
 /examples/Website.Simple/relatude.db2
+/examples/Website.Simple/relatude.db3
 /examples/Website.Sqlite/shop.sqlite*
 /examples/Website.Simple/relatude.db22
 /examples/Website.Simple/appsettings.json

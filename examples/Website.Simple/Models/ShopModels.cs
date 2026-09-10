@@ -28,6 +28,10 @@ public class Product {
     public Size[] Sizes { get; set; } = []; // facet buckets carry the int values, displayed with the enum names
     [ReferencesProperty(Indexed = true)] // faceting is opt-in for relation properties
     public IEnumerable<Color>? Colors { get; set; }
+    // where the product is stocked; indexed, so a spatial filter and the admin UI's map view can
+    // read the whole set of them straight from the index without touching a node
+    [GeoCoordinateProperty(Indexed = true)]
+    public GeoCoordinate Location { get; set; }
 }
 
 [Node]

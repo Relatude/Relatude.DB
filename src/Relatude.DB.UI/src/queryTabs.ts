@@ -10,8 +10,8 @@ import type { FacetSelection, PivotAxisOptions, PivotLevelSpec, PivotMeasureSpec
  * exactly as it was left, still running against whatever the database holds now.
  */
 
-/** search: the hits, as a list or a table of chosen columns; groups and pivot: summaries of them; visual: every hit as a card. */
-export type QueryMode = "search" | "groups" | "pivot" | "visual";
+/** search: the hits, as a list or a table of chosen columns; groups and pivot: summaries of them; visual: every hit as a card; map: every hit where it is. */
+export type QueryMode = "search" | "groups" | "pivot" | "visual" | "map";
 export type HitsView = "list" | "table";
 /** How a summary is shown: the numbers, or bars drawn from them. */
 export type SummaryView = "table" | "chart";
@@ -99,6 +99,39 @@ export interface VisualDefinition {
   palette?: string;
 }
 
+/** How a map draws the nodes: one mark each, or a picture of how thickly they lie. */
+export type MapMarks = "pins" | "dots" | "heat" | "clusters" | "countries";
+
+/** The map: where the nodes are placed from, how they are drawn, and what the world under them looks like. */
+export interface MapDefinition {
+  /** the geo coordinate property the points are placed by; null until the view has found one */
+  property: string | null;
+  marks: MapMarks;
+  /** the property whose values colour the pins and the dots; null is one colour for all of them */
+  colorProperty: string | null;
+  colorMode: string;
+  /** the colours (visual/palette.ts); absent is the first palette */
+  palette?: string;
+  /** the globe rather than the flat map */
+  globe: boolean;
+  /** the flat map's projection: equirectangular | mercator | natural */
+  projection: string;
+  /** how large one mark is drawn, in pixels; absent is the mark's own default */
+  size?: number;
+  /** how far a point's heat spreads, in pixels */
+  radius?: number;
+  /** how wide one cluster's square is, in pixels */
+  cell?: number;
+  /** the legend beside the map */
+  legend: boolean;
+  /** the lines of latitude and longitude under the countries */
+  graticule?: boolean;
+  /** whether the globe turns slowly on its own whenever it is left alone */
+  spin?: boolean;
+  /** the map on a bare ground rather than on the panel it sits in (see the visual pivot's own) */
+  bare?: boolean;
+}
+
 export interface SavedQuery {
   id: string;
   /** A name someone typed; null is a name made from the query itself, which follows it as it changes. */
@@ -129,6 +162,7 @@ export interface SavedQuery {
   pivot: PivotDefinition | null;
   groups: GroupByDefinition | null;
   visual: VisualDefinition | null;
+  map: MapDefinition | null;
 }
 
 export interface QueryTabs {
@@ -167,6 +201,7 @@ export function newQuery(): SavedQuery {
     pivot: null,
     groups: null,
     visual: null,
+    map: null,
   };
 }
 

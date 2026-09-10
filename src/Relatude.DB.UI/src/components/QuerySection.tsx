@@ -11,6 +11,7 @@ import {
   IconDownload,
   IconFilter,
   IconLayoutList,
+  IconMap2,
   IconPlus,
   IconRefresh,
   IconSearch,
@@ -24,6 +25,7 @@ import { NodeEditor } from "./NodeEditor";
 import { PivotView, emptyPivot, type PivotBase } from "./PivotView";
 import { GroupByView, emptyGroupBy } from "./GroupByView";
 import { VisualPivotView, emptyVisual } from "./VisualPivotView";
+import { MapView, emptyMap } from "./MapView";
 import { EditableTable } from "./EditableTable";
 import { CopyButton } from "./CopyButton";
 import { NewNodeDialog, TypePicker } from "./TypePicker";
@@ -95,6 +97,7 @@ const modes: { id: QueryMode; label: string; icon: typeof IconSearch; hint: stri
   { id: "groups", label: "Group by", icon: IconSum, hint: "One row per value of a property, with a count and aggregates (SQL's GROUP BY)" },
   { id: "pivot", label: "Pivot", icon: IconChartBar, hint: "Groups by property on two axes, a count or sum per cell" },
   { id: "visual", label: "Visual pivot", icon: IconChartHistogram, hint: "Every node as a card: coloured by one property, stacked into bars by another" },
+  { id: "map", label: "Map", icon: IconMap2, hint: "Every node where it is: on a world map or a globe, as pins, dots, heat, clusters or shaded countries" },
 ];
 
 /**
@@ -114,6 +117,9 @@ function groupingOf(q: SavedQuery, mode: QueryMode): [PivotLevelSpec | null, Piv
       v.colorProperty === null ? null : { propertyId: v.colorProperty, mode: v.colorMode },
     ];
   }
+  // the map has one grouping and it is a colouring, so it fills the second slot and leaves the
+  // first alone: what a map is split BY is the world, which no other view has a place for
+  if (mode === "map" && q.map !== null) return [null, q.map.colorProperty === null ? null : { propertyId: q.map.colorProperty, mode: q.map.colorMode }];
   return [null, null];
 }
 
@@ -126,7 +132,7 @@ function groupingOf(q: SavedQuery, mode: QueryMode): [PivotLevelSpec | null, Piv
  */
 function modeFor(view: QueryMode, mode: string): string {
   if (view === "groups") return mode === "auto" ? "values" : mode;
-  if (view === "visual") return mode === "values" || mode === "ranges" ? mode : "auto";
+  if (view === "visual" || view === "map") return mode === "values" || mode === "ranges" ? mode : "auto";
   return mode;
 }
 
@@ -170,6 +176,13 @@ function carryGrouping(q: SavedQuery, from: QueryMode, to: QueryMode): Partial<S
         ...(second !== null ? { colorProperty: second.propertyId, colorMode: modeFor("visual", second.mode) } : {}),
       },
     };
+  }
+  if (to === "map") {
+    // whichever of the two the view being left had: the map has one colouring, and arriving at it
+    // from a group by on a single key should colour by that key rather than by nothing
+    const carried = second ?? first;
+    if (carried === null) return {};
+    return { map: { ...(q.map ?? emptyMap), colorProperty: carried.propertyId, colorMode: modeFor("map", carried.mode) } };
   }
   return {};
 }
@@ -390,8 +403,9 @@ function QueryTab({
   const pivot = mode === "pivot";
   const groups = mode === "groups";
   const visual = mode === "visual";
+  const map = mode === "map";
   const table = mode === "search" && hitsView === "table";
-  const summary = pivot || groups || visual; // no hits on screen: no paging, no csv of hits, no query string of the search
+  const summary = pivot || groups || visual || map; // no hits on screen: no paging, no csv of hits, no query string of the search
   const [exporting, setExporting] = useState(false);
   const [newNode, setNewNode] = useState(false);
   // typing straight into the table; kept per tab, like the view it belongs to
@@ -689,7 +703,7 @@ function QueryTab({
   // Filling the screen with the picture: the result's own head is a line spent on a count and the
   // switch for the facet rail, and in the visual pivot both of those fit on the line of controls the
   // picture already has. So they go down there, and the head goes away - one more line of canvas.
-  const headInToolbar = visual && fullscreen;
+  const headInToolbar = (visual || map) && fullscreen;
   const resultHead = (
     <>
       <span className="query-head-count">
@@ -744,6 +758,7 @@ function QueryTab({
               pivot: null, // and what the summaries group by
               groups: null,
               visual: null,
+              map: null,
             });
             setExpanded([]);
           }}
@@ -1056,6 +1071,19 @@ function QueryTab({
               showQuery={showQuery}
               onOpen={setSelected}
               selected={selected}
+              fullscreen={fullscreen}
+              onToggleFullscreen={toggleFullscreen}
+              head={headInToolbar ? resultHead : undefined}
+            />
+          ) : map ? (
+            <MapView
+              key={typeId}
+              base={pivotBase}
+              definition={q.map}
+              onChange={(m) => onChange({ map: m })}
+              refreshToken={epoch}
+              showQuery={showQuery}
+              onOpen={setSelected}
               fullscreen={fullscreen}
               onToggleFullscreen={toggleFullscreen}
               head={headInToolbar ? resultHead : undefined}

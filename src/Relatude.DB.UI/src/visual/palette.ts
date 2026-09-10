@@ -106,6 +106,68 @@ export function buildPalette(count: number, background: RGB, accent: RGB, id?: s
   return colors;
 }
 
+/**
+ * The colours of a palette walked in ORDER rather than spread through it: a scale for something
+ * that has more and less of it - how thickly points lie on a map, how many nodes a country holds -
+ * where buildPalette gives colours for things that are merely different from one another.
+ *
+ * `steps` colours from the low end of the palette's band to the high one. Tone and chroma both
+ * climb, so a value further up the scale is further from the page and more strongly coloured.
+ *
+ * The hue turns as well, but only a little: a scale whose hue runs right round the wheel is a
+ * rainbow, and a rainbow is read as a set of categories rather than as more and less of something -
+ * which is exactly the wrong thing for a scale to say. So however wide a palette's hue band is, a
+ * ramp built from it only ever walks `rampHueSpan` of it, from where the band begins. Tone and
+ * chroma are what carry the magnitude, and those are the palette's own.
+ */
+const rampHueSpan = 70;
+
+export function buildRamp(steps: number, background: RGB, accent: RGB, id?: string | null): PaletteColor[] {
+  const p = paletteSpec(id);
+  const bg = lightnessOf(background);
+  const dark = bg <= 0.5;
+  const near = dark ? bg + 0.13 : bg - 0.15;
+  const far = dark ? 0.76 : 0.36;
+  const ah = hueOf(accent);
+  const band = p.hue ?? [ah - 10, ah + 10];
+  const travel = Math.sign(band[1] - band[0]) * Math.min(Math.abs(band[1] - band[0]), rampHueSpan);
+  const colors: PaletteColor[] = [];
+  for (let i = 0; i < steps; i++) {
+    const at = steps <= 1 ? 1 : i / (steps - 1);
+    const h = band[0] + at * travel;
+    const tone = p.tone[0] + at * (p.tone[1] - p.tone[0]);
+    const C = (p.chroma[0] + at * (p.chroma[1] - p.chroma[0])) * chromaLift * (dark ? darkChroma : 1);
+    const rgb = oklchToRgb(near + tone * (far - near), C, h);
+    colors.push({ rgb, css: `rgb(${rgb[0]} ${rgb[1]} ${rgb[2]})` });
+  }
+  return colors;
+}
+
+/**
+ * Which colour of a palette a value takes. The slot is hashed from the value itself rather than
+ * counted off the list, so a value keeps its colour when the set is narrowed to fewer of them - the
+ * brand that was blue stays blue with the others filtered out, and the same brand is the same colour
+ * in the visual pivot and on the map. Two values that hash to the same slot are moved apart by
+ * probing, which only shifts colours when a property has a great many values. `taken` carries the
+ * slots already handed out and is added to here.
+ */
+export function paletteSlot(key: string, taken: Set<number>, size = 512): number {
+  let slot = hashText(key) % size;
+  while (taken.has(slot)) slot = (slot + 1) % size;
+  taken.add(slot);
+  return slot;
+}
+
+/** FNV-1a, 32 bits: the same slot for the same value on every visit. */
+export function hashText(text: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
 /** An sRGB colour in OKLab: its lightness, and the two axes its hue is read from. */
 function oklabOf([r, g, b]: RGB): [number, number, number] {
   const lin = (c: number) => {

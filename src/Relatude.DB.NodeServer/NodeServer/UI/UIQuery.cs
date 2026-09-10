@@ -76,6 +76,7 @@ sealed class UIQuery {
         commands.Register("query-pivot", async ctx => await pivot(ctx.Payload<PivotPayload>()));
         commands.Register("query-groupby", async ctx => await groupBy(ctx.Payload<GroupByPayload>()));
         commands.Register("query-visual", async ctx => await visual(ctx.Payload<VisualPayload>()));
+        commands.Register("query-map", async ctx => await map(ctx.Payload<MapPayload>()));
         commands.Register("query-node-id", ctx => nodeGuid(ctx.Payload<NodeIntPayload>()));
         commands.Register("query-cards", ctx => cards(ctx.Payload<CardsPayload>()));
         commands.Register("query-columns", ctx => columnsOf(ctx.Payload<ColumnsPayload>()));
@@ -1670,9 +1671,12 @@ sealed class UIQuery {
                 Aggregatable = isAggregatable(property),
                 Numeric = isNumeric(property),
                 IsDate = property.PropertyType is PropertyType.DateTime or PropertyType.DateTimeOffset,
+                // a position: what the map view puts the nodes on the world by. It can neither group
+                // nor aggregate - a coordinate has no buckets and no sum - so it is listed on its own
+                Geo = property.PropertyType is PropertyType.GeoCoordinate,
                 DeclaredBy = property.NodeType == typeId ? null : dm.NodeTypes.TryGetValue(property.NodeType, out var declaring) ? declaring.CodeName : null,
             })
-            .Where(property => property.Groupable || property.Aggregatable)
+            .Where(property => property.Groupable || property.Aggregatable || property.Geo)
             .OrderBy(property => property.Name, StringComparer.OrdinalIgnoreCase)
             .ToArray();
         return new { TypeId = typeId, TypeName = type.CodeName, Properties = properties };
@@ -1981,20 +1985,44 @@ sealed class UIQuery {
             foreach (var id in nodes.NodeIds) place(position(id));
             for (var at = 0; at < ids.Length; at++) place(at);
         }
+        var properties = groupsOf(dm, nodes, p.Properties, ids.Length, position);
+        sw.Stop();
+        var idBytes = new byte[ids.Length * 4];
+        Buffer.BlockCopy(ids, 0, idBytes, 0, idBytes.Length); // int32, the platform's byte order, which is little-endian everywhere this runs
+        return new {
+            TypeId = typeId,
+            TypeName = nodeType.CodeName,
+            Total = nodes.TotalCount,
+            Count = ids.Length,
+            DurationMs = sw.Elapsed.TotalMilliseconds,
+            Query = queryString,
+            Ids = idBytes,
+            Order = order,
+            Properties = properties,
+        };
+    }
+    /// <summary>
+    /// One group per value of each of the given properties, and which group each of the drawn nodes
+    /// is in: a uint16 per node per property, indexing the property's groups, 0xFFFF for a node in
+    /// none of them. The groups are the facet primitives (IBucketSource), so no node is read however
+    /// large the result; `position` says where in the drawn set an id sits, which is not the same as
+    /// where it sits in the result - the map draws only the nodes it has a place for.
+    /// </summary>
+    List<object> groupsOf(Datamodel dm, IStoreNodeDataCollection nodes, VisualLevelPayload[]? levels, int count, Func<int, int> position) {
         var properties = new List<object>();
-        foreach (var level in (p.Properties ?? []).DistinctBy(l => l.PropertyId)) {
+        foreach (var level in (levels ?? []).DistinctBy(l => l.PropertyId)) {
             if (!dm.Properties.TryGetValue(level.PropertyId, out var property)) continue; // a property the picker has not settled on yet
             if (nodes is not IBucketSource source) throw new Exception("This database cannot group a result set without reading it. ");
             bool? isRange = (level.Mode ?? "auto").ToLowerInvariant() switch { "values" => false, "ranges" => true, _ => null };
             var buckets = source.Bucket(property.Id, isRange, includeMissing: true, maxVisualGroups, adminContext);
             // one uint16 per card, little-endian; 0xFFFF is a card in none of the groups sent
-            var assignment = new byte[ids.Length * 2];
+            var assignment = new byte[count * 2];
             Array.Fill(assignment, (byte)0xFF);
             var assigned = 0;
             for (var b = 0; b < buckets.Count; b++) {
                 foreach (var id in buckets[b].Ids) {
                     var at = position(id);
-                    if (at < 0) continue; // a set can hold ids the page does not (it never should; the guard is cheap)
+                    if (at < 0) continue; // a bucket holds every node of the result, drawn or not
                     if (assignment[at * 2] == 0xFF && assignment[at * 2 + 1] == 0xFF) assigned++;
                     assignment[at * 2] = (byte)(b & 0xFF);
                     assignment[at * 2 + 1] = (byte)(b >> 8);
@@ -2012,23 +2040,10 @@ sealed class UIQuery {
                     b.Count,
                 }).ToArray(),
                 Assignment = assignment,
-                Unassigned = ids.Length - assigned,
+                Unassigned = count - assigned,
             });
         }
-        sw.Stop();
-        var idBytes = new byte[ids.Length * 4];
-        Buffer.BlockCopy(ids, 0, idBytes, 0, idBytes.Length); // int32, the platform's byte order, which is little-endian everywhere this runs
-        return new {
-            TypeId = typeId,
-            TypeName = nodeType.CodeName,
-            Total = nodes.TotalCount,
-            Count = ids.Length,
-            DurationMs = sw.Elapsed.TotalMilliseconds,
-            Query = queryString,
-            Ids = idBytes,
-            Order = order,
-            Properties = properties,
-        };
+        return properties;
     }
     // where each id sits in the result: a flat array when the ids are dense enough for one, a
     // dictionary otherwise (a result of a few thousand out of millions would waste the array)
@@ -2049,6 +2064,74 @@ sealed class UIQuery {
     }
     // the cards carry the store's int ids; the form opens on a guid
     object nodeGuid(NodeIntPayload p) => new { Id = store(p.StoreId).Datastore.GetGuid(p.Id) };
+
+    // ---- the map view: the result set as points on the world ----
+
+    // How many points one map may hold. A point is twelve bytes on the wire - an id and a position -
+    // and every one of them is placed again on every pan of the map, so a million is about where a
+    // map stops telling anyone anything and becomes a fog; a larger result maps its first million
+    // and says so.
+    const int maxMapPoints = 1_000_000;
+    // A coordinate travels as two int32 at ten million to the degree. That is the grid the store
+    // snaps them to anyway (about a centimetre), so nothing is lost, and it is half of what a pair
+    // of doubles would cost - which at a million points is eight megabytes of the answer.
+    const double mapCoordinateScale = 1e7;
+
+    /// <summary>
+    /// The result of the page's search as points on the world: the id and the position of every node
+    /// in it that has one, and - for the property the points are coloured by - one group per value
+    /// with the group each point falls in, exactly as the visual pivot colours its cards.
+    ///
+    /// The positions come from the geo index rather than from the nodes (ICoordinateSource), so a
+    /// map of a million points reads no nodes at all. A node whose position is empty is not on the
+    /// map and is not counted as one: what comes back says how many were found, how many of those
+    /// were looked at, and how many of THOSE had somewhere to be.
+    /// </summary>
+    async Task<object> map(MapPayload p) {
+        var s = store(p.StoreId);
+        var dm = s.Datastore.Datamodel;
+        var typeId = queriedType(dm, p.TypeId);
+        var nodeType = dm.NodeTypes[typeId];
+        if (!dm.Properties.TryGetValue(p.PropertyId, out var geoProperty) || geoProperty.PropertyType != PropertyType.GeoCoordinate)
+            throw new Exception("A map needs a property holding a position (GeoCoordinate) to place the nodes by. ");
+        var wanted = Math.Clamp(p.MaxPoints <= 0 ? maxMapPoints : p.MaxPoints, 1, maxMapPoints);
+        // the same search as the list, as one page as large as the map may be; no buckets are counted
+        // (the groups below are built directly from the result)
+        var search = new SearchPayload(p.StoreId, p.TypeId, p.Text, p.SemanticRatio, p.MinimumSimilarity, p.Selections, null, 0, wanted, Facets: false);
+        var queryString = queryFor(s, dm, search, typeId, 0, wanted);
+
+        var sw = Stopwatch.StartNew();
+        var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
+        var nodes = (data as FacetQueryResultData)?.Result ?? data as IStoreNodeDataCollection
+            ?? throw new Exception("The query did not return a collection of nodes. ");
+        if (nodes is not ICoordinateSource source) throw new Exception("This database cannot read positions without reading every node. ");
+        var located = source.Coordinates(p.PropertyId, adminContext);
+        var ids = located.Ids;
+        var position = positionsOf(ids);
+        var coordinates = new byte[ids.Length * 8];
+        for (var i = 0; i < ids.Length; i++) {
+            var c = located.Coordinates[i];
+            BinaryPrimitives.WriteInt32LittleEndian(coordinates.AsSpan(i * 8, 4), (int)Math.Round(c.Latitude * mapCoordinateScale));
+            BinaryPrimitives.WriteInt32LittleEndian(coordinates.AsSpan(i * 8 + 4, 4), (int)Math.Round(c.Longitude * mapCoordinateScale));
+        }
+        var properties = groupsOf(dm, nodes, p.Properties, ids.Length, position);
+        sw.Stop();
+        var idBytes = new byte[ids.Length * 4];
+        Buffer.BlockCopy(ids, 0, idBytes, 0, idBytes.Length); // int32, the platform's byte order, which is little-endian everywhere this runs
+        return new {
+            TypeId = typeId,
+            TypeName = nodeType.CodeName,
+            PropertyName = geoProperty.CodeName,
+            Total = nodes.TotalCount,   // how many the search found
+            Read = nodes.Count,         // how many of them this map looked at (the cap)
+            Count = ids.Length,         // and how many of those had a position
+            DurationMs = sw.Elapsed.TotalMilliseconds,
+            Query = queryString,
+            Ids = idBytes,
+            Coordinates = coordinates,
+            Properties = properties,
+        };
+    }
 
     // ---- what a card shows when it is large enough to be read ----
 
@@ -2233,6 +2316,9 @@ sealed class UIQuery {
     internal sealed record VisualLevelPayload(Guid PropertyId, string? Mode);
     internal sealed record VisualPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity, FacetSelection[]? Selections,
         VisualLevelPayload[]? Properties, int MaxCards = 0, Guid? SortBy = null, bool SortDescending = false);
+    /// <summary>PropertyId is the position the points are placed by; Properties are grouped for their colours, as the visual pivot's are.</summary>
+    internal sealed record MapPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity, FacetSelection[]? Selections,
+        Guid PropertyId, VisualLevelPayload[]? Properties, int MaxPoints = 0);
     sealed record NodeIntPayload(Guid StoreId, int Id);
     /// <summary>The cards to name and find the picture of, by their int ids.</summary>
     sealed record CardsPayload(Guid StoreId, int[]? Ids);

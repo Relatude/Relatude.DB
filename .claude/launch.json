@@ -81,6 +81,32 @@
       ],
       "port": 5176,
       "autoPort": false
+    },
+    {
+      "name": "website-simple-map",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "examples/Website.Simple",
+        "--no-launch-profile",
+        "-e",
+        "RelatudeDB__ContainerSettings__0__IOSettings__0__Path=relatude.db3",
+        "--urls",
+        "http://localhost:5063"
+      ],
+      "port": 5063,
+      "autoPort": false
+    },
+    {
+      "name": "relatude-db-ui-5063",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set PORT=5177&& set API_URL=http://localhost:5063&& npm run dev --prefix src/Relatude.DB.UI"
+      ],
+      "port": 5177,
+      "autoPort": false
     }
   ]
 }
