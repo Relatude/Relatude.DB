@@ -5,14 +5,14 @@ import type { PivotBase } from "./PivotView";
 import { fetchCards, fetchNodeGuid, fetchPivotModel, runMap, type MapRequest, type PivotModel, type PivotProperty } from "../server/query";
 import { useLiveResult } from "../server/hooks";
 import { formatCount, formatQuery } from "../format";
-import type { MapDefinition, MapMarks } from "../queryTabs";
+import type { MapDefinition, MapMarks as MarkKind } from "../queryTabs";
 import { buildPalette, buildRamp, palettes, parseCssColor, type PaletteColor, type RGB } from "../visual/palette";
-import { clampView, fitView, projections, projectionOf, screenX, screenY, worldX, worldY, type View } from "../map/projection";
-import { countryPath, graticulePath, outlinePath, pathScale } from "../map/paths";
+import { clampView, fitView, projections, projectionOf, type View } from "../map/projection";
 import { countCountries, countryAt, countryRaster, countryRasterSize, rankedCountries } from "../map/countries";
 import { decodeMap, PointIndex, type MapGroup } from "../map/points";
-import { clusterPoints, clusterRadius, drawClusters, drawDots, drawHeat, drawPins, MarkSurface, type Cluster, type Place, type PointColors } from "../map/marks";
-import { createGlobe, maxGlobeZoom, unitVectors, type Globe, type GlobeCamera } from "../map/globe";
+import { clusterPoints, clusterRadius, drawClusters, type Cluster } from "../map/clusters";
+import { createMapField, maxGlobeZoom, type GlobeCamera, type MapField, type MapScene } from "../map/mapField";
+import { Momentum } from "../map/motion";
 import { world } from "../map/worldMap";
 
 /** A map before anyone has chosen anything: a dot per node on a world map, in one colour. */
@@ -28,7 +28,7 @@ export const emptyMap: MapDefinition = {
   palette: palettes[0].id,
 };
 
-const markOptions: { id: MapMarks; label: string; hint: string }[] = [
+const markOptions: { id: MarkKind; label: string; hint: string }[] = [
   { id: "dots", label: "Dots", hint: "A dot per node — the plainest picture of where they are, and the one that holds a million of them" },
   { id: "pins", label: "Pins", hint: "A marker per node, standing on its place; for a set small enough to pick individual nodes out of" },
   { id: "heat", label: "Heat", hint: "How thickly the nodes lie, as a field of colour — where they crowd rather than where each one is" },
@@ -42,19 +42,16 @@ const modeOptions = [
   { value: "ranges", label: "ranges" },
 ];
 
-/** How many marks are drawn while a hand is still moving the map; the rest arrive when it settles. */
-const movingBudget = 120_000;
-/** and how many pins are ever drawn: past this they are a smear rather than markers, and the view says so */
+/** How many pins are ever drawn: past this they are a smear rather than markers, and the view says so. */
 const pinBudget = 20_000;
-const settleMs = 130;
 /** How near a pointer has to be to a node to pick it, in pixels. */
 const pickPixels = 9;
 const minScale = 40;
 const maxScale = 400_000;
-/** The colour ramp's resolution: enough that a heat map has no bands in it. */
+/** The colour ramp's resolution: enough that a heat field has no bands in it. */
 const rampSteps = 64;
-/** The picture wrapped round the globe when countries are shaded; half the raster, which is plenty at this size. */
-const surfaceShrink = 2;
+/** How fast the globe turns when it is left to turn on its own, in degrees a second. */
+const spinDegrees = 6;
 
 interface Theme {
   panel: RGB;
@@ -77,19 +74,18 @@ interface Drag {
   x: number;
   y: number;
   moved: boolean;
-  /** the view (or the camera) as it was when the hand went down */
-  fromView: View;
-  fromCamera: GlobeCamera;
+  /** the view and the camera as they were when the hand went down */
+  from: { view: View; camera: GlobeCamera };
 }
 
 /**
  * The map: every node of the result standing on the place one of its properties says it is.
  *
- * Two pictures of the same points, and either will do: a flat world map, which is svg - the world
- * is six hundred lines of coastline and border and belongs in the dom, where it costs nothing to
- * keep - and a globe, which is WebGL, because a sphere is not something svg does. The nodes
- * themselves are never dom in either: they go on a canvas over the flat map and into a vertex
- * buffer on the globe, and there can be a million of them.
+ * Two pictures of the same points, and either will do - a flat world map in one of three
+ * projections, or a globe - drawn by one WebGL renderer from one set of buffers (map/mapField.ts).
+ * Nothing about a node reaches the graphics card but its longitude and latitude: changing
+ * projection, or going from the map to the globe, is a uniform rather than a pass over the data,
+ * which is what lets a million of them be on screen at once.
  *
  * Five ways of showing where they are, from one mark per node to a picture of the crowd: pins and
  * dots (coloured by a property, as the visual pivot colours its cards), a heat field, bubbles per
@@ -169,7 +165,7 @@ export function MapView({
       minimumSimilarity: base.minimumSimilarity,
       selections: base.selections,
       propertyId: property,
-      // the colouring is only asked for when something is drawn in it; a heat map has no use for it
+      // the colouring is only asked for when something is drawn in it; a heat field has no use for it
       properties: coloured && colorProperty !== null ? [{ propertyId: colorProperty, mode: def.colorMode }] : [],
     };
     // the token is not part of the request; a new object is how the runner is told to run again
@@ -179,36 +175,42 @@ export function MapView({
   const points = useMemo(() => (result ? decodeMap(result) : null), [result]);
   const colorData = colorProperty === null ? null : (points?.byProperty.get(colorProperty) ?? null);
 
-  // ---- the canvases and what is on them ----
+  // ---- the canvas, and what is on it ----
 
   const stageRef = useRef<HTMLDivElement>(null);
-  /** The part of the stage the map is actually drawn in - the stage less whatever the legend takes. */
+  /** The part of the stage the map is drawn in - the stage less whatever the legend takes. */
   const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const globeRef = useRef<HTMLCanvasElement>(null);
-  const globe = useRef<Globe | null>(null);
-  const surface = useRef(new MarkSurface());
+  const bubblesRef = useRef<HTMLCanvasElement>(null);
+  const field = useRef<MapField | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [theme, setTheme] = useState<Theme | null>(null);
   const [glOk, setGlOk] = useState(true);
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
-  /** how many marks the last frame actually drew, and whether it had to thin them out to do it */
-  const [drawn, setDrawn] = useState<{ count: number; thinned: boolean }>({ count: 0, thinned: false });
 
   const [view, setView] = useState<View>({ cx: 0, cy: 0, scale: 200 });
   const [camera, setCamera] = useState<GlobeCamera>({ lat: 20, lon: 0, zoom: 1 });
   const drag = useRef<Drag | null>(null);
-  const moving = useRef(false);
-  const settle = useRef(0);
+  const momentum = useRef(new Momentum());
   const frame = useRef(0);
   const pending = useRef<{ view?: View; camera?: GlobeCamera } | null>(null);
 
-  useEffect(
-    () => () => {
-      if (frame.current !== 0) cancelAnimationFrame(frame.current);
-    },
-    [],
-  );
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let made: MapField | null = null;
+    try {
+      made = createMapField(canvas);
+    } catch {
+      made = null;
+    }
+    field.current = made;
+    setGlOk(made !== null);
+    return () => {
+      made?.destroy();
+      field.current = null;
+    };
+  }, []);
 
   useLayoutEffect(() => {
     const el = frameRef.current;
@@ -232,95 +234,90 @@ export function MapView({
     return () => observer.disconnect();
   }, [def.bare, size.width]);
 
-  // the world, drawn for this projection: three strings, rebuilt only when the projection changes
-  const outline = useMemo(() => outlinePath(projection), [projection]);
-  const graticule = useMemo(() => graticulePath(projection), [projection]);
-
-  /**
-   * Where every node is on the flat map, in world units: one pass per result and per projection.
-   * Only for the flat map - at a million nodes this is eight megabytes and a pass over all of them,
-   * and the globe has no use for it. The ball's own form below is the same bargain the other way.
-   */
-  const flatXY = useMemo(() => {
-    if (points === null || globeMode) return null;
-    const out = new Float32Array(points.count * 2);
-    for (let i = 0; i < points.count; i++) {
-      const [x, y] = projection.project(points.lon[i], points.lat[i]);
-      out[i * 2] = x;
-      out[i * 2 + 1] = y;
-    }
-    return out;
-  }, [points, projection, globeMode]);
-
-  /** And the same as points on a ball, which is what the globe is given. */
-  const unit = useMemo(() => (points === null || !globeMode ? null : unitVectors(points.lat, points.lon, points.count)), [points, globeMode]);
-  /** The grid that finds a node under the pointer; only the two views that HAVE nodes to find need it. */
   const index = useMemo(() => (points === null || !coloured ? null : new PointIndex(points.lat, points.lon, points.count)), [points, coloured]);
-
   const counts = useMemo(() => (points !== null && marks === "countries" ? countCountries(points.lat, points.lon, points.count) : null), [points, marks]);
 
   const palette = useMemo(() => (theme === null ? [] : buildPalette(colorData ? colorData.groups.length : 1, theme.panel, theme.accent, def.palette)), [theme, colorData, def.palette]);
   const ramp = useMemo(() => (theme === null ? [] : buildRamp(rampSteps, theme.panel, theme.accent, def.palette)), [theme, def.palette]);
-  /** The ramp as bytes with the low end faded out, which is what a heat field is read through. */
+  /**
+   * The ramp as bytes. Its low end is transparent and reaches solid a third of the way up: the thin
+   * outer edge of a crowd has to leave the map underneath readable, while everything from a real
+   * crowd upwards is a colour to be read off the scale.
+   */
   const rampBytes = useMemo(() => {
     const bytes = new Uint8Array(ramp.length * 4);
     ramp.forEach((c, i) => {
       bytes[i * 4] = c.rgb[0];
       bytes[i * 4 + 1] = c.rgb[1];
       bytes[i * 4 + 2] = c.rgb[2];
-      // the thin edge of a crowd has to let the map show through, the thick middle does not
-      bytes[i * 4 + 3] = Math.round(255 * Math.min(1, 0.12 + (i / Math.max(1, ramp.length - 1)) * 1.4));
+      bytes[i * 4 + 3] = Math.round(255 * Math.min(1, (i / Math.max(1, ramp.length - 1)) * 3));
     });
     return bytes;
   }, [ramp]);
-  const markColors = useMemo<PointColors>(() => {
+  /** The colour of every group, as the bytes the renderer paints the marks from. */
+  const markColors = useMemo(() => {
     const groups = colorData ? colorData.groups : null;
     const bytes = new Uint8Array(Math.max(1, groups ? groups.length : 1) * 3);
-    if (groups === null || theme === null) {
-      const first = palette[0]?.rgb ?? [128, 128, 128];
-      bytes.set(first);
-    } else {
-      groups.forEach((g, i) => bytes.set(groupColor(g.kind, g.ordinal, palette, theme), i * 3));
-    }
-    return { palette: bytes, assignment: colorData ? colorData.assignment : null };
+    if (groups === null || theme === null) bytes.set(palette[0]?.rgb ?? [128, 128, 128]);
+    else groups.forEach((g, i) => bytes.set(groupColor(g.kind, g.ordinal, palette, theme), i * 3));
+    return bytes;
   }, [colorData, palette, theme]);
 
-  /** The countries as a picture to wrap round the globe: the raster painted with the counts. */
-  const globeSurface = useMemo(() => {
-    if (counts === null || theme === null || marks !== "countries" || !globeMode) return null;
-    const raster = countryRaster();
-    const [rw, rh] = countryRasterSize();
-    const w = Math.floor(rw / surfaceShrink);
-    const h = Math.floor(rh / surfaceShrink);
-    const image = new ImageData(w, h);
-    const words = new Uint32Array(image.data.buffer);
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const country = raster[y * surfaceShrink * rw + x * surfaceShrink];
-        if (country === 0) continue;
-        const n = counts.counts[country - 1];
-        if (n === 0) continue;
-        const c = ramp[rampAt(n, counts.max)].rgb;
-        words[y * w + x] = (230 << 24) | (c[2] << 16) | (c[1] << 8) | c[0];
-      }
+  /**
+   * What each country is painted with: 256 colours the shader looks a country's number up in, with
+   * 0 - the sea - and every country holding nothing left transparent. The raster itself goes to the
+   * card once and unchanged, so a new count is this kilobyte and nothing more.
+   */
+  const surfaceColors = useMemo(() => {
+    const colors = new Uint8Array(256 * 4);
+    if (counts === null || ramp.length === 0) return colors;
+    const countries = Math.min(255, counts.counts.length);
+    for (let i = 0; i < countries; i++) {
+      const n = counts.counts[i];
+      if (n === 0) continue;
+      const c = ramp[rampAt(n, counts.max)].rgb;
+      const at = (i + 1) * 4;
+      colors[at] = c[0];
+      colors[at + 1] = c[1];
+      colors[at + 2] = c[2];
+      colors[at + 3] = 225;
     }
-    return image;
-  }, [counts, theme, marks, globeMode, ramp]);
+    return colors;
+  }, [counts, ramp]);
 
-  /** The shape of each country that holds anything, for the flat map to fill. */
-  const countryShapes = useMemo(() => {
-    if (counts === null || globeMode) return null;
-    return rankedCountries(counts).map((r) => ({ ...r, d: countryPath(projection, r.country) }));
-  }, [counts, projection, globeMode]);
+  // ---- what one frame is ----
+
+  const scene = useMemo<MapScene>(
+    () => ({
+      globe: globeMode,
+      projection,
+      view,
+      camera,
+      marks: marks === "dots" || marks === "pins" || marks === "heat" ? marks : "none",
+      size: def.size ?? defaultSize(marks),
+      alpha: marks === "pins" ? 1 : dotAlpha(points?.count ?? 0),
+      limit: marks === "pins" ? pinBudget : Number.MAX_SAFE_INTEGER,
+      radius: def.radius ?? 26,
+      graticule: def.graticule !== false,
+      surface: marks === "countries",
+    }),
+    [globeMode, projection, view, camera, marks, def.size, def.radius, def.graticule, points],
+  );
+  /** The scene as the handlers see it, without re-binding every one of them on every frame. */
+  const sceneRef = useRef(scene);
+  sceneRef.current = scene;
 
   // ---- the view, and the hand that moves it ----
 
-  /** Whether anyone has moved the map. A map nobody has touched belongs to the view and is refitted
-   *  whenever the view changes shape - the legend opening, the window, the picture going fullscreen;
-   *  one somebody has panned or zoomed is theirs, and is left exactly where they put it. */
+  /**
+   * Whether anyone has moved the map. A map nobody has touched belongs to the view and is refitted
+   * whenever the view changes shape - the legend opening, the window, the picture going fullscreen;
+   * one somebody has panned or zoomed is theirs, and is left exactly where they put it.
+   */
   const touched = useRef(false);
   const fit = useCallback(() => {
     touched.current = false;
+    momentum.current.stop();
     if (globeMode) setCamera({ lat: 20, lon: 0, zoom: 1 });
     else if (size.width > 0) setView(fitView(projection, size.width, size.height));
   }, [globeMode, projection, size.width, size.height]);
@@ -336,7 +333,7 @@ export function MapView({
     setView(fitView(projection, size.width, size.height));
   }, [projection, size.width, size.height]);
 
-  /** One re-render a frame while a hand is moving something, however many events arrive. */
+  /** One re-render a frame while something is moving, however many events arrive. */
   const nudge = useCallback((next: { view?: View; camera?: GlobeCamera }) => {
     touched.current = true;
     pending.current = { ...pending.current, ...next };
@@ -350,20 +347,111 @@ export function MapView({
     });
   }, []);
 
-  /** A gesture has begun: the map thins its marks out until the hand stops. */
-  const startMoving = useCallback(() => {
-    moving.current = true;
-    window.clearTimeout(settle.current);
-    settle.current = window.setTimeout(() => {
-      moving.current = false;
-      setSettled((n) => n + 1); // and everything is drawn again, in full
-    }, settleMs);
-  }, []);
-  const [settled, setSettled] = useState(0);
+  useEffect(
+    () => () => {
+      if (frame.current !== 0) cancelAnimationFrame(frame.current);
+    },
+    [],
+  );
+
+  /** Where the map ends up after a hand has dragged it `dx, dy` pixels from where it was. */
+  const dragged = useCallback(
+    (from: { view: View; camera: GlobeCamera }, dx: number, dy: number) => {
+      if (globeMode) {
+        // a drag turns the ball under the pointer: how many degrees a pixel is depends on how close
+        // the camera has come, so the ground keeps up with the hand at every zoom
+        const perPixel = (field.current?.degreesPerPixel({ ...sceneRef.current, camera: from.camera }, from.camera.lat) ?? 0.2) * 1.15;
+        return {
+          camera: {
+            lat: Math.max(-88, Math.min(88, from.camera.lat + dy * perPixel)),
+            lon: wrapLongitude(from.camera.lon - dx * perPixel),
+            zoom: from.camera.zoom,
+          },
+        };
+      }
+      return { view: clampView({ ...from.view, cx: from.view.cx - dx / from.view.scale, cy: from.view.cy - dy / from.view.scale }, projection, size.width, size.height) };
+    },
+    [globeMode, projection, size.width, size.height],
+  );
+
+  /** And after being zoomed by `factor`, closing in on a point of the canvas. */
+  const zoomed = useCallback(
+    (from: { view: View; camera: GlobeCamera }, factor: number, anchor: [number, number] | null) => {
+      if (globeMode) return { camera: { ...from.camera, zoom: Math.max(1, Math.min(maxGlobeZoom, from.camera.zoom * factor)) } };
+      const px = anchor ? anchor[0] : size.width / 2;
+      const py = anchor ? anchor[1] : size.height / 2;
+      // the place under the pointer stays under the pointer, which is what makes a wheel feel like a zoom
+      const wx = from.view.cx + (px - size.width / 2) / from.view.scale;
+      const wy = from.view.cy + (py - size.height / 2) / from.view.scale;
+      const scale = Math.max(minScale, Math.min(maxScale, from.view.scale * factor));
+      return { view: clampView({ scale, cx: wx - (px - size.width / 2) / scale, cy: wy - (py - size.height / 2) / scale }, projection, size.width, size.height) };
+    },
+    [globeMode, projection, size.width, size.height],
+  );
+
+  /**
+   * The map carrying on after the hand has let go, and the globe turning on its own: one loop for
+   * both, running only while there is something for it to do. Every step of it goes through the
+   * same `dragged` and `zoomed` a pointer does, so a glide cannot drift away from what a drag would
+   * have done - and both pieces of state are moved together, since a step needs to see the view and
+   * the camera at once (see `advance`).
+   */
+  const spinning = globeMode && def.spin === true;
+  const [gliding, setGliding] = useState(false);
+  useEffect(() => {
+    if (!gliding && !spinning) return;
+    let running = true;
+    let last = performance.now();
+    const tick = (now: number) => {
+      if (!running) return;
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      const step = drag.current === null ? momentum.current.step(dt) : null;
+      if (step === null && !spinning) {
+        setGliding(false);
+        return;
+      }
+      advance((state) => {
+        let next = state;
+        if (step !== null) {
+          next = { ...next, ...dragged(next, step.dx, step.dy) };
+          if (Math.abs(step.zoom - 1) > 1e-6) next = { ...next, ...zoomed(next, step.zoom, momentum.current.anchor) };
+        } else if (spinning && drag.current === null) {
+          next = { ...next, camera: { ...next.camera, lon: wrapLongitude(next.camera.lon + dt * spinDegrees) } };
+        }
+        return next;
+      });
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    return () => {
+      running = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gliding, spinning, dragged, zoomed]);
+
+  /**
+   * The view and the camera moved as one. React hands an updater only the state it is updating, and
+   * a step of the loop above has to see both to work out the next of each - so the camera's update
+   * runs inside the view's, and each is handed back unchanged when only the other moved.
+   */
+  function advance(step: (state: { view: View; camera: GlobeCamera }) => { view: View; camera: GlobeCamera }) {
+    setView((v) => {
+      let nextView = v;
+      setCamera((c) => {
+        const next = step({ view: v, camera: c });
+        nextView = next.view;
+        return next.camera;
+      });
+      return nextView;
+    });
+  }
 
   const onPointerDown = (e: React.PointerEvent) => {
     (e.target as Element).setPointerCapture?.(e.pointerId);
-    drag.current = { x: e.clientX, y: e.clientY, moved: false, fromView: view, fromCamera: camera };
+    momentum.current.stop();
+    drag.current = { x: e.clientX, y: e.clientY, moved: false, from: { view, camera } };
+    momentum.current.track(e.clientX, e.clientY);
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -375,79 +463,54 @@ export function MapView({
     }
     const dx = e.clientX - d.x;
     const dy = e.clientY - d.y;
+    momentum.current.track(e.clientX, e.clientY);
     if (!d.moved && Math.abs(dx) + Math.abs(dy) < 3) return;
     d.moved = true;
     setTooltip(null);
-    startMoving();
-    if (globeMode) {
-      // a drag turns the ball under the pointer: how many degrees a pixel is depends on how close
-      // the camera has come, so the ground keeps up with the hand at every zoom
-      const perPixel = (globe.current?.degreesPerPixel(d.fromCamera) ?? 0.2) * 1.15;
-      nudge({
-        camera: {
-          lat: Math.max(-88, Math.min(88, d.fromCamera.lat + dy * perPixel)),
-          lon: wrapLongitude(d.fromCamera.lon - dx * perPixel),
-          zoom: d.fromCamera.zoom,
-        },
-      });
-    } else {
-      nudge({ view: clampView({ ...d.fromView, cx: d.fromView.cx - dx / d.fromView.scale, cy: d.fromView.cy - dy / d.fromView.scale }, projection, size.width, size.height) });
-    }
+    nudge(dragged(d.from, dx, dy));
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
     const d = drag.current;
     drag.current = null;
-    if (d === null || d.moved) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    click(e.clientX - rect.left, e.clientY - rect.top);
+    if (d === null) return;
+    if (!d.moved) {
+      momentum.current.stop();
+      const rect = e.currentTarget.getBoundingClientRect();
+      click(e.clientX - rect.left, e.clientY - rect.top);
+      return;
+    }
+    momentum.current.release();
+    if (momentum.current.moving) setGliding(true);
   };
 
   const onWheel = (e: React.WheelEvent) => {
     if (size.width <= 0) return;
-    startMoving();
-    const factor = Math.pow(1.0016, -e.deltaY);
-    if (globeMode) {
-      nudge({ camera: { ...camera, zoom: Math.max(1, Math.min(maxGlobeZoom, camera.zoom * factor)) } });
-      return;
-    }
     const rect = e.currentTarget.getBoundingClientRect();
-    const px = e.clientX - rect.left;
-    const py = e.clientY - rect.top;
-    // the place under the pointer stays under the pointer, which is what makes a wheel feel like a zoom
-    const wx = worldX(view, px, size.width);
-    const wy = worldY(view, py, size.height);
-    const scale = Math.max(minScale, Math.min(maxScale, view.scale * factor));
-    nudge({
-      view: clampView({ scale, cx: wx - (px - size.width / 2) / scale, cy: wy - (py - size.height / 2) / scale }, projection, size.width, size.height),
-    });
+    const anchor: [number, number] = [e.clientX - rect.left, e.clientY - rect.top];
+    // part of the notch now and the rest of it over the next moment, so the zoom carries (motion.ts)
+    const amount = -e.deltaY * 0.0016;
+    nudge(zoomed({ view, camera }, Math.exp(amount * 0.55), anchor));
+    momentum.current.push(amount * 0.45, anchor);
+    setGliding(true);
   };
 
   /** The node nearest a point of the canvas, or -1. */
   const pointAt = useCallback(
     (px: number, py: number): number => {
-      if (points === null || index === null) return -1;
-      if (globeMode) {
-        const place = globe.current?.placeAt(camera, px, py);
-        if (!place) return -1;
-        return index.nearest(place[1], place[0], (globe.current?.degreesPerPixel(camera) ?? 0.2) * pickPixels);
-      }
-      const at = projection.invert(worldX(view, px, size.width), worldY(view, py, size.height));
+      if (points === null || index === null || field.current === null) return -1;
+      const at = field.current.placeAt(sceneRef.current, px, py);
       if (at === null) return -1;
-      // a pick radius in pixels, said in degrees: what the projection does to a degree there
-      const [x0] = projection.project(at[0], at[1]);
-      const [x1] = projection.project(at[0] + 0.1, at[1]);
-      const perDegree = Math.max(1e-9, Math.abs(x1 - x0) / 0.1) * view.scale;
-      return index.nearest(at[0], at[1], pickPixels / perDegree);
+      return index.nearest(at[1], at[0], field.current.degreesPerPixel(sceneRef.current, at[0]) * pickPixels);
     },
-    [points, index, globeMode, camera, projection, view, size.width, size.height],
+    [points, index],
   );
 
   const names = useRef(new Map<number, string>());
   const hover = (px: number, py: number) => {
     if (points === null) return;
     if (marks === "countries") {
-      const at = placeUnder(px, py);
+      const at = field.current?.placeAt(sceneRef.current, px, py) ?? null;
       const country = at === null ? -1 : countryAt(at[1], at[0]);
       if (country < 0 || counts === null) {
         setTooltip(null);
@@ -462,7 +525,7 @@ export function MapView({
       return;
     }
     if (marks === "heat") {
-      const at = placeUnder(px, py);
+      const at = field.current?.placeAt(sceneRef.current, px, py) ?? null;
       setTooltip(at === null ? null : { x: px, y: py, lines: [placeLabel(at[0], at[1])] });
       return;
     }
@@ -487,16 +550,6 @@ export function MapView({
     }
   };
 
-  /** The place under a point of the canvas, in degrees, whichever picture is on screen. */
-  const placeUnder = useCallback(
-    (px: number, py: number): [number, number] | null => {
-      if (globeMode) return globe.current?.placeAt(camera, px, py) ?? null;
-      const at = projection.invert(worldX(view, px, size.width), worldY(view, py, size.height));
-      return at === null ? null : [at[1], at[0]];
-    },
-    [globeMode, camera, projection, view, size.width, size.height],
-  );
-
   const lastClusters = useRef<Cluster[]>([]);
   const lastCell = useRef(48);
   const clusterUnder = (px: number, py: number): Cluster | null => {
@@ -520,12 +573,9 @@ export function MapView({
       return;
     }
     if (marks === "countries") {
-      const at = placeUnder(px, py);
+      const at = field.current?.placeAt(sceneRef.current, px, py) ?? null;
       const country = at === null ? -1 : countryAt(at[1], at[0]);
-      if (country >= 0) {
-        const [west, south, east, north] = world().countries[country].bounds;
-        zoomToBounds(west, south, east, north);
-      }
+      if (country >= 0) zoomToBounds(...world().countries[country].bounds);
       return;
     }
     if (marks === "heat") return;
@@ -538,6 +588,7 @@ export function MapView({
 
   const zoomTo = (lat: number, lon: number, times: number) => {
     touched.current = true;
+    momentum.current.stop();
     setTooltip(null); // what it named is about to be somewhere else
     if (globeMode) {
       setCamera({ lat, lon, zoom: Math.min(maxGlobeZoom, camera.zoom * times) });
@@ -550,6 +601,7 @@ export function MapView({
 
   const zoomToBounds = (west: number, south: number, east: number, north: number) => {
     touched.current = true;
+    momentum.current.stop();
     setTooltip(null);
     const lat = (south + north) / 2;
     const lon = (west + east) / 2;
@@ -565,143 +617,81 @@ export function MapView({
     setView(clampView({ scale, cx: x, cy: y }, projection, size.width, size.height));
   };
 
-  // ---- the globe ----
+  // ---- what the renderer is told, and when ----
 
   useEffect(() => {
-    if (!globeMode) return;
-    const canvas = globeRef.current;
-    if (!canvas) return;
-    let made: Globe | null = null;
-    try {
-      made = createGlobe(canvas);
-    } catch {
-      made = null;
-    }
-    globe.current = made;
-    setGlOk(made !== null);
-    return () => {
-      made?.destroy();
-      globe.current = null;
-    };
-  }, [globeMode]);
-
+    if (points === null) return;
+    field.current?.setPoints(points.lon, points.lat, points.count);
+  }, [points, glOk]);
   useEffect(() => {
-    if (globe.current === null || unit === null || points === null) return;
-    globe.current.setPoints(unit, points.count);
-    globe.current.setColors(markColors.palette, markColors.assignment);
-  }, [unit, points, markColors, globeMode, glOk]);
-
+    field.current?.setColors(markColors, colorData ? colorData.assignment : null);
+  }, [markColors, colorData, points, glOk]);
   useEffect(() => {
-    globe.current?.setSurface(globeSurface);
-  }, [globeSurface, globeMode, glOk]);
-
-  /** The globe turning on its own: only when nothing else is happening to it. */
+    field.current?.setRamp(rampBytes);
+  }, [rampBytes, glOk]);
+  // the raster is eight megabytes and takes a moment to draw, so it is asked for only once the
+  // countries are actually being shown - and then never again, since the world does not change
+  const rastered = useRef(false);
   useEffect(() => {
-    if (!globeMode || def.spin !== true) return;
-    let running = true;
-    let last = performance.now();
-    const step = (now: number) => {
-      if (!running) return;
-      const dt = (now - last) / 1000;
-      last = now;
-      if (drag.current === null) setCamera((c) => ({ ...c, lon: wrapLongitude(c.lon + dt * 6) }));
-      requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
-    return () => {
-      running = false;
-    };
-  }, [globeMode, def.spin]);
-
-  // ---- drawing ----
+    if (marks !== "countries" || rastered.current || field.current === null) return;
+    const [w, h] = countryRasterSize();
+    field.current.setSurface(countryRaster(), w, h);
+    rastered.current = true;
+  }, [marks, glOk]);
+  useEffect(() => {
+    field.current?.setSurfaceColors(surfaceColors);
+  }, [surfaceColors, glOk]);
+  useEffect(() => {
+    if (theme === null) return;
+    field.current?.setTheme({
+      clear: theme.panel,
+      // The ball is grey, and very nearly the page it stands on - almost white in the light theme
+      // and almost black in the dark one. Grey rather than tinted because every colour on a map
+      // means something, and the planet is not one of the things being said; near the page because
+      // what should stand out is the data and not the globe it is drawn on.
+      ground: grey(mix(theme.panel, theme.text, 0.05)),
+      line: mix(theme.line, theme.text, 0.55),
+      grid: mix(theme.panel, theme.line, 0.75),
+      glow: grey(mix(theme.panel, theme.text, 0.4)),
+      outline: theme.panel,
+    });
+  }, [theme, glOk]);
 
   const size$ = size.width + "x" + size.height;
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || theme === null || size.width <= 0) return;
+    if (field.current === null || theme === null || size.width <= 0) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const deviceWidth = Math.round(size.width * dpr);
-    const deviceHeight = Math.round(size.height * dpr);
-    if (canvas.width !== deviceWidth || canvas.height !== deviceHeight) {
-      canvas.width = deviceWidth;
-      canvas.height = deviceHeight;
+    field.current.resize(size.width, size.height, dpr);
+    field.current.draw(scene);
+
+    // the bubbles, over the top: a few hundred of them at most, each with a count written in it
+    const bubbles = bubblesRef.current;
+    if (!bubbles) return;
+    if (bubbles.width !== Math.round(size.width * dpr) || bubbles.height !== Math.round(size.height * dpr)) {
+      bubbles.width = Math.round(size.width * dpr);
+      bubbles.height = Math.round(size.height * dpr);
     }
-    const ctx = canvas.getContext("2d");
+    const ctx = bubbles.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, deviceWidth, deviceHeight);
-
-    if (globeMode && globe.current !== null) {
-      globe.current.resize(size.width, size.height, dpr);
-      globe.current.setTheme({
-        clear: toFloat(theme.panel),
-        ground: toFloat(mix(theme.panel, theme.line, 0.35)),
-        line: toFloat(mix(theme.line, theme.text, 0.45)),
-        glow: toFloat(theme.accent),
-      });
-      globe.current.draw(camera, marks === "dots" ? "dots" : marks === "pins" ? "pins" : "none", def.size ?? defaultSize(marks), marks === "pins" ? 1 : dotAlpha(points?.count ?? 0), marks === "pins" ? pinBudget : Number.MAX_SAFE_INTEGER);
-    }
-
-    if (points === null || points.count === 0) {
-      setDrawn((was) => (was.count === 0 && !was.thinned ? was : { count: 0, thinned: false }));
+    ctx.clearRect(0, 0, bubbles.width, bubbles.height);
+    if (marks !== "clusters" || points === null || points.count === 0) {
+      lastClusters.current = [];
       return;
     }
-    const place = placer(globeMode, globe.current, camera, view, flatXY, unit, size.width, size.height);
-    if (place === null) return;
-    const budget = moving.current ? movingBudget : points.count;
-    const step = Math.max(1, Math.ceil(points.count / Math.max(1, budget)));
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    let count = 0;
-    if (marks === "dots" && !globeMode) {
-      surface.current.begin(deviceWidth, deviceHeight);
-      count = drawDots(surface.current, points.count, step, place, markColors, def.size ?? defaultSize(marks), dotAlpha(points.count), dpr);
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      surface.current.put(ctx);
-    } else if (marks === "heat") {
-      surface.current.begin(deviceWidth, deviceHeight);
-      count = drawHeat(surface.current, points.count, step, place, def.radius ?? 26, rampBytes, dpr);
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      surface.current.put(ctx);
-    } else if (marks === "pins" && !globeMode) {
-      count = drawPins(ctx, points.count, place, size.width, size.height, markColors, def.size ?? defaultSize(marks), cssOf(theme.panel), pinBudget);
-    } else if (marks === "clusters") {
-      const cell = def.cell ?? 48;
-      lastCell.current = cell;
-      lastClusters.current = clusterPoints(points.count, step, place, points.lat, points.lon, size.width, size.height, cell);
-      count = lastClusters.current.reduce((sum, c) => sum + c.count, 0);
-      drawClusters(ctx, lastClusters.current, cell, rampBytes, cssOf(theme.panel), formatCount);
-    } else if (globeMode && (marks === "dots" || marks === "pins")) {
-      count = points.count; // the globe drew them itself; how many were on the near side it does not say
-    }
-    const thinned = step > 1 || (marks === "pins" && points.count > pinBudget);
-    setDrawn((was) => (was.count === count && was.thinned === thinned ? was : { count, thinned }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [points, flatXY, unit, view, camera, marks, markColors, rampBytes, theme, size$, globeMode, glOk, def.size, def.radius, def.cell, settled, globeSurface]);
+    const cell = def.cell ?? 48;
+    lastCell.current = cell;
+    const place = field.current.project(scene);
+    lastClusters.current = clusterPoints(points.count, 1, (i, out) => place(points.lon[i], points.lat[i], out), points.lat, points.lon, size.width, size.height, cell);
+    drawClusters(ctx, lastClusters.current, cell, rampBytes, cssOf(theme.panel), formatCount);
+  }, [scene, points, theme, size$, size.width, size.height, marks, def.cell, rampBytes, surfaceColors, glOk]);
 
   // ---- what is written beside it ----
 
   const groups = colorData?.groups ?? null;
   const ranked = useMemo(() => (counts === null ? [] : rankedCountries(counts).slice(0, 40)), [counts]);
   const legendKind = marks === "countries" ? "countries" : coloured && colorData !== null ? "colours" : marks === "heat" || marks === "clusters" ? "scale" : "none";
-  const transform = `translate(${size.width / 2 - view.cx * view.scale} ${size.height / 2 - view.cy * view.scale}) scale(${view.scale / pathScale})`;
-
-  /**
-   * The world itself: the grid, the shaded countries and the outlines. Held apart from the render
-   * so that panning - which changes only the transform on the group holding them - never asks React
-   * to look at eight thousand points of path again, and neither does the pointer moving over them.
-   */
-  const worldElements = useMemo(
-    () => (
-      <>
-        {def.graticule !== false && <path className="map-graticule" d={graticule} vectorEffect="non-scaling-stroke" />}
-        {countryShapes?.map((c) => (
-          <path key={c.index} className="map-country" d={c.d} fillRule="evenodd" vectorEffect="non-scaling-stroke" fill={counts === null ? "none" : ramp[rampAt(c.count, counts.max)].css} fillOpacity={0.88} />
-        ))}
-        <path className="map-outline" d={outline} vectorEffect="non-scaling-stroke" />
-      </>
-    ),
-    [def.graticule, graticule, countryShapes, counts, ramp, outline],
-  );
 
   const propertySelect = (value: string | null, none: string, title: string, options: PivotProperty[], onPick: (id: string | null) => void) => (
     <select className="select" value={value ?? ""} title={title} onChange={(e) => onPick(e.target.value || null)}>
@@ -811,16 +801,14 @@ export function MapView({
             >
               <IconWorld size={16} stroke={1.9} />
             </button>
-            {!globeMode && (
-              <button
-                className={"icon-button" + (def.graticule !== false ? " active" : "")}
-                aria-pressed={def.graticule !== false}
-                title={def.graticule !== false ? "Hide the lines of latitude and longitude" : "Show the lines of latitude and longitude"}
-                onClick={() => onChange({ ...def, graticule: def.graticule === false })}
-              >
-                <IconGrid3x3 size={16} stroke={1.9} />
-              </button>
-            )}
+            <button
+              className={"icon-button" + (def.graticule !== false ? " active" : "")}
+              aria-pressed={def.graticule !== false}
+              title={def.graticule !== false ? "Hide the lines of latitude and longitude" : "Show the lines of latitude and longitude"}
+              onClick={() => onChange({ ...def, graticule: def.graticule === false })}
+            >
+              <IconGrid3x3 size={16} stroke={1.9} />
+            </button>
             {globeMode && (
               <button
                 className={"icon-button" + (def.spin === true ? " active" : "")}
@@ -858,18 +846,9 @@ export function MapView({
           onWheel={onWheel}
           onDoubleClick={fit}
         >
-          {globeMode ? (
-            glOk ? (
-              <canvas ref={globeRef} />
-            ) : (
-              <div className="query-empty">This browser has no WebGL 2, which the globe is drawn with. The flat map needs none.</div>
-            )
-          ) : (
-            <svg className="map-world" width="100%" height="100%">
-              <g transform={transform}>{worldElements}</g>
-            </svg>
-          )}
-          <canvas className="map-marks" ref={canvasRef} />
+          <canvas ref={canvasRef} />
+          <canvas className="map-bubbles" ref={bubblesRef} />
+          {!glOk && <div className="query-empty">This browser has no WebGL 2, which the map is drawn with.</div>}
           {tooltip && (
             <div className="visual-tooltip" style={{ transform: `translate(${tooltip.x + 14}px, ${tooltip.y + 14}px)` }}>
               {tooltip.lines.map((line, i) => (
@@ -891,12 +870,11 @@ export function MapView({
               first {formatCount(points.read)} of {formatCount(points.total)}
             </span>
           )}
-          {drawn.thinned && marks === "pins" && points && points.count > pinBudget && (
+          {marks === "pins" && points && points.count > pinBudget && (
             <span className="visual-detail-note" title="Pins are drawn one at a time and stop meaning anything in a crowd. Dots, clusters or heat show the whole set.">
               {formatCount(pinBudget)} pins of {formatCount(points.count)}
             </span>
           )}
-          {drawn.thinned && marks !== "pins" && <span className="visual-detail-note" title="Some of the marks are left out while the map is moving; they come back the moment it settles.">drawn thinly</span>}
         </div>
         {def.legend && theme !== null && legendKind !== "none" && (
           <div className="visual-legend">
@@ -935,7 +913,7 @@ export function MapView({
                   </button>
                 ))}
                 {counts.atSea > 0 && (
-                  <span className="visual-legend-item static" title="Nodes that fell outside every country's outline: at sea, or within about twenty kilometres of a coast, which is as fine as this map is drawn">
+                  <span className="visual-legend-item static" title="Nodes that fell outside every country's outline: at sea, or more than ten kilometres out from a coast, which is as finely as the countries are measured here">
                     <span className="visual-swatch" style={{ background: cssOf(theme.none) }} />
                     <span className="visual-legend-label">(no country)</span>
                     <span className="visual-legend-count">{formatCount(counts.atSea)}</span>
@@ -967,21 +945,6 @@ function readTheme(el: HTMLElement): Theme {
   };
 }
 
-/** Where each node goes on the canvas, for whichever picture is being drawn. */
-function placer(globeMode: boolean, globe: Globe | null, camera: GlobeCamera, view: View, flat: Float32Array | null, unit: Float32Array | null, width: number, height: number): Place | null {
-  if (globeMode) {
-    if (globe === null || unit === null) return null;
-    const project = globe.projectUnit(camera);
-    return (i, out) => project(unit[i * 3], unit[i * 3 + 1], unit[i * 3 + 2], out);
-  }
-  if (flat === null) return null;
-  return (i, out) => {
-    out[0] = screenX(view, flat[i * 2], width);
-    out[1] = screenY(view, flat[i * 2 + 1], height);
-    return true;
-  };
-}
-
 /** Which step of the ramp a count sits on: by square root, so the small ones are still told apart. */
 function rampAt(count: number, max: number): number {
   if (max <= 0) return 0;
@@ -995,16 +958,19 @@ function groupColor(kind: MapGroup["kind"], ordinal: number, palette: PaletteCol
 }
 
 const cssOf = (rgb: RGB) => `rgb(${rgb[0]} ${rgb[1]} ${rgb[2]})`;
-const toFloat = (rgb: RGB): [number, number, number] => [rgb[0] / 255, rgb[1] / 255, rgb[2] / 255];
 const mix = (a: RGB, b: RGB, t: number): RGB => [Math.round(a[0] + (b[0] - a[0]) * t), Math.round(a[1] + (b[1] - a[1]) * t), Math.round(a[2] + (b[2] - a[2]) * t)];
+
+/** The same colour with the colour taken out of it: as light as it was, and no hue at all. */
+function grey(rgb: RGB): RGB {
+  const light = Math.round(0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]);
+  return [light, light, light];
+}
 
 const wrapLongitude = (lon: number) => ((((lon + 180) % 360) + 360) % 360) - 180;
 
 /** A place, written the way a map writes one. */
 function placeLabel(lat: number, lon: number): string {
-  const ns = lat >= 0 ? "N" : "S";
-  const ew = lon >= 0 ? "E" : "W";
-  return Math.abs(lat).toFixed(3) + "° " + ns + ", " + Math.abs(lon).toFixed(3) + "° " + ew;
+  return Math.abs(lat).toFixed(3) + "° " + (lat >= 0 ? "N" : "S") + ", " + Math.abs(lon).toFixed(3) + "° " + (lon >= 0 ? "E" : "W");
 }
 
 /** Numbers, dates and durations can be grouped by ranges as well as by value. */
@@ -1024,15 +990,15 @@ function dotAlpha(count: number): number {
   return 0.22;
 }
 
-const defaultSize = (marks: MapMarks) => (marks === "pins" ? 14 : marks === "clusters" ? 48 : marks === "heat" ? 26 : 3);
-const sizeLabel = (marks: MapMarks) => (marks === "heat" ? "Spread" : marks === "clusters" ? "Patch" : marks === "countries" ? "" : "Size");
-const sizeRange = (marks: MapMarks): [number, number] => (marks === "heat" ? [6, 90] : marks === "clusters" ? [20, 140] : marks === "pins" ? [6, 40] : [1, 14]);
-const sizeHint = (marks: MapMarks) =>
+const defaultSize = (marks: MarkKind) => (marks === "pins" ? 14 : marks === "clusters" ? 48 : marks === "heat" ? 26 : 3);
+const sizeLabel = (marks: MarkKind) => (marks === "heat" ? "Spread" : marks === "clusters" ? "Patch" : "Size");
+const sizeRange = (marks: MarkKind): [number, number] => (marks === "heat" ? [6, 90] : marks === "clusters" ? [20, 140] : marks === "pins" ? [6, 40] : [1, 14]);
+const sizeHint = (marks: MarkKind) =>
   marks === "heat"
     ? "How far one node's heat spreads, in pixels"
     : marks === "clusters"
       ? "How wide one patch of the map is, in pixels: wider patches, fewer and larger bubbles"
       : "How large one mark is drawn, in pixels";
-const currentSize = (def: MapDefinition, marks: MapMarks) => (marks === "heat" ? (def.radius ?? 26) : marks === "clusters" ? (def.cell ?? 48) : (def.size ?? defaultSize(marks)));
-const withSize = (def: MapDefinition, marks: MapMarks, value: number): MapDefinition =>
+const currentSize = (def: MapDefinition, marks: MarkKind) => (marks === "heat" ? (def.radius ?? 26) : marks === "clusters" ? (def.cell ?? 48) : (def.size ?? defaultSize(marks)));
+const withSize = (def: MapDefinition, marks: MarkKind, value: number): MapDefinition =>
   marks === "heat" ? { ...def, radius: value } : marks === "clusters" ? { ...def, cell: value } : { ...def, size: value };

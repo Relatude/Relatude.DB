@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
 """Builds src/map/worldMap.ts - the country outlines the Map view draws - from Natural Earth.
 
-The source is the world-atlas build of Natural Earth's 110m "admin 0 countries", which is public
-domain (Natural Earth's terms: "no permission needed"). It arrives as TopoJSON: a set of ARCS - runs
-of coordinates - and countries built from them, so a border between two countries is one arc used
+The source is the world-atlas build of Natural Earth's "admin 0 countries", which is public domain
+(Natural Earth's terms: "no permission needed"). It arrives as TopoJSON: a set of ARCS - runs of
+coordinates - and countries built from them, so a border between two countries is one arc used
 twice rather than two lines drawn on top of each other. That topology is exactly what a map of lines
 wants, so it is kept: the outlines are drawn once, arc by arc.
 
-What this writes is that same topology as a base64 payload of the numbers, which is a third of the
-size of the json it came from and needs no parser in the browser beyond the twenty lines in
-worldMap.ts. Coordinates keep the source's own quantization grid (~400 m at the equator), which is
-finer than a world map ever draws and coarse enough to delta-encode into one or two bytes a point.
+What this writes is that same topology as a base64 payload of the numbers, which needs no parser in
+the browser beyond the thirty lines in worldMap.ts.
 
-    python tools/generate-world-map.py            (run from src/Relatude.DB.UI)
+The 50m source is the one worth having: 1:110m is a world map and nothing more - Denmark is four
+strokes and Norway has no fjords - while 1:50m still reads as the country you know at a city's zoom.
+It is ten times the points, so they are re-quantized onto a coarser grid than the source's own
+(GRID, below) and points that land on the same cell twice are dropped, which is most of the
+difference between a file worth shipping and one that is not. The grid is far finer than a line one
+pixel wide can show at any zoom the map offers.
+
+    python tools/generate-world-map.py                    (run from src/Relatude.DB.UI)
+    python tools/generate-world-map.py cached.json        (from a file already downloaded)
 
 Re-run it only to take a new source or a different resolution; the output is checked in, so a build
 never needs the network.
@@ -24,8 +30,13 @@ import os
 import sys
 import urllib.request
 
-SOURCE = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json"
+SOURCE = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json"
 OUTPUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "map", "worldMap.ts")
+
+# The grid the coordinates are snapped to, in degrees: about 550 m of longitude at the equator and
+# less than that anywhere else. A country line is one pixel wide, and one pixel is 550 m only when
+# the map is zoomed to a single town - so nothing this throws away is ever on screen.
+GRID = 0.005
 
 
 def varint(value: int, out: bytearray) -> None:
@@ -56,20 +67,47 @@ def main() -> int:
             topo = json.load(response)
 
     transform = topo["transform"]
-    arcs = topo["arcs"]
     geometries = topo["objects"]["countries"]["geometries"]
+    source_points = sum(len(a) for a in topo["arcs"])
+
+    # The source's own grid, and the one written out. Snapping is done on absolute coordinates so
+    # that a point two arcs share lands on the same cell in both - which is what keeps a country's
+    # rings closed - and the result is delta-encoded again on the way out.
+    scale_x = transform["scale"][0]
+    scale_y = transform["scale"][1]
+    steps_x = max(1, round(GRID / scale_x))
+    steps_y = max(1, round(GRID / scale_y))
+    arcs = []
+    for arc in topo["arcs"]:
+        x = y = 0
+        snapped = []
+        for dx, dy in arc:
+            x += dx
+            y += dy
+            point = (round(x / steps_x), round(y / steps_y))
+            # a point that lands where the last one did adds nothing but bytes
+            if not snapped or snapped[-1] != point:
+                snapped.append(point)
+        # an arc that collapses to a single cell still has to have two ends: rings are walked
+        # arc by arc, and one with nothing in it would break the chain
+        while len(snapped) < 2:
+            snapped.append(snapped[-1])
+        arcs.append(snapped)
 
     payload = bytearray()
     payload += b"RWM1"
     varint(len(arcs), payload)
     for arc in arcs:
         varint(len(arc), payload)
-        # the source is already delta-encoded within an arc; the first point is absolute
-        for point in arc:
-            zigzag(point[0], payload)
-            zigzag(point[1], payload)
+        x = y = 0
+        for px, py in arc:  # delta-encoded within the arc; the first point is absolute
+            zigzag(px - x, payload)
+            zigzag(py - y, payload)
+            x, y = px, py
 
     countries = sorted(geometries, key=lambda g: g["properties"]["name"])
+    # the country raster keeps one byte a cell, sea included, so the world has to fit in 255
+    assert len(countries) < 255, f"{len(countries)} countries will not fit in a byte"
     varint(len(countries), payload)
     for country in countries:
         name = country["properties"]["name"].encode("utf-8")
@@ -96,15 +134,15 @@ def main() -> int:
             points=points,
             countries=len(countries),
             bytes=len(payload),
-            scaleX=repr(transform["scale"][0]),
-            scaleY=repr(transform["scale"][1]),
+            scaleX=repr(scale_x * steps_x),
+            scaleY=repr(scale_y * steps_y),
             translateX=repr(transform["translate"][0]),
             translateY=repr(transform["translate"][1]),
             payload="\n".join('  "' + line + '" +' for line in lines).rstrip(" +") + ";",
         ))
         f.write(FOOTER)
     print("wrote " + os.path.normpath(os.path.abspath(OUTPUT)))
-    print(f"{len(arcs)} arcs, {points} points, {len(countries)} countries, {len(payload)} bytes ({len(encoded)} base64)")
+    print(f"{len(arcs)} arcs, {points} points of {source_points} in the source, {len(countries)} countries, {len(payload)} bytes ({len(encoded)} base64)")
     return 0
 
 
@@ -112,15 +150,16 @@ HEADER = '''/**
  * The world as lines: {arcs} arcs of {points} points making up the coastlines and borders of
  * {countries} countries, and which arcs each country is made of.
  *
- * GENERATED - do not edit. tools/generate-world-map.py builds this from Natural Earth's 110m
+ * GENERATED - do not edit. tools/generate-world-map.py builds this from Natural Earth's admin 0
  * countries (public domain), by way of the world-atlas TopoJSON build:
  *   {source}
  *
  * The topology of the source is kept rather than flattened into a shape per country: a border
  * between two countries is ONE arc, so a map of lines draws it once instead of laying two identical
- * lines over each other, and the whole world is {bytes} bytes of numbers rather than a megabyte of
- * json. Coordinates are on the source's quantization grid - about 400 m at the equator - which is
- * finer than any world map draws and small enough to delta-encode into a byte or two a point.
+ * lines over each other, and the whole world is {bytes} bytes of numbers rather than three quarters
+ * of a megabyte of json. Coordinates sit on a grid of about half a kilometre - finer than a line
+ * one pixel wide can show at any zoom the map offers - which is what makes them delta-encode into
+ * a byte or two a point.
  *
  * Decoding is done once, lazily, on first use: the payload becomes a Float32Array of lon/lat per arc
  * (degrees), and a list of countries holding ring after ring of arc indices, where a NEGATIVE index

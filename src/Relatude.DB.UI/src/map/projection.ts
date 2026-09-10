@@ -28,7 +28,7 @@ const rad = Math.PI / 180;
 const deg = 180 / Math.PI;
 
 /** The latitude Mercator is cut off at: the one that makes the map square, as every web map does. */
-const mercatorLimit = 85.0511287798;
+export const mercatorLimit = 85.0511287798;
 
 const equirectangular: Projection = {
   id: "equirectangular",
@@ -77,7 +77,7 @@ function naturalYSlope(φ: number): number {
   return 1.007226 + φ2 * (0.015085 * 3 + φ4 * (-0.044475 * 7 + 0.028874 * 9 * φ2 - 0.005916 * 11 * φ4));
 }
 // what the polynomials give at the edges, so the map can be scaled into the same 2 x height box
-const naturalWidth = Math.PI * naturalX(0);
+export const naturalWidth = Math.PI * naturalX(0);
 const naturalHeight = (2 * naturalY(Math.PI / 2)) / naturalWidth;
 
 const natural: Projection = {
@@ -111,6 +111,15 @@ export function projectionOf(id: string | null | undefined): Projection {
 }
 
 /**
+ * Which projection this is, as a number the shader switches on: 0 equirectangular, 1 Mercator,
+ * 2 Natural Earth. The renderer does the same arithmetic as the functions above, on the graphics
+ * card, and this is how it is told which - so the order here is part of that agreement.
+ */
+export function projectionIndex(projection: Projection): number {
+  return projection.id === "equirectangular" ? 0 : projection.id === "mercator" ? 1 : 2;
+}
+
+/**
  * What part of the map is on screen: the world point at the middle of the canvas, and how many
  * device-independent pixels one world unit is. A world unit is half the width of the world, so
  * `scale` is half the width the whole world is drawn at - `fit` sets it so the world fills the
@@ -120,19 +129,6 @@ export interface View {
   cx: number;
   cy: number;
   scale: number;
-}
-
-export function screenX(view: View, x: number, width: number): number {
-  return width / 2 + (x - view.cx) * view.scale;
-}
-export function screenY(view: View, y: number, height: number): number {
-  return height / 2 + (y - view.cy) * view.scale;
-}
-export function worldX(view: View, px: number, width: number): number {
-  return view.cx + (px - width / 2) / view.scale;
-}
-export function worldY(view: View, py: number, height: number): number {
-  return view.cy + (py - height / 2) / view.scale;
 }
 
 /** The view that fits the whole world in a canvas of this size, with a little air around it. */
