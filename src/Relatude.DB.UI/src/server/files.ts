@@ -239,7 +239,7 @@ export async function fetchText(ioId: string, key: string, signal: AbortSignal):
   return { text: crlf ? raw.replaceAll("\r\n", "\n") : raw, bom, crlf };
 }
 
-// the upload endpoint replaces the file: what the editor holds becomes the whole file
+// an upload replaces the file: what the editor holds becomes the whole file
 export function saveText(ioId: string, key: string, name: string, content: TextContent): Promise<void> {
   const text = content.crlf ? content.text.replaceAll("\n", "\r\n") : content.text;
   const parts: BlobPart[] = content.bom ? [new Uint8Array([0xef, 0xbb, 0xbf]), text] : [text];
@@ -247,29 +247,162 @@ export function saveText(ioId: string, key: string, name: string, content: TextC
   return uploadFile(ioId, key, file, () => {}, new AbortController().signal);
 }
 
+// ---- uploads ----
+// Every file lands in a temp folder on the server and is moved onto its real key only once all of
+// it is there (UIUpload.cs), so a cancelled upload never leaves half a file behind. Two shapes:
+// a big file goes up in slices, which keeps its progress honest and lets a dropped connection
+// resume from the byte the server holds; small files are packed together, so a folder of tiny
+// files costs one round trip per batch instead of one per file - which is what the time such an
+// upload takes is really made of.
+
+const sliceSize = 512 * 1024; // one slice of a file uploaded on its own
+const batchByteLimit = 4 * 1024 * 1024; // how much one packed request carries
+const batchFileLimit = 200; // ... and how many files
+const sliceRetries = 3; // network failures survived per slice
+
+class UploadError extends Error {
+  readonly status: number;
+  readonly received: number | null; // how far the server says the upload got, when it answered 409
+  constructor(message: string, status: number, received: number | null) {
+    super(message);
+    this.status = status;
+    this.received = received;
+  }
+}
+
 // XMLHttpRequest instead of fetch: it reports upload progress and can be aborted
-export function uploadFile(
+function post(url: string, body: Blob, onProgress: (sent: number) => void, signal: AbortSignal): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(new DOMException("Aborted", "AbortError"));
+    const xhr = new XMLHttpRequest();
+    const abort = () => xhr.abort();
+    signal.addEventListener("abort", abort);
+    const settle = (action: () => void) => {
+      signal.removeEventListener("abort", abort); // one listener per slice would pile up otherwise
+      action();
+    };
+    xhr.open("POST", url);
+    xhr.upload.onprogress = (e) => onProgress(e.loaded);
+    xhr.onload = () =>
+      settle(() => {
+        if (xhr.status >= 200 && xhr.status < 300) return resolve(xhr.responseText);
+        let message = `Upload failed (HTTP ${xhr.status}).`;
+        let received: number | null = null;
+        try {
+          const answer = JSON.parse(xhr.responseText) as { error?: string; received?: number };
+          if (answer.error) message = answer.error;
+          if (typeof answer.received === "number") received = answer.received;
+        } catch {
+          // not json
+        }
+        reject(new UploadError(message, xhr.status, received));
+      });
+    xhr.onerror = () => settle(() => reject(new UploadError("Upload failed (network error).", 0, null)));
+    xhr.onabort = () => settle(() => reject(new DOMException("Aborted", "AbortError")));
+    xhr.send(body);
+  });
+}
+
+// crypto.randomUUID is only there in a secure context, and the admin UI is not always served over one
+function newUploadId(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/**
+ * One file, sliced. Progress counts the bytes of the whole file, not of the slice in flight, and a
+ * slice lost to the network is sent again from wherever the server says the upload stands.
+ */
+export async function uploadFile(
   ioId: string,
   key: string,
   file: File,
   onProgress: (sent: number, total: number) => void,
   signal: AbortSignal,
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${adminBase}/ui/upload?ioId=${ioId}&key=${encodeURIComponent(key)}`);
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(e.loaded, e.total);
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve();
-      else reject(new Error(`Upload failed (HTTP ${xhr.status}).`));
-    };
-    xhr.onerror = () => reject(new Error("Upload failed (network error)."));
-    xhr.onabort = () => reject(new DOMException("Aborted", "AbortError"));
-    signal.addEventListener("abort", () => xhr.abort(), { once: true });
-    xhr.send(file);
-  });
+  const uploadId = newUploadId();
+  const partUrl = `${adminBase}/ui/upload-part?ioId=${ioId}&uploadId=${uploadId}`;
+  let offset = 0;
+  let attempt = 0;
+  try {
+    for (;;) {
+      throwIfAborted(signal);
+      const at = offset;
+      const slice = file.slice(at, Math.min(at + sliceSize, file.size));
+      try {
+        const answer = await post(`${partUrl}&offset=${at}`, slice, (sent) => onProgress(Math.min(at + sent, file.size), file.size), signal);
+        offset = (JSON.parse(answer) as { received: number }).received;
+        attempt = 0;
+      } catch (error) {
+        throwIfAborted(signal);
+        if (error instanceof UploadError && error.received !== null) offset = error.received; // resync
+        else if (error instanceof UploadError && error.status === 0 && ++attempt <= sliceRetries) await pause(300 * attempt);
+        else throw error;
+        continue;
+      }
+      onProgress(offset, file.size);
+      if (offset >= file.size) break;
+      if (offset <= at) throw new Error("The upload stopped making progress.");
+    }
+    await post(`${adminBase}/ui/upload-commit?ioId=${ioId}&uploadId=${uploadId}&key=${encodeURIComponent(key)}&size=${file.size}`, new Blob(), () => {}, signal);
+  } catch (error) {
+    // the signal is usually aborted by now, so the temp file is dropped with a plain fetch
+    void fetch(`${adminBase}/ui/upload-abort?ioId=${ioId}&uploadId=${uploadId}`, { method: "POST" }).catch(() => {});
+    throw error;
+  }
+}
+
+// Whole files packed into one request: per file an int32 name length, the name in utf-8, an int64
+// file length and its bytes, all little endian (see UIUpload.cs). The blob only references the
+// files, so nothing is read into memory. Returns what the server could not write.
+async function uploadBatch(
+  ioId: string,
+  basePath: string,
+  entries: UploadEntry[],
+  onProgress: (sent: number) => void,
+  signal: AbortSignal,
+): Promise<string[]> {
+  const encoder = new TextEncoder();
+  const parts: BlobPart[] = [];
+  for (const entry of entries) {
+    const name = encoder.encode(entry.relativePath);
+    const header = new ArrayBuffer(12 + name.length);
+    const view = new DataView(header);
+    view.setInt32(0, name.length, true);
+    new Uint8Array(header, 4, name.length).set(name);
+    view.setBigInt64(4 + name.length, BigInt(entry.file.size), true);
+    parts.push(header, entry.file);
+  }
+  const url = `${adminBase}/ui/upload-batch?ioId=${ioId}&basePath=${encodeURIComponent(basePath)}`;
+  const answer = await post(url, new Blob(parts), onProgress, signal);
+  return (JSON.parse(answer) as { errors: string[] }).errors;
+}
+
+// A file big enough to be worth a request of its own gets one and is sliced; everything smaller is
+// packed together until a batch is full.
+function planUpload(entries: UploadEntry[]): UploadEntry[][] {
+  const groups: UploadEntry[][] = [];
+  let batch: UploadEntry[] = [];
+  let batchBytes = 0;
+  for (const entry of entries) {
+    if (entry.file.size >= batchByteLimit) {
+      groups.push([entry]);
+      continue;
+    }
+    if (batch.length >= batchFileLimit || batchBytes + entry.file.size > batchByteLimit) {
+      groups.push(batch);
+      batch = [];
+      batchBytes = 0;
+    }
+    batch.push(entry);
+    batchBytes += entry.file.size;
+  }
+  if (batch.length > 0) groups.push(batch);
+  return groups;
 }
 
 export interface UploadEntry {
@@ -277,30 +410,69 @@ export interface UploadEntry {
   relativePath: string; // path below the target folder, e.g. "sub/name.txt" or just "name.txt"
 }
 
-// Uploads entries under basePath, one at a time with byte progress. Returns the entries that failed.
+/**
+ * Uploads entries under basePath. The progress bar counts bytes rather than files, so it moves
+ * evenly through one big file as well as through a thousand small ones, and the line below it
+ * says how many files are done, how fast the bytes are going and how much is left. Returns the
+ * entries that failed.
+ */
 export async function uploadEntries(ctl: ProgressController, ioId: string, basePath: string, entries: UploadEntry[]): Promise<string[]> {
-  ctl.set({ total: entries.length, done: 0 });
+  const totalBytes = entries.reduce((sum, entry) => sum + entry.file.size, 0);
+  const started = performance.now();
+  let sentBytes = 0;
+  let doneFiles = 0;
+  const report = (inFlight: number, label: string) => {
+    const done = Math.min(sentBytes + inFlight, totalBytes);
+    const seconds = (performance.now() - started) / 1000;
+    const rate = seconds > 1 ? done / seconds : 0;
+    const left = rate > 0 ? (totalBytes - done) / rate : 0;
+    ctl.set({
+      done,
+      total: totalBytes,
+      label,
+      meta:
+        `${doneFiles} / ${entries.length} files · ${formatBytes(done)} / ${formatBytes(totalBytes)}` +
+        (rate > 0 ? ` · ${formatBytes(rate)}/s` : "") +
+        (left > 1 ? ` · ${formatRemaining(left)} left` : ""),
+    });
+  };
   const failed: string[] = [];
-  for (let i = 0; i < entries.length; i++) {
+  report(0, "Starting…");
+  for (const group of planUpload(entries)) {
     throwIfAborted(ctl.signal);
-    const entry = entries[i];
-    ctl.set({ label: entry.relativePath, done: i });
-    const key = (basePath ? basePath + "/" : "") + entry.relativePath;
+    const groupBytes = group.reduce((sum, entry) => sum + entry.file.size, 0);
+    const label = group.length === 1 ? group[0].relativePath : `${group.length} files — ${group[0].relativePath} …`;
+    report(0, label);
     try {
-      await uploadFile(
-        ioId,
-        key,
-        entry.file,
-        (sent, total) => ctl.set({ label: `${entry.relativePath} — ${formatBytes(sent)} / ${formatBytes(total)}` }),
-        ctl.signal,
-      );
+      if (group.length === 1) {
+        const entry = group[0];
+        const key = (basePath ? basePath + "/" : "") + entry.relativePath;
+        await uploadFile(ioId, key, entry.file, (sent) => report(sent, label), ctl.signal);
+        doneFiles++;
+      } else {
+        const errors = await uploadBatch(ioId, basePath, group, (sent) => report(Math.min(sent, groupBytes), label), ctl.signal);
+        doneFiles += group.length - errors.length;
+        failed.push(...errors);
+      }
     } catch (error) {
       throwIfAborted(ctl.signal);
-      failed.push(`${entry.relativePath} (${error instanceof Error ? error.message : error})`);
+      const message = error instanceof Error ? error.message : String(error);
+      for (const entry of group) failed.push(`${entry.relativePath} (${message})`);
     }
-    ctl.set({ done: i + 1 });
+    sentBytes += groupBytes;
+    report(0, label);
   }
   return failed;
+}
+
+function formatRemaining(seconds: number): string {
+  if (seconds < 60) return `${Math.ceil(seconds)} s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min`;
+  return `${(seconds / 3600).toFixed(1)} h`;
+}
+
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // the zip-a-folder endpoint; used as the DownloadURL behind dragging a folder to the desktop

@@ -42,6 +42,10 @@ public static class FileKeyUtility {
     /// folder: like the index and file store folders it owns its content and is not listed by
     /// <see cref="IIOProvider.GetFiles"/>.</summary>
     public const string ConvertedFolderName = "converted";
+    /// <summary>The folder uploads are written into while they are still arriving; a file is moved
+    /// onto its real key only once every byte of it is there. Leading dot so it cannot collide with
+    /// a folder of the website project, which the admin UI uploads into as well.</summary>
+    public const string UploadFolderName = ".uploads";
     public static readonly string[] SystemFolderNames = [DataFolderName, StateFolderName, BackupFolderName, LogFolderName, DatamodelsFolderName];
 
     /// <summary>
@@ -426,6 +430,7 @@ public static class FileKeyUtility {
             StateFolderName => "State cache",
             BackupFolderName => "Backups",
             ConvertedFolderName => "Converted file cache",
+            UploadFolderName => "Uploads still arriving",
             multiFileStoreFolderPattern => "File store",
             LogFolderName => "Logs",
             var s when s.MatchesWildcard(indexStoreFolderPattern) => "Indexes",

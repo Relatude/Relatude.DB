@@ -22,6 +22,7 @@ public sealed class UIServer {
     readonly Timer _containerWatch;
     readonly UIQuery _query;
     readonly UILogs _logs;
+    readonly UIUpload _upload;
     string? _lastContainersJson;
     public UIEventStream Events { get; } = new();
     public UICommands Commands { get; }
@@ -32,6 +33,7 @@ public sealed class UIServer {
         new UISettings(server).Register(Commands);
         _logs = new UILogs(server);
         _logs.Register(Commands);
+        _upload = new UIUpload(server);
         new UIDashboard(server).Register(Commands);
         new UITasks(server).Register(Commands);
         new UIDemo(server).Register(Commands);
@@ -102,27 +104,7 @@ public sealed class UIServer {
         var path = _server.ApiUrlRoot + "/ui/";
         app.MapGet(path + "stream", Events.Connect);
         app.MapPost(path + "command", (Delegate)Commands.Execute); // Delegate overload, so the returned IResult is written to the response
-        // file uploads stream the raw request body straight into the IO provider (binary, so not a command)
-        app.MapPost(path + "upload", async (HttpContext ctx, Guid ioId, string key) => {
-            var sizeFeature = ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
-            if (sizeFeature != null && !sizeFeature.IsReadOnly) sizeFeature.MaxRequestBodySize = null; // database files exceed the default limit
-            var io = _server.GetIO(ioId);
-            var fileKey = key.SplitKey();
-            if (fileKey.Length == 0 || fileKey.Any(segment => !isValidSegment(io, segment))) {
-                return Results.BadRequest(new { error = "Invalid file key. " });
-            }
-            if (FileKeyUtility.State_IsStateFileKey(fileKey)) return Results.BadRequest(new { error = "Uploading the state file is not allowed. " });
-            io.DeleteFileIfItExists(fileKey);
-            try {
-                using var ioStream = io.OpenAppend(fileKey);
-                using var writeStream = new WriteStreamWrapper(ioStream);
-                await ctx.Request.Body.CopyToAsync(writeStream, ctx.RequestAborted);
-            } catch (OperationCanceledException) {
-                io.DeleteFileIfItExists(fileKey); // no half files from a cancelled upload
-                throw;
-            }
-            return Results.Ok();
-        });
+        _upload.Map(app, path); // file uploads (binary, so not commands): see UIUpload
         // the query page's csv export (a file download, so not a command): the same search payload
         // the page runs, streamed back as rows instead of counted into facets
         app.MapPost(path + "query-csv", async (HttpContext ctx, UIQuery.SearchPayload payload) => {
@@ -328,12 +310,12 @@ public sealed class UIServer {
     }
     // what a key segment may look like depends on the provider: database storage keeps to the
     // strict file key alphabet, the project folder takes any legal file system name
-    static bool isValidSegment(IIOProvider io, string segment) => io is IOProviderDisk disk ? disk.IsValidKeySegment(segment) : FileKeyUtility.IsFileKeyValid(segment);
+    internal static bool IsValidSegment(IIOProvider io, string segment) => io is IOProviderDisk disk ? disk.IsValidKeySegment(segment) : FileKeyUtility.IsFileKeyValid(segment);
     static string validName(IIOProvider io, string? name) {
         name = name?.Trim() ?? "";
         if (name.Length == 0) throw new Exception("The name cannot be empty. ");
         if (name.Contains('/') || name.Contains('\\')) throw new Exception("The name cannot contain path separators. ");
-        if (!isValidSegment(io, name)) {
+        if (!IsValidSegment(io, name)) {
             throw new Exception(io is IOProviderDisk { PlainFolder: true }
                 ? "The name is not a legal file system name. "
                 : "Names in database storage can only contain letters, numbers, dash, space, underscore, dot and parentheses, and be at most " + FileKeyUtility.MaxFileNameLength + " characters. ");
