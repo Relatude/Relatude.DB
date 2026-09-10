@@ -384,3 +384,4 @@ nuget.exe
 /docs/.obsidian
 examples/WebApp.Empty/Server/Backend/relatude.db.json
 /examples/WebApp.Empty/Server/Backend/relatude.db
+/examples/Website.Simple/.uploads
