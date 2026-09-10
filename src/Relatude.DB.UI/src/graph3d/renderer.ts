@@ -31,6 +31,15 @@ export interface FrameSetup {
    */
   ambient?: number;
   /**
+   * How far the flat black silhouette stands proud of every box and dodecahedron, as a fraction of
+   * the solid's own size; 0 or left out draws none. Relative rather than a count of pixels on
+   * purpose: a line of constant screen width turns a distant node into an ink blot, where a hull
+   * that shrinks with the solid thins away into the fog with it. The fraction is per axis, so it
+   * suits solids roughly as wide as they are tall - a slab would get a fat line down its long side
+   * and a hairline across its short one.
+   */
+  outline?: number;
+  /**
    * Drawn after the frame is cleared and before anything of the graph: the sky, the range and the
    * aeroplane of fun mode. It shares the depth buffer, so the graph is occluded by a mountain in
    * front of it, and the state it leaves behind is put back before the graph is drawn.
@@ -69,13 +78,6 @@ export interface Renderer {
   end(): void;
   destroy(): void;
 }
-
-/**
- * How far the black silhouette hull stands proud of a dodecahedron, as a fraction of its size. It is
- * relative rather than a count of pixels on purpose: a line of constant screen width turns a distant
- * node into an ink blot, where a hull that shrinks with the solid simply thins away into the fog.
- */
-const DODECA_OUTLINE = 0.008;
 
 export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
   const context = canvas.getContext("webgl2", { antialias: true, alpha: false, premultipliedAlpha: false, powerPreference: "high-performance" });
@@ -125,9 +127,15 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
     ["aInst2", 8],
     ["aInst3", 12],
   ]);
-  // and the same mesh and the same instances once more, grown a little and drawn in black: the
-  // silhouette (see the outline pass in draw)
+  // and both meshes, with the same instances again, grown a little and drawn in black: the
+  // silhouettes (see the outline pass in draw)
   const outlineProg = program(gl, outlineVert, outlineFrag);
+  const boxOutlineVao = instancedVao(gl, outlineProg, boxMesh, boxes, [
+    ["aInst0", 0],
+    ["aInst1", 4],
+    ["aInst2", 8],
+    ["aInst3", 12],
+  ]);
   const dodecaOutlineVao = instancedVao(gl, outlineProg, dodecaMesh, dodecas, [
     ["aInst0", 0],
     ["aInst1", 4],
@@ -185,6 +193,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
     gl.cullFace(gl.BACK);
 
     const ambient = s.ambient ?? 0.42;
+    const outline = s.outline ?? 0;
     // opaque first, writing depth: spheres and arrowheads
     gl.useProgram(sphereProg);
     gl.uniformMatrix4fv(u(sphereProg, "uViewProj"), false, viewProj);
@@ -200,6 +209,31 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
     }
     // the boxes and the dodecahedrons go through one program, so its uniforms are set once
     if (boxes.count > 0 || dodecas.count > 0) {
+      if (boxes.count > 0) boxes.upload(gl);
+      if (dodecas.count > 0) dodecas.upload(gl);
+      // The silhouettes go down first, when the frame asked for any: each solid again a hair
+      // larger, flat black, with its near side culled so only the half facing away is drawn. The
+      // solid over it then covers all of that but a thin band round the outside, which is the
+      // outline. Being hulls rather than a screen effect they are occluded, depth-sorted and fogged
+      // like anything else, and they cost a draw call apiece rather than a pass over the frame.
+      if (outline > 0) {
+        gl.useProgram(outlineProg);
+        gl.uniformMatrix4fv(u(outlineProg, "uViewProj"), false, viewProj);
+        gl.uniform3fv(u(outlineProg, "uEye"), s.eye);
+        gl.uniform3fv(u(outlineProg, "uFog"), s.fog);
+        gl.uniform2f(u(outlineProg, "uFogRange"), s.fogNear, s.fogFar);
+        gl.uniform1f(u(outlineProg, "uGrow"), outline);
+        gl.cullFace(gl.FRONT);
+        if (boxes.count > 0) {
+          gl.bindVertexArray(boxOutlineVao);
+          gl.drawElementsInstanced(gl.TRIANGLES, boxMesh.indexCount, gl.UNSIGNED_SHORT, 0, boxes.count);
+        }
+        if (dodecas.count > 0) {
+          gl.bindVertexArray(dodecaOutlineVao);
+          gl.drawElementsInstanced(gl.TRIANGLES, dodecaMesh.indexCount, gl.UNSIGNED_SHORT, 0, dodecas.count);
+        }
+        gl.cullFace(gl.BACK);
+      }
       gl.useProgram(boxProg);
       gl.uniformMatrix4fv(u(boxProg, "uViewProj"), false, viewProj);
       gl.uniform3fv(u(boxProg, "uEye"), s.eye);
@@ -208,28 +242,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       gl.uniform2f(u(boxProg, "uFogRange"), s.fogNear, s.fogFar);
       gl.uniform1f(u(boxProg, "uAmbient"), ambient);
       if (boxes.count > 0) {
-        boxes.upload(gl);
         gl.bindVertexArray(boxVao);
         gl.drawElementsInstanced(gl.TRIANGLES, boxMesh.indexCount, gl.UNSIGNED_SHORT, 0, boxes.count);
       }
       if (dodecas.count > 0) {
-        dodecas.upload(gl);
-        // The silhouette goes down first: the same solid a hair larger, flat black, with its
-        // near side culled so only the half facing away is drawn. The solid over it then covers all
-        // of that but a thin band round the outside, which is the outline. Being a hull and not a
-        // screen effect, it is occluded, depth-sorted and fogged like everything else, and it costs
-        // one more draw call rather than a pass over the frame.
-        gl.useProgram(outlineProg);
-        gl.uniformMatrix4fv(u(outlineProg, "uViewProj"), false, viewProj);
-        gl.uniform3fv(u(outlineProg, "uEye"), s.eye);
-        gl.uniform3fv(u(outlineProg, "uFog"), s.fog);
-        gl.uniform2f(u(outlineProg, "uFogRange"), s.fogNear, s.fogFar);
-        gl.uniform1f(u(outlineProg, "uGrow"), DODECA_OUTLINE);
-        gl.cullFace(gl.FRONT);
-        gl.bindVertexArray(dodecaOutlineVao);
-        gl.drawElementsInstanced(gl.TRIANGLES, dodecaMesh.indexCount, gl.UNSIGNED_SHORT, 0, dodecas.count);
-        gl.cullFace(gl.BACK);
-        gl.useProgram(boxProg);
         gl.bindVertexArray(dodecaVao);
         gl.drawElementsInstanced(gl.TRIANGLES, dodecaMesh.indexCount, gl.UNSIGNED_SHORT, 0, dodecas.count);
       }
@@ -326,7 +342,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       // the resources go, the context stays: the same canvas may be drawn on again by the next
       // renderer (a hot reload re-mounts on the element it has), and a lost context is never given back
       for (const p of [sphereProg, boxProg, outlineProg, lineProg, coneProg]) gl.deleteProgram(p);
-      for (const v of [sphereVao, haloVao, boxVao, dodecaVao, dodecaOutlineVao, coneVao, lineVao]) gl.deleteVertexArray(v);
+      for (const v of [sphereVao, haloVao, boxVao, boxOutlineVao, dodecaVao, dodecaOutlineVao, coneVao, lineVao]) gl.deleteVertexArray(v);
       for (const m of [sphereMesh, boxMesh, dodecaMesh, coneMesh]) {
         gl.deleteBuffer(m.vertices);
         gl.deleteBuffer(m.indices);

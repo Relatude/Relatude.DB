@@ -180,7 +180,9 @@ internal sealed class UIFileTransfer {
             string? failure = null;
             long length = 0;
             try {
-                source = UIServer.OpenFileForReading(io, key.SplitKey());
+                // not shared with writers: a copy of a file mid-write is a copy that is wrong,
+                // and the single file download this sits beside refuses one for the same reason
+                source = UIServer.OpenFileForReading(io, key.SplitKey(), shareWithWriters: false);
                 if (source == null) failure = "The file was not found. ";
                 else length = source.Length;
             } catch (IOException) {

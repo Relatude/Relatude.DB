@@ -499,27 +499,54 @@ export async function uploadEntries(ctl: ProgressController, ioId: string, baseP
     const groupBytes = group.reduce((sum, entry) => sum + entry.file.size, 0);
     const label = group.length === 1 ? group[0].relativePath : `${group.length} files — ${group[0].relativePath} …`;
     progress.report(0, label);
-    let done = group.length;
-    try {
-      if (group.length === 1) {
-        const entry = group[0];
-        const key = (basePath ? basePath + "/" : "") + entry.relativePath;
-        await uploadFile(ioId, key, entry.file, (sent) => progress.report(sent, label), ctl.signal);
-      } else {
+    let done: number;
+    if (group.length === 1) {
+      done = await uploadEach(ctl, ioId, basePath, group, progress, failed);
+    } else {
+      try {
         const errors = await uploadBatch(ioId, basePath, group, (sent) => progress.report(Math.min(sent, groupBytes), label), ctl.signal);
-        done -= errors.length;
         failed.push(...errors);
+        done = group.length - errors.length;
+      } catch {
+        // A batch that fails as a whole says nothing about which file broke it - one file the
+        // browser can no longer read (it changed on disk since it was picked) ends the request
+        // for all of them. So the group goes again one at a time: the files that are fine still
+        // land, and the one that is not is named.
+        throwIfAborted(ctl.signal);
+        done = await uploadEach(ctl, ioId, basePath, group, progress, failed);
       }
-    } catch (error) {
-      throwIfAborted(ctl.signal);
-      const message = error instanceof Error ? error.message : String(error);
-      for (const entry of group) failed.push(`${entry.relativePath} (${message})`);
-      done = 0;
     }
     progress.advance(groupBytes, done);
     progress.report(0, label);
   }
   return failed;
+}
+
+// The entries one at a time, each sliced. Returns how many landed; the rest are named in failed.
+async function uploadEach(
+  ctl: ProgressController,
+  ioId: string,
+  basePath: string,
+  entries: UploadEntry[],
+  progress: ByteProgress,
+  failed: string[],
+): Promise<number> {
+  let done = 0;
+  let sent = 0;
+  for (const entry of entries) {
+    throwIfAborted(ctl.signal);
+    const before = sent;
+    const key = (basePath ? basePath + "/" : "") + entry.relativePath;
+    try {
+      await uploadFile(ioId, key, entry.file, (bytes) => progress.report(before + bytes, entry.relativePath), ctl.signal);
+      done++;
+    } catch (error) {
+      throwIfAborted(ctl.signal);
+      failed.push(`${entry.relativePath} (${error instanceof Error ? error.message : error})`);
+    }
+    sent += entry.file.size;
+  }
+  return done;
 }
 
 function formatRemaining(seconds: number): string {
@@ -704,20 +731,21 @@ export async function downloadFilesToDirectory(
     const groupBytes = group.reduce((sum, file) => sum + file.size, 0);
     const label = group.length === 1 ? relativeTo(group[0].key) : `${group.length} files — ${relativeTo(group[0].key)} …`;
     progress.report(0, label);
-    let done = group.length;
-    try {
-      if (group.length === 1) {
-        await downloadOne(ctl, storeId, ioId, group[0].key, relativeTo(group[0].key), directory, progress, label);
-      } else {
+    let done: number;
+    if (group.length === 1) {
+      done = await downloadEach(ctl, storeId, ioId, group, relativeTo, directory, progress, failed);
+    } else {
+      try {
         const errors = await downloadBatch(ctl, ioId, group, relativeTo, directory, progress, label);
-        done -= errors.length;
         failed.push(...errors);
+        done = group.length - errors.length;
+      } catch {
+        // The response is one stream, so a file that ends early - it shrank while it was being
+        // read - takes the rest of the batch down with it and names none of them. The group goes
+        // again one at a time, which both gets the healthy files and finds the one at fault.
+        throwIfAborted(ctl.signal);
+        done = await downloadEach(ctl, storeId, ioId, group, relativeTo, directory, progress, failed);
       }
-    } catch (error) {
-      throwIfAborted(ctl.signal);
-      const message = error instanceof Error ? error.message : String(error);
-      for (const file of group) failed.push(`${relativeTo(file.key)} (${message})`);
-      done = 0;
     }
     progress.advance(groupBytes, done);
     progress.report(0, label);
@@ -727,6 +755,35 @@ export async function downloadFilesToDirectory(
 
 type ByteProgress = ReturnType<typeof byteProgress>;
 
+// The files one at a time, each streamed. Returns how many landed; the rest are named in failed.
+async function downloadEach(
+  ctl: ProgressController,
+  storeId: string,
+  ioId: string,
+  group: { key: string; size: number }[],
+  relativeTo: (key: string) => string,
+  directory: FileSystemDirectoryHandle,
+  progress: ByteProgress,
+  failed: string[],
+): Promise<number> {
+  let done = 0;
+  let received = 0;
+  for (const file of group) {
+    throwIfAborted(ctl.signal);
+    const before = received;
+    const relative = relativeTo(file.key);
+    try {
+      await downloadOne(ctl, storeId, ioId, file.key, relative, directory, (bytes) => progress.report(before + bytes, relative));
+      done++;
+    } catch (error) {
+      throwIfAborted(ctl.signal);
+      failed.push(`${relative} (${error instanceof Error ? error.message : error})`);
+    }
+    received += file.size;
+  }
+  return done;
+}
+
 // One file, streamed straight onto disk so its size never has to fit in memory.
 async function downloadOne(
   ctl: ProgressController,
@@ -735,12 +792,11 @@ async function downloadOne(
   key: string,
   relative: string,
   directory: FileSystemDirectoryHandle,
-  progress: ByteProgress,
-  label: string,
+  onBytes: (received: number) => void,
 ): Promise<void> {
   const started = performance.now();
   const response = await fetch(downloadUrl(storeId, ioId, key), { signal: ctl.signal });
-  if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}${response.status === 423 ? ", locked" : ""}`);
+  if (!response.ok || !response.body) throw new Error(response.status === 423 ? "the file is in use" : `HTTP ${response.status}`);
   const writable = await (await fileHandleForPath(directory, relative)).createWritable();
   const reader = response.body.getReader();
   let received = 0;
@@ -750,7 +806,7 @@ async function downloadOne(
       if (done) break;
       await writable.write(value);
       received += value.byteLength;
-      progress.report(received, label);
+      onBytes(received);
     }
     await writable.close();
   } catch (error) {

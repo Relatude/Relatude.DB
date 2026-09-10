@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { IconArrowBackUp, IconArrowsMaximize, IconArrowsShuffle, IconBinoculars, IconCrosshair, IconFileTypePng, IconFocusCentered, IconHierarchy3, IconMountain, IconPencil, IconRotate360, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
+import { IconArrowBackUp, IconArrowsMaximize, IconArrowsShuffle, IconBinoculars, IconCrosshair, IconFileTypePng, IconFocusCentered, IconHierarchy3, IconPencil, IconRotate360, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
 import type { EditorContext, Selection } from "./DatamodelEditors";
 import type { GraphShell } from "./DatamodelGraphView";
 import { embeddedColor, kindMeta, propertyColor, relationColor } from "./DatamodelIcons";
@@ -88,11 +88,11 @@ interface Theme {
 }
 
 // the same simulation as the flat graph, with a third axis
-const alphaDecay = 0.012;
+const alphaDecay = 0.018;
 const alphaMin = 0.004;
 const velocityDecay = 0.62;
-// half a step per frame, and a decay halved to match, exactly as in the flat graph
-const motionScale = 0.5;
+// three quarters of a step per frame, and a decay slowed to match, exactly as in the flat graph
+const motionScale = 0.75;
 const typeLinkLength = 140;
 const leafLinkLength = 52;
 const typeCharge = -1100;
@@ -768,6 +768,13 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
       e.preventDefault();
       toggleFullscreen();
     }
+    // The landscape behind the graph has no button of its own: it is a flourish rather than a tool,
+    // and a toolbar earns more from the room than the switch does. Shift+M turns it on and off, and
+    // it is still remembered per database, so whoever wants it keeps it.
+    if (e.code === "KeyM" && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      setBackdrop((v) => !v);
+    }
   }
   function onKeyUp(e: React.KeyboardEvent) {
     keys.current.delete(e.code);
@@ -951,6 +958,9 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
       far,
       // a dark shadow side reads as depth on a dark page and as dirt on a light one
       ambient: th.dark ? 0.42 : 0.7,
+      // a hairline of ink round every type and property, so two solids of a similar colour still
+      // part where they overlap
+      outline: 0.008,
       background: showBackdrop ? () => drawScenery(viewProj, eye, pal, groundY) : undefined,
     });
 
@@ -1145,18 +1155,6 @@ export function DatamodelGraph3D({ ctx, visibleTypes, selection, query, storeId,
         </button>
         <button className={"icon-button" + (autoOrbit ? " active" : "")} aria-pressed={autoOrbit} title={autoOrbit ? "Stop the slow turn" : "Turn slowly round the graph"} onClick={() => setAutoOrbit((v) => !v)}>
           <IconRotate360 size={16} stroke={1.9} />
-        </button>
-        {/* the landscape: a backdrop the graph floats over, or nothing but the page */}
-        <button
-          className={"icon-button" + (backdrop ? " active" : "")}
-          aria-pressed={backdrop}
-          title={backdrop ? "Hide the landscape behind the graph" : "Show a landscape behind the graph"}
-          onClick={() => {
-            setBackdrop((v) => !v);
-            stageRef.current?.focus({ preventScroll: true });
-          }}
-        >
-          <IconMountain size={16} stroke={1.9} />
         </button>
         <span className="dm-tools-gap" />
         <button className="icon-button" title="Unfold every type" onClick={expandAll} disabled={expanded.size >= world.eligible.size}>

@@ -269,16 +269,20 @@ public sealed class UIServer {
     }
 
     /// <summary>
-    /// The file's bytes. Disk backed files are opened directly (shared with writers, so a log being
-    /// written still shows) for the same reason as in the download endpoint: the provider's OpenRead
-    /// retries an OS locked file for minutes while holding the provider lock. The wrapped provider
-    /// stream is seekable, so a video player's range requests work against either. Null when the file
-    /// is gone; an IOException means it is locked.
+    /// The file's bytes. Disk backed files are opened directly, rather than through the provider,
+    /// because its OpenRead retries an OS locked file for minutes while holding the provider lock.
+    /// The wrapped provider stream is seekable, so a video player's range requests work against
+    /// either. Null when the file is gone; an IOException means it is locked.
+    /// <para><paramref name="shareWithWriters"/> is what a viewer wants and a copy does not: showing
+    /// a log file while it is being written is the point of the viewer, whereas writing that same
+    /// half state to disk under the file's own name hands over a copy that is quietly wrong. A
+    /// download passes false and gets the IOException instead.</para>
     /// </summary>
-    internal static Stream? OpenFileForReading(IIOProvider io, string[] fileKey) {
+    internal static Stream? OpenFileForReading(IIOProvider io, string[] fileKey, bool shareWithWriters = true) {
         if (io.TryGetLocalFilePath(fileKey, out var localFilePath)) {
             try {
-                return new FileStream(localFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, useAsync: true);
+                var share = shareWithWriters ? FileShare.ReadWrite | FileShare.Delete : FileShare.Read;
+                return new FileStream(localFilePath, FileMode.Open, FileAccess.Read, share, 64 * 1024, useAsync: true);
             } catch (FileNotFoundException) {
                 return null;
             } catch (DirectoryNotFoundException) {

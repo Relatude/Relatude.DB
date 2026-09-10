@@ -54,13 +54,13 @@ interface View {
 
 // the simulation's constants, in the spirit of d3-force: a spring per link, a charge per node, a
 // weak pull to the middle, and a decay that lets it all settle in a few seconds
-const alphaDecay = 0.012;
+const alphaDecay = 0.018;
 const alphaMin = 0.004;
 const velocityDecay = 0.62;
-// unfolding and folding read better slowed down: every frame carries a node half as far, and the
-// decay above is halved to match, so the layout travels the same road at half the pace - the same
-// frames, each a smaller step, rather than fewer and larger ones
-const motionScale = 0.5;
+// unfolding and folding read better slowed down: every frame carries a node three quarters as far,
+// and the decay above is slowed to match, so the layout travels the same road at three quarters of
+// the pace - the same frames, each a smaller step, rather than fewer and larger ones
+const motionScale = 0.75;
 const typeLinkLength = 140;
 const leafLinkLength = 52;
 const typeCharge = -1100;
