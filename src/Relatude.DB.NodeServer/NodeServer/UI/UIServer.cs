@@ -22,7 +22,7 @@ public sealed class UIServer {
     readonly Timer _containerWatch;
     readonly UIQuery _query;
     readonly UILogs _logs;
-    readonly UIUpload _upload;
+    readonly UIFileTransfer _transfer;
     string? _lastContainersJson;
     public UIEventStream Events { get; } = new();
     public UICommands Commands { get; }
@@ -33,7 +33,7 @@ public sealed class UIServer {
         new UISettings(server).Register(Commands);
         _logs = new UILogs(server);
         _logs.Register(Commands);
-        _upload = new UIUpload(server);
+        _transfer = new UIFileTransfer(server);
         new UIDashboard(server).Register(Commands);
         new UITasks(server).Register(Commands);
         new UIDemo(server).Register(Commands);
@@ -104,7 +104,7 @@ public sealed class UIServer {
         var path = _server.ApiUrlRoot + "/ui/";
         app.MapGet(path + "stream", Events.Connect);
         app.MapPost(path + "command", (Delegate)Commands.Execute); // Delegate overload, so the returned IResult is written to the response
-        _upload.Map(app, path); // file uploads (binary, so not commands): see UIUpload
+        _transfer.Map(app, path); // uploads and batched downloads (binary, so not commands): see UIFileTransfer
         // the query page's csv export (a file download, so not a command): the same search payload
         // the page runs, streamed back as rows instead of counted into facets
         app.MapPost(path + "query-csv", async (HttpContext ctx, UIQuery.SearchPayload payload) => {
@@ -187,7 +187,7 @@ public sealed class UIServer {
         if (fileKey.Length == 0) return Results.BadRequest(new { error = "No file given. " });
         Stream? stream;
         try {
-            stream = openFileForReading(io, fileKey);
+            stream = OpenFileForReading(io, fileKey);
         } catch (IOException) {
             return Results.StatusCode(StatusCodes.Status423Locked);
         }
@@ -222,7 +222,7 @@ public sealed class UIServer {
         byte[] bytes;
         await _thumbnailWork.WaitAsync(ctx.RequestAborted);
         try {
-            var opened = openFileForReading(io, fileKey);
+            var opened = OpenFileForReading(io, fileKey);
             if (opened == null) return Results.NotFound();
             using var stream = opened;
             using var image = converter.Load(stream);
@@ -275,7 +275,7 @@ public sealed class UIServer {
     /// stream is seekable, so a video player's range requests work against either. Null when the file
     /// is gone; an IOException means it is locked.
     /// </summary>
-    static Stream? openFileForReading(IIOProvider io, string[] fileKey) {
+    internal static Stream? OpenFileForReading(IIOProvider io, string[] fileKey) {
         if (io.TryGetLocalFilePath(fileKey, out var localFilePath)) {
             try {
                 return new FileStream(localFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, useAsync: true);

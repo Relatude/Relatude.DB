@@ -246,7 +246,7 @@ public partial class RelatudeDBServer {
     }
     /// <summary>
     /// Drops what is left in the upload temp folders. An upload is written there and moved onto its
-    /// real key only when the last byte has arrived (see UIUpload), so anything still lying there is
+    /// real key only when the last byte has arrived (see UIFileTransfer), so anything still lying there is
     /// the remains of one that never finished - and nothing can be in flight this early. Runs off
     /// the startup thread: listing a blob container is a network call and no database waits on it.
     /// </summary>

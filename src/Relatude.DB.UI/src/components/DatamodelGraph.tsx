@@ -54,9 +54,13 @@ interface View {
 
 // the simulation's constants, in the spirit of d3-force: a spring per link, a charge per node, a
 // weak pull to the middle, and a decay that lets it all settle in a few seconds
-const alphaDecay = 0.024;
+const alphaDecay = 0.012;
 const alphaMin = 0.004;
 const velocityDecay = 0.62;
+// unfolding and folding read better slowed down: every frame carries a node half as far, and the
+// decay above is halved to match, so the layout travels the same road at half the pace - the same
+// frames, each a smaller step, rather than fewer and larger ones
+const motionScale = 0.5;
 const typeLinkLength = 140;
 const leafLinkLength = 52;
 const typeCharge = -1100;
@@ -743,8 +747,8 @@ function tick(s: Sim) {
     const a = s.nodes.get(l.a);
     const b = s.nodes.get(l.b);
     if (!a || !b || a === b) continue;
-    let dx = b.x + b.vx - a.x - a.vx;
-    let dy = b.y + b.vy - a.y - a.vy;
+    let dx = b.x + b.vx * motionScale - a.x - a.vx * motionScale;
+    let dy = b.y + b.vy * motionScale - a.y - a.vy * motionScale;
     const len = Math.sqrt(dx * dx + dy * dy) || 1e-6;
     const f = ((len - l.length) / len) * alpha * l.strength;
     dx *= f;
@@ -815,7 +819,7 @@ function tick(s: Sim) {
     }
     n.vx *= velocityDecay;
     n.vy *= velocityDecay;
-    n.x += n.vx;
-    n.y += n.vy;
+    n.x += n.vx * motionScale;
+    n.y += n.vy * motionScale;
   }
 }

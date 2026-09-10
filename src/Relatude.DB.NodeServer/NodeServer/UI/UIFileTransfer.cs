@@ -4,34 +4,40 @@ using System.Buffers.Binary;
 using System.Text;
 namespace Relatude.DB.NodeServer.UI;
 /// <summary>
-/// The file uploads of the admin UI. Every file lands in a temp folder first and is moved onto its
-/// real key only once the last byte has arrived, so a cancelled or broken upload never leaves half
-/// a file where a whole one is expected. Two shapes, both binary, so neither is a command:
+/// The file transfers of the admin UI: uploads, and the batched half of the folder download. All
+/// binary, so none of them is a command.
 /// <code>
-///   POST ui/upload-part    one slice of a file, appended to that upload's temp file
-///   POST ui/upload-commit  the temp file moved onto its key
-///   POST ui/upload-abort   the temp file dropped
-///   POST ui/upload-batch   many whole files in one request
+///   POST ui/upload-part      one slice of a file, appended to that upload's temp file
+///   POST ui/upload-commit    the temp file moved onto its key
+///   POST ui/upload-abort     the temp file dropped
+///   POST ui/upload-batch     many whole files in one request
+///   POST ui/download-batch   many whole files back in one response
 /// </code>
+/// An upload lands in a temp folder and is moved onto its real key only once the last byte has
+/// arrived, so a cancelled or broken one never leaves half a file where a whole one is expected.
 /// Slicing keeps a big file's progress honest and lets a dropped connection resume from the byte
-/// the server has rather than from zero. The batch is the other end of the same problem: a folder
-/// of thousands of tiny files costs one round trip per batch instead of one per file, which is
-/// what the latency of the upload is actually made of.
-/// <para>The batch body is framed, all little endian: for every file an int32 name length, that
-/// many utf-8 bytes of the '/'-separated name relative to the target folder, an int64 file length,
-/// and then that many bytes of the file. End of body ends the batch.</para>
+/// the server has rather than from zero.
+/// <para>The batches are the other end of the same problem, and the reason both directions have
+/// one: a folder of thousands of tiny files costs one round trip per batch instead of one per
+/// file, which is what the time such a transfer takes is really made of.</para>
+/// <para>Both batch bodies are framed the same way, all little endian: for every file an int32
+/// name length, that many utf-8 bytes of the name, an int64 length, and then that many bytes.
+/// End of body ends the batch. A download adds one byte between the name and the length, since a
+/// file that cannot be read has to be reported without stopping the rest: 1 means the length and
+/// the bytes are the file's, 0 means they are the reason it could not be read.</para>
 /// </summary>
-internal sealed class UIUpload {
+internal sealed class UIFileTransfer {
     const int copyBufferSize = 128 * 1024;
     const int maxRelativeNameBytes = 4096;
     readonly RelatudeDBServer _server;
-    internal UIUpload(RelatudeDBServer server) => _server = server;
+    internal UIFileTransfer(RelatudeDBServer server) => _server = server;
 
     internal void Map(WebApplication app, string path) {
         app.MapPost(path + "upload-part", (HttpContext ctx, Guid ioId, Guid uploadId, long offset) => uploadPartAsync(ctx, ioId, uploadId, offset));
         app.MapPost(path + "upload-commit", (Guid ioId, Guid uploadId, string key, long size) => commit(ioId, uploadId, key, size));
         app.MapPost(path + "upload-abort", (Guid ioId, Guid uploadId) => abort(ioId, uploadId));
         app.MapPost(path + "upload-batch", (HttpContext ctx, Guid ioId, string? basePath) => uploadBatchAsync(ctx, ioId, basePath));
+        app.MapPost(path + "download-batch", (HttpContext ctx, DownloadBatchPayload payload) => downloadBatchAsync(ctx, payload));
     }
 
     /// <summary>
@@ -159,6 +165,60 @@ internal sealed class UIUpload {
         return Results.Json(new { written, errors }, RelatudeDBJsonOptions.Default);
     }
 
+    /// <summary>
+    /// Streams whole files back in one response, framed as described above. A file that cannot be
+    /// read is reported in its own frame and the rest still arrive, so one locked file costs the
+    /// download nothing.
+    /// </summary>
+    async Task<IResult> downloadBatchAsync(HttpContext ctx, DownloadBatchPayload payload) {
+        if (payload.Keys.Length == 0) return Results.BadRequest(new { error = "No files to download. " });
+        var io = _server.GetIO(payload.IoId);
+        var buffer = new byte[copyBufferSize];
+        ctx.Response.ContentType = "application/octet-stream";
+        foreach (var key in payload.Keys) {
+            Stream? source = null;
+            string? failure = null;
+            long length = 0;
+            try {
+                source = UIServer.OpenFileForReading(io, key.SplitKey());
+                if (source == null) failure = "The file was not found. ";
+                else length = source.Length;
+            } catch (IOException) {
+                failure = "The file is in use. ";
+            } catch (Exception exception) {
+                failure = exception.Message;
+            }
+            using (source) {
+                var reason = failure == null ? [] : Encoding.UTF8.GetBytes(failure);
+                await ctx.Response.Body.WriteAsync(frameHeader(key, failure == null, failure == null ? length : reason.Length), ctx.RequestAborted);
+                if (failure != null) {
+                    await ctx.Response.Body.WriteAsync(reason, ctx.RequestAborted);
+                    continue;
+                }
+                var remaining = length;
+                while (remaining > 0) {
+                    var read = await source!.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), ctx.RequestAborted);
+                    // the promised length is already on the wire, so a file that shrank under us
+                    // can only end the response - padding it would hand over a corrupt file
+                    if (read == 0) throw new EndOfStreamException(key + " ended before its last byte. ");
+                    await ctx.Response.Body.WriteAsync(buffer.AsMemory(0, read), ctx.RequestAborted);
+                    remaining -= read;
+                }
+            }
+        }
+        return Results.Empty;
+    }
+
+    static byte[] frameHeader(string name, bool ok, long length) {
+        var nameBytes = Encoding.UTF8.GetBytes(name);
+        var header = new byte[4 + nameBytes.Length + 1 + 8];
+        BinaryPrimitives.WriteInt32LittleEndian(header, nameBytes.Length);
+        nameBytes.CopyTo(header, 4);
+        header[4 + nameBytes.Length] = ok ? (byte)1 : (byte)0;
+        BinaryPrimitives.WriteInt64LittleEndian(header.AsSpan(5 + nameBytes.Length), length);
+        return header;
+    }
+
     // Providers that cannot move a file (blob storage) copy the bytes instead; everything else
     // renames, which is a metadata operation even for a file of gigabytes.
     static void moveIntoPlace(IIOProvider io, string[] temp, string[] fileKey) {
@@ -207,3 +267,5 @@ internal sealed class UIUpload {
         return buffer;
     }
 }
+
+sealed record DownloadBatchPayload(Guid IoId, string[] Keys);

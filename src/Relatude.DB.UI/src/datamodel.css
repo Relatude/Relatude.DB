@@ -2184,7 +2184,7 @@ button.dm-source-card {
 
 /* a node fades in where it was unfolded from; the springs take it out from there */
 .dg-node.appear {
-  animation: dg-in 0.4s ease-out;
+  animation: dg-in 0.8s ease-out;
 }
 
 @keyframes dg-in {

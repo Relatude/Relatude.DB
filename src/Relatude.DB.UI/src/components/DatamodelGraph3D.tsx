@@ -88,9 +88,11 @@ interface Theme {
 }
 
 // the same simulation as the flat graph, with a third axis
-const alphaDecay = 0.024;
+const alphaDecay = 0.012;
 const alphaMin = 0.004;
 const velocityDecay = 0.62;
+// half a step per frame, and a decay halved to match, exactly as in the flat graph
+const motionScale = 0.5;
 const typeLinkLength = 140;
 const leafLinkLength = 52;
 const typeCharge = -1100;
@@ -1445,9 +1447,9 @@ function tick(s: Sim) {
     const a = s.nodes.get(l.a);
     const b = s.nodes.get(l.b);
     if (!a || !b || a === b) continue;
-    let dx = b.x + b.vx - a.x - a.vx;
-    let dy = b.y + b.vy - a.y - a.vy;
-    let dz = b.z + b.vz - a.z - a.vz;
+    let dx = b.x + b.vx * motionScale - a.x - a.vx * motionScale;
+    let dy = b.y + b.vy * motionScale - a.y - a.vy * motionScale;
+    let dz = b.z + b.vz * motionScale - a.z - a.vz * motionScale;
     const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6;
     const f = ((len - l.length) / len) * alpha * l.strength;
     dx *= f;
@@ -1531,9 +1533,9 @@ function tick(s: Sim) {
     n.vx *= velocityDecay;
     n.vy *= velocityDecay;
     n.vz *= velocityDecay;
-    n.x += n.vx;
-    n.y += n.vy;
-    n.z += n.vz;
+    n.x += n.vx * motionScale;
+    n.y += n.vy * motionScale;
+    n.z += n.vz * motionScale;
   }
 }
 

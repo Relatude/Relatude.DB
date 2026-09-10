@@ -247,13 +247,13 @@ export function saveText(ioId: string, key: string, name: string, content: TextC
   return uploadFile(ioId, key, file, () => {}, new AbortController().signal);
 }
 
-// ---- uploads ----
-// Every file lands in a temp folder on the server and is moved onto its real key only once all of
-// it is there (UIUpload.cs), so a cancelled upload never leaves half a file behind. Two shapes:
-// a big file goes up in slices, which keeps its progress honest and lets a dropped connection
-// resume from the byte the server holds; small files are packed together, so a folder of tiny
-// files costs one round trip per batch instead of one per file - which is what the time such an
-// upload takes is really made of.
+// ---- transfers ----
+// Uploads, and the folder download further down, are shaped the same way (UIFileTransfer.cs): a
+// big file gets a request of its own, which keeps its progress honest and - going up - lets a
+// dropped connection resume from the byte the server holds, while small files are packed together
+// so a folder of tiny files costs one round trip per batch instead of one per file, which is what
+// the time such a transfer takes is really made of. An upload also lands in a temp folder and is
+// moved onto its real key only once all of it is there, so a cancelled one leaves nothing behind.
 
 // How many bytes one request carries - a slice of a big file, or the payload of a packed batch.
 // The size is not fixed: every request is timed and the next one is sized from what the link has
@@ -267,22 +267,87 @@ const targetRequestSeconds = 0.75;
 const batchFileLimit = 200; // files in one packed request, however little they weigh
 const sliceRetries = 3; // network failures survived per slice
 
-let observedBytesPerSecond = 0; // the requests this page has sent, the recent ones weighted most
-let measurements = 0;
-
-function requestBytes(): number {
-  if (measurements < 2) return startRequestBytes; // a single timing is noise, not a measurement
-  const wanted = observedBytesPerSecond * targetRequestSeconds;
-  return Math.round(Math.min(maxRequestBytes, Math.max(minRequestBytes, wanted)));
+function createRequestSizer() {
+  let observedBytesPerSecond = 0; // the requests of this page, the recent ones weighted most
+  let measurements = 0;
+  return {
+    bytes(): number {
+      if (measurements < 2) return startRequestBytes; // a single timing is noise, not a measurement
+      const wanted = observedBytesPerSecond * targetRequestSeconds;
+      return Math.round(Math.min(maxRequestBytes, Math.max(minRequestBytes, wanted)));
+    },
+    // A request too small to say anything about the link is ignored: the last, part-filled batch
+    // of a folder of tiny files times the server's per-file work, not the wire.
+    note(bytes: number, ms: number): void {
+      if (bytes < minRequestBytes || ms < 1) return;
+      const rate = (bytes / ms) * 1000;
+      observedBytesPerSecond = measurements === 0 ? rate : observedBytesPerSecond * 0.7 + rate * 0.3;
+      measurements++;
+    },
+  };
 }
 
-// A request too small to say anything about the link is ignored: the last, part-filled batch of a
-// folder of tiny files times the server's per-file work, not the wire.
-function noteRequest(bytes: number, ms: number): void {
-  if (bytes < minRequestBytes || ms < 1) return;
-  const rate = (bytes / ms) * 1000;
-  observedBytesPerSecond = measurements === 0 ? rate : observedBytesPerSecond * 0.7 + rate * 0.3;
-  measurements++;
+// One each, because a link is rarely as fast in both directions and sizing an upload from what a
+// download managed would be wrong on every home connection.
+type RequestSizer = ReturnType<typeof createRequestSizer>;
+const uploadSizer = createRequestSizer();
+const downloadSizer = createRequestSizer();
+
+// An item big enough to be worth a request of its own gets one; everything smaller is packed
+// together until a batch is full. A generator, not a list: the budget a group is measured against
+// is the one that holds when the group is formed, so the plan follows the link as it is learned
+// rather than being fixed before the first byte has gone anywhere.
+function* planGroups<T>(items: T[], sizeOf: (item: T) => number, sizer: RequestSizer): Generator<T[]> {
+  let batch: T[] = [];
+  let batchBytes = 0;
+  for (const item of items) {
+    const budget = sizer.bytes();
+    const size = sizeOf(item);
+    if (size >= budget) {
+      yield [item];
+      continue;
+    }
+    if (batch.length >= batchFileLimit || batchBytes + size > budget) {
+      yield batch;
+      batch = [];
+      batchBytes = 0;
+    }
+    batch.push(item);
+    batchBytes += size;
+  }
+  if (batch.length > 0) yield batch;
+}
+
+/**
+ * The progress of a transfer, counted in bytes rather than files so the bar moves evenly through
+ * one big file as well as through a thousand small ones. `report` redraws with the bytes of the
+ * request in flight; `advance` books a finished group.
+ */
+function byteProgress(ctl: ProgressController, totalBytes: number, totalFiles: number) {
+  const started = performance.now();
+  let doneBytes = 0;
+  let doneFiles = 0;
+  return {
+    report(inFlight: number, label: string): void {
+      const done = Math.min(doneBytes + inFlight, totalBytes);
+      const seconds = (performance.now() - started) / 1000;
+      const rate = seconds > 1 ? done / seconds : 0;
+      const left = rate > 0 ? (totalBytes - done) / rate : 0;
+      ctl.set({
+        done,
+        total: totalBytes,
+        label,
+        meta:
+          `${doneFiles} / ${totalFiles} files · ${formatBytes(done)} / ${formatBytes(totalBytes)}` +
+          (rate > 0 ? ` · ${formatBytes(rate)}/s` : "") +
+          (left > 1 ? ` · ${formatRemaining(left)} left` : ""),
+      });
+    },
+    advance(bytes: number, files: number): void {
+      doneBytes += bytes;
+      doneFiles += files;
+    },
+  };
 }
 
 class UploadError extends Error {
@@ -357,11 +422,11 @@ export async function uploadFile(
     for (;;) {
       throwIfAborted(signal);
       const at = offset;
-      const slice = file.slice(at, Math.min(at + requestBytes(), file.size));
+      const slice = file.slice(at, Math.min(at + uploadSizer.bytes(), file.size));
       try {
         const started = performance.now();
         const answer = await post(`${partUrl}&offset=${at}`, slice, (sent) => onProgress(Math.min(at + sent, file.size), file.size), signal);
-        noteRequest(slice.size, performance.now() - started);
+        uploadSizer.note(slice.size, performance.now() - started);
         offset = (JSON.parse(answer) as { received: number }).received;
         attempt = 0;
       } catch (error) {
@@ -384,7 +449,7 @@ export async function uploadFile(
 }
 
 // Whole files packed into one request: per file an int32 name length, the name in utf-8, an int64
-// file length and its bytes, all little endian (see UIUpload.cs). The blob only references the
+// file length and its bytes, all little endian (see UIFileTransfer.cs). The blob only references the
 // files, so nothing is read into memory. Returns what the server could not write.
 async function uploadBatch(
   ioId: string,
@@ -408,32 +473,8 @@ async function uploadBatch(
   const body = new Blob(parts);
   const started = performance.now();
   const answer = await post(url, body, onProgress, signal);
-  noteRequest(body.size, performance.now() - started);
+  uploadSizer.note(body.size, performance.now() - started);
   return (JSON.parse(answer) as { errors: string[] }).errors;
-}
-
-// A file big enough to be worth a request of its own gets one and is sliced; everything smaller is
-// packed together until a batch is full. A generator, not a list: the budget a group is measured
-// against is the one that holds when the group is formed, so the plan follows the link as it is
-// learned rather than being fixed before the first byte has gone anywhere.
-function* planUpload(entries: UploadEntry[]): Generator<UploadEntry[]> {
-  let batch: UploadEntry[] = [];
-  let batchBytes = 0;
-  for (const entry of entries) {
-    const budget = requestBytes();
-    if (entry.file.size >= budget) {
-      yield [entry];
-      continue;
-    }
-    if (batch.length >= batchFileLimit || batchBytes + entry.file.size > budget) {
-      yield batch;
-      batch = [];
-      batchBytes = 0;
-    }
-    batch.push(entry);
-    batchBytes += entry.file.size;
-  }
-  if (batch.length > 0) yield batch;
 }
 
 export interface UploadEntry {
@@ -442,56 +483,41 @@ export interface UploadEntry {
 }
 
 /**
- * Uploads entries under basePath. The progress bar counts bytes rather than files, so it moves
- * evenly through one big file as well as through a thousand small ones, and the line below it
- * says how many files are done, how fast the bytes are going and how much is left. Returns the
+ * Uploads entries under basePath, big files sliced and small ones packed together. Returns the
  * entries that failed.
  */
 export async function uploadEntries(ctl: ProgressController, ioId: string, basePath: string, entries: UploadEntry[]): Promise<string[]> {
-  const totalBytes = entries.reduce((sum, entry) => sum + entry.file.size, 0);
-  const started = performance.now();
-  let sentBytes = 0;
-  let doneFiles = 0;
-  const report = (inFlight: number, label: string) => {
-    const done = Math.min(sentBytes + inFlight, totalBytes);
-    const seconds = (performance.now() - started) / 1000;
-    const rate = seconds > 1 ? done / seconds : 0;
-    const left = rate > 0 ? (totalBytes - done) / rate : 0;
-    ctl.set({
-      done,
-      total: totalBytes,
-      label,
-      meta:
-        `${doneFiles} / ${entries.length} files · ${formatBytes(done)} / ${formatBytes(totalBytes)}` +
-        (rate > 0 ? ` · ${formatBytes(rate)}/s` : "") +
-        (left > 1 ? ` · ${formatRemaining(left)} left` : ""),
-    });
-  };
+  const progress = byteProgress(
+    ctl,
+    entries.reduce((sum, entry) => sum + entry.file.size, 0),
+    entries.length,
+  );
   const failed: string[] = [];
-  report(0, "Starting…");
-  for (const group of planUpload(entries)) {
+  progress.report(0, "Starting…");
+  for (const group of planGroups(entries, (entry) => entry.file.size, uploadSizer)) {
     throwIfAborted(ctl.signal);
     const groupBytes = group.reduce((sum, entry) => sum + entry.file.size, 0);
     const label = group.length === 1 ? group[0].relativePath : `${group.length} files — ${group[0].relativePath} …`;
-    report(0, label);
+    progress.report(0, label);
+    let done = group.length;
     try {
       if (group.length === 1) {
         const entry = group[0];
         const key = (basePath ? basePath + "/" : "") + entry.relativePath;
-        await uploadFile(ioId, key, entry.file, (sent) => report(sent, label), ctl.signal);
-        doneFiles++;
+        await uploadFile(ioId, key, entry.file, (sent) => progress.report(sent, label), ctl.signal);
       } else {
-        const errors = await uploadBatch(ioId, basePath, group, (sent) => report(Math.min(sent, groupBytes), label), ctl.signal);
-        doneFiles += group.length - errors.length;
+        const errors = await uploadBatch(ioId, basePath, group, (sent) => progress.report(Math.min(sent, groupBytes), label), ctl.signal);
+        done -= errors.length;
         failed.push(...errors);
       }
     } catch (error) {
       throwIfAborted(ctl.signal);
       const message = error instanceof Error ? error.message : String(error);
       for (const entry of group) failed.push(`${entry.relativePath} (${message})`);
+      done = 0;
     }
-    sentBytes += groupBytes;
-    report(0, label);
+    progress.advance(groupBytes, done);
+    progress.report(0, label);
   }
   return failed;
 }
@@ -651,8 +677,12 @@ export async function downloadFolderToDirectory(
   return downloadFilesToDirectory(ctl, storeId, ioId, all, path === "" ? "" : path + "/", directory);
 }
 
-// Downloads the given files into the directory handle, one at a time, recreating the folders
-// below basePath. Returns the files that failed (e.g. locked by the engine).
+/**
+ * Downloads the given files into the directory handle, recreating the folders below basePath.
+ * Grouped exactly like an upload: a big file is streamed on its own, while small ones are asked
+ * for together and arrive in one framed response, so a folder of thousands of tiny files costs a
+ * round trip per batch instead of one per file. Returns the files that failed.
+ */
 export async function downloadFilesToDirectory(
   ctl: ProgressController,
   storeId: string,
@@ -661,29 +691,159 @@ export async function downloadFilesToDirectory(
   basePath: string,
   directory: FileSystemDirectoryHandle,
 ): Promise<string[]> {
-  ctl.set({ total: all.length, done: 0 });
+  const progress = byteProgress(
+    ctl,
+    all.reduce((sum, file) => sum + file.size, 0),
+    all.length,
+  );
+  const relativeTo = (key: string) => (key.startsWith(basePath) ? key.slice(basePath.length) : key);
   const failed: string[] = [];
-  for (let i = 0; i < all.length; i++) {
+  progress.report(0, "Starting…");
+  for (const group of planGroups(all, (file) => file.size, downloadSizer)) {
     throwIfAborted(ctl.signal);
-    const file = all[i];
-    const relative = file.key.startsWith(basePath) ? file.key.slice(basePath.length) : file.key;
-    ctl.set({ label: `${relative} (${formatBytes(file.size)})`, done: i });
+    const groupBytes = group.reduce((sum, file) => sum + file.size, 0);
+    const label = group.length === 1 ? relativeTo(group[0].key) : `${group.length} files — ${relativeTo(group[0].key)} …`;
+    progress.report(0, label);
+    let done = group.length;
     try {
-      const response = await fetch(downloadUrl(storeId, ioId, file.key), { signal: ctl.signal });
-      if (!response.ok || !response.body) {
-        failed.push(`${relative} (HTTP ${response.status}${response.status === 423 ? ", locked" : ""})`);
-        continue;
+      if (group.length === 1) {
+        await downloadOne(ctl, storeId, ioId, group[0].key, relativeTo(group[0].key), directory, progress, label);
+      } else {
+        const errors = await downloadBatch(ctl, ioId, group, relativeTo, directory, progress, label);
+        done -= errors.length;
+        failed.push(...errors);
       }
-      const handle = await fileHandleForPath(directory, relative);
-      const writable = await handle.createWritable();
-      await response.body.pipeTo(writable, { signal: ctl.signal }); // pipeTo also closes the writable
     } catch (error) {
       throwIfAborted(ctl.signal);
-      failed.push(`${relative} (${error instanceof Error ? error.message : error})`);
+      const message = error instanceof Error ? error.message : String(error);
+      for (const file of group) failed.push(`${relativeTo(file.key)} (${message})`);
+      done = 0;
     }
-    ctl.set({ done: i + 1 });
+    progress.advance(groupBytes, done);
+    progress.report(0, label);
   }
   return failed;
+}
+
+type ByteProgress = ReturnType<typeof byteProgress>;
+
+// One file, streamed straight onto disk so its size never has to fit in memory.
+async function downloadOne(
+  ctl: ProgressController,
+  storeId: string,
+  ioId: string,
+  key: string,
+  relative: string,
+  directory: FileSystemDirectoryHandle,
+  progress: ByteProgress,
+  label: string,
+): Promise<void> {
+  const started = performance.now();
+  const response = await fetch(downloadUrl(storeId, ioId, key), { signal: ctl.signal });
+  if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}${response.status === 423 ? ", locked" : ""}`);
+  const writable = await (await fileHandleForPath(directory, relative)).createWritable();
+  const reader = response.body.getReader();
+  let received = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      await writable.write(value);
+      received += value.byteLength;
+      progress.report(received, label);
+    }
+    await writable.close();
+  } catch (error) {
+    await writable.abort().catch(() => {});
+    throw error;
+  }
+  downloadSizer.note(received, performance.now() - started);
+}
+
+// Several whole files in one response, framed as UIFileTransfer describes. Returns the ones the
+// server could not read; those frames carry the reason instead of the bytes.
+async function downloadBatch(
+  ctl: ProgressController,
+  ioId: string,
+  group: { key: string }[],
+  relativeTo: (key: string) => string,
+  directory: FileSystemDirectoryHandle,
+  progress: ByteProgress,
+  label: string,
+): Promise<string[]> {
+  const started = performance.now();
+  const response = await fetch(`${adminBase}/ui/download-batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ioId, keys: group.map((file) => file.key) }),
+    signal: ctl.signal,
+  });
+  if (!response.ok || !response.body) throw new Error(`Download failed (HTTP ${response.status}).`);
+  const frames = new FrameReader(response.body);
+  const decoder = new TextDecoder();
+  const errors: string[] = [];
+  let received = 0;
+  for (;;) {
+    const head = await frames.take(4);
+    if (head === null) break;
+    const name = decoder.decode(await frames.takeOrThrow(dataView(head).getInt32(0, true)));
+    const ok = (await frames.takeOrThrow(1))[0] === 1;
+    const length = Number(dataView(await frames.takeOrThrow(8)).getBigInt64(0, true));
+    if (!ok) {
+      errors.push(`${relativeTo(name)} (${decoder.decode(await frames.takeOrThrow(length))})`);
+      continue;
+    }
+    const writable = await (await fileHandleForPath(directory, relativeTo(name))).createWritable();
+    try {
+      for (let written = 0; written < length; ) {
+        const chunk = await frames.takeOrThrow(Math.min(length - written, 1024 * 1024));
+        await writable.write(chunk);
+        written += chunk.length;
+        received += chunk.length;
+        progress.report(received, label);
+      }
+      await writable.close();
+    } catch (error) {
+      await writable.abort().catch(() => {});
+      throw error;
+    }
+  }
+  downloadSizer.note(received, performance.now() - started);
+  return errors;
+}
+
+const dataView = (bytes: Uint8Array) => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
+// Reads a framed response field by field, holding on to whatever a chunk brings past the field
+// that was asked for.
+class FrameReader {
+  private readonly reader: ReadableStreamDefaultReader<Uint8Array>;
+  private held = new Uint8Array(new ArrayBuffer(0));
+  constructor(stream: ReadableStream<Uint8Array>) {
+    this.reader = stream.getReader();
+  }
+  // count bytes, or null when the response ended exactly on a frame boundary
+  async take(count: number): Promise<Uint8Array<ArrayBuffer> | null> {
+    while (this.held.length < count) {
+      const { done, value } = await this.reader.read();
+      if (done) {
+        if (this.held.length === 0) return null;
+        throw new Error("The download ended mid file.");
+      }
+      const grown = new Uint8Array(new ArrayBuffer(this.held.length + value.length));
+      grown.set(this.held);
+      grown.set(value, this.held.length);
+      this.held = grown;
+    }
+    const taken = this.held.subarray(0, count);
+    this.held = this.held.subarray(count);
+    return taken;
+  }
+  async takeOrThrow(count: number): Promise<Uint8Array<ArrayBuffer>> {
+    const taken = await this.take(count);
+    if (taken === null) throw new Error("The download ended mid file.");
+    return taken;
+  }
 }
 
 function collectFiles(folder: FolderListing, into: FileInfo[]): void {
