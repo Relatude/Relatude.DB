@@ -144,6 +144,42 @@ export function buildRamp(steps: number, background: RGB, accent: RGB, id?: stri
 }
 
 /**
+ * The colours a thing glowing hotter goes through, as a scale: white at the bottom, through yellow
+ * and orange and red, to a deep purple-red at the top. It is the wrong way round for a fire and the
+ * right way round for a chart - what a rod on a globe has to say is "there is a great deal here",
+ * and the eye reads a bright small thing as ordinary and a dark saturated one as extreme.
+ *
+ * Chroma is pushed as far as sRGB will take it at each lightness (oklchToRgb pulls it back in
+ * rather than clipping), so this is the most colour the screen can give.
+ */
+const rodKeys: [number, number, number][] = [
+  // lightness, chroma, hue. Warm at BOTH ends: the pale end is a yellow white rather than a neutral
+  // one, and the dark end a red purple rather than a blue one - so the scale reads as one thing
+  // getting hotter, rather than as a journey from daylight round to twilight.
+  [0.985, 0.125, 104],
+  [0.94, 0.19, 100],
+  [0.86, 0.23, 82],
+  [0.74, 0.26, 52],
+  [0.62, 0.3, 28],
+  [0.5, 0.31, 4],
+  [0.41, 0.29, -20],
+];
+
+export function buildRodRamp(steps: number, saturation = 1): PaletteColor[] {
+  const colors: PaletteColor[] = [];
+  for (let i = 0; i < steps; i++) {
+    const at = (steps <= 1 ? 0 : i / (steps - 1)) * (rodKeys.length - 1);
+    const first = Math.min(rodKeys.length - 2, Math.floor(at));
+    const t = at - first;
+    const a = rodKeys[first];
+    const b = rodKeys[first + 1];
+    const rgb = oklchToRgb(a[0] + (b[0] - a[0]) * t, (a[1] + (b[1] - a[1]) * t) * saturation, a[2] + (b[2] - a[2]) * t);
+    colors.push({ rgb, css: `rgb(${rgb[0]} ${rgb[1]} ${rgb[2]})` });
+  }
+  return colors;
+}
+
+/**
  * Which colour of a palette a value takes. The slot is hashed from the value itself rather than
  * counted off the list, so a value keeps its colour when the set is narrowed to fewer of them - the
  * brand that was blue stays blue with the others filtered out, and the same brand is the same colour

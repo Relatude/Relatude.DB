@@ -77,6 +77,15 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
     }
+    /// <summary>
+    /// The embedded resources whose name begins with the given prefix, without it - so
+    /// ResourceNames("ClientUI.") gives "index.js", "earth.js" and the rest of the admin UI's files.
+    /// </summary>
+    public static IEnumerable<string> ResourceNames(string prefix) {
+        var assembly = Assembly.GetExecutingAssembly();
+        var full = assembly.GetName().Name + "." + prefix;
+        return assembly.GetManifestResourceNames().Where(n => n.StartsWith(full, StringComparison.Ordinal)).Select(n => n[full.Length..]);
+    }
     /// <summary>An embedded binary resource, or null when this build does not carry it. Used for
     /// optional assets of the admin UI, which is built separately (see UIServer.mapStaticUI).</summary>
     public static byte[]? GetBinaryResourceOrNull(string name) {

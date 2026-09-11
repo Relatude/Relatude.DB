@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { IconFocusCentered, IconGrid3x3, IconListDetails, IconRotate360, IconWorld } from "@tabler/icons-react";
+import { IconFocusCentered, IconGrid3x3, IconListDetails, IconMinus, IconPlus, IconRotate360, IconWorld } from "@tabler/icons-react";
+import { ColorField } from "./ColorField";
 import { BareButton, FullscreenButton } from "./DatamodelGraph";
 import type { PivotBase } from "./PivotView";
 import { fetchCards, fetchNodeGuid, fetchPivotModel, runMap, type MapRequest, type PivotModel, type PivotProperty } from "../server/query";
 import { useLiveResult } from "../server/hooks";
 import { formatCount, formatQuery } from "../format";
-import type { MapDefinition, MapMarks as MarkKind } from "../queryTabs";
-import { buildPalette, buildRamp, palettes, parseCssColor, type PaletteColor, type RGB } from "../visual/palette";
+import type { MapDefinition, MapMarks as MarkKind, MapStyle as SavedStyle } from "../queryTabs";
+import { buildPalette, buildRamp, buildRodRamp, palettes, parseCssColor, type PaletteColor, type RGB } from "../visual/palette";
 import { clampView, fitView, projections, projectionOf, type View } from "../map/projection";
 import { countCountries, countryAt, countryRaster, countryRasterSize, rankedCountries } from "../map/countries";
 import { decodeMap, PointIndex, type MapGroup } from "../map/points";
-import { clusterPoints, clusterRadius, drawClusters, type Cluster } from "../map/clusters";
-import { createMapField, maxGlobeZoom, type GlobeCamera, type MapField, type MapScene } from "../map/mapField";
+import { clusterPoints, clusterRadius, drawClusters, rodsOf, type Cluster } from "../map/clusters";
+import { createMapField, maxGlobeZoom, type GlobeCamera, type MapField, type MapScene, type MapStyle } from "../map/mapField";
 import { Momentum } from "../map/motion";
 import { world } from "../map/worldMap";
+import { readColor } from "../server/datamodel";
 
 /** A map before anyone has chosen anything: a dot per node on a world map, in one colour. */
 export const emptyMap: MapDefinition = {
@@ -34,13 +36,65 @@ const markOptions: { id: MarkKind; label: string; hint: string }[] = [
   { id: "heat", label: "Heat", hint: "How thickly the nodes lie, as a field of colour — where they crowd rather than where each one is" },
   { id: "clusters", label: "Clusters", hint: "One bubble per patch of the map, sized and coloured by how many nodes are in it, with the count written in" },
   { id: "countries", label: "Countries", hint: "Every country shaded by how many nodes are in it" },
+  { id: "rods", label: "Rods", hint: "A rod per patch of the world, as long and as hot as the patch is full — best on the globe, where they stand out into space" },
 ];
+
+/**
+ * What the Look panel falls back to before anyone has touched it: a globe with air round it, which
+ * is what stops a dark ball on a dark page reading as a hole, and nothing else turned on.
+ */
+const styleDefaults: Required<Omit<SavedStyle, "atmosphereColor" | "landColor" | "oceanColor" | "lineColor">> = {
+  atmosphere: 16,
+  stars: 0,
+  starDrift: 18,
+  starDensity: 60,
+  starTrail: 15,
+  land: false,
+  shading: 18,
+  // the light over the viewer's left shoulder and a little above, which is where a light belongs
+  // in every painting ever made
+  lightAround: 320,
+  lightUp: 22,
+  brightness: 95,
+  ambient: 24,
+  specular: 45,
+  shine: 40,
+  landShine: 12,
+  lines: true,
+  lineWidth: 13,
+  earth: "off",
+  rodColors: "heat",
+  rodHeight: 22,
+  rodWidth: 45,
+  rodCell: 35,
+};
+
+/** The photographs of the Earth, fetched the first time anyone asks and kept for the session. */
+let earthImages: Promise<{ day: HTMLImageElement; night: HTMLImageElement }> | null = null;
+function loadEarth(): Promise<{ day: HTMLImageElement; night: HTMLImageElement }> {
+  if (earthImages !== null) return earthImages;
+  // a megabyte of scenery, in a chunk of its own that nobody downloads until they turn it on
+  earthImages = import("../map/earth").then(async (m) => {
+    const decode = (src: string) =>
+      new Promise<HTMLImageElement>((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = reject;
+        image.src = src;
+      });
+    return { day: await decode(m.dayImage), night: await decode(m.nightImage) };
+  });
+  return earthImages;
+}
 
 const modeOptions = [
   { value: "auto", label: "auto" },
   { value: "values", label: "values" },
   { value: "ranges", label: "ranges" },
 ];
+
+/** What a pin is when nothing else has been said: the red of every map pin ever drawn. */
+const pinRed: RGB = [222, 58, 48];
 
 /** How many pins are ever drawn: past this they are a smear rather than markers, and the view says so. */
 const pinBudget = 20_000;
@@ -125,6 +179,9 @@ export function MapView({
   const [model, setModel] = useState<PivotModel | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
   const def = definition ?? emptyMap;
+  /** the Look panel as it was saved; every field of it is optional and filled in by `style` below */
+  const saved = def.style ?? {};
+  const setStyle = (patch: SavedStyle) => onChange({ ...def, style: { ...saved, ...patch } });
 
   useEffect(() => {
     let cancelled = false;
@@ -236,6 +293,8 @@ export function MapView({
 
   const index = useMemo(() => (points === null || !coloured ? null : new PointIndex(points.lat, points.lon, points.count)), [points, coloured]);
   const counts = useMemo(() => (points !== null && marks === "countries" ? countCountries(points.lat, points.lon, points.count) : null), [points, marks]);
+  /** One rod per patch of the world, gathered on the ground rather than on the canvas (see rodsOf). */
+  const rods = useMemo(() => (points !== null && marks === "rods" ? rodsOf(points.lat, points.lon, points.count, (saved.rodCell ?? styleDefaults.rodCell) / 10) : null), [points, marks, saved.rodCell]);
 
   const palette = useMemo(() => (theme === null ? [] : buildPalette(colorData ? colorData.groups.length : 1, theme.panel, theme.accent, def.palette)), [theme, colorData, def.palette]);
   const ramp = useMemo(() => (theme === null ? [] : buildRamp(rampSteps, theme.panel, theme.accent, def.palette)), [theme, def.palette]);
@@ -258,10 +317,14 @@ export function MapView({
   const markColors = useMemo(() => {
     const groups = colorData ? colorData.groups : null;
     const bytes = new Uint8Array(Math.max(1, groups ? groups.length : 1) * 3);
-    if (groups === null || theme === null) bytes.set(palette[0]?.rgb ?? [128, 128, 128]);
+    // A pin nobody has asked to colour is RED, which is the colour a pin in a map is, rather than
+    // whatever the palette happens to begin with. Choose a property to colour by and the palette
+    // takes over, the same as it does for dots.
+    if (groups === null && marks === "pins") bytes.set(pinRed);
+    else if (groups === null || theme === null) bytes.set(palette[0]?.rgb ?? [128, 128, 128]);
     else groups.forEach((g, i) => bytes.set(groupColor(g.kind, g.ordinal, palette, theme), i * 3));
     return bytes;
-  }, [colorData, palette, theme]);
+  }, [colorData, palette, theme, marks]);
 
   /**
    * What each country is painted with: 256 colours the shader looks a country's number up in, with
@@ -287,21 +350,64 @@ export function MapView({
 
   // ---- what one frame is ----
 
+  /** The Look panel's settings, filled in with the defaults and turned into what a shader wants. */
+  const style = useMemo<MapStyle>(() => {
+    const n = (value: number | undefined, fallback: number) => (typeof value === "number" ? value : fallback);
+    const colour = (value: string | null | undefined, fallback: RGB): RGB => {
+      const set = readColor(value);
+      return set === null ? fallback : parseCssColor(set);
+    };
+    const panel = theme?.panel ?? [255, 255, 255];
+    const text = theme?.text ?? [0, 0, 0];
+    // where the light stands, from how far round and how far up it was put
+    const around = (n(saved.lightAround, styleDefaults.lightAround) * Math.PI) / 180;
+    const up = (n(saved.lightUp, styleDefaults.lightUp) * Math.PI) / 180;
+    return {
+      atmosphere: n(saved.atmosphere, styleDefaults.atmosphere) / 100,
+      atmosphereColor: colour(saved.atmosphereColor, theme?.accent ?? [120, 150, 200]),
+      stars: n(saved.stars, styleDefaults.stars) / 100,
+      starDrift: (n(saved.starDrift, styleDefaults.starDrift) / 100) * 6,
+      starDensity: 0.03 + (n(saved.starDensity, styleDefaults.starDensity) / 100) * 0.75,
+      starTrail: (n(saved.starTrail, styleDefaults.starTrail) / 100) * 20,
+      land: saved.land === true,
+      landColor: colour(saved.landColor, mix(panel, text, 0.3)),
+      oceanColor: colour(saved.oceanColor, mix(panel, text, 0.05)),
+      shading: n(saved.shading, styleDefaults.shading) / 100,
+      light: {
+        direction: [Math.cos(up) * Math.sin(around), Math.sin(up), Math.cos(up) * Math.cos(around)],
+        brightness: n(saved.brightness, styleDefaults.brightness) / 100,
+        ambient: n(saved.ambient, styleDefaults.ambient) / 100,
+        specular: n(saved.specular, styleDefaults.specular) / 100,
+        // a tight highlight is a high exponent, and the slider reads the other way round
+        shine: 2 + Math.pow(n(saved.shine, styleDefaults.shine) / 100, 2) * 220,
+        landShine: n(saved.landShine, styleDefaults.landShine) / 100,
+      },
+      lines: saved.lines !== false,
+      lineColor: colour(saved.lineColor, theme ? mix(theme.line, theme.text, 0.55) : [140, 140, 140]),
+      lineWidth: n(saved.lineWidth, styleDefaults.lineWidth) / 10,
+      earth: saved.earth ?? styleDefaults.earth,
+      rodHeight: n(saved.rodHeight, styleDefaults.rodHeight) / (globeMode ? 100 : 200),
+      // how thick a rod is, on the ground, in degrees: a share of the patch it stands for
+      rodWidth: (n(saved.rodWidth, styleDefaults.rodWidth) / 100) * (n(saved.rodCell, styleDefaults.rodCell) / 10),
+    };
+  }, [saved, theme, globeMode]);
+
   const scene = useMemo<MapScene>(
     () => ({
       globe: globeMode,
       projection,
       view,
       camera,
-      marks: marks === "dots" || marks === "pins" || marks === "heat" ? marks : "none",
-      size: def.size ?? defaultSize(marks),
+      marks: marks === "dots" || marks === "pins" || marks === "heat" || marks === "rods" ? marks : "none",
+      size: currentSize(def, marks),
       alpha: marks === "pins" ? 1 : dotAlpha(points?.count ?? 0),
       limit: marks === "pins" ? pinBudget : Number.MAX_SAFE_INTEGER,
       radius: def.radius ?? 26,
       graticule: def.graticule !== false,
       surface: marks === "countries",
+      style,
     }),
-    [globeMode, projection, view, camera, marks, def.size, def.radius, def.graticule, points],
+    [globeMode, projection, view, camera, marks, def.size, def.pinSize, def.radius, def.graticule, points, style],
   );
   /** The scene as the handlers see it, without re-binding every one of them on every frame. */
   const sceneRef = useRef(scene);
@@ -353,6 +459,26 @@ export function MapView({
     },
     [],
   );
+
+  /**
+   * The field flying past. A frame of it changes nothing React knows about - only the clock the
+   * shader reads - so this draws straight from the renderer rather than going round through state,
+   * which would be sixty re-renders a second to move some stars.
+   */
+  const drifting = style.stars > 0 && style.starDrift > 0;
+  useEffect(() => {
+    if (!drifting || !glOk) return;
+    let running = true;
+    const tick = () => {
+      if (!running) return;
+      field.current?.draw(sceneRef.current);
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    return () => {
+      running = false;
+    };
+  }, [drifting, glOk]);
 
   /** Where the map ends up after a hand has dragged it `dx, dy` pixels from where it was. */
   const dragged = useCallback(
@@ -487,11 +613,10 @@ export function MapView({
   const onWheel = (e: React.WheelEvent) => {
     if (size.width <= 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const anchor: [number, number] = [e.clientX - rect.left, e.clientY - rect.top];
-    // part of the notch now and the rest of it over the next moment, so the zoom carries (motion.ts)
-    const amount = -e.deltaY * 0.0016;
-    nudge(zoomed({ view, camera }, Math.exp(amount * 0.55), anchor));
-    momentum.current.push(amount * 0.45, anchor);
+    // NONE of the notch now: all of it is owed and paid off over the next few frames, which is what
+    // turns a wheel's steps into a zoom rather than a staircase (see map/motion.ts)
+    touched.current = true;
+    momentum.current.push(-e.deltaY * 0.0016, [e.clientX - rect.left, e.clientY - rect.top]);
     setGliding(true);
   };
 
@@ -524,9 +649,31 @@ export function MapView({
       setTooltip(bubble === null ? null : { x: px, y: py, lines: [formatCount(bubble.count) + (bubble.count === 1 ? " node here" : " nodes here"), placeLabel(bubble.lat, bubble.lon)] });
       return;
     }
-    if (marks === "heat") {
+    if (marks === "heat" || marks === "rods") {
       const at = field.current?.placeAt(sceneRef.current, px, py) ?? null;
-      setTooltip(at === null ? null : { x: px, y: py, lines: [placeLabel(at[0], at[1])] });
+      if (at === null || rods === null) {
+        setTooltip(at === null ? null : { x: px, y: py, lines: [placeLabel(at[0], at[1])] });
+        return;
+      }
+      // the rod nearest the place under the pointer, if one is near enough to be the one meant
+      const cell = (saved.rodCell ?? styleDefaults.rodCell) / 10;
+      let best = -1;
+      let nearest = cell * cell;
+      for (let i = 0; i < rods.counts.length; i++) {
+        const dLat = rods.rods[i * 3 + 1] - at[0];
+        let dLon = rods.rods[i * 3] - at[1];
+        if (dLon > 180) dLon -= 360;
+        else if (dLon < -180) dLon += 360;
+        const squeeze = Math.max(0.05, Math.cos((at[0] * Math.PI) / 180));
+        const d = dLat * dLat + dLon * squeeze * (dLon * squeeze);
+        if (d < nearest) {
+          nearest = d;
+          best = i;
+        }
+      }
+      const lines = [placeLabel(at[0], at[1])];
+      if (best >= 0) lines.unshift(formatCount(rods.counts[best]) + (rods.counts[best] === 1 ? " node here" : " nodes here"));
+      setTooltip({ x: px, y: py, lines });
       return;
     }
     const i = pointAt(px, py);
@@ -629,15 +776,63 @@ export function MapView({
   useEffect(() => {
     field.current?.setRamp(rampBytes);
   }, [rampBytes, glOk]);
-  // the raster is eight megabytes and takes a moment to draw, so it is asked for only once the
-  // countries are actually being shown - and then never again, since the world does not change
+  /**
+   * What a rod is painted by its height: white-hot at the bottom through yellow and red to a deep
+   * purple at the top. The other way round from every other scale here, and on purpose - a rod's
+   * height already says "a lot", and the eye reads a small bright thing as ordinary and a dark
+   * saturated one as extreme, so the two agree instead of arguing.
+   */
+  const rodRamp = useMemo(() => {
+    const heat = (saved.rodColors ?? styleDefaults.rodColors) === "heat";
+    const colors = heat ? buildRodRamp(rampSteps) : ramp;
+    const bytes = new Uint8Array(Math.max(1, colors.length) * 4);
+    colors.forEach((c, i) => {
+      bytes[i * 4] = c.rgb[0];
+      bytes[i * 4 + 1] = c.rgb[1];
+      bytes[i * 4 + 2] = c.rgb[2];
+      bytes[i * 4 + 3] = 255;
+    });
+    return bytes;
+  }, [saved.rodColors, ramp]);
+  useEffect(() => {
+    field.current?.setRodRamp(rodRamp);
+  }, [rodRamp, glOk]);
+  useEffect(() => {
+    if (style.earth === "off") {
+      field.current?.setEarth("day", null);
+      field.current?.setEarth("night", null);
+      return;
+    }
+    let alive = true;
+    loadEarth()
+      .then((images) => {
+        if (!alive || field.current === null) return;
+        field.current.setEarth("day", images.day);
+        field.current.setEarth("night", images.night);
+        setRedraw((n) => n + 1);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [style.earth, glOk]);
+  /** bumped when something outside React's own state has changed what a frame would look like */
+  const [redraw, setRedraw] = useState(0);
+  // The raster is eight megabytes and takes a moment to draw, so it is asked for only once
+  // something actually needs it - the shaded countries, or land painted as land - and then never
+  // again, since the world does not change.
   const rastered = useRef(false);
   useEffect(() => {
-    if (marks !== "countries" || rastered.current || field.current === null) return;
+    // the land mask is what tells the water from the rock, so the highlight wants it too
+    if ((marks !== "countries" && !style.land && style.light.specular <= 0) || rastered.current || field.current === null) return;
     const [w, h] = countryRasterSize();
     field.current.setSurface(countryRaster(), w, h);
     rastered.current = true;
-  }, [marks, glOk]);
+  }, [marks, style.land, style.light.specular, glOk]);
+  useEffect(() => {
+    if (rods === null) return;
+    field.current?.setRods(rods.rods, rods.counts.length);
+  }, [rods, glOk]);
   useEffect(() => {
     field.current?.setSurfaceColors(surfaceColors);
   }, [surfaceColors, glOk]);
@@ -685,7 +880,7 @@ export function MapView({
     const place = field.current.project(scene);
     lastClusters.current = clusterPoints(points.count, 1, (i, out) => place(points.lon[i], points.lat[i], out), points.lat, points.lon, size.width, size.height, cell);
     drawClusters(ctx, lastClusters.current, cell, rampBytes, cssOf(theme.panel), formatCount);
-  }, [scene, points, theme, size$, size.width, size.height, marks, def.cell, rampBytes, surfaceColors, glOk]);
+  }, [scene, points, theme, size$, size.width, size.height, marks, def.cell, rampBytes, surfaceColors, redraw, glOk]);
 
   // ---- what is written beside it ----
 
@@ -826,9 +1021,111 @@ export function MapView({
             <button className={"icon-button" + (def.legend ? " active" : "")} title={def.legend ? "Hide the legend" : "Show the legend"} onClick={() => onChange({ ...def, legend: !def.legend })}>
               <IconListDetails size={16} stroke={1.9} />
             </button>
+            <button
+              className={"icon-button" + (def.look ? " active" : "")}
+              aria-pressed={def.look === true}
+              title={def.look ? "Hide how the world is drawn" : "How the world is drawn: the air round it, the stars behind it, the land on it"}
+              onClick={() => onChange({ ...def, look: def.look !== true })}
+            >
+              {def.look ? <IconMinus size={16} stroke={1.9} /> : <IconPlus size={16} stroke={1.9} />}
+            </button>
             <FullscreenButton on={fullscreen} onToggle={onToggleFullscreen} what="map" />
           </div>
         </div>
+        {def.look && (
+          /* How the world itself is drawn, as against what is drawn on it. Folded away by default:
+             none of it changes what the data says, and a line of knobs about the scenery has no
+             business being the first thing on the page. */
+          <div className="pivot-builder-row map-look">
+            <span className="pivot-builder-label">Air</span>
+            <span className="pivot-chip">
+              {slider("How far the air glows past the globe's edge — what stops a dark ball on a dark page reading as a hole in it", 0, 60, value(saved.atmosphere, styleDefaults.atmosphere), (v) => setStyle({ atmosphere: v }))}
+              <ColorField value={saved.atmosphereColor} fallback={theme ? cssOf(theme.accent) : undefined} onChange={(c) => setStyle({ atmosphereColor: c })} />
+            </span>
+            <span className="pivot-builder-label visual-label-2">Stars</span>
+            <span className="pivot-chip">
+              {slider("A field of stars behind the world, flying past the view — how bright they are, and nothing at all takes them away", 0, 100, value(saved.stars, styleDefaults.stars), (v) => setStyle({ stars: v }))}
+              {slider("How fast they come at you; nothing at all holds the field still", 0, 100, value(saved.starDrift, styleDefaults.starDrift), (v) => setStyle({ starDrift: v }))}
+              {slider("How crowded the field is", 0, 100, value(saved.starDensity, styleDefaults.starDensity), (v) => setStyle({ starDensity: v }))}
+              {slider("How far each one smears out behind itself — none is a field of points, plenty is a jump to lightspeed", 0, 100, value(saved.starTrail, styleDefaults.starTrail), (v) => setStyle({ starTrail: v }))}
+            </span>
+            <span className="pivot-builder-label visual-label-2">Lines</span>
+            <span className="pivot-chip">
+              {toggle(style.lines, style.lines ? "Take the coastlines and borders away" : "Draw the coastlines and borders", () => setStyle({ lines: !style.lines }))}
+              {style.lines && (
+                <>
+                  {slider("How thick a coastline is, in tenths of a pixel", 4, 40, value(saved.lineWidth, styleDefaults.lineWidth), (v) => setStyle({ lineWidth: v }))}
+                  <ColorField value={saved.lineColor} fallback={theme ? cssOf(mix(theme.line, theme.text, 0.55)) : undefined} onChange={(c) => setStyle({ lineColor: c })} />
+                </>
+              )}
+            </span>
+            <span className="pivot-builder-label visual-label-2">Land</span>
+            <span className="pivot-chip">
+              {toggle(style.land, style.land ? "Back to a ball of one colour" : "Paint the land as land and the water as water", () => setStyle({ land: !style.land }))}
+              {style.land && (
+                <>
+                  <ColorField value={saved.landColor} fallback={theme ? cssOf(mix(theme.panel, theme.text, 0.3)) : undefined} onChange={(c) => setStyle({ landColor: c })} />
+                  <ColorField value={saved.oceanColor} fallback={theme ? cssOf(mix(theme.panel, theme.text, 0.05)) : undefined} onChange={(c) => setStyle({ oceanColor: c })} />
+                </>
+              )}
+            </span>
+            {globeMode && (
+              <>
+                <span className="pivot-builder-label visual-label-2">Earth</span>
+                <span className="pivot-chip">
+                  <select
+                    className="select"
+                    value={saved.earth ?? styleDefaults.earth}
+                    title="A photograph of the Earth wrapped round the globe — NASA's, and a megabyte of it, so it is only fetched the first time you ask for it"
+                    onChange={(e) => setStyle({ earth: e.target.value as SavedStyle["earth"] })}
+                  >
+                    <option value="off">no photo</option>
+                    <option value="day">daylight</option>
+                    <option value="night">city lights</option>
+                    <option value="both">both, by the light</option>
+                    <option value="moon">both, by moonlight</option>
+                  </select>
+                </span>
+              </>
+            )}
+            {globeMode && (
+              <>
+                <span className="pivot-builder-label visual-label-2">Light</span>
+                <span className="pivot-chip">
+                  {slider("Where the light stands, round the viewer", 0, 360, value(saved.lightAround, styleDefaults.lightAround), (v) => setStyle({ lightAround: v }))}
+                  {slider("and how far above them", -90, 90, value(saved.lightUp, styleDefaults.lightUp), (v) => setStyle({ lightUp: v }))}
+                  {slider("How bright the lit side is; past a hundred the ground burns out, which is sometimes the point", 0, 300, value(saved.brightness, styleDefaults.brightness), (v) => setStyle({ brightness: v }))}
+                  {slider("How much light reaches the dark side, so a night is dim rather than absent", 0, 100, value(saved.ambient, styleDefaults.ambient), (v) => setStyle({ ambient: v }))}
+                </span>
+                <span className="pivot-builder-label visual-label-2">Shine</span>
+                <span className="pivot-chip">
+                  {slider("How strong the highlight is: the sun on the sea", 0, 150, value(saved.specular, styleDefaults.specular), (v) => setStyle({ specular: v }))}
+                  {slider("and how tight — a wide sheen or a hard point", 0, 100, value(saved.shine, styleDefaults.shine), (v) => setStyle({ shine: v }))}
+                  {slider("How much of it the land gets. Water is a mirror and rock is not, so this is usually low", 0, 100, value(saved.landShine, styleDefaults.landShine), (v) => setStyle({ landShine: v }))}
+                </span>
+              </>
+            )}
+            {marks === "rods" && (
+              <>
+                <span className="pivot-builder-label visual-label-2">Rods</span>
+                <span className="pivot-chip">
+                  <select className="select" value={saved.rodColors ?? styleDefaults.rodColors} title="What a rod is painted by its height" onChange={(e) => setStyle({ rodColors: e.target.value as SavedStyle["rodColors"] })}>
+                    <option value="heat">white to purple</option>
+                    <option value="palette">the palette</option>
+                  </select>
+                  {slider("How far the tallest rod reaches", 2, 100, value(saved.rodHeight, styleDefaults.rodHeight), (v) => setStyle({ rodHeight: v }))}
+                  {slider("How thick a rod is, as a share of the patch it stands on — at the top of the scale they close up into a honeycomb", 2, 100, value(saved.rodWidth, styleDefaults.rodWidth), (v) => setStyle({ rodWidth: v }))}
+                  {slider("How wide a patch of the world each rod stands for, in tenths of a degree", 5, 100, value(saved.rodCell, styleDefaults.rodCell), (v) => setStyle({ rodCell: v }))}
+                </span>
+              </>
+            )}
+            <div className="pivot-options">
+              <button className="link-button" title="Put everything here back to what it started as" onClick={() => onChange({ ...def, style: {} })}>
+                reset
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {showQuery && result && <div className="query-string">{formatQuery(result.query)}</div>}
@@ -928,6 +1225,27 @@ export function MapView({
   );
 }
 
+/** A switch on the Look panel, reading on or off rather than carrying an icon nobody would guess. */
+function toggle(on: boolean, title: string, onClick: () => void) {
+  return (
+    <button className={"icon-button labelled" + (on ? " active" : "")} aria-pressed={on} title={title} onClick={onClick}>
+      {on ? "on" : "off"}
+    </button>
+  );
+}
+
+/** One knob of the Look panel: narrow, unlabelled, and showing what it is set to. */
+function slider(title: string, min: number, max: number, at: number, onChange: (value: number) => void) {
+  return (
+    <span className="visual-stretch" title={title}>
+      <input type="range" min={min} max={max} step={1} value={at} onChange={(e) => onChange(Number(e.target.value))} />
+      <span className="visual-stretch-value">{at}</span>
+    </span>
+  );
+}
+
+const value = (saved: number | undefined, fallback: number) => (typeof saved === "number" ? saved : fallback);
+
 /** The page's own colours, which is what keeps the map in the theme the rest of the app is in. */
 function readTheme(el: HTMLElement): Theme {
   const cs = getComputedStyle(el);
@@ -990,15 +1308,18 @@ function dotAlpha(count: number): number {
   return 0.22;
 }
 
-const defaultSize = (marks: MarkKind) => (marks === "pins" ? 14 : marks === "clusters" ? 48 : marks === "heat" ? 26 : 3);
+const defaultSize = (marks: MarkKind) => (marks === "pins" ? 22 : marks === "clusters" ? 48 : marks === "heat" ? 26 : 3);
 const sizeLabel = (marks: MarkKind) => (marks === "heat" ? "Spread" : marks === "clusters" ? "Patch" : "Size");
-const sizeRange = (marks: MarkKind): [number, number] => (marks === "heat" ? [6, 90] : marks === "clusters" ? [20, 140] : marks === "pins" ? [6, 40] : [1, 14]);
+const sizeRange = (marks: MarkKind): [number, number] => (marks === "heat" ? [6, 90] : marks === "clusters" ? [20, 140] : marks === "pins" ? [8, 64] : [1, 14]);
 const sizeHint = (marks: MarkKind) =>
   marks === "heat"
     ? "How far one node's heat spreads, in pixels"
     : marks === "clusters"
       ? "How wide one patch of the map is, in pixels: wider patches, fewer and larger bubbles"
-      : "How large one mark is drawn, in pixels";
-const currentSize = (def: MapDefinition, marks: MarkKind) => (marks === "heat" ? (def.radius ?? 26) : marks === "clusters" ? (def.cell ?? 48) : (def.size ?? defaultSize(marks)));
+      : marks === "pins"
+        ? "How tall a pin stands, in pixels"
+        : "How large one mark is drawn, in pixels";
+const currentSize = (def: MapDefinition, marks: MarkKind) =>
+  marks === "heat" ? (def.radius ?? 26) : marks === "clusters" ? (def.cell ?? 48) : marks === "pins" ? (def.pinSize ?? defaultSize(marks)) : (def.size ?? defaultSize(marks));
 const withSize = (def: MapDefinition, marks: MarkKind, value: number): MapDefinition =>
-  marks === "heat" ? { ...def, radius: value } : marks === "clusters" ? { ...def, cell: value } : { ...def, size: value };
+  marks === "heat" ? { ...def, radius: value } : marks === "clusters" ? { ...def, cell: value } : marks === "pins" ? { ...def, pinSize: value } : { ...def, size: value };

@@ -12,11 +12,17 @@
 
 /** How fast a motion bleeds away, in e-folds a second: after half a second about a tenth is left. */
 const glideDamping = 4.5;
-/** Zooming settles faster. It travels further per unit of velocity, and an overshoot is worse there. */
-const zoomDamping = 6.5;
-/** Below this a motion is over: a fraction of a pixel and a fraction of a percent a second. */
+/**
+ * How fast the zoom catches up with where it has been asked to go, in e-folds a second. A wheel
+ * arrives in notches - one lump of scroll per click of the finger - and applying a notch the
+ * instant it lands is what makes a zoom feel like a staircase. So a notch is not applied at all:
+ * it is ADDED TO A DEBT, and every frame pays off a share of whatever is owed. Fast enough that
+ * the map is where you asked inside a quarter of a second, smooth enough that the steps are gone.
+ */
+const zoomFollow = 13;
+/** Below this a motion is over: a fraction of a pixel, and a zoom nobody could see. */
 const stillPixels = 6;
-const stillZoom = 0.02;
+const stillZoom = 0.0008;
 /** How far back a release looks for the speed of the hand, in milliseconds. */
 const sampleWindow = 90;
 /** and how fast it may say the hand was going, so a stuttering pointer cannot launch the map */
@@ -39,7 +45,8 @@ export interface MotionStep {
 export class Momentum {
   private vx = 0;
   private vy = 0;
-  private vZoom = 0;
+  /** e-folds of zoom asked for and not yet applied */
+  private owed = 0;
   private samples: Sample[] = [];
   /** Where a zoom is closing in on, in css pixels; null zooms on the middle of the canvas. */
   anchor: [number, number] | null = null;
@@ -64,23 +71,23 @@ export class Momentum {
     this.vy = clamp((last.y - first.y) / span, maxGlide);
   }
 
-  /** A wheel was turned: `amount` is in e-folds of zoom, and the map goes on zooming for a moment. */
+  /** A wheel was turned: `amount` is in e-folds of zoom, owed to the map and paid off over the next moment. */
   push(amount: number, anchor: [number, number] | null): void {
     this.anchor = anchor;
-    // added rather than replaced, so a fast scroll builds up the way a fast scroll should
-    this.vZoom = clamp(this.vZoom + amount * zoomDamping, 40);
+    // added rather than replaced, so spinning the wheel fast goes further than turning it once
+    this.owed = clamp(this.owed + amount, 6);
   }
 
   /** Nothing is moving of its own accord any more. */
   stop(): void {
     this.vx = 0;
     this.vy = 0;
-    this.vZoom = 0;
+    this.owed = 0;
     this.samples = [];
   }
 
   get moving(): boolean {
-    return Math.abs(this.vx) > stillPixels || Math.abs(this.vy) > stillPixels || Math.abs(this.vZoom) > stillZoom;
+    return Math.abs(this.vx) > stillPixels || Math.abs(this.vy) > stillPixels || Math.abs(this.owed) > stillZoom;
   }
 
   /**
@@ -90,18 +97,19 @@ export class Momentum {
    */
   step(dt: number): MotionStep | null {
     if (!this.moving) {
-      this.vx = this.vy = this.vZoom = 0;
+      this.vx = this.vy = this.owed = 0;
       return null;
     }
-    const glide = Math.exp(-glideDamping * Math.min(0.1, dt));
-    const zoom = Math.exp(-zoomDamping * Math.min(0.1, dt));
+    const step = Math.min(0.1, dt);
+    const glide = Math.exp(-glideDamping * step);
     const dx = (this.vx * (1 - glide)) / glideDamping;
     const dy = (this.vy * (1 - glide)) / glideDamping;
-    const dz = (this.vZoom * (1 - zoom)) / zoomDamping;
     this.vx *= glide;
     this.vy *= glide;
-    this.vZoom *= zoom;
-    return { dx, dy, zoom: Math.exp(dz) };
+    // whatever share of the debt this frame is long enough to cover
+    const paid = this.owed * (1 - Math.exp(-zoomFollow * step));
+    this.owed -= paid;
+    return { dx, dy, zoom: Math.exp(paid) };
   }
 }
 

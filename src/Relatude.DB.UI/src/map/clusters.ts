@@ -14,6 +14,47 @@
  */
 export type Place = (i: number, out: Float32Array) => boolean;
 
+/**
+ * The nodes gathered into patches of the WORLD - so many degrees of longitude and latitude a side -
+ * rather than of the canvas: one rod per patch, standing where its nodes are and as tall as there
+ * are many of them. Gathered on the world because a rod is a thing standing on the ground: it
+ * belongs to a place and has to stay the same height when the globe is turned or closed in on,
+ * which a patch of the canvas would not.
+ *
+ * What comes back is what the graphics card wants - longitude, latitude and a height from 0 to 1
+ * per rod - with the heights by SQUARE ROOT of the count, so a village is not invisible beside a
+ * capital. `counts` carries the same rods' real counts, for the tooltip.
+ */
+export function rodsOf(lat: Float32Array, lon: Float32Array, count: number, cellDegrees: number): { rods: Float32Array; counts: Int32Array; total: number; max: number } {
+  const cell = Math.max(0.25, cellDegrees);
+  const cols = Math.ceil(360 / cell) + 1;
+  const patches = new Map<number, { lat: number; lon: number; n: number }>();
+  for (let i = 0; i < count; i++) {
+    const key = Math.floor((90 - lat[i]) / cell) * cols + Math.floor((lon[i] + 180) / cell);
+    let patch = patches.get(key);
+    if (patch === undefined) {
+      patch = { lat: 0, lon: 0, n: 0 };
+      patches.set(key, patch);
+    }
+    patch.lat += lat[i];
+    patch.lon += lon[i];
+    patch.n++;
+  }
+  const rods = new Float32Array(patches.size * 3);
+  const counts = new Int32Array(patches.size);
+  let max = 1;
+  for (const patch of patches.values()) if (patch.n > max) max = patch.n;
+  let at = 0;
+  for (const patch of patches.values()) {
+    rods[at * 3] = patch.lon / patch.n;
+    rods[at * 3 + 1] = patch.lat / patch.n;
+    rods[at * 3 + 2] = Math.sqrt(patch.n / max);
+    counts[at] = patch.n;
+    at++;
+  }
+  return { rods, counts, total: patches.size, max };
+}
+
 /** A patch of the map with nodes in it. */
 export interface Cluster {
   /** where the bubble goes, in css pixels: the middle of the points in it, not the middle of the cell */

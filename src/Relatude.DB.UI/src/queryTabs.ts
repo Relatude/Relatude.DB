@@ -100,7 +100,57 @@ export interface VisualDefinition {
 }
 
 /** How a map draws the nodes: one mark each, or a picture of how thickly they lie. */
-export type MapMarks = "pins" | "dots" | "heat" | "clusters" | "countries";
+export type MapMarks = "pins" | "dots" | "heat" | "clusters" | "countries" | "rods";
+
+/**
+ * How the world itself looks, as against what is drawn on it - the Look panel. Everything here is
+ * absent by default and falls back to what the view thinks best (see mapStyle in MapView.tsx), so
+ * an older saved query opens looking exactly as it did and a new one opens looking good.
+ *
+ * The numbers are what a slider holds rather than what a shader wants: whole numbers on a scale
+ * somebody can read, converted where they are used.
+ */
+export interface MapStyle {
+  /** how far the air glows past the globe's edge, 0..100 of its radius; 0 is none */
+  atmosphere?: number;
+  /** null takes the theme's accent */
+  atmosphereColor?: string | null;
+  /** how bright the stars behind it are, 0..100; 0 is none */
+  stars?: number;
+  /** and how fast the sky creeps past, 0..100; 0 holds it still */
+  starDrift?: number;
+  starDensity?: number;
+  starTrail?: number;
+  /** paint the land as land and the water as water, rather than the ball being one colour */
+  land?: boolean;
+  /** and how far it stands out of the water, 0..100 (of a hundredth of the globe's radius) */
+  landColor?: string | null;
+  oceanColor?: string | null;
+  /** how hard the light falls across the ball, 0..100 - kept only for queries saved before there was a light */
+  shading?: number;
+  /** where the light comes from, seen from the camera: 0..360 round, -90..90 up */
+  lightAround?: number;
+  lightUp?: number;
+  /** how bright the lit side is, 0..300; how much reaches the dark side, 0..100 */
+  brightness?: number;
+  ambient?: number;
+  /** the highlight: how strong (0..150), how tight (0..100), and how much of it the land gets (0..100) */
+  specular?: number;
+  shine?: number;
+  landShine?: number;
+  /** the coastlines and borders: drawn at all, in what, and how thick (in tenths of a pixel) */
+  lines?: boolean;
+  lineColor?: string | null;
+  lineWidth?: number;
+  /** a photograph of the Earth on the globe: off, the daylit one, the city lights, or both by the light */
+  earth?: "off" | "day" | "night" | "both" | "moon";
+  /** which colours a rod is painted by its height: the incandescent scale, or the query's palette */
+  rodColors?: "heat" | "palette";
+  /** the rods: how tall the tallest is (0..100), how thick they are in pixels, and how wide a patch each stands for in tenths of a degree */
+  rodHeight?: number;
+  rodWidth?: number;
+  rodCell?: number;
+}
 
 /** The map: where the nodes are placed from, how they are drawn, and what the world under them looks like. */
 export interface MapDefinition {
@@ -117,6 +167,12 @@ export interface MapDefinition {
   /** the flat map's projection: equirectangular | mercator | natural */
   projection: string;
   /** how large one mark is drawn, in pixels; absent is the mark's own default */
+  /**
+   * How large a PIN is drawn. Its own number rather than `size`, which dots use: a dot is a few
+   * pixels and a pin is a marker you are meant to be able to look at, so one slider serving both
+   * left whichever was chosen second wearing the other's setting.
+   */
+  pinSize?: number;
   size?: number;
   /** how far a point's heat spreads, in pixels */
   radius?: number;
@@ -130,6 +186,10 @@ export interface MapDefinition {
   spin?: boolean;
   /** the map on a bare ground rather than on the panel it sits in (see the visual pivot's own) */
   bare?: boolean;
+  /** how the world itself is drawn; absent is the view's own taste */
+  style?: MapStyle;
+  /** whether the Look panel is unfolded */
+  look?: boolean;
 }
 
 export interface SavedQuery {

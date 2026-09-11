@@ -8324,6 +8324,33 @@ body.pg-resizing {
   top: 22px;
 }
 
+/* The second line of the builder, when it is unfolded: how the world itself is drawn. Quieter than
+   the line above it - what it holds is scenery rather than what the data says - and it wraps, since
+   there are a good many knobs on it and no reason for them to squeeze. */
+.pivot-builder-row.map-look {
+  padding-top: 6px;
+  border-top: 1px solid var(--border-faint, var(--border));
+  flex-wrap: wrap;
+}
+
+/* A colour field is a form control - a well, a text box and a palette - and a line of controls has
+   no room for three of those. Here it is the well and the one swatch that puts it back to
+   automatic; the well itself opens the system picker, which is where any colour comes from. */
+.pivot-builder-row.map-look .color-field {
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+.pivot-builder-row.map-look .color-field .color-text,
+.pivot-builder-row.map-look .color-swatch:not(.auto) {
+  display: none;
+}
+
+.pivot-builder-row.map-look .color-current {
+  width: 22px;
+  height: 22px;
+}
+
 /* the colour scale beside a heat map or a field of bubbles: least at the bottom, most at the top */
 .map-scale {
   display: flex;

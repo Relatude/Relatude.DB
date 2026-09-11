@@ -435,6 +435,29 @@ public sealed class UIServer {
             ctx.Response.Headers.Append("Cache-Control", "public, max-age=315360000");
             return css;
         });
+        // Whatever else the bundler split out of the page (see vite.config.ts): the pictures of the
+        // Earth the globe can wear are a megabyte, and are a chunk of their own precisely so
+        // that nobody downloads them until they ask for one. The page asks for such a chunk by name,
+        // beside the script it was loaded from, so that is where they are served - by name rather
+        // than by hash, since the name is what the bundle already has written into it. That means
+        // they cannot be cached for ever the way the page itself is: they are revalidated instead,
+        // which for an unchanged chunk is a header and no body at all.
+        foreach (var name in ServerAPIMapper.ResourceNames("ClientUI.")) {
+            if (!name.EndsWith(".js", StringComparison.OrdinalIgnoreCase) || name == "index.js") continue;
+            var chunk = ServerAPIMapper.GetResource("ClientUI." + name);
+            var tag = "\"" + chunk.XXH64Hash().ToString("x") + "\"";
+            app.MapGet(files + name, (HttpContext ctx) => {
+                if (ctx.Request.Headers.IfNoneMatch.Contains(tag)) {
+                    ctx.Response.StatusCode = StatusCodes.Status304NotModified;
+                    return Results.Empty;
+                }
+                ctx.Response.ContentType = "text/javascript";
+                ctx.Response.Headers.ETag = tag;
+                ctx.Response.Headers.CacheControl = "public, max-age=0, must-revalidate";
+                return Results.Text(chunk, "text/javascript");
+            });
+        }
+
         var favicon = ServerAPIMapper.GetBinaryResourceOrNull("ClientUI.favicon.ico");
         if (favicon != null) {
             app.MapGet(files + "favicon.ico", (HttpContext ctx) => {
