@@ -4,6 +4,7 @@ import {
   IconArrowNarrowUp,
   IconChartBar,
   IconChartHistogram,
+  IconCloud,
   IconChevronLeft,
   IconChevronRight,
   IconCode,
@@ -26,6 +27,7 @@ import { PivotView, emptyPivot, type PivotBase } from "./PivotView";
 import { GroupByView, emptyGroupBy } from "./GroupByView";
 import { VisualPivotView, emptyVisual } from "./VisualPivotView";
 import { MapView, emptyMap } from "./MapView";
+import { WordCloudView } from "./WordCloudView";
 import { EditableTable } from "./EditableTable";
 import { CopyButton } from "./CopyButton";
 import { NewNodeDialog, TypePicker } from "./TypePicker";
@@ -98,6 +100,7 @@ const modes: { id: QueryMode; label: string; icon: typeof IconSearch; hint: stri
   { id: "pivot", label: "Pivot", icon: IconChartBar, hint: "Groups by property on two axes, a count or sum per cell" },
   { id: "visual", label: "Visual pivot", icon: IconChartHistogram, hint: "Every node as a card: coloured by one property, stacked into bars by another" },
   { id: "map", label: "Map", icon: IconMap2, hint: "Every node where it is: on a world map or a globe, as pins, dots, heat, clusters or shaded countries" },
+  { id: "cloud", label: "Word cloud", icon: IconCloud, hint: "The words the result is written with, sized by how much of it they account for; click one to search for it" },
 ];
 
 /**
@@ -404,8 +407,9 @@ function QueryTab({
   const groups = mode === "groups";
   const visual = mode === "visual";
   const map = mode === "map";
+  const cloud = mode === "cloud";
   const table = mode === "search" && hitsView === "table";
-  const summary = pivot || groups || visual || map; // no hits on screen: no paging, no csv of hits, no query string of the search
+  const summary = pivot || groups || visual || map || cloud; // no hits on screen: no paging, no csv of hits, no query string of the search
   const [exporting, setExporting] = useState(false);
   const [newNode, setNewNode] = useState(false);
   // typing straight into the table; kept per tab, like the view it belongs to
@@ -500,6 +504,17 @@ function QueryTab({
 
   // a pivot cell clicked: its groups become the facet selection, and the list shows the nodes behind
   // the number. A selection on a property the rail already filters by is replaced, not added to.
+  /**
+   * A word of the cloud was clicked. Not a drill the way a group is - a word is not a value of a
+   * property but something the text holds - so it goes into the search box, where it narrows the
+   * result to the nodes holding it. The words come out of the same index the search reads, so this
+   * always finds something.
+   */
+  function searchWord(word: string) {
+    const already = q.text.split(/\s+/).some((w) => w.toLowerCase() === word.toLowerCase());
+    reset({ text: already ? q.text : (q.text.trim() + " " + word).trim(), mode: "search" });
+  }
+
   function drill(from: FacetSelection[]) {
     const next = selections.filter((s) => !from.some((f) => f.propertyId === s.propertyId));
     reset({ selections: [...next, ...from], mode: "search" });
@@ -1086,6 +1101,17 @@ function QueryTab({
               onOpen={setSelected}
               fullscreen={fullscreen}
               onToggleFullscreen={toggleFullscreen}
+              head={headInToolbar ? resultHead : undefined}
+            />
+          ) : cloud ? (
+            <WordCloudView
+              key={typeId}
+              base={pivotBase}
+              definition={q.cloud}
+              onChange={(c) => onChange({ cloud: c })}
+              refreshToken={epoch}
+              showQuery={showQuery}
+              onWord={searchWord}
               head={headInToolbar ? resultHead : undefined}
             />
           ) : groups ? (

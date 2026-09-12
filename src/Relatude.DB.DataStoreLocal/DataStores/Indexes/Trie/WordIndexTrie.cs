@@ -2,9 +2,10 @@
 using Relatude.DB.DataStores.Indexes.Trie.CharArraySearch;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
+using Relatude.DB.Query.Data;
 namespace Relatude.DB.DataStores.Indexes.Trie;
 
-internal class WordIndexTrie : IWordIndex {
+internal class WordIndexTrie : IWordIndex, IWordCountIndex {
     readonly CharArrayTrie _trie;
     long _searchIndexStateId;
     SetRegister _register;
@@ -98,6 +99,10 @@ internal class WordIndexTrie : IWordIndex {
         }
         return hits;
     }
+    // The trie holds its terms in memory and can walk them, so the answer is always yes; the cost
+    // of it is in CharArrayTrie.CountWords.
+    public bool CanCountWords => true;
+    public WordCountSet CountWords(IdSet subset, WordCountOptions options) => _trie.CountWords(subset, options);
     public long PersistedTimestamp { get; private set; }
     public void FlagFirstCommit() { }
     public string FriendlyName { get; }

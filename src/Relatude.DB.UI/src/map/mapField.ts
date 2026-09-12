@@ -237,9 +237,12 @@ const groundRows = 256;
  * about the Earth, just a way to point. Nearly every direction does; this one is off-axis enough
  * that no ordinary orbit ever leaves it sitting still.
  */
-const travel: [number, number, number] = [0.46, 0.37, 0.81];
-/** And how far from the middle of the canvas it is allowed to get, in half-heights. */
-const vanishingReach = 0.8;
+const travel: Vec3 = [0.46, 0.37, 0.81];
+/**
+ * How far the field flies in a second for one unit of drift, measured in the LOGARITHM of the angle
+ * from that direction - which is the one measure in which flying is a constant speed (see skyFrag).
+ */
+const driftRate = 0.26;
 /** How far above the surface a rod starts, so its foot is not buried in the ground it stands on. */
 const rodLift = 1.002;
 /** How far above the surface the lines and the marks stand on the globe, so the ball does not swallow them. */
@@ -275,8 +278,16 @@ export function createMapField(canvas: HTMLCanvasElement): MapField | null {
   let pointCount = 0;
   let groupCount = 1;
   let hasSurface = false;
-  /** when this renderer started, so the sky's slow turn is measured from something that is not the epoch */
+  /** when this renderer started, so the sky's flight is measured from something that is not the epoch */
   const born = performance.now();
+  /**
+   * The sky's own frame, fixed in the WORLD rather than on the glass: the way the view flies through
+   * the stars, and two axes across it to measure a direction's turn about it by. Because it is the
+   * world's, the camera turns under it, and turning finds different stars.
+   */
+  const skyW = normalize(travel);
+  const skyU = normalize(cross(skyW, [0, 1, 0]));
+  const skyV = cross(skyU, skyW);
 
   const ground = buildGround(gl);
   const outlines = buildOutlines(gl, 0);
@@ -396,25 +407,17 @@ export function createMapField(canvas: HTMLCanvasElement): MapField | null {
   }
 
   /**
-   * Where the stars come FROM, in device pixels: the point the field opens out of, which is the
-   * direction the view is travelling in.
+   * How to turn a point of the canvas into the direction it looks in, out in the world: the camera's
+   * right and up, each reaching to the edge of the picture at unit depth, and where it points.
    *
-   * That direction is fixed in the WORLD rather than on the glass - it is `travel` below, an
-   * ordinary direction in space - so turning the globe turns the camera under it and the vanishing
-   * point swings across the screen, which is what makes the field belong to the scene instead of
-   * being painted on the window. What is used is its sideways part, how far round and how far up it
-   * lies from where the camera is looking; that is bounded by construction and needs no clamping,
-   * and when the direction is straight ahead or straight behind it comes home to the middle, which
-   * is exactly where flying along it should put it.
+   * The flat map has no camera to turn, and panning one sideways is not the viewer turning round -
+   * so it is given one looking straight down the axis of flight. The field then opens out of the
+   * middle of the canvas and stays there, whatever the map is doing underneath.
    */
-  function vanishing(scene: MapScene): [number, number] {
-    const middle: [number, number] = [canvas.width / 2, canvas.height / 2];
-    if (!scene.globe) return middle;
-    const { right, up } = cameraFrame(scene.camera);
-    const across = travel[0] * right[0] + travel[1] * right[1] + travel[2] * right[2];
-    const above = travel[0] * up[0] + travel[1] * up[1] + travel[2] * up[2];
-    const reach = (canvas.height / 2) * vanishingReach;
-    return [middle[0] + across * reach, middle[1] + above * reach];
+  function skyRays(scene: MapScene): { x: Vec3; y: Vec3; z: Vec3 } {
+    const frame = scene.globe ? cameraFrame(scene.camera) : { forward: skyW, right: skyU, up: skyV };
+    const reach = Math.tan(fov / 2);
+    return { x: scaled(frame.right, reach * Math.max(0.001, width / height)), y: scaled(frame.up, reach), z: frame.forward };
   }
 
   function drawLines(scene: MapScene, vao: WebGLVertexArrayObject, count: number, color: RGB, widthPx: number) {
@@ -678,15 +681,20 @@ export function createMapField(canvas: HTMLCanvasElement): MapField | null {
         gl.useProgram(skyProgram);
         gl.uniform2f(gl.getUniformLocation(skyProgram, "uSize"), Math.max(1, canvas.width), Math.max(1, canvas.height));
         gl.uniform1f(gl.getUniformLocation(skyProgram, "uBright"), style.stars);
-        gl.uniform1f(gl.getUniformLocation(skyProgram, "uFlow"), (performance.now() - born) * 0.001 * style.starDrift);
+        gl.uniform1f(gl.getUniformLocation(skyProgram, "uFlown"), (performance.now() - born) * 0.001 * style.starDrift * driftRate);
         gl.uniform1f(gl.getUniformLocation(skyProgram, "uStreak"), style.starTrail);
         gl.uniform1f(gl.getUniformLocation(skyProgram, "uDensity"), style.starDensity);
-        // the globe's own turn only: panning a flat map sideways is not the viewer turning round,
-        // and a sky that swung when they did it would read as a fault
-        gl.uniform1f(gl.getUniformLocation(skyProgram, "uSpin"), scene.globe ? scene.camera.lon / 360 : 0);
-        const [vx, vy] = vanishing(scene);
-        gl.uniform2f(gl.getUniformLocation(skyProgram, "uCentre"), vx, vy);
-        gl.uniform1f(gl.getUniformLocation(skyProgram, "uPixel"), (2 * dpr) / Math.max(1, canvas.height));
+        // where the sky is, and where the eye is in it: the stars are hashed from the direction each
+        // pixel looks in, so these are the whole of what makes the camera's turn show up in them
+        const rays = skyRays(scene);
+        gl.uniform3fv(gl.getUniformLocation(skyProgram, "uRayX"), rays.x);
+        gl.uniform3fv(gl.getUniformLocation(skyProgram, "uRayY"), rays.y);
+        gl.uniform3fv(gl.getUniformLocation(skyProgram, "uRayZ"), rays.z);
+        gl.uniform3fv(gl.getUniformLocation(skyProgram, "uTravel"), skyW);
+        gl.uniform3fv(gl.getUniformLocation(skyProgram, "uSkyU"), skyU);
+        gl.uniform3fv(gl.getUniformLocation(skyProgram, "uSkyV"), skyV);
+        gl.uniform1f(gl.getUniformLocation(skyProgram, "uPerRadian"), canvas.height / 2 / Math.tan(fov / 2));
+        gl.uniform1f(gl.getUniformLocation(skyProgram, "uPixel"), dpr);
         gl.bindVertexArray(screenVao);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
       }
@@ -1471,38 +1479,51 @@ const rodFrag = `#version 300 es
   void main() { outColor = vColor; }`;
 
 /**
- * The stars: a field of them flying past.
+ * The stars: a field of them in the SKY, flown through.
  *
- * Built in the one coordinate where "coming towards you" is a straight line rather than a curve -
- * the LOGARITHM of the distance from the middle of the screen. A star you fly past leaves the
- * vanishing point faster and faster, which is an exponential in radius and therefore a constant
- * speed in log radius; so the field is a plain grid of cells in (angle, log radius) and flying is
- * nothing but sliding that grid along one axis. It comes out endless for free: slide far enough and
- * you are among the next ring of cells, which is as good as the last one and not the same.
+ * Every pixel is turned back into the direction it looks in out in the world, and the stars are
+ * hashed from THAT - so they hang in space rather than on the glass, and turning the camera finds
+ * different ones instead of swinging the same handful round. There is no picture of a sky anywhere:
+ * there is a rule for whether a given patch of it holds a star, asked once a pixel.
  *
- * It also gets the density right without being asked. A cell covers r * dr * da of the screen, which
- * in these coordinates is r^2 - so stars per unit of screen go as 1/r^2, pouring out of the middle
- * and thinning towards the edges, the way they do through a windscreen at night.
+ * The patches are laid out round one fixed direction through the world - `travel`, the way the view
+ * is flying - as a lattice of how far ROUND that axis by how far OFF it. The second is measured as
+ * the logarithm of the half-angle's tangent, for one reason: a star you fly past leaves the point
+ * ahead faster and faster, and the log is where an ever-quickening departure becomes a constant
+ * speed. So flying is nothing but sliding the lattice along one axis; it never runs out (slide far
+ * enough and you are among the next ring of cells, which is as good as the last and not the same);
+ * and the streaks lie along the lines running out of the point ahead, wherever on the screen that
+ * point has got to - or off the screen entirely, once the camera has turned its back on it, and
+ * then they run into the point behind instead, which is where a flight's streaks do go.
  *
- * The angle carries the camera's own turn, so orbiting the globe swings the field round with it
- * rather than leaving it nailed to the glass.
+ * What the lattice gets wrong on its own is HOW MANY. A cell covers sin^2 of the angle off the axis,
+ * so cells crowd towards the point ahead and the point behind, and filling the same share of them
+ * everywhere would heap the whole sky into those two lumps. The share that is filled follows the
+ * same curve instead (`want` below), and what comes out is the same number of stars to the square
+ * degree over the whole sky, which is what a sky looks like.
  */
 const skyFrag = `#version 300 es
   precision highp float;
   uniform vec2 uSize;
   uniform float uBright;
-  uniform float uFlow;     // how far the field has flown since the view opened, in rings
-  uniform float uStreak;   // how far a star is drawn out behind itself, in its own widths
-  uniform float uDensity;  // 0..1, how many of the cells hold a star at all
-  uniform float uSpin;     // the camera's own turn, in turns
-  uniform float uPixel;    // one css pixel, in the units below
-  uniform vec2 uCentre;    // where the field opens out of, in device pixels
+  uniform float uFlown;     // how far the field has flown since the view opened, in the log below
+  uniform float uStreak;    // how far a star is drawn out behind itself, in its own widths
+  uniform float uDensity;   // 0..1, how much of the sky holds a star at all
+  uniform vec3 uRayX;       // the camera's right and up, each reaching to the edge of the picture at
+  uniform vec3 uRayY;       // unit depth, and where it points: a pixel's ray, in the world
+  uniform vec3 uRayZ;
+  uniform vec3 uTravel;     // the sky's own frame: the way the view flies, and two axes across it
+  uniform vec3 uSkyU;
+  uniform vec3 uSkyV;
+  uniform float uPerRadian; // device pixels to a radian at the middle of the view
+  uniform float uPixel;     // one css pixel, in device pixels
   out vec4 outColor;
 
-  /** how many cells there are round the middle, and how far one reaches in log radius */
+  /** how many cells there are round the axis; they are square, so that sets their depth as well */
   const float spokes = 200.0;
-  const float ring = 0.26;
   const float TAU = 6.283185307;
+  const float PI = 3.141592653;
+  const float ring = TAU / spokes;
 
   /**
    * Whole-number hashing rather than the usual fract(sin(...)): the field runs to hundreds of cells,
@@ -1520,36 +1541,48 @@ const skyFrag = `#version 300 es
   }
 
   void main() {
-    // the screen measured out from the vanishing point, in units of half its height
-    vec2 p = (gl_FragCoord.xy - uCentre) / (uSize.y * 0.5);
-    float r = length(p);
-    if (r < 0.0008) discard;
+    // which way this pixel looks, in the world
+    vec2 ndc = (gl_FragCoord.xy / uSize) * 2.0 - 1.0;
+    vec3 look = normalize(uRayZ + uRayX * ndc.x + uRayY * ndc.y);
+
+    // and where that is in the sky's own frame: how far round the axis of flight, and how far off it
+    float cosT = clamp(dot(look, uTravel), -1.0, 1.0);
+    float sinT = sqrt(max(0.0, 1.0 - cosT * cosT));
+    float theta = clamp(acos(cosT), 0.0004, PI - 0.0004);
     // Not wrapped into a single turn: atan does jump by a whole turn at the seam, but so does this,
     // and the cell it lands in is the same cell either side of it once the spokes are taken modulo.
-    float around = (atan(p.y, p.x) / TAU + 0.5 + uSpin) * spokes;
-    float along = log(r) / ring + uFlow;
-    // one cell is 2*pi*r/spokes across and ring*r deep, which is how a distance in cells becomes a
-    // distance on the screen
-    float wide = TAU / spokes * r;
-    float deep = ring * r;
-    // In PIXELS, like the old sky: a star measured as a fraction of the canvas is a thumbnail on
-    // one screen and invisible on the next. It does grow a little as it comes past, which is the one
-    // thing that says it is coming past rather than sliding - and the growth is capped, because once
-    // the vanishing point is off to one side the far corner is a long way out.
-    float size = (0.7 + 0.5 * min(r, 2.5)) * uPixel;
+    float around = (atan(dot(look, uSkyV), dot(look, uSkyU)) / TAU + 0.5) * spokes;
+    float along = (log(tan(theta * 0.5)) - uFlown) / ring;
+
+    // one cell, in device pixels. It is square by construction, and shrinks to nothing at the two
+    // points the frame turns about - straight ahead and straight behind.
+    float cell = ring * sinT * uPerRadian;
+    // and how much of this ring holds a star at all: the curve that leaves the same number of them
+    // to the square degree everywhere, rather than two lumps at those same two points
+    float want = uDensity * sinT * sinT;
+
+    // In PIXELS, like the rest: a star measured as a fraction of the canvas is a thumbnail on one
+    // screen and invisible on the next. It does grow a little as it comes past, which is the one
+    // thing that says it is coming past rather than sliding - and the growth is capped, because
+    // once the point ahead is behind you the far side of the sky is a long way round.
+    float size = (0.7 + 0.5 * min(2.0 * tan(min(theta, 2.4) * 0.5), 2.5)) * uPixel;
     float streak = size * (1.0 + uStreak);
 
     float light = 0.0;
     vec3 glow = vec3(0.0);
-    // wider along the flight than across it, because that is the way a streak lies
+    // reaching further along the flight than across it, because that is the way a streak lies
     for (int y = -2; y <= 2; y++) {
       for (int x = -1; x <= 1; x++) {
-        vec2 cell = vec2(floor(around) + float(x), floor(along) + float(y));
-        vec2 key = vec2(mod(cell.x, spokes), cell.y);
-        if (hash1(key, 11u) > uDensity) continue;  // most of the sky is empty, which is what makes the rest stars
-        vec2 star = cell + vec2(hash1(key, 23u), hash1(key, 37u));
-        float across = (around - star.x) * wide;
-        float ahead = (along - star.y) * deep;
+        vec2 c = vec2(floor(around) + float(x), floor(along) + float(y));
+        vec2 key = vec2(mod(c.x, spokes), c.y);
+        float lot = hash1(key, 11u);
+        if (lot > want) continue;  // most of the sky is empty, which is what makes the rest stars
+        // A ring's share changes as it drifts off the axis, so its last stars are faded in rather
+        // than switched on the moment it widens enough to be allowed them.
+        float settled = min(1.0, (want - lot) / max(1e-5, want * 0.3));
+        vec2 star = c + vec2(hash1(key, 23u), hash1(key, 37u));
+        float across = (around - star.x) * cell;
+        float ahead = (along - star.y) * cell;
         // A star has an EDGE. A gaussian has none - it is a smudge that fades for ever, and a sky
         // full of them reads as dirt on the lens rather than as stars. So: crisp at the leading edge
         // and drawn out behind, which is the shape of a thing going past, cut off with half a pixel
@@ -1557,16 +1590,17 @@ const skyFrag = `#version 300 es
         float behind = ahead > 0.0 ? ahead / size : ahead / streak;
         float sideways = across / size;
         float d = sqrt(sideways * sideways + behind * behind);
-        float value = (1.0 - smoothstep(0.45, 1.0, d)) * (0.45 + hash1(key, 51u));
+        float value = (1.0 - smoothstep(0.45, 1.0, d)) * (0.45 + hash1(key, 51u)) * settled;
         if (value <= 0.0) continue;
         light += value;
         // a touch of colour, so they are not all the same white pinprick
         glow += mix(vec3(0.78, 0.85, 1.0), vec3(1.0, 0.93, 0.82), hash1(key, 71u)) * value;
       }
     }
-    // right at the middle a cell is narrower than a pixel, so the stars there are turned off rather
-    // than left to crawl about as aliasing
-    light *= smoothstep(0.012, 0.14, r);
+    // Where a cell is down to a pixel the handful of neighbours looked at above no longer reaches
+    // round a star, so the field is faded out before it starts losing them: a small disc at the
+    // point the stars fly out of, and another at the one they fly into behind.
+    light *= smoothstep(0.8, 3.0, cell);
     if (light <= 0.002) discard;
     outColor = vec4(glow / light, clamp(light * uBright, 0.0, 1.0));
   }`;

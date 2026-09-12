@@ -2,6 +2,7 @@
 using Relatude.DB.Common;
 using Relatude.DB.DataStores.Indexes.Trie.CharArraySearch.Trie;
 using Relatude.DB.DataStores.Sets;
+using Relatude.DB.Query.Data;
 using System.Linq.Expressions;
 namespace Relatude.DB.DataStores.Indexes.Trie.CharArraySearch;
 // not threadsafe
@@ -201,6 +202,71 @@ public class CharArrayTrie : IDisposable {
         if (skip > 0) result = result.Skip(skip);
         if (take > 0) result = result.Take(take);
         return result;
+    }
+    /// <summary>
+    /// Which words the given nodes hold, and how often. Every term of the index is visited and its
+    /// postings tested for membership of the set, so the cost is the size of the index rather than
+    /// the size of the set: counting the words of three nodes costs what counting three million
+    /// costs. <see cref="WordCountOptions.MaxPostingsEvaluated"/> is what bounds that.
+    ///
+    /// Single threaded on purpose. The walk itself is read-only and runs under the store's read
+    /// lock, but <see cref="IdSet.Has"/> builds its lookup accelerator on first use, so several
+    /// threads probing one set would race over it. Splitting the root's children across threads is
+    /// the obvious next step if this ever becomes the slow part, and wants that accelerator built
+    /// up front and a per-thread heap merged at the end.
+    /// </summary>
+    public WordCountSet CountWords(IdSet subset, WordCountOptions options) {
+        if (subset.Count == 0) return WordCountSet.Empty;
+        var maxWords = Math.Max(1, options.MaxWords);
+        var minDocuments = Math.Max(1, options.MinDocuments);
+        var minLength = Math.Max(MinWordLength, options.MinWordLength);
+        var ignore = options.Ignore == null || options.Ignore.Count == 0 ? null : new SpanStringSet(options.Ignore);
+        var budget = options.MaxPostingsEvaluated > 0 ? options.MaxPostingsEvaluated : long.MaxValue;
+        // The best so far as a min-heap: its top is the word the next one has to beat, which is also
+        // what lets the walk put off making a string until a word has earned one.
+        var best = new PriorityQueue<WordCount, WordCount>(Comparer<WordCount>.Create((a, b) => WordCount.Descending.Compare(b, a)));
+        var distinct = 0;
+        long evaluated = 0;
+        var truncated = false;
+        _trie.Walk((word, hits) => {
+            if (truncated || hits == null) return;
+            // the index's own count of the word, pending lazy removal already subtracted. It may
+            // still include a hit on a partially deindexed node - the same number BM25 scores with,
+            // and one an id set cannot contain, so it only ever shows up in DocumentsInIndex
+            var postings = hits.Count;
+            if (postings == 0) return; // a word left behind by deindexing, the trie keeps the node
+            if (word.Length < minLength) return;
+            if (ignore != null && ignore.Contains(word)) return;
+            if (evaluated + postings > budget) {
+                // the walk cannot be stopped from inside, but from here on it only visits terms and
+                // never their postings, which is the cheap half of it
+                truncated = true;
+                return;
+            }
+            evaluated += postings;
+            var documents = 0;
+            long occurrences = 0;
+            foreach (var hit in hits.Values) {
+                if (!subset.Has(hit.NodeId)) continue;
+                documents++;
+                occurrences += hit.Hits;
+            }
+            if (documents == 0) return;
+            distinct++;
+            if (documents < minDocuments) return;
+            if (best.Count >= maxWords) {
+                var weakest = best.Peek();
+                // strictly worse is dropped without a string; a tie goes on to be enqueued, because
+                // ties are settled by the word itself and that means having it
+                if (documents < weakest.Documents || (documents == weakest.Documents && occurrences < weakest.Occurrences)) return;
+            }
+            var counted = new WordCount(new string(word), documents, occurrences, postings);
+            best.Enqueue(counted, counted);
+            if (best.Count > maxWords) best.Dequeue();
+        });
+        var words = best.UnorderedItems.Select(i => i.Element).ToArray();
+        Array.Sort(words, WordCount.Descending);
+        return new WordCountSet(words, distinct, (int)_docWordCounts.DocCount, evaluated, truncated);
     }
     public int GetTotalWordCount() => 0;
     public int GetTotalTextLength() => 0;

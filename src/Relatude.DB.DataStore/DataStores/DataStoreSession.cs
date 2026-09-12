@@ -213,6 +213,7 @@ public class DataStoreSession : IDataStore {
 
     public bool CanConvert(FileFormat from, FileFormat to) => _datastore.CanConvert(from, to);
     public bool CanConvert(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null) => _datastore.CanConvert(propertyPath, adj, ctx ?? QueryContext);
+    public bool CanCountWords(Guid propertyId, QueryContext? ctx = null) => _datastore.CanCountWords(propertyId, ctx ?? QueryContext);
 
     public string GetUrl(NodeKey nodeKey, bool absolute = false, QueryContext? ctx = null) => _datastore.GetUrl(nodeKey, absolute, ctx ?? QueryContext);
     public string GetUrl(NodePath nodePath, bool absolute = false, QueryContext? ctx = null) => _datastore.GetUrl(nodePath, absolute, ctx ?? QueryContext);

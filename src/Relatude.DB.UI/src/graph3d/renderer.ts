@@ -66,6 +66,15 @@ export interface Renderer {
    */
   box(center: Vec3, size: Vec3 | number, color: RGB, alpha: number, rim?: RGB, rimStrength?: number, spin?: [number, number]): void;
   /**
+   * A box with square edges, lit like the others: a floor, a plinth, a wall. The chamfer of box()
+   * is a fraction of each side, which is what a solid roughly as wide as it is tall wants and
+   * exactly what a slab does not - a floor a few units thick and hundreds wide would get a ramp
+   * tens of units deep round its rim, reading as a bevelled tabletop rather than as ground. It
+   * takes no silhouette either, for the same reason the frame's outline is documented as unsuited
+   * to slabs.
+   */
+  slab(center: Vec3, size: Vec3 | number, color: RGB, alpha: number): void;
+  /**
    * A chamfered dodecahedron of circumradius r, lit like the spheres and turned by `spin` - which is
    * what a solid with faces needs and a ball does not: without it every one of them would show the
    * camera the same face.
@@ -87,6 +96,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
 
   const sphereMesh = buildSphere(gl, 28, 18);
   const boxMesh = buildBox(gl);
+  const slabMesh = buildBox(gl, 0);
   const dodecaMesh = buildDodeca(gl);
   const coneMesh = buildCone(gl, 16);
   const sphereProg = program(gl, sphereVert, sphereFrag);
@@ -97,6 +107,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
   const spheres = new Stream(12); // x y z r | cr cg cb a | rr rg rb rs
   const halos = new Stream(12);
   const boxes = new Stream(16); // x y z yaw | cr cg cb a | rr rg rb rs | sx sy sz pitch
+  const slabs = new Stream(16); // the same layout again, on the mesh without the chamfer
   const dodecas = new Stream(16); // the same layout, through the same shader
   const lines = new Stream(12); // ax ay az _ | bx by bz _ | cr cg cb a  + style in the pad slots: [3]=width [7]=dash
   const cones = new Stream(12); // ax ay az size | dx dy dz _ | cr cg cb a
@@ -115,6 +126,12 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
   // lighting and the fog are the sphere's, so the two read as the same material
   const boxProg = program(gl, boxVert, sphereFrag);
   const boxVao = instancedVao(gl, boxProg, boxMesh, boxes, [
+    ["aInst0", 0],
+    ["aInst1", 4],
+    ["aInst2", 8],
+    ["aInst3", 12],
+  ]);
+  const slabVao = instancedVao(gl, boxProg, slabMesh, slabs, [
     ["aInst0", 0],
     ["aInst1", 4],
     ["aInst2", 8],
@@ -207,9 +224,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       gl.bindVertexArray(sphereVao);
       gl.drawElementsInstanced(gl.TRIANGLES, sphereMesh.indexCount, gl.UNSIGNED_SHORT, 0, spheres.count);
     }
-    // the boxes and the dodecahedrons go through one program, so its uniforms are set once
-    if (boxes.count > 0 || dodecas.count > 0) {
+    // the boxes, the slabs and the dodecahedrons go through one program, so its uniforms are set once
+    if (boxes.count > 0 || dodecas.count > 0 || slabs.count > 0) {
       if (boxes.count > 0) boxes.upload(gl);
+      if (slabs.count > 0) slabs.upload(gl);
       if (dodecas.count > 0) dodecas.upload(gl);
       // The silhouettes go down first, when the frame asked for any: each solid again a hair
       // larger, flat black, with its near side culled so only the half facing away is drawn. The
@@ -244,6 +262,10 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       if (boxes.count > 0) {
         gl.bindVertexArray(boxVao);
         gl.drawElementsInstanced(gl.TRIANGLES, boxMesh.indexCount, gl.UNSIGNED_SHORT, 0, boxes.count);
+      }
+      if (slabs.count > 0) {
+        gl.bindVertexArray(slabVao);
+        gl.drawElementsInstanced(gl.TRIANGLES, slabMesh.indexCount, gl.UNSIGNED_SHORT, 0, slabs.count);
       }
       if (dodecas.count > 0) {
         gl.bindVertexArray(dodecaVao);
@@ -308,6 +330,7 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       spheres.reset();
       halos.reset();
       boxes.reset();
+      slabs.reset();
       dodecas.reset();
       lines.reset();
       cones.reset();
@@ -321,6 +344,12 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       const sz = typeof size === "number" ? size : size[2];
       // the two pad slots of the instance carry the spin: yaw beside the centre, pitch beside the size
       boxes.push(c[0], c[1], c[2], spin?.[0] ?? 0, color[0], color[1], color[2], alpha, rim[0], rim[1], rim[2], rimStrength, sx, sy, sz, spin?.[1] ?? 0);
+    },
+    slab(c, size, color, alpha) {
+      const sx = typeof size === "number" ? size : size[0];
+      const sy = typeof size === "number" ? size : size[1];
+      const sz = typeof size === "number" ? size : size[2];
+      slabs.push(c[0], c[1], c[2], 0, color[0], color[1], color[2], alpha, 1, 1, 1, 0, sx, sy, sz, 0);
     },
     dodeca(c, r, color, alpha, rim = [1, 1, 1], rimStrength = 0, spin) {
       dodecas.push(c[0], c[1], c[2], spin?.[0] ?? 0, color[0], color[1], color[2], alpha, rim[0], rim[1], rim[2], rimStrength, r, r, r, spin?.[1] ?? 0);
@@ -342,14 +371,14 @@ export function createRenderer(canvas: HTMLCanvasElement): Renderer | null {
       // the resources go, the context stays: the same canvas may be drawn on again by the next
       // renderer (a hot reload re-mounts on the element it has), and a lost context is never given back
       for (const p of [sphereProg, boxProg, outlineProg, lineProg, coneProg]) gl.deleteProgram(p);
-      for (const v of [sphereVao, haloVao, boxVao, boxOutlineVao, dodecaVao, dodecaOutlineVao, coneVao, lineVao]) gl.deleteVertexArray(v);
-      for (const m of [sphereMesh, boxMesh, dodecaMesh, coneMesh]) {
+      for (const v of [sphereVao, haloVao, boxVao, boxOutlineVao, slabVao, dodecaVao, dodecaOutlineVao, coneVao, lineVao]) gl.deleteVertexArray(v);
+      for (const m of [sphereMesh, boxMesh, slabMesh, dodecaMesh, coneMesh]) {
         gl.deleteBuffer(m.vertices);
         gl.deleteBuffer(m.indices);
       }
       gl.deleteBuffer(quad);
       boxes.release(gl);
-      for (const st of [spheres, halos, boxes, dodecas, lines, cones]) st.release(gl);
+      for (const st of [spheres, halos, boxes, slabs, dodecas, lines, cones]) st.release(gl);
       setup = null;
     },
   };
@@ -558,6 +587,9 @@ function buildDodeca(gl: WebGL2RenderingContext, bevel = 0.1): Mesh {
  * A box with its twelve edges and eight corners chamfered. The chamfer is small - a face keeps
  * nearly all of its width - but it is what gives an edge a highlight of its own, so a cube reads as
  * a solid rather than three flat quadrilaterals meeting at a line.
+ *
+ * A bevel of 0 leaves the six faces and nothing else: a square box, which is what a slab wants (see
+ * Renderer.slab) - the chamfer is a fraction of each side, and on a floor that fraction is a ramp.
  */
 function buildBox(gl: WebGL2RenderingContext, bevel = 0.07): Mesh {
   const verts: number[] = [];
@@ -600,7 +632,7 @@ function buildBox(gl: WebGL2RenderingContext, bevel = 0.07): Mesh {
         axis(a, sa),
       );
       // the chamfer along each of its edges, shared with the neighbouring face
-      for (const sb of [1, -1]) {
+      for (const sb of bevel > 0 ? [1, -1] : []) {
         face(
           [
             add(add(axis(a, sa * h), axis(b, sb * c)), axis(d, -c)),
@@ -614,7 +646,7 @@ function buildBox(gl: WebGL2RenderingContext, bevel = 0.07): Mesh {
     }
   }
   // and the eight corners, where three chamfers meet
-  for (const sx of [1, -1]) {
+  for (const sx of bevel > 0 ? [1, -1] : []) {
     for (const sy of [1, -1]) {
       for (const sz of [1, -1]) {
         face(

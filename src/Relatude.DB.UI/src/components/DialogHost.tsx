@@ -1,15 +1,21 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
-import { IconAlertTriangle } from "@tabler/icons-react";
+import { IconAlertTriangle, IconCheck, IconLoader2, IconMinus, IconX } from "@tabler/icons-react";
 import {
   acceptChoice,
   acceptConfirm,
   acceptPrompt,
   cancelProgress,
   closeDialog,
+  dismissProgress,
   getDialogState,
+  getMinimizedProgress,
+  getProgressByKey,
+  minimizeProgress,
+  restoreProgress,
   setPromptValue,
   subscribeDialogs,
   toggleConfirmOption,
+  type ProgressState,
   type PromptState,
 } from "../dialogs";
 
@@ -158,11 +164,27 @@ function PromptDialog({ dialog }: { dialog: PromptState }) {
   );
 }
 
-function ProgressDialog({ dialog }: { dialog: Extract<ReturnType<typeof getDialogState>, { kind: "progress" }> }) {
+/**
+ * The task running under this key, if there is one - for the button that started it. A minimizable
+ * task outlives the page it was started from, so the button has to read the state from the store
+ * rather than from a local flag: navigating away and back must not offer to start a second copy.
+ */
+export function useProgressTask(key: string | null): ProgressState | null {
+  return useSyncExternalStore(subscribeDialogs, () => getProgressByKey(key));
+}
+
+function percentOf(task: ProgressState): number | null {
+  return task.total != null && task.total > 0 ? Math.min(100, Math.round((task.done / task.total) * 100)) : null;
+}
+
+function ProgressDialog({ dialog }: { dialog: ProgressState }) {
   const running = dialog.status === "running";
-  const pct = dialog.total != null && dialog.total > 0 ? Math.min(100, Math.round((dialog.done / dialog.total) * 100)) : null;
+  const pct = percentOf(dialog);
+  const canMinimize = running && dialog.minimizable;
   return (
-    <div className="dialog-backdrop">
+    // a task that may be put away is not truly modal: clicking beside it puts it in the bar rather
+    // than doing nothing, the way the button does
+    <div className="dialog-backdrop" onClick={canMinimize ? (e) => e.target === e.currentTarget && minimizeProgress(dialog.id) : undefined}>
       <div className="dialog">
         <h3>{dialog.title}</h3>
         <div className="dialog-label" title={dialog.message ?? dialog.label}>
@@ -181,8 +203,17 @@ function ProgressDialog({ dialog }: { dialog: Extract<ReturnType<typeof getDialo
             )}
           </span>
           <div className="header-spacer" />
+          {canMinimize && (
+            <button
+              className="action-button"
+              onClick={() => minimizeProgress(dialog.id)}
+              title="Keep it running and carry on - it goes to the top bar"
+            >
+              <IconMinus size={14} stroke={1.8} /> Minimize
+            </button>
+          )}
           {running ? (
-            <button className="action-button" onClick={cancelProgress}>
+            <button className="action-button" onClick={() => cancelProgress(dialog.id)}>
               Cancel
             </button>
           ) : (
@@ -192,6 +223,62 @@ function ProgressDialog({ dialog }: { dialog: Extract<ReturnType<typeof getDialo
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The tasks that were put away, in the top bar. A job that leaves the database usable has no business
+ * holding the UI still, but it still has to be somewhere: one chip per task, counting where the
+ * dialog was counting, clicked to bring the dialog back. A finished one says how it went and takes
+ * itself away shortly after; a failed one stays until it has been read.
+ */
+export function MinimizedProgress() {
+  const tasks = useSyncExternalStore(subscribeDialogs, getMinimizedProgress);
+  if (tasks.length === 0) return null;
+  return (
+    <div className="task-chips">
+      {tasks.map((task) => {
+        const pct = percentOf(task);
+        const running = task.status === "running";
+        const line = task.message ?? task.label;
+        return (
+          <div key={task.id} className={"task-chip " + task.status}>
+            <button className="task-chip-open" onClick={() => restoreProgress(task.id)} title={line ? `${task.title} - ${line}` : task.title}>
+              <span className="task-chip-icon">
+                {task.status === "error" ? (
+                  <IconAlertTriangle size={13} stroke={2} />
+                ) : task.status === "done" ? (
+                  <IconCheck size={13} stroke={2} />
+                ) : task.status === "cancelled" ? (
+                  <IconMinus size={13} stroke={2} />
+                ) : (
+                  <IconLoader2 size={13} stroke={2.2} className="spinning" />
+                )}
+              </span>
+              <span className="task-chip-text">
+                <span className="task-chip-title">{task.title}</span>
+                <span className="task-chip-line">{running ? (task.meta ?? (pct != null ? pct + "%" : line)) : (line ?? "Done")}</span>
+              </span>
+            </button>
+            {running ? (
+              <button className="icon-button task-chip-side" onClick={() => cancelProgress(task.id)} title="Cancel">
+                <IconX size={13} stroke={2} />
+              </button>
+            ) : (
+              <button className="icon-button task-chip-side" onClick={() => dismissProgress(task.id)} title="Dismiss">
+                <IconX size={13} stroke={2} />
+              </button>
+            )}
+            <span className="task-chip-bar">
+              <span
+                className={"task-chip-fill" + (running && pct === null ? " indeterminate" : "")}
+                style={{ width: (running ? (pct ?? 40) : 100) + "%" }}
+              />
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

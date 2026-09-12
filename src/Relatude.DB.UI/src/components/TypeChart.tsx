@@ -4,7 +4,7 @@ import { formatCount } from "../format";
 import type { TypeCount } from "../server/dashboard";
 import { TypeCubes } from "./TypeCubes";
 
-export type TypeChartShape = "bars" | "treemap" | "cubes" | "donut";
+export type TypeChartShape = "bars" | "treemap" | "cubes" | "sunburst" | "donut";
 
 export interface TypeSlice {
   type: TypeCount;
@@ -13,12 +13,14 @@ export interface TypeSlice {
 }
 
 /**
- * How much of a database each node type is, drawn four ways. They are not decoration of one
+ * How much of a database each node type is, drawn five ways. They are not decoration of one
  * another: bars compare exact amounts and stay readable down to the long tail, a treemap shows a
  * whole made of parts and is the only one of the three that survives fifty types, and a donut is
  * for the handful of types that actually dominate, and the cubes spend volume rather than area on
  * the count, which is the only one of the four where a type a thousand times smaller than another is
- * still something you can see. The colour is the model source the type comes
+ * still something you can see. The sunburst is the odd one out: its rings are the model's own
+ * inheritance, so it answers what lives under an interface or a base class rather than only which
+ * types are big. The colour is the model source the type comes
  * from - the same colour the model editor gives it - with the types of one source separated by
  * lightness, so a type keeps its identity across pages while a source stays recognisable as a group.
  *
@@ -41,6 +43,7 @@ export function TypeChart({
   if (shape === "bars") return <Bars slices={slices} />;
   if (shape === "treemap") return <Treemap slices={slices} total={total} onTileClick={onTileClick} />;
   if (shape === "cubes") return <TypeCubes slices={slices} total={total} onTileClick={onTileClick} />;
+  if (shape === "sunburst") return <Sunburst slices={slices} total={total} onTileClick={onTileClick} />;
   return <Donut slices={slices} total={total} />;
 }
 
@@ -110,15 +113,17 @@ interface Tile {
   leaving: boolean;
 }
 
-function Treemap({ slices, total, onTileClick }: { slices: TypeSlice[]; total: number; onTileClick?: (slice: TypeSlice, at: { x: number; y: number }) => void }) {
-  // laid out in real pixels rather than in a stretched viewBox: the labels are ordinary text and a
-  // non-uniform scale would squash them. The box is measured both ways: the stylesheet gives it its
-  // minimum height, and a panel with room to spare - a row dragged taller, the panel maximized -
-  // hands it the rest through flex, which the observer picks up.
-  const box = useRef<HTMLDivElement>(null);
+/**
+ * The room a chart has been given, in real pixels: the stylesheet's minimum height, plus whatever a
+ * panel with space to spare - a row dragged taller, the panel maximized - hands it through flex,
+ * which the observer picks up. Real pixels rather than a stretched viewBox because the labels are
+ * ordinary text and a non-uniform scale would squash them.
+ */
+function useBoxSize() {
+  const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   useLayoutEffect(() => {
-    const el = box.current;
+    const el = ref.current;
     if (!el) return;
     const measure = () => {
       const r = el.getBoundingClientRect();
@@ -129,8 +134,12 @@ function Treemap({ slices, total, onTileClick }: { slices: TypeSlice[]; total: n
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-  const width = size.width;
-  const height = Math.max(treemapMinHeight, Math.floor(size.height));
+  return { ref, width: size.width, height: size.height };
+}
+
+function Treemap({ slices, total, onTileClick }: { slices: TypeSlice[]; total: number; onTileClick?: (slice: TypeSlice, at: { x: number; y: number }) => void }) {
+  const { ref: box, width, height: measured } = useBoxSize();
+  const height = Math.max(treemapMinHeight, Math.floor(measured));
   // where the layout wants every tile
   const targets = useMemo(() => {
     const out = new Map<string, { slice: TypeSlice; rect: Rect }>();
@@ -307,6 +316,210 @@ function worstRatio(areas: number[], sum: number, side: number): number {
     worst = Math.max(worst, Math.max(thickness / length, length / thickness));
   }
   return worst;
+}
+
+// ---- sunburst ----
+
+/** The height the sunburst has on its own, the treemap's; like it, it grows into a panel with more. */
+const sunburstMinHeight = treemapMinHeight;
+/** Below this a ring is a band of colour and a tooltip: no label would fit in it. */
+const ringLabelHeight = 15;
+/**
+ * How thick a ring may get. Without a cap a model of one or two levels spends the whole radius on
+ * them, which is a pie with a hole rather than a sunburst; with it a shallow model is simply a
+ * smaller figure, drawn at the thickness a ring is meant to have.
+ */
+const maxRingThickness = 86;
+/** The label's font, which has to match .dash-sun-name for the measurement below to mean anything. */
+const sunLabelFont = '600 11.5px system-ui, "Segoe UI", sans-serif';
+
+/**
+ * How wide a label would actually be, measured rather than guessed from the letter count - the
+ * guess decides whether a name is drawn at all, and it was wrong by about a letter either way.
+ * One canvas, and each string measured once.
+ */
+const labelWidth = (() => {
+  const cache = new Map<string, number>();
+  let ctx: CanvasRenderingContext2D | null | undefined;
+  return (text: string): number => {
+    const hit = cache.get(text);
+    if (hit !== undefined) return hit;
+    if (ctx === undefined) ctx = document.createElement("canvas").getContext("2d");
+    if (!ctx) return text.length * 6.3; // no 2d context to ask: back to the guess
+    ctx.font = sunLabelFont;
+    const w = ctx.measureText(text).width;
+    cache.set(text, w);
+    return w;
+  };
+})();
+
+/** One arc: a type, the ring it sits in, and the sweep it was given. */
+interface SunArc {
+  slice: TypeSlice;
+  /** 0 for a type with nothing above it, one more for each step down the model's inheritance */
+  depth: number;
+  from: number;
+  to: number;
+  /** the type's own nodes and every shown type under it: what the arc measures */
+  total: number;
+}
+
+/**
+ * The database by node type again, with the model's inheritance for its rings: the middle is
+ * everything, the first ring the types that sit under nothing, and each ring outward what is
+ * derived from the ring inside it. An arc is as wide as its own nodes and everything below it, so
+ * an interface or an abstract base - which has no nodes of its own and is a blank in every other
+ * shape here - is exactly as big as what it stands for.
+ *
+ * A node is still counted once, under the type it actually is. Where a parent has nodes of its own
+ * as well as children, those nodes are the part of its sweep that the ring outside leaves bare.
+ */
+function Sunburst({ slices, total, onTileClick }: { slices: TypeSlice[]; total: number; onTileClick?: (slice: TypeSlice, at: { x: number; y: number }) => void }) {
+  const { ref: box, width, height: measured } = useBoxSize();
+  const height = Math.max(sunburstMinHeight, Math.floor(measured));
+  const arcs = useMemo(() => nestByInheritance(slices), [slices]);
+
+  const rings = arcs.reduce((n, a) => Math.max(n, a.depth + 1), 0);
+  const cx = width / 2;
+  const cy = height / 2;
+  // the hole carries the total, and is what keeps the innermost ring from being a wedge of a pie.
+  // A model of two or three levels does not spend the whole radius on them: the rings keep their
+  // thickness and the figure is simply smaller, which is the difference between a sunburst of one
+  // ring and a hoop with a number lost in the middle of it.
+  const room = Math.min(width, height) / 2 - 6;
+  const hole = Math.max(30, Math.min(room * 0.32, 74));
+  const outer = Math.min(room, hole + rings * maxRingThickness);
+  const thickness = rings > 0 ? Math.max(0, (outer - hole) / rings) : 0;
+  const totalSize = Math.max(13, Math.min(hole * 0.34, 30));
+
+  return (
+    <div className="dash-sunburst" ref={box}>
+      {width > 0 && rings > 0 && (
+        <svg width={width} height={height}>
+          {arcs.map((a) => {
+            const r0 = hole + a.depth * thickness;
+            const r1 = r0 + Math.max(1, thickness - 1.5); // a hairline of panel between the rings
+            const mid = (a.from + a.to) / 2;
+            const rm = (r0 + r1) / 2;
+            const at = { x: cx + rm * Math.cos(mid), y: cy + rm * Math.sin(mid) };
+            const band = r1 - r0;
+            const along = rm * (a.to - a.from);
+            const name = a.slice.type.name;
+            const needed = labelWidth(name) + 9;
+            // along the arc where the sweep carries the name, across the ring where it does not and
+            // the ring is deep enough to take it lying on its side, nothing at all when neither
+            const lie = along > needed && band > ringLabelHeight;
+            const stand = !lie && band > needed && along > 13;
+            const deg = (mid * 180) / Math.PI;
+            const clickable = onTileClick !== undefined && a.slice.type.id !== otherSliceId;
+            const own = a.slice.value;
+            return (
+              <g
+                key={a.slice.type.id}
+                className={"dash-sun-g" + (clickable ? " clickable" : "")}
+                style={{ "--tile": a.slice.color } as React.CSSProperties}
+                // reported with the arc's own number rather than the type's own nodes: what was
+                // clicked is the ring, and a base class with nothing of its own is not "0 nodes"
+                onClick={clickable ? (e) => onTileClick({ ...a.slice, value: a.total }, { x: e.clientX, y: e.clientY }) : undefined}
+              >
+                <title>
+                  {title({ ...a.slice, value: a.total }, total)}
+                  {own !== a.total ? ` · ${formatCount(own)} of its own` : ""}
+                </title>
+                <path d={arcPath(cx, cy, r1, r0, a.from, a.to)} className="dash-sun-arc" />
+                {(lie || stand) && (
+                  <g transform={`rotate(${upright(lie ? deg + 90 : deg)}, ${at.x.toFixed(2)}, ${at.y.toFixed(2)})`}>
+                    <text x={at.x} y={at.y - (lie && band > 30 ? 6 : 0)} className="dash-sun-name" textAnchor="middle" dominantBaseline="central">
+                      {name}
+                    </text>
+                    {lie && band > 30 && (
+                      <text x={at.x} y={at.y + 7} className="dash-sun-count" textAnchor="middle" dominantBaseline="central">
+                        {formatCount(a.total)}
+                      </text>
+                    )}
+                  </g>
+                )}
+              </g>
+            );
+          })}
+          <text x={cx} y={cy - totalSize * 0.18} className="dash-sun-total" style={{ fontSize: totalSize }} textAnchor="middle">
+            {formatCount(total)}
+          </text>
+          <text x={cx} y={cy + totalSize * 0.76} className="dash-sun-caption" style={{ fontSize: Math.max(9, totalSize * 0.42) }} textAnchor="middle">
+            nodes
+          </text>
+        </svg>
+      )}
+    </div>
+  );
+}
+
+/** Text rotated into the lower half reads upside down; turned round it reads the other way along. */
+function upright(deg: number): number {
+  const d = ((deg % 360) + 360) % 360;
+  return d > 90 && d < 270 ? deg + 180 : deg;
+}
+
+/**
+ * The slices arranged by what is under what. A type hangs off the first of its parents that is also
+ * being shown - the first is the one it is declared under, and counting a type under two parents
+ * would count its nodes twice - and one whose parents are all missing (an outermost type, or one
+ * whose parent was hidden) starts a ring of its own in the middle.
+ *
+ * An arc is its type's own nodes plus every arc below it, which is what makes the picture add up:
+ * the ring outside a type covers exactly the part of it that its subtypes hold, and the bare
+ * remainder is the type itself. Siblings go round largest first. A model that somehow has a type
+ * above itself is cut loose rather than followed forever.
+ */
+function nestByInheritance(slices: TypeSlice[]): SunArc[] {
+  const byId = new Map(slices.map((s) => [s.type.id, s]));
+  const parentOf = new Map<string, string | null>();
+  for (const s of slices) parentOf.set(s.type.id, (s.type.parents ?? []).find((p) => p !== s.type.id && byId.has(p)) ?? null);
+  for (const id of [...parentOf.keys()]) {
+    const seen = new Set([id]);
+    for (let up = parentOf.get(id) ?? null; up !== null; up = parentOf.get(up) ?? null) {
+      if (seen.has(up)) {
+        parentOf.set(id, null);
+        break;
+      }
+      seen.add(up);
+    }
+  }
+
+  const children = new Map<string, TypeSlice[]>();
+  const roots: TypeSlice[] = [];
+  for (const s of slices) {
+    const parent = parentOf.get(s.type.id) ?? null;
+    if (parent === null) roots.push(s);
+    else children.set(parent, [...(children.get(parent) ?? []), s]);
+  }
+
+  const totals = new Map<string, number>();
+  const totalOf = (s: TypeSlice): number => {
+    const hit = totals.get(s.type.id);
+    if (hit !== undefined) return hit;
+    const sum = (children.get(s.type.id) ?? []).reduce((n, c) => n + totalOf(c), s.value);
+    totals.set(s.type.id, sum);
+    return sum;
+  };
+
+  const out: SunArc[] = [];
+  const place = (list: TypeSlice[], from: number, span: number, whole: number, depth: number) => {
+    if (whole <= 0 || span <= 0 || depth > 16) return;
+    let at = from;
+    for (const s of [...list].sort((a, b) => totalOf(b) - totalOf(a) || a.type.name.localeCompare(b.type.name))) {
+      const sum = totalOf(s);
+      const sweep = (sum / whole) * span;
+      if (sweep <= 0) continue;
+      out.push({ slice: s, depth, from: at, to: at + sweep, total: sum });
+      // the children take the leading part of what their parent was given; what they do not reach
+      // is the parent's own nodes
+      place(children.get(s.type.id) ?? [], at, sweep, sum, depth + 1);
+      at += sweep;
+    }
+  };
+  place(roots, -Math.PI / 2, Math.PI * 2, roots.reduce((n, s) => n + totalOf(s), 0), 0); // from twelve o'clock
+  return out;
 }
 
 // ---- donut ----

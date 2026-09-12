@@ -4,6 +4,7 @@ import { sections } from "../navigation";
 import { describeInterval, refreshSteps, setRefreshInterval, useRefreshInterval } from "../refresh";
 import type { DatabaseInfo } from "../server/serverInfo";
 import type { Theme } from "../theme";
+import { MinimizedProgress } from "./DialogHost";
 import { GlobalSearch } from "./GlobalSearch";
 import { Logo, LogoMark } from "./Logo";
 import { RevertControl } from "./RevertControl";
@@ -54,6 +55,10 @@ export function Header(p: HeaderProps) {
           <h2>{section?.label}</h2>
         </div>
       )}
+      {/* long jobs that were put away keep running and report here, beside the search rather than
+          out on the right where the state of the database is: they are something in progress, not
+          something set */}
+      <MinimizedProgress />
       <div className="header-spacer" />
       {/* the revert window is a mode the whole database is in, so it sits with the database rather
           than on the page that happens to be open */}

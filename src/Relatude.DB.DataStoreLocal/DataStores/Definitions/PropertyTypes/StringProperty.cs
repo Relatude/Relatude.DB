@@ -5,11 +5,23 @@ using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
+using Relatude.DB.Query.Data;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 
-internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
+/// <summary>
+/// A property that can say which words a set of nodes holds, by reading its word index backwards.
+/// Only a property indexed by words has one at all, and only some engines can walk their own terms,
+/// so unlike <see cref="IGeoProperty"/> this can answer no - and when it does there is nothing to
+/// fall back to: tokenizing the nodes again would be a different answer arrived at a different way.
+/// </summary>
+internal interface IWordCountProperty {
+    bool CanCountWords(QueryContext ctx);
+    bool TryCountWords(IdSet ids, WordCountOptions options, QueryContext ctx, out WordCountSet words);
+}
+
+internal class StringProperty : ValueProperty<string>, IPropertyContainsValue, IWordCountProperty {
     SetRegister _sets;
     public StringProperty(StringPropertyModel pm, Definition def) : base(pm, def) {
         _isSystemTextIndexPropertyId = pm.Id == NodeConstants.SystemTextIndexPropertyId;
@@ -38,6 +50,18 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue {
         base.Initalize(store, def, config, io, ai);
     }
     protected override void WriteValue(string v, IAppendStream stream) => stream.WriteString(v);
+    /// <summary>Whether the words of this property can be counted over a set of nodes: it has to be
+    /// indexed by words, and the engine holding that index has to be one that can walk its terms
+    /// (the memory trie and the native text index; not Lucene, not SQLite).</summary>
+    public bool CanCountWords(QueryContext ctx) => IndexedByWords && GetWordIndex(ctx) is IWordCountIndex { CanCountWords: true };
+    public bool TryCountWords(IdSet ids, WordCountOptions options, QueryContext ctx, out WordCountSet words) {
+        if (IndexedByWords && GetWordIndex(ctx) is IWordCountIndex counter && counter.CanCountWords) {
+            words = counter.CountWords(ids, options);
+            return true;
+        }
+        words = WordCountSet.Empty;
+        return false;
+    }
     protected override string ReadValue(IReadStream stream) => stream.ReadString();
     readonly public string? DefaultValue;
     readonly public int MinLength = 0;

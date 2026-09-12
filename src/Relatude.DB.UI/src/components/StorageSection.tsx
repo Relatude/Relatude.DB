@@ -16,6 +16,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { runWithProgress, showChoice, showConfirm, showError, showInfo } from "../dialogs";
+import { useProgressTask } from "./DialogHost";
 import { deleteFiles, downloadUrl, pickDirectory } from "../server/files";
 import {
   addDemoContent,
@@ -63,6 +64,15 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const [filesMessage, setFilesMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
+  // The two long jobs here can be put away in the top bar and go on running, so their buttons read
+  // the task store rather than a local flag: leaving this page and coming back must not offer to
+  // start a second copy of a job that is still going.
+  const demoKey = `demo:${db.id}`;
+  const truncateKey = `truncate:${db.id}`;
+  const demoTask = useProgressTask(demoKey);
+  const truncateTask = useProgressTask(truncateKey);
+  const demoRunning = demoTask?.status === "running";
+  const truncateRunning = truncateTask?.status === "running";
 
   const load = useCallback(() => {
     fetchBackupList(db.id)
@@ -170,18 +180,24 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       { confirmLabel: "Truncate", option: { label: "Keep the old database file", checked: true } },
     );
     if (!choice.ok) return;
-    const done = await runWithProgress(`Truncate ${db.name}`, async (ctl) => {
-      ctl.set({ label: "Truncating… (runs on the server, cancel only stops waiting)" });
-      await truncateDatabase(db.id, choice.option);
-      // the rewrite continues in the background: wait until it is no longer running
-      for (;;) {
-        if (ctl.signal.aborted) throw new DOMException("Aborted", "AbortError");
-        await new Promise((r) => setTimeout(r, 1500));
-        const info = await fetchMaintenanceInfo(db.id);
-        if (!info.runningRewrite) return true;
-        ctl.set({ label: `Rewriting ${info.runningRewrite}…` });
-      }
-    });
+    // the rewrite runs on the server and the database answers queries throughout, so this one is
+    // minimizable: what is being waited for is the server finishing, not the UI staying still
+    const done = await runWithProgress(
+      `Truncate ${db.name}`,
+      async (ctl) => {
+        ctl.set({ label: "Truncating… (runs on the server, cancel only stops waiting)" });
+        await truncateDatabase(db.id, choice.option);
+        // the rewrite continues in the background: wait until it is no longer running
+        for (;;) {
+          if (ctl.signal.aborted) throw new DOMException("Aborted", "AbortError");
+          await new Promise((r) => setTimeout(r, 1500));
+          const info = await fetchMaintenanceInfo(db.id);
+          if (!info.runningRewrite) return true;
+          ctl.set({ label: `Rewriting ${info.runningRewrite}…` });
+        }
+      },
+      { minimizable: true, key: truncateKey },
+    );
     if (done) setMaintenanceMessage(choice.option ? "Truncated. The old file is kept." : "Truncated.");
     load();
   }
@@ -339,8 +355,12 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       return;
     }
     setDemoMessage(null); // a cancelled or failed run must not leave the last run's line standing
-    const progress = await runWithProgress(`Add demo content to ${db.name}`, (ctl) =>
-      addDemoContent(ctl, db.id, count, demoWikipedia && !!demo?.wikipedia),
+    // inserting a million articles is a long job the database stays open through, so it can be put
+    // in the top bar and left to run while the rest of the UI is used
+    const progress = await runWithProgress(
+      `Add demo content to ${db.name}`,
+      (ctl) => addDemoContent(ctl, db.id, count, demoWikipedia && !!demo?.wikipedia),
+      { minimizable: true, key: demoKey },
     );
     const result = progress?.result;
     if (result) {
@@ -525,10 +545,12 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
               <span className="muted">writes the current state so the next open replays fewer actions</span>
             </div>
             <div className="process-action">
-              <button className="action-button" onClick={onTruncate} disabled={!maintenance.open}>
+              <button className="action-button" onClick={onTruncate} disabled={!maintenance.open || truncateRunning}>
                 Truncate database
               </button>
-              <span className="muted">rewrites the database file to only the current state</span>
+              <span className="muted">
+                {truncateRunning ? (truncateTask?.label ?? "running…") : "rewrites the database file to only the current state"}
+              </span>
             </div>
             <div className="process-action">
               <button className="action-button" onClick={onRebuildTextIndex} disabled={!maintenance.open}>
@@ -625,16 +647,20 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
               </label>
             )}
             <div className="process-action">
-              <button className="action-button" onClick={onAddDemoContent} disabled={!demo.available}>
+              <button className="action-button" onClick={onAddDemoContent} disabled={!demo.available || demoRunning}>
                 <IconDatabasePlus size={14} stroke={1.8} /> Add demo content
               </button>
+              {/* while the run is minimized the line follows it here too, so the panel it was started
+                  from is not the one place in the UI that has forgotten about it */}
               <span className="muted">
-                {demoMessage ??
-                  (!demo.open
-                    ? "the database must be open"
-                    : !demo.available
-                      ? `this datamodel has no ${demo.nodeType} node type to fill in`
-                      : "inserts generated articles, continuing from the ones already stored")}
+                {demoRunning
+                  ? `${demoTask?.label || "generating"}${demoTask?.meta ? " · " + demoTask.meta : ""}`
+                  : (demoMessage ??
+                    (!demo.open
+                      ? "the database must be open"
+                      : !demo.available
+                        ? `this datamodel has no ${demo.nodeType} node type to fill in`
+                        : "inserts generated articles, continuing from the ones already stored"))}
               </span>
             </div>
           </>

@@ -1,6 +1,7 @@
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 using Relatude.DB.DataStores.Indexes.TextIndexing;
 using Relatude.DB.DataStores.Sets;
+using Relatude.DB.Query.Data;
 
 namespace Relatude.DB.DataStores.Indexes;
 
@@ -32,7 +33,7 @@ namespace Relatude.DB.DataStores.Indexes;
 /// missing, corrupt or foreign-WAL manifest resets the index to empty (position 0), and the
 /// startup loader replays exactly the missing part of the WAL.</para>
 /// </summary>
-public class TextIndex : IWordIndex {
+public class TextIndex : IWordIndex, IWordCountIndex {
     const byte cacheKindPostings = 1;
     static int _ownerCounter;
     readonly int _ownerId = Interlocked.Increment(ref _ownerCounter);
@@ -338,6 +339,131 @@ public class TextIndex : IWordIndex {
     }
     static IEnumerable<string> enumerateFrom(string[] terms, int start) {
         for (var i = start; i < terms.Length; i++) yield return terms[i];
+    }
+
+    // ---- counting the words of a set of nodes ----------------------------------------------------
+
+    /// <summary>This index keeps its own term dictionary and can walk it, so the answer is yes. What
+    /// that costs is described on <see cref="CountWords"/>.</summary>
+    public bool CanCountWords => true;
+
+    /// <summary>
+    /// Which words the given nodes hold, and how often (see <see cref="IWordCountIndex"/>). The
+    /// memory index answers the same question and the two must agree exactly; what differs is where
+    /// the cost sits. Here every term's postings have to come off disk, so the walk reads with no
+    /// cache at all - the same choice <see cref="mergeRun"/> makes. Filling the shared postings
+    /// cache with the whole index would evict what searches actually use, and one word cloud would
+    /// then be paid for by every search after it.
+    /// </summary>
+    public WordCountSet CountWords(IdSet subset, WordCountOptions options) {
+        if (subset.Count == 0) return WordCountSet.Empty;
+        var maxWords = Math.Max(1, options.MaxWords);
+        var minDocuments = Math.Max(1, options.MinDocuments);
+        var minLength = Math.Max(MinWordLength, options.MinWordLength);
+        var ignore = options.Ignore;
+        var budget = options.MaxPostingsEvaluated > 0 ? options.MaxPostingsEvaluated : long.MaxValue;
+        // the best so far as a min-heap: its top is what the next word has to beat
+        var best = new PriorityQueue<WordCount, WordCount>(Comparer<WordCount>.Create((a, b) => WordCount.Descending.Compare(b, a)));
+        var distinct = 0;
+        long evaluated = 0;
+        var truncated = false;
+        foreach (var (term, entries) in mergedTermEntries()) {
+            if (term.Length < minLength) continue; // skipped before any postings are read
+            if (ignore != null && ignore.Contains(term)) continue;
+            var view = viewOf(entries, _mem.GetOverlay(term));
+            var postings = view.Count;
+            if (postings == 0) continue; // every document that held the word is gone
+            if (evaluated + postings > budget) {
+                // this term has been read already, but counting it would break the budget - so it is
+                // dropped whole rather than counted in part, and the walk stops here
+                truncated = true;
+                break;
+            }
+            evaluated += postings;
+            var documents = 0;
+            long occurrences = 0;
+            foreach (var (nodeId, hits) in view.Enumerate()) {
+                if (!subset.Has(nodeId)) continue;
+                documents++;
+                occurrences += hits;
+            }
+            if (documents == 0) continue;
+            distinct++;
+            if (documents < minDocuments) continue;
+            if (best.Count >= maxWords) {
+                var weakest = best.Peek();
+                // strictly worse is dropped; a tie goes on, because ties are settled by the word
+                if (documents < weakest.Documents || (documents == weakest.Documents && occurrences < weakest.Occurrences)) continue;
+            }
+            var counted = new WordCount(term, documents, occurrences, postings);
+            best.Enqueue(counted, counted);
+            if (best.Count > maxWords) best.Dequeue();
+        }
+        var words = best.UnorderedItems.Select(i => i.Element).ToArray();
+        Array.Sort(words, WordCount.Descending);
+        return new WordCountSet(words, distinct, _docs.DocCount, evaluated, truncated);
+    }
+
+    /// <summary>One term's live postings, built from the segment entries the walk has already found
+    /// and the memtable's ops for it. Deliberately not <see cref="getView"/>: that looks the term up
+    /// again in every segment and caches what it reads, both of which are wrong for a walk that
+    /// visits every term exactly once.</summary>
+    PostingsView viewOf(List<(Segment segment, TermEntry entry)>? newestFirst, Dictionary<int, short>? overlay) {
+        if (newestFirst == null || newestFirst.Count == 0) {
+            return overlay == null ? PostingsView.Empty : new PostingsView(DiskPostings.Empty, overlay);
+        }
+        var found = new List<SegPostings>(newestFirst.Count);
+        foreach (var (segment, entry) in newestFirst) found.Add(segment.ReadPostings(entry));
+        if (found.Count == 1 && found[0].DelIds.Length == 0) return new PostingsView(new DiskPostings(found[0].AddIds, found[0].AddHits), overlay);
+        var (ids, hits, _) = resolve(found, keepDels: false);
+        return new PostingsView(new DiskPostings(ids, hits), overlay);
+    }
+
+    /// <summary>
+    /// Every term the index holds, in ordinal order, with the segment entries carrying it - newest
+    /// segment first, which is the order <see cref="resolve"/> wants. The same k-way merge as
+    /// <see cref="mergedTerms"/>, keeping the entries so a term's postings can be read straight from
+    /// where the scan already found them instead of being looked up again in every segment.
+    ///
+    /// A term only the memtable holds comes back with no entries: its postings are the overlay
+    /// alone. The list handed over is one list reused for every term, so anything worth keeping
+    /// past the next term has to be copied out of it.
+    /// </summary>
+    IEnumerable<(string term, List<(Segment segment, TermEntry entry)>? entries)> mergedTermEntries() {
+        var scans = new IEnumerator<TermEntry>[_segments.Count];
+        var live = new bool[_segments.Count];
+        IEnumerator<string>? memTerms = null;
+        var buffer = new List<(Segment, TermEntry)>();
+        try {
+            for (var i = 0; i < _segments.Count; i++) {
+                scans[i] = _segments[i].Scan(string.Empty, null, 0).GetEnumerator(); // null cache: see CountWords
+                live[i] = scans[i].MoveNext();
+            }
+            memTerms = ((IEnumerable<string>)_mem.SortedTerms).GetEnumerator();
+            var liveMem = memTerms.MoveNext();
+            while (true) {
+                string? next = null;
+                for (var i = 0; i < scans.Length; i++) {
+                    if (!live[i]) continue;
+                    var term = scans[i].Current.Term;
+                    if (next == null || string.CompareOrdinal(term, next) < 0) next = term;
+                }
+                if (liveMem && (next == null || string.CompareOrdinal(memTerms.Current, next) < 0)) next = memTerms.Current;
+                if (next == null) yield break;
+                buffer.Clear();
+                for (var i = scans.Length - 1; i >= 0; i--) { // newest segment first
+                    if (live[i] && string.CompareOrdinal(scans[i].Current.Term, next) == 0) buffer.Add((_segments[i], scans[i].Current));
+                }
+                yield return (next, buffer.Count == 0 ? null : buffer);
+                for (var i = 0; i < scans.Length; i++) {
+                    if (live[i] && string.CompareOrdinal(scans[i].Current.Term, next) == 0) live[i] = scans[i].MoveNext();
+                }
+                if (liveMem && string.CompareOrdinal(memTerms.Current, next) == 0) liveMem = memTerms.MoveNext();
+            }
+        } finally {
+            foreach (var scan in scans) scan?.Dispose();
+            memTerms?.Dispose();
+        }
     }
 
     // ---- persistence -----------------------------------------------------------------------------

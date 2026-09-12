@@ -77,6 +77,7 @@ sealed class UIQuery {
         commands.Register("query-groupby", async ctx => await groupBy(ctx.Payload<GroupByPayload>()));
         commands.Register("query-visual", async ctx => await visual(ctx.Payload<VisualPayload>()));
         commands.Register("query-map", async ctx => await map(ctx.Payload<MapPayload>()));
+        commands.Register("query-cloud", async ctx => await cloud(ctx.Payload<CloudPayload>()));
         commands.Register("query-node-id", ctx => nodeGuid(ctx.Payload<NodeIntPayload>()));
         commands.Register("query-cards", ctx => cards(ctx.Payload<CardsPayload>()));
         commands.Register("query-columns", ctx => columnsOf(ctx.Payload<ColumnsPayload>()));
@@ -1662,10 +1663,15 @@ sealed class UIQuery {
         var typeId = queriedType(dm, p.TypeId);
         var type = dm.NodeTypes[typeId];
         var properties = type.AllProperties.Values
-            .Where(property => !property.Internal)
+            // The one internal property worth offering: the combined free-text index, which is where
+            // the words of a node actually are whenever the model indexes its text per node type
+            // rather than per property (Node(TextIndex = true), which is the usual way round). It is
+            // what WhereSearch reads, so a cloud of it is a cloud of what the search box searches -
+            // and it is no use for anything else here, being unindexed as a value.
+            .Where(property => !property.Internal || property.Id == NodeConstants.SystemTextIndexPropertyId)
             .Select(property => new {
                 Id = property.Id,
-                Name = property.CodeName,
+                Name = property.Id == NodeConstants.SystemTextIndexPropertyId ? "All text" : property.CodeName,
                 Type = property.PropertyType.ToString(),
                 Groupable = isGroupable(property),
                 Aggregatable = isAggregatable(property),
@@ -1674,9 +1680,14 @@ sealed class UIQuery {
                 // a position: what the map view puts the nodes on the world by. It can neither group
                 // nor aggregate - a coordinate has no buckets and no sum - so it is listed on its own
                 Geo = property.PropertyType is PropertyType.GeoCoordinate,
-                DeclaredBy = property.NodeType == typeId ? null : dm.NodeTypes.TryGetValue(property.NodeType, out var declaring) ? declaring.CodeName : null,
+                // text whose words this database can count: what the word cloud reads. Not a model
+                // question alone - the property has to be indexed by words AND its index has to be
+                // one that can list them, which only some engines can (see IDataStore.CanCountWords)
+                Words = property is StringPropertyModel { IndexedByWords: true } && s.Datastore.CanCountWords(property.Id, adminContext),
+                DeclaredBy = property.Id == NodeConstants.SystemTextIndexPropertyId ? null
+                    : property.NodeType == typeId ? null : dm.NodeTypes.TryGetValue(property.NodeType, out var declaring) ? declaring.CodeName : null,
             })
-            .Where(property => property.Groupable || property.Aggregatable || property.Geo)
+            .Where(property => property.Groupable || property.Aggregatable || property.Geo || property.Words)
             .OrderBy(property => property.Name, StringComparer.OrdinalIgnoreCase)
             .ToArray();
         return new { TypeId = typeId, TypeName = type.CodeName, Properties = properties };
@@ -2133,6 +2144,97 @@ sealed class UIQuery {
         };
     }
 
+    // ---- the word cloud: what the result set is written about ----
+
+    // A cloud is a picture of a vocabulary, and a vocabulary with two thousand words in it is not a
+    // picture of anything - the smallest would be unreadable long before then.
+    const int maxCloudWords = 500;
+    const int defaultCloudWords = 150;
+    // A runaway guard rather than a latency target. Counting reads every term of the index, so the
+    // cost follows the index and not the result set; without a bound, one click on a large database
+    // would hold a read for as long as it took to walk all of it. A count that hits this says so and
+    // the page shows it as partial.
+    const long maxCloudPostings = 25_000_000;
+
+    /// <summary>
+    /// Which words the result set holds, and how often, read out of the word index of one of its
+    /// string properties (<see cref="IWordSource"/>). Not a page of anything: the count is over the
+    /// whole result, however large it is, because no node is read to produce it - the query below is
+    /// built without paging for that reason, exactly as the pivot is.
+    ///
+    /// Only some text indexes can do this (the memory and native ones can, Lucene and SQLite do
+    /// not), so the page asks pivotModel which properties can before offering the view at all. The
+    /// check is repeated here because a payload can name any property.
+    /// </summary>
+    async Task<object> cloud(CloudPayload p) {
+        var s = store(p.StoreId);
+        var dm = s.Datastore.Datamodel;
+        var typeId = queriedType(dm, p.TypeId);
+        var nodeType = dm.NodeTypes[typeId];
+        if (!dm.Properties.TryGetValue(p.PropertyId, out var property) || property is not StringPropertyModel { IndexedByWords: true })
+            throw new Exception("A word cloud needs a text property indexed by words to read the words from. ");
+        if (!s.Datastore.CanCountWords(p.PropertyId, adminContext))
+            throw new Exception("The words of \"" + property.CodeName + "\" cannot be counted: the text index holding them cannot list the words it holds. Only the memory and the native text index can. ");
+
+        var q = s.QueryType(typeId, adminContext);
+        if (!string.IsNullOrWhiteSpace(p.Text)) q = q.WhereSearch(prefixEachWord(p.Text), p.SemanticRatio, (float?)p.MinimumSimilarity);
+        var selections = (p.Selections ?? []).Where(sel => dm.Properties.ContainsKey(sel.PropertyId) && sel.Values?.Length > 0).ToArray();
+        string queryString;
+        if (selections.Length == 0) {
+            queryString = q.ToString()!;
+        } else { // the selection is the filter; its buckets are neither asked for nor counted
+            var fq = q.Facets();
+            foreach (var selection in selections) {
+                foreach (var value in selection.Values!) {
+                    if (value.Value == null) fq = fq.SetFacetMissingValue(selection.PropertyId);
+                    else if (value.Value2 == null) fq = fq.SetFacetValue(selection.PropertyId, value.Value);
+                    else fq = fq.SetFacetRangeValue(selection.PropertyId, value.Value, value.Value2);
+                }
+            }
+            queryString = fq.ToString()!;
+        }
+
+        var options = new WordCountOptions {
+            MaxWords = Math.Clamp(p.MaxWords <= 0 ? defaultCloudWords : p.MaxWords, 1, maxCloudWords),
+            MinDocuments = Math.Max(1, p.MinDocuments),
+            MinWordLength = Math.Max(0, p.MinWordLength),
+            // lowercased because that is how the index holds its words, and the ignore list is
+            // compared against those rather than against what was typed
+            Ignore = p.Ignore == null || p.Ignore.Length == 0 ? null
+                : p.Ignore.Where(w => !string.IsNullOrWhiteSpace(w)).Select(w => w.Trim().ToLowerInvariant()).ToHashSet(),
+            MaxPostingsEvaluated = maxCloudPostings,
+        };
+
+        var sw = Stopwatch.StartNew();
+        var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
+        var nodes = (data as FacetQueryResultData)?.Result ?? data as IStoreNodeDataCollection
+            ?? throw new Exception("The query did not return a collection of nodes. ");
+        if (nodes is not IWordSource source) throw new Exception("This database cannot count words without reading every node. ");
+        var counted = source.Words(p.PropertyId, options, adminContext);
+        sw.Stop();
+        return new {
+            TypeId = typeId,
+            TypeName = nodeType.CodeName,
+            PropertyName = property.CodeName,
+            Total = nodes.TotalCount, // how many nodes the words were counted over
+            DurationMs = sw.Elapsed.TotalMilliseconds,
+            Query = queryString,
+            // how many distinct words the result holds in all, against the few the cloud can draw
+            counted.DistinctWords,
+            // what an inverse document frequency needs, so the page can weigh a word by how much it
+            // belongs to this result rather than by how common it is everywhere
+            counted.IndexDocuments,
+            counted.PostingsEvaluated,
+            counted.Truncated,
+            Words = counted.Words.Select(w => (object)new {
+                w.Word,
+                w.Documents,
+                w.Occurrences,
+                w.DocumentsInIndex,
+            }).ToArray(),
+        };
+    }
+
     // ---- what a card shows when it is large enough to be read ----
 
     /// <summary>
@@ -2303,6 +2405,8 @@ sealed class UIQuery {
     sealed record StorePayload(Guid StoreId);
     sealed record NodePayload(Guid StoreId, Guid Id);
     internal sealed record PivotModelPayload(Guid StoreId, Guid? TypeId);
+    internal sealed record CloudPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity, FacetSelection[]? Selections,
+        Guid PropertyId, int MaxWords, int MinDocuments, int MinWordLength, string[]? Ignore);
     /// <summary>Mode: auto | values | ranges, or a calendar interval (year, quarter, month, week, day, hour) on a date property.</summary>
     internal sealed record PivotLevelPayload(Guid PropertyId, string? Mode);
     internal sealed record PivotMeasurePayload(string Function, Guid? PropertyId);

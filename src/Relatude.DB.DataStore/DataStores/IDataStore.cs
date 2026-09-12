@@ -82,6 +82,16 @@ public interface IDataStore : IDisposable {
     bool CanConvert(FileFormat from, FileFormat to);
     bool CanConvert(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null);
 
+    /// <summary>
+    /// Whether the words held by a string property can be counted over a set of nodes - what a word
+    /// cloud of a result set needs (<see cref="Query.Data.IWordSource"/>). It takes a property
+    /// indexed by words whose text index can walk its own terms, which the memory and native text
+    /// indexes can and the Lucene and SQLite ones do not, so this is a question about the database
+    /// and not about any one query. Ask it before offering such a view: the answer is the same for
+    /// every result set, and it never changes while the database is open.
+    /// </summary>
+    bool CanCountWords(Guid propertyId, QueryContext? ctx = null);
+
     string GetUrl(NodeKey nodeKey, bool absolute = false, QueryContext? ctx = null);
     string GetUrl(NodePath nodePath, bool absolute = false, QueryContext? ctx = null);
     string GetUrl(PropertyPath propertyPath, bool absolute = false, QueryContext? ctx = null);

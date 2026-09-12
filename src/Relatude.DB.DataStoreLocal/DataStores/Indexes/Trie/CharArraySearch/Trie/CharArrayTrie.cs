@@ -36,6 +36,7 @@ namespace Relatude.DB.DataStores.Indexes.Trie.CharArraySearch.Trie {
     internal delegate void wordCallback(string word);
     internal delegate void wordAndValueCallback<T>(string word, T? value);
     internal delegate void valueCallback<T>(T? value);
+    internal delegate void walkCallback<T>(ReadOnlySpan<char> word, T? value);
     internal class ValueNodeRef<T> {
         readonly NodeBase<T> _node;
         internal ValueNodeRef(NodeBase<T> node) {
@@ -100,6 +101,14 @@ namespace Relatude.DB.DataStores.Indexes.Trie.CharArraySearch.Trie {
         }
         public void ForEachWordAndValue(wordAndValueCallback<T> callback) {
             foreach (var c in _root.Children) TrieNodeHelpers<T>.ForEachWordAndValue(c, string.Empty, callback);
+        }
+        /// <summary>Every word and its value, the word as a span into a shared buffer rather than
+        /// a string of its own (see <see cref="TrieNodeHelpers{T}.Walk"/>). A separate name and not
+        /// an overload of ForEachWordAndValue: two overloads taking a two-argument lambda would be
+        /// ambiguous at every call site.</summary>
+        public void Walk(walkCallback<T> callback) {
+            var buffer = new char[32];
+            foreach (var c in _root.Children) TrieNodeHelpers<T>.Walk(c, ref buffer, 0, callback);
         }
         public void ForEachValue(valueCallback<T> callback) {
             foreach (var c in _root.Children) TrieNodeHelpers<T>.ForEachValue(c, callback);

@@ -10,8 +10,8 @@ import type { FacetSelection, PivotAxisOptions, PivotLevelSpec, PivotMeasureSpec
  * exactly as it was left, still running against whatever the database holds now.
  */
 
-/** search: the hits, as a list or a table of chosen columns; groups and pivot: summaries of them; visual: every hit as a card; map: every hit where it is. */
-export type QueryMode = "search" | "groups" | "pivot" | "visual" | "map";
+/** search: the hits, as a list or a table of chosen columns; groups and pivot: summaries of them; visual: every hit as a card; map: every hit where it is; cloud: the words they are written with. */
+export type QueryMode = "search" | "groups" | "pivot" | "visual" | "map" | "cloud";
 export type HitsView = "list" | "table";
 /** How a summary is shown: the numbers, or bars drawn from them. */
 export type SummaryView = "table" | "chart";
@@ -152,6 +152,43 @@ export interface MapStyle {
   rodCell?: number;
 }
 
+/**
+ * The word cloud: which text the words are read from, and how the cloud is drawn from them.
+ *
+ * The words come out of the property's word index rather than out of its text, so what can be
+ * asked for is bounded by what the index kept - stop words and words below the property's minimum
+ * length were never stored, and nothing here can bring them back.
+ */
+export interface CloudDefinition {
+  /** the text property whose words are counted; null until the view has found one */
+  property: string | null;
+  /**
+   * What a word's size is drawn from. `documents` is how many nodes of the result hold it and
+   * `occurrences` how many times it appears in them; `distinctive` divides the first by how common
+   * the word is in the whole type, which is what tells the words this result is about from the
+   * words everything is written with.
+   */
+  weigh: "documents" | "occurrences" | "distinctive";
+  /** how many words the cloud draws at most */
+  maxWords: number;
+  /** a word held by fewer nodes than this is left out */
+  minDocuments: number;
+  /** a word shorter than this is left out, on top of the index's own minimum */
+  minWordLength: number;
+  /** words to leave out whatever their count - the markup and boilerplate the index holds too */
+  ignore: string[];
+  /** the colours (visual/palette.ts); absent is the first palette */
+  palette?: string;
+  /** how the words are coloured: by weight along a ramp, or one hue per word */
+  colorBy?: "weight" | "word";
+  /** the words laid out in a spiral, or listed as bars with their counts */
+  shape?: "cloud" | "bars";
+  /** how far the largest word outgrows the smallest, 1..10; absent is the middle */
+  contrast?: number;
+  /** whether the words all sit level, rather than some of them turned on their side */
+  upright?: boolean;
+}
+
 /** The map: where the nodes are placed from, how they are drawn, and what the world under them looks like. */
 export interface MapDefinition {
   /** the geo coordinate property the points are placed by; null until the view has found one */
@@ -223,6 +260,7 @@ export interface SavedQuery {
   groups: GroupByDefinition | null;
   visual: VisualDefinition | null;
   map: MapDefinition | null;
+  cloud: CloudDefinition | null;
 }
 
 export interface QueryTabs {
@@ -262,6 +300,7 @@ export function newQuery(): SavedQuery {
     groups: null,
     visual: null,
     map: null,
+    cloud: null,
   };
 }
 

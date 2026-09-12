@@ -12,6 +12,16 @@ namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
     internal FastRollingCounter _queryActivity = new();
+
+    /// <summary>
+    /// Whether the words of a string property can be counted (see <see cref="IDataStore"/>). A
+    /// lookup and a type test, no reading and no locking: the answer follows from the model and the
+    /// engine the property's index sits on, both fixed for as long as the database is open.
+    /// </summary>
+    public bool CanCountWords(Guid propertyId, QueryContext? ctx = null)
+        => _definition.Properties.TryGetValue(propertyId, out var property)
+            && property is Definitions.PropertyTypes.IWordCountProperty counter
+            && counter.CanCountWords(ctx ?? QueryContext.Default);
     public INodeDataExternal ToOuter(INodeDataInternal nodeDataInner, QueryContext? ctx) {
         ctx ??= _defaultQueryCtx;
         var ctxKey = _nativeModelStore.GetQueryContextKey(ctx, out var now);

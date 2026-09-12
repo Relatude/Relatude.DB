@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   IconAlertTriangle,
+  IconChartArcs3,
   IconChartDonut,
   IconChartTreemap,
   IconCube3dSphere,
@@ -613,6 +614,7 @@ const chartShapes: { id: TypeChartShape; label: string; icon: typeof IconLayoutL
   { id: "bars", label: "Bars", icon: IconLayoutList, help: "Compare the amounts, down to the long tail" },
   { id: "treemap", label: "Treemap", icon: IconChartTreemap, help: "The database as a whole made of its types" },
   { id: "cubes", label: "Cubes", icon: IconCube3dSphere, help: "The same whole in three dimensions, where the volume of a cube is the count" },
+  { id: "sunburst", label: "Sunburst", icon: IconChartArcs3, help: "The same whole arranged by inheritance: a ring holds what the ring inside it is derived into" },
   { id: "donut", label: "Donut", icon: IconChartDonut, help: "The few types that dominate, as shares" },
 ];
 /** Beyond this the tail is one entry: a treemap of two hundred slivers says less than a number. */
@@ -630,10 +632,17 @@ const inheritedKey = "dashTypeInherited";
  * that (they compare types, not parts of a whole), but the treemap and the donut cannot without
  * lying about shares, so those drop any type that already sits inside another type being shown.
  *
- * A tile of the treemap opens a small menu: take the type out of the treemap, query its nodes, or
- * open it in the model editor. Hiding is for the treemap alone and is remembered per database - one
+ * The sunburst takes neither side of the switch, which is why it does not offer it: its rings are
+ * the inheritance itself, so a node counts once, under the type it is, and a parent is as big as
+ * what is nested inside it. It is also the one shape that keeps a type with no nodes of its own -
+ * an interface or an abstract base is a ring, not a blank - and the one that is never folded into a
+ * tail, since a fold there would cut branches off rather than tidy a corner.
+ *
+ * A tile, a cube or an arc opens a small menu: take the type out of the chart, query its nodes, or
+ * open it in the model editor. Hiding is for those three shapes and is remembered per database - one
  * type that is most of the database squashes the rest into slivers, and the picture of the rest is
- * what the treemap is for; the bars and the donut still show everything.
+ * what they are for; the bars and the donut still show everything. A hidden type in the middle of
+ * the sunburst's tree leaves its subtypes standing on their own in the innermost ring.
  */
 function ContentPanel({ info, storeId }: { info: DashboardInfo; storeId: string }) {
   const [shape, setShape] = useState<TypeChartShape>(() => (localStorage.getItem(shapeKey) as TypeChartShape | null) ?? "bars");
@@ -647,20 +656,26 @@ function ContentPanel({ info, storeId }: { info: DashboardInfo; storeId: string 
   const [menu, setMenu] = useState<{ slice: TypeSlice; x: number; y: number } | null>(null);
 
   const partOfWhole = shape !== "bars";
-  // the cubes are the treemap in three dimensions: same whole, same hiding, same tile menu
-  const treemap = shape === "treemap" || shape === "cubes";
+  // the sunburst is the one shape that draws the inheritance instead of counting it in: a node is
+  // counted once, under the type it is, and a parent's arc is that plus everything nested inside it
+  const sunburst = shape === "sunburst";
+  // the cubes are the treemap in three dimensions, the sunburst the same whole wrapped round the
+  // model: same hiding, same tile menu
+  const treemap = shape === "treemap" || shape === "cubes" || sunburst;
   const { slices, total, folded, overlapping, hiddenCount } = useMemo(() => {
     const all = info.types ?? [];
     const colors = sourceColors(info.sources ?? [], codeSourceGuid);
-    const valueOf = (t: TypeCount) => (inherited ? t.countAll : t.count);
-    let kept = all.filter((t) => valueOf(t) > 0);
+    const valueOf = (t: TypeCount) => (inherited && !sunburst ? t.countAll : t.count);
+    // a type with no nodes of its own is nothing to the other shapes, but it is a ring of the
+    // sunburst as long as something below it has some - that is what the shape is for
+    let kept = all.filter((t) => (sunburst ? t.countAll > 0 : valueOf(t) > 0));
     // taken out of the treemap by hand; counted so the note below can say so and offer them back
     const hiddenHere = treemap ? kept.filter((t) => hidden.has(t.id)).length : 0;
     if (treemap) kept = kept.filter((t) => !hidden.has(t.id));
     // with inheritance counted in, whatever is already inside something else shown here would be
     // counted twice by a picture of shares
     let dropped = 0;
-    if (inherited && partOfWhole) {
+    if (inherited && partOfWhole && !sunburst) {
       const shown = new Set(kept.map((t) => t.id));
       const byId = new Map(all.map((t) => [t.id, t]));
       const insideAnother = (t: TypeCount, depth: number): boolean => {
@@ -680,8 +695,11 @@ function ContentPanel({ info, storeId }: { info: DashboardInfo; storeId: string 
       seenPerSource.set(t.sourceId, n + 1);
       return shade(base, ((n % 5) - 2) * 0.11);
     };
-    const head = kept.slice(0, maxSlices);
-    const tail = kept.slice(maxSlices);
+    // the sunburst is not folded: the tail is what hangs off the types above it, and a fold would
+    // cut branches off the rings rather than tidy a corner of the picture
+    const limit = sunburst ? kept.length : maxSlices;
+    const head = kept.slice(0, limit);
+    const tail = kept.slice(limit);
     const built: TypeSlice[] = head.map((t) => ({ type: t, value: valueOf(t), color: colorOf(t) }));
     if (tail.length > 0) {
       built.push({
@@ -694,7 +712,7 @@ function ContentPanel({ info, storeId }: { info: DashboardInfo; storeId: string 
       });
     }
     return { slices: built, total: built.reduce((n, s) => n + s.value, 0), folded: tail.length, overlapping: dropped, hiddenCount: hiddenHere };
-  }, [info, inherited, partOfWhole, treemap, hidden]);
+  }, [info, inherited, partOfWhole, treemap, sunburst, hidden]);
 
   return (
     <section className="panel panel-fill">
@@ -718,31 +736,36 @@ function ContentPanel({ info, storeId }: { info: DashboardInfo; storeId: string 
           })}
         </div>
         <span className="query-spacer" />
-        <label
-          className="dash-chart-switch"
-          title="Count a node under every type above it as well, so an interface or a base class shows what is under it. The types then overlap."
-        >
-          <input type="checkbox" checked={inherited} onChange={(e) => setInherited(e.target.checked)} />
-          <span>Include inherited</span>
-        </label>
+        {/* the sunburst has no use for the switch: its rings are the inheritance, and a node counted
+            under every type above it would be counted once per ring it falls in */}
+        {!sunburst && (
+          <label
+            className="dash-chart-switch"
+            title="Count a node under every type above it as well, so an interface or a base class shows what is under it. The types then overlap."
+          >
+            <input type="checkbox" checked={inherited} onChange={(e) => setInherited(e.target.checked)} />
+            <span>Include inherited</span>
+          </label>
+        )}
       </div>
       {/* the chart takes what the panel has left in a row with a height of its own, and the treemap
           grows into it; the bars and the donut keep their size and scroll when there is less */}
       <div className="dash-chart-body fill-body">
         <TypeChart shape={shape} slices={slices} total={total} onTileClick={(slice, at) => setMenu({ slice, x: at.x, y: at.y })} />
       </div>
-      {(folded > 0 || overlapping > 0 || inherited || hiddenCount > 0) && (
+      {(folded > 0 || overlapping > 0 || inherited || sunburst || hiddenCount > 0) && (
         <div className="muted dash-type-more">
           {[
+            sunburst ? "a ring holds what the ring inside it is derived into, and a node counts once, under the type it is" : null,
             inherited && !partOfWhole ? "a node counts under its own type and every type above it, so these overlap" : null,
-            inherited && partOfWhole && overlapping > 0
+            inherited && partOfWhole && !sunburst && overlapping > 0
               ? `${overlapping} ${overlapping === 1 ? "type is" : "types are"} inside another type shown here and left out, so the shares still add up`
               : null,
-            inherited && partOfWhole && overlapping === 0 ? "counted with everything below each type" : null,
+            inherited && partOfWhole && !sunburst && overlapping === 0 ? "counted with everything below each type" : null,
             folded > 0 ? `${folded} smaller ${folded === 1 ? "type" : "types"} in the last group` : null,
             hiddenCount > 0 ? (
               <>
-                {hiddenCount} {hiddenCount === 1 ? "type" : "types"} hidden from the treemap ·{" "}
+                {hiddenCount} {hiddenCount === 1 ? "type" : "types"} hidden from this chart ·{" "}
                 <button className="link-button" onClick={() => setHidden(new Set())}>
                   show {hiddenCount === 1 ? "it" : "them"} again
                 </button>
@@ -794,8 +817,8 @@ function readHidden(key: string): Set<string> {
 }
 
 /**
- * The menu a treemap tile opens: what to do with the type from here. A small popover at the click,
- * kept inside the window; a click anywhere else or Escape closes it.
+ * The menu a tile, a cube or an arc opens: what to do with the type from here. A small popover at
+ * the click, kept inside the window; a click anywhere else or Escape closes it.
  */
 function TypeMenu({
   slice,
@@ -842,7 +865,7 @@ function TypeMenu({
           <span className="muted">{formatCount(slice.value)} nodes</span>
         </div>
         <button className="db-menu-item" role="menuitem" onClick={onHide}>
-          <IconEyeOff size={15} stroke={1.8} /> Hide from the treemap
+          <IconEyeOff size={15} stroke={1.8} /> Hide from this chart
         </button>
         <button className="db-menu-item" role="menuitem" onClick={onQuery}>
           <IconDatabaseSearch size={15} stroke={1.8} /> Query these nodes

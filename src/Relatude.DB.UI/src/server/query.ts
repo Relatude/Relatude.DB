@@ -420,6 +420,8 @@ export interface PivotProperty {
   isDate: boolean;
   /** A position (GeoCoordinate): what the map view places the nodes by. It can neither group nor aggregate. */
   geo: boolean;
+  /** Text whose words this database can count: what the word cloud reads. Not every text index can. */
+  words: boolean;
   /** The type that declares it, when inherited. */
   declaredBy: string | null;
 }
@@ -706,6 +708,62 @@ export interface MapResult {
 
 export function runMap(request: MapRequest): Promise<MapResult> {
   return send<MapResult>("query-map", request);
+}
+
+// ---- the word cloud: the words the result set is written with ----
+
+export interface CloudRequest {
+  storeId: string;
+  typeId: string | null;
+  text: string;
+  semanticRatio: number | null;
+  minimumSimilarity: number | null;
+  selections: FacetSelection[];
+  /** The text property whose word index the words are read from. */
+  propertyId: string;
+  /** How many words at most; 0 is the server's own default. */
+  maxWords?: number;
+  /** A word held by fewer nodes than this is left out. */
+  minDocuments?: number;
+  /** A word shorter than this is left out; the index has its own minimum, this only raises it. */
+  minWordLength?: number;
+  /** Words to leave out whatever their count. */
+  ignore?: string[];
+}
+
+export interface CloudWord {
+  word: string;
+  /** How many nodes of the result hold it. */
+  documents: number;
+  /** How many times in all, repeats within a node counted. */
+  occurrences: number;
+  /** How many nodes hold it in the whole index - what tells a word common here from a word common everywhere. */
+  documentsInIndex: number;
+}
+
+export interface CloudResult {
+  typeId: string;
+  typeName: string;
+  /** The text property the words were read from. */
+  propertyName: string;
+  /** How many nodes the words were counted over. */
+  total: number;
+  durationMs: number;
+  query: string;
+  /** How many distinct words the result holds in all, against the few the cloud draws. */
+  distinctWords: number;
+  /** How many documents the whole index holds - the N of an inverse document frequency. */
+  indexDocuments: number;
+  /** How much work the count was, in postings looked at. */
+  postingsEvaluated: number;
+  /** Whether the count ran out of budget, leaving part of the index uncounted. */
+  truncated: boolean;
+  /** The commonest words, commonest first. */
+  words: CloudWord[];
+}
+
+export function runCloud(request: CloudRequest): Promise<CloudResult> {
+  return send<CloudResult>("query-cloud", request);
 }
 
 /** The guid of a node from its int id, which is what the cards carry. */

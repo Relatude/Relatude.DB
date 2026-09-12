@@ -266,7 +266,9 @@ export function TypeCubes({ slices, total, onTileClick }: { slices: TypeSlice[];
     if (ps.length > 0) {
       const cx = (minX + maxX) / 2;
       const cz = (minZ + maxZ) / 2;
-      r.box([cx, -2, cz], [maxX - minX + 30, 4, maxZ - minZ + 30], mix(th.panel, th.textRgb, 0.07), 1);
+      // a slab rather than a box: square edges, because the chamfer of a box is a fraction of each
+      // side and on something this wide and this thin it reads as a bevelled rim round the floor
+      r.slab([cx, -2, cz], [maxX - minX + 30, 4, maxZ - minZ + 30], mix(th.panel, th.textRgb, 0.07), 1);
       // and a stem under each, so a small cube at the back is still findable
       for (const p of ps) r.line([p.x, 0, p.z], [p.x, Math.max(p.side, 10), p.z], mix(th.panel, th.textRgb, 0.16), 1.1 * dpr, 0, 0.45);
     }

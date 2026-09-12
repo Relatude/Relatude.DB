@@ -199,7 +199,7 @@ class CharArrayComparer : IEqualityComparer<char[]> {
 // a string just to find out that it is a stop word. Open addressing with linear probing, and a hash
 // over the first character, the last character and the length: the set is small and known up front,
 // so the cost of the hash matters more than its quality.
-class SpanStringSet {
+public class SpanStringSet {
     readonly string[] _entries;
     readonly int _mask;
     public SpanStringSet(IEnumerable<string> words) {

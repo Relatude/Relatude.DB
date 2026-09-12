@@ -262,6 +262,146 @@ a {
   flex: 1;
 }
 
+/* ---- tasks put away into the bar (MinimizedProgress in DialogHost.tsx) ---- */
+
+/**
+ * A long job that leaves the database usable has no business holding the whole UI behind a modal,
+ * but it cannot simply disappear either: minimized, it becomes a chip here, still counting where the
+ * dialog was counting, and one click brings the dialog back. The colour is the waiting orange while
+ * it runs - the bar's job is to say an answer is still coming - green when it is done and red when
+ * it failed, and the thin line along the bottom is the same progress bar the dialog has.
+ */
+.task-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.task-chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: none;
+  max-width: 260px;
+  height: 32px;
+  padding-right: 3px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.task-chip.running {
+  border-color: var(--busy);
+}
+
+.task-chip.done {
+  border-color: var(--ok);
+}
+
+.task-chip.error {
+  border-color: var(--danger);
+}
+
+.task-chip-open {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 4px 0 8px;
+  color: var(--text);
+  background: none;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.task-chip-icon {
+  display: flex;
+  flex: none;
+  color: var(--text-muted);
+}
+
+.task-chip.done .task-chip-icon {
+  color: var(--ok);
+}
+
+.task-chip.error .task-chip-icon {
+  color: var(--danger);
+}
+
+.task-chip-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.task-chip-title,
+.task-chip-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-chip-title {
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+/* what the dialog's label line said, cut to the chip: the percentage is the part worth reading at
+   a glance, so it counts in tabular figures and does not jitter */
+.task-chip-line {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.task-chip-side {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 5px;
+}
+
+.task-chip-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--badge-bg);
+}
+
+.task-chip-fill {
+  display: block;
+  height: 100%;
+  background: var(--busy);
+  transition: width 0.2s ease;
+}
+
+.task-chip.done .task-chip-fill {
+  background: var(--ok);
+}
+
+.task-chip.error .task-chip-fill {
+  background: var(--danger);
+}
+
+/* a task the user stopped: nothing went wrong and nothing was achieved, so it says neither */
+.task-chip.cancelled .task-chip-fill {
+  background: var(--text-faint);
+}
+
+/* same slide as the dialog's indeterminate bar, so a task that cannot say how far it is looks the
+   same in the bar as it did in the dialog */
+.task-chip-fill.indeterminate {
+  width: 40% !important;
+  animation: progress-slide 1.2s ease-in-out infinite;
+}
+
 /* ---- the global search, where the page title used to be (GlobalSearch.tsx) ---- */
 
 /* The box takes the room the title had and then some: it is the one control on every page, and a
@@ -6607,12 +6747,19 @@ body.pg-resizing {
   /* no radius of its own: it would cut the corners off the outermost tiles, and a tile with three
      corners is the one thing a bordered tile must not have */
   overflow: hidden;
+}
+
+/* the sunburst's arcs are the same cards as the treemap's tiles, so a type looks the same whichever
+   of the two is showing - what changes between them is the arrangement, not the palette */
+.dash-treemap,
+.dash-sunburst {
   --tile-wash: 13%;
   --tile-wash-hover: 26%;
   --tile-edge: 72%;
 }
 
-[data-theme="dark"] .dash-treemap {
+[data-theme="dark"] .dash-treemap,
+[data-theme="dark"] .dash-sunburst {
   /* a touch more colour on the dark panel, and a slightly softer edge: at full strength the light
      borders of fifty tiles read as a grid drawn on top of the chart */
   --tile-wash: 20%;
@@ -6664,6 +6811,66 @@ body.pg-resizing {
 .dash-tile-count {
   font-size: 11px;
   color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* sunburst */
+
+.dash-sunburst {
+  flex: 1;
+  width: 100%;
+  /* the treemap's minimum, and the same bargain: short panels scroll, a taller row is filled */
+  min-height: 230px;
+  overflow: hidden;
+}
+
+.dash-sunburst svg {
+  display: block;
+}
+
+.dash-sun-arc {
+  fill: color-mix(in srgb, var(--tile, var(--accent)) var(--tile-wash), var(--panel));
+  stroke: color-mix(in srgb, var(--tile, var(--accent)) var(--tile-edge), var(--panel));
+  stroke-width: 1;
+}
+
+.dash-sun-g:hover .dash-sun-arc {
+  fill: color-mix(in srgb, var(--tile, var(--accent)) var(--tile-wash-hover), var(--panel));
+  stroke: var(--text);
+}
+
+.dash-sun-g.clickable {
+  cursor: pointer;
+}
+
+.dash-sun-name,
+.dash-sun-count,
+.dash-sun-total,
+.dash-sun-caption {
+  pointer-events: none;
+}
+
+/* the total in the middle: its size follows the hole, which is set where it is drawn */
+.dash-sun-total {
+  font-weight: 700;
+  fill: var(--text);
+}
+
+.dash-sun-caption {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  fill: var(--text-muted);
+}
+
+.dash-sun-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  fill: var(--text);
+}
+
+.dash-sun-count {
+  font-size: 10px;
+  fill: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
 
@@ -8371,4 +8578,101 @@ body.pg-resizing {
   justify-content: space-between;
   font-size: 11px;
   color: var(--text-faint);
+}
+
+/* ---- the word cloud: the words a result is written with ------------------------------------- */
+
+.cloud {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* wide enough to hold a handful of words without becoming the widest thing on the line */
+.cloud-ignore {
+  flex: 1;
+  min-width: 160px;
+  max-width: 420px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.cloud-stage {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 240px;
+  overflow: hidden;
+  background: var(--stage);
+  border-radius: 8px;
+}
+
+.cloud-stage.loading {
+  opacity: 0.6;
+}
+
+.cloud-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* the same words as a list, for reading the numbers off rather than the shape */
+.cloud-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+.cloud-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.cloud-bar:hover {
+  background: var(--hover);
+}
+
+/* the bar itself is behind the words rather than beside them: a row stays one line high, and the
+   length is still read at a glance */
+.cloud-bar-fill {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 5px;
+  opacity: 0.22;
+  pointer-events: none;
+}
+
+.cloud-bar-word {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-bar-count {
+  position: relative;
+  flex: none;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }

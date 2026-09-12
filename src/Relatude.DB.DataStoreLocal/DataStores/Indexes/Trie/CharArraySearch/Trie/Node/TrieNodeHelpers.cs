@@ -32,6 +32,29 @@ internal static class TrieNodeHelpers<T> {
         else if (node is NodeWithChildrenAndValue<T> nodeV) callback(word + node.Character, nodeV.Value);
         if (node is NodeWithChildren<T> nc) foreach (var c in nc.Children) ForEachWordAndValue(c, word + node.Character, callback);
     }
+    /// <summary>
+    /// <see cref="ForEachWordAndValue"/> without a string per word: the word is spelled into a
+    /// buffer as the walk goes down and handed over as a span of it, so a caller that wants only
+    /// some of the words pays for a string only for those. The buffer grows as needed, which is why
+    /// it is taken by reference; the span it hands over is that buffer and the next word overwrites
+    /// it, so anything worth keeping has to be copied out.
+    /// </summary>
+    public static void Walk(NodeBase<T> node, ref char[] buffer, int length, walkCallback<T> callback) {
+        if (length == buffer.Length) Array.Resize(ref buffer, buffer.Length * 2);
+        buffer[length] = node.Character;
+        var end = length + 1;
+        if (node is NodeWithValue<T> edge) {
+            var tail = edge.Tail;
+            if (end + tail.Length > buffer.Length) Array.Resize(ref buffer, Math.Max(buffer.Length * 2, end + tail.Length));
+            // the tail belongs to this word alone, so writing it past the prefix cannot disturb a
+            // sibling: any child of this node starts again at end
+            tail.CopyTo(buffer, end);
+            callback(buffer.AsSpan(0, end + tail.Length), edge.Value);
+        } else if (node is NodeWithChildrenAndValue<T> nodeV) {
+            callback(buffer.AsSpan(0, end), nodeV.Value);
+        }
+        if (node is NodeWithChildren<T> nc) foreach (var c in nc.Children) Walk(c, ref buffer, end, callback);
+    }
     public static void ForEachValue(NodeBase<T> node, valueCallback<T> callback) {
         if (node is NodeWithValue<T> edge) callback(edge.Value);
         else if (node is NodeWithChildrenAndValue<T> nodeV) callback(nodeV.Value);
