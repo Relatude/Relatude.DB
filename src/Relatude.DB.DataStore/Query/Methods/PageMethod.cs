@@ -12,6 +12,10 @@ namespace Relatude.DB.Query.Methods {
         }
         readonly int _pageIndex;
         readonly int _pageSize;
+        // for a terminal chained onto a paged facet clause, which pages the clause's selection itself (TerminalSource)
+        internal IExpression Input => _input;
+        internal int PageIndex => _pageIndex;
+        internal int PageSize => _pageSize;
         public object? Evaluate(IVariables vars) {
             if (_input is FacetMethod facetMethod) {
                 facetMethod.SetPaging(_pageIndex, _pageSize);

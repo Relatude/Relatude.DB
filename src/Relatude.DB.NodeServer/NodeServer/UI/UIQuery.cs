@@ -1967,8 +1967,9 @@ sealed class UIQuery {
     /// and for each property the picture is grouped by, one group per value (ranges for scalars, the
     /// way the facets do it) with the index of the group each card falls in. Both travel as bytes -
     /// int32 ids and uint16 group indexes - because at a hundred thousand cards and up the size of the
-    /// answer is the time the picture takes to appear. The groups are made with the facet primitives
-    /// (IBucketSource), so no node is read whatever the size of the result.
+    /// answer is the time the picture takes to appear. The groups are made by the query itself - a
+    /// Buckets() clause on the search, answered from the indexes inside the store's read lock - so no
+    /// node is read whatever the size of the result.
     /// </summary>
     async Task<object> visual(VisualPayload p) {
         var s = store(p.StoreId);
@@ -1976,44 +1977,27 @@ sealed class UIQuery {
         var typeId = queriedType(dm, p.TypeId);
         var nodeType = dm.NodeTypes[typeId];
         var cards = Math.Clamp(p.MaxCards <= 0 ? maxVisualCards : p.MaxCards, 1, maxVisualCards);
-        // the same search as the list, as one page as large as the picture may be; no buckets are
-        // counted (the groups below are built directly from the result)
+        // the same search as the list, as one page as large as the picture may be, with the grouping
+        // and the sort as clauses of the query: a facet selection contributes its filter only, no
+        // bucket of it is counted
         var search = new SearchPayload(p.StoreId, p.TypeId, p.Text, p.SemanticRatio, p.MinimumSimilarity, p.Selections, null, 0, cards, Facets: false);
-        var queryString = queryFor(s, dm, search, typeId, 0, cards);
+        var queryString = queryFor(s, dm, search, typeId, 0, cards) + ".Buckets()" + bucketClauses(dm, p.Properties) + sortClause(dm, p.SortBy, p.SortDescending);
 
         var sw = Stopwatch.StartNew();
         var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
-        var nodes = (data as FacetQueryResultData)?.Result ?? data as IStoreNodeDataCollection
-            ?? throw new Exception("The query did not return a collection of nodes. ");
-        var ids = nodes.NodeIds.ToArray();
+        if (data is not BucketsQueryResultData buckets) throw new Exception("The query did not return the buckets of a collection of nodes. ");
+        var ids = buckets.Ids;
         var position = positionsOf(ids);
-        // The order the cards are laid in when a sort property is asked for: the result reordered by
-        // that property's index (the same reorder OrderBy uses, so it works under a facet selection
-        // too, where the query string cannot carry an OrderBy), as positions into the result. Nodes
-        // the index has no value for come last, in the result's own order.
-        byte[]? order = null;
-        if (p.SortBy is Guid sortId && dm.Properties.TryGetValue(sortId, out var sortProperty) && isSortable(sortProperty) && ids.Length > 0
-            && nodes.TryOrderByIndexes(sortProperty.CodeName, p.SortDescending)) {
-            order = new byte[ids.Length * 4];
-            var placed = new bool[ids.Length];
-            var k = 0;
-            void place(int at) {
-                if (at < 0 || placed[at]) return;
-                placed[at] = true;
-                BitConverter.TryWriteBytes(order.AsSpan(k * 4, 4), at);
-                k++;
-            }
-            foreach (var id in nodes.NodeIds) place(position(id));
-            for (var at = 0; at < ids.Length; at++) place(at);
-        }
-        var properties = groupsOf(dm, nodes, p.Properties, ids.Length, position);
+        // the order the cards are laid in when a sort property is asked for, as positions into the
+        // result (BucketsQueryResultData.Order); nothing without one
+        var order = buckets.Order == null ? null : intBytes(buckets.Order);
+        var properties = groupsView(dm, buckets.Properties, ids.Length, position);
         sw.Stop();
-        var idBytes = new byte[ids.Length * 4];
-        Buffer.BlockCopy(ids, 0, idBytes, 0, idBytes.Length); // int32, the platform's byte order, which is little-endian everywhere this runs
+        var idBytes = intBytes(ids);
         return new {
             TypeId = typeId,
             TypeName = nodeType.CodeName,
-            Total = nodes.TotalCount,
+            Total = buckets.TotalCount,
             Count = ids.Length,
             DurationMs = sw.Elapsed.TotalMilliseconds,
             Query = queryString,
@@ -2023,19 +2007,16 @@ sealed class UIQuery {
         };
     }
     /// <summary>
-    /// One group per value of each of the given properties, and which group each of the drawn nodes
-    /// is in: a uint16 per node per property, indexing the property's groups, 0xFFFF for a node in
-    /// none of them. The groups are the facet primitives (IBucketSource), so no node is read however
-    /// large the result; `position` says where in the drawn set an id sits, which is not the same as
+    /// One group per value of each property the query bucketed by, and which group each of the drawn
+    /// nodes is in: a uint16 per node per property, indexing the property's groups, 0xFFFF for a node
+    /// in none of them. `position` says where in the drawn set an id sits, which is not the same as
     /// where it sits in the result - the map draws only the nodes it has a place for.
     /// </summary>
-    List<object> groupsOf(Datamodel dm, IStoreNodeDataCollection nodes, VisualLevelPayload[]? levels, int count, Func<int, int> position) {
+    static List<object> groupsView(Datamodel dm, PropertyBuckets[] groups, int count, Func<int, int> position) {
         var properties = new List<object>();
-        foreach (var level in (levels ?? []).DistinctBy(l => l.PropertyId)) {
-            if (!dm.Properties.TryGetValue(level.PropertyId, out var property)) continue; // a property the picker has not settled on yet
-            if (nodes is not IBucketSource source) throw new Exception("This database cannot group a result set without reading it. ");
-            bool? isRange = (level.Mode ?? "auto").ToLowerInvariant() switch { "values" => false, "ranges" => true, _ => null };
-            var buckets = source.Bucket(property.Id, isRange, includeMissing: true, maxVisualGroups, adminContext);
+        foreach (var group in groups) {
+            if (!dm.Properties.TryGetValue(group.PropertyId, out var property)) continue;
+            var buckets = group.Buckets;
             // one uint16 per card, little-endian; 0xFFFF is a card in none of the groups sent
             var assignment = new byte[count * 2];
             Array.Fill(assignment, (byte)0xFF);
@@ -2065,6 +2046,38 @@ sealed class UIQuery {
             });
         }
         return properties;
+    }
+    /// <summary>
+    /// The grouping clauses of a picture, chained onto Buckets() or Coordinates(): one Add*Bucket per
+    /// property (mode auto | values | ranges), the group ceiling the palette can take, and the
+    /// missing-value group kept. A property the picker has not settled on yet is left out.
+    /// </summary>
+    static string bucketClauses(Datamodel dm, VisualLevelPayload[]? levels) {
+        var sb = new System.Text.StringBuilder();
+        foreach (var level in (levels ?? []).DistinctBy(l => l.PropertyId)) {
+            if (!dm.Properties.TryGetValue(level.PropertyId, out var property)) continue;
+            var method = (level.Mode ?? "auto").ToLowerInvariant() switch { "values" => "AddValueBucket", "ranges" => "AddRangeBucket", _ => "AddBucket" };
+            sb.Append('.').Append(method).Append('(').Append(propertyRef(property)).Append(')');
+        }
+        sb.Append(".SetBucketOptions(").Append(maxVisualGroups).Append(", true)");
+        return sb.ToString();
+    }
+    /// <summary>
+    /// The SortBy clause for the property the cards are laid in the order of, or nothing. Only a
+    /// property whose values have an order can be sorted on; the clause sorts by its index, so it
+    /// holds under a facet selection too, where the query cannot carry an OrderBy.
+    /// </summary>
+    static string sortClause(Datamodel dm, Guid? sortBy, bool descending) {
+        if (sortBy is not Guid id || !dm.Properties.TryGetValue(id, out var property) || !isSortable(property)) return "";
+        return ".SortBy(" + propertyRef(property) + (descending ? ", true)" : ")");
+    }
+    /// <summary>A property as a query argument: its id, which is what resolves it, with its name behind for anyone reading the query.</summary>
+    static string propertyRef(PropertyModel property) => (property.Id + "|" + property.CodeName).ToStringLiteral();
+    /// <summary>int32 each, in the platform's byte order, which is little-endian everywhere this runs.</summary>
+    static byte[] intBytes(int[] values) {
+        var bytes = new byte[values.Length * 4];
+        Buffer.BlockCopy(values, 0, bytes, 0, bytes.Length);
+        return bytes;
     }
     // where each id sits in the result: a flat array when the ids are dense enough for one, a
     // dictionary otherwise (a result of a few thousand out of millions would waste the array)
@@ -2116,17 +2129,15 @@ sealed class UIQuery {
         if (!dm.Properties.TryGetValue(p.PropertyId, out var geoProperty) || geoProperty.PropertyType != PropertyType.GeoCoordinate)
             throw new Exception("A map needs a property holding a position (GeoCoordinate) to place the nodes by. ");
         var wanted = Math.Clamp(p.MaxPoints <= 0 ? maxMapPoints : p.MaxPoints, 1, maxMapPoints);
-        // the same search as the list, as one page as large as the map may be; no buckets are counted
-        // (the groups below are built directly from the result)
+        // the same search as the list, as one page as large as the map may be, with the positions and
+        // the grouping as clauses of the query: a facet selection contributes its filter only, no
+        // bucket of it is counted
         var search = new SearchPayload(p.StoreId, p.TypeId, p.Text, p.SemanticRatio, p.MinimumSimilarity, p.Selections, null, 0, wanted, Facets: false);
-        var queryString = queryFor(s, dm, search, typeId, 0, wanted);
+        var queryString = queryFor(s, dm, search, typeId, 0, wanted) + ".Coordinates(" + propertyRef(geoProperty) + ")" + bucketClauses(dm, p.Properties);
 
         var sw = Stopwatch.StartNew();
         var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
-        var nodes = (data as FacetQueryResultData)?.Result ?? data as IStoreNodeDataCollection
-            ?? throw new Exception("The query did not return a collection of nodes. ");
-        if (nodes is not ICoordinateSource source) throw new Exception("This database cannot read positions without reading every node. ");
-        var located = source.Coordinates(p.PropertyId, adminContext);
+        if (data is not CoordinatesQueryResultData located) throw new Exception("The query did not return the positions of a collection of nodes. ");
         var ids = located.Ids;
         var position = positionsOf(ids);
         var coordinates = new byte[ids.Length * 8];
@@ -2135,16 +2146,15 @@ sealed class UIQuery {
             BinaryPrimitives.WriteInt32LittleEndian(coordinates.AsSpan(i * 8, 4), (int)Math.Round(c.Latitude * mapCoordinateScale));
             BinaryPrimitives.WriteInt32LittleEndian(coordinates.AsSpan(i * 8 + 4, 4), (int)Math.Round(c.Longitude * mapCoordinateScale));
         }
-        var properties = groupsOf(dm, nodes, p.Properties, ids.Length, position);
+        var properties = groupsView(dm, located.Properties, ids.Length, position);
         sw.Stop();
-        var idBytes = new byte[ids.Length * 4];
-        Buffer.BlockCopy(ids, 0, idBytes, 0, idBytes.Length); // int32, the platform's byte order, which is little-endian everywhere this runs
+        var idBytes = intBytes(ids);
         return new {
             TypeId = typeId,
             TypeName = nodeType.CodeName,
             PropertyName = geoProperty.CodeName,
-            Total = nodes.TotalCount,   // how many the search found
-            Read = nodes.Count,         // how many of them this map looked at (the cap)
+            Total = located.TotalCount, // how many the search found
+            Read = located.Read,        // how many of them this map looked at (the cap)
             Count = ids.Length,         // and how many of those had a position
             DurationMs = sw.Elapsed.TotalMilliseconds,
             Query = queryString,
@@ -2204,29 +2214,28 @@ sealed class UIQuery {
             queryString = fq.ToString()!;
         }
 
-        var options = new WordCountOptions {
-            MaxWords = Math.Clamp(p.MaxWords <= 0 ? defaultCloudWords : p.MaxWords, 1, maxCloudWords),
-            MinDocuments = Math.Max(1, p.MinDocuments),
-            MinWordLength = Math.Max(0, p.MinWordLength),
-            // lowercased because that is how the index holds its words, and the ignore list is
-            // compared against those rather than against what was typed
-            Ignore = p.Ignore == null || p.Ignore.Length == 0 ? null
-                : p.Ignore.Where(w => !string.IsNullOrWhiteSpace(w)).Select(w => w.Trim().ToLowerInvariant()).ToHashSet(),
-            MaxPostingsEvaluated = maxCloudPostings,
-        };
+        // the count as a clause of the query, answered inside the store's read lock: how many words,
+        // the floor under a word's count and its length, and the runaway guard. The ignore list is
+        // lowercased because that is how the index holds its words, and it is compared against those
+        // rather than against what was typed.
+        var maxWords = Math.Clamp(p.MaxWords <= 0 ? defaultCloudWords : p.MaxWords, 1, maxCloudWords);
+        var ignore = (p.Ignore ?? []).Where(w => !string.IsNullOrWhiteSpace(w)).Select(w => w.Trim().ToLowerInvariant()).Distinct().ToArray();
+        queryString += ".Words(" + propertyRef(property) + ", " + maxWords.ToString(CultureInfo.InvariantCulture)
+            + ", " + Math.Max(1, p.MinDocuments).ToString(CultureInfo.InvariantCulture)
+            + ", " + Math.Max(0, p.MinWordLength).ToString(CultureInfo.InvariantCulture)
+            + ", " + maxCloudPostings.ToString(CultureInfo.InvariantCulture) + ")";
+        if (ignore.Length > 0) queryString += ".IgnoreWords(" + string.Join(", ", ignore.Select(w => w.ToStringLiteral())) + ")";
 
         var sw = Stopwatch.StartNew();
         var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
-        var nodes = (data as FacetQueryResultData)?.Result ?? data as IStoreNodeDataCollection
-            ?? throw new Exception("The query did not return a collection of nodes. ");
-        if (nodes is not IWordSource source) throw new Exception("This database cannot count words without reading every node. ");
-        var counted = source.Words(p.PropertyId, options, adminContext);
+        if (data is not WordsQueryResultData words) throw new Exception("The query did not return the words of a collection of nodes. ");
+        var counted = words.Words;
         sw.Stop();
         return new {
             TypeId = typeId,
             TypeName = nodeType.CodeName,
             PropertyName = property.CodeName,
-            Total = nodes.TotalCount, // how many nodes the words were counted over
+            Total = words.TotalCount, // how many nodes the words were counted over
             DurationMs = sw.Elapsed.TotalMilliseconds,
             Query = queryString,
             // how many distinct words the result holds in all, against the few the cloud can draw

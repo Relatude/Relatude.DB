@@ -694,6 +694,99 @@ sealed class PivotRowPagingMethodDef : MethodDef {
     }
 }
 
+// ── Id terminals ─────────────────────────────────────────────────────────────
+// Buckets(), Coordinates() and Words() answer from the ids of a result and its indexes, never from
+// a node - what a picture of a whole result needs. Their clauses chain the way the pivot's do:
+// AddBucket / AddValueBucket / AddRangeBucket and SetBucketOptions onto Buckets() or Coordinates(),
+// SortBy onto Buckets(), IgnoreWords onto Words(). Property arguments are "guid|CodeName" or
+// "TypeName.PropertyName" strings, as for the pivot.
+
+static class TerminalArgs {
+    public static T Source<T>(MethodCallToken e, Datamodel dm, string after) where T : class {
+        if (e.Subject == null) throw new NullReferenceException($"Subject of '{e.Name}' must not be null.");
+        return ExpressionTreeBuilder.Build(e.Subject, dm) as T ?? throw new Exception($"'{e.Name}' can only follow {after}.");
+    }
+    public static int? IntOrNull(MethodCallToken e, int i) => e.Arguments.Count > i && PivotArgs.Const(e, i).DirectValue != null ? PivotArgs.Int(e, i) : null;
+    public static long? LongOrNull(MethodCallToken e, int i) => e.Arguments.Count > i && PivotArgs.Const(e, i).DirectValue != null ? long.Parse(PivotArgs.Str(e, i), System.Globalization.CultureInfo.InvariantCulture) : null;
+}
+
+sealed class BucketsMethodDef : MethodDef {
+    public override string[] Names => ["buckets"];
+    public override int MinArgs => 0;
+    public override int MaxArgs => -1;
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        var properties = new List<string>();
+        for (var i = 0; i < e.Arguments.Count; i++) properties.Add(PivotArgs.Str(e, i));
+        return new BucketsMethod(BuildSource(e, dm), dm, properties);
+    }
+}
+
+sealed class AddBucketMethodDef(string name, bool? isRange) : MethodDef {
+    public override string[] Names => [name];
+    public override int MinArgs => 1;
+    public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant)];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        var source = TerminalArgs.Source<IBucketBuilder>(e, dm, "Buckets() or Coordinates()");
+        source.AddBucket(PivotArgs.Str(e, 0), isRange);
+        return (IExpression)source;
+    }
+}
+
+sealed class SetBucketOptionsMethodDef : MethodDef {
+    // setbucketoptions(maxBuckets, includeMissing)
+    public override string[] Names => ["setbucketoptions"];
+    public override int MinArgs => 2;
+    public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Required(MethodParamKind.Constant)];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        var source = TerminalArgs.Source<IBucketBuilder>(e, dm, "Buckets() or Coordinates()");
+        source.SetBucketOptions(PivotArgs.Int(e, 0), PivotArgs.Bool(e, 1));
+        return (IExpression)source;
+    }
+}
+
+sealed class SortByMethodDef : MethodDef {
+    // sortby(property[, descending])
+    public override string[] Names => ["sortby"];
+    public override int MinArgs => 1;
+    public override int MaxArgs => 2;
+    public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Optional(MethodParamKind.Constant)];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        var buckets = TerminalArgs.Source<BucketsMethod>(e, dm, "Buckets()");
+        buckets.SortBy(PivotArgs.Str(e, 0), e.Arguments.Count > 1 && PivotArgs.Bool(e, 1));
+        return buckets;
+    }
+}
+
+sealed class CoordinatesMethodDef : MethodDef {
+    public override string[] Names => ["coordinates"];
+    public override int MinArgs => 1;
+    public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant)];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) => new CoordinatesMethod(BuildSource(e, dm), dm, PivotArgs.Str(e, 0));
+}
+
+sealed class WordsMethodDef : MethodDef {
+    // words(property[, maxWords[, minDocuments[, minWordLength[, maxPostingsEvaluated]]]])
+    public override string[] Names => ["words"];
+    public override int MinArgs => 1;
+    public override int MaxArgs => 5;
+    public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Optional(MethodParamKind.Constant), MethodParamDef.Optional(MethodParamKind.Constant), MethodParamDef.Optional(MethodParamKind.Constant), MethodParamDef.Optional(MethodParamKind.Constant)];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm)
+        => new WordsMethod(BuildSource(e, dm), dm, PivotArgs.Str(e, 0), TerminalArgs.IntOrNull(e, 1), TerminalArgs.IntOrNull(e, 2), TerminalArgs.IntOrNull(e, 3), TerminalArgs.LongOrNull(e, 4));
+}
+
+sealed class IgnoreWordsMethodDef : MethodDef {
+    public override string[] Names => ["ignorewords"];
+    public override int MinArgs => 1;
+    public override int MaxArgs => -1;
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        var words = TerminalArgs.Source<WordsMethod>(e, dm, "Words()");
+        var ignore = new List<string>();
+        for (var i = 0; i < e.Arguments.Count; i++) ignore.Add(PivotArgs.Str(e, i));
+        words.IgnoreWords(ignore);
+        return words;
+    }
+}
+
 // ── Dispatcher ───────────────────────────────────────────────────────────────
 
 internal class BuildMethod {
@@ -717,7 +810,9 @@ internal class BuildMethod {
         new PivotMeasureMethodDef("addsum", PivotFunction.Sum), new PivotMeasureMethodDef("addaverage", PivotFunction.Average),
         new PivotMeasureMethodDef("addmin", PivotFunction.Min), new PivotMeasureMethodDef("addmax", PivotFunction.Max), new PivotMeasureMethodDef("addmeasure", null),
         new PivotOptionsMethodDef("setrowoptions", true), new PivotOptionsMethodDef("setcolumnoptions", false),
-        new PivotTotalsMethodDef(), new PivotLimitsMethodDef(), new PivotRowPagingMethodDef()
+        new PivotTotalsMethodDef(), new PivotLimitsMethodDef(), new PivotRowPagingMethodDef(),
+        new BucketsMethodDef(), new AddBucketMethodDef("addbucket", null), new AddBucketMethodDef("addvaluebucket", false), new AddBucketMethodDef("addrangebucket", true),
+        new SetBucketOptionsMethodDef(), new SortByMethodDef(), new CoordinatesMethodDef(), new WordsMethodDef(), new IgnoreWordsMethodDef()
     );
 
     private static Dictionary<string, MethodDef> BuildRegistry(params MethodDef[] defs)
