@@ -100,6 +100,49 @@ internal class Log : IDisposable {
             return records.Select(getEntry).ToList(); // materialized inside lock
         }
     }
+    /// <summary>
+    /// The entries of a range that a search matches, and how many there were of them.
+    ///
+    /// Nothing is indexed: every record in the range is read and tested, which is what lets a
+    /// search ask anything of a log that was written without knowing the question. The reading is
+    /// the cost, and it is the cost of the range - so a caller bounds the range, not the search.
+    ///
+    /// Only the page asked for is held. A search matching more entries than fit in memory is
+    /// therefore answerable: the rest are counted and let go.
+    /// </summary>
+    public IEnumerable<LogEntry> Search(LogSearch search, DateTime from, DateTime to, int skip, int take, bool orderByDescendingDates, out int total) {
+        lock (_lock) {
+            if (search.IsEmpty) return Extract(from, to, skip, take, orderByDescendingDates, out total);
+            if (skip < 0) skip = 0;
+            if (take < 0) take = 0;
+            var wanted = (long)skip + take;
+            var keep = wanted > int.MaxValue ? int.MaxValue : (int)wanted;
+            // sorting and trimming costs something, so it is done in batches rather than per match
+            var trimAt = wanted > int.MaxValue / 4 ? int.MaxValue : Math.Max(keep * 2, 1024);
+            var matches = new List<(LogEntry Entry, int Ordinal)>();
+            var count = 0;
+            foreach (var record in _logStream.Enumerate(from, to)) {
+                var entry = getEntry(record);
+                if (!search.Matches(entry, _setting)) continue;
+                matches.Add((entry, count));
+                count++;
+                if (matches.Count >= trimAt) sortAndTrim(matches, orderByDescendingDates, keep);
+            }
+            total = count;
+            sortAndTrim(matches, orderByDescendingDates, int.MaxValue);
+            return matches.Skip(skip).Take(take).Select(m => m.Entry).ToList();
+        }
+    }
+    // Records of one file come out in the order they were written, which is not quite the order
+    // they were recorded in: the ordinal keeps entries sharing a timestamp in the order extracting
+    // them would have given, so a page boundary does not fall differently between the two.
+    static void sortAndTrim(List<(LogEntry Entry, int Ordinal)> matches, bool orderByDescendingDates, int keep) {
+        matches.Sort((a, b) => {
+            var c = orderByDescendingDates ? b.Entry.Timestamp.CompareTo(a.Entry.Timestamp) : a.Entry.Timestamp.CompareTo(b.Entry.Timestamp);
+            return c != 0 ? c : a.Ordinal.CompareTo(b.Ordinal);
+        });
+        if (keep < matches.Count) matches.RemoveRange(keep, matches.Count - keep);
+    }
     public long GetTotalFileSize() => GetLogFileSize() + GetStatisticsFileSize();
     public long GetLogFileSize() {
         lock (_lock) {

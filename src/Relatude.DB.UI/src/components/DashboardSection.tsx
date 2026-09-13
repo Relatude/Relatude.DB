@@ -210,17 +210,11 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
 
   /**
    * Empties the caches of this database. Everything it held is read from the indexes again, so the
-   * next queries are slower until they warm back up - which is the point when a measurement should
-   * start from cold, and worth confirming when it is not.
+   * next queries are slower until they warm back up - which is the point of it, and why it is not
+   * asked about: nothing is lost, the indexes warm again on their own, and a measurement that has
+   * to start from cold is not helped by a dialog in the way.
    */
   async function onClearCaches() {
-    const choice = await showConfirm(
-      "Clear the caches",
-      "Empties the node, result set and index caches of this database. Nothing is lost, but until they warm up again queries are"
-        + " answered from the indexes instead of memory. The activity counters start over.",
-      { confirmLabel: "Clear" },
-    );
-    if (!choice.ok) return;
     setCacheBusy("clear");
     try {
       const result = await clearCaches(db.id);
@@ -484,15 +478,16 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   );
 
   // the same terminal as the server log on the overview: a machine talking, shown the way it talks.
-  // Newest last, so a line that just arrived is where the eye already is - and a line carrying
-  // details is still worth a click
+  // Newest first, so a line that just arrived is at the top where the eye already is - and a line
+  // carrying details is still worth a click
   const tracePanel = (
     <section className="panel panel-fill">
       <h3>
         Latest messages <span className="panel-sub">the trace the database keeps in memory</span>
       </h3>
       <div className="term fill-body">
-        {[...(trace?.entries ?? []).slice(0, 12)].reverse().map((entry, i) => (
+        {(trace?.entries ?? []).length > 0 && <div className="term-idle term-idle-top">_</div>}
+        {(trace?.entries ?? []).slice(0, 12).map((entry, i) => (
           <div
             key={i}
             className={"term-line " + entry.type.toLowerCase() + (entry.details ? " clickable" : "")}
@@ -505,7 +500,6 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
           </div>
         ))}
         {(trace?.entries ?? []).length === 0 && <div className="term-empty">{open ? "Nothing traced yet." : "Open the database to see its trace."}</div>}
-        {(trace?.entries ?? []).length > 0 && <div className="term-idle">_</div>}
       </div>
     </section>
   );
@@ -574,6 +568,9 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
         <Tile label="Relations" value={formatCount(live?.relationCount ?? 0)} />
         <Tile label="Open for" value={uptime == null ? "—" : formatDuration(uptime)} />
         <Tile label="On disk" value={formatBytes(totalDisk)} />
+        {/* the one tile that is the server process rather than this database: one heap serves every
+            database on it */}
+        <Tile label="Memory" value={formatBytes(live?.processMemory ?? 0)} />
       </div>
 
       <PanelGrid id="dashboard" rows={rows} defaultSplit={0.5} />
@@ -748,8 +745,9 @@ function ContentPanel({ info, storeId }: { info: DashboardInfo; storeId: string 
           </label>
         )}
       </div>
-      {/* the chart takes what the panel has left in a row with a height of its own, and the treemap
-          grows into it; the bars and the donut keep their size and scroll when there is less */}
+      {/* the chart takes what the panel has left in a row with a height of its own, and every shape
+          but the bars grows into it; below their minimum the panel scrolls rather than shrinking a
+          chart away, and the bars are a list, so they scroll whenever there are more than fit */}
       <div className="dash-chart-body fill-body">
         <TypeChart shape={shape} slices={slices} total={total} onTileClick={(slice, at) => setMenu({ slice, x: at.x, y: at.y })} />
       </div>

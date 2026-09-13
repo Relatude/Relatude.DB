@@ -1,4 +1,5 @@
 using Relatude.DB.Common;
+using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Indexes.Trie.CharArraySearch;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.Query.Data;
@@ -218,5 +219,81 @@ public class WordCountTests {
         var result = trie.CountWords(Subset([1]), new WordCountOptions());
         Assert.AreEqual(1, result.Words.Length);
         Assert.AreEqual(255, result.Words[0].Occurrences, "the index stores one byte per document per word");
+    }
+
+    // -----------------------------------------------------------------------
+    // What a count is expected to cost, before it runs
+    // -----------------------------------------------------------------------
+
+    /// <summary>Nothing indexed, nothing to walk: the estimate is zero, and grows with the text.</summary>
+    [TestMethod]
+    public void EstimateFollowsTheIndexSize() {
+        var trie = MakeTrie();
+        var options = new WordCountOptions();
+        Assert.AreEqual(TimeSpan.Zero, trie.EstimateCountWordsDuration(options));
+        var corpus = MakeCorpus(50);
+        var first = corpus.Keys.Min();
+        trie.IndexText(corpus[first], first);
+        var small = trie.EstimateCountWordsDuration(options);
+        Assert.IsTrue(small > TimeSpan.Zero, "an index with words in it costs something to walk");
+        var rest = corpus.Where(d => d.Key != first).ToArray();
+        foreach (var doc in rest) trie.IndexText(doc.Value, doc.Key);
+        var large = trie.EstimateCountWordsDuration(options);
+        Assert.IsTrue(large > small, "more text, longer walk: " + small + " vs " + large);
+        // taking the text out again takes its cost with it
+        foreach (var doc in rest) trie.DeIndexText(doc.Value, doc.Key);
+        Assert.AreEqual(small, trie.EstimateCountWordsDuration(options));
+    }
+
+    /// <summary>
+    /// The estimate is an upper bound on the work: the postings a count actually visits never exceed
+    /// what the estimate was made from, because every posting is a word of some document and the
+    /// documents' words are what it counts. Checked at the default rate, before anything calibrates it
+    /// (no count here is big enough to).
+    /// </summary>
+    [TestMethod]
+    public void EstimateBoundsThePostingsACountVisits() {
+        var corpus = MakeCorpus(300);
+        var trie = Index(corpus);
+        var options = new WordCountOptions { MaxWords = 1000 };
+        var estimate = trie.EstimateCountWordsDuration(options);
+        var postingsEstimated = estimate.TotalMilliseconds * 1e6 / WordCountCostModel.DefaultNsPerPosting;
+        var result = trie.CountWords(Subset(corpus.Keys), options);
+        Assert.IsTrue(result.PostingsEvaluated <= postingsEstimated + 0.5, result.PostingsEvaluated + " postings visited, " + postingsEstimated + " estimated");
+        Assert.IsTrue(result.PostingsEvaluated > 0);
+    }
+
+    /// <summary>A caller's budget bounds the walk, so it bounds the estimate too.</summary>
+    [TestMethod]
+    public void EstimateIsCappedByTheBudget() {
+        var trie = Index(MakeCorpus(300));
+        var unbounded = trie.EstimateCountWordsDuration(new WordCountOptions());
+        var bounded = trie.EstimateCountWordsDuration(new WordCountOptions { MaxPostingsEvaluated = 10 });
+        Assert.IsTrue(bounded < unbounded, bounded + " should be less than " + unbounded);
+        Assert.AreEqual(TimeSpan.FromMilliseconds(10 * WordCountCostModel.DefaultNsPerPosting / 1e6), bounded);
+    }
+
+    /// <summary>The model on its own: a small count leaves the rate alone, a big one sets it to what was measured.</summary>
+    [TestMethod]
+    public void CostModelCalibratesOnBigCountsOnly() {
+        var model = new WordCountCostModel();
+        var options = new WordCountOptions();
+        Assert.AreEqual(WordCountCostModel.DefaultNsPerPosting, model.NsPerPosting);
+        Assert.AreEqual(TimeSpan.FromMilliseconds(2_000_000 * WordCountCostModel.DefaultNsPerPosting / 1e6), model.Estimate(2_000_000, options));
+
+        model.Record(WordCountCostModel.CalibrationMinPostings - 1, TimeSpan.FromSeconds(10)); // absurdly slow, but too small to count
+        Assert.AreEqual(WordCountCostModel.DefaultNsPerPosting, model.NsPerPosting);
+
+        model.Record(WordCountCostModel.CalibrationMinPostings, TimeSpan.FromMilliseconds(10)); // 10 ns per posting
+        Assert.AreEqual(10d, model.NsPerPosting, 1e-9);
+        Assert.AreEqual(TimeSpan.FromMilliseconds(20), model.Estimate(2_000_000, options));
+
+        model.Record(2 * WordCountCostModel.CalibrationMinPostings, TimeSpan.FromMilliseconds(400)); // 200 ns: a slow disk
+        Assert.AreEqual(200d, model.NsPerPosting, 1e-9);
+        Assert.AreEqual(TimeSpan.FromMilliseconds(400), model.Estimate(2_000_000, options));
+        // the budget still caps it
+        Assert.AreEqual(TimeSpan.FromMilliseconds(100), model.Estimate(2_000_000, new WordCountOptions { MaxPostingsEvaluated = 500_000 }));
+        // nothing to walk, nothing to pay, whatever the rate
+        Assert.AreEqual(TimeSpan.Zero, model.Estimate(0, options));
     }
 }

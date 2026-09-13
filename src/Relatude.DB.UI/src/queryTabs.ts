@@ -115,12 +115,6 @@ export interface MapStyle {
   atmosphere?: number;
   /** null takes the theme's accent */
   atmosphereColor?: string | null;
-  /** how bright the stars behind it are, 0..100; 0 is none */
-  stars?: number;
-  /** and how fast the sky creeps past, 0..100; 0 holds it still */
-  starDrift?: number;
-  starDensity?: number;
-  starTrail?: number;
   /** paint the land as land and the water as water, rather than the ball being one colour */
   land?: boolean;
   /** and how far it stands out of the water, 0..100 (of a hundredth of the globe's radius) */

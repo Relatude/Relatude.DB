@@ -88,10 +88,25 @@ internal class LogStream : IDisposable {
         }
     }
     public IEnumerable<LogRecord> Extract(DateTime from, DateTime until, int skip, int take, bool orderByDescendingDates, out int total) {
+        var result = Enumerate(from, until).ToList();
+        total = result.Count;
+        var ordered = orderByDescendingDates ? result.OrderByDescending(r => r.TimeStamp) : result.OrderBy(r => r.TimeStamp);
+        return ordered.Skip(skip).Take(take).ToList();
+    }
+    /// <summary>
+    /// Every record of a range, one at a time, oldest file first. Records within one file come in
+    /// the order they were written, which is nearly but not exactly the order they were recorded
+    /// in - a caller that needs them sorted has to sort them.
+    ///
+    /// This is what a search reads: a record is handed over, tested and let go, so a range far
+    /// larger than memory can be searched even though extracting the same range could not be held.
+    /// The stream is not threadsafe and this holds no lock of its own, so it has to be walked to
+    /// its end (or abandoned) before anything else touches the stream.
+    /// </summary>
+    public IEnumerable<LogRecord> Enumerate(DateTime from, DateTime until) {
         if (from.Kind != DateTimeKind.Utc) throw new Exception("DateTime must be UTC. ");
         if (until.Kind != DateTimeKind.Utc) throw new Exception("DateTime must be UTC. ");
         flushBufferAndReleaseOpenFiles();
-        var result = new List<LogRecord>();
         foreach (var fileDate in GetLogFileDates()) { // sorted ascending, existing files only
             if (fileDate >= until) break;
             if (fileDate.AddInterval(_fileInterval) <= from) continue; // file entirely before range
@@ -102,14 +117,11 @@ internal class LogStream : IDisposable {
                 for (int i = 0; i < count; i++) {
                     var dt = new DateTime(br.ReadInt64(), DateTimeKind.Utc);
                     var length = br.ReadInt32();
-                    if (dt >= from && dt < until) result.Add(new(dt, br.ReadBytes(length)));
+                    if (dt >= from && dt < until) yield return new(dt, br.ReadBytes(length));
                     else ms.Position += length; // not relevant, skip
                 }
             }
         }
-        total = result.Count;
-        var ordered = orderByDescendingDates ? result.OrderByDescending(r => r.TimeStamp) : result.OrderBy(r => r.TimeStamp);
-        return ordered.Skip(skip).Take(take).ToList();
     }
     // reads all segments of one log file with records overlapping [from, until)
     List<logRecordData> extractInterval(DateTime fileDate, DateTime from, DateTime until) {

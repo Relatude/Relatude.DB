@@ -95,7 +95,7 @@ export function Overview() {
     </section>
   );
 
-  // what the server wrote, shown the way it wrote it: fixed pitch, one line an entry, newest last
+  // what the server wrote, shown the way it wrote it: fixed pitch, one line an entry, newest first
   const logPanel = (
     <section className="panel panel-fill">
       <h3>
@@ -103,14 +103,14 @@ export function Overview() {
       </h3>
       <div className="term fill-body">
         {data.serverLog.length === 0 && <div className="term-empty">Empty.</div>}
-        {data.serverLog.map((e, i) => (
+        {data.serverLog.length > 0 && <div className="term-idle term-idle-top">_</div>}
+        {[...data.serverLog].reverse().map((e, i) => (
           <div key={i} className="term-line">
             <span className="term-time">{formatTime(e.timeUtc)}</span>
             <span className="term-tag" />
             <span className="term-text">{e.message}</span>
           </div>
         ))}
-        {data.serverLog.length > 0 && <div className="term-idle">_</div>}
       </div>
     </section>
   );

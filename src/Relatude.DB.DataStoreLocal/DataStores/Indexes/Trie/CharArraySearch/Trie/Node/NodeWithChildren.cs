@@ -110,6 +110,50 @@ internal class NodeWithChildren<T> : NodeBase<T> {
             Children[^1] = node;
         }
     }
+    /// <summary>
+    /// The children of a node at <paramref name="depth"/>, built in one pass from words[from..to):
+    /// every word there shares its first <paramref name="depth"/> characters and is longer than
+    /// that, the words are distinct and in ordinal order. Sorted input keeps the words of one child
+    /// contiguous, so a child is one scan for its end and one recursive call, with no lookup and no
+    /// re-allocation - where <see cref="Add"/> would scan the children and resize the array for
+    /// every word. The shape is the one Add produces for the same words: a word that is a prefix of
+    /// others becomes a node with children and a value, a word alone below a character an edge with
+    /// the rest of the word as its tail.
+    /// </summary>
+    internal static NodeBase<T>[] BuildChildren(string[] words, T?[] values, int from, int to, int depth) {
+        var count = 0;
+        for (var i = from; i < to; count++) i = EndOfGroup(words, i, to, depth);
+        var children = new NodeBase<T>[count];
+        var n = 0;
+        for (var i = from; i < to;) {
+            var end = EndOfGroup(words, i, to, depth);
+            children[n++] = BuildNode(words, values, i, end, depth);
+            i = end;
+        }
+        return children;
+    }
+    /// <summary>The index after the last word in words[i..to) that has the same character at
+    /// <paramref name="depth"/> as words[i]. Sorted input makes those words contiguous.</summary>
+    internal static int EndOfGroup(string[] words, int i, int to, int depth) {
+        var c = words[i][depth];
+        var end = i + 1;
+        while (end < to && words[end][depth] == c) end++;
+        return end;
+    }
+    /// <summary>The node for the character at <paramref name="depth"/> shared by words[from..to),
+    /// see <see cref="BuildChildren"/>.</summary>
+    internal static NodeBase<T> BuildNode(string[] words, T?[] values, int from, int to, int depth) {
+        var c = words[from][depth];
+        if (to - from == 1) return new NodeWithValue<T>(c, words[from].AsSpan(depth + 1).ToArray(), values[from]);
+        if (words[from].Length == depth + 1) { // sorted, so a word ending here comes first; the rest continue below it
+            var nodeWithValue = new NodeWithChildrenAndValue<T>(c, values[from]);
+            nodeWithValue.Children = BuildChildren(words, values, from + 1, to, depth + 1);
+            return nodeWithValue;
+        }
+        var node = new NodeWithChildren<T>(c);
+        node.Children = BuildChildren(words, values, from, to, depth + 1);
+        return node;
+    }
     public void Update(char[] word, T? value) {
         var node = GetNode(word, 0);
         if (node is NodeWithValue<T> n) n.Value = value;

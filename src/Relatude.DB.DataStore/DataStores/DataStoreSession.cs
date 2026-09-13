@@ -1,4 +1,4 @@
-﻿using Relatude.DB.AI;
+using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.FileConversion;
@@ -8,6 +8,7 @@ using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
 using Relatude.DB.Web;
 using System.Diagnostics.CodeAnalysis;
+using Relatude.DB.Query.Data;
 
 namespace Relatude.DB.DataStores;
 
@@ -214,6 +215,7 @@ public class DataStoreSession : IDataStore {
     public bool CanConvert(FileFormat from, FileFormat to) => _datastore.CanConvert(from, to);
     public bool CanConvert(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null) => _datastore.CanConvert(propertyPath, adj, ctx ?? QueryContext);
     public bool CanCountWords(Guid propertyId, QueryContext? ctx = null) => _datastore.CanCountWords(propertyId, ctx ?? QueryContext);
+    public TimeSpan EstimateWordCountDuration(Guid propertyId, WordCountOptions options, QueryContext? ctx = null) => _datastore.EstimateWordCountDuration(propertyId, options, ctx ?? QueryContext);
 
     public string GetUrl(NodeKey nodeKey, bool absolute = false, QueryContext? ctx = null) => _datastore.GetUrl(nodeKey, absolute, ctx ?? QueryContext);
     public string GetUrl(NodePath nodePath, bool absolute = false, QueryContext? ctx = null) => _datastore.GetUrl(nodePath, absolute, ctx ?? QueryContext);

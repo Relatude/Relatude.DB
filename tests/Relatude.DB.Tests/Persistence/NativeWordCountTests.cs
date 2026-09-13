@@ -292,4 +292,44 @@ public class NativeWordCountTests {
         public void CompressMemory() { }
         public void Dispose() { }
     }
+
+    // -----------------------------------------------------------------------
+    // What a count is expected to cost, before it runs
+    // -----------------------------------------------------------------------
+
+    /// <summary>The same yardstick as the memory index: zero when empty, growing with the text, never
+    /// less than the postings a count then actually visits, and the same number the memory index
+    /// gives for the same corpus - both are made from the documents' words at the same default rate.</summary>
+    [TestMethod]
+    public void EstimateFollowsTheIndexAndAgreesWithTheMemoryIndex() {
+        var dir = tempDir();
+        try {
+            var corpus = MakeCorpus(200);
+            using var engine = new TextIndexEngine(dir);
+            engine.SetWalFileId(Guid.NewGuid());
+            var index = openIndex(engine);
+            var counter = (IWordCountIndex)index;
+            var options = new WordCountOptions { MaxWords = 1000 };
+            Assert.AreEqual(TimeSpan.Zero, counter.EstimateCountWordsDuration(options));
+
+            var half = corpus.Where(d => d.Key <= 100).ToDictionary();
+            inTransaction(engine, 1000, () => { foreach (var doc in half) index.Add(doc.Key, doc.Value); });
+            var small = counter.EstimateCountWordsDuration(options);
+            Assert.IsTrue(small > TimeSpan.Zero);
+            inTransaction(engine, 1001, () => { foreach (var doc in corpus.Where(d => d.Key > 100)) index.Add(doc.Key, doc.Value); });
+            var large = counter.EstimateCountWordsDuration(options);
+            Assert.IsTrue(large > small, "more text, longer walk: " + small + " vs " + large);
+            Assert.AreEqual(memoryIndex(corpus).EstimateCountWordsDuration(options), large, "the two engines estimate from the same words");
+
+            var postingsEstimated = large.TotalMilliseconds * 1e6 / WordCountCostModel.DefaultNsPerPosting;
+            var result = count(index, corpus.Keys, options);
+            Assert.IsTrue(result.PostingsEvaluated <= postingsEstimated + 0.5, result.PostingsEvaluated + " postings visited, " + postingsEstimated + " estimated");
+
+            // a removed document takes its words, and its cost, out again
+            inTransaction(engine, 1002, () => { foreach (var doc in corpus.Where(d => d.Key > 100)) index.Remove(doc.Key, doc.Value); });
+            Assert.AreEqual(small, counter.EstimateCountWordsDuration(options));
+        } finally {
+            Directory.Delete(dir, true);
+        }
+    }
 }

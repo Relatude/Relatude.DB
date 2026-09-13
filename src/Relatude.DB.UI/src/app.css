@@ -1816,6 +1816,34 @@ a {
   color: var(--text-muted);
 }
 
+/* A heading with a fold button in it: the button, the name of the panel, and the line saying what
+   is in it, all on one row. Folded, the heading is the whole panel - and it still says what is in
+   there, which is what makes a folded panel worth leaving folded. */
+.panel h3.with-fold {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.panel.folded h3 {
+  margin-bottom: 0;
+}
+
+.panel-fold {
+  display: flex;
+  flex: none;
+  padding: 0;
+  margin-left: -3px;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.panel-fold:hover {
+  color: var(--text);
+}
+
 .muted {
   color: var(--text-muted);
 }
@@ -4175,6 +4203,136 @@ a.action-button {
   padding-bottom: 5px;
 }
 
+/* The graph and the entries, with the divider that shares the page between them. The divider is
+   the gap itself (the dashboard's .pg-hbar, 14px of target with a grip drawn on hover), so folding
+   the graph away closes the gap up rather than leaving a hole where it was. */
+.logs-split {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* no divider between them, because there is nothing to drag: the panels keep the page's rhythm */
+.logs-split > .panel + .panel {
+  margin-top: 14px;
+}
+
+.logs-divider {
+  flex: none;
+  height: 14px;
+}
+
+/* while the divider is dragged, nothing under the pointer is selected or hovered into life */
+.logs-split.resizing {
+  user-select: none;
+}
+
+/* the search over the whole range, above the table it narrows */
+.logs-search {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.logs-search-field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 320px;
+  min-width: 0;
+  padding: 5px 10px;
+  color: var(--text-muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.logs-search-field:focus-within {
+  border-color: var(--accent);
+}
+
+/* a search narrowing the table is marked, the way a filter field is */
+.logs-search-field.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.logs-search-field input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--text);
+  background: none;
+  border: none;
+  outline: none;
+}
+
+/* a search is reading the range: a quiet pulse, not a spinner */
+.logs-search-pending {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: logs-search-pulse 1s ease-in-out infinite;
+}
+
+@keyframes logs-search-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.logs-search-clear {
+  display: flex;
+  flex: none;
+  padding: 0;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.logs-search-clear:hover {
+  color: var(--text);
+}
+
+.logs-search .action-button {
+  min-width: 0;
+}
+
+.logs-search .action-button.armed {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* what a search may say: the whole syntax, in one line per form */
+.logs-search-help {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  flex-basis: 100%;
+  color: var(--text-muted);
+}
+
+.logs-search-help-item code {
+  padding: 1px 5px;
+  margin-right: 4px;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--hover);
+  border-radius: 4px;
+}
+
 /* one filter per column, sitting under its heading: what that column has to contain */
 .log-filter-input {
   width: 100%;
@@ -4748,6 +4906,12 @@ a.action-button {
   padding-top: 2px;
 }
 
+/* the same caret where the next line will land in a newest-first terminal: above the lines */
+.term-idle.term-idle-top {
+  padding-top: 0;
+  padding-bottom: 2px;
+}
+
 .term-empty {
   color: var(--term-dim);
   padding: 2px 0;
@@ -4949,7 +5113,7 @@ body.pg-resizing {
 
 .dash-tiles {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 10px;
 }
 
@@ -6876,17 +7040,29 @@ body.pg-resizing {
 
 /* donut */
 
+/* the ring and its legend take the panel between them: the ring is sized in script from what is
+   measured here (TypeChart), so this only has to hand it the room - and the same minimum the
+   treemap and the sunburst keep, so a short row scrolls rather than shrinking the chart away */
 .dash-donut {
   display: flex;
   align-items: center;
   gap: 18px;
-  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+  /* a lower floor than the treemap's: the ring has its legend beside it rather than under it, so a
+     short row still holds a chart worth looking at */
+  min-height: 150px;
+  width: 100%;
 }
 
+.dash-donut.stacked {
+  flex-direction: column;
+  align-items: center;
+}
+
+/* width and height are set on the element itself; the viewBox scales the labels with the ring */
 .dash-donut-svg {
   flex: none;
-  width: 150px;
-  height: 150px;
 }
 
 .dash-donut-arc {
@@ -6911,12 +7087,19 @@ body.pg-resizing {
   fill: var(--text-muted);
 }
 
+/* beside the ring the legend is centred on it and scrolls when the list is longer than the panel;
+   under it, it takes the width */
 .dash-donut-legend {
   flex: 1;
   min-width: 160px;
-  max-height: 190px;
+  min-height: 0;
+  max-height: 100%;
   overflow-y: auto;
   font-size: 12px;
+}
+
+.dash-donut.stacked .dash-donut-legend {
+  align-self: stretch;
 }
 
 .dash-legend-row {
@@ -8611,6 +8794,37 @@ body.pg-resizing {
 
 .cloud-stage.loading {
   opacity: 0.6;
+}
+
+/* the button that runs the count sits on the builder's line, so it is sized to that line rather
+   than to a form's row of actions */
+.cloud-calculate {
+  min-width: 0;
+  padding: 3px 10px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* the words on screen no longer match the controls: said quietly, beside the button that fixes it */
+.cloud-stale {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* what the stage says before anything has been counted, centred in the room the cloud will take */
+.cloud-prompt {
+  margin: auto;
+  max-width: 460px;
+  padding: 16px;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.cloud-prompt .link-button {
+  margin-left: 0;
 }
 
 .cloud-svg {

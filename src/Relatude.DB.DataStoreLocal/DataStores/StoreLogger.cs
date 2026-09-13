@@ -354,6 +354,10 @@ public class StoreLogger : IDisposable, IStoreLogger {
         if (_logStore == null) { total = 0; return []; }
         return _logStore.ExtractLog(logKey, from, to, skip, take, orderByDescendingDates, out total).ToArray();
     }
+    public LogEntry[] SearchLog(string logKey, LogSearch search, DateTime from, DateTime to, int skip, int take, bool orderByDescendingDates, out int total) {
+        if (_logStore == null) { total = 0; return []; }
+        return _logStore.SearchLog(logKey, search, from, to, skip, take, orderByDescendingDates, out total).ToArray();
+    }
     public Interval<int>[] AnalyseSystemLogCount(IntervalType intervalType, DateTime from, DateTime to) {
         if (_logStore == null) return [];
         return _logStore.AnalyseRows(_systemLogKey, intervalType, from, to, false, true).ToArray();

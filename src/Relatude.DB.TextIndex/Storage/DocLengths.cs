@@ -11,6 +11,8 @@ internal sealed class DocLengths {
     long _total; // exact running total, average is derived to avoid float drift
     public int DocCount => _counts.Count;
     public double AverageWordCount => _counts.Count > 0 ? (double)_total / _counts.Count : 0d;
+    /// <summary>The words of every document added up - the most postings the index can hold. What a count is estimated from.</summary>
+    public long TotalWordCount => _total;
     public bool TryGet(int id, out int wordCount) => _counts.TryGetValue(id, out wordCount);
     public void Set(int id, int wordCount) {
         if (_counts.TryGetValue(id, out var old)) _total += wordCount - old;

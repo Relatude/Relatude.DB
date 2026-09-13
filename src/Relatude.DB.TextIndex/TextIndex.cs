@@ -1,7 +1,8 @@
-﻿using Relatude.DB.Common;
+using Relatude.DB.Common;
 using Relatude.DB.DataStores.Indexes.TextIndexing;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.Query.Data;
+using System.Diagnostics;
 
 namespace Relatude.DB.DataStores.Indexes;
 
@@ -46,6 +47,7 @@ public class TextIndex : IWordIndex, IWordCountIndex {
     readonly List<Segment> _segments = []; // oldest first; later entries win during reads
     MemTable _mem = new();
     DocLengths _docs = new();
+    readonly WordCountCostModel _countCost = new(); // what CountWords is expected to cost, calibrated by what it did cost
     long _nextSegmentId = 1;
     long _generation; // bumped when the segment list changes; stamps the merged-postings cache keys
     long _persistedTimestamp;
@@ -357,6 +359,7 @@ public class TextIndex : IWordIndex, IWordCountIndex {
     /// </summary>
     public WordCountSet CountWords(IdSet subset, WordCountOptions options) {
         if (subset.Count == 0) return WordCountSet.Empty;
+        var timer = Stopwatch.StartNew();
         var maxWords = Math.Max(1, options.MaxWords);
         var minDocuments = Math.Max(1, options.MinDocuments);
         var minLength = Math.Max(MinWordLength, options.MinWordLength);
@@ -401,8 +404,13 @@ public class TextIndex : IWordIndex, IWordCountIndex {
         }
         var words = best.UnorderedItems.Select(i => i.Element).ToArray();
         Array.Sort(words, WordCount.Descending);
+        _countCost.Record(evaluated, timer.Elapsed);
         return new WordCountSet(words, distinct, _docs.DocCount, evaluated, truncated);
     }
+    /// <summary>What <see cref="CountWords"/> would cost now (see <see cref="WordCountCostModel"/>).
+    /// The rate it learns here is a disk rate: the walk reads every segment with no cache, so the
+    /// first count on a cold disk is what calibrates it, which is the honest case for this engine.</summary>
+    public TimeSpan EstimateCountWordsDuration(WordCountOptions options) => _countCost.Estimate(_docs.TotalWordCount, options);
 
     /// <summary>One term's live postings, built from the segment entries the walk has already found
     /// and the memtable's ops for it. Deliberately not <see cref="getView"/>: that looks the term up

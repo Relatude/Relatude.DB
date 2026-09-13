@@ -73,6 +73,33 @@
       "autoPort": false
     },
     {
+      "name": "website-simple-verify",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "examples/Website.Simple",
+        "--no-launch-profile",
+        "-p:BaseOutputPath=bin/ClaudeVerify/",
+        "-e",
+        "RelatudeDB__ContainerSettings__0__IOSettings__0__Path=relatude.db2",
+        "--urls",
+        "http://localhost:5064"
+      ],
+      "port": 5064,
+      "autoPort": false
+    },
+    {
+      "name": "relatude-db-ui-5064",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set PORT=5178&& set API_URL=http://localhost:5064&& npm run dev --prefix src/Relatude.DB.UI"
+      ],
+      "port": 5178,
+      "autoPort": false
+    },
+    {
       "name": "relatude-db-ui-5062",
       "runtimeExecutable": "cmd",
       "runtimeArgs": [

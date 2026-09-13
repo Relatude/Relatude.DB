@@ -422,6 +422,8 @@ export interface PivotProperty {
   geo: boolean;
   /** Text whose words this database can count: what the word cloud reads. Not every text index can. */
   words: boolean;
+  /** About how long counting those words would take, in ms, leaning towards slow - what decides whether the cloud counts unasked or waits for a click. 0 when it cannot count. */
+  wordsCostMs: number;
   /** The type that declares it, when inherited. */
   declaredBy: string | null;
 }

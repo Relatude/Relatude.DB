@@ -96,6 +96,29 @@ namespace Relatude.DB.DataStores.Indexes.Trie.CharArraySearch.Trie {
         public void Read(IReadStream stream) {
             _root = NodeWithChildren<T>.Read(stream, false);
         }
+        public bool IsEmpty => _root.Children.Length == 0;
+        /// <summary>
+        /// Builds the whole trie in one pass from <paramref name="count"/> distinct words in ordinal
+        /// order with their values (see <see cref="NodeWithChildren{T}.BuildChildren"/>). The words
+        /// below each first character form an independent subtree, so those are built in parallel.
+        /// Only for an empty trie: the shape of an existing one cannot be extended this way.
+        /// </summary>
+        public void BuildFromSorted(string[] words, T?[] values, int count) {
+            if (!IsEmpty) throw new InvalidOperationException("The trie must be empty to be built from sorted words. ");
+            if (count == 0) return;
+            if (words[0].Length == 0) throw new ArgumentException("An empty word cannot be added to the trie. ");
+            for (var i = 1; i < count; i++) {
+                if (string.CompareOrdinal(words[i - 1], words[i]) >= 0) throw new ArgumentException("The words must be distinct and in ordinal order. ");
+            }
+            var starts = new List<int>();
+            for (var i = 0; i < count; i = NodeWithChildren<T>.EndOfGroup(words, i, count, 0)) starts.Add(i);
+            var children = new NodeBase<T>[starts.Count];
+            Parallel.For(0, starts.Count, g => {
+                var to = g + 1 < starts.Count ? starts[g + 1] : count;
+                children[g] = NodeWithChildren<T>.BuildNode(words, values, starts[g], to, 0);
+            });
+            _root.Children = children;
+        }
         public void ForEachWord(wordCallback callback) {
             foreach (var c in _root.Children) TrieNodeHelpers<T>.ForEachWord(c, string.Empty, callback);
         }

@@ -12,7 +12,7 @@ import { clampView, fitView, projections, projectionOf, type View } from "../map
 import { countCountries, countryAt, countryRaster, countryRasterSize, rankedCountries } from "../map/countries";
 import { decodeMap, PointIndex, type MapGroup } from "../map/points";
 import { clusterPoints, clusterRadius, drawClusters, rodsOf, type Cluster } from "../map/clusters";
-import { createMapField, maxGlobeZoom, type GlobeCamera, type MapField, type MapScene, type MapStyle } from "../map/mapField";
+import { createMapField, maxGlobeZoom, minGlobeZoom, type GlobeCamera, type MapField, type MapScene, type MapStyle } from "../map/mapField";
 import { Momentum } from "../map/motion";
 import { world } from "../map/worldMap";
 import { readColor } from "../server/datamodel";
@@ -40,16 +40,14 @@ const markOptions: { id: MarkKind; label: string; hint: string }[] = [
 ];
 
 /**
- * What the Look panel falls back to before anyone has touched it: a globe with air round it, which
- * is what stops a dark ball on a dark page reading as a hole, and nothing else turned on.
+ * What the Look panel falls back to before anyone has touched it: a globe with air round it, its
+ * land painted, thin grey coastlines, and a low sun off the viewer's shoulder. The numbers are the
+ * ones the map was tuned to by eye, so anything changed here changes what every untouched map looks
+ * like - which is the point of them.
  */
 const styleDefaults: Required<Omit<SavedStyle, "atmosphereColor" | "landColor" | "oceanColor" | "lineColor">> = {
   atmosphere: 16,
-  stars: 0,
-  starDrift: 18,
-  starDensity: 60,
-  starTrail: 15,
-  land: false,
+  land: true,
   shading: 18,
   // the light over the viewer's left shoulder and a little above, which is where a light belongs
   // in every painting ever made
@@ -57,16 +55,27 @@ const styleDefaults: Required<Omit<SavedStyle, "atmosphereColor" | "landColor" |
   lightUp: 22,
   brightness: 95,
   ambient: 24,
-  specular: 45,
-  shine: 40,
-  landShine: 12,
+  specular: 6,
+  shine: 9,
+  landShine: 23,
   lines: true,
-  lineWidth: 13,
+  lineWidth: 4,
   earth: "off",
   rodColors: "heat",
-  rodHeight: 22,
-  rodWidth: 45,
-  rodCell: 35,
+  rodHeight: 70,
+  rodWidth: 22,
+  rodCell: 5,
+};
+
+/**
+ * And the colours it falls back to, which are the MAP's own rather than the page's: a near-black
+ * air, grey coastlines and a deep blue land, all of which read the same in either theme. Only the
+ * water still follows the page, so that a globe sits on it rather than in front of it.
+ */
+const colorDefaults: { air: RGB; line: RGB; land: RGB } = {
+  air: [51, 51, 51],
+  line: [128, 128, 128],
+  land: [29, 61, 89],
 };
 
 /** The photographs of the Earth, fetched the first time anyone asks and kept for the session. */
@@ -364,13 +373,9 @@ export function MapView({
     const up = (n(saved.lightUp, styleDefaults.lightUp) * Math.PI) / 180;
     return {
       atmosphere: n(saved.atmosphere, styleDefaults.atmosphere) / 100,
-      atmosphereColor: colour(saved.atmosphereColor, theme?.accent ?? [120, 150, 200]),
-      stars: n(saved.stars, styleDefaults.stars) / 100,
-      starDrift: (n(saved.starDrift, styleDefaults.starDrift) / 100) * 6,
-      starDensity: 0.03 + (n(saved.starDensity, styleDefaults.starDensity) / 100) * 0.75,
-      starTrail: (n(saved.starTrail, styleDefaults.starTrail) / 100) * 20,
+      atmosphereColor: colour(saved.atmosphereColor, colorDefaults.air),
       land: saved.land === true,
-      landColor: colour(saved.landColor, mix(panel, text, 0.3)),
+      landColor: colour(saved.landColor, colorDefaults.land),
       oceanColor: colour(saved.oceanColor, mix(panel, text, 0.05)),
       shading: n(saved.shading, styleDefaults.shading) / 100,
       light: {
@@ -383,7 +388,7 @@ export function MapView({
         landShine: n(saved.landShine, styleDefaults.landShine) / 100,
       },
       lines: saved.lines !== false,
-      lineColor: colour(saved.lineColor, theme ? mix(theme.line, theme.text, 0.55) : [140, 140, 140]),
+      lineColor: colour(saved.lineColor, colorDefaults.line),
       lineWidth: n(saved.lineWidth, styleDefaults.lineWidth) / 10,
       earth: saved.earth ?? styleDefaults.earth,
       rodHeight: n(saved.rodHeight, styleDefaults.rodHeight) / (globeMode ? 100 : 200),
@@ -460,26 +465,6 @@ export function MapView({
     [],
   );
 
-  /**
-   * The field flying past. A frame of it changes nothing React knows about - only the clock the
-   * shader reads - so this draws straight from the renderer rather than going round through state,
-   * which would be sixty re-renders a second to move some stars.
-   */
-  const drifting = style.stars > 0 && style.starDrift > 0;
-  useEffect(() => {
-    if (!drifting || !glOk) return;
-    let running = true;
-    const tick = () => {
-      if (!running) return;
-      field.current?.draw(sceneRef.current);
-      requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-    return () => {
-      running = false;
-    };
-  }, [drifting, glOk]);
-
   /** Where the map ends up after a hand has dragged it `dx, dy` pixels from where it was. */
   const dragged = useCallback(
     (from: { view: View; camera: GlobeCamera }, dx: number, dy: number) => {
@@ -503,7 +488,7 @@ export function MapView({
   /** And after being zoomed by `factor`, closing in on a point of the canvas. */
   const zoomed = useCallback(
     (from: { view: View; camera: GlobeCamera }, factor: number, anchor: [number, number] | null) => {
-      if (globeMode) return { camera: { ...from.camera, zoom: Math.max(1, Math.min(maxGlobeZoom, from.camera.zoom * factor)) } };
+      if (globeMode) return { camera: { ...from.camera, zoom: Math.max(minGlobeZoom, Math.min(maxGlobeZoom, from.camera.zoom * factor)) } };
       const px = anchor ? anchor[0] : size.width / 2;
       const py = anchor ? anchor[1] : size.height / 2;
       // the place under the pointer stays under the pointer, which is what makes a wheel feel like a zoom
@@ -819,16 +804,17 @@ export function MapView({
   /** bumped when something outside React's own state has changed what a frame would look like */
   const [redraw, setRedraw] = useState(0);
   // The raster is eight megabytes and takes a moment to draw, so it is asked for only once
-  // something actually needs it - the shaded countries, or land painted as land - and then never
-  // again, since the world does not change.
+  // something actually needs it - the shaded countries, which are counted through it - and then
+  // never again, since the world does not change. The land itself is drawn from triangles (see
+  // map/land.ts) and needs no raster.
   const rastered = useRef(false);
   useEffect(() => {
     // the land mask is what tells the water from the rock, so the highlight wants it too
-    if ((marks !== "countries" && !style.land && style.light.specular <= 0) || rastered.current || field.current === null) return;
+    if ((marks !== "countries" && style.light.specular <= 0) || rastered.current || field.current === null) return;
     const [w, h] = countryRasterSize();
     field.current.setSurface(countryRaster(), w, h);
     rastered.current = true;
-  }, [marks, style.land, style.light.specular, glOk]);
+  }, [marks, style.light.specular, glOk]);
   useEffect(() => {
     if (rods === null) return;
     field.current?.setRods(rods.rods, rods.counts.length);
@@ -1024,7 +1010,7 @@ export function MapView({
             <button
               className={"icon-button" + (def.look ? " active" : "")}
               aria-pressed={def.look === true}
-              title={def.look ? "Hide how the world is drawn" : "How the world is drawn: the air round it, the stars behind it, the land on it"}
+              title={def.look ? "Hide how the world is drawn" : "How the world is drawn: the air round it, the light on it, the land it carries"}
               onClick={() => onChange({ ...def, look: def.look !== true })}
             >
               {def.look ? <IconMinus size={16} stroke={1.9} /> : <IconPlus size={16} stroke={1.9} />}
@@ -1040,14 +1026,7 @@ export function MapView({
             <span className="pivot-builder-label">Air</span>
             <span className="pivot-chip">
               {slider("How far the air glows past the globe's edge — what stops a dark ball on a dark page reading as a hole in it", 0, 60, value(saved.atmosphere, styleDefaults.atmosphere), (v) => setStyle({ atmosphere: v }))}
-              <ColorField value={saved.atmosphereColor} fallback={theme ? cssOf(theme.accent) : undefined} onChange={(c) => setStyle({ atmosphereColor: c })} />
-            </span>
-            <span className="pivot-builder-label visual-label-2">Stars</span>
-            <span className="pivot-chip">
-              {slider("A field of stars behind the world, flying past the view — how bright they are, and nothing at all takes them away", 0, 100, value(saved.stars, styleDefaults.stars), (v) => setStyle({ stars: v }))}
-              {slider("How fast they come at you; nothing at all holds the field still", 0, 100, value(saved.starDrift, styleDefaults.starDrift), (v) => setStyle({ starDrift: v }))}
-              {slider("How crowded the field is", 0, 100, value(saved.starDensity, styleDefaults.starDensity), (v) => setStyle({ starDensity: v }))}
-              {slider("How far each one smears out behind itself — none is a field of points, plenty is a jump to lightspeed", 0, 100, value(saved.starTrail, styleDefaults.starTrail), (v) => setStyle({ starTrail: v }))}
+              <ColorField value={saved.atmosphereColor} fallback={cssOf(colorDefaults.air)} onChange={(c) => setStyle({ atmosphereColor: c })} />
             </span>
             <span className="pivot-builder-label visual-label-2">Lines</span>
             <span className="pivot-chip">
@@ -1055,7 +1034,7 @@ export function MapView({
               {style.lines && (
                 <>
                   {slider("How thick a coastline is, in tenths of a pixel", 4, 40, value(saved.lineWidth, styleDefaults.lineWidth), (v) => setStyle({ lineWidth: v }))}
-                  <ColorField value={saved.lineColor} fallback={theme ? cssOf(mix(theme.line, theme.text, 0.55)) : undefined} onChange={(c) => setStyle({ lineColor: c })} />
+                  <ColorField value={saved.lineColor} fallback={cssOf(colorDefaults.line)} onChange={(c) => setStyle({ lineColor: c })} />
                 </>
               )}
             </span>
@@ -1064,7 +1043,7 @@ export function MapView({
               {toggle(style.land, style.land ? "Back to a ball of one colour" : "Paint the land as land and the water as water", () => setStyle({ land: !style.land }))}
               {style.land && (
                 <>
-                  <ColorField value={saved.landColor} fallback={theme ? cssOf(mix(theme.panel, theme.text, 0.3)) : undefined} onChange={(c) => setStyle({ landColor: c })} />
+                  <ColorField value={saved.landColor} fallback={cssOf(colorDefaults.land)} onChange={(c) => setStyle({ landColor: c })} />
                   <ColorField value={saved.oceanColor} fallback={theme ? cssOf(mix(theme.panel, theme.text, 0.05)) : undefined} onChange={(c) => setStyle({ oceanColor: c })} />
                 </>
               )}

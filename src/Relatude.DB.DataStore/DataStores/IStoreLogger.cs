@@ -99,6 +99,9 @@ public interface IStoreLogger {
     /// <summary>What every log is recording right now: what a caller saves to get it back.</summary>
     LogRecordingSettings[] GetRecordingSettings();
     LogEntry[] ExtractLog(string logKey, DateTime from, DateTime to, int skip, int take, bool orderByDescendingDates, out int total);
+    /// <summary>The entries of a range that a text search matches, and how many matched in the whole
+    /// of it. Nothing is indexed: the range is read and every record in it tested.</summary>
+    LogEntry[] SearchLog(string logKey, LogSearch search, DateTime from, DateTime to, int skip, int take, bool orderByDescendingDates, out int total);
     void FlushToDiskNow();
     KeyValuePair<string, string>[] GetLogKeysAndNames();
     bool IsLogEnabled(string logKey);

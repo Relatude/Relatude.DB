@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
@@ -22,6 +22,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         => _definition.Properties.TryGetValue(propertyId, out var property)
             && property is Definitions.PropertyTypes.IWordCountProperty counter
             && counter.CanCountWords(ctx ?? QueryContext.Default);
+    public TimeSpan EstimateWordCountDuration(Guid propertyId, WordCountOptions options, QueryContext? ctx = null)
+        => _definition.Properties.TryGetValue(propertyId, out var property) && property is Definitions.PropertyTypes.IWordCountProperty counter
+            ? counter.EstimateCountWordsDuration(options, ctx ?? QueryContext.Default) : TimeSpan.Zero;
     public INodeDataExternal ToOuter(INodeDataInternal nodeDataInner, QueryContext? ctx) {
         ctx ??= _defaultQueryCtx;
         var ctxKey = _nativeModelStore.GetQueryContextKey(ctx, out var now);

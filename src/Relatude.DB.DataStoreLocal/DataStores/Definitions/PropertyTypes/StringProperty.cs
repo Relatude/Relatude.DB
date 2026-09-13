@@ -1,4 +1,4 @@
-﻿using Relatude.DB.AI;
+using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
@@ -19,6 +19,8 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 internal interface IWordCountProperty {
     bool CanCountWords(QueryContext ctx);
     bool TryCountWords(IdSet ids, WordCountOptions options, QueryContext ctx, out WordCountSet words);
+    /// <summary>About how long a count would take; zero when the words cannot be counted at all.</summary>
+    TimeSpan EstimateCountWordsDuration(WordCountOptions options, QueryContext ctx);
 }
 
 internal class StringProperty : ValueProperty<string>, IPropertyContainsValue, IWordCountProperty {
@@ -62,6 +64,8 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue, I
         words = WordCountSet.Empty;
         return false;
     }
+    public TimeSpan EstimateCountWordsDuration(WordCountOptions options, QueryContext ctx)
+        => IndexedByWords && GetWordIndex(ctx) is IWordCountIndex { CanCountWords: true } counter ? counter.EstimateCountWordsDuration(options) : TimeSpan.Zero;
     protected override string ReadValue(IReadStream stream) => stream.ReadString();
     readonly public string? DefaultValue;
     readonly public int MinLength = 0;

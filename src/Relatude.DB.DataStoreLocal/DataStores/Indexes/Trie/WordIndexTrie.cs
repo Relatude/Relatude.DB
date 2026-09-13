@@ -1,4 +1,4 @@
-﻿using Relatude.DB.Common;
+using Relatude.DB.Common;
 using Relatude.DB.DataStores.Indexes.Trie.CharArraySearch;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
@@ -58,8 +58,31 @@ internal class WordIndexTrie : IWordIndex, IWordCountIndex {
 #endif
         newSetState();
     }
-    public void RegisterAddDuringStateLoad(int nodeId, object value) => Add(nodeId, value);
-    public void RegisterRemoveDuringStateLoad(int nodeId, object value) => Remove(nodeId, value);
+    // A state load that starts from an empty trie (no snapshot, or one that never held a word) is
+    // gathered by a loader and built in one pass when the store says the replay is over, see
+    // WordIndexLoader. A trie catching up from a snapshot takes the replayed actions one by one as
+    // before: the bulk build needs an empty trie, and the tail of the log after a snapshot is short.
+    WordIndexLoader? _loader;
+    public void RegisterAddDuringStateLoad(int nodeId, object value) {
+        if (_loader == null) {
+            if (!_trie.IsEmpty) { Add(nodeId, value); return; }
+            _loader = new WordIndexLoader(_trie);
+        }
+        _changedSinceLastSave = true;
+        _loader.Add(nodeId, (string)value);
+    }
+    public void RegisterRemoveDuringStateLoad(int nodeId, object value) {
+        if (_loader == null) { Remove(nodeId, value); return; }
+        _changedSinceLastSave = true;
+        _loader.Remove(nodeId, (string)value);
+    }
+    public void CompleteStateLoad() {
+        if (_loader == null) return;
+        var loader = _loader;
+        _loader = null;
+        loader.Complete();
+        newSetState();
+    }
     public IEnumerable<string> SuggestSpelling(string query, bool boostCommonWords) => _trie.Suggest(query, boostCommonWords);
     public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
         // appending a stamp is only sound when the persisted body equals the in-memory state: the
@@ -85,7 +108,11 @@ internal class WordIndexTrie : IWordIndex, IWordCountIndex {
         _changedSinceLastSave = false; // memory now equals the body just read
     }
     public void CompressMemory() => _trie.CompressMemory();
-    public void Dispose() => _trie.Dispose();
+    public void Dispose() {
+        _loader?.Dispose(); // a load that never completed is dropped with the index, its workers stopped
+        _loader = null;
+        _trie.Dispose();
+    }
     public void ClearCache() => _trie.ClearCache();
     public List<RawSearchHit> SearchForRankedHitData(TermSet value, int pageIndex, int pageSize, int maxHitsEvaluated, int maxWordsEvaluated, bool orSearch, out int totalHits) {
         if (value.Terms.Length == 0) {
@@ -103,6 +130,7 @@ internal class WordIndexTrie : IWordIndex, IWordCountIndex {
     // of it is in CharArrayTrie.CountWords.
     public bool CanCountWords => true;
     public WordCountSet CountWords(IdSet subset, WordCountOptions options) => _trie.CountWords(subset, options);
+    public TimeSpan EstimateCountWordsDuration(WordCountOptions options) => _trie.EstimateCountWordsDuration(options);
     public long PersistedTimestamp { get; private set; }
     public void FlagFirstCommit() { }
     public string FriendlyName { get; }

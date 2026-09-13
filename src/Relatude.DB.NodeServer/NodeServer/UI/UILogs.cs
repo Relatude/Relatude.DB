@@ -187,11 +187,19 @@ sealed class UILogs {
         // reads every record in it whatever the take is, so a larger one costs a larger response
         // and no more work here.
         var take = Math.Clamp(p.Take, 1, 10000);
-        var entries = log.ExtractLog(p.LogKey, from, to, skip, take, true, out var total);
+        // A search reads the same records, and tests each one: it costs the range, not the number
+        // of matches, so what it is given is the range the page is already showing. The total then
+        // counts matches rather than entries, which is what the page says it is.
+        var search = LogSearch.Parse(p.Search, p.CaseSensitive);
+        int total;
+        var entries = search.IsEmpty
+            ? log.ExtractLog(p.LogKey, from, to, skip, take, true, out total)
+            : log.SearchLog(p.LogKey, search, from, to, skip, take, true, out total);
         return new {
             Total = total,
             Skip = skip,
             Take = take,
+            Searched = !search.IsEmpty,
             Entries = entries.Select(e => new {
                 TimestampUtc = utc(e.Timestamp),
                 e.Values,
@@ -211,11 +219,16 @@ sealed class UILogs {
     /// would otherwise be held at once. A slice is never smaller than one of the log's own files,
     /// since a smaller one would only read the same file again, and the rows come out oldest
     /// first - the order the files are walked in.
+    ///
+    /// A search narrows the file to the entries matching it. It is tested here rather than asked
+    /// of the log, because the slices are already being read one at a time: searching each of them
+    /// would read the same records twice, once to count the matches and once to write them.
     /// </summary>
     internal async Task WriteTsv(HttpContext http, ExportPayload p) {
         var log = logger(p.StoreId);
         var store = log.LogStore;
         var setting = store.GetSetting(p.LogKey); // an unknown log throws here, before anything is written
+        var search = LogSearch.Parse(p.Search, p.CaseSensitive);
         var first = asUtc(store.GetTimestampOfFirstRecord(p.LogKey));
         var last = asUtc(store.GetTimestampOfLastRecord(p.LogKey));
         var columns = setting.Properties.ToArray();
@@ -240,6 +253,7 @@ sealed class UILogs {
                     0, int.MaxValue, false, out _);
                 foreach (var entry in entries) {
                     if (http.RequestAborted.IsCancellationRequested) return;
+                    if (!search.Matches(entry, setting)) continue;
                     await writer.WriteAsync(row([
                         cell(entry.Timestamp),
                         .. columns.Select(c => cell(entry.Values.TryGetValue(c.Key, out var value) ? value : null)),
@@ -597,9 +611,13 @@ sealed class UILogs {
     sealed record StorePayload(Guid StoreId);
     sealed record LogPayload(Guid StoreId, string LogKey);
     sealed record TracePayload(Guid StoreId, int Take = 200);
-    sealed record ExtractPayload(Guid StoreId, string LogKey, DateTime? FromUtc, DateTime? ToUtc, int Skip = 0, int Take = 200);
-    // both bounds omitted is the whole log; either one on its own bounds that end of it
-    internal sealed record ExportPayload(Guid StoreId, string LogKey, DateTime? FromUtc, DateTime? ToUtc);
+    // Search is what the search box holds, and is missing or empty when there is nothing in it:
+    // every entry in the range is then listed, which is what the page shows until something is
+    // typed. CaseSensitive tells upper and lower case apart, which a search does not by itself.
+    sealed record ExtractPayload(Guid StoreId, string LogKey, DateTime? FromUtc, DateTime? ToUtc, int Skip = 0, int Take = 200, string? Search = null, bool CaseSensitive = false);
+    // both bounds omitted is the whole log; either one on its own bounds that end of it. A search
+    // narrows the file to the entries matching it, the same ones the table is showing.
+    internal sealed record ExportPayload(Guid StoreId, string LogKey, DateTime? FromUtc, DateTime? ToUtc, string? Search = null, bool CaseSensitive = false);
     sealed record SeriesPayload(Guid StoreId, string LogKey, string? Property, string Statistic, string Interval, DateTime? FromUtc, DateTime? ToUtc);
     sealed record EnablePayload(Guid StoreId, string LogKey, bool? Log, bool? Statistics);
     sealed record ClearPayload(Guid StoreId, string? LogKey, bool Log, bool Statistics);

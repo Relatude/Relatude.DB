@@ -1,4 +1,4 @@
-﻿using Relatude.DB.Common;
+using Relatude.DB.Common;
 using Relatude.DB.DataStores;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
@@ -1669,23 +1669,30 @@ sealed class UIQuery {
             // what WhereSearch reads, so a cloud of it is a cloud of what the search box searches -
             // and it is no use for anything else here, being unindexed as a value.
             .Where(property => !property.Internal || property.Id == NodeConstants.SystemTextIndexPropertyId)
-            .Select(property => new {
-                Id = property.Id,
-                Name = property.Id == NodeConstants.SystemTextIndexPropertyId ? "All text" : property.CodeName,
-                Type = property.PropertyType.ToString(),
-                Groupable = isGroupable(property),
-                Aggregatable = isAggregatable(property),
-                Numeric = isNumeric(property),
-                IsDate = property.PropertyType is PropertyType.DateTime or PropertyType.DateTimeOffset,
-                // a position: what the map view puts the nodes on the world by. It can neither group
-                // nor aggregate - a coordinate has no buckets and no sum - so it is listed on its own
-                Geo = property.PropertyType is PropertyType.GeoCoordinate,
+            .Select(property => {
                 // text whose words this database can count: what the word cloud reads. Not a model
                 // question alone - the property has to be indexed by words AND its index has to be
                 // one that can list them, which only some engines can (see IDataStore.CanCountWords)
-                Words = property is StringPropertyModel { IndexedByWords: true } && s.Datastore.CanCountWords(property.Id, adminContext),
-                DeclaredBy = property.Id == NodeConstants.SystemTextIndexPropertyId ? null
-                    : property.NodeType == typeId ? null : dm.NodeTypes.TryGetValue(property.NodeType, out var declaring) ? declaring.CodeName : null,
+                var words = property is StringPropertyModel { IndexedByWords: true } && s.Datastore.CanCountWords(property.Id, adminContext);
+                return new {
+                    Id = property.Id,
+                    Name = property.Id == NodeConstants.SystemTextIndexPropertyId ? "All text" : property.CodeName,
+                    Type = property.PropertyType.ToString(),
+                    Groupable = isGroupable(property),
+                    Aggregatable = isAggregatable(property),
+                    Numeric = isNumeric(property),
+                    IsDate = property.PropertyType is PropertyType.DateTime or PropertyType.DateTimeOffset,
+                    // a position: what the map view puts the nodes on the world by. It can neither group
+                    // nor aggregate - a coordinate has no buckets and no sum - so it is listed on its own
+                    Geo = property.PropertyType is PropertyType.GeoCoordinate,
+                    Words = words,
+                    // and about how long counting them would take, with the budget the cloud command
+                    // counts under: the page counts a cheap index as soon as the view opens, and puts a
+                    // button in front of one that would take a while (see WordCloudView)
+                    WordsCostMs = words ? s.Datastore.EstimateWordCountDuration(property.Id, new WordCountOptions { MaxPostingsEvaluated = maxCloudPostings }, adminContext).TotalMilliseconds : 0d,
+                    DeclaredBy = property.Id == NodeConstants.SystemTextIndexPropertyId ? null
+                        : property.NodeType == typeId ? null : dm.NodeTypes.TryGetValue(property.NodeType, out var declaring) ? declaring.CodeName : null,
+                };
             })
             .Where(property => property.Groupable || property.Aggregatable || property.Geo || property.Words)
             .OrderBy(property => property.Name, StringComparer.OrdinalIgnoreCase)

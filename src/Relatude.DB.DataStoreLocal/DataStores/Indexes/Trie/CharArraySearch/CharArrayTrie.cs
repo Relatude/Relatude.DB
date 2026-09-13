@@ -1,9 +1,10 @@
-﻿using Relatude.DB.IO;
+using Relatude.DB.IO;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores.Indexes.Trie.CharArraySearch.Trie;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.Query.Data;
 using System.Linq.Expressions;
+using System.Diagnostics;
 namespace Relatude.DB.DataStores.Indexes.Trie.CharArraySearch;
 // not threadsafe
 public class CharArrayTrie : IDisposable {
@@ -12,6 +13,7 @@ public class CharArrayTrie : IDisposable {
     public int MaxWordLength { get; }
     public int MinWordLength { get; }
     DocWordCounts _docWordCounts = new();
+    readonly WordCountCostModel _countCost = new(); // what CountWords is expected to cost, calibrated by what it did cost
     CharArrayTrie<HitCounts> _trie;
     InFixVariations? _infixTrie;
 
@@ -58,6 +60,22 @@ public class CharArrayTrie : IDisposable {
     }
     public bool Contains(string cleanedWord) {
         return _trie.Contains(cleanedWord.ToCharArray());
+    }
+    /// <summary>No document and no word: the state a bulk load (see <see cref="WordIndexLoader"/>) starts from.</summary>
+    public bool IsEmpty => _trie.IsEmpty && _docWordCounts.DocCount == 0;
+    /// <summary>
+    /// Fills the empty index in one pass: the word counts of every document, then the trie built
+    /// from <paramref name="count"/> distinct words in ordinal order with their hit lists, then the
+    /// infix variations of every word. What IndexText does one document at a time, for a whole
+    /// corpus at once - the loader that gathers the words and hits is <see cref="WordIndexLoader"/>.
+    /// </summary>
+    internal void BulkLoad(string[] words, HitCounts?[] hits, int count, IEnumerable<KeyValuePair<int, int>> docWordCounts) {
+        if (!IsEmpty) throw new InvalidOperationException("Bulk loading requires an empty index. ");
+        foreach (var kv in docWordCounts) _docWordCounts.Add(kv.Key, kv.Value);
+        _trie.BuildFromSorted(words, hits, count);
+        if (InfixSearch && _infixTrie != null) {
+            for (var i = 0; i < count; i++) _infixTrie.Add(words[i], words[i].ToCharArray());
+        }
     }
     public int GetHitCount(string cleanedWord) {
         if (_trie.TryGet(cleanedWord.ToCharArray(), out var hits)) {
@@ -217,6 +235,7 @@ public class CharArrayTrie : IDisposable {
     /// </summary>
     public WordCountSet CountWords(IdSet subset, WordCountOptions options) {
         if (subset.Count == 0) return WordCountSet.Empty;
+        var timer = Stopwatch.StartNew();
         var maxWords = Math.Max(1, options.MaxWords);
         var minDocuments = Math.Max(1, options.MinDocuments);
         var minLength = Math.Max(MinWordLength, options.MinWordLength);
@@ -266,8 +285,13 @@ public class CharArrayTrie : IDisposable {
         });
         var words = best.UnorderedItems.Select(i => i.Element).ToArray();
         Array.Sort(words, WordCount.Descending);
+        _countCost.Record(evaluated, timer.Elapsed);
         return new WordCountSet(words, distinct, (int)_docWordCounts.DocCount, evaluated, truncated);
     }
+    /// <summary>What <see cref="CountWords"/> would cost now: the documents' words in all, as the
+    /// most postings the walk can visit, at the rate the last big count ran at (see
+    /// <see cref="WordCountCostModel"/>).</summary>
+    public TimeSpan EstimateCountWordsDuration(WordCountOptions options) => _countCost.Estimate(_docWordCounts.TotalWordCount, options);
     public int GetTotalWordCount() => 0;
     public int GetTotalTextLength() => 0;
     public int GetUniqueWordCount() => _trie.CountWords();

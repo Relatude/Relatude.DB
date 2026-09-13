@@ -1,4 +1,4 @@
-﻿// class to keep an index of doc field word counts, needed for BM25 and BM25F scoring
+// class to keep an index of doc field word counts, needed for BM25 and BM25F scoring
 
 using Relatude.DB.IO;
 
@@ -8,6 +8,9 @@ internal class DocWordCounts {
     long _totalWordCount = 0; // exact running total, average is derived to avoid float drift and division by zero
 
     public double AverageWordCount => _counts.Count > 0 ? (double)_totalWordCount / _counts.Count : 0d;
+    /// <summary>The words of every document added up - the most postings the trie can hold, since a
+    /// word of a document is at most one posting. What a count is estimated from.</summary>
+    public long TotalWordCount => _totalWordCount;
     public int Get(int id) => _counts[id];
     public bool TryGet(int id, out int wordCount) => _counts.TryGetValue(id, out wordCount);
     internal void Add(int id, int wordCount) {

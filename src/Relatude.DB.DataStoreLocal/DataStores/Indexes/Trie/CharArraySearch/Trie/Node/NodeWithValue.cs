@@ -8,6 +8,11 @@ internal class NodeWithValue<T> : NodeBase<T> {
         Character= character;
         Tail= tail;
     }
+    public NodeWithValue(char character, char[] tail, T? value) {
+        Character = character;
+        Tail = tail;
+        Value = value;
+    }
     public NodeWithValue(char[] chars, int shift, T? value) {
         Character = chars[shift];
         Tail = new char[chars.Length - shift - 1];

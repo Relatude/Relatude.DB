@@ -1,4 +1,4 @@
-﻿using Relatude.DB.AI;
+using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
@@ -10,6 +10,7 @@ using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
 using Relatude.DB.Web;
 using System.Diagnostics.CodeAnalysis;
+using Relatude.DB.Query.Data;
 
 namespace Relatude.DB.DataStores;
 
@@ -91,6 +92,13 @@ public interface IDataStore : IDisposable {
     /// every result set, and it never changes while the database is open.
     /// </summary>
     bool CanCountWords(Guid propertyId, QueryContext? ctx = null);
+    /// <summary>
+    /// About how long counting the words of a property would take right now (<see cref="IWordSource.Words"/>),
+    /// whatever the result set: the cost of a count is the size of the index, not of the set. An
+    /// estimate that leans towards slow, for deciding whether to run a count without being asked
+    /// to; zero when the property cannot be counted at all (<see cref="CanCountWords"/>).
+    /// </summary>
+    TimeSpan EstimateWordCountDuration(Guid propertyId, WordCountOptions options, QueryContext? ctx = null);
 
     string GetUrl(NodeKey nodeKey, bool absolute = false, QueryContext? ctx = null);
     string GetUrl(NodePath nodePath, bool absolute = false, QueryContext? ctx = null);

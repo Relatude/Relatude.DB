@@ -26,6 +26,12 @@ namespace Relatude.DB.Logging {
         void Dispose();
         void EnforceLimits();
         IEnumerable<LogEntry> ExtractLog(string logKey, DateTime fromAndIncluding, DateTime upUntil, int skip, int take, bool orderByDescendingDates, out int total);
+        /// <summary>The entries of a range that a text search matches, newest or oldest first, with
+        /// the number of matches in the whole range. Nothing is indexed: the range is read and every
+        /// record in it tested, so it is the range that bounds the cost.</summary>
+        IEnumerable<LogEntry> SearchLog(string logKey, LogSearch search, DateTime fromAndIncluding, DateTime upUntil, int skip, int take, bool orderByDescendingDates, out int total);
+        /// <summary>The same, with the search written out: see <see cref="LogSearch.Parse"/> for what it may say.</summary>
+        IEnumerable<LogEntry> SearchLog(string logKey, string search, DateTime fromAndIncluding, DateTime upUntil, int skip, int take, bool orderByDescendingDates, out int total);
         void FlushToDiskNow();
         IDictionary<string, List<StatisticsInfo>> GetAvailableStatisticsByProperty(string logKey);
         long GetFileSize(string logKey);

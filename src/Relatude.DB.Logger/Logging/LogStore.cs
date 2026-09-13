@@ -22,6 +22,13 @@ public class LogStore : IDisposable, ILogStore {
         total = 0;
         return [];
     }
+    public IEnumerable<LogEntry> SearchLog(string logKey, LogSearch search, DateTime fromAndIncluding, DateTime upUntil, int skip, int take, bool orderByDescendingDates, out int total) {
+        if (get(logKey) is { } log) return log.Search(search, fromAndIncluding, upUntil, skip, take, orderByDescendingDates, out total);
+        total = 0;
+        return [];
+    }
+    public IEnumerable<LogEntry> SearchLog(string logKey, string search, DateTime fromAndIncluding, DateTime upUntil, int skip, int take, bool orderByDescendingDates, out int total)
+        => SearchLog(logKey, LogSearch.Parse(search), fromAndIncluding, upUntil, skip, take, orderByDescendingDates, out total);
     public long GetFileSize(string logKey) => get(logKey)?.GetTotalFileSize() ?? 0;
     public long GetLogFileSize(string logKey) => get(logKey)?.GetLogFileSize() ?? 0;
     public long GetStatisticsFileSize(string logKey) => get(logKey)?.GetStatisticsFileSize() ?? 0;

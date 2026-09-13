@@ -1,4 +1,4 @@
-using Microsoft.CodeAnalysis.CSharp.Syntax;
+﻿using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Indexes;
@@ -329,6 +329,13 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _wal.EnsureTimestamps(transaction.Timestamp);
             }
         }
+        // indexes that only gathered the replayed actions build themselves now (the memory word
+        // index builds its trie in one pass from the whole corpus), before the engines commit and
+        // before anything reads or saves an index
+        UpdateActivity(activityId, "Completing indexes", 100);
+        var swCompleteIndexes = Stopwatch.StartNew();
+        _index.CompleteStateLoad(txt => LogInfo("   - completed " + txt));
+        if (swCompleteIndexes.ElapsedMilliseconds >= 100) LogInfo("   Indexes completed in " + swCompleteIndexes.ElapsedMilliseconds.To1000N() + "ms. ");
         // Divergence check: an index claiming a timestamp newer than anything the log contains holds
         // transactions the durable log lost (e.g. a crash dropped a queued WAL batch after the indexes
         // had committed). Replay cannot repair that � the phantom entries would survive � and the

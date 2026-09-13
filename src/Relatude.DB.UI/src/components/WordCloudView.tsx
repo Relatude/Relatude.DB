@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { IconCloud, IconDownload, IconTable } from "@tabler/icons-react";
+import { IconCalculator, IconCloud, IconDownload, IconTable } from "@tabler/icons-react";
 import { fetchPivotModel, runCloud, type CloudRequest, type CloudResult, type CloudWord, type PivotModel } from "../server/query";
 import { useLiveResult } from "../server/hooks";
 import { formatCount, formatQuery } from "../format";
@@ -30,6 +30,18 @@ const weighings: { id: CloudDefinition["weigh"]; label: string; hint: string }[]
   { id: "occurrences", label: "Uses", hint: "How many times the word appears in all, counting repeats within a node" },
   { id: "distinctive", label: "Distinctive", hint: "How much the word belongs to THIS result rather than to the type as a whole — the words everything is written with shrink away" },
 ];
+
+/**
+ * A count expected to take longer than this is not run until asked for. Below it the cloud simply
+ * follows the query like every other view; above it a Calculate button stands in front, because
+ * walking a large index every time a facet is ticked would make the whole page feel slow for the
+ * sake of a view that may only be glanced at. The server's estimate leans towards slow and is
+ * calibrated by what its counts actually cost, so a wrong guess corrects itself after one count.
+ * What a count took here is deliberately not used: the first call after a server start can spend a
+ * second in the query path alone, and a button that appeared for that would be explaining the
+ * wrong thing.
+ */
+const slowMs = 1000;
 
 /** The smallest and largest a word is drawn, against the contrast slider. */
 const smallestFont = 11;
@@ -128,7 +140,9 @@ export function WordCloudView({
 
   const property = texts.some((p) => p.id === def.property) ? def.property : (texts[0]?.id ?? null);
 
-  const request = useMemo<CloudRequest | null>(() => {
+  // What a count would ask for right now. Only what the server needs is in here; how the words are
+  // then weighed, coloured and laid out is the browser's own and follows the definition directly.
+  const pending = useMemo<CloudRequest | null>(() => {
     if (model === null || definition === null || property === null) return null;
     return {
       storeId: base.storeId,
@@ -143,10 +157,38 @@ export function WordCloudView({
       minWordLength: def.minWordLength,
       ignore: def.ignore,
     };
-    // the token is not part of the request; a new object is how the runner is told to run again
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model, definition === null, base, property, def.maxWords, def.minDocuments, def.minWordLength, def.ignore, refreshToken]);
-  const { result, loading, error } = useLiveResult(request, runCloud);
+  }, [model, definition === null, base, property, def.maxWords, def.minDocuments, def.minWordLength, def.ignore]);
+  // whether the count waits to be asked for (see slowMs): the server's estimate for this property
+  const manual = (texts.find((p) => p.id === property)?.wordsCostMs ?? 0) > slowMs;
+
+  // the request the words on screen were counted with; a copy, so pressing the button again is a
+  // new object and the runner runs again even when nothing changed
+  const [submitted, setSubmitted] = useState<CloudRequest | null>(null);
+  const calculate = () => {
+    if (pending !== null) setSubmitted({ ...pending });
+  };
+  // a cheap count follows the query: every change to what would be asked is asked at once, and so
+  // is the page being run again
+  useEffect(() => {
+    if (manual) return;
+    setSubmitted(pending === null ? null : { ...pending });
+  }, [manual, pending, refreshToken]);
+  // a slow one is only asked for: the button, and the page being run again as a whole - a cloud
+  // that has been counted is then counted again with what the controls say now, one that never
+  // was stays uncounted
+  const latestPending = useRef(pending);
+  latestPending.current = pending;
+  const seenToken = useRef(refreshToken);
+  useEffect(() => {
+    if (seenToken.current === refreshToken) return;
+    seenToken.current = refreshToken;
+    if (!manual) return; // the effect above has already run again with the token
+    setSubmitted((was) => (was === null || latestPending.current === null ? was : { ...latestPending.current }));
+  }, [refreshToken, manual]);
+  const { result, loading, error } = useLiveResult(submitted, runCloud);
+  // the controls have moved on from what the words on screen were counted with
+  const stale = manual && submitted !== null && pending !== null && JSON.stringify(pending) !== JSON.stringify(submitted);
 
   // ---- drawing it ----
 
@@ -315,6 +357,23 @@ export function WordCloudView({
                 onChange={(e) => set({ minWordLength: Math.max(0, Math.min(30, Number(e.target.value) || 0)) })}
               />
             </label>
+            {/* in the options group rather than beside it, so on a narrow page it wraps with them as one right-aligned unit instead of landing alone under the label */}
+            {stale && (
+              <span className="cloud-stale" title="The words on screen were counted with other settings or another result. Press Calculate to count again.">
+                settings changed
+              </span>
+            )}
+            {manual && (
+              <button
+                className="action-button primary cloud-calculate"
+                title="Count the words of this result. On an index this size the count takes a moment, so it is only done when asked."
+                disabled={pending === null || loading}
+                onClick={calculate}
+              >
+                <IconCalculator size={14} stroke={1.8} />
+                {loading ? "Counting…" : "Calculate"}
+              </button>
+            )}
           </div>
         </div>
         <div className="pivot-builder-row">
@@ -367,6 +426,7 @@ export function WordCloudView({
         </div>
       )}
 
+      {!result && head && <div className="pivot-head">{head}</div>}
       {result && (
         <div className="pivot-head">
           {head}
@@ -451,6 +511,21 @@ export function WordCloudView({
           </svg>
         )}
         {!bars && result && weighted.length === 0 && !loading && <div className="query-empty">No words: nothing in this result has any text in that property.</div>}
+        {manual && !result && !error && model !== null && texts.length > 0 && (
+          <div className="cloud-prompt">
+            {loading ? (
+              "Counting the words of this result…"
+            ) : (
+              <>
+                Nothing counted yet.{" "}
+                <button className="link-button" disabled={pending === null} onClick={calculate}>
+                  Calculate
+                </button>{" "}
+                reads every word of the property's index and counts how much of this result holds each. No node is opened, but on an index this size it takes a moment, so it is only done when asked.
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

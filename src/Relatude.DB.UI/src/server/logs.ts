@@ -68,9 +68,12 @@ export interface LogEntry {
 }
 
 export interface LogPage {
+  /** Entries in the range, or - when a search was made - entries in it that the search matched. */
   total: number;
   skip: number;
   take: number;
+  /** true when a search narrowed the page, so `total` counts matches rather than entries. */
+  searched: boolean;
   entries: LogEntry[];
 }
 
@@ -142,8 +145,71 @@ export function fetchLogsInfo(storeId: string): Promise<LogsInfo> {
   return send<LogsInfo>("logs-info", { storeId });
 }
 
-export function fetchLogPage(storeId: string, logKey: string, fromUtc: string | null, toUtc: string | null, skip: number, take: number): Promise<LogPage> {
-  return send<LogPage>("logs-extract", { storeId, logKey, fromUtc, toUtc, skip, take });
+/**
+ * A page of a log: the entries of a range, newest first, or the ones a search matches.
+ *
+ * The search is read on the server, which tests every record of the range against it - there is no
+ * index behind it, so it is the range that decides what it costs, not the search. See
+ * {@link searchHelp} for what a search may say.
+ */
+export function fetchLogPage(
+  storeId: string,
+  logKey: string,
+  fromUtc: string | null,
+  toUtc: string | null,
+  skip: number,
+  take: number,
+  search?: string,
+  caseSensitive?: boolean,
+): Promise<LogPage> {
+  return send<LogPage>("logs-extract", { storeId, logKey, fromUtc, toUtc, skip, take, search: search ?? null, caseSensitive: caseSensitive ?? false });
+}
+
+/** What a search may say, as the page shows it under the search box. */
+export const searchHelp = [
+  ["timeout", "an entry with this anywhere in it"],
+  ["get*nodes", "* is any run of characters, ? exactly one"],
+  ['"could not open"', "a phrase, since a space is otherwise two terms"],
+  ["error -shutdown", "both hold: one anywhere, the other nowhere"],
+  ["type:error", "one column, by its name or its key"],
+] as const;
+
+/**
+ * Whether a value holds what was typed into a search or a filter field.
+ *
+ * The same rule the server searches by, so the filter row under the column headings and the
+ * search box above the table agree: the text is looked for anywhere in the value, and `*` (any
+ * run of characters) and `?` (exactly one) stand for what is not being typed out. Both sides are
+ * lower-cased by the caller when case is not being told apart.
+ */
+export function matchesTerm(text: string, term: string): boolean {
+  if (term.length === 0) return true;
+  if (!/[*?]/.test(term)) return text.includes(term);
+  // the pattern covers the whole of the text, so it is padded to mean "anywhere in it"
+  return matchesWildcard(text, "*" + term + "*");
+}
+
+function matchesWildcard(text: string, pattern: string): boolean {
+  let t = 0;
+  let p = 0;
+  let starP = -1; // the last * met, to come back to when the run after it does not fit
+  let starT = 0;
+  while (t < text.length) {
+    if (p < pattern.length && (pattern[p] === "?" || pattern[p] === text[t])) {
+      t++;
+      p++;
+    } else if (p < pattern.length && pattern[p] === "*") {
+      starP = p++;
+      starT = t;
+    } else if (starP >= 0) {
+      p = starP + 1;
+      t = ++starT;
+    } else {
+      return false;
+    }
+  }
+  while (p < pattern.length && pattern[p] === "*") p++;
+  return p === pattern.length;
 }
 
 export function fetchSeries(
@@ -209,14 +275,22 @@ export function restoreLogSettings(storeId: string): Promise<{ restored: boolean
 
 /**
  * Downloads a log as tab separated text: the range between the two bounds, or - with both left
- * null - the whole log. This is not a command but a file, so it goes to a route of its own and
- * comes back as an attachment the browser saves.
+ * null - the whole log. A search narrows the file to the entries matching it, the same ones the
+ * table is showing. This is not a command but a file, so it goes to a route of its own and comes
+ * back as an attachment the browser saves.
  */
-export async function downloadLogTsv(storeId: string, logKey: string, fromUtc: string | null, toUtc: string | null): Promise<void> {
+export async function downloadLogTsv(
+  storeId: string,
+  logKey: string,
+  fromUtc: string | null,
+  toUtc: string | null,
+  search?: string,
+  caseSensitive?: boolean,
+): Promise<void> {
   const response = await fetch(`${adminBase}/ui/log-tsv`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ storeId, logKey, fromUtc, toUtc }),
+    body: JSON.stringify({ storeId, logKey, fromUtc, toUtc, search: search ?? null, caseSensitive: caseSensitive ?? false }),
   });
   if (!response.ok) {
     let message = `The download failed (HTTP ${response.status}).`;

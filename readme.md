@@ -2,19 +2,9 @@
 
 **A complete, all-in-one storage layer for .NET web applications.**
 
-Relatude.DB isn't a traditional database. It is an open-source, object-oriented graph database and application layer where your C# classes serve as the schema. 
+Relatude.DB isn't a traditional database. It is an open-source, database and application layer where your C# classes serve as the schema. 
 
 In a typical web project, you usually have to wire together a relational database, an ORM, a dedicated search engine, file storage, and now vector databases for AI features. Relatude.DB replaces that entire stack. It gives you a single tool that handles data, files, search, and relationships out of the box.
-
-### The Honest Pitch: Scale & Performance
-
-We want to be completely transparent: Relatude.DB is not a drop-in replacement or direct competitor to massive-scale distributed systems like SQL Server, PostgreSQL, or Neo4j. 
-
-If you are building a system that needs to crunch billions of rows, use a dedicated system. **The upper practical limit for Relatude.DB is somewhere around 100 million objects.** This isn't a hard system limit, but it's the boundary where you should considering specialized distributed architectures.
-
-However, within that space, **Relatude.DB is incredibly fast.** Because it runs in-process and avoids the overhead of mapping layers, you will find it significantly outperforms typical ORM setups like Entity Framework or other in-process databases like SQLite. 
-
-For the 95% of projects that easily fit within this scale, wiring up complex micro-infrastructure is a waste of time. Relatude.DB is designed to drastically speed up your development by giving you exactly what you need—and more.
 
 ## Why use it?
 

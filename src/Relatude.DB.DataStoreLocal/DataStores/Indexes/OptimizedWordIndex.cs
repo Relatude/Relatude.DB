@@ -1,4 +1,4 @@
-﻿using Relatude.DB.Common;
+using Relatude.DB.Common;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 using Relatude.DB.Query.Data;
@@ -36,7 +36,15 @@ public class OptimizedWordIndex(IWordIndex index) : IWordIndex, IWordCountIndex 
         _o.Dequeue(); // a queued add or remove is part of the index as far as any reader is concerned
         return counter.CountWords(subset, options);
     }
+    public TimeSpan EstimateCountWordsDuration(WordCountOptions options) {
+        if (_i is not IWordCountIndex counter || !counter.CanCountWords)
+            throw new NotSupportedException("The word index \"" + FriendlyName + "\" cannot count the words of a set of nodes. ");
+        // no Dequeue: an estimate reads nothing of the index's content, and a queued add or remove
+        // moves the answer by one document's words
+        return counter.EstimateCountWordsDuration(options);
+    }
     public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) { _o.Dequeue(); _i.WriteNewTimestampDueToRewriteHotswap(newTimestamp, walFileId); }
+    public void CompleteStateLoad() => _i.CompleteStateLoad(); // must be forwarded, see IIndex.CompleteStateLoad
     public void ReadStateForMemoryIndexes(Guid walFileId) { _o.Dequeue(); _i.ReadStateForMemoryIndexes(walFileId); }
     public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) { _o.Dequeue(); _i.SaveStateForMemoryIndexes(logTimestamp, walFileId); }
     //public int MaxCount(string value, bool orSearch) { _o.Dequeue(); return _i.MaxCount(value, orSearch); }

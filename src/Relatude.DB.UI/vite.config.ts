@@ -16,6 +16,7 @@ export default defineConfig({
   build: {
     // the build output is embedded in the Relatude.DB.NodeServer assembly (see the csproj)
     // and served at {ApiUrlRoot}; fixed file names, the server adds hash-based cache busting
+    chunkSizeWarningLimit: 2000,
     outDir: "../Relatude.DB.NodeServer/NodeServer/ClientUI",
     emptyOutDir: true,
     rollupOptions: {

@@ -2,14 +2,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   IconAlertTriangle,
   IconChartHistogram,
+  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconDeviceFloppy,
   IconDownload,
   IconEraser,
+  IconHelpCircle,
+  IconLetterCase,
   IconReload,
   IconRotate,
+  IconSearch,
   IconTrash,
+  IconX,
 } from "@tabler/icons-react";
 import { Chart, groupColor, intervalLabel } from "./Chart";
 import { showChoice, showConfirm, showError, showInfo } from "../dialogs";
@@ -22,10 +27,12 @@ import {
   fetchScans,
   fetchSeries,
   fetchTrace,
+  matchesTerm,
   rebuildStatistics,
   recordScans,
   restoreLogSettings,
   saveLogSettings,
+  searchHelp,
   setMinQueryDuration,
   type IntervalType,
   type LogColumn,
@@ -247,11 +254,71 @@ const pageSize = 100;
  * on the server reads every record in it whatever the take is, so the window costs a larger
  * response and no more work there - but it is still a window, and the table says so when the range
  * holds more entries than fit in it.
+ *
+ * The search box above the table is the other half of this, and the one to reach for when the
+ * window is not enough: it is read on the server, over every entry in the range.
  */
 const filterWindow = 5000;
 
 /** The key the time column's filter is kept under. No log declares a property named like this. */
 const timeKey = "*time";
+
+/**
+ * A search as it was asked for: the text and whether case was being told apart.
+ *
+ * The field is not this. A search reads every record of the range - minutes of it, on a log of a
+ * busy database kept for a month - so it is run when it is asked for and not while it is being
+ * written. This is what was asked for, and the page holds it until it is asked for again.
+ */
+interface AppliedSearch {
+  text: string;
+  caseSensitive: boolean;
+}
+const noSearch: AppliedSearch = { text: "", caseSensitive: false };
+
+/**
+ * How the two panels of a log share the page: whether each is open, and how tall the graph is.
+ *
+ * One reader comes for the graph and one comes for the entries, and they are usually the same
+ * reader an hour apart - so either panel folds away to its heading, and the divider between them
+ * gives the graph as much of the page as it is worth today. It is kept for every log rather than
+ * per log: a reader who has folded the graph away has folded away graphs, not this one's.
+ */
+interface LogsLayout {
+  statistics: boolean;
+  entries: boolean;
+  chartHeight: number;
+}
+const defaultLayout: LogsLayout = { statistics: true, entries: true, chartHeight: 210 };
+const layoutKey = "logs:layout";
+const minChartHeight = 90;
+const maxChartHeight = 900;
+
+function readLayout(): LogsLayout {
+  try {
+    const saved = localStorage.getItem(layoutKey);
+    if (!saved) return defaultLayout;
+    const parsed = JSON.parse(saved) as Partial<LogsLayout>;
+    return {
+      statistics: parsed.statistics !== false,
+      entries: parsed.entries !== false,
+      // a height saved by a version that drew the graph differently is still a number
+      chartHeight:
+        typeof parsed.chartHeight === "number" && isFinite(parsed.chartHeight)
+          ? Math.min(maxChartHeight, Math.max(minChartHeight, parsed.chartHeight))
+          : defaultLayout.chartHeight,
+    };
+  } catch {
+    return defaultLayout; // private windows and cleared site data: the default is no worse
+  }
+}
+function writeLayout(layout: LogsLayout) {
+  try {
+    localStorage.setItem(layoutKey, JSON.stringify(layout));
+  } catch {
+    // nothing to do about it, and nothing depends on it holding
+  }
+}
 
 function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChanged: () => void }) {
   const [rangeId, setRangeId] = useState("24h");
@@ -259,11 +326,21 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
   const [series, setSeries] = useState<SeriesData | null>(null);
   const [seriesError, setSeriesError] = useState<string | null>(null);
   const [page, setPage] = useState<LogPage | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
   const [skip, setSkip] = useState(0);
   const [live, setLive] = useState(false);
-  const [tick, setTick] = useState(0);
+  const [tick, setTick] = useState(0); // an explicit refresh: a button, or an action that changed something
+  const [liveTick, setLiveTick] = useState(0); // the live timer, which nobody asked for one by one
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [downloading, setDownloading] = useState(false);
+  // what the search box holds and what has been asked for: the field runs ahead of the search
+  // until the button (or Enter) sends it, since reading the range is what a search costs
+  const [searchText, setSearchText] = useState("");
+  const [matchCase, setMatchCase] = useState(false);
+  const [applied, setApplied] = useState<AppliedSearch>(noSearch);
+  const [loading, setLoading] = useState(false);
+  const [layout, setLayout] = useState<LogsLayout>(readLayout);
+  const [resizing, setResizing] = useState(false);
   const range = ranges.find((r) => r.id === rangeId) ?? ranges[2];
   const selected = log.series.find((s) => seriesId(s) === seriesKey) ?? log.series[0];
   const columns = log.columns;
@@ -274,12 +351,73 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
     .map(([key, text]) => ({ key, column: columns.find((c) => c.key === key) ?? null, needle: text.trim().toLowerCase() }))
     .filter((f) => f.needle.length > 0);
   const filtering = needles.length > 0;
+  const searching = applied.text.length > 0; // what the server was asked for, not what the field holds
+  // the field says something the last search did not, so there is a search to run
+  const unsearched = searchText.trim() !== applied.text || matchCase !== applied.caseSensitive;
   const filterKey = needles.map((f) => f.key + "=" + f.needle).join("\n"); // what a fetch or a page reset depends on
 
-  useEffect(() => setSkip(0), [rangeId, log.key, filterKey]);
+  useEffect(() => setSkip(0), [rangeId, log.key, filterKey, applied]);
+
+  // Runs what the field holds. A search asked for again with the same words is run again rather
+  // than ignored - the button is also how a search is repeated over what has been recorded since.
+  function runSearch(text = searchText, caseSensitive = matchCase) {
+    setApplied({ text: text.trim(), caseSensitive });
+  }
+  // Emptying the field needs no button: there is nothing to read, and the whole range is what the
+  // table falls back to.
+  function clearSearch() {
+    setSearchText("");
+    if (searching) setApplied(noSearch);
+  }
+  // The case button is a search of its own once one is on screen: it was clicked to see the answer
+  // change, not to arm a second click.
+  function toggleCase(on: boolean) {
+    setMatchCase(on);
+    if (searching) runSearch(searchText, on);
+  }
+
+  function togglePanel(which: "statistics" | "entries") {
+    setLayout((current) => {
+      const next = { ...current, [which]: !current[which] };
+      writeLayout(next);
+      return next;
+    });
+  }
+  // The divider sizes the graph above it, in pixels, the way the dashboard's rows are sized: the
+  // page scrolls, so there is no total height to hand back and forth between the two panels.
+  function startResize(e: React.MouseEvent) {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startHeight = layout.chartHeight;
+    setResizing(true);
+    document.body.style.cursor = "row-resize";
+    const move = (ev: MouseEvent) => {
+      const height = Math.min(maxChartHeight, Math.max(minChartHeight, startHeight + ev.clientY - startY));
+      setLayout((current) => ({ ...current, chartHeight: height }));
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      document.body.style.cursor = "";
+      setResizing(false);
+      setLayout((current) => {
+        writeLayout(current); // once, at the end: a height is not worth a write per pixel
+        return current;
+      });
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }
+  function resetChartHeight() {
+    setLayout((current) => {
+      const next = { ...current, chartHeight: defaultLayout.chartHeight };
+      writeLayout(next);
+      return next;
+    });
+  }
   // one refresh per bucket at the fastest: a graph drawn a second at a time that only moved every
   // five seconds would stand still for five of its points and then jump
-  usePoll(() => setTick((t) => t + 1), { enabled: live, minMs: range.interval === "Second" ? 1000 : 5000 });
+  usePoll(() => setLiveTick((t) => t + 1), { enabled: live, minMs: range.interval === "Second" ? 1000 : 5000 });
 
   // A filter pages in the browser, over one window of the newest entries; without one the server
   // pages, a hundred rows at a time. So typing in a filter field never fetches anything: only
@@ -287,8 +425,14 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
   const take = filtering ? filterWindow : pageSize;
   const windowSkip = filtering ? 0 : skip;
 
-  // one window for both halves of the page: the graph and the entries under it always cover the
-  // same range, so a spike in the graph is in the table below it
+  // Both halves of the page cover the same range, so a spike in the graph is in the table below
+  // it. The graph is read from the statistics and costs nothing, so it follows the live refresh;
+  // the entries are read from the log files, and a search reads every one of them in the range -
+  // repeating that on a timer is the one thing the button is there to stop. So a live refresh
+  // leaves an applied search alone, and the button is how it is run over what has come in since.
+  const seriesTick = tick + liveTick;
+  const pageTick = tick + (searching ? 0 : liveTick);
+
   useEffect(() => {
     let cancelled = false;
     const to = new Date();
@@ -304,13 +448,34 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
         setSeries(null);
         setSeriesError(e instanceof Error ? e.message : String(e));
       });
-    fetchLogPage(db.id, log.key, from.toISOString(), to.toISOString(), windowSkip, take)
-      .then((p) => !cancelled && setPage(p))
-      .catch(() => !cancelled && setPage(null));
     return () => {
       cancelled = true;
     };
-  }, [db.id, log.key, selected, range, windowSkip, take, tick]);
+  }, [db.id, log.key, selected, range, seriesTick]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const to = new Date();
+    const from = new Date(to.getTime() - range.ms);
+    setLoading(true);
+    fetchLogPage(db.id, log.key, from.toISOString(), to.toISOString(), windowSkip, take, applied.text, applied.caseSensitive)
+      .then((p) => {
+        if (cancelled) return;
+        setPage(p);
+        setPageError(null);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setPage(null);
+        setPageError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [db.id, log.key, range, windowSkip, take, pageTick, applied]);
 
   function setFilter(key: string, text: string) {
     setFilters((current) => ({ ...current, [key]: text }));
@@ -349,26 +514,35 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
    * The range the page is showing is the one usually wanted, but a log is kept for days beyond it,
    * and reading the whole of it is a walk through every file it has - a choice worth making on
    * purpose rather than discovering as a wait. So both are offered, each saying how much it is.
+   *
+   * A search holds for the file as well as for the table: the file is the entries on screen, not
+   * the ones the search was written to leave out. Searching the whole log is the way to reach past
+   * the range without widening it, so the search is said in both choices.
    */
   async function download() {
     const to = new Date();
     const from = new Date(to.getTime() - range.ms);
     const inRange = page ? ` · ${formatCount(page.total)} ${page.total === 1 ? "entry" : "entries"}` : "";
-    const choices = [{ label: `The last ${range.label}${inRange}`, hint: "the range the page is showing" }];
+    const matching = searching ? " matching the search" : "";
+    const choices = [{ label: `The last ${range.label}${inRange}`, hint: "the range the page is showing" + matching }];
     // what the log holds beyond the range is only known once its files have been looked at
     if (log.firstRecordUtc && log.lastRecordUtc) {
       choices.push({
         label: "The whole log",
-        hint: `${formatTime(log.firstRecordUtc)} — ${formatTime(log.lastRecordUtc)} · ${formatBytes(log.logBytes)} on disk`,
+        hint: `${formatTime(log.firstRecordUtc)} — ${formatTime(log.lastRecordUtc)} · ${formatBytes(log.logBytes)} on disk${matching}`,
       });
     }
-    const picked = await showChoice("Download as tab separated text", "How much of this log should the file hold?", choices);
+    const picked = await showChoice(
+      "Download as tab separated text",
+      searching ? `How much of this log should be searched for "${applied.text}"?` : "How much of this log should the file hold?",
+      choices,
+    );
     if (picked === null) return;
     setDownloading(true);
     try {
       // both bounds left out is the whole log, however far back its files reach
-      if (picked === 0) await downloadLogTsv(db.id, log.key, from.toISOString(), to.toISOString());
-      else await downloadLogTsv(db.id, log.key, null, null);
+      if (picked === 0) await downloadLogTsv(db.id, log.key, from.toISOString(), to.toISOString(), applied.text, applied.caseSensitive);
+      else await downloadLogTsv(db.id, log.key, null, null, applied.text, applied.caseSensitive);
     } catch (e) {
       await showError("Could not download the log", e instanceof Error ? e.message : String(e));
     } finally {
@@ -388,8 +562,11 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
   }
 
   const entries = page?.entries ?? [];
-  // every filter has to match, so a row narrows with each field typed into
-  const matches = filtering ? entries.filter((entry) => needles.every((f) => haystack(entry, f.key, f.column).includes(f.needle))) : entries;
+  // every filter has to match, so a row narrows with each field typed into. A filter takes the
+  // same wildcards the search box does, over what the browser holds rather than the whole range
+  const matches = filtering
+    ? entries.filter((entry) => needles.every((f) => haystack(entry, f.key, f.column).some((text) => matchesTerm(text, f.needle))))
+    : entries;
   const rows = filtering ? matches.slice(skip, skip + pageSize) : matches;
   const total = filtering ? matches.length : (page?.total ?? 0);
   // the range holds more than the filter window brought back, so the filter has not seen all of it
@@ -413,7 +590,10 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
         <button
           className={"action-button" + (live ? " armed" : "")}
           onClick={() => setLive(!live)}
-          title={range.interval === "Second" ? "Refresh every second" : "Refresh every five seconds"}
+          title={
+            (range.interval === "Second" ? "Refresh every second" : "Refresh every five seconds") +
+            (searching ? " — a search is not run again on a timer, only by the Search button" : "")
+          }
         >
           <IconReload size={15} stroke={1.8} /> Live
         </button>
@@ -445,10 +625,16 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
         </button>
       </div>
 
-      <section className="panel">
-        <h3>
+      {/* the two panels and the divider that shares the page between them: the divider is the gap,
+          so a folded graph leaves nothing to drag and the panels sit together */}
+      <div className={"logs-split" + (resizing ? " resizing" : "")}>
+      <section className={"panel" + (layout.statistics ? "" : " folded")}>
+        <h3 className="with-fold">
+          <FoldButton open={layout.statistics} label="the statistics" onToggle={() => togglePanel("statistics")} />
           Statistics <span className="panel-sub">{summaryText(series)}</span>
         </h3>
+        {layout.statistics && (
+          <>
         <div className="logs-series">
           {log.series.map((s) => (
             <button
@@ -471,6 +657,7 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
               interval={series.interval}
               format={valueFormatter(selected, series)}
               integer={series.kind === "count" || series.kind === "groups" || selected.dataType === "Integer"}
+              height={layout.chartHeight}
             />
             {series.kind === "groups" && series.groups.length > 0 && (
               <div className="chart-legend">
@@ -505,17 +692,47 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
             </div>
           </>
         ) : null}
+          </>
+        )}
       </section>
 
-      <section className="panel">
-        <h3>
-          Entries <span className="panel-sub">{entriesText(range.label, total, skip, rows.length, filtering, entries.length)}</span>
-          {filtering && (
+      {layout.statistics && (
+        <div
+          className={"pg-bar pg-hbar logs-divider" + (resizing ? " active" : "")}
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize the graph"
+          onMouseDown={startResize}
+          onDoubleClick={resetChartHeight}
+          title="Drag to resize the graph — double-click to reset"
+        />
+      )}
+
+      <section className={"panel" + (layout.entries ? "" : " folded")}>
+        <h3 className="with-fold">
+          <FoldButton open={layout.entries} label="the entries" onToggle={() => togglePanel("entries")} />
+          Entries <span className="panel-sub">{entriesText(range.label, total, skip, rows.length, filtering, entries.length, searching)}</span>
+          {filtering && layout.entries && (
             <button className="link-button" onClick={() => setFilters({})} title="Empty every filter field">
               Clear filter
             </button>
           )}
         </h3>
+        {layout.entries && (
+          <>
+        {/* The search reads the whole range on the server, the filter row under the headings only
+            what the browser holds: this is the one to reach for when the range is large. */}
+        <SearchBox
+          value={searchText}
+          onChange={setSearchText}
+          onSearch={() => runSearch()}
+          onClear={clearSearch}
+          caseSensitive={matchCase}
+          onCaseSensitive={toggleCase}
+          unsearched={unsearched}
+          busy={loading && searching}
+          rangeLabel={range.label}
+        />
         {!log.enabledLog && (
           <div className="logs-note">
             Entries are not being recorded.
@@ -524,10 +741,12 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
             </button>
           </div>
         )}
+        {pageError && <div className="logs-note">{pageError}</div>}
         {beyondWindow && (
           <div className="logs-note">
-            The filter searches the newest {formatCount(entries.length)} of the {formatCount(page?.total ?? 0)} entries in this range; the older ones
-            are not searched. The download holds every one of them.
+            The filter searches the newest {formatCount(entries.length)} of the {formatCount(page?.total ?? 0)}{" "}
+            {searching ? "entries matching the search" : "entries in this range"}; the older ones are not searched.
+            {searching ? " The search itself reads every one of them." : " The search box above reads every one of them."}
           </div>
         )}
         <div className="log-table">
@@ -564,7 +783,15 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
               })}
             </div>
           ))}
-          {rows.length === 0 && <div className="log-table-empty">{filtering ? "Nothing matches the filter." : "No entries in this range."}</div>}
+          {rows.length === 0 && (
+            <div className="log-table-empty">
+              {filtering
+                ? "Nothing matches the filter."
+                : searching
+                  ? `Nothing in the last ${range.label} matches the search.`
+                  : "No entries in this range."}
+            </div>
+          )}
         </div>
         {total > pageSize && (
           <div className="logs-paging">
@@ -576,7 +803,107 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
             </button>
           </div>
         )}
+          </>
+        )}
       </section>
+      </div>
+    </div>
+  );
+}
+
+/** Folds a panel away to its heading, and back. The heading keeps saying what is in there. */
+function FoldButton({ open, label, onToggle }: { open: boolean; label: string; onToggle: () => void }) {
+  return (
+    <button className="panel-fold" onClick={onToggle} title={(open ? "Fold away " : "Open ") + label} aria-expanded={open}>
+      {open ? <IconChevronDown size={14} stroke={2} /> : <IconChevronRight size={14} stroke={2} />}
+    </button>
+  );
+}
+
+/**
+ * The search over the whole range.
+ *
+ * It is read on the server, which tests every record in the range against it: a search of the last
+ * hour is an instant, and a search of a month of a busy log is a wait of minutes. So it is asked
+ * for, not typed into - the button (or Enter) is what sends it, and the field says what would be
+ * sent until then. What may be written in it is otherwise only found by guessing, so the syntax
+ * stands under the field while it is in use.
+ */
+function SearchBox({
+  value,
+  onChange,
+  onSearch,
+  onClear,
+  caseSensitive,
+  onCaseSensitive,
+  unsearched,
+  busy,
+  rangeLabel,
+}: {
+  value: string;
+  onChange: (text: string) => void;
+  onSearch: () => void;
+  onClear: () => void;
+  caseSensitive: boolean;
+  onCaseSensitive: (on: boolean) => void;
+  /** the field says something the last search did not, so the button has something to do */
+  unsearched: boolean;
+  busy: boolean;
+  rangeLabel: string;
+}) {
+  const [showHelp, setShowHelp] = useState(false);
+  return (
+    <div className="logs-search">
+      <div className={"logs-search-field" + (value.trim() ? " active" : "")}>
+        <IconSearch size={15} stroke={1.8} />
+        <input
+          value={value}
+          placeholder={`Search the last ${rangeLabel} — timeout, get*nodes, "could not open", -shutdown, type:error`}
+          onChange={(e) => onChange(e.currentTarget.value)}
+          onFocus={() => setShowHelp(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") onSearch();
+            if (e.key === "Escape") onClear();
+          }}
+          spellCheck={false}
+          autoComplete="off"
+        />
+        {busy && <span className="logs-search-pending" title="Reading the range…" />}
+        {value && (
+          <button className="logs-search-clear" onClick={onClear} title="Empty the search and list every entry again">
+            <IconX size={14} stroke={2} />
+          </button>
+        )}
+      </div>
+      {/* the button is marked while the field holds something unsearched, so a search written and
+          left unsent is never mistaken for one the table is already answering */}
+      <button
+        className={"action-button" + (unsearched && value.trim() ? " primary" : "")}
+        onClick={onSearch}
+        disabled={busy}
+        title={busy ? "Reading the range" : "Search the last " + rangeLabel + " — the whole of it, not only the entries on screen"}
+      >
+        <IconSearch size={15} stroke={1.8} /> {busy ? "Searching…" : "Search"}
+      </button>
+      <button
+        className={"action-button" + (caseSensitive ? " armed" : "")}
+        onClick={() => onCaseSensitive(!caseSensitive)}
+        title={caseSensitive ? "Upper and lower case are told apart" : "Upper and lower case are the same"}
+      >
+        <IconLetterCase size={15} stroke={1.8} /> Match case
+      </button>
+      <button className="link-button" onClick={() => setShowHelp(!showHelp)} title="What a search may say">
+        <IconHelpCircle size={14} stroke={1.8} />
+      </button>
+      {showHelp && (
+        <div className="logs-search-help">
+          {searchHelp.map(([term, meaning]) => (
+            <span key={term} className="logs-search-help-item">
+              <code>{term}</code> {meaning}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -598,7 +925,7 @@ function FilterCell({
       className={"log-filter-input" + (value.trim() ? " active" : "")}
       value={value}
       placeholder="Filter"
-      title={`List only entries whose ${label} contains this`}
+      title={`List only entries whose ${label} holds this — * and ? work here too`}
       onChange={(e) => onChange(columnKey, e.currentTarget.value)}
       onKeyDown={(e) => e.key === "Escape" && onChange(columnKey, "")}
     />
@@ -608,21 +935,27 @@ function FilterCell({
 /**
  * What a filter searches in one cell: the text the table shows, and the value it was made from.
  * Both, because a row count written "1,234" and recorded as 1234 has to be found by either, and a
- * time reads as the local clock on screen while the entry carries the UTC instant.
+ * time reads as the local clock on screen while the entry carries the UTC instant. They are two
+ * strings rather than one, so a wildcard cannot run from the end of the one into the other.
  */
-function haystack(entry: LogEntry, key: string, column: LogColumn | null): string {
-  if (key === timeKey) return (formatTime(entry.timestampUtc) + "\n" + entry.timestampUtc).toLowerCase();
+function haystack(entry: LogEntry, key: string, column: LogColumn | null): string[] {
+  if (key === timeKey) return [formatTime(entry.timestampUtc).toLowerCase(), entry.timestampUtc.toLowerCase()];
   const value = entry.values[key];
-  return (formatValue(value, column?.dataType ?? "String") + "\n" + (value == null ? "" : String(value))).toLowerCase();
+  return [formatValue(value, column?.dataType ?? "String").toLowerCase(), value == null ? "" : String(value).toLowerCase()];
 }
 
 /** The line under the "Entries" heading: which rows are on screen, out of what. */
-function entriesText(rangeLabel: string, total: number, skip: number, shown: number, filtering: boolean, searched: number): string {
+function entriesText(rangeLabel: string, total: number, skip: number, shown: number, filtering: boolean, searched: number, searching: boolean): string {
   if (filtering) {
     // a filter counts twice over: what it matched, and how much it was able to look at
     if (total === 0) return `nothing matches in the ${formatCount(searched)} ${searched === 1 ? "entry" : "entries"} searched`;
     if (total <= shown) return `${formatCount(total)} matching, of ${formatCount(searched)} searched`;
     return `${formatCount(skip + 1)}–${formatCount(skip + shown)} of ${formatCount(total)} matching, in ${formatCount(searched)} searched`;
+  }
+  // a search counts matches, and it read the whole range to know that number
+  if (searching) {
+    if (total === 0) return `nothing in the last ${rangeLabel} matches the search`;
+    return `${formatCount(skip + 1)}–${formatCount(skip + shown)} of ${formatCount(total)} matching in the last ${rangeLabel}`;
   }
   if (total === 0) return `nothing recorded in the last ${rangeLabel}`;
   return `${formatCount(skip + 1)}–${formatCount(skip + shown)} of ${formatCount(total)} in the last ${rangeLabel}`;
@@ -713,10 +1046,10 @@ function TraceTab({ db }: { db: DatabaseInfo }) {
   }, [db.id, tick]);
   // the trace is what the database is saying right now, so it follows by default
   usePoll(() => setTick((t) => t + 1), { enabled: live });
-  // and following means the newest line, at the bottom, is the one in view
+  // and following means the newest line, at the top, is the one in view
   const term = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (live && term.current) term.current.scrollTop = term.current.scrollHeight;
+    if (live && term.current) term.current.scrollTop = 0;
   }, [trace, live]);
 
   if (error) return <div className="placeholder">{error}</div>;
@@ -750,13 +1083,14 @@ function TraceTab({ db }: { db: DatabaseInfo }) {
         </div>
       )}
       {/* the dashboard's terminal, with the room of a page: a machine talking, shown the way it
-          talks, newest last so the line that just arrived is where the eye already is */}
+          talks, newest first so the line that just arrived is where the eye already is */}
       <section className="panel panel-fill logs-trace">
         <h3>
-          Trace <span className="panel-sub">{trace.open ? `${trace.entries.length} messages, newest last` : "the database is closed"}</span>
+          Trace <span className="panel-sub">{trace.open ? `${trace.entries.length} messages, newest first` : "the database is closed"}</span>
         </h3>
         <div className="term logs-term" ref={term}>
-          {[...trace.entries].reverse().map((entry, i) => (
+          {trace.entries.length > 0 && <div className="term-idle term-idle-top">_</div>}
+          {trace.entries.map((entry, i) => (
             <div
               key={i}
               className={"term-line " + entry.type.toLowerCase() + (entry.details ? " clickable" : "")}
@@ -772,7 +1106,6 @@ function TraceTab({ db }: { db: DatabaseInfo }) {
             </div>
           ))}
           {trace.entries.length === 0 && <div className="term-empty">{trace.open ? "Nothing traced yet." : "Open the database to see its trace."}</div>}
-          {trace.entries.length > 0 && <div className="term-idle">_</div>}
         </div>
       </section>
     </div>

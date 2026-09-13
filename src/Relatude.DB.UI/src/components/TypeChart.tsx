@@ -325,13 +325,22 @@ const sunburstMinHeight = treemapMinHeight;
 /** Below this a ring is a band of colour and a tooltip: no label would fit in it. */
 const ringLabelHeight = 15;
 /**
- * How thick a ring may get. Without a cap a model of one or two levels spends the whole radius on
- * them, which is a pie with a hole rather than a sunburst; with it a shallow model is simply a
- * smaller figure, drawn at the thickness a ring is meant to have.
+ * The label's own size, and how far it is allowed to grow with the ring it sits in. A chart in a
+ * large panel should be the same picture larger, not a large picture with small print on it, so the
+ * names follow the thickness of the rings - up to a point, past which a name is simply large enough
+ * and the ring carries the size instead.
  */
-const maxRingThickness = 86;
+const sunLabelBase = 11.5;
+const sunLabelMax = 21;
+/**
+ * What the hole in the middle takes of the radius. The rings share the rest, however many they are,
+ * so the figure is always as large as the panel allows - a model of two levels is a thicker picture
+ * rather than a small one adrift in a large panel - and the hole grows with it, which is what keeps
+ * the total in the middle readable at every size.
+ */
+const sunburstHoleShare = 0.3;
 /** The label's font, which has to match .dash-sun-name for the measurement below to mean anything. */
-const sunLabelFont = '600 11.5px system-ui, "Segoe UI", sans-serif';
+const sunLabelFont = `600 ${sunLabelBase}px system-ui, "Segoe UI", sans-serif`;
 
 /**
  * How wide a label would actually be, measured rather than guessed from the letter count - the
@@ -382,15 +391,17 @@ function Sunburst({ slices, total, onTileClick }: { slices: TypeSlice[]; total: 
   const rings = arcs.reduce((n, a) => Math.max(n, a.depth + 1), 0);
   const cx = width / 2;
   const cy = height / 2;
-  // the hole carries the total, and is what keeps the innermost ring from being a wedge of a pie.
-  // A model of two or three levels does not spend the whole radius on them: the rings keep their
-  // thickness and the figure is simply smaller, which is the difference between a sunburst of one
-  // ring and a hoop with a number lost in the middle of it.
+  // the figure takes the whole circle the panel leaves: the hole carries the total and keeps the
+  // innermost ring from being a wedge of a pie, and the rings divide what is left between them, so
+  // the same model is the same picture whatever size the panel is dragged to
   const room = Math.min(width, height) / 2 - 6;
-  const hole = Math.max(30, Math.min(room * 0.32, 74));
-  const outer = Math.min(room, hole + rings * maxRingThickness);
+  const hole = Math.max(30, room * sunburstHoleShare);
+  const outer = Math.max(hole, room);
   const thickness = rings > 0 ? Math.max(0, (outer - hole) / rings) : 0;
-  const totalSize = Math.max(13, Math.min(hole * 0.34, 30));
+  const totalSize = Math.max(13, hole * 0.34);
+  // and the names in the rings grow with them, measured at the base size and scaled from there
+  const labelSize = Math.max(sunLabelBase, Math.min(thickness * 0.16, sunLabelMax));
+  const labelScale = labelSize / sunLabelBase;
 
   return (
     <div className="dash-sunburst" ref={box}>
@@ -405,10 +416,10 @@ function Sunburst({ slices, total, onTileClick }: { slices: TypeSlice[]; total: 
             const band = r1 - r0;
             const along = rm * (a.to - a.from);
             const name = a.slice.type.name;
-            const needed = labelWidth(name) + 9;
+            const needed = labelWidth(name) * labelScale + 9;
             // along the arc where the sweep carries the name, across the ring where it does not and
             // the ring is deep enough to take it lying on its side, nothing at all when neither
-            const lie = along > needed && band > ringLabelHeight;
+            const lie = along > needed && band > ringLabelHeight * labelScale;
             const stand = !lie && band > needed && along > 13;
             const deg = (mid * 180) / Math.PI;
             const clickable = onTileClick !== undefined && a.slice.type.id !== otherSliceId;
@@ -429,11 +440,25 @@ function Sunburst({ slices, total, onTileClick }: { slices: TypeSlice[]; total: 
                 <path d={arcPath(cx, cy, r1, r0, a.from, a.to)} className="dash-sun-arc" />
                 {(lie || stand) && (
                   <g transform={`rotate(${upright(lie ? deg + 90 : deg)}, ${at.x.toFixed(2)}, ${at.y.toFixed(2)})`}>
-                    <text x={at.x} y={at.y - (lie && band > 30 ? 6 : 0)} className="dash-sun-name" textAnchor="middle" dominantBaseline="central">
+                    <text
+                      x={at.x}
+                      y={at.y - (lie && band > 30 * labelScale ? 6 * labelScale : 0)}
+                      className="dash-sun-name"
+                      style={{ fontSize: labelSize }}
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                    >
                       {name}
                     </text>
-                    {lie && band > 30 && (
-                      <text x={at.x} y={at.y + 7} className="dash-sun-count" textAnchor="middle" dominantBaseline="central">
+                    {lie && band > 30 * labelScale && (
+                      <text
+                        x={at.x}
+                        y={at.y + 7 * labelScale}
+                        className="dash-sun-count"
+                        style={{ fontSize: Math.max(10, labelSize * 0.87) }}
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                      >
                         {formatCount(a.total)}
                       </text>
                     )}
@@ -524,8 +549,29 @@ function nestByInheritance(slices: TypeSlice[]): SunArc[] {
 
 // ---- donut ----
 
+/**
+ * The ring's own drawing size: the geometry below is written in these units and the svg is scaled to
+ * whatever the panel leaves, labels and all, so the picture is the same at every size.
+ */
+const donutBox = 132;
+/** Below this the ring is no longer a chart, so a panel too short for it scrolls instead. */
+const donutMinSize = 120;
+/** The legend is worth putting beside the ring only when this much is left for it. */
+const donutLegendWidth = 190;
+/** And under it, only when this much is left below. */
+const donutLegendHeight = 96;
+/** The gap between the ring and its legend, matching .dash-donut. */
+const donutGap = 18;
+
 function Donut({ slices, total }: { slices: TypeSlice[]; total: number }) {
-  const size = 132;
+  const { ref: box, width, height } = useBoxSize();
+  // the legend goes beside the ring while there is room for it there and under it when there is
+  // not; either way the ring is the largest square the rest of the panel leaves, so a row dragged
+  // taller - or a panel maximized - is a larger chart rather than the same one with more space
+  // round it
+  const beside = width >= donutMinSize + donutGap + donutLegendWidth;
+  const room = beside ? Math.min(height, width - donutGap - donutLegendWidth) : Math.min(width, height - donutGap - donutLegendHeight);
+  const size = Math.max(donutMinSize, Math.floor(room));
   const r = 58;
   const inner = 34;
   const sum = slices.reduce((a, s) => a + s.value, 0);
@@ -537,13 +583,13 @@ function Donut({ slices, total }: { slices: TypeSlice[]; total: number }) {
     return { slice: s, from, to: angle, sweep };
   });
   return (
-    <div className="dash-donut">
-      <svg viewBox={`0 0 ${size} ${size}`} className="dash-donut-svg">
+    <div className={"dash-donut" + (beside ? "" : " stacked")} ref={box}>
+      <svg viewBox={`0 0 ${donutBox} ${donutBox}`} width={size} height={size} className="dash-donut-svg">
         {arcs.map(({ slice, from, to, sweep }) =>
           sweep <= 0 ? null : (
             <path
               key={slice.type.id}
-              d={arcPath(size / 2, size / 2, r, inner, from, to)}
+              d={arcPath(donutBox / 2, donutBox / 2, r, inner, from, to)}
               fill={slice.color}
               className="dash-donut-arc"
             >
@@ -551,10 +597,10 @@ function Donut({ slices, total }: { slices: TypeSlice[]; total: number }) {
             </path>
           ),
         )}
-        <text x={size / 2} y={size / 2 - 2} className="dash-donut-total" textAnchor="middle">
+        <text x={donutBox / 2} y={donutBox / 2 - 2} className="dash-donut-total" textAnchor="middle">
           {formatCount(sum)}
         </text>
-        <text x={size / 2} y={size / 2 + 12} className="dash-donut-caption" textAnchor="middle">
+        <text x={donutBox / 2} y={donutBox / 2 + 12} className="dash-donut-caption" textAnchor="middle">
           nodes
         </text>
       </svg>

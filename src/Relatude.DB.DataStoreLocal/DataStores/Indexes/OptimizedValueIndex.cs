@@ -69,6 +69,7 @@ public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T> where
     public ICollection<int> CollectIn(IEnumerable<T> values) { _o.Dequeue(); return _i.CollectIn(values); }
     public ICollection<int> CollectNotEqual(T value) { _o.Dequeue(); return _i.CollectNotEqual(value); }
     public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) { _o.Dequeue(); _i.WriteNewTimestampDueToRewriteHotswap(newTimestamp, walFileId); }
+    public void CompleteStateLoad() => _i.CompleteStateLoad(); // must be forwarded, see IIndex.CompleteStateLoad
     public void ReadStateForMemoryIndexes(Guid walFileId) { _o.Dequeue(); _i.ReadStateForMemoryIndexes(walFileId); }
     public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) { _o.Dequeue(); _i.SaveStateForMemoryIndexes(logTimestamp, walFileId); }
     public IdSet ReOrder(IdSet unsorted, bool descending) { _o.Dequeue(); return _i.ReOrder(unsorted, descending); }
