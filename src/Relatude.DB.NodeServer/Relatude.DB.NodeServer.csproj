@@ -10,7 +10,15 @@
 		<Version>0.3.0.180</Version>
 	</PropertyGroup>
 	<ItemGroup>
+	  <Compile Remove="NodeServer\EventHub\**" />
+	  <Compile Remove="NodeServer\EventTriggers\**" />
+	  <Content Remove="NodeServer\EventHub\**" />
+	  <Content Remove="NodeServer\EventTriggers\**" />
+	  <EmbeddedResource Remove="NodeServer\EventHub\**" />
+	  <EmbeddedResource Remove="NodeServer\EventTriggers\**" />
 	  <None Remove="NodeServer\ClientUI\**" />
+	  <None Remove="NodeServer\EventHub\**" />
+	  <None Remove="NodeServer\EventTriggers\**" />
 	</ItemGroup>
 	<ItemGroup>
 		<ProjectReference Include="..\Relatude.DB.DataStoreLocal\Relatude.DB.DataStoreLocal.csproj" />

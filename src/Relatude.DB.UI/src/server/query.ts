@@ -172,6 +172,13 @@ export interface SearchRequest {
   columns: string[] | null;
   /** The csv export only: how many rows the file is to hold, from `page`; 0 or unset for as many as there are. */
   csvRows?: number;
+  /**
+   * Set by the views that draw the result rather than list it - the pivot, the groups, the visual
+   * pivot, the map, the word cloud. They read the total and the facets and no hit, so the server
+   * leaves the page unread: a page is a node read per row, and one set to "All" is a hundred
+   * thousand of them, read into the node cache for rows nothing is going to draw.
+   */
+  summary?: boolean;
 }
 
 /** A column the table view can be told to show: a node field or a property of the type. */

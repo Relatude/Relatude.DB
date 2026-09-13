@@ -111,10 +111,6 @@ export function fetchDashboard(storeId: string): Promise<DashboardInfo> {
   return send<DashboardInfo>("dashboard", { storeId });
 }
 
-export function fetchDashboardLive(storeId: string): Promise<DashboardLive> {
-  return send<DashboardLive>("dashboard-live", { storeId });
-}
-
 export interface ClearCacheResult {
   /** What the node and result set caches held when they were emptied. */
   entriesCleared: number;

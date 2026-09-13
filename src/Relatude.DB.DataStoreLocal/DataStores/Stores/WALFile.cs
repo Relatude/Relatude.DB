@@ -227,6 +227,9 @@ internal class WALFile : IDisposable {
         return buffer;
     }
     public byte[][] ReadNodeSegments(NodeSegment[] segments, out int diskReads) {
+        if (segments.Length > 50000) {
+            Console.WriteLine("Warning: Reading " + segments.Length + " node segments in one call. This may take a long time and use a lot of memory. Consider reading in smaller batches. ");
+        }
         // trying to read segments in batches to reduce number of calls to io stream ( which may have siginificant latency if disk is remote)
         // 1 order segments by position
         // 2 read segments in batches that are close (deltaLimit) 

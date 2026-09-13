@@ -73,12 +73,12 @@ export function Header(p: HeaderProps) {
 }
 
 /**
- * How often the whole UI refreshes itself. It sits in the top bar because it is not a property of any
- * one page: every page that follows something live (the dashboard counters, the conversion queue, the
- * task queues, the system trace, a log that is being watched) polls on this cadence, and the reason to
- * turn it down - a busy database, a remote connection, a laptop on battery - is never about one page
- * either. All the way to the left is off, which leaves the pages exactly as they are until something
- * is refreshed by hand.
+ * How often the whole UI is told what changed. It sits in the top bar because it is not a property of
+ * any one page: every page that follows something live (the dashboard counters, the conversion queue,
+ * the task queues, the system trace, a log that is being watched) hands the server this cadence and
+ * is sent what changed (live.ts), and the reason to turn it down - a busy database, a remote
+ * connection, a laptop on battery - is never about one page either. All the way to the left is off,
+ * which leaves the pages exactly as they are until something is refreshed by hand.
  *
  * One icon in the bar, the slider in the panel behind it: the cadence is set once and then read at a
  * glance, so the bar carries the state (spinning arrows or a pause mark, and the interval next to it)
@@ -94,7 +94,7 @@ function RefreshRate() {
       <button
         className={"icon-button refresh-rate-button" + (paused ? " paused" : "") + (open ? " active" : "")}
         onClick={() => setOpen(!open)}
-        title={paused ? "Live updates are off" : `Pages refresh every ${describeInterval(interval)}`}
+        title={paused ? "Live updates are off" : `The server sends what changed every ${describeInterval(interval)}`}
         aria-label="Refresh rate"
       >
         {paused ? <IconPlayerPause size={18} stroke={1.8} /> : <IconRefresh size={18} stroke={1.8} />}
@@ -123,8 +123,8 @@ function RefreshRate() {
             </div>
             <div className="muted refresh-rate-note">
               {paused
-                ? "Nothing polls the server; the refresh buttons on each page still work."
-                : `Every page that follows something live asks again every ${describeInterval(interval)}. Pages that ask for something expensive keep a slower floor of their own.`}
+                ? "The server sends nothing; pages load once and the refresh buttons on each page still work."
+                : `The server samples what these pages follow every ${describeInterval(interval)} and sends what changed. Pages that follow something expensive keep a slower floor of their own.`}
             </div>
           </div>
         </>

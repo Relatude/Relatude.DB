@@ -19,6 +19,17 @@ public sealed class UICommands {
     public void Register(string type, Func<UICommandContext, object?> handler) {
         Register(type, ctx => Task.FromResult(handler(ctx)));
     }
+    /// <summary>
+    /// Runs a command outside the POST route - what a live feed does on the cadence a tab asked for
+    /// (see <see cref="UILiveFeeds"/>). The same handler, the same context type; only the response
+    /// differs, so a command never has to know which way it was called.
+    /// </summary>
+    internal async Task<object?> Invoke(string type, RelatudeDBServer server, HttpContext http, JsonElement? payload) {
+        Func<UICommandContext, Task<object?>>? handler;
+        lock (_handlers) _handlers.TryGetValue(type, out handler);
+        if (handler == null) throw new Exception("Unknown command: " + type);
+        return await handler(new UICommandContext(server, http, payload));
+    }
     public async Task<IResult> Execute(HttpContext http) {
         UICommandRequest? request = null;
         try {

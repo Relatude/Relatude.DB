@@ -466,8 +466,11 @@ function QueryTab({
             facets: showFacets,
             sortBy: sort?.key ?? null,
             sortDescending: sort?.descending ?? false,
+            // the summary views draw their own picture of the result; this search is here for the
+            // total and the facets, and the hits of it would be read and thrown away
+            summary,
     }),
-    [db.id, typeId, text, semanticRatio, minSimilarity, selectionList, expanded, page, pageRows, table, editCells, q.columns, showFacets, sort],
+    [db.id, typeId, text, semanticRatio, minSimilarity, selectionList, expanded, page, pageRows, table, editCells, q.columns, showFacets, sort, summary],
   );
 
   const { result, loading, error, refresh } = useLiveResult(query, runSearch);
@@ -686,7 +689,7 @@ function QueryTab({
     const choice = choices[picked];
     setExporting(true);
     try {
-      await exportCsv({ ...query, page: choice.page, csvRows: choice.rows });
+      await exportCsv({ ...query, page: choice.page, csvRows: choice.rows, summary: false }); // the file is the rows, whatever view asked for it
     } catch (e) {
       await showError("Could not export", e instanceof Error ? e.message : String(e));
     } finally {

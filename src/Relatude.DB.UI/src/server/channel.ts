@@ -3,6 +3,11 @@
 //   send(type, payload)        client -> server: POST {base}/command, result on the response
 //   subscribe(event, handler)  server -> client: one shared SSE connection to {base}/stream
 //
+// Anything a page follows over time rides the same stream: see live.ts, which asks the server to
+// sample a command on a cadence and push what comes back. That is why the connection has an id -
+// the server needs to know which stream a subscription belongs to - and why a new connection has to
+// be announced: the id changes, so every feed has to be asked for again.
+//
 // The stream connects lazily on the first subscription (or an explicit connect()). The browser's
 // EventSource survives server restarts on its own (network errors and 502/503 are retried), the
 // code below covers the rest: a backoff reconnect for responses EventSource gives up on (e.g. 401),
@@ -70,6 +75,28 @@ export function getConnectionState(): ConnectionState {
   return source.readyState === EventSource.OPEN ? "open" : source.readyState === EventSource.CONNECTING ? "connecting" : "closed";
 }
 
+// the id the server knows this connection by, from the "connected" event it opens with. Null while
+// the stream is down, and different after every reconnect
+let connectionId: string | null = null;
+const connectedHandlers = new Set<(id: string) => void>();
+
+/** The current connection's id, or null while the stream is not up. */
+export function getConnectionId(): string | null {
+  return connectionId;
+}
+
+/**
+ * Fired every time the stream opens with an id, the first time included. Anything the server keeps
+ * per connection - a live feed - has to be asked for again here: the old connection took its
+ * subscriptions with it.
+ */
+export function subscribeConnected(handler: (id: string) => void): () => void {
+  connectedHandlers.add(handler);
+  return () => {
+    connectedHandlers.delete(handler);
+  };
+}
+
 let everOpened = false;
 let reconnectTimer: number | null = null;
 let reconnectDelayMs = 2000;
@@ -95,6 +122,7 @@ function rebuild(): void {
   if (!source) return;
   source.close();
   source = null;
+  connectionId = null;
   attachedEvents.clear();
   notifyState();
   connect();
@@ -138,7 +166,22 @@ export function connect(): void {
     if (source && source.readyState === EventSource.CLOSED) scheduleReconnect();
   };
   source.addEventListener("ping", markActivity);
-  source.addEventListener("connected", markActivity);
+  source.addEventListener("connected", (e) => {
+    markActivity();
+    try {
+      const id = (JSON.parse((e as MessageEvent).data)?.connectionId ?? null) as string | null;
+      connectionId = id;
+      if (id) for (const handler of connectedHandlers) handler(id);
+    } catch {
+      // a connected event we cannot read leaves the feeds unsubscribed rather than wrongly keyed
+    }
+  });
+  // the server says so when the session it accepted has since expired, so a page that is only
+  // listening still ends up back at the login screen instead of going quiet
+  source.addEventListener("unauthorized", () => {
+    markActivity();
+    notifyUnauthorized();
+  });
   for (const event of handlers.keys()) attach(event);
   notifyState();
 }
@@ -174,6 +217,7 @@ export function disconnect(): void {
   }
   everOpened = false;
   reconnectDelayMs = 2000;
+  connectionId = null;
   if (!source) return;
   source.close();
   source = null;

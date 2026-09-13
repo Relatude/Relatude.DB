@@ -45,7 +45,7 @@ import {
   type UnreferencedResult,
 } from "../server/storage";
 import type { DatabaseInfo } from "../server/serverInfo";
-import { usePoll } from "../refresh";
+import { useLive } from "../live";
 import { formatBytes, formatCount, formatTime } from "../format";
 
 export function StorageSection({ db }: { db: DatabaseInfo }) {
@@ -95,9 +95,9 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       .catch(() => {});
   }, [db.id]);
   useEffect(load, [load]);
-  // a queued rebuild drains over minutes: while tasks are outstanding the panel follows them, and
-  // stops asking the moment the queues are empty
-  usePoll(() => fetchMaintenanceInfo(db.id).then(setMaintenance).catch(() => {}), { enabled: !!maintenance?.tasksQueued });
+  // a queued rebuild drains over minutes: while tasks are outstanding the server keeps the panel
+  // posted, and stops the moment the queues are empty
+  useLive<MaintenanceInfo>("db-maintenance-info", { storeId: db.id }, setMaintenance, { enabled: !!maintenance?.tasksQueued });
 
   async function onBackupNow() {
     const beforeKeys = new Set((backups?.files ?? []).map((f) => f.key));

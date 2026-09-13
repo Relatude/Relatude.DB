@@ -5765,6 +5765,11 @@ body.pg-resizing {
   background: var(--accent-soft);
 }
 
+/* a tab that carries an icon as well as its word (the map's globe) */
+.query-view button svg {
+  margin-right: 4px;
+}
+
 .select.compact {
   padding: 4px 6px;
   font-size: 12px;
@@ -6916,14 +6921,16 @@ body.pg-resizing {
 /* the sunburst's arcs are the same cards as the treemap's tiles, so a type looks the same whichever
    of the two is showing - what changes between them is the arrangement, not the palette */
 .dash-treemap,
-.dash-sunburst {
+.dash-sunburst,
+.dash-donut {
   --tile-wash: 13%;
   --tile-wash-hover: 26%;
   --tile-edge: 72%;
 }
 
 [data-theme="dark"] .dash-treemap,
-[data-theme="dark"] .dash-sunburst {
+[data-theme="dark"] .dash-sunburst,
+[data-theme="dark"] .dash-donut {
   /* a touch more colour on the dark panel, and a slightly softer edge: at full strength the light
      borders of fifty tiles read as a grid drawn on top of the chart */
   --tile-wash: 20%;
@@ -7065,23 +7072,29 @@ body.pg-resizing {
   flex: none;
 }
 
+/* the same card as a treemap tile and a sunburst ring: the colour washed into the panel for the
+   fill, the colour itself for the edge. The stroke is in the drawing's own units, so it scales with
+   the ring rather than thickening as the panel grows */
 .dash-donut-arc {
-  stroke: var(--panel);
-  stroke-width: 1.5;
+  fill: color-mix(in srgb, var(--tile, var(--accent)) var(--tile-wash), var(--panel));
+  stroke: color-mix(in srgb, var(--tile, var(--accent)) var(--tile-edge), var(--panel));
+  stroke-width: 0.8;
+  vector-effect: non-scaling-stroke;
 }
 
 .dash-donut-arc:hover {
+  fill: color-mix(in srgb, var(--tile, var(--accent)) var(--tile-wash-hover), var(--panel));
   stroke: var(--text);
 }
 
+/* both sizes follow the ring and are set where they are drawn, the way the sunburst's total follows
+   its hole - which is what keeps the number a label rather than the picture */
 .dash-donut-total {
-  font-size: 15px;
   font-weight: 700;
   fill: var(--text);
 }
 
 .dash-donut-caption {
-  font-size: 9px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   fill: var(--text-muted);
@@ -7114,6 +7127,8 @@ body.pg-resizing {
   width: 10px;
   height: 10px;
   border-radius: 3px;
+  background: color-mix(in srgb, var(--tile, var(--accent)) var(--tile-wash, 13%), var(--panel));
+  border: 1px solid color-mix(in srgb, var(--tile, var(--accent)) var(--tile-edge, 72%), var(--panel));
 }
 
 .dash-legend-name {

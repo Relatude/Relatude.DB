@@ -3,7 +3,7 @@ import { IconArrowRight, IconBan, IconX } from "@tabler/icons-react";
 import { showConfirm, showError } from "../dialogs";
 import { cancelConversion, fetchConversions, type ConversionsInfo, type FileConversion } from "../server/conversions";
 import type { DatabaseInfo } from "../server/serverInfo";
-import { usePoll } from "../refresh";
+import { useLive } from "../live";
 import { formatCount, formatTime } from "../format";
 
 // long enough to read as "that one is done and gone" rather than a flicker; must match conv-leave
@@ -61,27 +61,37 @@ export function ConversionsSection({ db }: { db: DatabaseInfo }) {
     leaveTimers.current.push(timeout);
   }, []);
 
-  const load = useCallback(async (): Promise<ConversionsInfo | null> => {
-    try {
-      const info = await fetchConversions(db.id);
+  const apply = useCallback(
+    (info: ConversionsInfo) => {
       setData(info);
       applyRows(info.current);
       setError(null);
+    },
+    [applyRows],
+  );
+
+  // what the queue is doing, pushed by the server for as long as this page is open
+  useLive<ConversionsInfo>("conversions", { storeId: db.id }, apply, { onError: setError });
+
+  // and the same question asked by hand, for the moment after an action: a cancelled conversion
+  // should leave the list at once rather than at the next sample
+  const load = useCallback(async (): Promise<ConversionsInfo | null> => {
+    try {
+      const info = await fetchConversions(db.id);
+      apply(info);
       return info;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       return null;
     }
-  }, [db.id, applyRows]);
+  }, [db.id, apply]);
 
   useEffect(() => {
-    load();
     return () => {
       for (const id of leaveTimers.current) clearTimeout(id);
       leaveTimers.current = [];
     };
-  }, [load]);
-  usePoll(load);
+  }, []);
 
   async function cancel(conversion: FileConversion, permanently: boolean): Promise<void> {
     if (permanently) {

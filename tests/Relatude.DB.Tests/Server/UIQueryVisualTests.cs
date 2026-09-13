@@ -168,6 +168,38 @@ public class UIQueryVisualTests {
     }
 
     /// <summary>
+    /// The search behind a summary view - the pivot, the groups, the visual pivot, the map, the word
+    /// cloud - is there for the total and the facets, and those views draw no hit. So it is answered
+    /// without one: the page it asks for is the smallest there is and no node of it is read, where a
+    /// page set to "All" would otherwise be a hundred thousand node reads for rows nothing draws.
+    /// </summary>
+    [TestMethod]
+    public async Task Search_ASummaryViewIsAnsweredWithoutItsHits() {
+        var root = Path.Combine(Path.GetTempPath(), "relatude-summary-search-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var (host, storeId, articles) = start(root);
+        try {
+            var model = await command(host, "query-model", new { storeId });
+            var typeId = prop(typeOf(model, nameof(DemoArticle)), "id").GetGuid();
+
+            var listed = await command(host, "query-search", new { storeId, typeId, text = "", page = 0, pageSize = 1000, table = false, facets = true });
+            Assert.AreEqual(articles.Count, prop(listed, "total").GetInt32());
+            Assert.AreEqual(articles.Count, prop(listed, "hits").GetArrayLength(), "the list reads its page");
+            Assert.IsTrue(prop(listed, "facets").GetArrayLength() > 0);
+
+            var summarized = await command(host, "query-search", new { storeId, typeId, text = "", page = 0, pageSize = 1000, table = false, facets = true, summary = true });
+            Assert.AreEqual(articles.Count, prop(summarized, "total").GetInt32(), "the whole result is still counted");
+            Assert.AreEqual(0, prop(summarized, "hits").GetArrayLength(), "no hit is built");
+            Assert.AreEqual(prop(listed, "facets").GetArrayLength(), prop(summarized, "facets").GetArrayLength(), "the facets are the same");
+            Assert.IsTrue(prop(summarized, "query").GetString()!.Contains("Page(0, 1)"), "and the page asked for is the smallest one: " + prop(summarized, "query"));
+        } finally {
+            await host.DisposeAsync();
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+
+    /// <summary>
     /// The cards' names and pictures: query-cards names every card and points at the first file
     /// property holding a convertible image, and the card-images route streams the picture of a
     /// card at a level's width, as a record per card, in the shape the browser parses.

@@ -164,7 +164,11 @@ sealed class UIQuery {
         var nodeType = dm.NodeTypes[typeId];
         var pageSize = Math.Clamp(p.PageSize <= 0 ? 25 : p.PageSize, 1, maxPageSize);
         var pageIndex = Math.Max(0, p.Page);
-        var queryString = queryFor(s, dm, p, typeId, pageIndex, pageSize);
+        // Reading the page is a node read per row - a hundred thousand of them on a page set to
+        // "All" - and a summary view draws none of them. So it is asked for as the smallest page
+        // there is: the total and the facets are counted over the whole result either way, and the
+        // one node that page holds is never read (the hits are not built below).
+        var queryString = queryFor(s, dm, p, typeId, p.Summary ? 0 : pageIndex, p.Summary ? 1 : pageSize);
 
         var sw = Stopwatch.StartNew();
         // executed on the datastore rather than through the facet query object, so hits and buckets
@@ -186,9 +190,8 @@ sealed class UIQuery {
         // needs a handful of values per row. Only one of them is built.
         var columns = columnsFor(dm, nodeType, p);
         var terms = termsOf(p.Text);
-        var hits = nodes.NodeValues
-            .Select(n => columns == null ? hitView(dm, n, terms) : hitView(dm, n, terms, s, columns, maxTableCellLength, p.Edit))
-            .ToArray();
+        object[] hits = p.Summary ? [] : [.. nodes.NodeValues
+            .Select(n => columns == null ? hitView(dm, n, terms) : hitView(dm, n, terms, s, columns, maxTableCellLength, p.Edit))];
         return new {
             TypeId = typeId,
             TypeName = nodeType.CodeName,
@@ -2446,7 +2449,12 @@ sealed class UIQuery {
         string? SortBy = null, bool SortDescending = false, string[]? Columns = null, bool Edit = false,
         // the csv export only: how many rows the file is to hold, 0 for as many as there are. Where they
         // start is Page, as it is for the search: exporting the page on screen is the same numbers again.
-        int CsvRows = 0);
+        int CsvRows = 0,
+        // A view that draws the result rather than lists it - the pivot, the groups, the visual
+        // pivot, the map, the word cloud - asks with this set: it needs the total and the facets and
+        // not one node's values. False is the list, which is what an older page asking without the
+        // field means too.
+        bool Summary = false);
     internal sealed record ColumnsPayload(Guid StoreId, Guid? TypeId);
     sealed record SavePayload(Guid StoreId, Guid Id, Dictionary<string, JsonElement>? Values, Dictionary<string, Guid[]>? Relations);
     sealed record CreatePayload(Guid StoreId, Guid TypeId);

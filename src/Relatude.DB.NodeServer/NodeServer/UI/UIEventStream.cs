@@ -7,20 +7,40 @@ using System.Threading.Channels;
 namespace Relatude.DB.NodeServer.UI;
 /// <summary>
 /// The single SSE stream of the admin UI. All server-to-client push traffic flows through here:
-/// one long-lived connection per browser tab, broadcasts fanned out to every connection.
-/// Thread-safe.
+/// one long-lived connection per browser tab, broadcasts fanned out to every connection, and
+/// anything meant for one tab alone (see <see cref="UILiveFeeds"/>) sent to it by id. Thread-safe.
 /// </summary>
 public sealed class UIEventStream {
     const int maxQueuedEventsPerConnection = 1000; // a slow or gone client loses its oldest events instead of growing memory
     // sent as a real event (not an SSE comment) so the client can also use it as a liveness signal:
     // a proxy can keep the socket open after the server died, and silence is the only way to tell
     static readonly TimeSpan keepAliveInterval = TimeSpan.FromSeconds(10);
-    readonly ConcurrentDictionary<Guid, Channel<UIEvent>> _connections = new();
+    readonly ConcurrentDictionary<Guid, Connection> _connections = new();
     long _lastEventId;
     public int ConnectionCount => _connections.Count;
+    /// <summary>Raised when a connection goes away, so anything keeping state per tab can drop it.</summary>
+    public event Action<Guid>? Closed;
     public void Broadcast(string eventName, object? payload) {
         var e = new UIEvent(Interlocked.Increment(ref _lastEventId), eventName, payload);
-        foreach (var connection in _connections.Values) connection.Writer.TryWrite(e);
+        foreach (var connection in _connections.Values) connection.Channel.Writer.TryWrite(e);
+    }
+    /// <summary>Sends to one connection. False when it is no longer there, which is not an error.</summary>
+    public bool Send(Guid connectionId, string eventName, object? payload) {
+        if (!_connections.TryGetValue(connectionId, out var connection)) return false;
+        return connection.Channel.Writer.TryWrite(new UIEvent(Interlocked.Increment(ref _lastEventId), eventName, payload));
+    }
+    /// <summary>
+    /// The request the connection was opened with, which lives as long as the stream does. It carries
+    /// the identity the tab authenticated with, so work done on the tab's behalf between requests -
+    /// a live feed sampling a command - runs as the same user rather than as nobody.
+    /// </summary>
+    public bool TryGetHttpContext(Guid connectionId, out HttpContext context) {
+        if (_connections.TryGetValue(connectionId, out var connection)) {
+            context = connection.Http;
+            return true;
+        }
+        context = null!;
+        return false;
     }
     public async Task Connect(HttpContext context) {
         var response = context.Response;
@@ -34,7 +54,7 @@ public sealed class UIEventStream {
             FullMode = BoundedChannelFullMode.DropOldest,
             SingleReader = true,
         });
-        _connections[connectionId] = channel;
+        _connections[connectionId] = new Connection(channel, context);
         var cancellation = context.RequestAborted;
         RelatudeDBServer.Trace("UI stream connected: " + connectionId + ". Connections: " + ConnectionCount.ToString("N0"));
         try {
@@ -54,6 +74,11 @@ public sealed class UIEventStream {
             RelatudeDBServer.Trace("UI stream error: " + error.Message);
         } finally {
             _connections.TryRemove(connectionId, out _);
+            try {
+                Closed?.Invoke(connectionId);
+            } catch (Exception error) {
+                RelatudeDBServer.Trace("UI stream close handler error: " + error.Message);
+            }
             RelatudeDBServer.Trace("UI stream disconnected: " + connectionId + ". Connections: " + ConnectionCount.ToString("N0"));
         }
     }
@@ -72,3 +97,5 @@ public sealed class UIEventStream {
     }
 }
 public sealed record UIEvent(long Id, string Name, object? Payload);
+/// <summary>One open browser tab: what is queued for it, and the request it arrived on.</summary>
+sealed record Connection(Channel<UIEvent> Channel, HttpContext Http);

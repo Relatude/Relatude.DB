@@ -179,8 +179,9 @@ sealed class UILogs {
         var log = logger(p.StoreId);
         // the log files are read by UTC timestamp and refuse anything else, so an unspecified kind
         // (an omitted bound, or a value that arrived without a marker) is taken as UTC here
-        var from = asUtc(p.FromUtc) ?? DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
-        var to = asUtc(p.ToUtc) ?? DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc);
+        var (fromUtc, toUtc) = window(p.LastMs, p.FromUtc, p.ToUtc);
+        var from = fromUtc ?? DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
+        var to = toUtc ?? DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc);
         var skip = Math.Max(0, p.Skip);
         // A page of the table is a hundred rows, but the column filters search what the browser
         // already holds, so filtering asks for a window of thousands in one call. Reading a range
@@ -327,8 +328,9 @@ sealed class UILogs {
         var setting = store.GetSetting(p.LogKey);
         var statistic = parseStatistic(p.Statistic);
         var interval = parseInterval(p.Interval);
-        var to = asUtc(p.ToUtc) ?? DateTime.UtcNow;
-        var requested = asUtc(p.FromUtc) ?? to.AddHours(-24);
+        var (fromUtc, toUtc) = window(p.LastMs, p.FromUtc, p.ToUtc);
+        var to = toUtc ?? DateTime.UtcNow;
+        var requested = fromUtc ?? to.AddHours(-24);
         if (requested >= to) throw new Exception("The time range is empty. ");
         var from = clamp(requested, to, interval, resolutionOf(setting, p.Property, statistic), setting.FirstDayOfWeek, out var clamped);
         var property = p.Property;
@@ -594,6 +596,19 @@ sealed class UILogs {
 
     // Timestamps read off the log files are UTC, but one that reaches the browser without the
     // marker is read there as local time, quietly moving it by the offset
+    /// <summary>
+    /// The range a page is asking about. A window given as "the last so many milliseconds" ends now,
+    /// which is what a page following a log wants: the range moves with each sample instead of
+    /// staying where it was when the page subscribed (see <see cref="UILiveFeeds"/>). Absolute
+    /// bounds are left exactly as they were given.
+    /// </summary>
+    static (DateTime? From, DateTime? To) window(long? lastMs, DateTime? fromUtc, DateTime? toUtc) {
+        // a year in milliseconds is past what an int holds, and a year is one of the ranges the logs
+        // page offers
+        if (lastMs is not long ms || ms <= 0) return (asUtc(fromUtc), asUtc(toUtc));
+        var to = DateTime.UtcNow;
+        return (to.AddMilliseconds(-ms), to);
+    }
     static DateTime? asUtc(DateTime? value) {
         if (value is not DateTime v) return null;
         return v.Kind switch {
@@ -614,11 +629,11 @@ sealed class UILogs {
     // Search is what the search box holds, and is missing or empty when there is nothing in it:
     // every entry in the range is then listed, which is what the page shows until something is
     // typed. CaseSensitive tells upper and lower case apart, which a search does not by itself.
-    sealed record ExtractPayload(Guid StoreId, string LogKey, DateTime? FromUtc, DateTime? ToUtc, int Skip = 0, int Take = 200, string? Search = null, bool CaseSensitive = false);
+    sealed record ExtractPayload(Guid StoreId, string LogKey, DateTime? FromUtc, DateTime? ToUtc, int Skip = 0, int Take = 200, string? Search = null, bool CaseSensitive = false, long? LastMs = null);
     // both bounds omitted is the whole log; either one on its own bounds that end of it. A search
     // narrows the file to the entries matching it, the same ones the table is showing.
     internal sealed record ExportPayload(Guid StoreId, string LogKey, DateTime? FromUtc, DateTime? ToUtc, string? Search = null, bool CaseSensitive = false);
-    sealed record SeriesPayload(Guid StoreId, string LogKey, string? Property, string Statistic, string Interval, DateTime? FromUtc, DateTime? ToUtc);
+    sealed record SeriesPayload(Guid StoreId, string LogKey, string? Property, string Statistic, string Interval, DateTime? FromUtc, DateTime? ToUtc, long? LastMs = null);
     sealed record EnablePayload(Guid StoreId, string LogKey, bool? Log, bool? Statistics);
     sealed record ClearPayload(Guid StoreId, string? LogKey, bool Log, bool Statistics);
     sealed record ScanRecordPayload(Guid StoreId, bool Enable);

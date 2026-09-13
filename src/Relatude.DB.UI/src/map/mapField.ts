@@ -802,7 +802,9 @@ export function createMapField(canvas: HTMLCanvasElement): MapField | null {
       }
 
       if (scene.marks === "rods") {
-        if (rodCount > 0) {
+        // a rod stands out of the world, which is something the ball has and the sheet has not: flat,
+        // the mode is not drawn at all (and the view does not offer it - see MapView)
+        if (rodCount > 0 && scene.globe) {
           // A rod is a SOLID, so which of two is in front is a question of depth rather than of the
           // order they happen to be drawn in. The ground has already written its own depth, so this
           // buries the far side of the globe as well - and each rod hides its own back faces, which
@@ -830,10 +832,11 @@ export function createMapField(canvas: HTMLCanvasElement): MapField | null {
           gl.drawArraysInstanced(gl.TRIANGLES, 0, rodVertices, rodCount);
           gl.disable(gl.DEPTH_TEST);
         }
-      } else if (scene.marks === "pins" && pointCount > 0) {
-        // A pin is a SOLID standing on the ground, so which of two is in front is a question of
-        // depth rather than of the order the nodes happen to arrive in. The ground has written its
-        // own depth already, which buries the pins round the far side of the ball.
+      } else if (scene.marks === "pins" && scene.globe && pointCount > 0) {
+        // On the globe a pin is a SOLID standing on the ground, so which of two is in front is a
+        // question of depth rather than of the order the nodes happen to arrive in. The ground has
+        // written its own depth already, which buries the pins round the far side of the ball.
+        // Flat, a pin is the drawn map pin of the sprite pass below instead.
         gl.enable(gl.DEPTH_TEST);
         gl.useProgram(pinProgram);
         place(pinProgram, scene);
@@ -862,6 +865,7 @@ export function createMapField(canvas: HTMLCanvasElement): MapField | null {
         gl.uniform1f(gl.getUniformLocation(markProgram, "uScale"), 1);
         gl.uniform2f(gl.getUniformLocation(markProgram, "uTarget"), canvas.width, canvas.height);
         gl.uniform1f(gl.getUniformLocation(markProgram, "uAlpha"), scene.alpha);
+        gl.uniform1i(gl.getUniformLocation(markProgram, "uPin"), scene.marks === "pins" ? 1 : 0);
         gl.uniform1f(gl.getUniformLocation(markProgram, "uGroups"), groupCount);
         gl.uniform3fv(gl.getUniformLocation(markProgram, "uOutline"), floats(theme.outline));
         gl.activeTexture(gl.TEXTURE0);
@@ -1783,6 +1787,7 @@ const markVert = `#version 300 es
   uniform float uPointSize;
   uniform float uScale;
   uniform vec2 uTarget;
+  uniform bool uPin;
   flat out uint vGroup;
 ${placeGlsl}
   void main() {
@@ -1791,13 +1796,27 @@ ${placeGlsl}
     vec2 px;
     if (!placeOf(aPlace, uLift, px)) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
     px *= uScale;
+    // a pin is lifted by half its own height, so its tip rather than its middle is on the place
+    if (uPin) px.y -= uPointSize * 0.5;
     gl_Position = toClip(px, uTarget);
     gl_PointSize = uPointSize;
   }`;
 
 /**
- * A dot: a soft disc, drawn twice over - once at its own size for the colour and once a little
- * larger for an outline, so one mark on top of another is still two marks rather than a blot.
+ * A dot is a soft disc and a flat map's pin is a map pin, both drawn twice over: once at their own
+ * size for the colour and once a little larger for an outline, so one mark on top of another is
+ * still two marks rather than a blot.
+ *
+ * The pin is the one worth the trouble. It is a teardrop - a round head over a tapering point that
+ * stands ON the place - with two things a flat silhouette has not got: the HOLE through the head,
+ * which is the single feature that says "map pin" rather than "blob", and a light over the viewer's
+ * left shoulder that makes the head a bead rather than a sticker. The head is shaded as if it were a
+ * dome, from a normal built out of the distance from its middle, so the roundness is real rather
+ * than a painted-on gradient; the point picks up the rim of that same light, which is what keeps it
+ * looking like part of the same object.
+ *
+ * This is the picture the flat map uses. On the globe a pin is a SOLID instead (see pinMesh), which
+ * a sheet of paper has no use for: it leans with the ball, and there is no ball here.
  */
 const markFrag = `#version 300 es
   precision highp float;
@@ -1805,20 +1824,42 @@ const markFrag = `#version 300 es
   uniform sampler2D uPalette;
   uniform float uGroups;
   uniform float uAlpha;
+  uniform bool uPin;
   uniform vec3 uOutline;
   out vec4 outColor;
 
+  /** where the middle of a pin's head sits in the sprite, and how big it is */
+  const vec2 headAt = vec2(0.0, -0.16);
+  const float headSize = 0.2;
+
   // how much of this fragment is inside the mark, grown outward by 'grow' of the sprite's width
-  float cover(vec2 d, float grow) {
-    return 1.0 - smoothstep(0.36 + grow - 0.02, 0.36 + grow + 0.02, length(d));
+  float cover(vec2 d, bool pin, float grow) {
+    if (!pin) return 1.0 - smoothstep(0.36 + grow - 0.02, 0.36 + grow + 0.02, length(d));
+    float head = 1.0 - smoothstep(headSize + grow - 0.02, headSize + grow + 0.02, length(d - headAt));
+    float tail = (1.0 - smoothstep(0.0, 0.03, abs(d.x) - (0.19 + grow) * (0.5 - d.y))) * step(-0.16, d.y) * step(d.y, 0.46 + grow);
+    return max(head, tail);
   }
 
   void main() {
     vec2 d = gl_PointCoord - vec2(0.5);
-    float fill = cover(d, 0.0);
-    float edge = cover(d, 0.06);
+    float fill = cover(d, uPin, 0.0);
+    float edge = cover(d, uPin, uPin ? 0.045 : 0.06);
     if (edge <= 0.01) discard;
     vec3 c = texture(uPalette, vec2((float(vGroup) + 0.5) / uGroups, 0.5)).rgb;
+    if (uPin) {
+      // the head as a dome: how far out of the sprite it would stand at this point, and therefore
+      // which way its surface faces. Beyond the head this flattens to the rim, which is what gives
+      // the point below its gradient without needing a rule of its own.
+      vec2 from = (d - headAt) / headSize;
+      float rise = sqrt(max(0.0, 1.0 - min(1.0, dot(from, from))));
+      vec3 n = normalize(vec3(from, rise + 0.35));
+      // gl_PointCoord counts DOWN the sprite, so up on the screen is -y and this light is high left
+      float lit = max(0.0, dot(n, normalize(vec3(-0.42, -0.48, 0.77))));
+      c *= 0.66 + 0.62 * lit;
+      // and the hole through the head
+      float hole = 1.0 - smoothstep(0.062, 0.082, length(d - headAt));
+      c = mix(c, uOutline * 0.85 + c * 0.15, hole);
+    }
     outColor = vec4(mix(uOutline, c, fill), edge * uAlpha);
   }`;
 

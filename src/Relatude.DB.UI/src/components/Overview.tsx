@@ -2,36 +2,38 @@ import { useCallback, useEffect, useState } from "react";
 import { PanelGrid, type PanelRow } from "./PanelGrid";
 import { showConfirm } from "../dialogs";
 import { subscribe, subscribeResync } from "../server/channel";
-import { collectGarbage, fetchServerLive, fetchServerOverview, softRestart, stopHost, type ProcessActionResult, type ServerOverview } from "../server/overview";
+import { collectGarbage, fetchServerOverview, softRestart, stopHost, type ProcessActionResult, type ServerLive, type ServerOverview } from "../server/overview";
 import { ProcessChart, currentCpu, formatPercent, useProcessSamples, type ProcessSample } from "./ProcessChart";
-import { usePoll } from "../refresh";
+import { useLive } from "../live";
 import { formatBytes, formatDuration, formatTime } from "../format";
 
 export function Overview() {
   const [data, setData] = useState<ServerOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const apply = useCallback((d: ServerOverview) => {
+    setData(d);
+    setError(null);
+  }, []);
+  // uptime and disk sizes drift rather than change: never worth sampling more often than this,
+  // however fast the refresh rate is set
+  useLive<ServerOverview>("server-overview", null, apply, { minMs: 10000, onError: setError });
   const load = useCallback(() => {
     fetchServerOverview()
-      .then((d) => {
-        setData(d);
-        setError(null);
-      })
+      .then(apply)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, []);
+  }, [apply]);
   useEffect(() => {
-    load();
+    // the two things that change the page without waiting for the next sample: a database opening
+    // or closing anywhere, and a resync after the stream came back
     const unsubscribeResync = subscribeResync(load);
-    const unsubscribeContainers = subscribe("containers", load); // any database change refreshes the page
+    const unsubscribeContainers = subscribe("containers", load);
     return () => {
       unsubscribeResync();
       unsubscribeContainers();
     };
   }, [load]);
-  // uptime and memory drift rather than change: never worth asking more often than this, however
-  // fast the refresh rate is set
-  usePoll(load, { minMs: 10000 });
-  // the process itself moves faster than the facts: sampled at the refresh rate for the graph
-  const samples = useProcessSamples(readProcess);
+  // the process itself moves faster than the facts: read on the refresh cadence for the graph
+  const samples = useProcessSamples("server-live", null, readProcess);
   if (error) return <div className="placeholder">{error}</div>;
   if (!data) return null;
   const open = data.containers.filter((c) => c.state === "Open").length;
@@ -166,8 +168,7 @@ export function Overview() {
 }
 
 // one reading of the process, in the shape the chart samples
-async function readProcess(): Promise<ProcessSample> {
-  const live = await fetchServerLive();
+function readProcess(live: ServerLive): ProcessSample {
   return {
     at: new Date(live.sampledUtc).getTime(),
     iso: live.sampledUtc,

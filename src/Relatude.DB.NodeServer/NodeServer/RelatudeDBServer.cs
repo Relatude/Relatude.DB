@@ -6,8 +6,6 @@ using Relatude.DB.FileConversion;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer.API;
-using Relatude.DB.NodeServer.EventHub;
-using Relatude.DB.NodeServer.EventTriggers;
 using Relatude.DB.NodeServer.Settings;
 using Relatude.DB.NodeServer.UI;
 using Relatude.DB.Tasks;
@@ -29,11 +27,6 @@ public partial class RelatudeDBServer {
     DateTime _initialized = DateTime.UtcNow;
     public RelatudeDBServer(string? urlPath) {
         setApiUrlRoot(urlPath);
-        EventHub = new ServerEventHub(this);
-        EventHub.RegisterPoller(new DataStoreStatesEventPoller());
-        EventHub.RegisterPoller(new DataStoreStatusEventPoller());
-        EventHub.RegisterPoller(new DataStoreInfoEventPoller());
-        EventHub.RegisterPoller(new DataStoreTraceEventPoller());
     }
     void setApiUrlRoot(string? urlPath) {
         if (urlPath == null) urlPath = Defaults.AdminUrlRoot;
@@ -122,7 +115,6 @@ public partial class RelatudeDBServer {
     internal string ApiUrlPublic => ApiUrlRoot + "/auth/";
     RelatudeDBServerSettings _serverSettings = new() { Id = Guid.NewGuid(), Name = "Relatude.DB Server" };
     public RelatudeDBServerSettings Settings => _serverSettings;
-    internal ServerEventHub EventHub { get; }
     public Dictionary<Guid, NodeStoreContainer> Containers = [];
     /// <summary>
     /// A snapshot of the current containers. The dictionary itself is mutated while the server runs

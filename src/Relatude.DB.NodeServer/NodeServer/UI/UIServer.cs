@@ -26,6 +26,8 @@ public sealed class UIServer {
     string? _lastContainersJson;
     public UIEventStream Events { get; } = new();
     public UICommands Commands { get; }
+    /// <summary>What the pages follow, sampled here and pushed on the stream rather than polled.</summary>
+    public UILiveFeeds Feeds { get; }
     internal UIServer(RelatudeDBServer server) {
         _server = server;
         Commands = new UICommands(server);
@@ -43,6 +45,8 @@ public sealed class UIServer {
         _query = new UIQuery(server);
         _query.Register(Commands);
         new UISearch(server, _query).Register(Commands);
+        // registered last: it runs the commands above on behalf of a connected tab
+        Feeds = new UILiveFeeds(server, Commands, Events);
         _containerWatch = new Timer(_ => watchContainers(), null, containerWatchIntervalMs, Timeout.Infinite);
     }
     // broadcasts a "containers" event whenever the container list changes (state, node count, name),

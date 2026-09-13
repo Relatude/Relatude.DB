@@ -41,10 +41,6 @@ export interface ServerLive {
   processorCount: number;
 }
 
-export function fetchServerLive(): Promise<ServerLive> {
-  return send<ServerLive>("server-live");
-}
-
 export interface ProcessActionResult {
   started: boolean;
   message: string;

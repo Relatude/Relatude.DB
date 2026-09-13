@@ -300,6 +300,7 @@ public class SetRegister(long maxSize) {
 
 
     public IdSet Page(IdSet ids, int page, int pageSize) {
+        if ((long)page * pageSize <= 0 && pageSize >= ids.Count) return ids; // the whole set, in its own order
         var key = new SetCacheKey(SetOperation.Page, [ids.StateId], [page, pageSize]);
         return createOrLookup(key, () => {
             var result = new List<int>();
@@ -317,6 +318,7 @@ public class SetRegister(long maxSize) {
         });
     }
     public IdSet Take(IdSet ids, int take) {
+        if (take >= ids.Count) return ids;
         var key = new SetCacheKey(SetOperation.Take, [ids.StateId], [take]);
         return createOrLookup(key, () => {
             var result = new List<int>();
@@ -331,6 +333,7 @@ public class SetRegister(long maxSize) {
         });
     }
     public IdSet Skip(IdSet ids, int skip) {
+        if (skip <= 0) return ids;
         var key = new SetCacheKey(SetOperation.Skip, [ids.StateId], [skip]);
         return createOrLookup(key, () => {
             var result = new List<int>();

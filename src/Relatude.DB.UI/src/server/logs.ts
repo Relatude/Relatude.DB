@@ -145,26 +145,6 @@ export function fetchLogsInfo(storeId: string): Promise<LogsInfo> {
   return send<LogsInfo>("logs-info", { storeId });
 }
 
-/**
- * A page of a log: the entries of a range, newest first, or the ones a search matches.
- *
- * The search is read on the server, which tests every record of the range against it - there is no
- * index behind it, so it is the range that decides what it costs, not the search. See
- * {@link searchHelp} for what a search may say.
- */
-export function fetchLogPage(
-  storeId: string,
-  logKey: string,
-  fromUtc: string | null,
-  toUtc: string | null,
-  skip: number,
-  take: number,
-  search?: string,
-  caseSensitive?: boolean,
-): Promise<LogPage> {
-  return send<LogPage>("logs-extract", { storeId, logKey, fromUtc, toUtc, skip, take, search: search ?? null, caseSensitive: caseSensitive ?? false });
-}
-
 /** What a search may say, as the page shows it under the search box. */
 export const searchHelp = [
   ["timeout", "an entry with this anywhere in it"],
@@ -210,29 +190,6 @@ function matchesWildcard(text: string, pattern: string): boolean {
   }
   while (p < pattern.length && pattern[p] === "*") p++;
   return p === pattern.length;
-}
-
-export function fetchSeries(
-  storeId: string,
-  logKey: string,
-  series: LogSeries,
-  interval: IntervalType,
-  fromUtc: string,
-  toUtc: string,
-): Promise<SeriesData> {
-  return send<SeriesData>("logs-series", {
-    storeId,
-    logKey,
-    property: series.property,
-    statistic: series.statistic,
-    interval,
-    fromUtc,
-    toUtc,
-  });
-}
-
-export function fetchTrace(storeId: string, take = 200): Promise<TraceInfo> {
-  return send<TraceInfo>("logs-trace", { storeId, take });
 }
 
 /** Turns recording, statistics, or both on or off. Omitted switches are left alone. */
@@ -317,10 +274,6 @@ export async function downloadLogTsv(
 function filenameOf(contentDisposition: string | null): string | null {
   const match = contentDisposition?.match(/filename="([^"]+)"/);
   return match ? match[1] : null;
-}
-
-export function fetchScans(storeId: string): Promise<ScanInfo> {
-  return send<ScanInfo>("logs-scans", { storeId });
 }
 
 export function recordScans(storeId: string, enable: boolean): Promise<{ recording: boolean }> {

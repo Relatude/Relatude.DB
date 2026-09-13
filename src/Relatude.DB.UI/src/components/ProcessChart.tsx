@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { Chart } from "./Chart";
-import { usePoll, useRefreshInterval } from "../refresh";
+import { useRefreshInterval } from "../refresh";
+import { useLive } from "../live";
 import { formatBytes } from "../format";
 import type { SeriesPoint } from "../server/logs";
 
@@ -87,28 +88,26 @@ export function ProcessChart({ samples, maxSamples = defaultMaxSamples }: { samp
 }
 
 /**
- * Samples the process at the page's refresh rate and keeps the last `maxSamples`. `read` fetches one
- * reading; a failed read is a gap, not an error worth taking the page over. The returned array is a
- * new one after every sample, so anything drawn from it redraws.
+ * Follows one reading of the process and keeps the last `maxSamples` of them. The server takes the
+ * readings on the page's refresh cadence and pushes them (see live.ts); `read` turns one into a
+ * sample, and a reading that cannot be turned into one is a gap rather than an error worth taking
+ * the page over. The returned array is a new one after every sample, so anything drawn from it
+ * redraws.
  */
-export function useProcessSamples(read: () => Promise<ProcessSample>, maxSamples = defaultMaxSamples): ProcessSample[] {
+export function useProcessSamples<T>(type: string, payload: unknown, read: (data: T) => ProcessSample, maxSamples = defaultMaxSamples): ProcessSample[] {
   const samples = useRef<ProcessSample[]>([]);
   const [, setTick] = useState(0);
-  const sample = useCallback(async () => {
-    try {
-      const s = await read();
-      samples.current = [...samples.current, s].slice(-maxSamples);
-      setTick((t) => t + 1);
-    } catch {
-      // a gap
-    }
-  }, [read, maxSamples]);
-  usePoll(sample);
-  // the first reading straight away rather than a refresh interval from now
-  const started = useRef(false);
-  if (!started.current) {
-    started.current = true;
-    void sample();
-  }
+  const add = useCallback(
+    (data: T) => {
+      try {
+        samples.current = [...samples.current, read(data)].slice(-maxSamples);
+        setTick((t) => t + 1);
+      } catch {
+        // a gap
+      }
+    },
+    [read, maxSamples],
+  );
+  useLive<T>(type, payload, add);
   return samples.current;
 }

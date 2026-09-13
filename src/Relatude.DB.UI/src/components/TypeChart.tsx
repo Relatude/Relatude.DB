@@ -558,6 +558,15 @@ const donutBox = 132;
 const donutMinSize = 120;
 /** The legend is worth putting beside the ring only when this much is left for it. */
 const donutLegendWidth = 190;
+/**
+ * How much of the room the ring actually takes. A circle that meets the edges of its panel reads as
+ * a picture that did not fit; a little air round it is what makes it look placed rather than
+ * squeezed - and the legend beside it gets the difference.
+ */
+const donutFill = 0.82;
+/** The share of the ring the total in the middle takes, and the floor under it on a small panel. */
+const donutTotalShare = 0.05;
+const donutTotalMinPx = 13;
 /** And under it, only when this much is left below. */
 const donutLegendHeight = 96;
 /** The gap between the ring and its legend, matching .dash-donut. */
@@ -571,10 +580,18 @@ function Donut({ slices, total }: { slices: TypeSlice[]; total: number }) {
   // round it
   const beside = width >= donutMinSize + donutGap + donutLegendWidth;
   const room = beside ? Math.min(height, width - donutGap - donutLegendWidth) : Math.min(width, height - donutGap - donutLegendHeight);
-  const size = Math.max(donutMinSize, Math.floor(room));
+  const size = Math.max(donutMinSize, Math.floor(room * donutFill));
   const r = 58;
   const inner = 34;
   const sum = slices.reduce((a, s) => a + s.value, 0);
+  const middle = formatCount(sum);
+  // The number in the middle is a label rather than the picture, so it follows the ring the way the
+  // sunburst's total follows its hole: a share of the figure, never smaller than what can be read on
+  // a short panel, and never wider than the hole it sits in. Written in the drawing's own units,
+  // which the viewBox then scales - hence the size it is asked for, turned back into units.
+  const totalPx = Math.max(donutTotalMinPx, size * donutTotalShare);
+  const totalSize = Math.min((totalPx * donutBox) / size, (inner * 1.84) / Math.max(4, middle.length * 0.58));
+  const captionSize = Math.max(5.5, totalSize * 0.42);
   let angle = -Math.PI / 2; // twelve o'clock
   const arcs = slices.map((s) => {
     const sweep = sum > 0 ? (s.value / sum) * Math.PI * 2 : 0;
@@ -590,24 +607,27 @@ function Donut({ slices, total }: { slices: TypeSlice[]; total: number }) {
             <path
               key={slice.type.id}
               d={arcPath(donutBox / 2, donutBox / 2, r, inner, from, to)}
-              fill={slice.color}
               className="dash-donut-arc"
+              // the treemap's and the sunburst's card: the type's colour washed into the panel for
+              // the fill and near full strength for the edge, so one type looks the same in every
+              // shape on this page (see .dash-sun-arc)
+              style={{ "--tile": slice.color } as React.CSSProperties}
             >
               <title>{title(slice, total)}</title>
             </path>
           ),
         )}
-        <text x={donutBox / 2} y={donutBox / 2 - 2} className="dash-donut-total" textAnchor="middle">
-          {formatCount(sum)}
+        <text x={donutBox / 2} y={donutBox / 2 - totalSize * 0.18} className="dash-donut-total" style={{ fontSize: totalSize }} textAnchor="middle">
+          {middle}
         </text>
-        <text x={donutBox / 2} y={donutBox / 2 + 12} className="dash-donut-caption" textAnchor="middle">
+        <text x={donutBox / 2} y={donutBox / 2 + totalSize * 0.76} className="dash-donut-caption" style={{ fontSize: captionSize }} textAnchor="middle">
           nodes
         </text>
       </svg>
       <div className="dash-donut-legend">
         {slices.map((s) => (
           <div key={s.type.id} className="dash-legend-row" title={title(s, total)}>
-            <span className="dash-legend-swatch" style={{ background: s.color }} />
+            <span className="dash-legend-swatch" style={{ "--tile": s.color } as React.CSSProperties} />
             <span className="dash-legend-name">{s.type.name}</span>
             <span className="dash-legend-share">{share(s.value, sum)}</span>
             <span className="num">{formatCount(s.value)}</span>

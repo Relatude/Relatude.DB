@@ -5,7 +5,7 @@ import { showConfirm, showError, showInfo } from "../dialogs";
 import { subscribe, subscribeResync } from "../server/channel";
 import { createDatabase, fetchDatabases, setDefaultDatabase, type DatabaseList, type DatabaseRow } from "../server/databases";
 import { closeStore, openStore } from "../server/storage";
-import { usePoll } from "../refresh";
+import { useLive } from "../live";
 import { formatCount } from "../format";
 
 /**
@@ -19,25 +19,28 @@ import { formatCount } from "../format";
 export function DatabasesSection({ onSelectDb }: { onSelectDb?: (id: string) => void }) {
   const [data, setData] = useState<DatabaseList | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const apply = useCallback((d: DatabaseList) => {
+    setData(d);
+    setError(null);
+  }, []);
+  // the list itself is settings and file sizes: worth re-reading while the page is open, never worth
+  // it as fast as the counters elsewhere
+  useLive<DatabaseList>("databases", null, apply, { minMs: 5000, onError: setError });
   const load = useCallback(() => {
     fetchDatabases()
-      .then((d) => {
-        setData(d);
-        setError(null);
-      })
+      .then(apply)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, []);
+  }, [apply]);
   useEffect(() => {
-    load();
     const unsubscribeResync = subscribeResync(load);
     // the container watch broadcasts every state change, so a database opening elsewhere lands here
+    // at once rather than at the next sample
     const unsubscribeContainers = subscribe("containers", load);
     return () => {
       unsubscribeResync();
       unsubscribeContainers();
     };
   }, [load]);
-  usePoll(load, { minMs: 5000 });
 
   if (error) return <div className="placeholder">{error}</div>;
   if (!data) return null;

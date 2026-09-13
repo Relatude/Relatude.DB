@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { IconChevronLeft, IconChevronRight, IconEraser, IconReload, IconTrash, IconX } from "@tabler/icons-react";
-import { usePoll } from "../refresh";
+import { useLive } from "../live";
 import { showConfirm, showError, showInfo } from "../dialogs";
 import {
   clearTasks,
@@ -63,9 +63,8 @@ export function TasksSection({ db }: { db: DatabaseInfo }) {
   const [throttle, setThrottle] = useState<number | null>(null);
   const dragging = useRef(false);
 
-  const load = useCallback(async (): Promise<TasksInfo | null> => {
-    try {
-      const info = await fetchTasks(db.id, { queues, states, typeIds: typeId ? [typeId] : [], page, pageSize });
+  const apply = useCallback(
+    (info: TasksInfo) => {
       setData(info);
       setError(null);
       // the server steps back to the last page that exists when the queue drained under the page
@@ -74,19 +73,25 @@ export function TasksSection({ db }: { db: DatabaseInfo }) {
       // a selection of batches that have since been run or deleted would make the bulk bar lie
       const alive = new Set(info.batches.map((b) => b.batchId));
       setSelected((prev) => (prev.length === 0 ? prev : prev.filter((id) => alive.has(id))));
+    },
+    [page],
+  );
+
+  // the queues as they are, and as they change: the filters are part of the question, so changing
+  // one asks a new one of the server rather than filtering what arrived for the old one
+  useLive<TasksInfo>("tasks", { storeId: db.id, queues, states, typeIds: typeId ? [typeId] : [], page, pageSize }, apply, { onError: setError });
+
+  // the same question asked by hand, for the moment after an action that has to be seen at once
+  const load = useCallback(async (): Promise<TasksInfo | null> => {
+    try {
+      const info = await fetchTasks(db.id, { queues, states, typeIds: typeId ? [typeId] : [], page, pageSize });
+      apply(info);
       return info;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       return null;
     }
-  }, [db.id, queues, states, typeId, page]);
-
-  // the first load, and one more whenever a filter changes; the repeat is the whole UI's refresh
-  // rate, set in the top bar
-  useEffect(() => {
-    load();
-  }, [load]);
-  usePoll(load);
+  }, [db.id, queues, states, typeId, page, apply]);
 
   function toggleState(state: BatchState) {
     setPage(0);

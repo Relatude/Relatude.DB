@@ -12,7 +12,7 @@ import {
 } from "../server/revert";
 import type { DatabaseInfo } from "../server/serverInfo";
 import { notifyResync } from "../server/channel";
-import { usePoll } from "../refresh";
+import { useLive } from "../live";
 import { formatBytes, formatCount, formatDuration, formatTime } from "../format";
 
 /**
@@ -47,7 +47,8 @@ export function RevertControl({ db }: { db: DatabaseInfo }) {
   useEffect(() => {
     load();
   }, [load, isActive, db.revertWindow?.timestamp]);
-  usePoll(load, { enabled: isActive || status?.active === true });
+  // and while there is a window to follow, the server keeps saying how far it has come
+  useLive<RevertStatus>("revert-status", { storeId: db.id }, setStatus, { enabled: isActive || status?.active === true });
 
   // the broadcast is the fresher of the two while they disagree (a window just begun, or just ended)
   const active = isActive && status?.active === true ? status : null;

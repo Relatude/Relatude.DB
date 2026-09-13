@@ -216,10 +216,15 @@ export function MapView({
   const property = positions.some((p) => p.id === def.property) ? def.property : (positions[0]?.id ?? null);
   const colorProperty = groupable.some((p) => p.id === def.colorProperty) ? def.colorProperty : null;
   const colorInfo = groupable.find((p) => p.id === colorProperty);
-  const marks = def.marks;
-  const coloured = marks === "dots" || marks === "pins";
   const projection = projectionOf(def.projection);
   const globeMode = def.globe;
+  // Rods stand OUT of the world, which is something a ball has and a sheet of paper has not: on the
+  // flat map they are a forest of bars drawn up the page. So the mode is offered only on the globe,
+  // and a map saved in it opens as dots while it is flat - and is itself again the moment the globe
+  // comes back, since the definition is left alone
+  const marks: MarkKind = def.marks === "rods" && !globeMode ? "dots" : def.marks;
+  const shownMarks = globeMode ? markOptions : markOptions.filter((m) => m.id !== "rods");
+  const coloured = marks === "dots" || marks === "pins";
 
   const request = useMemo<MapRequest | null>(() => {
     if (model === null || definition === null || property === null) return null;
@@ -905,11 +910,36 @@ export function MapView({
           <span className="pivot-builder-label visual-label-2">Show</span>
           <span className="pivot-chip">
             <div className="query-view" role="tablist">
-              {markOptions.map((m) => (
+              {shownMarks.map((m) => (
                 <button key={m.id} role="tab" aria-selected={marks === m.id} className={marks === m.id ? "active" : ""} title={m.hint} onClick={() => onChange({ ...def, marks: m.id })}>
                   {m.label}
                 </button>
               ))}
+            </div>
+          </span>
+          {/* which of the two pictures the same data is drawn in. Beside what is being shown rather
+              than off among the switches, because it changes the picture as much as that does */}
+          <span className="pivot-builder-label visual-label-2">View</span>
+          <span className="pivot-chip">
+            <div className="query-view" role="tablist">
+              <button
+                role="tab"
+                aria-selected={!globeMode}
+                className={!globeMode ? "active" : ""}
+                title="The world as a flat map, in the projection chosen beside this"
+                onClick={() => globeMode && onChange({ ...def, globe: false })}
+              >
+                Flat
+              </button>
+              <button
+                role="tab"
+                aria-selected={globeMode}
+                className={globeMode ? "active" : ""}
+                title="The world on a globe — drag to turn it, wheel to close in"
+                onClick={() => !globeMode && onChange({ ...def, globe: true })}
+              >
+                <IconWorld size={13} stroke={1.9} /> Globe
+              </button>
             </div>
           </span>
           {coloured && (
@@ -974,14 +1004,6 @@ export function MapView({
           )}
           <div className="pivot-options">
             {head}
-            <button
-              className={"icon-button" + (globeMode ? " active" : "")}
-              aria-pressed={globeMode}
-              title={globeMode ? "Back to the flat map" : "Put the world on a globe — drag to turn it, wheel to close in"}
-              onClick={() => onChange({ ...def, globe: !globeMode })}
-            >
-              <IconWorld size={16} stroke={1.9} />
-            </button>
             <button
               className={"icon-button" + (def.graticule !== false ? " active" : "")}
               aria-pressed={def.graticule !== false}

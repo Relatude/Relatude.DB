@@ -23,10 +23,11 @@ import { TypeChart, otherSliceId, shade, type TypeChartShape, type TypeSlice } f
 import { KindIcon } from "./DatamodelIcons";
 import { openInDatamodel, openInQuery } from "../navigate";
 import { showConfirm, showError, showInfo } from "../dialogs";
-import { clearCaches, fetchDashboard, fetchDashboardLive, type DashboardInfo, type DashboardLive, type TypeCount } from "../server/dashboard";
+import { clearCaches, fetchDashboard, type DashboardInfo, type DashboardLive, type TypeCount } from "../server/dashboard";
 import { codeSourceGuid, sourceColors } from "../server/datamodel";
-import { fetchTrace, type TraceInfo } from "../server/logs";
-import { useMeasuredEvery, usePoll, useRefreshInterval } from "../refresh";
+import type { TraceInfo } from "../server/logs";
+import { useMeasuredEvery, useRefreshInterval } from "../refresh";
+import { useLive } from "../live";
 import { collectGarbage } from "../server/overview";
 import { closeStore, openStore } from "../server/storage";
 import type { DatabaseInfo } from "../server/serverInfo";
@@ -90,6 +91,8 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   const measuredEvery = useMeasuredEvery();
   const refreshMs = useRefreshInterval();
 
+  // asked for by hand after something that changes the whole picture - a database opened, closed or
+  // emptied - rather than waiting for the next sample of a call this expensive
   const loadInfo = useCallback(async () => {
     try {
       setInfo(await fetchDashboard(db.id));
@@ -99,17 +102,18 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
     }
   }, [db.id]);
 
+  // the shape of the database: counted over every type, every backup and every state file, so it is
+  // sampled at its own floor however fast the refresh rate is set
+  useLive<DashboardInfo>("dashboard", { storeId: db.id }, setInfo, { minMs: infoIntervalMs, onError: setError });
+
   useEffect(() => {
     samples.current = [];
-    loadInfo();
-  }, [loadInfo]);
-  usePoll(loadInfo, { minMs: infoIntervalMs });
+  }, [db.id]);
 
-  const sampleLive = useCallback(async () => {
-    try {
-      const sample = await fetchDashboardLive(db.id);
+  const applySample = useCallback(
+    (sample: DashboardLive) => {
       setLive((previous) => {
-        // the full picture is fetched once and would otherwise describe a database that has since
+        // the full picture is sampled slowly and would otherwise describe a database that has since
         // opened or closed - the live sample is what notices
         if (previous && previous.state !== sample.state) loadInfo();
         return sample;
@@ -132,21 +136,16 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
         ].slice(-maxSamples);
         setSampleTick((t) => t + 1);
       }
-    } catch {
-      // a failed sample is a gap, not an error worth taking the page over
-    }
-  }, [db.id, loadInfo]);
-  useEffect(() => {
-    sampleLive();
-  }, [sampleLive]);
-  usePoll(sampleLive);
+    },
+    [loadInfo],
+  );
 
-  // the last messages the database wrote, refreshed at the same pace as everything else here
-  const loadTrace = useCallback(() => fetchTrace(db.id, 12).then(setTrace).catch(() => {}), [db.id]);
-  useEffect(() => {
-    loadTrace();
-  }, [loadTrace]);
-  usePoll(loadTrace);
+  // the counters, which is what the page is mostly made of: cheap to read, and the only thing here
+  // that moves every second
+  useLive<DashboardLive>("dashboard-live", { storeId: db.id }, applySample);
+
+  // the last messages the database wrote, on the same cadence as everything else here
+  useLive<TraceInfo>("logs-trace", { storeId: db.id, take: 12 }, setTrace);
 
   // the running activities, with the ones that just finished kept a moment longer so they fade out
   // instead of vanishing between two samples (a hook, so it sits here with the others, before the

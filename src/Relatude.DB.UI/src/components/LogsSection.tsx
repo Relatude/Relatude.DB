@@ -22,11 +22,7 @@ import {
   clearLog,
   downloadLogTsv,
   enableLog,
-  fetchLogPage,
   fetchLogsInfo,
-  fetchScans,
-  fetchSeries,
-  fetchTrace,
   matchesTerm,
   rebuildStatistics,
   recordScans,
@@ -47,7 +43,7 @@ import {
   type TraceInfo,
 } from "../server/logs";
 import type { DatabaseInfo } from "../server/serverInfo";
-import { usePoll } from "../refresh";
+import { useLive } from "../live";
 import { formatBytes, formatCount, formatTime } from "../format";
 
 /**
@@ -330,7 +326,6 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
   const [skip, setSkip] = useState(0);
   const [live, setLive] = useState(false);
   const [tick, setTick] = useState(0); // an explicit refresh: a button, or an action that changed something
-  const [liveTick, setLiveTick] = useState(0); // the live timer, which nobody asked for one by one
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [downloading, setDownloading] = useState(false);
   // what the search box holds and what has been asked for: the field runs ahead of the search
@@ -415,67 +410,67 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
       return next;
     });
   }
-  // one refresh per bucket at the fastest: a graph drawn a second at a time that only moved every
-  // five seconds would stand still for five of its points and then jump
-  usePoll(() => setLiveTick((t) => t + 1), { enabled: live, minMs: range.interval === "Second" ? 1000 : 5000 });
-
   // A filter pages in the browser, over one window of the newest entries; without one the server
   // pages, a hundred rows at a time. So typing in a filter field never fetches anything: only
   // arriving at one, or leaving the last one, changes what is asked for.
   const take = filtering ? filterWindow : pageSize;
   const windowSkip = filtering ? 0 : skip;
 
-  // Both halves of the page cover the same range, so a spike in the graph is in the table below
-  // it. The graph is read from the statistics and costs nothing, so it follows the live refresh;
-  // the entries are read from the log files, and a search reads every one of them in the range -
-  // repeating that on a timer is the one thing the button is there to stop. So a live refresh
-  // leaves an applied search alone, and the button is how it is run over what has come in since.
-  const seriesTick = tick + liveTick;
-  const pageTick = tick + (searching ? 0 : liveTick);
+  // Both halves of the page cover the same range, and the range ends now: it is asked for as "the
+  // last so many milliseconds" rather than as two timestamps, so the server works out where now is
+  // on every sample and a log being watched slides along instead of standing still at the moment the
+  // page was opened (see UILogs.cs).
+  //
+  // The graph is read from the statistics and costs nothing, so it follows the live switch. The
+  // entries are read from the log files, and a search reads every one of them in the range -
+  // repeating that is the one thing the button is there to stop. So a live refresh leaves an applied
+  // search alone, and the refresh button is how it is run over what has come in since.
+  const applySeries = useCallback((data: SeriesData) => {
+    setSeries(data);
+    setSeriesError(null);
+  }, []);
+  const failSeries = useCallback((message: string) => {
+    setSeries(null);
+    setSeriesError(message);
+  }, []);
+  // one sample per bucket at the fastest: a graph drawn a second at a time that only moved every
+  // five seconds would stand still for five of its points and then jump
+  useLive<SeriesData>(
+    "logs-series",
+    { storeId: db.id, logKey: log.key, property: selected.property, statistic: selected.statistic, interval: range.interval, lastMs: range.ms },
+    applySeries,
+    { once: !live, restartOn: tick, minMs: range.interval === "Second" ? 1000 : 5000, onError: failSeries },
+  );
 
-  useEffect(() => {
-    let cancelled = false;
-    const to = new Date();
-    const from = new Date(to.getTime() - range.ms);
-    fetchSeries(db.id, log.key, selected, range.interval, from.toISOString(), to.toISOString())
-      .then((data) => {
-        if (cancelled) return;
-        setSeries(data);
-        setSeriesError(null);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setSeries(null);
-        setSeriesError(e instanceof Error ? e.message : String(e));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [db.id, log.key, selected, range, seriesTick]);
+  const applyPage = useCallback((p: LogPage) => {
+    setPage(p);
+    setPageError(null);
+    setLoading(false);
+  }, []);
+  const failPage = useCallback((message: string) => {
+    setPage(null);
+    setPageError(message);
+    setLoading(false);
+  }, []);
+  useLive<LogPage>(
+    "logs-extract",
+    {
+      storeId: db.id,
+      logKey: log.key,
+      lastMs: range.ms,
+      skip: windowSkip,
+      take,
+      search: applied.text.length > 0 ? applied.text : null,
+      caseSensitive: applied.caseSensitive,
+    },
+    applyPage,
+    { once: !live || searching, restartOn: tick, minMs: range.interval === "Second" ? 1000 : 5000, onError: failPage },
+  );
 
+  // the search button says it is working from the moment it is pressed until the entries arrive
   useEffect(() => {
-    let cancelled = false;
-    const to = new Date();
-    const from = new Date(to.getTime() - range.ms);
     setLoading(true);
-    fetchLogPage(db.id, log.key, from.toISOString(), to.toISOString(), windowSkip, take, applied.text, applied.caseSensitive)
-      .then((p) => {
-        if (cancelled) return;
-        setPage(p);
-        setPageError(null);
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setPage(null);
-        setPageError(e instanceof Error ? e.message : String(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [db.id, log.key, range, windowSkip, take, pageTick, applied]);
+  }, [applied, db.id, log.key, range, windowSkip, take]);
 
   function setFilter(key: string, text: string) {
     setFilters((current) => ({ ...current, [key]: text }));
@@ -1031,21 +1026,14 @@ function TraceTab({ db }: { db: DatabaseInfo }) {
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState(true);
   const [tick, setTick] = useState(0);
-  useEffect(() => {
-    let cancelled = false;
-    fetchTrace(db.id)
-      .then((t) => {
-        if (cancelled) return;
-        setTrace(t);
-        setError(null);
-      })
-      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : String(e)));
-    return () => {
-      cancelled = true;
-    };
-  }, [db.id, tick]);
-  // the trace is what the database is saying right now, so it follows by default
-  usePoll(() => setTick((t) => t + 1), { enabled: live });
+  const apply = useCallback((t: TraceInfo) => {
+    setTrace(t);
+    setError(null);
+  }, []);
+  // the trace is what the database is saying right now, so it follows by default: while it does,
+  // the server sends every new message rather than being asked for them. With the switch off it is
+  // read once, and again whenever the refresh button asks
+  useLive<TraceInfo>("logs-trace", { storeId: db.id }, apply, { once: !live, restartOn: tick, onError: setError });
   // and following means the newest line, at the top, is the one in view
   const term = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1118,20 +1106,13 @@ function ScansTab({ db }: { db: DatabaseInfo }) {
   const [scans, setScans] = useState<ScanInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
-  useEffect(() => {
-    let cancelled = false;
-    fetchScans(db.id)
-      .then((s) => {
-        if (cancelled) return;
-        setScans(s);
-        setError(null);
-      })
-      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : String(e)));
-    return () => {
-      cancelled = true;
-    };
-  }, [db.id, tick]);
-  usePoll(() => setTick((t) => t + 1), { enabled: !!scans?.recording });
+  const apply = useCallback((s: ScanInfo) => {
+    setScans(s);
+    setError(null);
+  }, []);
+  // while the scans are being recorded they change with every query the database answers, so they
+  // are followed; with the recording off they are read once, and again when something switches it
+  useLive<ScanInfo>("logs-scans", { storeId: db.id }, apply, { once: !scans?.recording, restartOn: tick, onError: setError });
 
   async function record(enable: boolean) {
     try {

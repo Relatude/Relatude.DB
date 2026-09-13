@@ -1,21 +1,24 @@
-// How often the admin UI asks the server what changed. One setting for the whole app: every page
-// that follows something live (the dashboard counters, the conversion queue, the task queues, the
-// system trace, a log that is being watched) polls on this cadence rather than on a pace of its own,
-// so slowing the UI down slows all of it down - which is the point on a database that is busy, or on
-// a connection that is not local.
+// How often the admin UI is told what changed. One setting for the whole app: every page that
+// follows something live (the dashboard counters, the conversion queue, the task queues, the system
+// trace, a log that is being watched) asks the server to sample it on this cadence and push what
+// comes back (see live.ts), so slowing the UI down slows all of it down - which is the point on a
+// database that is busy, or on a connection that is not local.
 //
-// Pages that ask for something genuinely expensive raise a floor of their own through `minMs`; the
-// setting never makes such a call run more often than it should, only less often.
+// Pages that follow something genuinely expensive raise a floor of their own through `minMs`; the
+// setting never makes such a sample run more often than it should, only less often.
 
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 
 /**
- * The stops on the slider, slowest first. 0 is paused: nothing polls, the refresh buttons still work.
- * The fastest stop is well under a second, for watching something that moves quickly - a queue
- * draining, a rebuild running. Nothing stacks up at that rate: a poll is scheduled once the previous
- * one has answered, so a server that cannot keep up simply answers less often.
+ * The stops on the slider, slowest first. 0 is paused: pages load once and then stay as they are,
+ * and the refresh buttons still work. The bottom of the scale is a tenth of a second, which is for
+ * watching something that moves too quickly to read otherwise - a queue draining, a rebuild
+ * running - and the steps crowd together down there because that is where the difference between
+ * one rate and the next is worth having. Nothing stacks up at any of them: the server starts the
+ * next wait when the last sample finished, so a database that cannot answer that fast simply sends
+ * less often than the slider says.
  */
-export const refreshSteps = [0, 30000, 10000, 5000, 2000, 1000, 200] as const;
+export const refreshSteps = [0, 30000, 10000, 5000, 2000, 1000, 500, 200, 100] as const;
 
 const defaultInterval = 2000;
 const storageKey = "refreshIntervalMs";
@@ -67,50 +70,6 @@ export function useRefreshInterval(): number {
 export function describeInterval(ms: number): string {
   if (ms === 0) return "Off";
   return ms >= 60000 ? ms / 60000 + "m" : ms / 1000 + "s";
-}
-
-export interface PollOptions {
-  /** False parks the timer without unmounting anything (a page nobody is watching, a paused view). */
-  enabled?: boolean;
-  /**
-   * The fastest this particular call may be made, whatever the global setting says. For calls that
-   * cost the server real work, or that answer a question that cannot change faster than this anyway.
-   */
-  minMs?: number;
-}
-
-/**
- * Calls `fn` on the global refresh cadence, and not while it is already running: the next wait starts
- * when the last call finished, so a slow answer delays the next request instead of stacking up behind
- * it. Does not call `fn` on mount - the first load belongs to the page, which usually wants it
- * unconditionally and often wants it in the same effect that sets up its state.
- */
-export function usePoll(fn: () => unknown, options: PollOptions = {}): void {
-  const { enabled = true, minMs = 0 } = options;
-  const global = useRefreshInterval();
-  const every = global === 0 ? 0 : Math.max(global, minMs);
-  // the callback is almost always a fresh closure on every render; keeping it in a ref means the
-  // timer is not torn down and restarted by every state change the page makes
-  const latest = useRef(fn);
-  latest.current = fn;
-  useEffect(() => {
-    if (!enabled || every === 0) return;
-    let stopped = false;
-    let timer = 0;
-    const run = async () => {
-      try {
-        await latest.current();
-      } catch {
-        // a failed refresh is the page's business, not the timer's: keep the cadence
-      }
-      if (!stopped) timer = window.setTimeout(run, every);
-    };
-    timer = window.setTimeout(run, every);
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-    };
-  }, [enabled, every]);
 }
 
 /** The interval a page should quote when it says how often a number is measured. */
