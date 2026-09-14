@@ -46,7 +46,9 @@ public class IdTerminalTests {
                 Category = _categories[i % 3],
                 Size = i,
                 Location = i % 5 == 0 ? GeoCoordinate.Empty : new GeoCoordinate(10 + i * 0.1, 20 + i * 0.2),
-                Body = "common " + _categories[i % 3] + (i % 10 == 0 ? " rare" : "") + " stopper",
+                // the year is there for ExcludeNumbers: three numbers common enough to reach the top
+                // of a count, so leaving them out is visible rather than a matter of the tail
+                Body = "common " + _categories[i % 3] + (i % 10 == 0 ? " rare" : "") + " stopper " + (2000 + i % 3),
             });
         }
         // written to the log at once, so the node cache can be emptied below: a node not yet in the log stays in it
@@ -180,6 +182,33 @@ public class IdTerminalTests {
             Assert.IsFalse(words.ContainsKey("stopper"), "ignored");
             Assert.IsTrue(result.Count <= 10);
             Assert.AreEqual("common", result.Words.Words[0].Word, "commonest first");
+            Assert.IsTrue(words.ContainsKey("2000"), "a number is a word of the text like any other until it is excluded");
+        } finally {
+            store.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// ExcludeNumbers() drops the words that are nothing but digits and leaves everything else
+    /// exactly as it was - including the words that merely have a digit in them, which are words
+    /// rather than numbers. The years here are common enough to be in any top ten, so their absence
+    /// is the clause working and not the cap.
+    /// </summary>
+    [TestMethod]
+    public void Words_ExcludeNumbers_DropsTheDigitsOnly() {
+        var store = open(out _);
+        try {
+            var plain = ((WordsQueryResultData)store.Datastore.Query(q(".Words(\"TerminalItem.Body\", 20)"), [])!).Words.Words.ToDictionary(w => w.Word);
+            var result = (WordsQueryResultData)store.Datastore.Query(q(".Words(\"TerminalItem.Body\", 20).ExcludeNumbers()"), [])!;
+            var words = result.Words.Words.ToDictionary(w => w.Word);
+            Assert.AreEqual(_count, result.TotalCount, "the nodes counted over are the same nodes");
+            foreach (var year in new[] { "2000", "2001", "2002" }) {
+                Assert.IsTrue(plain.ContainsKey(year), year + " is there without the clause");
+                Assert.IsFalse(words.ContainsKey(year), year + " is gone with it");
+            }
+            foreach (var word in new[] { "common", "rare", "stopper", "alpha", "beta", "gamma" }) {
+                Assert.AreEqual(plain[word].Documents, words[word].Documents, word + " is untouched");
+            }
         } finally {
             store.Dispose();
         }
@@ -218,6 +247,7 @@ public class IdTerminalTests {
                 q(".Page(0, 1000).Buckets(\"TerminalItem.Category\").AddRangeBucket(\"TerminalItem.Size\").SetBucketOptions(10, false).SortBy(\"TerminalItem.Size\", true)"),
                 q(".Page(0, 1000).Coordinates(\"TerminalItem.Location\").AddValueBucket(\"TerminalItem.Category\")"),
                 q(".Words(\"TerminalItem.Body\", 10, 2).IgnoreWords(\"stopper\", \"common\")"),
+                q(".Words(\"TerminalItem.Body\", 10, 2).IgnoreWords(\"stopper\").ExcludeNumbers()"),
             ];
             foreach (var query in queries) {
                 var text = ExpressionTreeBuilder.Build(TokenParser.Parse(query, []), dm).ToString();

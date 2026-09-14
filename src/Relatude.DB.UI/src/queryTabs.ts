@@ -171,6 +171,13 @@ export interface CloudDefinition {
   minWordLength: number;
   /** words to leave out whatever their count - the markup and boilerplate the index holds too */
   ignore: string[];
+  /**
+   * Whether the words that are nothing but digits are left out - years, prices, part numbers, and
+   * the halves the tokenizer split a decimal into. Absent is off, so a saved query from before this
+   * existed keeps counting them. Applied where the counting happens rather than on what came back,
+   * so asking for a hundred words still gives a hundred words.
+   */
+  excludeNumbers?: boolean;
   /** the colours (visual/palette.ts); absent is the first palette */
   palette?: string;
   /** how the words are coloured: by weight along a ramp, or one hue per word */

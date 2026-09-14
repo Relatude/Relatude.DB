@@ -32,6 +32,8 @@ public class Product {
     // read the whole set of them straight from the index without touching a node
     [GeoCoordinateProperty(Indexed = true)]
     public GeoCoordinate Location { get; set; }
+
+    public FileValue Image { get; set; } = FileValue.Empty;
 }
 
 [Node]

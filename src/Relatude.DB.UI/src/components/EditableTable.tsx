@@ -7,8 +7,8 @@ interface Props {
   storeId: string;
   columns: Column[];
   hits: Hit[];
-  /** the node the form beside the table has open, if any: its row is marked */
-  selected: string | null;
+  /** the nodes the form beside the table has open: their rows are marked */
+  selected: ReadonlySet<string>;
   sort: { key: string; descending: boolean } | null;
   sortApplied: boolean;
   onSort: (key: string) => void;
@@ -230,7 +230,7 @@ export function EditableTable({ storeId, columns, hits, selected, sort, sortAppl
         </thead>
         <tbody>
           {hits.slice(0, builtRows).map((hit, row) => (
-            <tr key={hit.id} className={selected === hit.id ? "selected" : ""}>
+            <tr key={hit.id} className={selected.has(hit.id) ? "selected" : ""}>
               {columns.map((column, col) => {
                 const cellKey = key(hit, column);
                 const here = cursor.row === row && cursor.col === col;

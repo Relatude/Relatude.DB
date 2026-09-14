@@ -364,6 +364,7 @@ public class TextIndex : IWordIndex, IWordCountIndex {
         var minDocuments = Math.Max(1, options.MinDocuments);
         var minLength = Math.Max(MinWordLength, options.MinWordLength);
         var ignore = options.Ignore;
+        var excludeNumbers = options.ExcludeNumbers;
         var budget = options.MaxPostingsEvaluated > 0 ? options.MaxPostingsEvaluated : long.MaxValue;
         // the best so far as a min-heap: its top is what the next word has to beat
         var best = new PriorityQueue<WordCount, WordCount>(Comparer<WordCount>.Create((a, b) => WordCount.Descending.Compare(b, a)));
@@ -373,6 +374,7 @@ public class TextIndex : IWordIndex, IWordCountIndex {
         foreach (var (term, entries) in mergedTermEntries()) {
             if (term.Length < minLength) continue; // skipped before any postings are read
             if (ignore != null && ignore.Contains(term)) continue;
+            if (excludeNumbers && WordCountOptions.IsNumber(term)) continue;
             var view = viewOf(entries, _mem.GetOverlay(term));
             var postings = view.Count;
             if (postings == 0) continue; // every document that held the word is gone

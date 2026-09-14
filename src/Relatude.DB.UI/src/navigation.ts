@@ -52,7 +52,7 @@ export interface Section {
 
 export const sections: Section[] = [
   { id: "dashboard", label: "Dashboard", scope: "database", icon: IconLayoutDashboard, tone: "plain" },
-  { id: "datamodel", label: "Data model", scope: "database", icon: IconSchema, tone: "purple" },
+  { id: "datamodel", label: "Models", scope: "database", icon: IconSchema, tone: "purple" },
   { id: "query", label: "Query", scope: "database", icon: IconDatabaseSearch, tone: "blue-light" },
   // one page in three views (FilesStorageSection): everything about what is on disk. The entry is
   // the storage view; the other two are its views and are reached from the switch on the page

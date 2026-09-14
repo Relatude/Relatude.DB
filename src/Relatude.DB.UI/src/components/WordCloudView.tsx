@@ -18,6 +18,7 @@ export const emptyCloud: CloudDefinition = {
   minDocuments: 1,
   minWordLength: 0,
   ignore: [],
+  excludeNumbers: false,
   palette: palettes[0].id,
   colorBy: "weight",
   shape: "cloud",
@@ -156,9 +157,10 @@ export function WordCloudView({
       minDocuments: def.minDocuments,
       minWordLength: def.minWordLength,
       ignore: def.ignore,
+      excludeNumbers: def.excludeNumbers === true,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model, definition === null, base, property, def.maxWords, def.minDocuments, def.minWordLength, def.ignore]);
+  }, [model, definition === null, base, property, def.maxWords, def.minDocuments, def.minWordLength, def.ignore, def.excludeNumbers]);
   // whether the count waits to be asked for (see slowMs): the server's estimate for this property
   const manual = (texts.find((p) => p.id === property)?.wordsCostMs ?? 0) > slowMs;
 
@@ -356,6 +358,16 @@ export function WordCloudView({
                 value={def.minWordLength}
                 onChange={(e) => set({ minWordLength: Math.max(0, Math.min(30, Number(e.target.value) || 0)) })}
               />
+            </label>
+            {/* A filter on what is counted, like the two beside it, and for the same reason: it is
+                applied in the index walk rather than to the words that came back, so a cloud asked
+                for 120 words still gets 120 of them. */}
+            <label
+              className="settings-check"
+              title="Leave out the words that are nothing but digits — years, prices, part numbers, and the halves the indexer split a decimal into. A word with a digit in it (mp3, 1st) is a word, and is kept."
+            >
+              <input type="checkbox" checked={def.excludeNumbers === true} onChange={(e) => set({ excludeNumbers: e.target.checked })} />
+              no numbers
             </label>
             {/* in the options group rather than beside it, so on a narrow page it wraps with them as one right-aligned unit instead of landing alone under the label */}
             {stale && (

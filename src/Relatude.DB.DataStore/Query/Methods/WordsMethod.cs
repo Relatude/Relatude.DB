@@ -10,9 +10,10 @@ namespace Relatude.DB.Query.Methods;
 /// Which words the nodes of a result hold in a word-indexed string property, and how often, read out
 /// of the word index rather than out of the nodes (<see cref="IWordSource"/>):
 /// Words(property[, maxWords[, minDocuments[, minWordLength[, maxPostingsEvaluated]]]]), with
-/// IgnoreWords(...) chained on for the words to skip. Evaluated against the collection it was
-/// chained onto, or the selection of a facet clause. Not a page of anything: the count is over the
-/// whole result, however large, because no node is read to produce it.
+/// IgnoreWords(...) chained on for the words to skip and ExcludeNumbers() for the ones that are
+/// nothing but digits. Evaluated against the collection it was chained onto, or the selection of a
+/// facet clause. Not a page of anything: the count is over the whole result, however large, because
+/// no node is read to produce it.
 /// </summary>
 public class WordsMethod : IExpression {
     readonly IExpression _input;
@@ -23,6 +24,7 @@ public class WordsMethod : IExpression {
     readonly int? _minWordLength;
     readonly long? _maxPostingsEvaluated;
     readonly List<string> _ignore = new();
+    bool _excludeNumbers;
 
     public WordsMethod(IExpression input, Datamodel dm, string property, int? maxWords = null, int? minDocuments = null, int? minWordLength = null, long? maxPostingsEvaluated = null) {
         _input = input;
@@ -44,6 +46,8 @@ public class WordsMethod : IExpression {
             if (w.Length > 0) _ignore.Add(w);
         }
     }
+    /// <summary>Leave out the words that are nothing but digits (see <see cref="WordCountOptions.IsNumber"/>).</summary>
+    public void ExcludeNumbers() => _excludeNumbers = true;
 
     public object Evaluate(IVariables vars) {
         var nodes = TerminalSource.Nodes(_input, vars, "Words");
@@ -54,6 +58,7 @@ public class WordsMethod : IExpression {
         if (_minWordLength is int minWordLength) options = options with { MinWordLength = minWordLength };
         if (_maxPostingsEvaluated is long maxPostings) options = options with { MaxPostingsEvaluated = maxPostings };
         if (_ignore.Count > 0) options = options with { Ignore = _ignore.ToHashSet() };
+        if (_excludeNumbers) options = options with { ExcludeNumbers = true };
         var counted = source.Words(_propertyId, options, vars.Context);
         return new WordsQueryResultData(_propertyId, counted, nodes.TotalCount);
     }
@@ -73,6 +78,7 @@ public class WordsMethod : IExpression {
         for (var i = 0; i <= last; i++) sb.Append(", ").Append(options[i].Given ?? options[i].Default);
         sb.Append(')');
         if (_ignore.Count > 0) sb.Append(".IgnoreWords(").Append(string.Join(", ", _ignore.Select(w => w.ToStringLiteral()))).Append(')');
+        if (_excludeNumbers) sb.Append(".ExcludeNumbers()");
         return sb.ToString();
     }
 }

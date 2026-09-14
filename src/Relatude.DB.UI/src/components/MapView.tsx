@@ -4,6 +4,7 @@ import { ColorField } from "./ColorField";
 import { BareButton, FullscreenButton } from "./DatamodelGraph";
 import type { PivotBase } from "./PivotView";
 import { fetchCards, fetchNodeGuid, fetchPivotModel, runMap, type MapRequest, type PivotModel, type PivotProperty } from "../server/query";
+import { selectModeOf, type SelectMode } from "../selection";
 import { useLiveResult } from "../server/hooks";
 import { formatCount, formatQuery } from "../format";
 import type { MapDefinition, MapMarks as MarkKind, MapStyle as SavedStyle } from "../queryTabs";
@@ -178,8 +179,8 @@ export function MapView({
   /** Changes when the page is asked to run again with nothing else changed. */
   refreshToken: number;
   showQuery: boolean;
-  /** A node was clicked: open it in the form beside the map. */
-  onOpen: (nodeId: string) => void;
+  /** A node was clicked: it goes to the form beside the map - on its own, toggled (ctrl), or added (shift). */
+  onOpen: (nodeId: string, mode: SelectMode) => void;
   fullscreen: boolean;
   onToggleFullscreen: () => void;
   /** What the result's own head would say, when the page has folded that head away (see the visual pivot). */
@@ -593,7 +594,7 @@ export function MapView({
     if (!d.moved) {
       momentum.current.stop();
       const rect = e.currentTarget.getBoundingClientRect();
-      click(e.clientX - rect.left, e.clientY - rect.top);
+      click(e.clientX - rect.left, e.clientY - rect.top, selectModeOf(e));
       return;
     }
     momentum.current.release();
@@ -701,7 +702,7 @@ export function MapView({
     return null;
   };
 
-  const click = (px: number, py: number) => {
+  const click = (px: number, py: number, mode: SelectMode) => {
     if (points === null) return;
     if (marks === "clusters") {
       // a bubble is a patch of the map: clicking it closes in on what is inside it
@@ -719,7 +720,7 @@ export function MapView({
     const i = pointAt(px, py);
     if (i < 0) return;
     fetchNodeGuid(base.storeId, points.ids[i])
-      .then((r) => onOpen(r.id))
+      .then((r) => onOpen(r.id, mode))
       .catch(() => undefined);
   };
 

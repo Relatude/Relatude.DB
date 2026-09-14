@@ -251,6 +251,7 @@ layout(location = 5) in uvec3 aTex;   // the picture words, see setCardImage
 layout(location = 6) in uint aShape;  // which silhouette this card is cut out to, see shapes.ts
 layout(location = 7) in vec2 aDepth;  // the thickness it had, and the one it is going to
 layout(location = 8) in vec2 aRow;    // the row it stood on, and the one it is going to
+layout(location = 9) in uint aFlags;  // bit 0: the card is selected, see setSelection
 uniform mat4 uViewProj;
 uniform vec3 uEye;        // the camera, and everything else, measured from uOrigin: at a deep zoom
 uniform vec3 uOrigin;     // the difference of two large coordinates is not a small one in float32
@@ -264,7 +265,6 @@ uniform float uPxScale;   // half the canvas in device pixels over the tangent o
 uniform float uDetailPx;
 uniform sampler2D uPalette;
 uniform int uHover;
-uniform int uSelected;
 uniform vec3 uInk;
 uniform int uPick;
 uniform int uPulseGroup;
@@ -396,7 +396,7 @@ void main() {
     vShapeMix = 0.0;
   }
   int id = gl_InstanceID;
-  vFlags = id == uSelected ? 1 : 0;
+  vFlags = int(aFlags & 1u);
   if (uPick == 1) {
     vColor = vec4(float(id & 255) / 255.0, float((id >> 8) & 255) / 255.0, float((id >> 16) & 255) / 255.0, 1.0);
     return;
@@ -405,6 +405,18 @@ void main() {
   if (id == uHover) c.rgb = mix(c.rgb, uInk, 0.28);
   vColor = c;
 }`;
+
+/**
+ * How a selected card is marked in a picture of solids (see setSelection): its walls take the accent
+ * and are lit like any other solid, and its two ends - the faces the picture is on - keep the
+ * picture, edged with a rim of the same accent. The walls are what say "this one" from across the
+ * picture, where a block seen at an angle shows more wall than face; the rim is what says it on a
+ * face seen square on, and matches the ring the flat picture draws; and the picture is what the
+ * card was opened for, so it is the one thing the marking never covers. The rim is never under a
+ * few pixels, and never thinner than the bevel or fillet it runs along, so the edge reads as an edge
+ * painted rather than a line drawn.
+ */
+const rimPx = 2.75;
 
 /** Everything both fragment shaders share: the card's own face, and the material it is lit with. */
 const fragmentCommon = `
@@ -641,12 +653,15 @@ void main() {
     n = normalize(mix(n, outward, 0.72 * t * t));
   }
   float pictured;
-  vec3 c = cardFace(vColor.rgb, vUv, pictured);
+  bool marked = vFlags == 1;
+  // a selected card: accent walls, lit as walls (see rimPx); its ends keep the picture
+  bool wall = vFace != 2;
+  vec3 c = marked && wall ? uOutline : cardFace(vColor.rgb, vUv, pictured);
+  if (marked && wall) pictured = 0.0;
   vec3 lit = shade(c, n, vWorld, pictured);
-  // the card the form has open wears a ring of the accent colour round every face it shows
-  if (vFlags == 1) {
-    float ring = 1.0 - smoothstep(2.0, 3.5, edge * vPxPerWorld);
-    lit = mix(lit, uOutline, ring);
+  if (marked && !wall) {
+    float rim = max(${rimPx.toFixed(2)} / vPxPerWorld, bevel);
+    lit = mix(lit, uOutline, 1.0 - smoothstep(rim * 0.7, rim, edge));
   }
   outColor = vec4(mix(lit, uClear, vFadeOut), 1.0);
 }`;
@@ -759,9 +774,14 @@ void main() {
   vec3 c = vColor.rgb;
   float pad = max(r, e) * 1.05;
   float hzz = max(hz, 1e-5);
-  if (abs(q.z) > hz - pad) {
+  bool marked = vFlags == 1;
+  bool onEnd = abs(q.z) > hz - pad;
+  if (onEnd) {
     vec2 uv = vec2(q.z > 0.0 ? q.x + 0.5 : 0.5 - q.x, 0.5 - q.y);
     c = cardFace(c, uv, pictured);
+  } else if (marked) {
+    // the walls of a selected card take the accent, whatever shape it is (see rimPx)
+    c = uOutline;
   } else if (vShape.w < 0.0) {
     float ax = abs(q.x);
     float ay = abs(q.y);
@@ -776,15 +796,16 @@ void main() {
       c = cardFace(c, vec2(q.y > 0.0 ? q.x + 0.5 : 0.5 - q.x, v), pictured);
     }
   }
-  // The card the form has open: every side of it wears the accent, not just the two flat ends, so a
-  // block turned edge-on to the eye is still plainly the one that is open. It takes the colour and
-  // is then lit like any other solid - painted flat it would lose the shading that says it is a
-  // block at all, and a selected card would read as a hole in the picture.
-  if (vFlags == 1) {
-    c = uOutline;
-    pictured = 0.0;
-  }
   vec3 lit = shade(c, n, world, pictured);
+  if (marked && onEnd) {
+    // and its ends keep their picture, edged with a rim of the accent. How far a point of the face
+    // is from its edge is how far inside the silhouette it lies - on the fillet that is under the
+    // fillet's own radius, so the rim, never thinner than that radius, covers the whole of the turn
+    // from face to wall and the accent runs on without a seam.
+    float inside = -sdCross(q.xy);
+    float rim = max(${rimPx.toFixed(2)} / max(1.0, vPxPerWorld * vSide), r);
+    lit = mix(lit, uOutline, 1.0 - smoothstep(rim * 0.7, rim, inside));
+  }
   outColor = vec4(mix(lit, uClear, vFadeOut), alpha);
 }`;
 
@@ -848,7 +869,6 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     "uDetailPx",
     "uPalette",
     "uHover",
-    "uSelected",
     "uInk",
     "uClear",
     "uOutline",
@@ -913,6 +933,7 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
   const shapeBuffer = gl.createBuffer()!;
   const depthBuffer = gl.createBuffer()!;
   const rowBuffer = gl.createBuffer()!;
+  const flagBuffer = gl.createBuffer()!;
   const vao = gl.createVertexArray()!;
   gl.bindVertexArray(vao);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
@@ -943,6 +964,10 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
   gl.enableVertexAttribArray(6);
   gl.vertexAttribIPointer(6, 1, gl.UNSIGNED_SHORT, 0, 0);
   gl.vertexAttribDivisor(6, 1);
+  gl.bindBuffer(gl.ARRAY_BUFFER, flagBuffer);
+  gl.enableVertexAttribArray(9);
+  gl.vertexAttribIPointer(9, 1, gl.UNSIGNED_BYTE, 0, 0);
+  gl.vertexAttribDivisor(9, 1);
   gl.bindVertexArray(null);
 
   const palette = gl.createTexture()!;
@@ -1020,7 +1045,10 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
   let maxDelay = 0;
   let cardsMoving = false;
   let hover = -1;
-  let selected = -1;
+  // a byte per card, bit 0 set on the selected ones, and the indexes of those so a change can be
+  // written as the few bytes it touched
+  let flags: Uint8Array = new Uint8Array(0);
+  let selection: number[] = [];
   let pulsedGroup = -1;
   let pulsedShape = -1;
   let pulseStart = 0;
@@ -1172,7 +1200,6 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     // alwaysPicturesBelow); not 0, because the shader smoothsteps between 0.9 and 1.1 of it.
     gl.uniform1f(u.uDetailPx, !picturesOn ? 1e9 : count > 0 && count < alwaysPicturesBelow ? 1 : detailCssPx * dpr);
     gl.uniform1i(u.uHover, hover);
-    gl.uniform1i(u.uSelected, selected);
     gl.uniform1i(u.uPulseGroup, pulsedGroup);
     gl.uniform1i(u.uPulseShape, pulsedShape);
     gl.uniform1f(u.uPulseT, pulsing() ? (now - pulseStart) / 1000 / pulseSeconds : 1);
@@ -1329,6 +1356,35 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
   function upload(buffer: WebGLBuffer, data: ArrayBufferView) {
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+  }
+
+  /**
+   * Marks exactly the given cards, and says whether anything changed. A change of a few cards is
+   * written as the few bytes it touched; a change of many is the whole buffer, once.
+   */
+  function applySelection(indexes: ArrayLike<number>): boolean {
+    const wanted = new Set<number>();
+    for (let k = 0; k < indexes.length; k++) {
+      const i = indexes[k];
+      if (i >= 0 && i < count) wanted.add(i);
+    }
+    const changed: number[] = [];
+    for (const i of selection) {
+      if (wanted.has(i)) continue;
+      flags[i] = 0;
+      changed.push(i);
+    }
+    for (const i of wanted) {
+      if (flags[i] === 1) continue;
+      flags[i] = 1;
+      changed.push(i);
+    }
+    selection = [...wanted];
+    if (changed.length === 0) return false;
+    gl.bindBuffer(gl.ARRAY_BUFFER, flagBuffer);
+    if (changed.length > 64) gl.bufferData(gl.ARRAY_BUFFER, flags, gl.DYNAMIC_DRAW);
+    else for (const i of changed) gl.bufferSubData(gl.ARRAY_BUFFER, i, flags, i, 1);
+    return true;
   }
 
   function planTiming(stagger: number, fresh: Uint8Array | null) {
@@ -1685,8 +1741,11 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
       texWords = new Uint32Array(n * 3);
       texDirty.clear();
       upload(texBuffer, texWords);
+      // and none of them selected: whoever marks cards does so by index, and these are new indexes
+      flags = new Uint8Array(n);
+      selection = [];
+      upload(flagBuffer, flags);
       hover = -1;
-      selected = -1;
       dirty = true;
       schedule();
     },
@@ -1802,9 +1861,8 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
       dirty = true;
       schedule();
     },
-    setSelected(i) {
-      if (selected === i) return;
-      selected = i;
+    setSelection(indexes) {
+      if (!applySelection(indexes)) return;
       dirty = true;
       schedule();
     },

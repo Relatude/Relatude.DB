@@ -64,9 +64,12 @@ sealed class UIQuery {
         commands.Register("query-model", ctx => model(ctx.Payload<StorePayload>().StoreId));
         commands.Register("query-search", async ctx => await search(ctx.Payload<SearchPayload>()));
         commands.Register("query-node", ctx => node(ctx.Payload<NodePayload>()));
+        commands.Register("query-nodes", ctx => nodes(ctx.Payload<NodesPayload>()));
         commands.Register("query-save", async ctx => await save(ctx.Payload<SavePayload>()));
+        commands.Register("query-save-many", async ctx => await saveMany(ctx.Payload<SaveManyPayload>()));
         commands.Register("query-create", async ctx => await create(ctx.Payload<CreatePayload>()));
         commands.Register("query-delete", async ctx => await delete_(ctx.Payload<NodePayload>()));
+        commands.Register("query-delete-many", async ctx => await deleteMany(ctx.Payload<NodesPayload>()));
         commands.Register("query-save-embedded", async ctx => await saveEmbedded(ctx.Payload<SaveEmbeddedPayload>()));
         commands.Register("query-node-meta", ctx => nodeMeta(ctx.Payload<NodePayload>()));
         commands.Register("query-save-meta", ctx => saveMeta(ctx.Payload<SaveMetaPayload>()));
@@ -849,6 +852,21 @@ sealed class UIQuery {
         };
     }
 
+    /// <summary>
+    /// Several nodes as forms, for the form that edits a selection together. A node that is gone is
+    /// left out rather than failing the lot: a selection made from a list is stale the moment
+    /// something else deletes one of its rows, and the rest are still worth editing.
+    /// </summary>
+    object nodes(NodesPayload p) {
+        var s = store(p.StoreId);
+        var list = new List<object>();
+        foreach (var id in (p.Ids ?? []).Distinct()) {
+            if (!s.Datastore.Exists(id, adminContext)) continue;
+            list.Add(node(new NodePayload(p.StoreId, id)));
+        }
+        return list;
+    }
+
     // ---- the node's meta: who may see it, when it is live, which revision and culture it is ----
 
     /// <summary>
@@ -1496,27 +1514,39 @@ sealed class UIQuery {
 
     // ---- saving the form ----
 
-    async Task<object> save(SavePayload p) {
-        var s = store(p.StoreId);
+    async Task<object> save(SavePayload p) => await saveNodes(p.StoreId, [p.Id], p.Values, p.Relations);
+
+    /// <summary>
+    /// The same fields written to several nodes at once: what the form does when it has a selection
+    /// open. One transaction for all of them, so a value one of the nodes cannot take leaves every
+    /// node as it was. Each node is checked for the property by its own type - the form only offers
+    /// the properties every selected node has, but it is the type that decides.
+    /// </summary>
+    async Task<object> saveMany(SaveManyPayload p) => await saveNodes(p.StoreId, (p.Ids ?? []).Distinct().ToArray(), p.Values, p.Relations);
+
+    async Task<object> saveNodes(Guid storeId, Guid[] ids, Dictionary<string, JsonElement>? values, Dictionary<string, Guid[]>? relations) {
+        var s = store(storeId);
         var dm = s.Datastore.Datamodel;
-        if (!s.Datastore.TryGet(p.Id, out var n, adminContext)) throw new Exception("Node not found. ");
-        if (!dm.NodeTypes.TryGetValue(n.NodeType, out var type)) throw new Exception("The node has a type that is not in the current data model. ");
         var transaction = s.CreateTransaction();
         var changed = 0;
-        foreach (var pair in p.Values ?? []) {
-            var property = editableProperty(type, pair.Key);
-            if (property is RelationPropertyModel) throw new Exception("Relations are saved through \"relations\", not \"values\". ");
-            if (pair.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) {
-                transaction.ResetProperty(p.Id, property.Id);
-            } else {
-                transaction.UpdateProperty(p.Id, property.Id, parse(property, pair.Value));
+        foreach (var id in ids) {
+            if (!s.Datastore.TryGet(id, out var n, adminContext)) throw new Exception("Node not found. ");
+            if (!dm.NodeTypes.TryGetValue(n.NodeType, out var type)) throw new Exception("The node has a type that is not in the current data model. ");
+            foreach (var pair in values ?? []) {
+                var property = editableProperty(type, pair.Key);
+                if (property is RelationPropertyModel) throw new Exception("Relations are saved through \"relations\", not \"values\". ");
+                if (pair.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) {
+                    transaction.ResetProperty(id, property.Id);
+                } else {
+                    transaction.UpdateProperty(id, property.Id, parse(property, pair.Value));
+                }
+                changed++;
             }
-            changed++;
-        }
-        foreach (var pair in p.Relations ?? []) {
-            var property = editableProperty(type, pair.Key);
-            if (property is not RelationPropertyModel) throw new Exception("Property " + property.CodeName + " is not a relation. ");
-            changed += relate(s, transaction, p.Id, property.Id, pair.Value ?? []);
+            foreach (var pair in relations ?? []) {
+                var property = editableProperty(type, pair.Key);
+                if (property is not RelationPropertyModel) throw new Exception("Property " + property.CodeName + " is not a relation. ");
+                changed += relate(s, transaction, id, property.Id, pair.Value ?? []);
+            }
         }
         if (changed == 0) return new { Changed = 0 };
         await transaction.ExecuteAsync();
@@ -1595,6 +1625,21 @@ sealed class UIQuery {
         transaction.Delete(p.Id);
         await transaction.ExecuteAsync();
         return new { Deleted = true };
+    }
+
+    /// <summary>
+    /// Deletes a selection of nodes in one transaction: all of them go, or - if one of them is
+    /// already gone - none do, and the form is told which, so it can read the selection again.
+    /// </summary>
+    async Task<object> deleteMany(NodesPayload p) {
+        var s = store(p.StoreId);
+        var ids = (p.Ids ?? []).Distinct().ToArray();
+        foreach (var id in ids) if (!s.Datastore.Exists(id, adminContext)) throw new Exception("There is no node with id " + id + ". ");
+        if (ids.Length == 0) return new { Deleted = 0 };
+        var transaction = s.CreateTransaction();
+        foreach (var id in ids) transaction.Delete(id);
+        await transaction.ExecuteAsync();
+        return new { Deleted = ids.Length };
     }
 
     /// <summary>
@@ -2432,6 +2477,7 @@ sealed class UIQuery {
             + ", " + Math.Max(0, p.MinWordLength).ToString(CultureInfo.InvariantCulture)
             + ", " + maxCloudPostings.ToString(CultureInfo.InvariantCulture) + ")";
         if (ignore.Length > 0) queryString += ".IgnoreWords(" + string.Join(", ", ignore.Select(w => w.ToStringLiteral())) + ")";
+        if (p.ExcludeNumbers) queryString += ".ExcludeNumbers()";
 
         var sw = Stopwatch.StartNew();
         var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
@@ -2630,9 +2676,10 @@ sealed class UIQuery {
 
     sealed record StorePayload(Guid StoreId);
     sealed record NodePayload(Guid StoreId, Guid Id);
+    sealed record NodesPayload(Guid StoreId, Guid[]? Ids);
     internal sealed record PivotModelPayload(Guid StoreId, Guid? TypeId);
     internal sealed record CloudPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity, FacetSelection[]? Selections,
-        Guid PropertyId, int MaxWords, int MinDocuments, int MinWordLength, string[]? Ignore);
+        Guid PropertyId, int MaxWords, int MinDocuments, int MinWordLength, string[]? Ignore, bool ExcludeNumbers);
     /// <summary>Mode: auto | values | ranges, or a calendar interval (year, quarter, month, week, day, hour) on a date property.</summary>
     internal sealed record PivotLevelPayload(Guid PropertyId, string? Mode);
     internal sealed record PivotMeasurePayload(string Function, Guid? PropertyId);
@@ -2673,6 +2720,7 @@ sealed class UIQuery {
         bool Summary = false);
     internal sealed record ColumnsPayload(Guid StoreId, Guid? TypeId);
     sealed record SavePayload(Guid StoreId, Guid Id, Dictionary<string, JsonElement>? Values, Dictionary<string, Guid[]>? Relations);
+    sealed record SaveManyPayload(Guid StoreId, Guid[]? Ids, Dictionary<string, JsonElement>? Values, Dictionary<string, Guid[]>? Relations);
     sealed record CreatePayload(Guid StoreId, Guid TypeId);
     sealed record InnerNodePayload(Guid? Id, Guid TypeId, Dictionary<string, JsonElement>? Values);
     sealed record SaveEmbeddedPayload(Guid StoreId, Guid Id, Guid PropertyId, InnerNodePayload[]? Nodes);

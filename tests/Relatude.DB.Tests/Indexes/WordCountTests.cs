@@ -141,6 +141,31 @@ public class WordCountTests {
         Assert.IsFalse(result.Words.Any(w => w.Word is "grunthop" or "flimzelian"));
     }
 
+    /// <summary>
+    /// The digits-only words go and everything else stays, the words that merely have a digit in
+    /// them included - and the cap is filled from what is left, so asking for ten still gives ten.
+    /// </summary>
+    [TestMethod]
+    public void ExcludeNumbersDropsTheDigitsOnlyAndFillsTheCapFromTheRest() {
+        var corpus = MakeCorpus(150);
+        var trie = Index(corpus);
+        var options = new WordCountOptions { MaxWords = 1000, ExcludeNumbers = true };
+        var result = trie.CountWords(Subset(corpus.Keys), options);
+        AssertSame(Expected(corpus, corpus.Keys, options), result.Words);
+        var words = result.Words.Select(w => w.Word).ToArray();
+        foreach (var number in Numbers) Assert.IsFalse(words.Contains(number), number + " is a number and should be gone");
+        foreach (var word in WordsWithDigits) Assert.IsTrue(words.Contains(word), word + " has a digit in it but is a word");
+        // without the option they are all there, so their absence above is the option and not the corpus
+        var all = trie.CountWords(Subset(corpus.Keys), new WordCountOptions { MaxWords = 1000 }).Words.Select(w => w.Word).ToArray();
+        foreach (var number in Numbers) Assert.IsTrue(all.Contains(number), number + " should be counted without the option");
+        Assert.AreEqual(all.Length - Numbers.Length, result.Words.Length, "exactly the numbers went");
+
+        // the cap is applied after they are dropped, not before
+        var capped = trie.CountWords(Subset(corpus.Keys), new WordCountOptions { MaxWords = 10, ExcludeNumbers = true });
+        Assert.AreEqual(10, capped.Words.Length);
+        Assert.IsFalse(capped.Words.Any(w => Numbers.Contains(w.Word)));
+    }
+
     [TestMethod]
     public void DistinctWordsCountsWhatTheSetHoldsNotWhatComesBack() {
         var corpus = MakeCorpus(150);

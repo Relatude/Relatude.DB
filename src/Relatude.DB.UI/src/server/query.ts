@@ -804,6 +804,8 @@ export interface CloudRequest {
   minWordLength?: number;
   /** Words to leave out whatever their count. */
   ignore?: string[];
+  /** Leave out the words that are nothing but digits. */
+  excludeNumbers?: boolean;
 }
 
 export interface CloudWord {
@@ -992,6 +994,11 @@ export function fetchNode(storeId: string, id: string): Promise<NodeView> {
   return send<NodeView>("query-node", { storeId, id });
 }
 
+/** Several nodes as forms, for editing a selection together. A node that is gone is left out rather than failing the lot. */
+export function fetchNodes(storeId: string, ids: string[]): Promise<NodeView[]> {
+  return send<NodeView[]>("query-nodes", { storeId, ids });
+}
+
 /**
  * Saves the fields that changed. `values` is keyed by property id and holds the property's own
  * shape (a null clears the property back to its model default); `relations` is keyed by relation
@@ -1006,6 +1013,14 @@ export function saveNode(
   return send<{ changed: number }>("query-save", { storeId, id, values, relations });
 }
 
+/**
+ * The same fields written to several nodes, in one transaction: every node takes the change or none
+ * does. `changed` counts the writes over all of them.
+ */
+export function saveNodes(storeId: string, ids: string[], values: Record<string, unknown>, relations: Record<string, string[]> = {}): Promise<{ changed: number }> {
+  return send<{ changed: number }>("query-save-many", { storeId, ids, values, relations });
+}
+
 /** Makes a node of a type, with its defaults, and hands it back as a reference to it. */
 export function createNode(storeId: string, typeId: string): Promise<NodeRef> {
   return send("query-create", { storeId, typeId });
@@ -1014,6 +1029,11 @@ export function createNode(storeId: string, typeId: string): Promise<NodeRef> {
 /** Deletes a node. What points at it is cleared with it; a revert window is the only way back. */
 export function deleteNode(storeId: string, id: string): Promise<{ deleted: boolean }> {
   return send("query-delete", { storeId, id });
+}
+
+/** Deletes several nodes in one transaction: all of them, or none if one is already gone. */
+export function deleteNodes(storeId: string, ids: string[]): Promise<{ deleted: number }> {
+  return send("query-delete-many", { storeId, ids });
 }
 
 /**

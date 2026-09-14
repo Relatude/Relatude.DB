@@ -698,7 +698,7 @@ sealed class PivotRowPagingMethodDef : MethodDef {
 // Buckets(), Coordinates() and Words() answer from the ids of a result and its indexes, never from
 // a node - what a picture of a whole result needs. Their clauses chain the way the pivot's do:
 // AddBucket / AddValueBucket / AddRangeBucket and SetBucketOptions onto Buckets() or Coordinates(),
-// SortBy onto Buckets(), IgnoreWords onto Words(). Property arguments are "guid|CodeName" or
+// SortBy onto Buckets(), IgnoreWords and ExcludeNumbers onto Words(). Property arguments are "guid|CodeName" or
 // "TypeName.PropertyName" strings, as for the pivot.
 
 static class TerminalArgs {
@@ -787,6 +787,17 @@ sealed class IgnoreWordsMethodDef : MethodDef {
     }
 }
 
+sealed class ExcludeNumbersMethodDef : MethodDef {
+    public override string[] Names => ["excludenumbers"];
+    public override int MinArgs => 0;
+    public override int MaxArgs => 0;
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        var words = TerminalArgs.Source<WordsMethod>(e, dm, "Words()");
+        words.ExcludeNumbers();
+        return words;
+    }
+}
+
 // ── Dispatcher ───────────────────────────────────────────────────────────────
 
 internal class BuildMethod {
@@ -812,7 +823,7 @@ internal class BuildMethod {
         new PivotOptionsMethodDef("setrowoptions", true), new PivotOptionsMethodDef("setcolumnoptions", false),
         new PivotTotalsMethodDef(), new PivotLimitsMethodDef(), new PivotRowPagingMethodDef(),
         new BucketsMethodDef(), new AddBucketMethodDef("addbucket", null), new AddBucketMethodDef("addvaluebucket", false), new AddBucketMethodDef("addrangebucket", true),
-        new SetBucketOptionsMethodDef(), new SortByMethodDef(), new CoordinatesMethodDef(), new WordsMethodDef(), new IgnoreWordsMethodDef()
+        new SetBucketOptionsMethodDef(), new SortByMethodDef(), new CoordinatesMethodDef(), new WordsMethodDef(), new IgnoreWordsMethodDef(), new ExcludeNumbersMethodDef()
     );
 
     private static Dictionary<string, MethodDef> BuildRegistry(params MethodDef[] defs)

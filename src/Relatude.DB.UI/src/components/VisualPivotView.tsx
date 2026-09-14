@@ -16,6 +16,7 @@ import { IntMap } from "../visual/intMap";
 import { createCardMedia, type CardMedia } from "../visual/cardMedia";
 import { subscribeNodePicture } from "../nodeMedia";
 import { createCardLabels, type CardLabels, type LabelColors } from "../visual/cardLabels";
+import { selectModeOf, type SelectMode } from "../selection";
 
 /** A visual pivot before anyone has chosen anything: a grid of one colour, in the result's order. */
 export const emptyVisual: VisualDefinition = { colorProperty: null, colorMode: "auto", shapeProperty: null, shapeMode: "auto", depthProperty: null, depthMode: "auto", depthGroupProperty: null, depthGroupMode: "auto", barProperty: null, barMode: "auto", sortProperty: null, sortDescending: false, legend: true, palette: palettes[0].id };
@@ -152,7 +153,8 @@ const hopelessFrameMs = 130;
 
 /**
  * The visual pivot: every node of the result on screen as a card, in a grid or stacked into bars by
- * a property, coloured by another. Pan by dragging, zoom with the wheel, click a card to open it.
+ * a property, coloured by another. Pan by dragging, zoom with the wheel, click a card to open it -
+ * ctrl-click adds another to the form, shift-click too (see selection.ts).
  *
  * The picture is drawn by the card field (visual/cardField.ts); this component decides what it
  * shows. The server hands over the result as ids and a group index per card per property, a few
@@ -194,10 +196,10 @@ export function VisualPivotView({
   /** Changes when the page is asked to run again with nothing else changed. */
   refreshToken: number;
   showQuery: boolean;
-  /** A card was clicked: open this node in the form beside the picture. */
-  onOpen: (nodeId: string) => void;
-  /** The node the form has open, so the picture can stop marking a card once the form is closed. */
-  selected: string | null;
+  /** A card was clicked: this node goes to the form beside the picture - on its own, toggled (ctrl), or added (shift). */
+  onOpen: (nodeId: string, mode: SelectMode) => void;
+  /** The nodes the form has open, so the picture marks their cards - and stops marking them when the form lets go. */
+  selected: readonly string[];
   /** Whether the row this picture is in - the facet rail with it - is filling the screen. */
   fullscreen: boolean;
   /** Fills the screen with that row, or hands it back; the page owns it, since the rail is not ours. */
@@ -353,7 +355,19 @@ export function VisualPivotView({
   const thickestRef = useRef(defaultDepth);
   const layoutRef = useRef<Layout | null>(null);
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
-  const [selectedIndex, setSelectedIndex] = useState(-1);
+  /** the cards marked as open in the form, as indexes into the result; for the note over the picture */
+  const [marks, setMarks] = useState<number[]>([]);
+  /** the int id of every node this picture has handed to the form, by the guid the form knows it by */
+  const known = useRef(new Map<string, number>());
+  /** cards clicked whose guid is still on its way: marked at once, so a click answers before the round trip does */
+  const awaitingGuid = useRef(new Set<number>());
+  // both read from callbacks that outlive the render that set them up
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const decodedRef = useRef<Decoded | null>(null);
+  decodedRef.current = decoded;
+  /** where each id is in the result on screen, built the first time something has to be marked in it */
+  const indexOf = useRef<{ decoded: Decoded; map: IntMap } | null>(null);
   /** why the solids are being drawn more simply than they can be, or null when they are not */
   const [reduced, setReduced] = useState<"size" | "frames" | null>(null);
   /** whether the way back to the flat picture has already been offered for this picture */
@@ -532,6 +546,8 @@ export function VisualPivotView({
   // another database: nothing known about the cards carries over
   useEffect(() => {
     media.current?.setStore(base.storeId);
+    known.current.clear();
+    awaitingGuid.current.clear();
   }, [base.storeId]);
 
   // A file put on a node from the form beside this picture (see nodeMedia.ts). The picture of that
@@ -646,7 +662,6 @@ export function VisualPivotView({
       // the pictures are only ever asked for the cards of the result; the ones on their way out
       // fly out in their own colour
       media.current?.setCards(decoded.ids);
-      setSelectedIndex(-1);
       // the camera keeps pace with the cards: it arrives on the new picture as the last of them do
       f.fit(fitBounds(layout), padding, prev !== null ? transitionSeconds : 0);
     } else if (!sameValues(prev.layout.positions, layout.positions) || !sameDepths(prev.layout.rows, layout.rows)) {
@@ -685,16 +700,50 @@ export function VisualPivotView({
       keepNamesFacing();
       applyFloor(layout);
     }
+    // a new set of cards is new indexes for the same nodes, and a rebuilt field starts unmarked
+    applyMarks();
     setTooltip(null);
   }, [decoded, colorData, barData, shapeData, depthData, rowData, theme, palette, xScale, depthScale]);
 
-  // the form closed: the card it showed is no longer the one being looked at
+  // the form's selection changed - a node let go of, the form closed: the marks follow it
   useEffect(() => {
-    if (selected === null) {
-      setSelectedIndex(-1);
-      field.current?.setSelected(-1);
-    }
+    applyMarks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reads the latest through refs
   }, [selected]);
+
+  /**
+   * Marks the cards of the nodes the form has open, and the ones just clicked whose guid is still
+   * on its way. The form knows nodes by guid and the picture by int id, so every card this picture
+   * has handed over is remembered both ways; a node opened from the list is not marked here - the
+   * picture has no way of knowing which card that is. The indexes are looked up per result, since
+   * a new result is new indexes for the same ids.
+   */
+  function applyMarks() {
+    const f = field.current;
+    const d = decodedRef.current;
+    const wanted: number[] = [];
+    if (f && d) {
+      const ids = new Set<number>(awaitingGuid.current);
+      for (const guid of selectedRef.current) {
+        const id = known.current.get(guid);
+        if (id !== undefined) ids.add(id);
+      }
+      if (ids.size > 0) {
+        if (indexOf.current?.decoded !== d) {
+          const map = new IntMap(Math.max(1, d.count));
+          for (let i = 0; i < d.count; i++) map.set(d.ids[i], i);
+          indexOf.current = { decoded: d, map };
+        }
+        for (const id of ids) {
+          const i = indexOf.current.map.get(id);
+          if (i >= 0) wanted.push(i);
+        }
+        wanted.sort((a, b) => a - b);
+      }
+      f.setSelection(wanted);
+    }
+    setMarks((prev) => (prev.length === wanted.length && prev.every((v, k) => v === wanted[k]) ? prev : wanted));
+  }
 
   /**
    * The lines on the floor of a solid picture, and where each name goes: one line under every bar,
@@ -1109,13 +1158,23 @@ export function VisualPivotView({
     const [x, y] = canvasPoint(e);
     const i = f.pick(x, y);
     if (i < 0 || !decoded || i >= decoded.count) return;
-    setSelectedIndex(i);
-    f.setSelected(i);
-    fetchNodeGuid(base.storeId, decoded.ids[i])
-      .then((r) => onOpen(r.id))
+    const mode = selectModeOf(e);
+    const id = decoded.ids[i];
+    // marked at once, so the click answers before the round trip for the guid does - except a
+    // toggle of a card already marked, which is on its way out and is left to the page's answer
+    const already = selectedRef.current.some((guid) => known.current.get(guid) === id);
+    if (!(mode === "toggle" && already)) awaitingGuid.current.add(id);
+    applyMarks();
+    fetchNodeGuid(base.storeId, id)
+      .then((r) => {
+        known.current.set(r.id, id);
+        awaitingGuid.current.delete(id);
+        // the page answers through `selected`, and the marks follow that
+        onOpen(r.id, mode);
+      })
       .catch(() => {
-        setSelectedIndex(-1);
-        f.setSelected(-1);
+        awaitingGuid.current.delete(id);
+        applyMarks();
       });
   }
 
@@ -1389,7 +1448,8 @@ export function VisualPivotView({
               first {formatCount(decoded.count)} of {formatCount(decoded.total)}
             </span>
           )}
-          {selectedIndex >= 0 && <span className="visual-selected-note">card {formatCount(selectedIndex + 1)} open</span>}
+          {marks.length === 1 && <span className="visual-selected-note">card {formatCount(marks[0] + 1)} open</span>}
+          {marks.length > 1 && <span className="visual-selected-note">{formatCount(marks.length)} cards open</span>}
           {reduced && (
             <span
               className="visual-detail-note"

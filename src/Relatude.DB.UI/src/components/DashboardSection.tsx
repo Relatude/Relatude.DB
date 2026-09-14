@@ -65,12 +65,18 @@ interface Sample extends ProcessSample {
  * memory readings is not a rate of anything, and the level of a counter is only how long the
  * database has been up.
  */
+/*
+ * Memory and cpu lead, and are what the panel opens on. They are the reading that means something
+ * whatever the database is doing - an idle one still has a heap and a process - where the four rates
+ * are flat lines until something is asking the database for something, which is not what anyone
+ * wants a dashboard to open on.
+ */
 const metrics = [
+  { id: "managedMemory", label: "Memory & CPU", kind: "level", unit: "in the managed heap" },
   { id: "queries", label: "Queries", kind: "rate", unit: "queries/s" },
   { id: "transactions", label: "Transactions", kind: "rate", unit: "transactions/s" },
   { id: "actions", label: "Actions", kind: "rate", unit: "actions/s" },
   { id: "nodeReads", label: "Node reads", kind: "rate", unit: "reads/s" },
-  { id: "managedMemory", label: "Memory & CPU", kind: "level", unit: "in the managed heap" },
 ] as const;
 
 type MetricId = (typeof metrics)[number]["id"];
@@ -80,7 +86,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   const [live, setLive] = useState<DashboardLive | null>(null);
   const [trace, setTrace] = useState<TraceInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [metric, setMetric] = useState<MetricId>("queries");
+  const [metric, setMetric] = useState<MetricId>(metrics[0].id);
   const [openBusy, setOpenBusy] = useState(false);
   const samples = useRef<Sample[]>([]);
   const [, setSampleTick] = useState(0);

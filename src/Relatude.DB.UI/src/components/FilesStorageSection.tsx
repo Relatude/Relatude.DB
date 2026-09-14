@@ -21,9 +21,11 @@ import type { DatabaseInfo } from "../server/serverInfo";
  */
 export type FilesStorageView = "files" | "storage" | "conversions";
 
+// Storage leads: it is the view the rail's entry opens on, so it is the one the switch should start
+// with - a switch whose first button is not where the page lands reads as the wrong one being active.
 const views: { id: FilesStorageView; label: string; icon: ComponentType<{ size?: number; stroke?: number }>; hint: string }[] = [
-  { id: "files", label: "Files", icon: IconFolders, hint: "browse the file storages of this database" },
   { id: "storage", label: "Storage", icon: IconArchive, hint: "backups, the database file, and the file storage as a whole" },
+  { id: "files", label: "Files", icon: IconFolders, hint: "browse the file storages of this database" },
   { id: "conversions", label: "Conversions", icon: IconTransform, hint: "the queue that resizes images, converts media and extracts text" },
 ];
 

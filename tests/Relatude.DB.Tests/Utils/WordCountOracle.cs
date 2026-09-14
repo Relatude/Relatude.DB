@@ -19,13 +19,22 @@ public static class WordCountOracle {
     /// Made-up words, plus two real stop words ("the", "and") that an index must drop on its own
     /// and "xy", too short to be indexed. Several share prefixes, so a walk over a trie has to get
     /// its buffer right where the trie compresses a tail onto one node.
+    ///
+    /// The last five are what <see cref="WordCountOptions.ExcludeNumbers"/> is measured against:
+    /// three that are nothing but digits and go, and two that merely have a digit in them and stay.
     /// </summary>
     public static readonly string[] Vocabulary = [
         "zorbak", "zorbal", "zorb", "flimzel", "flimzelian", "grunthop", "snazzle", "blivort",
         "crumfex", "drazznik", "elgooth", "frendal", "glorpix", "hunkavar", "ibloon", "jostrek",
         "klumfar", "lentrop", "moogish", "narplex", "ortwist", "plorfex", "quibzar", "renstop",
         "the", "and", "xy",
+        "2024", "1999", "300", "3rd", "mp3",
     ];
+
+    /// <summary>The words of <see cref="Vocabulary"/> that are nothing but digits, and the ones that
+    /// only have digits in them - what an excluded count must drop and must keep.</summary>
+    public static readonly string[] Numbers = ["2024", "1999", "300"];
+    public static readonly string[] WordsWithDigits = ["3rd", "mp3"];
 
     /// <summary>A corpus of made-up documents, the same one every time for a given seed.</summary>
     public static Dictionary<int, string> MakeCorpus(int documents, int seed = 1) {
@@ -63,6 +72,7 @@ public static class WordCountOracle {
         var words = inSubset
             .Where(w => w.Key.Length >= minLength)
             .Where(w => options.Ignore == null || !options.Ignore.Contains(w.Key))
+            .Where(w => !options.ExcludeNumbers || !WordCountOptions.IsNumber(w.Key))
             .Where(w => w.Value.Documents >= Math.Max(1, options.MinDocuments))
             .Select(w => new WordCount(w.Key, w.Value.Documents, w.Value.Occurrences, inIndex[w.Key].Documents))
             .ToArray();

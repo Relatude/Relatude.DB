@@ -21,6 +21,7 @@ import {
   IconLock,
   IconPlus,
   IconRefresh,
+  IconReload,
   IconSchema,
   IconSearch,
   IconServer,
@@ -36,6 +37,7 @@ import { ColorField } from "./ColorField";
 import { sourceColor } from "../server/datamodel";
 import { showConfirm, showError } from "../dialogs";
 import { peekSearchTarget, peekSettingsTarget, takeSearchTarget, takeSettingsTarget, useNavigationRequest } from "../navigate";
+import { closeStore, openStore } from "../server/storage";
 import {
   addListItem,
   fetchDatabaseSettings,
@@ -92,6 +94,7 @@ export function SettingsSection({
   const [showComments, setShowComments] = useState(readShowComments);
   const [reopen, setReopen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
   const pane = useRef<HTMLDivElement>(null);
   const groupElements = useRef(new Map<string, HTMLElement>());
@@ -282,6 +285,36 @@ export function SettingsSection({
     }
   }
 
+  /**
+   * Closes the database and opens it again. Reading the settings file is part of opening one, so
+   * this is how a setting marked "needs reopen" takes effect without saving anything - the one the
+   * savebar's tick does for settings being saved here, and the only way to apply a change made to
+   * relatude.db.json outside this page. It takes the database away for the duration, so it is asked
+   * about first, and the page is read back afterwards: what "in force" means has just changed.
+   */
+  async function restart(): Promise<void> {
+    if (!storeId) return;
+    const choice = await showConfirm(
+      "Restart the database?",
+      "It is closed and opened again, which is what makes the settings and the model sources be read afresh."
+        + " Every index is flushed and the log is replayed - which takes a while on a large database - and nothing is served from it in between.",
+      { confirmLabel: "Restart" },
+    );
+    if (!choice.ok) return;
+    setRestarting(true);
+    try {
+      await closeStore(storeId);
+      await openStore(storeId);
+      setMessage("The database was closed and opened again.");
+      load();
+    } catch (e) {
+      await showError("Could not restart the database", e instanceof Error ? e.message : String(e));
+      load(); // the state it ended up in is worth showing, whichever half failed
+    } finally {
+      setRestarting(false);
+    }
+  }
+
   // adding and removing write straight through, so the page comes back fresh; pending field edits
   // are kept, except any that belonged to an element that has just gone
   async function changeList(run: () => Promise<{ settings: SettingsPage }>, removedPrefix?: string): Promise<void> {
@@ -344,6 +377,23 @@ export function SettingsSection({
           {page.settingsFile}
           {page.configSection ? ` · ${page.configSection} section` : ""}
         </span>
+        {page.scope === "database" && (
+          <button
+            className="icon-button labelled"
+            title={
+              !page.isOpen
+                ? "The database is closed, so there is nothing to restart"
+                : editedPaths.length > 0
+                  ? "Save or discard the changes first — a restart does not apply them"
+                  : "Close the database and open it again, so the settings are read afresh"
+            }
+            onClick={restart}
+            disabled={restarting || !page.isOpen || editedPaths.length > 0}
+          >
+            <IconReload size={15} stroke={1.8} className="tone-data" />
+            {restarting ? "Restarting…" : "Restart"}
+          </button>
+        )}
         <button className="icon-button" title="Reload" onClick={load} disabled={editedPaths.length > 0}>
           <IconRefresh size={16} stroke={1.8} />
         </button>

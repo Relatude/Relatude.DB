@@ -56,6 +56,7 @@ import type { DatabaseInfo } from "../server/serverInfo";
 import { formatCount, formatQuery, formatTime } from "../format";
 import { loadTabs, newQuery, saveTabs, type HitsView, type QueryMode, type QueryTabs, type SavedQuery } from "../queryTabs";
 import { useRowWindow } from "../rowWindow";
+import { applySelect, selectModeOf, type SelectMode } from "../selection";
 
 // How many hits one page holds. The large ones are for reading a whole set in one go - a table
 // someone is going to scroll, or export - and are asked for deliberately; "all" (0 here) is one
@@ -372,7 +373,9 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
  * Every change runs at once - see useLiveResult for why nothing is debounced.
  *
  * The editor opens beside the result list rather than over it, so working through a set of nodes is
- * a click per node and the list keeps its scroll position between them.
+ * a click per node and the list keeps its scroll position between them. Several nodes can be open
+ * at once - ctrl-click adds one, shift-click a run of them, ctrl+A the page (see selection.ts) -
+ * and the form then edits them together.
  */
 function QueryTab({
   db,
@@ -415,7 +418,12 @@ function QueryTab({
   // typing straight into the table; kept per tab, like the view it belongs to
   const editCells = q.editCells === true;
   const [showQuery, setShowQuery] = useState(false);
-  const [selected, setSelected] = useState<string | null>(openNode);
+  // The nodes the form beside the result has open, in the order they were chosen: one from a plain
+  // click, several from ctrl-clicks and shift-clicks. The anchor is the row a shift-click takes its
+  // run from - the last row clicked without shift.
+  const [selected, setSelected] = useState<string[]>(openNode ? [openNode] : []);
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+  const anchor = useRef<string | null>(openNode);
   // The editor column's width, dragged on the bar between the list and the form. null is the
   // stylesheet's own share of the page, which is where most people leave it; a width someone has
   // dragged is theirs for good, so it outlives the page and the session.
@@ -529,9 +537,32 @@ function QueryTab({
   // Paging and the view switches do not go through here - they are the same search, still.
   function reset(changes: Partial<SavedQuery>) {
     setPage(0);
-    setSelected(null);
+    setSelected([]);
     onChange(changes);
   }
+
+  /** A row of the list or the table clicked, with whatever keys were held (see selection.ts). */
+  function selectHit(e: React.MouseEvent, id: string) {
+    const mode = selectModeOf(e);
+    const order = hits.map((h) => h.id);
+    setSelected((prev) => applySelect(prev, id, mode, { order, anchor: anchor.current, keep: e.ctrlKey || e.metaKey }));
+    if (mode !== "extend") anchor.current = id;
+  }
+
+  /** A card or a point clicked in one of the pictures, which have no run of rows for shift to take. */
+  function selectNode(id: string, mode: SelectMode) {
+    setSelected((prev) => applySelect(prev, id, mode));
+    anchor.current = id;
+  }
+
+  // ctrl+A over the hits: every row of the page into the form at once
+  function onHitsKeyDown(e: React.KeyboardEvent) {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "a" && hits.length > 0) {
+      e.preventDefault();
+      setSelected(hits.map((h) => h.id));
+    }
+  }
+  const hitsHint = "Click a row to open the node; ctrl-click adds one, shift-click a run of them, ctrl+A the whole page";
 
   // A column header cycles through the three states a sort can be in: up, down, and the order the
   // store itself returns. Sorting is a different view of the same search, so the open node stays
@@ -638,7 +669,7 @@ function QueryTab({
   // beside it. Pull it back in rather than squeezing the list the form was opened from - without
   // writing it back, so the width someone actually dragged is still theirs when the room returns.
   useEffect(() => {
-    if (!selected || editorWidth === null) return;
+    if (selected.length === 0 || editorWidth === null) return;
     const fit = () => setEditorWidth((w) => (w === null ? w : applyWidth(w)));
     fit();
     window.addEventListener("resize", fit);
@@ -935,7 +966,7 @@ function QueryTab({
 
       <div
         ref={body}
-        className={"query-body" + (selected ? " with-editor" : "") + (showFacets ? "" : " no-facets") + (resizing ? " resizing" : "")}
+        className={"query-body" + (selected.length > 0 ? " with-editor" : "") + (showFacets ? "" : " no-facets") + (resizing ? " resizing" : "")}
         // capped as a share of the page as well as in pixels: a width dragged on a wide window
         // would otherwise leave nothing of the list on a narrow one
         style={editorWidth === null ? undefined : ({ "--editor-width": `min(${editorWidth}px, ${maxEditorShare * 100}%)` } as React.CSSProperties)}
@@ -1091,7 +1122,7 @@ function QueryTab({
               onChange={(visual) => onChange({ visual })}
               refreshToken={epoch}
               showQuery={showQuery}
-              onOpen={setSelected}
+              onOpen={selectNode}
               selected={selected}
               fullscreen={fullscreen}
               onToggleFullscreen={toggleFullscreen}
@@ -1105,7 +1136,7 @@ function QueryTab({
               onChange={(m) => onChange({ map: m })}
               refreshToken={epoch}
               showQuery={showQuery}
-              onOpen={setSelected}
+              onOpen={selectNode}
               fullscreen={fullscreen}
               onToggleFullscreen={toggleFullscreen}
               head={headInToolbar ? resultHead : undefined}
@@ -1133,7 +1164,7 @@ function QueryTab({
               storeId={db.id}
               columns={result.columns}
               hits={hits}
-              selected={selected}
+              selected={selectedSet}
               sort={sort}
               sortApplied={result.sortApplied}
               onSort={toggleSort}
@@ -1141,7 +1172,7 @@ function QueryTab({
               loading={loading}
             />
           ) : table && result?.columns ? (
-            <div className={"query-table-wrap" + (loading ? " loading" : "")} onScroll={rowWindow.onScroll}>
+            <div className={"query-table-wrap" + (loading ? " loading" : "")} tabIndex={-1} title={hitsHint} onScroll={rowWindow.onScroll} onKeyDown={onHitsKeyDown}>
               <table className="query-table">
                 <thead>
                   <tr>
@@ -1166,7 +1197,13 @@ function QueryTab({
                 </thead>
                 <tbody>
                   {hits.slice(0, rowWindow.count).map((hit) => (
-                    <tr key={hit.id} className={selected === hit.id ? "selected" : ""} onClick={() => setSelected(hit.id)}>
+                    <tr
+                      key={hit.id}
+                      className={selectedSet.has(hit.id) ? "selected" : ""}
+                      // a shift-click takes a run of rows, not a run of text
+                      onMouseDown={(e) => e.shiftKey && e.preventDefault()}
+                      onClick={(e) => selectHit(e, hit.id)}
+                    >
                       {(hit.cells ?? []).map((value, i) => (
                         <td key={result.columns![i]?.key ?? i} title={value}>
                           {value}
@@ -1179,10 +1216,10 @@ function QueryTab({
               {hits.length === 0 && <div className="query-empty">Nothing matched.</div>}
             </div>
           ) : (
-            <div className={"query-hits" + (loading ? " loading" : "")} onScroll={rowWindow.onScroll}>
+            <div className={"query-hits" + (loading ? " loading" : "")} tabIndex={-1} title={hitsHint} onScroll={rowWindow.onScroll} onKeyDown={onHitsKeyDown}>
               {result && hits.length === 0 && <div className="query-empty">Nothing matched.</div>}
               {hits.slice(0, rowWindow.count).map((hit) => (
-                <button className={"query-hit" + (selected === hit.id ? " selected" : "")} key={hit.id} onClick={() => setSelected(hit.id)}>
+                <button className={"query-hit" + (selectedSet.has(hit.id) ? " selected" : "")} key={hit.id} onClick={(e) => selectHit(e, hit.id)}>
                   <div className="query-hit-head">
                     <span className="query-hit-name" title={hit.displayName}>
                       <Sampled sample={hit.nameSample} plain={hit.displayName} />
@@ -1210,7 +1247,7 @@ function QueryTab({
           )}
         </div>
 
-        {selected && (
+        {selected.length > 0 && (
           <>
             {/* a grid item of its own in the editor's column rather than a child of the panel: the
                 panel clips its content to keep its rounded corners, and would clip the bar with it */}
@@ -1227,14 +1264,17 @@ function QueryTab({
             />
             <aside className="query-editor panel" ref={editor}>
               <NodeEditor
-                key={selected + ":" + epoch}
+                // keyed by the epoch alone: a change of selection is the form's own business, which
+                // keeps the edits made so far when a node is added to or taken out of it
+                key={epoch}
                 storeId={db.id}
-                nodeId={selected}
+                nodeIds={selected}
                 onSaved={refresh}
-                onClose={() => setSelected(null)}
+                onClose={() => setSelected([])}
+                onDeselect={(id) => setSelected((prev) => prev.filter((x) => x !== id))}
                 onDeleted={() => {
-                  setSelected(null);
-                  refresh(); // the row it was is still in the list until the search runs again
+                  setSelected([]);
+                  refresh(); // the rows they were are still in the list until the search runs again
                 }}
               />
             </aside>
@@ -1253,7 +1293,8 @@ function QueryTab({
               const ref = await createNode(db.id, t.id);
               // the list is a search result and the new node may not match it; the form opens on it
               // either way, and the refresh puts it in the list whenever the query does match it
-              setSelected(ref.id);
+              setSelected([ref.id]);
+              anchor.current = ref.id;
               refresh();
             } catch (e) {
               await showError("Could not create the node", e instanceof Error ? e.message : String(e));

@@ -54,7 +54,7 @@ export type RGBf = [number, number, number];
 export interface FieldTheme {
   /** what the frame is cleared to: the panel behind the picture */
   clear: RGBf;
-  /** the ring around the selected card */
+  /** the accent the selected cards are marked with: a ring round each in the flat picture, the walls and a rim in the solid one */
   outline: RGBf;
   /**
    * The page's own text colour: what a card is mixed toward to stand out under the pointer, and the
@@ -120,7 +120,12 @@ export interface CardField {
   setShapes(assignment: Uint16Array | null): void;
   setTheme(theme: FieldTheme): void;
   setHover(index: number): void;
-  setSelected(index: number): void;
+  /**
+   * The cards marked as selected - the ones the form beside the picture has open. The whole set,
+   * every time: a card not in it is unmarked. Indexes outside the cards are ignored. A flag per card
+   * on the GPU, so any number can be marked at no cost to the frame.
+   */
+  setSelection(indexes: ArrayLike<number>): void;
   /**
    * Fades the cards of one group into the page and back, twice, so it can be seen where in the
    * picture they are; -1 stops it. Nothing moves and nothing is laid over the picture, so a card of
@@ -219,7 +224,7 @@ export type CardFieldCommon = Pick<
   | "setShapes"
   | "setTheme"
   | "setHover"
-  | "setSelected"
+  | "setSelection"
   | "pulseGroup"
   | "pulseShape"
   | "pulseFade"
@@ -362,6 +367,7 @@ layout(location = 3) in vec2 aTiming;  // when this card sets off, and whether i
 layout(location = 4) in uint aGroup;
 layout(location = 5) in uvec3 aTex;    // the picture words, see setCardImage
 layout(location = 6) in uint aShape;   // which silhouette this card is cut out to, see shapes.ts
+layout(location = 7) in uint aFlags;   // bit 0: the card is selected, see setSelection
 uniform vec2 uCenterHi;   // the camera's centre, split into a whole part and a fraction so that at
 uniform vec2 uCenterLo;   // a deep zoom the subtraction from an integer cell is exact in float32
 uniform float uZoom;      // device pixels per world unit
@@ -373,7 +379,6 @@ uniform float uFade;      // how long a newborn card takes to come up to full co
 uniform float uDetailPx;  // device pixels a card is wide when its picture and name appear
 uniform sampler2D uPalette;
 uniform int uHover;
-uniform int uSelected;
 uniform vec3 uInk;
 uniform int uPick;
 uniform int uPulseGroup;  // the group pulsing right now, or -1
@@ -455,7 +460,7 @@ void main() {
     vShapeMix = 0.0;
   }
   int id = gl_InstanceID;
-  vFlags = id == uSelected ? 1 : 0;
+  vFlags = int(aFlags & 1u);
   int mask = 0;
   for (int s = 0; s < TILE_SLOTS; s++) if (uTileCard[s] == id) mask |= (1 << s);
   vTileMask = mask;
@@ -639,7 +644,6 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   const uDetailPx = u("uDetailPx");
   const uPalette = u("uPalette");
   const uHover = u("uHover");
-  const uSelected = u("uSelected");
   const uInk = u("uInk");
   const uClear = u("uClear");
   const uNowMs = u("uNowMs");
@@ -670,6 +674,7 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   const groupBuffer = gl.createBuffer()!;
   const texBuffer = gl.createBuffer()!;
   const shapeBuffer = gl.createBuffer()!;
+  const flagBuffer = gl.createBuffer()!;
   const vao = gl.createVertexArray()!;
   gl.bindVertexArray(vao);
   gl.bindBuffer(gl.ARRAY_BUFFER, quad);
@@ -697,6 +702,10 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   gl.enableVertexAttribArray(6);
   gl.vertexAttribIPointer(6, 1, gl.UNSIGNED_SHORT, 0, 0);
   gl.vertexAttribDivisor(6, 1);
+  gl.bindBuffer(gl.ARRAY_BUFFER, flagBuffer);
+  gl.enableVertexAttribArray(7);
+  gl.vertexAttribIPointer(7, 1, gl.UNSIGNED_BYTE, 0, 0);
+  gl.vertexAttribDivisor(7, 1);
   gl.bindVertexArray(null);
 
   // the palette: one texel per group
@@ -782,7 +791,10 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   let cardsMoving = false;
   let paletteSize = 1;
   let hover = -1;
-  let selected = -1;
+  // a byte per card, bit 0 set on the selected ones, and the indexes of those so a change can be
+  // written as the few bytes it touched
+  let flags: Uint8Array = new Uint8Array(0);
+  let selection: number[] = [];
   let pulsedGroup = -1;
   let pulsedShape = -1;
   let pulseStart = 0;
@@ -898,7 +910,6 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     // between 0.9 and 1.1 of this, and those two edges must not meet.
     gl.uniform1f(uDetailPx, !picturesOn ? 1e9 : count > 0 && count < alwaysPicturesBelow ? 1 : detailCssPx * dpr);
     gl.uniform1i(uHover, hover);
-    gl.uniform1i(uSelected, selected);
     gl.uniform1i(uPulseGroup, pulsedGroup);
     gl.uniform1i(uPulseShape, pulsedShape);
     gl.uniform1f(uPulseT, pulsing() ? (now - pulseStart) / 1000 / pulseSeconds : 1);
@@ -993,6 +1004,35 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
     gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
   }
 
+  /**
+   * Marks exactly the given cards, and says whether anything changed. A change of a few cards is
+   * written as the few bytes it touched; a change of many is the whole buffer, once.
+   */
+  function applySelection(indexes: ArrayLike<number>): boolean {
+    const wanted = new Set<number>();
+    for (let k = 0; k < indexes.length; k++) {
+      const i = indexes[k];
+      if (i >= 0 && i < count) wanted.add(i);
+    }
+    const changed: number[] = [];
+    for (const i of selection) {
+      if (wanted.has(i)) continue;
+      flags[i] = 0;
+      changed.push(i);
+    }
+    for (const i of wanted) {
+      if (flags[i] === 1) continue;
+      flags[i] = 1;
+      changed.push(i);
+    }
+    selection = [...wanted];
+    if (changed.length === 0) return false;
+    gl.bindBuffer(gl.ARRAY_BUFFER, flagBuffer);
+    if (changed.length > 64) gl.bufferData(gl.ARRAY_BUFFER, flags, gl.DYNAMIC_DRAW);
+    else for (const i of changed) gl.bufferSubData(gl.ARRAY_BUFFER, i, flags, i, 1);
+    return true;
+  }
+
   // Every card leaves a little after the one before it, in result order, with a little jitter so
   // the wave has a soft front rather than a ruled edge. `fresh` marks the cards that fade in as
   // they arrive rather than being there already.
@@ -1056,8 +1096,11 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       texWords = new Uint32Array(n * 3);
       texDirty.clear();
       upload(texBuffer, texWords);
+      // and none of them selected: whoever marks cards does so by index, and these are new indexes
+      flags = new Uint8Array(n);
+      selection = [];
+      upload(flagBuffer, flags);
       hover = -1;
-      selected = -1;
       dirty = true;
       schedule();
     },
@@ -1130,9 +1173,8 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       dirty = true;
       schedule();
     },
-    setSelected(i) {
-      if (selected === i) return;
-      selected = i;
+    setSelection(indexes) {
+      if (!applySelection(indexes)) return;
       dirty = true;
       schedule();
     },

@@ -69,6 +69,30 @@ public class NativeWordCountTests {
         }
     }
 
+    /// <summary>The two engines have to drop the same words: a cloud drawn off one and off the other
+    /// is the same cloud, this option included.</summary>
+    [TestMethod]
+    public void ExcludeNumbersMatchesTheTextAndTheMemoryIndex() {
+        var dir = tempDir();
+        try {
+            var corpus = MakeCorpus(120);
+            using var engine = new TextIndexEngine(dir);
+            engine.SetWalFileId(Guid.NewGuid());
+            var index = openIndex(engine);
+            inTransaction(engine, 1000, () => { foreach (var doc in corpus) index.Add(doc.Key, doc.Value); });
+
+            var options = new WordCountOptions { MaxWords = 1000, ExcludeNumbers = true };
+            var native = count(index, corpus.Keys, options);
+            AssertSame(Expected(corpus, corpus.Keys, options), native.Words, "native:");
+            AssertSame(memoryIndex(corpus).CountWords(Subset(corpus.Keys), options).Words, native.Words, "against the memory index:");
+            var words = native.Words.Select(w => w.Word).ToArray();
+            foreach (var number in Numbers) Assert.IsFalse(words.Contains(number), number + " is a number and should be gone");
+            foreach (var word in WordsWithDigits) Assert.IsTrue(words.Contains(word), word + " has a digit in it but is a word");
+        } finally {
+            Directory.Delete(dir, true);
+        }
+    }
+
     [TestMethod]
     public void SubsetMatchesTheTextAndTheMemoryIndex() {
         var dir = tempDir();

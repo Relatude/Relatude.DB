@@ -68,12 +68,14 @@ import { FileViewer } from "./FileViewer";
 // range, the checkbox toggles), and folders are ticked in the tree. Exactly one selected file and no
 // selected folder opens the viewer panel to the right; anything else gives the list the whole width.
 //
-// The list itself has two switches. "Include subfolders" replaces the open folder's files with every
-// file below it as well, gathered folder by folder behind a progress dialog so a big tree can be
-// watched and given up on; it starts off and goes off again with every folder opened, since it asks
-// about one folder and nobody means to walk a tree by clicking through it. "Thumbnails" draws the
-// same files as pictures instead of rows - a scaled down copy from the server for an image, a frame
-// for a video, its type icon for everything else.
+// The list itself has three switches. "Include subfolders" replaces the open folder's files with
+// every file below it as well, gathered folder by folder behind a progress dialog so a big tree can
+// be watched and given up on; it starts off and goes off again with every folder opened, since it
+// asks about one folder and nobody means to walk a tree by clicking through it. "Show folders" adds
+// the folders themselves to the list, above the files, so the list is the whole of what is there
+// rather than half of it - they are the same folders the tree holds, so a row opens one and its box
+// ticks it for a delete. "Thumbnails" draws the same files as pictures instead of rows - a scaled
+// down copy from the server for an image, a frame for a video, its type icon for everything else.
 //
 // Either way only what is on screen is built (see useVirtualWindow), with two fillers standing in
 // for the rows above and below, and a tile only asks for its picture once it is there (see
@@ -123,6 +125,10 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   const showPath = useCallback((p: string) => (friendly ? friendlyPath(p, names) : p), [friendly, names]);
   // rows or pictures
   const [view, setView] = useState<ViewMode>(() => (localStorage.getItem(viewModeKey) === "thumbnails" ? "thumbnails" : "list"));
+  // Whether the folders show in the list as well as in the tree. Remembered, unlike "include
+  // subfolders": it is how someone reads a listing rather than a question about one folder, and
+  // whoever wants the list to be the whole folder wants that of the next folder too.
+  const [showFolders, setShowFolders] = useState(() => localStorage.getItem(showFoldersKey) === "true");
   // The list reaches into the subfolders as well; the walk that gathers them is below. Off to begin
   // with, and off again with every folder opened: it is a question asked of one folder ("what is
   // under here?"), and a walk of thousands of files is not what anyone means to arrive at by opening
@@ -142,6 +148,12 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   function chooseView(next: ViewMode) {
     setView(next);
     localStorage.setItem(viewModeKey, next);
+  }
+
+  function toggleShowFolders() {
+    const next = !showFolders;
+    setShowFolders(next);
+    localStorage.setItem(showFoldersKey, String(next));
   }
 
   function toggleRecursive() {
@@ -224,6 +236,21 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     [files, matcher, rowName, show, sort, typeOf],
   );
   const listedSize = shownFiles.reduce((sum, f) => sum + f.size, 0);
+  /**
+   * The folders of the list, when it is showing them: the open folder's own, or - while the list
+   * reaches into the subfolders - every folder the walk found below it, named by the path it sits
+   * at, exactly as the files are. They are filtered by the same filter and always ordered by name,
+   * following its direction when the list is sorted by name: a folder has no size and no date to
+   * sort by, so those columns would leave them in whatever order they arrived in.
+   */
+  const shownFolders = useMemo(() => {
+    if (!showFolders) return [];
+    const paths = deep ? deep.folders : (listing?.subFolders ?? []).map((sub) => (path === "" ? sub.name : `${path}/${sub.name}`));
+    const rows = paths.map((folder) => ({ path: folder, name: deep ? relativeKey(folder, path) : fileName(folder) }));
+    const kept = matcher ? rows.filter((row) => matcher(row.name) || matcher(show(row.name))) : rows;
+    const direction = sort.column === "name" && !sort.ascending ? -1 : 1;
+    return kept.sort((a, b) => nameCollator.compare(a.name, b.name) * direction);
+  }, [showFolders, deep, listing, path, matcher, show, sort]);
   // A listing that reaches into the subfolders is often thousands of files and can be tens of
   // thousands: only the ones on screen are built, and two fillers stand in for the rest so the
   // scrollbar and the scroll position stay honest (see useVirtualWindow).
@@ -370,9 +397,11 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   }
 
   // whether the folder is, or sits below, one of the database's own data folders: from its own
-  // listing when loaded, else from the stub in its parent's listing
+  // listing when loaded, from the walk that reached it, else from the stub in its parent's listing
   function isPrimaryFolder(folderPath: string): boolean {
     if (listings[folderPath]?.isPrimaryData) return true;
+    // a folder the deep walk reached: its own listing said so, and nothing else here has seen it
+    if (deep?.primaryFolders.includes(folderPath)) return true;
     const parent = parentOf(folderPath);
     const name = fileName(folderPath);
     return listings[parent]?.subFolders.some((sub) => sub.name === name && sub.isPrimaryData) === true;
@@ -913,17 +942,21 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
         <button className="icon-button" title="Refresh" onClick={() => ioId && reloadList(ioId, path)}>
           <IconRefresh size={16} stroke={1.8} />
         </button>
+        {/* the colours are what each button does rather than what it is: green puts something into
+            the storage, blue takes a copy out of it, amber renames and red deletes (see svg.tone-*).
+            The refresh above and the view switch below carry none - they change what is shown, not
+            what is there */}
         <button className="icon-button" title="Upload files to this folder" onClick={() => fileInput.current?.click()} disabled={!ioId}>
-          <IconUpload size={16} stroke={1.8} />
+          <IconUpload size={16} stroke={1.8} className="tone-ok" />
         </button>
         <button className="icon-button" title="Upload a folder into this folder" onClick={() => folderInput.current?.click()} disabled={!ioId}>
-          <IconFolderUp size={16} stroke={1.8} />
+          <IconFolderUp size={16} stroke={1.8} className="tone-ok" />
         </button>
         <button className="icon-button" title="Download this folder and everything in it to disk" onClick={onDownloadFolder} disabled={!ioId}>
-          <IconFolderDown size={16} stroke={1.8} />
+          <IconFolderDown size={16} stroke={1.8} className="tone-accent" />
         </button>
         <button className="icon-button" title="Create a folder in this folder" onClick={onCreateFolder} disabled={!ioId}>
-          <IconFolderPlus size={16} stroke={1.8} />
+          <IconFolderPlus size={16} stroke={1.8} className="tone-ok" />
         </button>
         <button
           className="icon-button"
@@ -933,7 +966,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
           onClick={onRenameFolder}
           disabled={!ioId || path === "" || !io?.canRenameFolder}
         >
-          <IconPencil size={16} stroke={1.8} />
+          <IconPencil size={16} stroke={1.8} className="tone-data" />
         </button>
         <button
           className="icon-button danger"
@@ -941,7 +974,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
           onClick={onDeleteFolder}
           disabled={!ioId || path === ""}
         >
-          <IconFolderX size={16} stroke={1.8} />
+          <IconFolderX size={16} stroke={1.8} className="tone-danger" />
         </button>
         <input
           ref={fileInput}
@@ -974,6 +1007,10 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
           <input type="checkbox" checked={friendly} onChange={toggleFriendly} />
           Friendly names
         </label>
+        <label className="files-friendly" title="List the folders as well as the files. A folder row opens the folder, and its box ticks it the way the tree does">
+          <input type="checkbox" checked={showFolders} onChange={toggleShowFolders} disabled={!ioId} />
+          Show folders
+        </label>
         <label
           className="files-friendly"
           title="List the files of every folder below this one as well. The folders are walked one by one, so a big tree can be watched and given up on"
@@ -1001,7 +1038,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
         {message && <span className="muted files-message">{message}</span>}
         {selected.size > 0 && (
           <button className="action-button" onClick={onDownloadSelectionZip}>
-            <IconFileZip size={14} stroke={1.8} /> Download {selected.size} as zip
+            <IconFileZip size={14} stroke={1.8} className="tone-accent" /> Download {selected.size} as zip
           </button>
         )}
         {deletable > 0 && (
@@ -1085,6 +1122,67 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
                 <span />
               </div>
             )}
+            {/* The folders come first and whole - there are tens of them where there can be tens of
+                thousands of files, so they cost nothing to build and nothing is gained by windowing
+                them. They sit in front of the filler, which is what says where the windowed rows
+                begin (see useVirtualWindow), and they carry no data-file-row: the row the window
+                measures itself against has to be one of the rows it is standing in for. */}
+            {view === "list" &&
+              shownFolders.map((f) => (
+                <div
+                  key={"folder:" + f.path}
+                  className={"file-row file-folder-row" + (selectedFolders.has(f.path) ? " selected" : "")}
+                  draggable={!!ioId}
+                  onDragStart={(e) => onFolderDragStart(e, f.path)}
+                  onClick={() => void openFolder(f.path)}
+                  title={f.path}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedFolders.has(f.path)}
+                    onChange={() => toggleFolderSelected(f.path)}
+                    onClick={(e) => e.stopPropagation()}
+                    title="Select this folder, e.g. to delete several at once"
+                  />
+                  <span className="file-name">
+                    <IconFolder size={14} stroke={1.6} className={isPrimaryFolder(f.path) ? "folder-data" : undefined} />
+                    {show(f.name)}
+                  </span>
+                  {!compact && <span className="muted">Folder</span>}
+                  <span className="num muted">—</span>
+                  {!compact && <span className="muted">—</span>}
+                  <span className="file-actions" onClick={(e) => e.stopPropagation()}>
+                    <a className="icon-button" href={ioId ? zipFolderUrl(ioId, f.path) : "#"} title="Download this folder as a zip" download>
+                      <IconDownload size={15} stroke={1.8} className="tone-accent" />
+                    </a>
+                  </span>
+                </div>
+              ))}
+            {view === "thumbnails" &&
+              shownFolders.map((f) => (
+                <div
+                  key={"folder:" + f.path}
+                  className={"file-tile file-folder-tile" + (selectedFolders.has(f.path) ? " selected" : "")}
+                  draggable={!!ioId}
+                  onDragStart={(e) => onFolderDragStart(e, f.path)}
+                  onClick={() => void openFolder(f.path)}
+                  title={f.path}
+                >
+                  <div className="file-tile-frame">
+                    <IconFolder size={30} stroke={1.3} className={isPrimaryFolder(f.path) ? "folder-data" : undefined} />
+                    <input
+                      type="checkbox"
+                      className="file-tile-check"
+                      checked={selectedFolders.has(f.path)}
+                      onChange={() => toggleFolderSelected(f.path)}
+                      onClick={(e) => e.stopPropagation()}
+                      title="Select this folder, e.g. to delete several at once"
+                    />
+                  </div>
+                  <span className="file-tile-name">{show(f.name)}</span>
+                  <span className="file-tile-size muted">Folder</span>
+                </div>
+              ))}
             <div {...windowPad} className="file-window-pad" style={{ height: listWindow.above }} />
             {view === "list" &&
               builtFiles.map((f) => (
@@ -1143,6 +1241,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
           </div>
           <div className="files-footer muted">
             {matcher ? `${shownFiles.length} of ${files.length}` : files.length} files · {formatBytes(listedSize)}
+            {showFolders ? ` · ${shownFolders.length} folder${shownFolders.length === 1 ? "" : "s"} listed` : ""}
             {deep ? " · including subfolders" : ""}
             {selected.size > 0 ? ` · ${selected.size} selected` : ""}
             {selectedFolders.size > 0 ? ` · ${selectedFolders.size} folder${selectedFolders.size === 1 ? "" : "s"} ticked` : ""}
@@ -1186,6 +1285,7 @@ const treeWidthKey = "filesTreeWidth";
 const viewerWidthKey = "filesViewerWidth";
 const sortKey = "filesSort";
 const viewModeKey = "filesViewMode";
+const showFoldersKey = "filesShowFolders";
 
 function readSort(): SortState {
   try {

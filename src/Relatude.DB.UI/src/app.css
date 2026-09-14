@@ -2382,7 +2382,9 @@ a {
    colour, so the marking is a shape rather than a hue and follows the row's own colour. The first
    path of a Tabler outline icon is its transparent 24x24 bounding box - filling that would paint a
    solid square, hence the :not() */
-.tree-label .folder-data path:not([fill="none"]) {
+.tree-label .folder-data path:not([fill="none"]),
+.file-name .folder-data path:not([fill="none"]),
+.file-tile-frame .folder-data path:not([fill="none"]) {
   fill: currentColor;
   fill-opacity: 0.25;
 }
@@ -2560,6 +2562,31 @@ a {
 .file-row .icon-button {
   width: 24px;
   height: 24px;
+}
+
+/* A folder in the file list (the "Show folders" switch). It is a row like any other, and the one
+   thing it does differently is what clicking it means: a file is selected, a folder is opened. So it
+   takes the pointer, and its name is set in the weight a heading is, which is how a file manager has
+   always said "this one is a place, not a thing" without a colour of its own. */
+.file-folder-row,
+.file-folder-tile {
+  cursor: pointer;
+}
+
+.file-folder-row .file-name,
+.file-folder-tile .file-tile-name {
+  font-weight: 600;
+}
+
+.file-folder-row .file-name svg,
+.file-folder-tile .file-tile-frame svg {
+  color: var(--text-muted);
+}
+
+/* the checkerboard behind a thumbnail says "this picture has transparency in it"; a folder icon is
+   not a picture, so it sits on the plain ground */
+.file-folder-tile .file-tile-frame {
+  background-image: none;
 }
 
 .files-empty {
@@ -3245,6 +3272,12 @@ a.action-button {
 .setting-badge.config {
   color: var(--danger);
   background: var(--danger-soft);
+}
+
+/* the form has several nodes open and they do not agree on this field: data to look at, not an error */
+.setting-badge.mixed {
+  color: var(--data);
+  background: var(--data-soft);
 }
 
 .setting-control {
@@ -6371,6 +6404,30 @@ body.pg-resizing {
   font-size: 11px;
 }
 
+/* the nodes of a selection, one chip each, under the head; a long selection scrolls in a short strip */
+.node-editor-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-height: 92px;
+  overflow-y: auto;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.node-editor-note {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* a field the selected nodes disagree on is shown blank; the placeholder in the control says why */
+.node-field.mixed .text-input::placeholder {
+  color: var(--data);
+  opacity: 0.8;
+}
+
 .node-fields {
   flex: 1;
   min-height: 0;
@@ -8386,12 +8443,11 @@ body.pg-resizing {
   flex: 1;
 }
 
-/* The groups had a colour each (green for the copies, amber for the database's own file, and so on).
-   They gave it up when the menu took colour on: a rail of eight coloured entries and a page of five
-   coloured groups is two colour systems arguing. What the group icons carry now is the ONE colour of
-   the module itself (--section-tone, set on .content from the rail entry), so the page still reads
-   as this page without inventing a palette of its own. The `--tone` / `--tone-soft` properties are
-   still read first, so a group can be given a colour back by setting them; nothing sets them now. */
+/* The groups had a colour each (green for the copies, amber for the database's own file, and so on),
+   and then one colour in a soft disc behind every icon. Both are gone: a group heading here is the
+   same thing a section heading is on the settings page - an icon, a name, nothing drawn around it -
+   and it is written the same way, so the two pages read as one product. The colour is this module's
+   orange, on the icon only, which is where the settings page puts its accent too. */
 
 .storage-group-head {
   display: flex;
@@ -8401,32 +8457,42 @@ body.pg-resizing {
   color: var(--text);
 }
 
-/* the icon sits in a soft disc - of the module's colour, since the groups no longer have one each.
-   A direct child only: the refresh button at the end of the line has an icon of its own, and it is a
+/* A direct child only: the refresh button at the end of the line has an icon of its own, and it is a
    button, not a heading mark */
 .storage-group-head > svg {
   align-self: center;
-  box-sizing: content-box;
-  padding: 5px;
-  border-radius: 8px;
-  background: var(--tone-soft, var(--section-tone-soft));
-  color: var(--tone, var(--section-tone));
+  color: var(--nav-orange);
 }
 
-/* an action icon carries the colour of what it acts on; the label stays the text colour */
-.action-button svg.tone-ok {
+/* An action icon carries the colour of what it acts on; the label stays the text colour. The same
+   four on an icon button, which is all a toolbar action has to say what it does with: green brings
+   something in, blue takes a copy out, amber changes what is there and red destroys it. Actions
+   that do none of those - a refresh, a view switch - stay the toolbar's grey, which is what lets
+   the coloured ones mean anything. */
+.action-button svg.tone-ok,
+.icon-button svg.tone-ok {
   color: var(--ok);
 }
 
-.action-button svg.tone-data {
+.action-button svg.tone-data,
+.icon-button svg.tone-data {
   color: var(--data);
 }
 
-.action-button svg.tone-accent {
+.action-button svg.tone-accent,
+.icon-button svg.tone-accent {
   color: var(--accent);
 }
 
-.action-button:disabled svg {
+.action-button svg.tone-danger,
+.icon-button svg.tone-danger {
+  color: var(--danger);
+}
+
+/* a disabled button says nothing about what it would have done: the icon goes back to the grey the
+   button itself is drawn in, rather than a faded red or green */
+.action-button:disabled svg,
+.icon-button:disabled svg {
   color: inherit;
 }
 
@@ -8449,9 +8515,10 @@ body.pg-resizing {
   margin: 0;
 }
 
+/* the same size and weight a settings section heading is set in */
 .storage-group-head h2 {
   margin: 0;
-  font-size: 14px;
+  font-size: 17px;
   font-weight: 600;
 }
 

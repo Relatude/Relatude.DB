@@ -171,10 +171,31 @@ public sealed record WordCountOptions {
     /// <summary>Words to skip, whatever their count - the markup and boilerplate that is genuinely
     /// in the index and only ever in the way. Compared as indexed: lowercase, no punctuation.</summary>
     public IReadOnlySet<string>? Ignore { get; init; }
+    /// <summary>Skips the words that are nothing but digits (see <see cref="IsNumber"/>) - years,
+    /// prices, part numbers and the halves a decimal point was split into. They are words of the
+    /// text like any other and are counted like any other; what makes them worth a switch is that
+    /// a set of them almost never means anything together, so they crowd out the words that do.</summary>
+    public bool ExcludeNumbers { get; init; }
     /// <summary>Stops the count once this many postings have been looked at, handing back what was
     /// found so far with <see cref="WordCountSet.Truncated"/> set. 0 is no limit. The cost of a
     /// count is the size of the index rather than the size of the set, so a large index wants one.</summary>
     public long MaxPostingsEvaluated { get; init; } = 0;
+
+    /// <summary>
+    /// Whether <see cref="ExcludeNumbers"/> should skip this word: every character is a digit.
+    /// Deliberately nothing cleverer. The tokenizer keeps only letters, digits and apostrophes and
+    /// breaks on everything else, so "3.14" is already in the index as "3" and "14" and there is no
+    /// decimal or thousands separator left for a parser to understand. Anything mixed - "1st",
+    /// "mp3", "v2" - is a word with a number in it rather than a number, and is kept.
+    ///
+    /// The one definition both engines call, because the memory index and the native one have to
+    /// answer the same question identically (see <see cref="WordCountSet"/>).
+    /// </summary>
+    public static bool IsNumber(ReadOnlySpan<char> word) {
+        if (word.Length == 0) return false;
+        foreach (var c in word) if (!char.IsDigit(c)) return false;
+        return true;
+    }
 }
 
 /// <summary>

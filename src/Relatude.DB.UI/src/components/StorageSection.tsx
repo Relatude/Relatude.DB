@@ -408,12 +408,12 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       {/* Five things live on this page and they are not alike: copies of the database, the file it
           is, the maintenance of that file, the files it points to, and content to test with. Each is
           a group with a name and a line saying what it is about, and its one panel carries no
-          heading of its own - the group's name is the panel's name, said once. The groups used to be
-          told apart by a colour each; the colour now lives in the menu, where it marks a page rather
-          than a paragraph, and this page is uncoloured. */}
+          heading of its own - the group's name is the panel's name, said once. The headings are the
+          settings page's section headings: an orange icon, the name beside it, and nothing drawn
+          around either (see .storage-group-head). */}
       <div className="storage-group">
         <div className="storage-group-head">
-          <IconDeviceFloppy size={16} stroke={1.8} />
+          <IconDeviceFloppy size={18} stroke={1.7} />
           <h2>Backups</h2>
           {backups && <span className="storage-group-count">{backups.files.length}</span>}
           <span className="muted">copies of the database file, kept beside it - the way back when something has gone wrong</span>
@@ -474,7 +474,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       <div className="overview-columns even">
       <div className="storage-group">
         <div className="storage-group-head">
-          <IconDatabase size={16} stroke={1.8} />
+          <IconDatabase size={18} stroke={1.7} />
           <h2>Database file</h2>
           <span className="muted">the transaction log the database lives in</span>
         </div>
@@ -524,7 +524,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       </div>
       <div className="storage-group">
         <div className="storage-group-head">
-          <IconTools size={16} stroke={1.8} />
+          <IconTools size={18} stroke={1.7} />
           <h2>Maintenance</h2>
           <span className="muted">what keeps that file small and quick to open</span>
         </div>
@@ -579,7 +579,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       <div className="overview-columns even">
       <div className="storage-group">
         <div className="storage-group-head">
-          <IconFolder size={16} stroke={1.8} />
+          <IconFolder size={18} stroke={1.7} />
           <h2>File storage</h2>
           <span className="muted">the files behind the file properties</span>
         </div>
@@ -621,7 +621,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       </div>
       <div className="storage-group">
         <div className="storage-group-head">
-          <IconFlask size={16} stroke={1.8} />
+          <IconFlask size={18} stroke={1.7} />
           <h2>Demo content</h2>
           <span className="muted">generated nodes to try things out with</span>
         </div>

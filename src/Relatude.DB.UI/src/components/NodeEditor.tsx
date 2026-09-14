@@ -16,12 +16,13 @@ import {
   clearNodeFile,
   commitNodeFile,
   createNode,
-  deleteNode,
-  fetchNode,
+  deleteNodes,
+  fetchNodes,
   fileUploadTarget,
   lookupNodes,
   saveEmbedded,
-  saveNode,
+  saveNodes,
+  type EditorKind,
   type GeoValue,
   type FileValueView,
   type InnerNodeView,
@@ -43,14 +44,31 @@ import { NodeHistoryTab } from "./NodeHistoryTab";
 
 type EditorTab = "properties" | "meta" | "history";
 
+/** how many of a selection's nodes are named in the head before the rest are a count */
+const maxChips = 24;
+
+/** A property every selected node has: the first node's view of it, every node's, and whether they agree on its value. */
+interface SharedProperty {
+  property: PropertyView;
+  all: PropertyView[];
+  mixed: boolean;
+}
+
 /**
- * One node as a form, built from the data model rather than from a class: every property of the
- * node's type gets the editor its property type calls for.
+ * One node as a form - or several, edited together - built from the data model rather than from a
+ * class: every property of the node's type gets the editor its property type calls for.
  *
  * Only what was touched is sent. `values` holds the changed properties keyed by property id and
  * `relations` the changed relation lists, so a save writes exactly the fields someone edited -
  * which also means two people editing different fields of the same node do not overwrite each
  * other. Reverting a field is dropping it from those maps, not writing the old value back.
+ *
+ * With several nodes open the form shows the properties they all have, and a field whose value is
+ * not the same on every one of them is shown blank and marked as differing rather than showing one
+ * node's value as though it were everyone's. Anything entered is written to every selected node in
+ * one transaction, so a value one of them cannot take leaves all of them as they were. The other
+ * two tabs, the file uploads and the inner nodes are one node's business and step aside while a
+ * selection is open.
  *
  * Some property types are shown but not editable, because a text field is the wrong way to change
  * them: a stored vector, a byte array, and the inner nodes of an embedded property, which are a
@@ -63,19 +81,23 @@ type EditorTab = "properties" | "meta" | "history";
  */
 export function NodeEditor({
   storeId,
-  nodeId,
+  nodeIds,
   onSaved,
   onClose,
   onDeleted,
+  onDeselect,
 }: {
   storeId: string;
-  nodeId: string;
+  /** the nodes the form has open: one, or a selection edited together */
+  nodeIds: readonly string[];
   onSaved?: () => void;
   onClose?: () => void;
-  /** the node was deleted from here: the list it came from is stale and the form has nothing to show */
+  /** the nodes were deleted from here: the list they came from is stale and the form has nothing to show */
   onDeleted?: () => void;
+  /** one node of a selection was taken out of it from the form's own head */
+  onDeselect?: (nodeId: string) => void;
 }) {
-  const [node, setNode] = useState<NodeView | null>(null);
+  const [nodes, setNodes] = useState<NodeView[] | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
   // the edited node lists of reference, references and relation properties. They are kept as whole
   // node refs rather than as ids because a picker has to keep showing the name of what was picked;
@@ -86,18 +108,77 @@ export function NodeEditor({
   const [saved, setSaved] = useState<string | null>(null);
   const [tab, setTab] = useState<EditorTab>("properties");
 
+  // the ids as one value, so a render that hands over the same ids in a new array changes nothing
+  const idsKey = nodeIds.join("\n");
+  const ids = useMemo(() => idsKey.split("\n").filter((id) => id.length > 0), [idsKey]);
+  const multi = ids.length > 1;
+
   const load = useCallback(() => {
-    setNode(null);
-    fetchNode(storeId, nodeId)
-      .then((n) => {
-        setNode(n);
-        setValues({});
-        setTargets({});
+    setNodes(null);
+    fetchNodes(storeId, ids)
+      .then((list) => {
+        if (list.length === 0) throw new Error(ids.length === 1 ? "Node not found." : "None of the selected nodes could be read.");
+        setNodes(list);
         setError(null);
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [storeId, nodeId]);
-  useEffect(load, [load]);
+  }, [storeId, ids]);
+
+  /** Reads the nodes again and drops every unsaved edit: the Reload button, and what follows a write. */
+  function reload() {
+    setValues({});
+    setTargets({});
+    load();
+  }
+
+  // The selection changed under the form. Edits are kept when it grew or shrank - select several,
+  // set a field, add one more, save - and dropped when it is a different selection altogether: an
+  // edit made to one node must not turn up unsaved on the next one clicked.
+  const previous = useRef<string[]>(ids);
+  useEffect(() => {
+    const before = previous.current;
+    previous.current = ids;
+    const grew = before.every((id) => ids.includes(id));
+    const shrank = ids.every((id) => before.includes(id));
+    if (!grew && !shrank) {
+      setValues({});
+      setTargets({});
+    }
+    setSaved(null);
+    load();
+  }, [ids, load]);
+
+  // the other two tabs are one node's: several nodes have only their properties in common
+  useEffect(() => {
+    if (multi) setTab("properties");
+  }, [multi]);
+
+  /** The properties every selected node has, in the first node's order, and whether the nodes agree on each. */
+  const shared = useMemo<{ properties: SharedProperty[]; hidden: number }>(() => {
+    if (!nodes || nodes.length === 0) return { properties: [], hidden: 0 };
+    const [first, ...rest] = nodes;
+    const union = new Set<string>();
+    for (const n of nodes) for (const p of n.properties) union.add(p.id);
+    const properties: SharedProperty[] = [];
+    for (const p of first.properties) {
+      const all: PropertyView[] = [p];
+      for (const n of rest) {
+        const q = n.properties.find((x) => x.id === p.id);
+        if (q) all.push(q);
+      }
+      if (all.length !== nodes.length) continue;
+      properties.push({ property: p, all, mixed: all.some((q) => !sameValue(p, q)) });
+    }
+    return { properties, hidden: union.size - properties.length };
+  }, [nodes]);
+
+  // an edit of a property the selection no longer shares has nowhere to go, and is let go of
+  useEffect(() => {
+    if (!nodes) return;
+    const keep = new Set(shared.properties.map((s) => s.property.id));
+    setValues((prev) => prune(prev, keep));
+    setTargets((prev) => prune(prev, keep));
+  }, [nodes, shared]);
 
   const dirty = Object.keys(values).length + Object.keys(targets).length;
 
@@ -124,22 +205,31 @@ export function NodeEditor({
   }
 
   async function save() {
-    if (!node || dirty === 0) return;
+    if (!nodes || dirty === 0) return;
     setSaving(true);
     try {
       const editedValues = { ...values };
       const relations: Record<string, string[]> = {};
       for (const [propertyId, list] of Object.entries(targets)) {
-        const ids = list.map((t) => t.id);
-        const editor = node.properties.find((p) => p.id === propertyId)?.editor;
+        const linked = list.map((t) => t.id);
+        const editor = nodes[0].properties.find((p) => p.id === propertyId)?.editor;
         // a relation is an edge and is saved as one; a reference is an ordinary property value
-        if (editor === "relation") relations[propertyId] = ids;
-        else if (editor === "references") editedValues[propertyId] = ids;
-        else editedValues[propertyId] = ids[0] ?? null;
+        if (editor === "relation") relations[propertyId] = linked;
+        else if (editor === "references") editedValues[propertyId] = linked;
+        else editedValues[propertyId] = linked[0] ?? null;
       }
-      const result = await saveNode(storeId, node.id, editedValues, relations);
-      setSaved(result.changed === 0 ? "Nothing changed." : `Saved ${formatCount(result.changed)} ${result.changed === 1 ? "change" : "changes"}.`);
-      load();
+      const result = await saveNodes(
+        storeId,
+        nodes.map((n) => n.id),
+        editedValues,
+        relations,
+      );
+      setSaved(
+        result.changed === 0
+          ? "Nothing changed."
+          : `Saved ${formatCount(result.changed)} ${result.changed === 1 ? "change" : "changes"}` + (multi ? ` across ${formatCount(nodes.length)} nodes.` : "."),
+      );
+      reload();
       onSaved?.();
     } catch (e) {
       await showError("Could not save", e instanceof Error ? e.message : String(e));
@@ -150,19 +240,26 @@ export function NodeEditor({
 
   /**
    * Deleting is asked about first, and says what is being deleted rather than "are you sure": the
-   * name and the type are what tell someone whether this is the node they meant.
+   * name and the type are what tell someone whether this is the node they meant - and for a
+   * selection, how many of what.
    */
   async function remove() {
-    if (!node) return;
+    if (!nodes) return;
+    const one = nodes.length === 1 ? nodes[0] : null;
     const confirmed = await showConfirm(
-      `Delete ${node.displayName || "this node"}?`,
-      `The ${node.typeName} node is removed from the database. Relations and references to it are cleared with it. This cannot be undone from here - a revert window can take it back.`,
-      { confirmLabel: "Delete", danger: true },
+      one ? `Delete ${one.displayName || "this node"}?` : `Delete ${formatCount(nodes.length)} nodes?`,
+      one
+        ? `The ${one.typeName} node is removed from the database. Relations and references to it are cleared with it. This cannot be undone from here - a revert window can take it back.`
+        : `${typeSummary(nodes)} are removed from the database, all at once. Relations and references to them are cleared with them. This cannot be undone from here - a revert window can take it back.`,
+      { confirmLabel: one ? "Delete" : `Delete ${formatCount(nodes.length)} nodes`, danger: true },
     );
     if (!confirmed.ok) return;
     setSaving(true);
     try {
-      await deleteNode(storeId, node.id);
+      await deleteNodes(
+        storeId,
+        nodes.map((n) => n.id),
+      );
       onDeleted?.();
       onClose?.();
     } catch (e) {
@@ -173,112 +270,208 @@ export function NodeEditor({
   }
 
   if (error) return <div className="placeholder">{error}</div>;
-  if (!node) return null;
+  if (!nodes) return null;
+  const node = nodes[0];
+  const missing = ids.length - nodes.length;
 
   return (
     <div className="node-editor">
       <div className="node-editor-head">
-        <div className="node-editor-title">
-          <h3>{node.displayName}</h3>
-          <span className="muted">
-            <button className="link-button" title={`Open ${node.fullName} in the data model`} onClick={() => openInDatamodel({ typeId: node.typeId })}>
-              {node.typeName}
-            </button>{" "}
-            · id {node.id} · #{node.intId}
-            {node.address ? " · " + node.address : ""}
-          </span>
-          <span className="muted">
-            created {formatTime(node.createdUtc)} · changed {formatTime(node.changedUtc)}
-          </span>
-        </div>
+        {multi ? (
+          <div className="node-editor-title">
+            <h3>{formatCount(nodes.length)} nodes selected</h3>
+            <span className="muted">{typeSummary(nodes)} · what is changed here is written to all of them</span>
+            {missing > 0 && (
+              <span className="muted">
+                {formatCount(missing)} of the selected nodes could not be read - {missing === 1 ? "it" : "they"} may have been deleted.
+              </span>
+            )}
+          </div>
+        ) : (
+          <div className="node-editor-title">
+            <h3>{node.displayName}</h3>
+            <span className="muted">
+              <button className="link-button" title={`Open ${node.fullName} in the data model`} onClick={() => openInDatamodel({ typeId: node.typeId })}>
+                {node.typeName}
+              </button>{" "}
+              · id {node.id} · #{node.intId}
+              {node.address ? " · " + node.address : ""}
+            </span>
+            <span className="muted">
+              created {formatTime(node.createdUtc)} · changed {formatTime(node.changedUtc)}
+            </span>
+          </div>
+        )}
         <div className="query-spacer" />
         {tab === "properties" && (
           <>
             {saved && <span className="muted">{saved}</span>}
-            <button className="action-button" onClick={load} disabled={saving} title="Read the node again, dropping unsaved edits">
+            <button className="action-button" onClick={reload} disabled={saving} title={multi ? "Read the nodes again, dropping unsaved edits" : "Read the node again, dropping unsaved edits"}>
               <IconRefresh size={15} stroke={1.8} />
               Reload
             </button>
-            <button className="action-button primary" onClick={save} disabled={dirty === 0 || saving}>
+            <button className="action-button primary" onClick={save} disabled={dirty === 0 || saving} title={multi ? "Write the edited fields to every selected node" : undefined}>
               <IconDeviceFloppy size={15} stroke={1.8} />
               {dirty === 0 ? "Save" : `Save ${dirty} ${dirty === 1 ? "field" : "fields"}`}
             </button>
-            <button className="icon-button danger" title="Delete this node" onClick={remove} disabled={saving}>
+            <button className="icon-button danger" title={multi ? `Delete these ${formatCount(nodes.length)} nodes` : "Delete this node"} onClick={remove} disabled={saving}>
               <IconTrash size={16} stroke={1.8} />
             </button>
           </>
         )}
         {onClose && (
-          <button className="icon-button" title="Close" onClick={onClose}>
+          <button className="icon-button" title={multi ? "Close, and let go of the selection" : "Close"} onClick={onClose}>
             <IconX size={16} stroke={1.8} />
           </button>
         )}
       </div>
+      {multi && (
+        // which nodes these are, one chip each; the cross on a chip takes that node out of the selection
+        <div className="node-editor-chips">
+          {nodes.slice(0, maxChips).map((n) => (
+            <span className="node-chip" key={n.id} title={`${n.typeName} · id ${n.id} · #${n.intId}`}>
+              {n.displayName || n.typeName}
+              <em>{n.typeName}</em>
+              {onDeselect && (
+                <button className="icon-button" title="Take this node out of the selection" onClick={() => onDeselect(n.id)}>
+                  <IconX size={12} stroke={2} />
+                </button>
+              )}
+            </span>
+          ))}
+          {nodes.length > maxChips && <span className="muted">and {formatCount(nodes.length - maxChips)} more</span>}
+        </div>
+      )}
       <div className="tabs" role="tablist">
         <button className={"tab" + (tab === "properties" ? " active" : "")} role="tab" onClick={() => setTab("properties")}>
           Properties
           {dirty > 0 && <span className="tab-dot" title={`${dirty} unsaved`} />}
         </button>
-        <button className={"tab" + (tab === "meta" ? " active" : "")} role="tab" onClick={() => setTab("meta")} title="Access, publishing window, revision and culture">
-          Meta
-        </button>
-        <button className={"tab" + (tab === "history" ? " active" : "")} role="tab" onClick={() => setTab("history")} title="Older versions of the node, from the transaction log">
-          History
-        </button>
+        {!multi && (
+          <>
+            <button className={"tab" + (tab === "meta" ? " active" : "")} role="tab" onClick={() => setTab("meta")} title="Access, publishing window, revision and culture">
+              Meta
+            </button>
+            <button className={"tab" + (tab === "history" ? " active" : "")} role="tab" onClick={() => setTab("history")} title="Older versions of the node, from the transaction log">
+              History
+            </button>
+          </>
+        )}
       </div>
-      {tab === "meta" && (
+      {tab === "meta" && !multi && (
         <NodeMetaTab
           storeId={storeId}
-          nodeId={nodeId}
+          nodeId={node.id}
           onSaved={() => {
-            load(); // a meta write is a new version of the node: the head's timestamps move
+            reload(); // a meta write is a new version of the node: the head's timestamps move
             onSaved?.();
           }}
         />
       )}
-      {tab === "history" && (
+      {tab === "history" && !multi && (
         <NodeHistoryTab
           storeId={storeId}
-          nodeId={nodeId}
+          nodeId={node.id}
           onRestored={() => {
-            load(); // the restore is the current version now, so the form and its head are stale
+            reload(); // the restore is the current version now, so the form and its head are stale
             onSaved?.();
           }}
         />
       )}
       <div className="node-fields" hidden={tab !== "properties"}>
-        {node.properties.map((property) => (
-          <Field
-            key={property.id}
-            storeId={storeId}
-            nodeId={nodeId}
-            intId={node.intId}
-            onSaved={() => {
-              load();
-              onSaved?.();
-            }}
-            property={property}
-            edited={property.id in values || property.id in targets}
-            value={property.id in values ? values[property.id] : property.value}
-            targets={targets[property.id] ?? property.targets ?? []}
-            onChange={(v) => setValue(property, v)}
-            onTargets={(t) => setTargetList(property, t)}
-            onRevert={() => revert(property)}
-          />
-        ))}
+        {shared.hidden > 0 && (
+          <div className="node-editor-note">
+            {formatCount(shared.hidden)} {shared.hidden === 1 ? "property is" : "properties are"} not on every selected node, and {shared.hidden === 1 ? "is" : "are"} not shown.
+          </div>
+        )}
+        {shared.properties.map(({ property, all, mixed }) => {
+          const edited = property.id in values || property.id in targets;
+          return (
+            <Field
+              key={property.id}
+              storeId={storeId}
+              nodeId={node.id}
+              intId={multi ? null : node.intId}
+              multi={multi}
+              onSaved={() => {
+                reload();
+                onSaved?.();
+              }}
+              property={property}
+              edited={edited}
+              mixed={mixed && !edited}
+              differing={mixed ? distinctValues(property, all) : null}
+              value={property.id in values ? values[property.id] : mixed ? undefined : property.value}
+              targets={targets[property.id] ?? (mixed ? [] : property.targets ?? [])}
+              onChange={(v) => setValue(property, v)}
+              onTargets={(t) => setTargetList(property, t)}
+              onRevert={() => revert(property)}
+            />
+          );
+        })}
       </div>
     </div>
   );
+}
+
+/** Whether two nodes hold the same thing in a property: the same linked nodes, or the same value. */
+function sameValue(a: PropertyView, b: PropertyView): boolean {
+  if (a.editor === "reference" || a.editor === "references" || a.editor === "relation") {
+    const x = (a.targets ?? []).map((t) => t.id);
+    const y = (b.targets ?? []).map((t) => t.id);
+    return x.length === y.length && x.every((id, i) => id === y[i]);
+  }
+  return JSON.stringify(a.value ?? null) === JSON.stringify(b.value ?? null);
+}
+
+/** The values a differing scalar property holds across the selection, as text, a handful at most; null for a property with no short text. */
+function distinctValues(property: PropertyView, all: PropertyView[]): string[] | null {
+  const scalar: EditorKind[] = ["text", "integer", "number", "bool", "enum", "guid", "datetime", "datetimeoffset", "timespan"];
+  if (!scalar.includes(property.editor)) return null;
+  const seen = new Set<string>();
+  for (const p of all) {
+    const v = p.value;
+    let text: string;
+    if (v === null || v === undefined || v === "") text = "(empty)";
+    else if (property.editor === "enum") text = property.options?.find((o) => String(o.value) === String(v))?.label ?? String(v);
+    else if (property.editor === "bool") text = v === true ? "True" : "False";
+    else text = String(v);
+    seen.add(text.length > 40 ? text.slice(0, 40) + "…" : text);
+    if (seen.size > 6) break;
+  }
+  return [...seen];
+}
+
+/** "2 Product · 1 Article": what a selection is made of, most of a kind first. */
+function typeSummary(nodes: NodeView[]): string {
+  const counts = new Map<string, number>();
+  for (const n of nodes) counts.set(n.typeName, (counts.get(n.typeName) ?? 0) + 1);
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([type, count]) => formatCount(count) + " " + type)
+    .join(" · ");
+}
+
+/** The record without the keys not in `keep`; the same object when nothing goes, so nothing re-renders for it. */
+function prune<T>(record: Record<string, T>, keep: Set<string>): Record<string, T> {
+  const gone = Object.keys(record).filter((key) => !keep.has(key));
+  if (gone.length === 0) return record;
+  const next = { ...record };
+  for (const key of gone) delete next[key];
+  return next;
 }
 
 function Field({
   storeId,
   nodeId,
   intId,
+  multi,
   property,
   value,
   targets,
   edited,
+  mixed,
+  differing,
   onChange,
   onTargets,
   onRevert,
@@ -286,24 +479,39 @@ function Field({
 }: {
   storeId: string;
   nodeId: string;
-  /** the node's int id: the file field announces a new picture by it (see nodeMedia.ts) */
-  intId: number;
+  /** the node's int id: the file field announces a new picture by it (see nodeMedia.ts); null while a selection is open */
+  intId: number | null;
+  /** whether the form has several nodes open, which the editors that write on their own step aside for */
+  multi: boolean;
   onSaved: () => void;
   property: PropertyView;
   value: unknown;
   targets: NodeRef[];
   edited: boolean;
+  /** the selected nodes do not agree on this value: the editor is blank, and the badge says so */
+  mixed: boolean;
+  /** the values they do hold, when they are short enough to be listed in the badge's tooltip */
+  differing: string[] | null;
   onChange: (value: unknown) => void;
   onTargets: (targets: NodeRef[]) => void;
   onRevert: () => void;
 }) {
+  const mixedTitle =
+    "The selected nodes do not agree on this value" +
+    (differing ? ": " + differing.slice(0, 6).join(", ") + (differing.length > 6 ? ", …" : "") : "") +
+    ". What is entered here is written to all of them.";
   return (
-    <div className={"node-field" + (edited ? " edited" : "") + (property.readOnly ? " readonly" : "")}>
+    <div className={"node-field" + (edited ? " edited" : "") + (mixed ? " mixed" : "") + (property.readOnly ? " readonly" : "")}>
       <div className="node-field-label">
         <span className="node-field-name">{property.name}</span>
         <IndexMarks flags={{ indexed: property.indexed, wordIndex: property.wordIndex, semanticIndex: property.semanticIndex }} />
         <span className="node-field-type">{property.type}</span>
         {edited && <span className="setting-badge unsaved">unsaved</span>}
+        {mixed && (
+          <span className="setting-badge mixed" title={mixedTitle}>
+            differs
+          </span>
+        )}
         {/* the three index notes are the icons above; the rest are still worth spelling out */}
         {property.notes
           .filter((note) => note !== "indexed" && note !== "word index" && note !== "semantic index")
@@ -331,6 +539,8 @@ function Field({
           storeId={storeId}
           nodeId={nodeId}
           intId={intId}
+          multi={multi}
+          mixed={mixed}
           property={property}
           value={value}
           targets={targets}
@@ -347,6 +557,8 @@ function Editor({
   storeId,
   nodeId,
   intId,
+  multi = false,
+  mixed = false,
   property,
   value,
   targets,
@@ -358,6 +570,10 @@ function Editor({
   nodeId: string;
   /** the node's int id, or null for an inner node - which has no file editor, see innerFields */
   intId: number | null;
+  /** several nodes are open: a file or an inner node list, which are written one node at a time, is shown but not edited */
+  multi?: boolean;
+  /** the value differs between the nodes open: the control is blank, or says so where blank would read as a value */
+  mixed?: boolean;
   property: PropertyView;
   value: unknown;
   targets: NodeRef[];
@@ -368,25 +584,42 @@ function Editor({
 }) {
   // a fresh array every render would look like a new lookup to the picker
   const typeIds = useMemo(() => (property.targetTypes ?? []).map((t) => t.id), [property.targetTypes]);
+  const differs = mixed ? "differs" : undefined;
   switch (property.editor) {
     case "bool":
       return (
         <label className="setting-toggle">
-          <input type="checkbox" checked={value === true} onChange={(e) => onChange(e.target.checked)} />
-          <span>{value === true ? "True" : "False"}</span>
+          {/* neither on nor off while the nodes disagree: the box's own third state */}
+          <input
+            type="checkbox"
+            checked={value === true}
+            ref={(el) => {
+              if (el) el.indeterminate = mixed;
+            }}
+            onChange={(e) => onChange(e.target.checked)}
+          />
+          <span>{mixed ? "differs" : value === true ? "True" : "False"}</span>
         </label>
       );
-    case "enum":
+    case "enum": {
+      const current = mixed ? "" : String(value ?? 0);
+      const options = property.options ?? [];
       return (
-        <select className="select" value={String(value ?? 0)} onChange={(e) => onChange(Number(e.target.value))}>
-          {(property.options ?? []).some((o) => String(o.value) === String(value ?? 0)) ? null : <option value={String(value ?? 0)}>{String(value ?? 0)}</option>}
-          {(property.options ?? []).map((o) => (
+        <select className="select" value={current} onChange={(e) => e.target.value !== "" && onChange(Number(e.target.value))}>
+          {mixed && (
+            <option value="" disabled>
+              (differs)
+            </option>
+          )}
+          {!mixed && !options.some((o) => String(o.value) === current) && <option value={current}>{current}</option>}
+          {options.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
             </option>
           ))}
         </select>
       );
+    }
     case "enumList": {
       const selected = Array.isArray(value) ? (value as number[]) : [];
       return (
@@ -415,6 +648,7 @@ function Editor({
           min={property.min ?? undefined}
           max={property.max ?? undefined}
           value={value === null || value === undefined ? "" : String(value)}
+          placeholder={differs}
           onChange={(e) => onChange(e.target.value)}
         />
       );
@@ -425,24 +659,33 @@ function Editor({
           rows={12}
           spellCheck={false}
           value={String(value ?? "")}
-          placeholder={property.language ?? undefined}
+          placeholder={differs ?? property.language ?? undefined}
           onChange={(e) => onChange(e.target.value)}
         />
       );
     case "text":
       return property.multiline ? (
-        <textarea className="text-input" rows={6} value={String(value ?? "")} maxLength={property.maxLength ?? undefined} onChange={(e) => onChange(e.target.value)} />
+        <textarea className="text-input" rows={6} value={String(value ?? "")} maxLength={property.maxLength ?? undefined} placeholder={differs} onChange={(e) => onChange(e.target.value)} />
       ) : (
         <input
           className="text-input wide"
           value={String(value ?? "")}
           maxLength={property.maxLength ?? undefined}
           spellCheck={false}
+          placeholder={differs}
           onChange={(e) => onChange(e.target.value)}
         />
       );
     case "guid":
-      return <input className="text-input wide mono" value={String(value ?? "")} spellCheck={false} placeholder="00000000-0000-0000-0000-000000000000" onChange={(e) => onChange(e.target.value)} />;
+      return (
+        <input
+          className="text-input wide mono"
+          value={String(value ?? "")}
+          spellCheck={false}
+          placeholder={differs ?? "00000000-0000-0000-0000-000000000000"}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      );
     case "stringList":
       return <ListEditor values={Array.isArray(value) ? (value as string[]) : []} onChange={onChange} placeholder="value" />;
     case "guidList":
@@ -465,7 +708,7 @@ function Editor({
             className="text-input wide mono"
             value={typeof value === "string" ? value : ""}
             spellCheck={false}
-            placeholder="2026-08-30T12:00:00.0000000+02:00"
+            placeholder={differs ?? "2026-08-30T12:00:00.0000000+02:00"}
             onChange={(e) => onChange(e.target.value ? e.target.value : null)}
           />
           <span className="setting-unit">with offset</span>
@@ -474,7 +717,7 @@ function Editor({
     case "timespan":
       return (
         <>
-          <input className="text-input mono" value={String(value ?? "")} spellCheck={false} placeholder="d.hh:mm:ss" onChange={(e) => onChange(e.target.value)} />
+          <input className="text-input mono" value={String(value ?? "")} spellCheck={false} placeholder={differs ?? "d.hh:mm:ss"} onChange={(e) => onChange(e.target.value)} />
           <span className="setting-unit">d.hh:mm:ss</span>
         </>
       );
@@ -487,7 +730,7 @@ function Editor({
             className="text-input number"
             type="number"
             step="any"
-            placeholder="latitude"
+            placeholder={differs ?? "latitude"}
             value={geo ? geo.latitude : ""}
             onChange={(e) => set(Number(e.target.value), geo?.longitude ?? 0)}
           />
@@ -495,7 +738,7 @@ function Editor({
             className="text-input number"
             type="number"
             step="any"
-            placeholder="longitude"
+            placeholder={differs ?? "longitude"}
             value={geo ? geo.longitude : ""}
             onChange={(e) => set(geo?.latitude ?? 0, Number(e.target.value))}
           />
@@ -513,15 +756,30 @@ function Editor({
       return <NodePicker storeId={storeId} types={property.targetTypes ?? []} typeIds={typeIds} targets={targets} multiple onChange={onTargets} />;
     case "relation":
       return <NodePicker storeId={storeId} types={property.targetTypes ?? []} typeIds={typeIds} targets={targets} multiple={property.isMany === true} onChange={onTargets} />;
-    case "file":
-      return <FileField storeId={storeId} nodeId={nodeId} intId={intId} property={property} file={(value ?? null) as FileValueView | null} />;
+    case "file": {
+      const file = (value ?? null) as FileValueView | null;
+      if (multi) {
+        // a file is staged and stored on one node the moment it arrives (see FileField): there is
+        // no "the same file on all of them" to offer, so the field only says what is there
+        return (
+          <div className="node-file-field">
+            {mixed ? <span className="muted">Different files.</span> : file ? <FilePreview storeId={storeId} file={file} /> : <span className="muted">No file.</span>}
+            <span className="muted">Files are put on one node at a time: open a node on its own to upload one.</span>
+          </div>
+        );
+      }
+      return <FileField storeId={storeId} nodeId={nodeId} intId={intId} property={property} file={file} />;
+    }
     case "embedded": {
       const inner = Array.isArray(value) ? (value as InnerNodeView[]) : [];
-      if (property.readOnly) {
-        // a list too long to edit a row at a time is still worth seeing
+      if (property.readOnly || multi) {
+        // a list too long to edit a row at a time is still worth seeing - and so is the list several
+        // nodes share, though it is written one node at a time
         return (
           <div className="node-inner">
-            <span className="muted">{property.info}</span>
+            <span className="muted">
+              {multi ? (mixed ? "The inner nodes differ between the selected nodes. They are edited one node at a time." : "Inner nodes are edited one node at a time.") : property.info}
+            </span>
             {inner.map((n) => (
               <div className="node-inner-node" key={n.id}>
                 <span className="node-inner-type">{n.typeName}</span>

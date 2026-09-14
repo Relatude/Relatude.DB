@@ -240,6 +240,7 @@ public class CharArrayTrie : IDisposable {
         var minDocuments = Math.Max(1, options.MinDocuments);
         var minLength = Math.Max(MinWordLength, options.MinWordLength);
         var ignore = options.Ignore == null || options.Ignore.Count == 0 ? null : new SpanStringSet(options.Ignore);
+        var excludeNumbers = options.ExcludeNumbers;
         var budget = options.MaxPostingsEvaluated > 0 ? options.MaxPostingsEvaluated : long.MaxValue;
         // The best so far as a min-heap: its top is the word the next one has to beat, which is also
         // what lets the walk put off making a string until a word has earned one.
@@ -256,6 +257,8 @@ public class CharArrayTrie : IDisposable {
             if (postings == 0) return; // a word left behind by deindexing, the trie keeps the node
             if (word.Length < minLength) return;
             if (ignore != null && ignore.Contains(word)) return;
+            // both tests are made on the span, before the word has earned a string of its own
+            if (excludeNumbers && WordCountOptions.IsNumber(word)) return;
             if (evaluated + postings > budget) {
                 // the walk cannot be stopped from inside, but from here on it only visits terms and
                 // never their postings, which is the cheap half of it

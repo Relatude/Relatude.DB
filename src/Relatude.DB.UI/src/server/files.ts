@@ -139,6 +139,9 @@ export interface DeepListing {
   // however innocent the folder it was listed from looks, which is what the extra warning in front
   // of deleting one goes by.
   primaryFolders: string[];
+  // Every folder below the one walked, in the order the walk found them. The walk visits each of
+  // them anyway, so listing folders as well as files costs nothing extra.
+  folders: string[];
 }
 
 /**
@@ -154,6 +157,7 @@ export interface DeepListing {
 export async function scanFolderRecursive(ctl: ProgressController, ioId: string, path: string, rootLabel: string): Promise<DeepListing> {
   const found: FileInfo[] = [];
   const primaryFolders: string[] = [];
+  const folders: string[] = [];
   const queue: string[] = [path];
   let visited = 0;
   const parallel = 8;
@@ -166,12 +170,16 @@ export async function scanFolderRecursive(ctl: ProgressController, ioId: string,
       const folder = batch[i];
       if (listings[i].isPrimaryData === true) primaryFolders.push(folder);
       for (const file of listings[i].files) found.push(file);
-      for (const sub of listings[i].subFolders) queue.push(folder === "" ? sub.name : `${folder}/${sub.name}`);
+      for (const sub of listings[i].subFolders) {
+        const child = folder === "" ? sub.name : `${folder}/${sub.name}`;
+        queue.push(child);
+        folders.push(child); // the folder walked itself is not one of them: these are what lies below it
+      }
     }
     visited += batch.length;
     ctl.set({ done: visited, total: visited + queue.length, meta: `${visited} folder${visited === 1 ? "" : "s"} · ${found.length} file${found.length === 1 ? "" : "s"}` });
   }
-  return { files: found, primaryFolders };
+  return { files: found, primaryFolders, folders };
 }
 
 // renames within the folder: newName is a single name, not a path
