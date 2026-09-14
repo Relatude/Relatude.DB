@@ -1120,12 +1120,28 @@ a {
 
 /* a column: the revert bar of the database (when one is shown) on top, then the page, which is
    the part that scrolls - so the bar stays in view whatever the page below it is doing */
+/**
+ * A module's own colour, taken from the entry that opened it: App puts the rail's tone class on this
+ * box as well, and the page reads the colour back here. It is allowed in ONE kind of place - the
+ * control that says where you are INSIDE the module (an open tab, the chosen view, a group's icon) -
+ * so a page carries a trace of its menu colour instead of being painted in it. Everything deeper
+ * (a chosen series, a selected row, a lit switch) keeps the app's accent, which is what stops the
+ * page turning into one flat colour.
+ *
+ * An entry with the "plain" tone has no colour of its own, so its pages keep the accent.
+ */
 .content {
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  --section-tone: var(--nav-tone, var(--accent));
+  --section-tone-soft: color-mix(in srgb, var(--section-tone) 14%, transparent);
+}
+
+.content.nav-tone-plain {
+  --section-tone: var(--accent);
 }
 
 .content-body {
@@ -1312,7 +1328,7 @@ a {
 
 .tab.active {
   color: var(--text);
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--section-tone);
 }
 
 .tab-dot {
@@ -2199,8 +2215,8 @@ a {
 }
 
 .module-switch button.active {
-  color: var(--accent);
-  background: var(--accent-soft);
+  color: var(--section-tone);
+  background: var(--section-tone-soft);
 }
 
 .module-switch .badge {
@@ -3004,7 +3020,7 @@ a.action-button {
 }
 
 .toc-head.active svg {
-  color: var(--accent);
+  color: var(--section-tone);
 }
 
 /* the groups of a section, indented under it the way the pane stacks them */
@@ -3014,8 +3030,8 @@ a.action-button {
 }
 
 .toc-child.active {
-  color: var(--accent);
-  background: var(--accent-soft);
+  color: var(--section-tone);
+  background: var(--section-tone-soft);
 }
 
 .toc-label {
@@ -3787,8 +3803,8 @@ a.action-button {
 
 .tasks-queue.active {
   color: var(--text);
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  border-color: var(--section-tone);
+  background: var(--section-tone-soft);
 }
 
 .tasks-queue-label {
@@ -3977,8 +3993,8 @@ a.action-button {
 
 .tasks-chip.active {
   color: var(--text);
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  border-color: var(--section-tone);
+  background: var(--section-tone-soft);
 }
 
 .tasks-chip-count {
@@ -4221,12 +4237,12 @@ a.action-button {
 
 .logs-tab.active {
   color: var(--text);
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--section-tone);
 }
 
 .logs-tab.active svg {
   opacity: 1;
-  color: var(--accent);
+  color: var(--section-tone);
 }
 
 /* a log that is recording right now, so the tabs say where the data is coming from */
@@ -6071,8 +6087,8 @@ body.pg-resizing {
 }
 
 .query-view button.active {
-  color: var(--accent);
-  background: var(--accent-soft);
+  color: var(--section-tone);
+  background: var(--section-tone-soft);
 }
 
 /* a tab that carries an icon as well as its word (the map's globe) */
@@ -8319,9 +8335,10 @@ body.pg-resizing {
 
 /* The groups had a colour each (green for the copies, amber for the database's own file, and so on).
    They gave it up when the menu took colour on: a rail of eight coloured entries and a page of five
-   coloured groups is two colour systems arguing, and the one that earns it is the one that says
-   which page you are on. The `--tone` / `--tone-soft` custom properties below are still read, so a
-   group can be given a colour again by setting them - nothing here sets them any more. */
+   coloured groups is two colour systems arguing. What the group icons carry now is the ONE colour of
+   the module itself (--section-tone, set on .content from the rail entry), so the page still reads
+   as this page without inventing a palette of its own. The `--tone` / `--tone-soft` properties are
+   still read first, so a group can be given a colour back by setting them; nothing sets them now. */
 
 .storage-group-head {
   display: flex;
@@ -8331,14 +8348,16 @@ body.pg-resizing {
   color: var(--text);
 }
 
-/* the icon sits in a soft disc of its group's colour, which is what marks one group from the next */
-.storage-group-head svg {
+/* the icon sits in a soft disc - of the module's colour, since the groups no longer have one each.
+   A direct child only: the refresh button at the end of the line has an icon of its own, and it is a
+   button, not a heading mark */
+.storage-group-head > svg {
   align-self: center;
   box-sizing: content-box;
   padding: 5px;
   border-radius: 8px;
-  background: var(--tone-soft, var(--badge-bg));
-  color: var(--tone, var(--text-muted));
+  background: var(--tone-soft, var(--section-tone-soft));
+  color: var(--tone, var(--section-tone));
 }
 
 /* an action icon carries the colour of what it acts on; the label stays the text colour */
@@ -8398,8 +8417,8 @@ body.pg-resizing {
   padding: 1px 7px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--tone, var(--text-muted));
-  background: var(--tone-soft, var(--badge-bg));
+  color: var(--tone, var(--section-tone));
+  background: var(--tone-soft, var(--section-tone-soft));
   border-radius: 10px;
 }
 

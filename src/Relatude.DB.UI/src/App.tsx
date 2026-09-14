@@ -150,7 +150,9 @@ export function App() {
           onSelectSection={setActiveSectionId}
           onLogout={handleLogout}
         />
-        <main className={"content" + (inRevert ? " in-revert" : "")}>
+        {/* the page takes the tone of the entry that opened it, so a module carries a trace of its
+            menu colour; see --section-tone in app.css for where it is allowed to show */}
+        <main className={"content" + (section.tone ? " nav-tone-" + section.tone : "") + (inRevert ? " in-revert" : "")}>
           <div className="content-body">
           {activeSectionId === "dashboard" && activeDb ? (
             <DashboardSection key={activeDb.id} db={activeDb} />
