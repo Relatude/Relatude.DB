@@ -1,14 +1,15 @@
 import { useCallback, useRef, useState } from "react";
-import { Chart } from "./Chart";
+import { Chart, type ChartOverlay } from "./Chart";
 import { useRefreshInterval } from "../refresh";
 import { useLive } from "../live";
 import { formatBytes } from "../format";
 import type { SeriesPoint } from "../server/logs";
 
 // The server process on a graph: the managed heap as a level, the cpu it is using as a share of
-// every core, drawn over it in another colour. The same picture serves the database dashboard
-// (where the process is the one thing on the page that is not this database) and the server
-// overview (where it is the whole subject), so the sampling, the arithmetic and the chart live here.
+// every core, drawn over it in another colour, and - where the server reports it - how full the
+// drive the databases are written to is. The same picture serves the database dashboard (where the
+// process is the one thing on the page that is not this database) and the server overview (where it
+// is the whole subject), so the sampling, the arithmetic and the chart live here.
 
 /** One reading of the process, taken at `at`. The processor time is cumulative, like a counter. */
 export interface ProcessSample {
@@ -19,6 +20,9 @@ export interface ProcessSample {
   /** ms of cpu time used so far, all cores added together; 0 when the server did not report it */
   processorTimeMs: number;
   processorCount: number;
+  /** the data drive, 0 on a server that has no local folder to report on */
+  diskTotalBytes?: number;
+  diskFreeBytes?: number;
 }
 
 /** Three minutes of history at the default refresh rate: enough to see a burst arrive and drain. */
@@ -52,6 +56,30 @@ export function memoryPoints(samples: ProcessSample[]): SeriesPoint[] {
 }
 
 /**
+ * How full the data drive is, as a percentage, so it rides the same 0..100 axis as the cpu. A drive
+ * of no size is a server that reported none - a gap, like everything else nothing was measured for.
+ */
+export function diskPoints(samples: ProcessSample[]): SeriesPoint[] {
+  return samples.map((s) => {
+    const total = s.diskTotalBytes ?? 0;
+    const free = s.diskFreeBytes ?? 0;
+    const has = total > 0;
+    return { fromUtc: s.iso, hasValue: has, value: has ? Math.min(100, Math.max(0, ((total - free) / total) * 100)) : null };
+  });
+}
+
+/** The latest reading of the data drive, or null on a server that does not report one. */
+export function currentDisk(samples: ProcessSample[]): { total: number; free: number; usedPercent: number } | null {
+  for (let i = samples.length - 1; i >= 0; i--) {
+    const total = samples[i].diskTotalBytes ?? 0;
+    if (total <= 0) continue;
+    const free = samples[i].diskFreeBytes ?? 0;
+    return { total, free, usedPercent: ((total - free) / total) * 100 };
+  }
+  return null;
+}
+
+/**
  * Fills the graph out to `count` points by putting empty ones before the measured ones, spaced the
  * way the samples are - by the gap between the last two, else by the refresh interval, else a second.
  * The empty points are gaps to the chart (nothing recorded), so nothing is drawn there; they only
@@ -80,11 +108,17 @@ export function currentCpu(samples: ProcessSample[]): number | null {
  * 0..100% scale labelled on the right. The cpu is a rate between two samples and so has one point
  * fewer than the memory - padding both to the same window keeps them lined up.
  */
-export function ProcessChart({ samples, maxSamples = defaultMaxSamples }: { samples: ProcessSample[]; maxSamples?: number }) {
+export function ProcessChart({ samples, maxSamples = defaultMaxSamples, showDisk = false }: { samples: ProcessSample[]; maxSamples?: number; showDisk?: boolean }) {
   const refreshMs = useRefreshInterval();
   const memory = padToWindow(memoryPoints(samples), maxSamples, samples, refreshMs);
   const cpu = padToWindow(cpuPoints(samples), maxSamples, samples, refreshMs);
-  return <Chart kind="sum" points={memory} groups={[]} interval="Second" format={formatBytes} compactAxis={false} height="fill" overlay={{ points: cpu, max: 100, format: formatPercent, label: "cpu" }} />;
+  const overlays: ChartOverlay[] = [{ points: cpu, max: 100, format: formatPercent, label: "cpu" }];
+  // the drive joins the same percentage axis, and only where the server reported one: an empty
+  // line under the legend would read as a disk that is somehow at zero
+  if (showDisk && currentDisk(samples)) {
+    overlays.push({ points: padToWindow(diskPoints(samples), maxSamples, samples, refreshMs), max: 100, format: formatPercent, label: "disk used" });
+  }
+  return <Chart kind="sum" points={memory} groups={[]} interval="Second" format={formatBytes} compactAxis={false} height="fill" overlays={overlays} />;
 }
 
 /**

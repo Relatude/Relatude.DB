@@ -5,6 +5,7 @@ import {
   IconDatabaseImport,
   IconDatabasePlus,
   IconDeviceFloppy,
+  IconFlask,
   IconFolder,
   IconDownload,
   IconFileSearch,
@@ -13,6 +14,7 @@ import {
   IconTextRecognition,
   IconRefresh,
   IconRestore,
+  IconTools,
   IconTrash,
 } from "@tabler/icons-react";
 import { runWithProgress, showChoice, showConfirm, showError, showInfo } from "../dialogs";
@@ -403,23 +405,21 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   return (
     <div className="storage">
       {error && <div className="login-error">{error}</div>}
-      {/* Four things live on this page and they are not alike: copies of the database, the file it
-          is, the files it points to, and content to test with. Each is a group with a name and a
-          line saying what it is about, and the panels of one group share a row. */}
+      {/* Five things live on this page and they are not alike: copies of the database, the file it
+          is, the maintenance of that file, the files it points to, and content to test with. Each is
+          a group with a name and a line saying what it is about, and its one panel carries no
+          heading of its own - the group's name is the panel's name, said once. */}
       <div className="storage-group tone-backups">
         <div className="storage-group-head">
           <IconDeviceFloppy size={16} stroke={1.8} />
           <h2>Backups</h2>
+          {backups && <span className="storage-group-count">{backups.files.length}</span>}
           <span className="muted">copies of the database file, kept beside it - the way back when something has gone wrong</span>
+          <button className="icon-button storage-refresh" title="Refresh" onClick={load}>
+            <IconRefresh size={14} stroke={1.8} />
+          </button>
         </div>
         <section className="panel">
-          <h3>
-            Backups
-            {backups && <span className="panel-sub"> {backups.files.length}</span>}
-            <button className="icon-button storage-refresh" title="Refresh" onClick={load}>
-              <IconRefresh size={14} stroke={1.8} />
-            </button>
-          </h3>
           {/* making one and having them is the same subject: the button that adds to the list sits
               above the list it adds to, rather than in a panel of its own beside it */}
           <div className="storage-make-backup">
@@ -469,15 +469,14 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
         </section>
       </div>
 
+      <div className="overview-columns even">
       <div className="storage-group tone-database">
         <div className="storage-group-head">
           <IconDatabase size={16} stroke={1.8} />
           <h2>Database file</h2>
-          <span className="muted">the transaction log the database lives in, and the maintenance that keeps it small and quick to open</span>
+          <span className="muted">the transaction log the database lives in</span>
         </div>
-      <div className="overview-columns even">
       <section className="panel">
-        <h3>Database file</h3>
         {dbFile && (
           <>
             <div className="facts-grid storage-facts">
@@ -520,8 +519,14 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
           </>
         )}
       </section>
+      </div>
+      <div className="storage-group tone-maintenance">
+        <div className="storage-group-head">
+          <IconTools size={16} stroke={1.8} />
+          <h2>Maintenance</h2>
+          <span className="muted">what keeps that file small and quick to open</span>
+        </div>
       <section className="panel">
-        <h3>Maintenance</h3>
         {maintenance && (
           <>
             <div className="facts-grid storage-facts">
@@ -569,15 +574,14 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       </div>
       </div>
 
+      <div className="overview-columns even">
       <div className="storage-group tone-files">
         <div className="storage-group-head">
           <IconFolder size={16} stroke={1.8} />
           <h2>File storage</h2>
-          <span className="muted">the files behind the file properties, and generated content to try things out with</span>
+          <span className="muted">the files behind the file properties</span>
         </div>
-      <div className="overview-columns even">
       <section className="panel">
-        <h3>File storage</h3>
         <div className="process-action">
           <button className="action-button" onClick={onAuditFiles} disabled={db.state !== "Open"}>
             <IconFileSearch size={14} stroke={1.8} className="tone-accent" /> Missing and redundant files
@@ -612,8 +616,14 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
           </div>
         )}
       </section>
+      </div>
+      <div className="storage-group tone-demo">
+        <div className="storage-group-head">
+          <IconFlask size={16} stroke={1.8} />
+          <h2>Demo content</h2>
+          <span className="muted">generated nodes to try things out with</span>
+        </div>
       <section className="panel">
-        <h3>Demo content</h3>
         {demo && (
           <>
             <div className="facts-grid storage-facts">

@@ -32,17 +32,24 @@ export interface Section {
   settingsSection?: string;
   /** Left out of the rail for now: the page is not ready to be shown. The entry stays so it keeps its id and place. */
   hidden?: boolean;
+  /**
+   * One view of another section's page rather than a page of its own. It keeps its id, label and
+   * icon - so the global search finds it and opens it - but the rail shows only the parent, which
+   * switches to this view when it is picked.
+   */
+  parentId?: string;
 }
 
 export const sections: Section[] = [
   { id: "dashboard", label: "Dashboard", scope: "database", icon: IconLayoutDashboard },
   { id: "datamodel", label: "Data model", scope: "database", icon: IconSchema },
   { id: "query", label: "Query & Edit", scope: "database", icon: IconDatabaseSearch },
-  { id: "files", label: "Files", scope: "database", icon: IconFolders },
-  { id: "storage", label: "Storage", scope: "database", icon: IconArchive },
+  // one page in three views (FilesStorageSection): everything about what is on disk
+  { id: "files", label: "Files & storage", scope: "database", icon: IconFolders },
+  { id: "storage", label: "Storage", scope: "database", icon: IconArchive, parentId: "files" },
+  { id: "conversions", label: "Conversions", scope: "database", icon: IconTransform, parentId: "files" },
   { id: "logs", label: "Logs", scope: "database", icon: IconFileText },
   { id: "tasks", label: "Tasks", scope: "database", icon: IconChecklist },
-  { id: "conversions", label: "Conversions", scope: "database", icon: IconTransform },
   { id: "api", label: "API", scope: "database", icon: IconApi },
   { id: "db-settings", label: "Settings", scope: "database", icon: IconSettings },
   { id: "server-overview", label: "Overview", scope: "server", icon: IconGauge },

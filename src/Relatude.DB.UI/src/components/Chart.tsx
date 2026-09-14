@@ -41,10 +41,14 @@ const pad = { top: 10, right: 14, bottom: 22, left: 52 };
 const overlayAxisWidth = 40; // room for the second axis's labels on the right
 
 /**
- * A second series drawn over the first in another colour, on a scale of its own that runs 0..max
- * against the right edge. Two scales on one plot is a thing to be careful with - a reader can take
- * the lines to be comparable when they are not - so it is kept to a measure that is a bounded
- * share (a percentage), which the right axis labels as such, and it is never given an area fill.
+ * A series drawn over the first in another colour, on a scale of its own that runs 0..max against
+ * the right edge. Two scales on one plot is a thing to be careful with - a reader can take the
+ * lines to be comparable when they are not - so it is kept to measures that are a bounded share (a
+ * percentage), which the right axis labels as such, and it is never given an area fill.
+ *
+ * More than one overlay shares that right axis, so they all have to be on the same scale: the axis
+ * is labelled from the first one's max. Two is the sensible limit - a third line on two scales is a
+ * puzzle, not a chart.
  */
 export interface ChartOverlay {
   points: SeriesPoint[];
@@ -54,6 +58,9 @@ export interface ChartOverlay {
   /** Names the series in the tooltip. */
   label: string;
 }
+
+/** The colour an overlay is drawn in, by its place in the list; see the chart-line-overlay rules. */
+const overlayTone = (index: number) => (index === 0 ? "overlay" : "overlay-b");
 
 export interface ChartProps {
   kind: SeriesKind;
@@ -77,10 +84,11 @@ export interface ChartProps {
    * box that sizes itself to its content the chart would measure zero and never grow.
    */
   height?: number | "fill";
-  overlay?: ChartOverlay;
+  /** Series on the right-hand scale, drawn over the first; see ChartOverlay. */
+  overlays?: ChartOverlay[];
 }
 
-export function Chart({ kind, points, groups, interval, format, integer = false, compactAxis = true, height: heightProp = 210, overlay }: ChartProps) {
+export function Chart({ kind, points, groups, interval, format, integer = false, compactAxis = true, height: heightProp = 210, overlays }: ChartProps) {
   const wrap = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [measuredHeight, setMeasuredHeight] = useState(0);
@@ -104,7 +112,8 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
   const height = fill ? Math.max(90, measuredHeight) : heightProp;
   useEffect(() => setHover(null), [points, kind]);
 
-  const padRight = pad.right + (overlay ? overlayAxisWidth : 0);
+  const over = overlays ?? [];
+  const padRight = pad.right + (over.length > 0 ? overlayAxisWidth : 0);
   const plotW = Math.max(0, width - pad.left - padRight);
   const plotH = height - pad.top - pad.bottom;
   const band = points.length > 0 ? plotW / points.length : 0;
@@ -136,9 +145,12 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
     return pad.top + plotH - ((value - scaleBottom) / (scaleTop - scaleBottom)) * plotH;
   };
   const xCenter = (index: number) => pad.left + band * (index + 0.5);
-  // the overlay's own scale: 0 at the baseline, its max at the top, whatever the main axis says
-  const yOverlay = (value: number) => pad.top + plotH - (Math.min(Math.max(value, 0), overlay?.max ?? 1) / (overlay?.max ?? 1)) * plotH;
-  const overlayTicks = overlay ? [0, overlay.max / 2, overlay.max] : [];
+  // the overlays' own scale: 0 at the baseline, the max at the top, whatever the main axis says
+  const overlayMax = over[0]?.max ?? 1;
+  const yOverlay = (value: number, max = overlayMax) => pad.top + plotH - (Math.min(Math.max(value, 0), max) / max) * plotH;
+  const overlayTicks = over.length > 0 ? [0, overlayMax / 2, overlayMax] : [];
+  const overlayHit = (index: number) => (hover == null ? null : (over[index]?.points[hover] ?? null));
+  const anyOverlayHit = over.some((_, i) => overlayHit(i)?.hasValue);
 
   const hasAny = points.some((p) => p.hasValue);
   const hovered = hover != null && hover >= 0 && hover < points.length ? points[hover] : null;
@@ -155,12 +167,11 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
               </text>
             </g>
           ))}
-          {overlay &&
-            overlayTicks.map((t) => (
-              <text key={"o" + t} className="chart-axis chart-axis-overlay" x={width - padRight + 8} y={yOverlay(t)} dominantBaseline="middle">
-                {overlay.format(t)}
-              </text>
-            ))}
+          {overlayTicks.map((t) => (
+            <text key={"o" + t} className="chart-axis chart-axis-overlay" x={width - padRight + 8} y={yOverlay(t)} dominantBaseline="middle">
+              {over[0].format(t)}
+            </text>
+          ))}
           {xLabels(points, interval, band, plotW).map((label) => (
             <text key={label.index} className="chart-axis" x={xCenter(label.index)} y={height - 6} textAnchor="middle">
               {label.text}
@@ -191,18 +202,30 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
                   {segment.length === 1 && <circle className="chart-point" cx={xCenter(segment[0].index)} cy={y(segment[0].point.value ?? 0)} r={2.5} />}
                 </g>
               ))}
-          {overlay &&
-            segments(overlay.points).map((segment, si) => (
-              <g key={"o" + si}>
-                <path className="chart-line chart-line-overlay" d={linePath(segment, xCenter, yOverlay)} />
-                {segment.length === 1 && <circle className="chart-point chart-point-overlay" cx={xCenter(segment[0].index)} cy={yOverlay(segment[0].point.value ?? 0)} r={2.5} />}
+          {over.map((o, oi) =>
+            segments(o.points).map((segment, si) => (
+              <g key={"o" + oi + "-" + si}>
+                <path className={"chart-line chart-line-" + overlayTone(oi)} d={linePath(segment, xCenter, (v) => yOverlay(v, o.max))} />
+                {segment.length === 1 && (
+                  <circle
+                    className={"chart-point chart-point-" + overlayTone(oi)}
+                    cx={xCenter(segment[0].index)}
+                    cy={yOverlay(segment[0].point.value ?? 0, o.max)}
+                    r={2.5}
+                  />
+                )}
               </g>
-            ))}
+            )),
+          )}
           {hovered && (
             <g>
               <line className="chart-cursor" x1={xCenter(hover!)} x2={xCenter(hover!)} y1={pad.top} y2={pad.top + plotH} />
               {!stacked && hovered.hasValue && <circle className="chart-point" cx={xCenter(hover!)} cy={y(points[hover!]?.value ?? 0)} r={3.5} />}
-              {overlay?.points[hover!]?.hasValue && <circle className="chart-point chart-point-overlay" cx={xCenter(hover!)} cy={yOverlay(overlay.points[hover!].value ?? 0)} r={3.5} />}
+              {over.map((o, oi) =>
+                overlayHit(oi)?.hasValue ? (
+                  <circle key={oi} className={"chart-point chart-point-" + overlayTone(oi)} cx={xCenter(hover!)} cy={yOverlay(overlayHit(oi)!.value ?? 0, o.max)} r={3.5} />
+                ) : null,
+              )}
             </g>
           )}
           {/* one overlay takes the pointer for the whole plot, so there is nothing to hit or miss */}
@@ -224,7 +247,7 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
       {hovered && (
         <div className="chart-tip" style={tipPosition(xCenter(hover!), width)}>
           <div className="chart-tip-time">{intervalLabel(hovered.fromUtc, interval)}</div>
-          {!hovered.hasValue && !overlay?.points[hover!]?.hasValue ? (
+          {!hovered.hasValue && !anyOverlayHit ? (
             <div className="muted">nothing recorded</div>
           ) : !hovered.hasValue ? null : stacked ? (
             groups
@@ -246,16 +269,18 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
               </div>
             ))
           )}
-          {overlay?.points[hover!]?.hasValue && (
-            <div className="chart-tip-row">
-              <span className="chart-swatch chart-swatch-overlay" />
-              <span className="chart-tip-k">{overlay.label}</span>
-              <span className="chart-tip-v">{overlay.format(overlay.points[hover!].value ?? 0)}</span>
-            </div>
+          {over.map((o, oi) =>
+            overlayHit(oi)?.hasValue ? (
+              <div key={oi} className="chart-tip-row">
+                <span className={"chart-swatch chart-swatch-" + overlayTone(oi)} />
+                <span className="chart-tip-k">{o.label}</span>
+                <span className="chart-tip-v">{o.format(overlayHit(oi)!.value ?? 0)}</span>
+              </div>
+            ) : null,
           )}
         </div>
       )}
-      {!hasAny && !overlay?.points.some((p) => p.hasValue) && width > 0 && <div className="chart-empty">Nothing recorded in this range.</div>}
+      {!hasAny && !over.some((o) => o.points.some((p) => p.hasValue)) && width > 0 && <div className="chart-empty">Nothing recorded in this range.</div>}
     </div>
   );
 }

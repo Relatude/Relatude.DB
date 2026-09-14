@@ -20,10 +20,11 @@ export function Sidebar({ collapsed, onToggleCollapsed, databases, activeDb, act
   const errors = databases.filter((db) => db.state === "Error").length;
   const conversions = activeDb?.conversionCount ?? 0;
   const tasks = activeDb?.taskCount ?? 0;
-  // live badges: how many databases failed, and what the two background queues still owe
+  // live badges: how many databases failed, and what the two background queues still owe. The
+  // conversion count belongs to a view of the files page, so it is shown on the entry that opens it
   const badgeFor = (s: Section) => {
     if (s.id === "server-databases" && errors > 0) return { text: errors === 1 ? "1 error" : `${errors} errors`, danger: true };
-    if (s.id === "conversions" && conversions > 0) return { text: String(conversions), danger: false };
+    if (s.id === "files" && conversions > 0) return { text: String(conversions), danger: false };
     if (s.id === "tasks" && tasks > 0) return { text: tasks > 9999 ? Math.round(tasks / 1000) + "k" : String(tasks), danger: false };
     return null;
   };
@@ -33,7 +34,7 @@ export function Sidebar({ collapsed, onToggleCollapsed, databases, activeDb, act
         <NavGroup
           label={activeDb ? `Database — ${activeDb.name}` : "Database"}
           shortLabel="DB"
-          items={sections.filter((s) => s.scope === "database" && !s.hidden)}
+          items={sections.filter((s) => s.scope === "database" && !s.hidden && !s.parentId)}
           badgeFor={badgeFor}
           activeSectionId={activeSectionId}
           onSelectSection={onSelectSection}
@@ -41,7 +42,7 @@ export function Sidebar({ collapsed, onToggleCollapsed, databases, activeDb, act
         <NavGroup
           label="Server"
           shortLabel="SRV"
-          items={sections.filter((s) => s.scope === "server" && !s.hidden)}
+          items={sections.filter((s) => s.scope === "server" && !s.hidden && !s.parentId)}
           badgeFor={badgeFor}
           activeSectionId={activeSectionId}
           onSelectSection={onSelectSection}
@@ -120,6 +121,9 @@ interface NavGroupProps {
 }
 
 function NavGroup({ label, shortLabel, items, badgeFor, activeSectionId, onSelectSection }: NavGroupProps) {
+  // an entry is lit for its own page and for every view of it that is not in the rail
+  const active = sections.find((s) => s.id === activeSectionId);
+  const activeEntryId = active?.parentId ?? activeSectionId;
   return (
     <div className="nav-group">
       <div className="nav-group-label">
@@ -131,7 +135,7 @@ function NavGroup({ label, shortLabel, items, badgeFor, activeSectionId, onSelec
         return (
           <button
             key={section.id}
-            className={"nav-item" + (section.id === activeSectionId ? " active" : "")}
+            className={"nav-item" + (section.id === activeEntryId ? " active" : "")}
             onClick={() => onSelectSection(section.id)}
             title={section.label}
           >

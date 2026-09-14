@@ -524,6 +524,103 @@ public sealed class UIServer {
         if (s.IoBackup.HasValue && s.IoBackup != Guid.Empty) return s.IoBackup.Value;
         return s.IoDatabase ?? throw new Exception("No backup or database IO provider configured. ");
     }
+    // ---- the drives the server writes to ----
+
+    /// <summary>One drive with server folders on it: what it is, how big, and what put it there.</summary>
+    sealed record DriveReading(string Name, string? Label, string? Format, long TotalBytes, long FreeBytes, List<string> Uses);
+
+    /// <summary>The folder of the database the live sample reports on, resolved once.</summary>
+    string? _dataFolder;
+    bool _dataFolderResolved;
+
+    /// <summary>
+    /// Every folder the server has of its own, with the one word saying what it is for. Only local
+    /// disk providers have a folder at all - a memory provider has none and a blob container is not
+    /// on this machine - so the others are left out rather than guessed at. Nothing here creates a
+    /// provider that does not exist yet beyond the plain disk ones, which are an object and no I/O.
+    /// </summary>
+    IEnumerable<(string Folder, string Use)> serverFolders() {
+        var projectRoot = tryFolder(() => _server.ProjectRootIO.BaseFolder);
+        if (projectRoot != null) yield return (projectRoot, "website");
+        var temp = tryFolder(() => (_server.TempIO as IOProviderDisk)?.BaseFolder);
+        if (temp != null) yield return (temp, "temp");
+        foreach (var container in _server.Settings.ContainerSettings ?? []) {
+            var name = string.IsNullOrEmpty(container.Name) ? container.Id.ToString() : container.Name;
+            foreach (var io in container.IOSettings ?? []) {
+                if (io.IOType != IOTypes.LocalDisk) continue;
+                var folder = tryFolder(() => (_server.GetOrNullIO(io.Id) as IOProviderDisk)?.BaseFolder);
+                if (folder != null) yield return (folder, name);
+            }
+        }
+    }
+
+    static string? tryFolder(Func<string?> read) {
+        try {
+            var folder = read();
+            return string.IsNullOrWhiteSpace(folder) ? null : folder;
+        } catch {
+            return null; // a provider that cannot be built is not a fact worth failing the page for
+        }
+    }
+
+    /// <summary>Every drive the server writes to, once each, with what puts it there.</summary>
+    List<DriveReading> readDisks() {
+        var byRoot = new Dictionary<string, DriveReading>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (folder, use) in serverFolders()) {
+            var drive = readDrive(folder);
+            if (drive == null) continue;
+            if (!byRoot.TryGetValue(drive.Name, out var known)) byRoot.Add(drive.Name, known = drive);
+            if (!known.Uses.Contains(use)) known.Uses.Add(use);
+        }
+        return [.. byRoot.Values.OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    static DriveReading? readDrive(string folder) {
+        try {
+            var root = Path.GetPathRoot(Path.GetFullPath(folder));
+            if (string.IsNullOrEmpty(root)) return null;
+            var drive = new DriveInfo(root);
+            if (!drive.IsReady || drive.TotalSize <= 0) return null;
+            return new DriveReading(drive.Name, safeLabel(drive), drive.DriveFormat, drive.TotalSize, drive.AvailableFreeSpace, []);
+        } catch {
+            // an unmapped drive, a share nobody may stat, a path that is not on a drive at all
+            return null;
+        }
+    }
+
+    static string? safeLabel(DriveInfo drive) {
+        try { return string.IsNullOrWhiteSpace(drive.VolumeLabel) ? null : drive.VolumeLabel; } catch { return null; }
+    }
+
+    /// <summary>
+    /// The drive the databases are on, for the live sample: the default database's folder where
+    /// there is one, else the first folder the server has. Resolved once - the folder does not move
+    /// under a running server, and this is read on the refresh cadence.
+    /// </summary>
+    DriveReading? readDataDrive() {
+        if (!_dataFolderResolved) {
+            _dataFolderResolved = true;
+            var folders = serverFolders().ToList();
+            var defaultId = _server.Settings.DefaultStoreId;
+            var preferred = _server.Settings.ContainerSettings?.FirstOrDefault(c => c.Id == defaultId);
+            var name = preferred == null ? null : string.IsNullOrEmpty(preferred.Name) ? preferred.Id.ToString() : preferred.Name;
+            _dataFolder = (name == null ? null : folders.FirstOrDefault(f => f.Use == name).Folder)
+                ?? folders.FirstOrDefault(f => f.Use != "website" && f.Use != "temp").Folder
+                ?? folders.FirstOrDefault().Folder;
+        }
+        return _dataFolder == null ? null : readDrive(_dataFolder);
+    }
+
+    static DateTime? processStartedUtc(System.Diagnostics.Process process) {
+        try { return process.StartTime.ToUniversalTime(); } catch { return null; }
+    }
+
+    static int? threadCount(System.Diagnostics.Process process) {
+        try { return process.Threads.Count; } catch { return null; }
+    }
+
+    string? tempFolder() => tryFolder(() => (_server.TempIO as IOProviderDisk)?.BaseFolder);
+
     void registerBuiltInCommands() {
         Commands.Register("ping", ctx => new { Pong = true, ServerTimeUtc = DateTime.UtcNow });
         // who is looking at this UI, for the footer of the nav rail. Two ways in, and they differ in
@@ -543,15 +640,21 @@ public sealed class UIServer {
             UpTimeMs = _server.UpTime.TotalMilliseconds,
             Containers = buildContainers(),
         });
-        // the process alone, cheap enough to read at the refresh rate: what the overview graphs
+        // the process alone, cheap enough to read at the refresh rate: what the overview graphs.
+        // The data drive rides along - it is one stat() call and it belongs on the same picture:
+        // a truncate or a backup that is eating the disk shows up there and nowhere else.
         Commands.Register("server-live", ctx => {
             using var process = System.Diagnostics.Process.GetCurrentProcess();
+            var disk = readDataDrive();
             return (object?)new {
                 SampledUtc = DateTime.UtcNow,
                 ManagedMemory = GC.GetTotalMemory(false),
                 ProcessMemory = process.WorkingSet64,
                 ProcessorTimeMs = process.TotalProcessorTime.TotalMilliseconds,
                 ProcessorCount = Environment.ProcessorCount,
+                DiskTotalBytes = disk?.TotalBytes ?? 0,
+                DiskFreeBytes = disk?.FreeBytes ?? 0,
+                DiskName = disk?.Name,
             };
         });
         Commands.Register("server-overview", ctx => {
@@ -572,6 +675,27 @@ public sealed class UIServer {
                 SettingsFile = _server.Settings.DBSettingsFilePath ?? Defaults.SettingsFileName,
                 DefaultDatabase = containers.FirstOrDefault(c => c.Settings.Id == _server.Settings.DefaultStoreId)?.Settings.Name,
                 Restart = new { restart.CanSoftRestart, restart.CanStopHost },
+                // the rest of what the host is, for the facts list: the process, the runtime it is
+                // hosted by, and the drives the databases are written to
+                ProcessId = Environment.ProcessId,
+                ProcessName = process.ProcessName,
+                ProcessStartedUtc = processStartedUtc(process),
+                ThreadCount = threadCount(process),
+                ProcessArchitecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString(),
+                OsArchitecture = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture.ToString(),
+                ServerGC = System.Runtime.GCSettings.IsServerGC,
+                GCMode = System.Runtime.GCSettings.LatencyMode.ToString(),
+                // what the runtime believes it may grow to: a container memory limit shows up here
+                // and nowhere else, and it is the number a heap graph has to be read against
+                MemoryLimitBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes,
+                Environment = System.Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+                    ?? System.Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT"),
+                WorkingFolder = System.Environment.CurrentDirectory,
+                TempFolder = tempFolder(),
+                UtcOffsetMinutes = (int)TimeZoneInfo.Local.GetUtcOffset(DateTime.UtcNow).TotalMinutes,
+                TimeZone = TimeZoneInfo.Local.Id,
+                ServerTimeUtc = DateTime.UtcNow,
+                Disks = readDisks(),
                 Containers = containers.Select(c => {
                     long? nodeCount = null;
                     if (c.IsOpen()) {

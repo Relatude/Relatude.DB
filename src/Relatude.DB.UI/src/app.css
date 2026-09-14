@@ -1070,6 +1070,7 @@ a {
 
 .content-body > .query,
 .content-body > .files,
+.content-body > .files-storage.fill,
 .content-body > .settings {
   flex: 1;
   min-height: 0;
@@ -1848,9 +1849,12 @@ a {
   color: var(--text-muted);
 }
 
+/* minmax(0, ...) rather than 1fr: a fact whose value is a long path or an OS description would
+   otherwise hold the column open at its own width and scroll the panel sideways, taking the third
+   column off the page. The value ellipsises instead and carries the whole of itself in its title. */
 .facts-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px 16px;
 }
 
@@ -2007,7 +2011,127 @@ a {
   font-weight: 600;
 }
 
+/* ---- the drives under the host facts ---- */
+
+.host-disks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.host-disk {
+  font-size: 12px;
+}
+
+.host-disk-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.host-disk-name {
+  font-weight: 600;
+}
+
+/* what of the server is on the drive: it gives way first when the row is too narrow for all three */
+.host-disk-uses {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.host-disk-free {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.host-disk-bar {
+  height: 6px;
+  margin: 4px 0 3px;
+  background: var(--hover);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+/* the accent while there is room, amber when the disk is filling, red when it is nearly gone */
+.host-disk-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+}
+
+.host-disk-fill.warn {
+  background: var(--data);
+}
+
+.host-disk-fill.bad {
+  background: var(--danger);
+}
+
+.host-disk-foot {
+  font-size: 11px;
+}
+
 /* ---- files & storage ---- */
+
+/* The three views of what is on disk, under one switch (FilesStorageSection). Only the file browser
+   sizes itself against the window; the other two are ordinary pages that scroll, so the box around
+   them only fills when it is showing the browser. */
+.files-storage {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.files-storage.fill > .files {
+  flex: 1;
+  min-height: 0;
+}
+
+/* A switch that chooses which page of a module is open: the same control as the query section's view
+   picker, one size up, because this one is the first thing on the page rather than a knob in a bar. */
+.module-switch {
+  display: flex;
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.module-switch button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.module-switch button + button {
+  border-left: 1px solid var(--border);
+}
+
+.module-switch button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.module-switch button.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.module-switch .badge {
+  margin-left: 2px;
+}
 
 .files {
   position: relative;
@@ -3997,6 +4121,9 @@ a.action-button {
 
 .logs-tab {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 7px 12px 9px;
   font-size: 13px;
   font-weight: 600;
@@ -4005,13 +4132,27 @@ a.action-button {
   margin-bottom: -1px;
 }
 
+/* the icon is a mark for the log, not a second voice: it stays quiet until the tab is the one open */
+.logs-tab svg {
+  opacity: 0.65;
+}
+
 .logs-tab:hover {
   color: var(--text);
+}
+
+.logs-tab:hover svg {
+  opacity: 1;
 }
 
 .logs-tab.active {
   color: var(--text);
   border-bottom-color: var(--accent);
+}
+
+.logs-tab.active svg {
+  opacity: 1;
+  color: var(--accent);
 }
 
 /* a log that is recording right now, so the tabs say where the data is coming from */
@@ -4073,17 +4214,18 @@ a.action-button {
   color: var(--danger);
 }
 
+/* A recording switch: a track that slides. There are sixteen of these in the table of logs, and a
+   bordered pill around each drew sixteen little boxes over a table that already has rows and
+   columns of its own - so the border is gone and the state is the track's colour instead. */
 .logs-switch {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--button-bg);
+  gap: 8px;
   font-weight: 600;
   color: var(--text-soft);
   cursor: pointer;
+  user-select: none;
 }
 
 .logs-switch.disabled {
@@ -4091,8 +4233,60 @@ a.action-button {
   cursor: default;
 }
 
+/* the checkbox is still there - it is one, and the keyboard and the screen reader want it - it is
+   only not drawn. Sized and placed over the track so the focus ring lands where the switch is. */
 .logs-switch input {
+  position: absolute;
+  width: 30px;
+  height: 17px;
   margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.logs-switch-track {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 17px;
+  border-radius: 9px;
+  /* the off state has to read as a switch rather than as an empty slot, so it is a grey with some
+     weight to it - the border colour alone leaves a white knob floating on almost nothing */
+  background: color-mix(in srgb, var(--text-muted) 42%, transparent);
+  transition: background 0.14s ease;
+}
+
+.logs-switch.on .logs-switch-track {
+  background: var(--ok);
+}
+
+.logs-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  transition: left 0.14s ease;
+}
+
+.logs-switch.on .logs-switch-knob {
+  left: 15px;
+}
+
+.logs-switch input:focus-visible + .logs-switch-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.logs-switch:not(.disabled):hover .logs-switch-track {
+  filter: brightness(1.08);
+}
+
+.logs-switch-label {
+  white-space: nowrap;
 }
 
 /* the graphs a log can draw, one chip each */
@@ -4356,6 +4550,24 @@ a.action-button {
   border-color: var(--accent);
 }
 
+/* the log's name, with the mark it is known by in the tabs; lit while it is recording */
+.log-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.log-icon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.log-icon.on {
+  color: var(--ok);
+}
+
 .log-table-row .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -4415,8 +4627,10 @@ a.action-button {
   background: var(--accent);
 }
 
+/* the log's name has a floor: every other column is a number that can be read at any width, and a
+   table whose rows have lost the one thing that says which log they are is not worth scrolling */
 .overview-row {
-  grid-template-columns: minmax(0, 1.4fr) 80px 90px 130px 130px 90px 90px minmax(0, 1fr);
+  grid-template-columns: minmax(130px, 1.4fr) 80px 90px 130px 130px 90px 90px minmax(0, 1fr);
 }
 
 /* ---- charts ---- */
@@ -4551,7 +4765,7 @@ a.action-button {
 
 @media (max-width: 900px) {
   .overview-row {
-    grid-template-columns: minmax(0, 1.4fr) 70px 80px 100px 100px 80px 80px;
+    grid-template-columns: minmax(120px, 1.4fr) 70px 80px 100px 100px 80px 80px;
   }
 }
 
@@ -7977,6 +8191,20 @@ body.pg-resizing {
   background: var(--viz-8);
 }
 
+/* a second overlay on the same right-hand scale - the disk beside the cpu. Amber against the red:
+   far enough apart to be told at a glance on a plot where both lines run near the same height. */
+.chart-line-overlay-b {
+  stroke: var(--viz-4);
+}
+
+.chart-point-overlay-b {
+  fill: var(--viz-4);
+}
+
+.chart-swatch-overlay-b {
+  background: var(--viz-4);
+}
+
 /* the legend under a two-series chart: the name of a series in the colour it is drawn in */
 .chart-key {
   font-weight: 600;
@@ -7990,6 +8218,10 @@ body.pg-resizing {
   color: var(--viz-8);
 }
 
+.chart-key-third {
+  color: var(--viz-4);
+}
+
 /* ---- storage groups ---- */
 
 /* the storage page in four named parts, each a heading, a line of what it is for, and its panels */
@@ -7999,9 +8231,16 @@ body.pg-resizing {
   gap: 10px;
 }
 
-/* the groups are told apart by their headings and their colour, not by a rule drawn between them */
-.storage-group + .storage-group {
+/* the groups are told apart by their headings and their colour, not by a rule drawn between them.
+   Only down the page: two groups sharing a row are not one above the other and must stay level. */
+.storage > .storage-group + .storage-group {
   padding-top: 12px;
+}
+
+/* a group is a heading and one panel, and the panel takes the rest of the row so two groups sharing
+   one end level however much each has to say */
+.storage-group > .panel {
+  flex: 1;
 }
 
 /* one tone per group, from the tokens the rest of the app already means something by: green for the
@@ -8020,6 +8259,16 @@ body.pg-resizing {
 .storage-group.tone-files {
   --tone: var(--accent);
   --tone-soft: var(--accent-soft);
+}
+
+.storage-group.tone-maintenance {
+  --tone: var(--viz-7);
+  --tone-soft: color-mix(in srgb, var(--viz-7) 13%, transparent);
+}
+
+.storage-group.tone-demo {
+  --tone: var(--viz-5);
+  --tone-soft: color-mix(in srgb, var(--viz-5) 15%, transparent);
 }
 
 [data-theme="dark"] .storage-group.tone-backups {
@@ -8086,8 +8335,30 @@ body.pg-resizing {
   font-weight: 600;
 }
 
+/* the line of what the group is about gives way first, so the name and the count never wrap */
 .storage-group-head .muted {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
+}
+
+/* how many the group holds, said next to its name rather than again above the list */
+.storage-group-count {
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tone, var(--text-muted));
+  background: var(--tone-soft, var(--badge-bg));
+  border-radius: 10px;
+}
+
+/* the refresh sits at the end of the heading line, where the panel's own used to be */
+.storage-group-head .storage-refresh {
+  align-self: center;
+  margin-left: 0;
 }
 
 /* two panels of the same weight share the row equally; the backups list keeps its wide column */

@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
-import { ConversionsSection } from "./components/ConversionsSection";
 import { DashboardSection } from "./components/DashboardSection";
 import { DatabasesSection } from "./components/DatabasesSection";
 import { DatamodelSection } from "./components/DatamodelSection";
 import { DialogHost } from "./components/DialogHost";
-import { FilesSection } from "./components/FilesSection";
+import { FilesStorageSection, type FilesStorageView } from "./components/FilesStorageSection";
 import { Header } from "./components/Header";
 import { Login } from "./components/Login";
 import { LogsSection } from "./components/LogsSection";
@@ -12,7 +11,6 @@ import { Overview } from "./components/Overview";
 import { QuerySection } from "./components/QuerySection";
 import { SettingsSection } from "./components/SettingsSection";
 import { Sidebar } from "./components/Sidebar";
-import { StorageSection } from "./components/StorageSection";
 import { TasksSection } from "./components/TasksSection";
 import { sections } from "./navigation";
 import { peekDatamodelTarget, peekQueryTarget, peekSearchTarget, peekSettingsTarget, useNavigationRequest } from "./navigate";
@@ -26,6 +24,9 @@ import { applyTheme, getInitialTheme } from "./theme";
 const forceLogin = new URLSearchParams(window.location.search).has("login");
 
 type AuthState = "checking" | "login" | "ready";
+
+/** The section ids the files page owns: it is one page in three views (FilesStorageSection). */
+const isFilesStorage = (id: string): id is FilesStorageView => id === "files" || id === "storage" || id === "conversions";
 
 export function App() {
   const [theme, setTheme] = useState(getInitialTheme);
@@ -173,14 +174,11 @@ export function App() {
             <DatamodelSection key={activeDb.id} db={activeDb} />
           ) : activeSectionId === "logs" && activeDb ? (
             <LogsSection key={activeDb.id} db={activeDb} />
-          ) : activeSectionId === "conversions" && activeDb ? (
-            <ConversionsSection key={activeDb.id} db={activeDb} />
           ) : activeSectionId === "query" && activeDb ? (
             <QuerySection key={activeDb.id} db={activeDb} />
-          ) : activeSectionId === "files" && activeDb ? (
-            <FilesSection key={activeDb.id} db={activeDb} />
-          ) : activeSectionId === "storage" && activeDb ? (
-            <StorageSection key={activeDb.id} db={activeDb} />
+          ) : isFilesStorage(activeSectionId) && activeDb ? (
+            // three views of one page; the switch on it picks the section, exactly as the rail does
+            <FilesStorageSection db={activeDb} view={activeSectionId} onSelectView={setActiveSectionId} />
           ) : activeSectionId === "tasks" && activeDb ? (
             <TasksSection key={activeDb.id} db={activeDb} />
           ) : (

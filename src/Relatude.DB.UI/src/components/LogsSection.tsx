@@ -1,21 +1,33 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   IconAlertTriangle,
+  IconArrowsExchange,
+  IconBolt,
   IconChartHistogram,
   IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
+  IconDatabaseSearch,
   IconDeviceFloppy,
   IconDownload,
   IconEraser,
+  IconFileText,
+  IconGauge,
   IconHelpCircle,
   IconLetterCase,
+  IconListSearch,
+  IconRadar2,
   IconReload,
   IconRotate,
   IconSearch,
+  IconServerCog,
+  IconStack2,
+  IconSubtask,
+  IconTable,
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
+import type { ComponentType } from "react";
 import { Chart, groupColor, intervalLabel } from "./Chart";
 import { showChoice, showConfirm, showError, showInfo } from "../dialogs";
 import {
@@ -54,6 +66,26 @@ import { formatBytes, formatCount, formatTime } from "../format";
  * their data types, and the statistics each column declares - and this renders that description, so
  * a log added to the server appears here with its table and its graphs already working.
  */
+type IconType = ComponentType<{ size?: number; stroke?: number; className?: string }>;
+
+/**
+ * The picture a log is known by, in the tabs and again beside its name in the table. The keys are
+ * the server's (StoreLogger), and a log it grows that is not on this list gets the generic page -
+ * naming every log here would make adding one on the server a change in two places, which is the
+ * one thing this page is built not to be.
+ */
+const logIcons: Record<string, IconType> = {
+  system: IconServerCog,
+  query: IconDatabaseSearch,
+  transaction: IconArrowsExchange,
+  action: IconBolt,
+  task: IconSubtask,
+  taskbatch: IconStack2,
+  metrics: IconGauge,
+};
+
+const logIcon = (key: string): IconType => logIcons[key] ?? IconFileText;
+
 export function LogsSection({ db }: { db: DatabaseInfo }) {
   const [info, setInfo] = useState<LogsInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -76,12 +108,20 @@ export function LogsSection({ db }: { db: DatabaseInfo }) {
   return (
     <div className="logs">
       <div className="logs-tabs">
-        <Tab id="overview" label="All logs" active={tab} onSelect={setTab} />
-        <Tab id="trace" label="Trace" active={tab} onSelect={setTab} />
+        <Tab id="overview" label="All logs" icon={IconTable} active={tab} onSelect={setTab} />
+        <Tab id="trace" label="Trace" icon={IconListSearch} active={tab} onSelect={setTab} />
         {info.logs.map((l) => (
-          <Tab key={l.key} id={l.key} label={l.name} active={tab} onSelect={setTab} recording={l.enabledLog || l.enabledStatistics} />
+          <Tab
+            key={l.key}
+            id={l.key}
+            label={l.name}
+            icon={logIcon(l.key)}
+            active={tab}
+            onSelect={setTab}
+            recording={l.enabledLog || l.enabledStatistics}
+          />
         ))}
-        <Tab id="scans" label="Scans" active={tab} onSelect={setTab} />
+        <Tab id="scans" label="Scans" icon={IconRadar2} active={tab} onSelect={setTab} />
       </div>
       <SaveBar db={db} info={info} onSaved={load} />
       {tab === "trace" ? (
@@ -100,18 +140,21 @@ export function LogsSection({ db }: { db: DatabaseInfo }) {
 function Tab({
   id,
   label,
+  icon: Icon,
   active,
   onSelect,
   recording,
 }: {
   id: string;
   label: string;
+  icon: IconType;
   active: string;
   onSelect: (id: string) => void;
   recording?: boolean;
 }) {
   return (
     <button className={"logs-tab" + (active === id ? " active" : "")} onClick={() => onSelect(id)}>
+      <Icon size={15} stroke={1.8} />
       {label}
       {recording && <span className="logs-rec" title="Recording" />}
     </button>
@@ -1237,9 +1280,14 @@ function OverviewTab({ db, info, onChanged }: { db: DatabaseInfo; info: LogsInfo
             <span className="num">Statistics</span>
             <span>Keeps</span>
           </div>
-          {info.logs.map((log) => (
+          {info.logs.map((log) => {
+            const Icon = logIcon(log.key);
+            return (
             <div key={log.key} className="log-table-row overview-row">
-              <span className="log-cell">{log.name}</span>
+              <span className="log-cell log-name">
+                <Icon size={15} stroke={1.8} className={log.enabledLog || log.enabledStatistics ? "log-icon on" : "log-icon"} />
+                {log.name}
+              </span>
               <span>
                 <Switch checked={log.enabledLog} onChange={(v) => toggle(log.key, { log: v })} />
               </span>
@@ -1254,7 +1302,8 @@ function OverviewTab({ db, info, onChanged }: { db: DatabaseInfo; info: LogsInfo
                 {log.maxAgeInDays} days · {log.maxSizeInMb} MB
               </span>
             </div>
-          ))}
+            );
+          })}
           <div className="log-table-row overview-row log-table-total">
             <span>All logs</span>
             <span>
@@ -1301,6 +1350,14 @@ function OverviewTab({ db, info, onChanged }: { db: DatabaseInfo; info: LogsInfo
 
 // ---- shared bits ----
 
+/**
+ * A recording switch: a track that slides rather than a checkbox in a box.
+ *
+ * These sit in a table of eight logs times two columns, and a bordered pill around each one drew
+ * sixteen little boxes over a table that already has rows and columns of its own. The switch keeps
+ * the checkbox underneath - it is one, and the keyboard and the screen reader want it - and only
+ * draws it differently.
+ */
 function Switch({
   label,
   checked,
@@ -1315,9 +1372,12 @@ function Switch({
   onChange: (value: boolean) => void;
 }) {
   return (
-    <label className={"logs-switch" + (disabled ? " disabled" : "")} title={title}>
+    <label className={"logs-switch" + (disabled ? " disabled" : "") + (checked ? " on" : "")} title={title}>
       <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.currentTarget.checked)} />
-      {label && <span>{label}</span>}
+      <span className="logs-switch-track" aria-hidden="true">
+        <span className="logs-switch-knob" />
+      </span>
+      {label && <span className="logs-switch-label">{label}</span>}
     </label>
   );
 }
