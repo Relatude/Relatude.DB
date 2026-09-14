@@ -113,6 +113,8 @@ public class DataStoreSession : IDataStore {
         => _datastore.FileUploadAsync(target, source, fileName, maxWaitForMetaUpdate, ctx ?? QueryContext);
     public Task FileDeleteAsync(PropertyPath target, QueryContext? ctx = null) => _datastore.FileDeleteAsync(target, ctx ?? QueryContext);
     public Task<FileValue> FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null) => _datastore.FileDownloadAsync(target, outStream, ctx ?? QueryContext);
+    public Task<Stream> GetFileStream(FileValue value) => _datastore.GetFileStream(value);
+    public Task<bool> FileExistsAsync(FileValue value) => _datastore.FileExistsAsync(value);
     public Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null) => _datastore.IsFileUploadedAndAvailableAsync(target, ctx ?? QueryContext);
     public FileValue? UpdateFileMetaIfNotSet(PropertyPath propertyPath, Guid fileId, BasicFileMeta meta, QueryContext? ctx = null) => _datastore.UpdateFileMetaIfNotSet(propertyPath, fileId, meta, ctx ?? QueryContext);
 

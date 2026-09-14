@@ -155,6 +155,14 @@ internal class WALFile : IDisposable {
             // chain to the version the remove ended; entries removed here stay reachable until the
             // transaction ends, so only a delete that stands at transaction end breaks the chain:
             Dictionary<int, NodeSegment>? removedInTransaction = null;
+            // A transaction that touches the same node twice - two properties written in one save -
+            // writes remove/add twice, and the second add must NOT chain to the first: the chain
+            // carries the transaction's timestamp on every link and a reader walks it while the
+            // timestamps strictly decrease, so a link to a version of the same transaction stops the
+            // walk dead and the node appears to have no history at all. It is also the right history:
+            // the state between two actions of one transaction was never committed and is not a
+            // version. So every add of a node in a transaction chains where the first one did.
+            Dictionary<int, NodeSegment>? chainedInTransaction = null;
             foreach (var action in transaction.ExecutedActions) {
                 actionsWritten++;
                 stream.WriteMarker(_actionMarker);
@@ -163,8 +171,10 @@ internal class WALFile : IDisposable {
                 NodeSegment previousVersion = default;
                 if (na != null && chainHeads != null) {
                     lock (chainLock) {
-                        if (!chainHeads.TryGetValue(na.Node.__Id, out previousVersion) && removedInTransaction != null)
-                            removedInTransaction.TryGetValue(na.Node.__Id, out previousVersion);
+                        if (chainedInTransaction == null || !chainedInTransaction.TryGetValue(na.Node.__Id, out previousVersion)) {
+                            if (!chainHeads.TryGetValue(na.Node.__Id, out previousVersion) && removedInTransaction != null)
+                                removedInTransaction.TryGetValue(na.Node.__Id, out previousVersion);
+                        }
                     }
                 }
                 PToBytes.ActionBase(action, datamodel, ms, formatVersion, transaction.Timestamp, previousVersion, out long nodeSegmentRelativeOffset, out int nodeSegmentLength);
@@ -183,6 +193,8 @@ internal class WALFile : IDisposable {
                             if (na.Operation == PrimitiveOperation.Add) {
                                 chainHeads.Set(na.Node.__Id, segment);
                                 removedInTransaction?.Remove(na.Node.__Id);
+                                // where this transaction's adds of the node chain to, for any that follow
+                                (chainedInTransaction ??= [])[na.Node.__Id] = previousVersion;
                             } else {
                                 // the last written add: written this session, or the version the remove found in the node store
                                 if (!chainHeads.TryGetValue(na.Node.__Id, out var lastAdd) && na.Segment.HasValue) lastAdd = na.Segment.Value;

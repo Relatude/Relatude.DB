@@ -236,7 +236,16 @@ export function NodeEditor({
           }}
         />
       )}
-      {tab === "history" && <NodeHistoryTab storeId={storeId} nodeId={nodeId} />}
+      {tab === "history" && (
+        <NodeHistoryTab
+          storeId={storeId}
+          nodeId={nodeId}
+          onRestored={() => {
+            load(); // the restore is the current version now, so the form and its head are stale
+            onSaved?.();
+          }}
+        />
+      )}
       <div className="node-fields" hidden={tab !== "properties"}>
         {node.properties.map((property) => (
           <Field

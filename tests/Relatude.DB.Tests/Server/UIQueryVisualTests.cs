@@ -252,8 +252,9 @@ public class UIQueryVisualTests {
             var unknown = prop(await command(host, "query-cards", new { storeId, ids = new[] { 1_000_000_000 } }), "cards");
             Assert.AreEqual(0, unknown.GetArrayLength());
 
-            // the pictures: one record per card asked for, the picture at the level's width and
-            // three quarters of it in height, and a card without one answered as such
+            // the pictures: one record per card asked for, the picture square at the level's width
+            // (it fills the whole card it is drawn on - imageShare in cardField.ts, which
+            // UIQuery.cardAdjustment must agree with), and a card without one answered as such
             var records = await cardImages(host, storeId, 128, new object[] {
                 new { id = pictureCardId, p = fileProperty.Id },
                 new { id = clipCardId, p = fileProperty.Id },
@@ -264,7 +265,7 @@ public class UIQueryVisualTests {
             Assert.IsNull(picture.Region, "a whole picture carries no region");
             using (var decoded = NativeImage.Load(new MemoryStream(picture.Bytes))) {
                 Assert.AreEqual(128, decoded.Width);
-                Assert.AreEqual(96, decoded.Height);
+                Assert.AreEqual(128, decoded.Height, "a card's picture is square");
             }
             var clip = records.Single(r => r.Id == clipCardId);
             Assert.AreNotEqual(0, clip.Status, "a clip has no picture at this route");
@@ -281,7 +282,7 @@ public class UIQueryVisualTests {
             CollectionAssert.AreEqual(new[] { 0.5f, 0.5f, 1f, 1f }, tileRecord.Region, "the region is the quarter asked for");
             using (var decoded = NativeImage.Load(new MemoryStream(tileRecord.Bytes))) {
                 Assert.AreEqual(1024, decoded.Width);
-                Assert.AreEqual(768, decoded.Height);
+                Assert.AreEqual(1024, decoded.Height, "a tile is square, like the picture it is cut from");
             }
         } finally {
             await host.DisposeAsync();

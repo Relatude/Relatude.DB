@@ -84,6 +84,7 @@ sealed class UIQuery {
         commands.Register("query-file-target", ctx => fileTarget(ctx.Payload<FileTargetPayload>()));
         commands.Register("query-file-commit", async ctx => await fileCommit(ctx.Payload<FileCommitPayload>()));
         commands.Register("query-file-clear", async ctx => await fileClear(ctx.Payload<FileClearPayload>()));
+        commands.Register("query-restore-version", async ctx => await restoreVersion(ctx.Payload<RestoreVersionPayload>()));
     }
 
     // Reading and writing as an administrator: hidden and unpublished nodes are part of what this
@@ -481,6 +482,98 @@ sealed class UIQuery {
             }
         }
     }
+    /// <summary>
+    /// Writes an older version's values back onto the node, as a new version.
+    ///
+    /// It is an ordinary write, not a rewind: the old version stays where it is in the log and the
+    /// restore appears in the history above it, so restoring can itself be undone by restoring what
+    /// was there before. What is written is what the history compares - the stored values and the
+    /// meta - so afterwards the two versions read as equal.
+    ///
+    /// Three things are deliberately left out. Relations are not part of node data and are not in the
+    /// history either. The culture and the revision type are what the node IS rather than what it
+    /// holds. And the deleted flag is not restored: this page cannot show a deleted node, so
+    /// restoring a version into deletion would leave the form on "Node not found" with no way back
+    /// from here. The form says all three.
+    /// </summary>
+    async Task<object> restoreVersion(RestoreVersionPayload p) {
+        var s = store(p.StoreId);
+        var dm = s.Datastore.Datamodel;
+        if (!s.Datastore.TryGet(p.Id, out var current, adminContext)) throw new Exception("Node not found. ");
+        if (!dm.NodeTypes.TryGetValue(current.NodeType, out var type)) throw new Exception("The node has a type that is not in the current data model. ");
+        if (!long.TryParse(p.Timestamp, CultureInfo.InvariantCulture, out var timestamp)) throw new Exception("Not a version timestamp. ");
+        var version = findVersion(s, p.Id, timestamp, p.MaxCount);
+        var old = version.Node;
+        if (old.NodeType != current.NodeType) throw new Exception("That version is of another node type and cannot be restored onto this node. ");
+        var transaction = s.CreateTransaction();
+        var changed = 0;
+        foreach (var property in type.AllProperties.Values) {
+            if (property.Internal || property is RelationPropertyModel) continue;
+            old.TryGetValue(property.Id, out var was);
+            current.TryGetValue(property.Id, out var now);
+            if (token(was) == token(now)) continue;
+            if (was == null) transaction.ResetProperty(p.Id, property.Id);
+            else transaction.UpdateProperty(p.Id, property.Id, was);
+            changed++;
+        }
+        var meta = old.Meta ?? IInnerNodeMeta.Empty;
+        var currentMeta = current.Meta ?? IInnerNodeMeta.Empty;
+        var metaValues = new List<KeyValuePair<string, object>>();
+        void restoreMeta(string name, object? was, object? now) {
+            if (token(was) == token(now) || was == null) return;
+            metaValues.Add(new(name, was));
+        }
+        restoreMeta(nameof(IInnerNodeMeta.CollectionId), meta.CollectionId, currentMeta.CollectionId);
+        restoreMeta(nameof(IInnerNodeMeta.ReadAccess), meta.ReadAccess, currentMeta.ReadAccess);
+        restoreMeta(nameof(IInnerNodeMeta.EditAccess), meta.EditAccess, currentMeta.EditAccess);
+        restoreMeta(nameof(IInnerNodeMeta.EditViewAccess), meta.EditViewAccess, currentMeta.EditViewAccess);
+        restoreMeta(nameof(IInnerNodeMeta.PublishAccess), meta.PublishAccess, currentMeta.PublishAccess);
+        restoreMeta(nameof(IInnerNodeMeta.ReleaseUtc), meta.ReleaseUtc, currentMeta.ReleaseUtc);
+        restoreMeta(nameof(IInnerNodeMeta.ExpireUtc), meta.ExpireUtc, currentMeta.ExpireUtc);
+        if (metaValues.Count > 0) {
+            if (current is NodeDataRevision rev) transaction.UpdateMeta(p.Id, rev.RevisionId, [.. metaValues]);
+            else transaction.UpdateMeta(p.Id, [.. metaValues]);
+            changed += metaValues.Count;
+        }
+        if (changed == 0) return new { Changed = 0 };
+        await transaction.ExecuteAsync();
+        return new { Changed = changed };
+    }
+
+    /// <summary>
+    /// The version of a node written at that log timestamp. The chain is walked the same way the
+    /// history walks it, so a version the form is showing can always be found again; one that has
+    /// fallen off the end of the chain since (a log rewrite) cannot, and says so.
+    /// </summary>
+    static NodeVersionData findVersion(NodeStore s, Guid nodeId, long timestamp, int maxCount) {
+        var versions = s.Datastore.FindOlderVersions(nodeId, Math.Clamp(maxCount, 1, 500), adminContext);
+        foreach (var version in versions) {
+            if (version.Timestamp == timestamp) return version;
+        }
+        throw new Exception("That version is no longer reachable in the transaction log. ");
+    }
+
+    /// <summary>
+    /// The file an older version of a node held, as a download. Replacing a file leaves the old one
+    /// in the store, so this is usually still there; one that was removed, or swept up as redundant,
+    /// is not, and answers 404 rather than a broken file.
+    /// </summary>
+    internal async Task<IResult> WriteVersionFile(HttpContext http, Guid storeId, Guid id, long timestamp, Guid propertyId, int maxCount) {
+        var s = store(storeId);
+        if (!s.Datastore.Datamodel.Properties.TryGetValue(propertyId, out var property) || property is not FilePropertyModel) {
+            return Results.Json(new { error = "That property is not a file. " }, RelatudeDBJsonOptions.Default, statusCode: 400);
+        }
+        var version = findVersion(s, id, timestamp, maxCount);
+        if (!version.Node.TryGetValue(propertyId, out var value) || value is not FileValue file || file.IsEmpty) {
+            return Results.Json(new { error = "That version held no file on this property. " }, RelatudeDBJsonOptions.Default, statusCode: 404);
+        }
+        if (!await s.Datastore.FileExistsAsync(file)) {
+            return Results.Json(new { error = "The file of that version is no longer in the file store. " }, RelatudeDBJsonOptions.Default, statusCode: 404);
+        }
+        var stream = await s.Datastore.GetFileStream(file);
+        return await FileHandler.HandleFileAsync(http, stream, file.Name, true, file.ContentType, true);
+    }
+
     // ---- the bytes behind a file property: what the form previews ----
 
     /// <summary>
@@ -958,7 +1051,18 @@ sealed class UIQuery {
             older.TryGetValue(property?.Id ?? Guid.Parse(name), out var was);
             if (token(value) != token(was)) changes!.Add(new { Name = name, From = display(property, was), To = shown });
         }
-        return new { Name = name, Type = property?.PropertyType.ToString(), Value = shown };
+        // A file of an older version can usually still be fetched: replacing a file leaves the old
+        // one in the store (only removing one deletes it), which is what makes an old version worth
+        // downloading at all. The property id is what the download route addresses it by; whether
+        // the bytes are really still there is answered there rather than by a store lookup per value.
+        var file = value as FileValue;
+        return new {
+            Name = name,
+            Type = property?.PropertyType.ToString(),
+            Value = shown,
+            PropertyId = property?.Id,
+            File = file == null || file.IsEmpty ? null : new { file.Name, file.Size, file.ContentType },
+        };
     }
     // equality for the history diff: whatever identifies the value, never its display text (two
     // different dates can display the same, and two identical files can have different display)
@@ -2579,4 +2683,10 @@ sealed class UIQuery {
     /// <summary>UploadId names the staged temp file; Size is what the client believes it sent.</summary>
     sealed record FileCommitPayload(Guid StoreId, Guid Id, Guid PropertyId, Guid UploadId, string? FileName, long Size);
     sealed record FileClearPayload(Guid StoreId, Guid Id, Guid PropertyId);
+    /// <summary>
+    /// Timestamp names the version in the log; MaxCount is how far the form has walked the chain.
+    /// The timestamp travels as TEXT: it is UTC ticks, far past what a javascript number holds
+    /// exactly, and the history sends it as text for the same reason.
+    /// </summary>
+    sealed record RestoreVersionPayload(Guid StoreId, Guid Id, string? Timestamp, int MaxCount = 50);
 }

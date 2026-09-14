@@ -1720,6 +1720,14 @@ a {
   overflow-wrap: anywhere;
 }
 
+/* the download of the file a version held, on the value's own line */
+.history-file {
+  width: 20px;
+  height: 20px;
+  margin-left: 6px;
+  vertical-align: -5px;
+}
+
 .page-kicker {
   font-size: 11px;
   font-weight: 600;

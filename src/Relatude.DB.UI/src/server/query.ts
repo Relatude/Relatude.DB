@@ -374,6 +374,10 @@ export interface VersionValue {
   name: string;
   type: string | null;
   value: string;
+  /** The property it is, when the model still has one; null for a property the model has dropped. */
+  propertyId: string | null;
+  /** The file this version held on the property, when it held one - the old file, downloadable. */
+  file: { name: string; size: number; contentType: string } | null;
 }
 
 export interface VersionChange {
@@ -408,6 +412,25 @@ export interface NodeHistory {
 
 export function fetchNodeVersions(storeId: string, id: string, maxCount = 50): Promise<NodeHistory> {
   return send<NodeHistory>("query-node-versions", { storeId, id, maxCount });
+}
+
+/**
+ * Writes an older version's values back onto the node, as a new version. An ordinary write, not a
+ * rewind: the restore appears in the history above what it replaced, so it can itself be undone.
+ * `timestamp` is the row's own, as text - it is UTC ticks, past what a javascript number holds.
+ */
+export function restoreNodeVersion(storeId: string, id: string, timestamp: string, maxCount = 50): Promise<{ changed: number }> {
+  return send<{ changed: number }>("query-restore-version", { storeId, id, timestamp, maxCount });
+}
+
+/**
+ * Where the file an older version held is served, as a download. Usually still there: replacing a
+ * file leaves the old one in the store, and only removing one deletes it - a file that has gone
+ * answers 404 with what happened rather than saving something broken.
+ */
+export function versionFileUrl(storeId: string, id: string, timestamp: string, propertyId: string, maxCount = 50): string {
+  const query = new URLSearchParams({ storeId, id, t: timestamp, p: propertyId, max: String(maxCount) });
+  return `${adminBase}/ui/version-file?${query}`;
 }
 
 // ---- putting a file on a file property ----

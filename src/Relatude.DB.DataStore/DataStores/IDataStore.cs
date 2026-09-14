@@ -158,6 +158,12 @@ public interface IDataStore : IDisposable {
     Task<FileValue> FileUploadAsync(PropertyPath target, Stream source, string fileName, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null);
     Task FileDeleteAsync(PropertyPath target, QueryContext? ctx = null);
     Task<FileValue> FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null);
+    /// <summary>The bytes behind a file value, whatever property it was read from - an older version
+    /// of a node in the transaction log, say, whose file is still in the store because replacing a
+    /// file leaves the old one behind. The value carries the store it is in.</summary>
+    Task<Stream> GetFileStream(FileValue value);
+    /// <summary>Whether the store still holds the file this value names.</summary>
+    Task<bool> FileExistsAsync(FileValue value);
     Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null);
     FileValue? UpdateFileMetaIfNotSet(PropertyPath propertyPath, Guid fileId, BasicFileMeta meta, QueryContext? ctx = null);
 

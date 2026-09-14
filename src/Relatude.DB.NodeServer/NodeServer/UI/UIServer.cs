@@ -157,6 +157,15 @@ public sealed class UIServer {
                 return Results.Json(new { error = error.Message }, RelatudeDBJsonOptions.Default, statusCode: 500);
             }
         });
+        // the file an older version of a node held, as a download, for the history tab of the node
+        // form: "t" is the version's log timestamp and "p" the file property on it
+        app.MapGet(path + "version-file", async (HttpContext ctx, Guid storeId, Guid id, long t, Guid p, int? max) => {
+            try {
+                return await _query.WriteVersionFile(ctx, storeId, id, t, p, max ?? 50);
+            } catch (Exception error) when (!ctx.Response.HasStarted) {
+                return Results.Json(new { error = error.Message }, RelatudeDBJsonOptions.Default, statusCode: 500);
+            }
+        });
         // the file itself, inline with its own content type, for the viewer panel of the files section:
         // an <img>, a <video> (ranges) or a fetch of the text going into the editor point at it
         app.MapGet(path + "file", async (HttpContext ctx, Guid ioId, string key) => {

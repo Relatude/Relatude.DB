@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { IconChevronDown, IconChevronRight, IconGitCompare, IconRefresh } from "@tabler/icons-react";
-import { fetchNodeVersions, type NodeHistory, type VersionRow } from "../server/query";
-import { formatCount, formatTime } from "../format";
+import { IconChevronDown, IconChevronRight, IconDownload, IconGitCompare, IconRefresh, IconRestore } from "@tabler/icons-react";
+import { fetchNodeVersions, restoreNodeVersion, versionFileUrl, type NodeHistory, type VersionRow } from "../server/query";
+import { showConfirm, showError, showInfo } from "../dialogs";
+import { formatBytes, formatCount, formatTime } from "../format";
 import { DiffView, VersionCompare } from "./VersionCompare";
 
 // a change longer than this is shown as a word diff rather than as old → new: two long texts side
@@ -20,8 +21,12 @@ const firstPage = 50;
  * heads the list and is compared with the newest older one. Relations are not part of node data and
  * do not appear. The oldest reachable row has nothing older to compare with, so it lists its values
  * and no changes - it is the oldest we can see, not necessarily the first there was.
+ *
+ * Two things can be taken back out of it: a whole version, written onto the node again as a new
+ * version (restore), and the file a version held, which is usually still in the store because
+ * replacing a file leaves the old one behind (the download beside a file value).
  */
-export function NodeHistoryTab({ storeId, nodeId }: { storeId: string; nodeId: string }) {
+export function NodeHistoryTab({ storeId, nodeId, onRestored }: { storeId: string; nodeId: string; onRestored?: () => void }) {
   const [history, setHistory] = useState<NodeHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [max, setMax] = useState(firstPage);
@@ -30,6 +35,7 @@ export function NodeHistoryTab({ storeId, nodeId }: { storeId: string; nodeId: s
   const [reloads, setReloads] = useState(0);
   // the compare dialog: which two rows it opened on (older side, newer side), or null when closed
   const [compare, setCompare] = useState<{ from: number; to: number } | null>(null);
+  const [restoring, setRestoring] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,6 +60,39 @@ export function NodeHistoryTab({ storeId, nodeId }: { storeId: string; nodeId: s
       else next.add(key);
       return next;
     });
+  }
+
+  /**
+   * The version written back onto the node. It is asked about first and the question says what it
+   * does and what it leaves alone - a restore is an ordinary write and can be undone by restoring
+   * what was there before, but somebody reaching for it usually has one particular version in mind
+   * and should be told that relations and the deleted flag are not part of what moves.
+   */
+  async function restore(row: VersionRow) {
+    if (!row.timestamp || restoring) return;
+    const confirmed = await showConfirm(
+      `Restore the version from ${formatTime(row.utc)}?`,
+      "Its stored values and meta are written onto the node as a new version, so this can itself be undone by restoring what is there now. "
+        + "Relations, the culture and the deleted flag are not part of a version and are left as they are.",
+      { confirmLabel: "Restore" },
+    );
+    if (!confirmed.ok) return;
+    setRestoring(row.timestamp);
+    try {
+      const result = await restoreNodeVersion(storeId, nodeId, row.timestamp, max);
+      setReloads((n) => n + 1);
+      onRestored?.();
+      await showInfo(
+        "Version restored",
+        result.changed === 0
+          ? "The node already held exactly those values; nothing was written."
+          : `${formatCount(result.changed)} ${result.changed === 1 ? "value was" : "values were"} written back. The restore is the current version now.`,
+      );
+    } catch (e) {
+      await showError("Could not restore the version", e instanceof Error ? e.message : String(e));
+    } finally {
+      setRestoring(null);
+    }
   }
 
   if (error) return <div className="placeholder">{error}</div>;
@@ -94,12 +133,17 @@ export function NodeHistoryTab({ storeId, nodeId }: { storeId: string; nodeId: s
         return (
           <Row
             key={key}
+            storeId={storeId}
+            nodeId={nodeId}
+            max={max}
             row={row}
             expanded={expanded}
             onToggle={() => toggle(key)}
             oldest={i === history.rows.length - 1 && i > 0}
             // an older version is compared with the current one; the current one with the version before it
             onCompare={history.rows.length > 1 ? () => setCompare(i === 0 ? { from: 1, to: 0 } : { from: i, to: 0 }) : null}
+            onRestore={row.current ? null : () => restore(row)}
+            restoring={restoring === row.timestamp}
           />
         );
       })}
@@ -109,17 +153,28 @@ export function NodeHistoryTab({ storeId, nodeId }: { storeId: string; nodeId: s
 }
 
 function Row({
+  storeId,
+  nodeId,
+  max,
   row,
   expanded,
   onToggle,
   oldest,
   onCompare,
+  onRestore,
+  restoring,
 }: {
+  storeId: string;
+  nodeId: string;
+  /** how far the form has walked the chain: the server walks the same way to find the version again */
+  max: number;
   row: VersionRow;
   expanded: boolean;
   onToggle: () => void;
   oldest: boolean;
   onCompare: (() => void) | null;
+  onRestore: (() => void) | null;
+  restoring: boolean;
 }) {
   const changes = row.changes ?? [];
   return (
@@ -157,6 +212,16 @@ function Row({
           <IconGitCompare size={15} stroke={1.8} />
         </button>
       )}
+      {onRestore && (
+        <button
+          className={"icon-button" + (restoring ? " spinning" : "")}
+          title="Write this version back onto the node, as a new version"
+          onClick={onRestore}
+          disabled={restoring}
+        >
+          <IconRestore size={15} stroke={1.8} />
+        </button>
+      )}
       </div>
       {changes.length > 0 && (
         <div className="history-changes">
@@ -182,7 +247,23 @@ function Row({
           {row.values.map((v) => (
             <div className="history-value" key={v.name} title={v.type ?? undefined}>
               <em>{v.name}</em>
-              <span>{v.value || "—"}</span>
+              {/* the link sits inside the value rather than beside it: the list is a two column
+                  grid of name and value, and a third child would fall into the next row's name */}
+              <span>
+                {v.value || "—"}
+                {/* the file this version held. Not on the current row - that file is the one the
+                    properties tab is already showing, with its preview and its own download */}
+                {v.file && v.propertyId && row.timestamp && (
+                  <a
+                    className="icon-button history-file"
+                    href={versionFileUrl(storeId, nodeId, row.timestamp, v.propertyId, max)}
+                    title={`Download ${v.file.name} (${formatBytes(v.file.size)}) as this version held it`}
+                    download={v.file.name}
+                  >
+                    <IconDownload size={14} stroke={1.8} />
+                  </a>
+                )}
+              </span>
             </div>
           ))}
         </div>

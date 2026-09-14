@@ -1,4 +1,4 @@
-using Relatude.DB.Datamodels;
+﻿using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.IO;
@@ -197,6 +197,49 @@ public class VersionTests {
         update(store, id, 11, 11);
         // a delete ends the chain: the reinserted node starts a new history and the old versions are not reachable
         assertVersions(store.FindOlderVersions<VerArticle>(id), 10);
+    }
+
+    /// <summary>
+    /// A transaction that writes two properties of one node is two node writes, not one: the store
+    /// decomposes each into remove + add, so the log gets two adds of the same node under the same
+    /// transaction timestamp. The second must chain past the first, to the version the transaction
+    /// started from - the state between two actions of one transaction was never committed and is
+    /// not a version, and a chain link carrying the same timestamp as the one before it stops a
+    /// reader dead (timestamps must strictly decrease), which lost the whole history of any node
+    /// saved two fields at a time.
+    /// </summary>
+    [TestMethod]
+    public void TwoPropertyWritesInOneTransaction_AreOneVersion() {
+        using var store = openMemoryStore();
+        var id = insertAndUpdate(store, 1); // v0, v1; current is v1
+        store.CreateTransaction()
+            .UpdateProperty<VerArticle, string>(id, a => a.Body, "v2")
+            .UpdateProperty<VerArticle, int>(id, a => a.Number, 2)
+            .Execute();
+        Assert.AreEqual(2, store.Get<VerArticle>(id).Number, "both properties were written");
+        // one new version, and everything before it still reachable
+        assertVersions(store.FindOlderVersions<VerArticle>(id), 1, 0);
+        // and the chain goes on from there: a third write still finds all of it
+        update(store, id, 3, 3);
+        assertVersions(store.FindOlderVersions<VerArticle>(id), 2, 1, 0);
+    }
+
+    [TestMethod]
+    public void ManyPropertyWritesOnManyNodesInOneTransaction_KeepEveryChain() {
+        using var store = openMemoryStore();
+        var a = insertAndUpdate(store, 1);
+        var b = insertAndUpdate(store, 1);
+        // two nodes, three property writes each, all in one transaction: every node's chain has to
+        // survive its own intermediate versions and its neighbour's
+        var t = store.CreateTransaction();
+        foreach (var id in new[] { a, b }) {
+            t.UpdateProperty<VerArticle, string>(id, x => x.Body, "v2");
+            t.UpdateProperty<VerArticle, int>(id, x => x.Number, 2);
+            t.UpdateProperty<VerArticle, string>(id, x => x.Body, "v2"); // the same value again: still an action
+        }
+        t.Execute();
+        assertVersions(store.FindOlderVersions<VerArticle>(a), 1, 0);
+        assertVersions(store.FindOlderVersions<VerArticle>(b), 1, 0);
     }
 
     [TestMethod]

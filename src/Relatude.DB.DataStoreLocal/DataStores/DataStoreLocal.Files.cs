@@ -130,6 +130,14 @@ public sealed partial class DataStoreLocal : IDataStore {
         t.ForceUpdateProperty(propertyPath, FileValue.Empty);
         Execute(t, false, true, ctx);
     }
+    public Task<Stream> GetFileStream(FileValue value) {
+        if (value.IsEmpty) throw new Exception("File value is empty");
+        return getFileStore(value.StorageId).GetFileStream(value);
+    }
+    public Task<bool> FileExistsAsync(FileValue value) {
+        if (value.IsEmpty) return Task.FromResult(false);
+        return getFileStore(value.StorageId).ContainsFileAsync(value);
+    }
     public async Task<FileValue> FileDownloadAsync(PropertyPath propertyPath, Stream outStream, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);
         if (fileValue.IsEmpty) throw new Exception("File value is empty");
