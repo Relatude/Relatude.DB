@@ -32,6 +32,7 @@ public class TurboQuantVectorIndex : IVectorIndex {
             return _turboQuant;
         }
     }
+    public int Count => _index.Count;
     public void Set(int nodeId, float[] vector) {
         _index[nodeId] = getTurboQuant().Encode(padVector(vector));
     }

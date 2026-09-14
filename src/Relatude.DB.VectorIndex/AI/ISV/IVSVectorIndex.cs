@@ -209,7 +209,7 @@ public class IVSVectorIndex : ISemanticIndex, IDisposable {
             _lock.ExitReadLock();
         }
     }
-    public int MaxCount(string value) => 10; // same planning hint as the in-memory semantic index
+    public int MaxCount(string value) => Count;
     public string GetSample(string search, string sourceText) {
         // more to be done later here, mirroring the in-memory semantic index....
         return sourceText;

@@ -1,3 +1,4 @@
+using Relatude.DB.DataStores.StateStores;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 using Relatude.DB.Transactions;
@@ -7,14 +8,14 @@ using System.Runtime.CompilerServices;
 namespace Relatude.DB.DataStores.Stores;
 
 /// <summary>
-/// In-memory registry of node addresses. The forward map (id + culture -> address) mirrors the
-/// Address system property of every node; the reverse map (address -> owners) supports lookups.
-/// Several nodes may own the same address (a url manager can produce unique complete URLs from
-/// non-unique address segments), so the reverse map is multi-owner. Registration never changes
-/// the address it is given - collision handling (the suffix loop) lives with the caller, which
-/// decides uniqueness through the configured url manager.
-/// The persisted state only contains the forward map, so the multi-owner reverse map is a pure
-/// in-memory rebuild and the state file format is unchanged from the single-owner registry.
+/// Registry of node addresses. The map holds id + culture -> address and mirrors the Address system
+/// property of every node; the reverse lookup (address -> owners) comes from the map too. Several
+/// nodes may own the same address (a url manager can produce unique complete URLs from non-unique
+/// address segments), so the reverse lookup is multi-owner. Registration never changes the address
+/// it is given - collision handling (the suffix loop) lives with the caller, which decides
+/// uniqueness through the configured url manager.
+/// Cultures are packed into the key as a byte; the culture table lives beside the map, in the state
+/// file for the memory map and in the engine for an engine backed map.
 /// </summary>
 public class AddressRegistry {
     private static readonly Guid _marker = new("fa5f4dd3-8520-4fc9-a260-637fe9ddb2ca");
@@ -27,9 +28,7 @@ public class AddressRegistry {
         t['-'] = (byte)'-'; t['/'] = (byte)'/'; t['_'] = (byte)'_';
         return t;
     }
-    private readonly Dictionary<long, string> _addressByIdAndCulture = new();
-    // owner arrays are treated as immutable and replaced on change, so undo entries can hold the previous array by reference
-    private readonly Dictionary<string, long[]> _ownersByAddress = new(StringComparer.Ordinal);
+    private readonly IAddressMap _map;
     private readonly Dictionary<Guid, byte> _cultureIdByCode = new();
     private readonly Guid?[] _cultureCodeById = new Guid?[256];
     private byte _lastCultureId = 0;
@@ -37,25 +36,14 @@ public class AddressRegistry {
     private byte _transactionStartCultureId;
     private List<undoEntry>? _undoLog;
 
-    enum undoKind : byte {
-        RestoreAddressByIdAndCulture,
-        RestoreOwnersByAddress,
+    readonly struct undoEntry(long key, string? address) {
+        public readonly long Key = key;
+        public readonly string? Address = address; // null: the key had no address
     }
 
-    readonly struct undoEntry {
-        public readonly undoKind Kind;
-        public readonly long Key;
-        public readonly string Address;
-        public readonly long[]? Owners;
-        public readonly bool HadValue;
-
-        public undoEntry(undoKind kind, long key, string address, long[]? owners, bool hadValue) {
-            Kind = kind;
-            Key = key;
-            Address = address;
-            Owners = owners;
-            HadValue = hadValue;
-        }
+    public AddressRegistry(IAddressMap map) {
+        _map = map;
+        if (_map.PersistedByEngine) readCultures(_map.Meta);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -78,96 +66,52 @@ public class AddressRegistry {
             cultureId = 0;
             return true;
         }
-
         return _cultureIdByCode.TryGetValue(cultureCode.Value, out cultureId);
     }
     byte getOrAddCultureId(Guid? cultureCode) {
         if (!cultureCode.HasValue || cultureCode.Value == Guid.Empty) {
             return 0;
         }
-
         var cultureGuid = cultureCode.Value;
         if (_cultureIdByCode.TryGetValue(cultureGuid, out var cultureId)) {
             return cultureId;
         }
-
         if (_lastCultureId == byte.MaxValue) {
             throw new InvalidOperationException("AddressRegistry supports up to 255 distinct non-empty culture ids.");
         }
-
         _lastCultureId++;
         cultureId = _lastCultureId;
         _cultureIdByCode[cultureGuid] = cultureId;
         _cultureCodeById[cultureId] = cultureGuid;
+        if (_map.PersistedByEngine) _map.Meta = writeCultures();
         return cultureId;
     }
-
-    void setAddressByIdAndCulture(long key, string value) {
-        if (_inTransaction && _undoLog is not null) {
-            if (_addressByIdAndCulture.TryGetValue(key, out var existing)) {
-                _undoLog.Add(new undoEntry(undoKind.RestoreAddressByIdAndCulture, key, existing, null, true));
-            } else {
-                _undoLog.Add(new undoEntry(undoKind.RestoreAddressByIdAndCulture, key, string.Empty, null, false));
-            }
+    void readCultures(string? meta) {
+        _cultureIdByCode.Clear();
+        Array.Clear(_cultureCodeById);
+        _lastCultureId = 0;
+        if (string.IsNullOrEmpty(meta)) return;
+        var parts = meta.Split('|');
+        _lastCultureId = byte.Parse(parts[0]);
+        for (var i = 1; i < parts.Length; i++) {
+            var pair = parts[i].Split(':');
+            var code = Guid.Parse(pair[0]);
+            var id = byte.Parse(pair[1]);
+            _cultureIdByCode[code] = id;
+            _cultureCodeById[id] = code;
         }
-
-        _addressByIdAndCulture[key] = value;
     }
+    string writeCultures() => _lastCultureId + string.Concat(_cultureIdByCode.Select(kv => "|" + kv.Key + ":" + kv.Value));
 
-    void removeAddressByIdAndCulture(long key) {
-        if (!_addressByIdAndCulture.TryGetValue(key, out var existing)) {
-            return;
-        }
-
-        if (_inTransaction && _undoLog is not null) {
-            _undoLog.Add(new undoEntry(undoKind.RestoreAddressByIdAndCulture, key, existing, null, true));
-        }
-
-        _addressByIdAndCulture.Remove(key);
-    }
-
-    void logOwnersUndo(string address) {
+    void logUndo(long key) {
         if (!_inTransaction || _undoLog is null) return;
-        if (_ownersByAddress.TryGetValue(address, out var existing)) {
-            _undoLog.Add(new undoEntry(undoKind.RestoreOwnersByAddress, default, address, existing, true));
-        } else {
-            _undoLog.Add(new undoEntry(undoKind.RestoreOwnersByAddress, default, address, null, false));
-        }
-    }
-
-    void addOwner(string address, long key) {
-        logOwnersUndo(address);
-        if (_ownersByAddress.TryGetValue(address, out var owners)) {
-            foreach (var o in owners) if (o == key) return; // already registered
-            var newOwners = new long[owners.Length + 1];
-            Array.Copy(owners, newOwners, owners.Length);
-            newOwners[^1] = key;
-            _ownersByAddress[address] = newOwners;
-        } else {
-            _ownersByAddress[address] = [key];
-        }
-    }
-
-    void removeOwner(string address, long key) {
-        if (!_ownersByAddress.TryGetValue(address, out var owners)) return;
-        var index = Array.IndexOf(owners, key);
-        if (index == -1) return;
-        logOwnersUndo(address);
-        if (owners.Length == 1) {
-            _ownersByAddress.Remove(address);
-        } else {
-            var newOwners = new long[owners.Length - 1];
-            Array.Copy(owners, newOwners, index);
-            Array.Copy(owners, index + 1, newOwners, index, owners.Length - index - 1);
-            _ownersByAddress[address] = newOwners;
-        }
+        _undoLog.Add(new undoEntry(key, _map.TryGet(key, out var existing) ? existing : null));
     }
 
     public void BeginTransaction() {
         if (_inTransaction) {
             throw new InvalidOperationException("Transaction already started.");
         }
-
         _inTransaction = true;
         _transactionStartCultureId = _lastCultureId;
         if (_undoLog is null) {
@@ -180,7 +124,6 @@ public class AddressRegistry {
         if (!_inTransaction) {
             return;
         }
-
         _undoLog?.Clear();
         _inTransaction = false;
     }
@@ -188,34 +131,15 @@ public class AddressRegistry {
         if (!_inTransaction) {
             return;
         }
-
         var undoLog = _undoLog;
         _inTransaction = false;
-
         if (undoLog is not null) {
             for (int i = undoLog.Count - 1; i >= 0; i--) {
                 var entry = undoLog[i];
-                switch (entry.Kind) {
-                    case undoKind.RestoreAddressByIdAndCulture:
-                        if (entry.HadValue) {
-                            _addressByIdAndCulture[entry.Key] = entry.Address;
-                        } else {
-                            _addressByIdAndCulture.Remove(entry.Key);
-                        }
-                        break;
-                    case undoKind.RestoreOwnersByAddress:
-                        if (entry.HadValue) {
-                            _ownersByAddress[entry.Address] = entry.Owners!;
-                        } else {
-                            _ownersByAddress.Remove(entry.Address);
-                        }
-                        break;
-                    default:
-                        throw new InvalidOperationException("Unknown undo operation.");
-                }
+                if (entry.Address is not null) _map.Set(entry.Key, entry.Address);
+                else _map.Remove(entry.Key);
             }
         }
-
         for (int i = _lastCultureId; i > _transactionStartCultureId; i--) {
             var cultureCode = _cultureCodeById[i];
             if (cultureCode.HasValue) {
@@ -223,25 +147,27 @@ public class AddressRegistry {
                 _cultureCodeById[i] = null;
             }
         }
-
-        _lastCultureId = _transactionStartCultureId;
+        if (_lastCultureId != _transactionStartCultureId) {
+            _lastCultureId = _transactionStartCultureId;
+            if (_map.PersistedByEngine) _map.Meta = writeCultures();
+        }
         _undoLog?.Clear();
     }
     /// <summary>First owner of the address, for callers that expect the single-owner behavior.</summary>
     public bool TryGetId(string address, out int id, out Guid? cultureCode) {
-        if (_ownersByAddress.TryGetValue(address, out var owners) && owners.Length > 0) {
+        var owners = _map.GetOwners(address);
+        if (owners.Length > 0) {
             id = unpackId(owners[0]);
             cultureCode = _cultureCodeById[unpackCultureId(owners[0])];
             return true;
         }
-
         id = 0;
         cultureCode = null;
         return false;
     }
-    /// <summary>Every owner of the address, in registration order.</summary>
+    /// <summary>Every owner of the address.</summary>
     public (int id, Guid? cultureCode)[] GetOwners(string address) {
-        if (!_ownersByAddress.TryGetValue(address, out var owners)) return [];
+        var owners = _map.GetOwners(address);
         var result = new (int, Guid?)[owners.Length];
         for (int i = 0; i < owners.Length; i++) {
             result[i] = (unpackId(owners[i]), _cultureCodeById[unpackCultureId(owners[i])]);
@@ -252,7 +178,7 @@ public class AddressRegistry {
         if (!tryGetCultureId(cultureCode, out var cultureId)) {
             return TryGetFirstAddressAnyCulture(id, out address);
         }
-        if (_addressByIdAndCulture.TryGetValue(packKey(id, cultureId), out var foundAddress)) {
+        if (_map.TryGet(packKey(id, cultureId), out var foundAddress)) {
             address = foundAddress;
             return true;
         }
@@ -261,7 +187,7 @@ public class AddressRegistry {
     }
     public bool TryGetFirstAddressAnyCulture(int id, [MaybeNullWhen(false)] out string? address) {
         for (int cultureId = 0; cultureId <= _lastCultureId; cultureId++) {
-            if (_addressByIdAndCulture.TryGetValue(packKey(id, (byte)cultureId), out var foundAddress)) {
+            if (_map.TryGet(packKey(id, (byte)cultureId), out var foundAddress)) {
                 address = foundAddress;
                 return true;
             }
@@ -308,26 +234,19 @@ public class AddressRegistry {
             cultureId = getOrAddCultureId(cultureCode);
         }
         var key = packKey(id, cultureId);
-        _addressByIdAndCulture.TryGetValue(key, out var currentAddress);
-
+        var currentAddress = _map.TryGet(key, out var found) ? found : null;
         if (address is null) {
             if (currentAddress is not null) {
-                removeAddressByIdAndCulture(key);
-                removeOwner(currentAddress, key);
+                logUndo(key);
+                _map.Remove(key);
             }
             return;
         }
-
         if (string.Equals(currentAddress, address, StringComparison.Ordinal)) {
             return; // unchanged
         }
-
-        if (currentAddress is not null) {
-            removeOwner(currentAddress, key);
-        }
-
-        setAddressByIdAndCulture(key, address);
-        addOwner(address, key);
+        logUndo(key);
+        _map.Set(key, address);
     }
     public void Remove(int id, Guid? cultureCode) {
         Register(id, null, cultureCode);
@@ -335,63 +254,62 @@ public class AddressRegistry {
     public void Remove(int id) {
         for (int cultureId = 0; cultureId <= _lastCultureId; cultureId++) {
             var key = packKey(id, (byte)cultureId);
-            if (_addressByIdAndCulture.TryGetValue(key, out var address)) {
-                removeAddressByIdAndCulture(key);
-                removeOwner(address, key);
+            if (_map.TryGet(key, out _)) {
+                logUndo(key);
+                _map.Remove(key);
             }
         }
     }
 
+    // an engine backed map writes -1 instead of the address count, so a state file written by the other kind of store is detected
     public void SaveState(IAppendStream stream) {
         stream.WriteMarker(_marker);
         stream.RecordChecksum();
-
-        stream.WriteOneByte(_lastCultureId);
-        stream.WriteVerifiedInt(_cultureIdByCode.Count);
-        foreach (var kv in _cultureIdByCode) {
-            stream.WriteGuid(kv.Key);
-            stream.WriteOneByte(kv.Value);
+        if (_map.PersistedByEngine) {
+            stream.WriteOneByte(0);
+            stream.WriteVerifiedInt(0);
+            stream.WriteVerifiedInt(-1);
+        } else {
+            stream.WriteOneByte(_lastCultureId);
+            stream.WriteVerifiedInt(_cultureIdByCode.Count);
+            foreach (var kv in _cultureIdByCode) {
+                stream.WriteGuid(kv.Key);
+                stream.WriteOneByte(kv.Value);
+            }
+            stream.WriteVerifiedInt(_map.Count);
+            foreach (var kv in _map.Entries) {
+                stream.WriteLong(kv.Key);
+                stream.WriteString(kv.Value);
+            }
         }
-
-        stream.WriteVerifiedInt(_addressByIdAndCulture.Count);
-        foreach (var kv in _addressByIdAndCulture) {
-            stream.WriteLong(kv.Key);
-            stream.WriteString(kv.Value);
-        }
-
         stream.WriteChecksum();
         stream.WriteGuid(_marker);
     }
     public void ReadState(BufferReader stream) {
         stream.ValidateMarker(_marker);
         stream.RecordChecksum();
-
-        _addressByIdAndCulture.Clear();
-        _ownersByAddress.Clear();
-        _cultureIdByCode.Clear();
-        Array.Clear(_cultureCodeById, 0, _cultureCodeById.Length);
-
-        _lastCultureId = stream.ReadOneByte();
+        var lastCultureId = stream.ReadOneByte();
         var noCultures = stream.ReadVerifiedInt();
-        for (var i = 0; i < noCultures; i++) {
-            var cultureCode = stream.ReadGuid();
-            var cultureId = stream.ReadOneByte();
-            _cultureIdByCode[cultureCode] = cultureId;
-            _cultureCodeById[cultureId] = cultureCode;
-        }
-
-        _inTransaction = false; // no undo logging while rebuilding the reverse map below
+        var cultures = new (Guid code, byte id)[noCultures];
+        for (var i = 0; i < noCultures; i++) cultures[i] = (stream.ReadGuid(), stream.ReadOneByte());
         var noAddresses = stream.ReadVerifiedInt();
-        for (var i = 0; i < noAddresses; i++) {
-            var key = stream.ReadLong();
-            var address = stream.ReadString();
-            _addressByIdAndCulture[key] = address;
-            addOwner(address, key);
+        if (_map.PersistedByEngine != (noAddresses < 0)) throw new Exception("The state file was written by another kind of state store. ");
+        if (!_map.PersistedByEngine) {
+            _cultureIdByCode.Clear();
+            Array.Clear(_cultureCodeById, 0, _cultureCodeById.Length);
+            _lastCultureId = lastCultureId;
+            foreach (var (code, id) in cultures) {
+                _cultureIdByCode[code] = id;
+                _cultureCodeById[id] = code;
+            }
+            for (var i = 0; i < noAddresses; i++) {
+                var key = stream.ReadLong();
+                var address = stream.ReadString();
+                _map.Set(key, address);
+            }
         }
-
         stream.ValidateChecksum();
         stream.ValidateMarker(_marker);
-
         _inTransaction = false;
         _undoLog?.Clear();
         _transactionStartCultureId = _lastCultureId;

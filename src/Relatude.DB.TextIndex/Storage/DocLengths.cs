@@ -7,7 +7,7 @@ namespace Relatude.DB.DataStores.Indexes.TextIndexing;
 /// so a WAL replay that re-delivers an add the index already contains stays idempotent.
 /// </summary>
 internal sealed class DocLengths {
-    readonly Dictionary<int, int> _counts = [];
+    readonly ValueByIdMap<int> _counts = new(); // dense array once the ids allow it: a few bytes per document instead of a dictionary entry
     long _total; // exact running total, average is derived to avoid float drift
     public int DocCount => _counts.Count;
     public double AverageWordCount => _counts.Count > 0 ? (double)_total / _counts.Count : 0d;
@@ -17,10 +17,12 @@ internal sealed class DocLengths {
     public void Set(int id, int wordCount) {
         if (_counts.TryGetValue(id, out var old)) _total += wordCount - old;
         else _total += wordCount;
-        _counts[id] = wordCount;
+        _counts.Set(id, wordCount);
     }
     public void Remove(int id) {
-        if (_counts.Remove(id, out var old)) _total -= old;
+        if (!_counts.TryGetValue(id, out var old)) return;
+        _total -= old;
+        _counts.Remove(id);
     }
     public IEnumerable<KeyValuePair<int, int>> All => _counts;
 }

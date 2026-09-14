@@ -130,6 +130,17 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     /// <summary>The folder one engine writes to: its id, below the index folder. The engine keeps its
     /// own subfolder inside (nativekv, sqlite, lucene, textindex, vectorindex), as it always did.</summary>
     public static string EngineFolderPath(string indexPath, IndexEngineSettings engine) => Path.Combine(indexPath, engine.Id.ToString("N"));
+    /// <summary>The native state store's folder: below the index folder, so the same storage rules apply to it.</summary>
+    public static string StateStoreFolderPath(string indexPath) => Path.Combine(indexPath, "state");
+    /// <summary>The factory for the state store, or null for the memory store. Runs once per data-store
+    /// initialization, like the index engine factory, so it builds a fresh instance every time.</summary>
+    public static Func<Relatude.DB.DataStores.StateStores.IStateStore>? CreateStateStoreFactory(SettingsLocal local, string indexPath, List<string> toLog) {
+        if (local.StateStore != StateStoreEngine.Native) return null;
+        var folder = StateStoreFolderPath(indexPath);
+        var bytes = Math.Max(0, local.StateStoreMaxMemoryUsageInMb) * 1024L * 1024L;
+        toLog.Add("State store: Native, " + local.StateStoreMaxMemoryUsageInMb + " MB (" + folder + ")");
+        return () => new Relatude.DB.DataStores.StateStores.NativeKvStateStore(folder, bytes);
+    }
 
     /// <summary>
     /// The folders the engines wrote to before each engine had a folder of its own: their subfolders
@@ -273,7 +284,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             }
 
             List<string> toLog = new();
-            var createIndexEngines = CreateIndexEngineFactory(local, resolveIndexFolderPath(local, localDiskFolder), ai != null, Datamodel, toLog);
+            var indexFolderPath = resolveIndexFolderPath(local, localDiskFolder);
+            var createIndexEngines = CreateIndexEngineFactory(local, indexFolderPath, ai != null, Datamodel, toLog);
+            var createStateStore = CreateStateStoreFactory(local, indexFolderPath, toLog);
 
             IQueueStore? queueStore = null;
             if (local.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Sqlite) {
@@ -316,7 +329,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     ioIndexes,
                     QueryContext.MasterAdmin,
                     server?.Options?.FileConverters.ToArray(),
-                    urlManager: urlManager
+                    urlManager: urlManager,
+                    createStateStore: createStateStore
                     );
             Interlocked.Increment(ref _initializationCounter);
             //var runners = server.GetRegisteredTaskRunners(this);

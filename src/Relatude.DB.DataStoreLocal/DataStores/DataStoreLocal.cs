@@ -8,6 +8,7 @@ using Relatude.DB.DataStores.Files;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Scheduling;
 using Relatude.DB.DataStores.Sets;
+using Relatude.DB.DataStores.StateStores;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.DataStores.Uploads;
 using Relatude.DB.FileConversion;
@@ -62,6 +63,8 @@ public sealed partial class DataStoreLocal : IDataStore {
     internal readonly NativeModelStore _nativeModelStore;
     internal IndexEngines Engines = IndexEngines.Empty;
     Func<IndexEngines>? _createIndexEngines;
+    internal IStateStore _stateStore = default!;
+    readonly Func<IStateStore>? _createStateStore;
 
     long _noPrimitiveActionsSinceStartup;
     long _noPrimitiveActionsSinceLastStateSnapshot;
@@ -95,9 +98,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         QueryContext? defaultQueryContext = null,
         IFileConverter[]? fileConverters = null,
         IIOProvider? converterIoProvider = null,
-        IUrlManager? urlManager = null
+        IUrlManager? urlManager = null,
+        Func<IStateStore>? createStateStore = null
         ) {
         _state = DataStoreState.Closed;
+        _createStateStore = createStateStore;
         _initiatedUtc = DateTime.UtcNow;
         _defaultQueryCtx = defaultQueryContext ?? QueryContext.Default;
         if (dbIO == null) dbIO = new IOProviderMemory();
@@ -283,10 +288,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         AIEngine? ai = null,
         Func<IndexEngines>? createIndexEngines = null,
         bool? throwOnBadStateFile = false,
-        bool? throwOnBadLogFile = false
+        bool? throwOnBadLogFile = false,
+        Func<IStateStore>? createStateStore = null
         ) {
         settings ??= new();
-        var d = new DataStoreLocal(dm, settings, dbIO, filestores, bkup, log, ai, createIndexEngines);
+        var d = new DataStoreLocal(dm, settings, dbIO, filestores, bkup, log, ai, createIndexEngines, createStateStore: createStateStore);
         try {
             d.Open(throwOnBadLogFile ?? settings.ThrowOnBadLogFile,
                 throwOnBadStateFile ?? settings.ThrowOnBadStateFile);
@@ -300,16 +306,18 @@ public sealed partial class DataStoreLocal : IDataStore {
     public DataStoreState State => _state;
     void initialize() {
         _sets = new((long)(_settings.SetCacheSizeGb * 1024d * 1024d * 1024d));
-        _guids = new();
-        _addresses = new();
+        _stateStore = _createStateStore?.Invoke() ?? new MemoryStateStore();
+        _guids = new(_stateStore.CreateGuidMap());
+        _addresses = new(_stateStore.CreateAddressMap());
         _definition = new(_sets, Datamodel, this);
 
         Engines = _createIndexEngines?.Invoke() ?? IndexEngines.Empty;
+        if (_stateStore.Engine != null) Engines = Engines.WithStateEngine(_stateStore.Engine); // same transaction and durability protocol as the index engines
         var fileKey = FileKeyUtility.WAL_GetLatestFileKey(_io);
         var io2 = _settings.SecondaryBackupLog ? _ioLog2 : null;
         var fileKey2 = _settings.SecondaryBackupLog ? FileKeyUtility.WAL_GetSecondaryFileKey() : null;
         _wal = new(fileKey, _definition, _io, updateNodeDataPositionInLogFile, io2, fileKey2);
-        _nodes = new(_definition, _settings, readSegments);
+        _nodes = new(_definition, _settings, readSegments, _stateStore.CreateSegmentMap());
         _relations = new(_definition);
         _index = new(_definition);
         _definition.Initialize(this, _settings, _io, _ai);  // this will open all indexes and set up the variables
@@ -489,6 +497,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         try { _logger?.Dispose(); } catch { }
         try { _ai?.Dispose(); } catch { }
         try { Engines.Dispose(); } catch { }
+        try { _stateStore?.Dispose(); } catch { }
         try { TaskQueue?.Dispose(); } catch { }
         try { TaskQueuePersisted?.Dispose(); } catch { }
         if (_state == DataStoreState.Open) _state = DataStoreState.Disposed; // if in error state, do not change state

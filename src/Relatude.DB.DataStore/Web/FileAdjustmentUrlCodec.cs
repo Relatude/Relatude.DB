@@ -18,39 +18,39 @@ public static class FileAdjustmentUrlCodec {
     // one key table for both framings. Value kinds decide the characters a short-string value may
     // use, which is what makes the separator-free framing parseable: numeric and flag values stop
     // at the first letter, name values (enum names, hex colors) are resolved by backtracking.
-    enum kind { Int, Double, Flag, Name }
-    sealed record keyDef(string Key, kind Kind);
+    enum Kind { Int, Double, Flag, Name }
+    sealed record keyDef(string Key, Kind kind);
     static readonly keyDef[] _keys = [
-        new("k", kind.Name),      // adjustment type: i (image, default), v (video), m (meta)
-        new("f", kind.Name),      // RequestedFormat, enum name
-        new("w", kind.Int),       // Width
-        new("h", kind.Int),       // Height
-        new("q", kind.Int),       // Quality
-        new("crop", kind.Name),   // CropMode, enum name
-        new("zm", kind.Double),   // Zoom
-        new("sx", kind.Int),      // SourceX
-        new("sy", kind.Int),      // SourceY
-        new("sw", kind.Int),      // SourceWidth
-        new("sh", kind.Int),      // SourceHeight
-        new("fx", kind.Int),      // FocusX
-        new("fy", kind.Int),      // FocusY
-        new("ox", kind.Int),      // OffsetX
-        new("oy", kind.Int),      // OffsetY
-        new("rot", kind.Double),  // Rotation
-        new("bri", kind.Double),  // Brightness
-        new("con", kind.Double),  // Contrast
-        new("sat", kind.Double),  // Saturation
-        new("hue", kind.Double),  // HueShift
-        new("sha", kind.Double),  // Sharpness
-        new("inv", kind.Flag),    // InvertLuminance
-        new("ald", kind.Name),    // AutoLightDarkMode, enum name
-        new("bg", kind.Name),     // BackgroundColor, hex without '#'
-        new("abg", kind.Flag),    // AutoBackgroundColor
-        new("tms", kind.Double),  // TimeOffsetMs
-        new("tpc", kind.Double),  // TimeOffsetPercentage
-        new("br", kind.Double),   // TargetBitRateInMbps (video)
-        new("cnz", kind.Flag),    // CropNotZoom (video)
-        new("tmp", kind.Flag),    // Temporary
+        new("k", Kind.Name),      // adjustment type: i (image, default), v (video), m (meta)
+        new("f", Kind.Name),      // RequestedFormat, enum name
+        new("w", Kind.Int),       // Width
+        new("h", Kind.Int),       // Height
+        new("q", Kind.Int),       // Quality
+        new("crop", Kind.Name),   // CropMode, enum name
+        new("zm", Kind.Double),   // Zoom
+        new("sx", Kind.Int),      // SourceX
+        new("sy", Kind.Int),      // SourceY
+        new("sw", Kind.Int),      // SourceWidth
+        new("sh", Kind.Int),      // SourceHeight
+        new("fx", Kind.Int),      // FocusX
+        new("fy", Kind.Int),      // FocusY
+        new("ox", Kind.Int),      // OffsetX
+        new("oy", Kind.Int),      // OffsetY
+        new("rot", Kind.Double),  // Rotation
+        new("bri", Kind.Double),  // Brightness
+        new("con", Kind.Double),  // Contrast
+        new("sat", Kind.Double),  // Saturation
+        new("hue", Kind.Double),  // HueShift
+        new("sha", Kind.Double),  // Sharpness
+        new("inv", Kind.Flag),    // InvertLuminance
+        new("ald", Kind.Name),    // AutoLightDarkMode, enum name
+        new("bg", Kind.Name),     // BackgroundColor, hex without '#'
+        new("abg", Kind.Flag),    // AutoBackgroundColor
+        new("tms", Kind.Double),  // TimeOffsetMs
+        new("tpc", Kind.Double),  // TimeOffsetPercentage
+        new("br", Kind.Double),   // TargetBitRateInMbps (video)
+        new("cnz", Kind.Flag),    // CropNotZoom (video)
+        new("tmp", Kind.Flag),    // Temporary
     ];
     static readonly keyDef[] _keysLongestFirst = [.. _keys.OrderByDescending(k => k.Key.Length)];
 
@@ -148,9 +148,9 @@ public static class FileAdjustmentUrlCodec {
             if (string.CompareOrdinal(s, pos, def.Key, 0, def.Key.Length) != 0) continue;
             var valueStart = pos + def.Key.Length;
             var max = valueStart;
-            while (max < s.Length && isValueChar(s[max], def.Kind)) max++;
+            while (max < s.Length && isValueChar(s[max], def.kind)) max++;
             if (max == valueStart) continue; // no value, try a shorter key
-            if (def.Kind == kind.Name) {
+            if (def.kind == Kind.Name) {
                 // a name value may run into the next key ("fjpegw100"): backtrack from the longest
                 // run, accepting only valid names so the right split is found
                 for (var end = max; end > valueStart; end--) {
@@ -183,11 +183,11 @@ public static class FileAdjustmentUrlCodec {
         if (value.Length == 0 || !char.IsAsciiLetter(value[0])) return false;
         return Enum.TryParse(value, true, out result);
     }
-    static bool isValueChar(char c, kind k) => k switch {
-        kind.Int => char.IsAsciiDigit(c) || c == '-',
-        kind.Double => char.IsAsciiDigit(c) || c == '-' || c == '.',
-        kind.Flag => c == '0' || c == '1',
-        kind.Name => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c),
+    static bool isValueChar(char c, Kind k) => k switch {
+        Kind.Int => char.IsAsciiDigit(c) || c == '-',
+        Kind.Double => char.IsAsciiDigit(c) || c == '-' || c == '.',
+        Kind.Flag => c == '0' || c == '1',
+        Kind.Name => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c),
         _ => false,
     };
 

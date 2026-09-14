@@ -36,6 +36,15 @@ public sealed class DenseBitSet : ICollection<int> {
    // public static bool WorthIt(int count, int minId, int maxId) => false;
     public static bool WorthIt(int count, int minId, int maxId) => count > 256 && minId >= 0 && (long)maxId - minId < (long)count * 64;
 
+    /// <summary>True when <paramref name="id"/> is inside the window, or the window grown to hold it is still worth it (see <see cref="WorthIt"/>).</summary>
+    public bool WorthGrowingTo(int id) {
+        if (id < 0) return false;
+        var end = _base + (_words.Length << 6); // exclusive
+        if (id >= _base && id < end) return true;
+        long newMin = Math.Min(_base, id & ~63);
+        long newMax = Math.Max(id, end - 1);
+        return newMax - newMin < (Count + 1L) * 64;
+    }
     public static DenseBitSet From(IEnumerable<int> ids, int minId, int maxId) {
         var set = new DenseBitSet(minId, maxId);
         foreach (var id in ids) set.Add(id);

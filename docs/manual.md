@@ -1693,6 +1693,8 @@ them.
 | `DefaultValueIndex`, `DefaultTextIndex`, `DefaultVectorIndex` | `00000000-…` | The `Id` of the engine behind every index of that kind that does not say otherwise. The empty guid is the memory index: everything resident, saved with the state snapshot and otherwise rebuilt from the log at every open — fine for small databases, slow for large ones. Changing a default moves every index of that kind, so they are rebuilt at the next open. |
 | `MaxMemoryUsageInMb` (per engine) | `256` | What the engine may spend on caches and buffers. A bound, not an allocation: `0` makes it use as little as it can. Changing it never invalidates the engine's files. |
 | `PersistedValueIndexFolderPath` | beside the index IO provider | Where the disk engines write. Each engine gets its own folder there, named by its `Id`, so two engines of the same type can share one path. |
+| `StateStore` | `Memory` | Where the per node state lives: the guid to id map, each node's position in the log, addresses and relations. `Memory` keeps it resident and saves it as one state snapshot. `Native` keeps it in the built-in key-value engine on disk (a `state` folder below the index folder), committed with every transaction and made durable with every log flush, so memory use is the budget below instead of the node count and opening no longer grows with the number of nodes. Changing it rebuilds the state from the log at the next open. |
+| `StateStoreMaxMemoryUsageInMb` | `256` | The cache budget of the `Native` state store. Not used by `Memory`. |
 
 **Culture, access and files.**
 

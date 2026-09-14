@@ -1,6 +1,7 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Definitions;
+using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 using Relatude.DB.Serialization;
@@ -50,11 +51,12 @@ internal class WALFile : IDisposable {
     // version-chain heads: the node data position of the last WRITTEN add per node, per file, in
     // write order. The writer links each new node record to the entry here, giving each file a
     // backward chain of the node's versions. Kept by the (single) log writer, read by state saves
-    // and version walks on other threads, hence the lock. NodeStore's segments cannot serve this
-    // purpose: they are reset at execute time, before the write happens.
+    // and version walks on other threads, hence the lock. The primary heads only cover nodes
+    // written this session: the remove of a version written earlier carries that version's segment
+    // on the action, so nothing has to be seeded at open.
     readonly object _chainLock = new();
-    Dictionary<int, NodeSegment> _chainHeads = [];
-    readonly Dictionary<int, NodeSegment> _secondaryChainHeads = [];
+    ValueByIdMap<NodeSegment> _chainHeads = new();
+    readonly ValueByIdMap<NodeSegment> _secondaryChainHeads = new();
     public WALFile(string[] fileKey, Definition definition, IIOProvider io, RegisterNodeSegmentCallbackFunc confirmWrite, IIOProvider? ioSecondary, string[]? secondaryFileKey) {
         FileKey = fileKey;
         _io = io;
@@ -139,7 +141,7 @@ internal class WALFile : IDisposable {
         return written;
     }
     static long writeStatic(ExecutedPrimitiveTransaction[] transactions, IAppendStream stream, long formatVersion, Datamodel datamodel, RegisterNodeSegmentCallbackFunc? regCallback,
-        Dictionary<int, NodeSegment>? chainHeads, object chainLock, Action<string, int>? progress, int actionCount, int transactionCount) {
+        ValueByIdMap<NodeSegment>? chainHeads, object chainLock, Action<string, int>? progress, int actionCount, int transactionCount) {
         long bytesStartPos = stream.Length;
         if (progress != null) progress("Flushing " + transactionCount + " transactions and " + actionCount + " actions", 0);
         int transactionsWritten = 0;
@@ -179,10 +181,12 @@ internal class WALFile : IDisposable {
                     if (chainHeads != null) {
                         lock (chainLock) { // chains link adds only
                             if (na.Operation == PrimitiveOperation.Add) {
-                                chainHeads[na.Node.__Id] = segment;
+                                chainHeads.Set(na.Node.__Id, segment);
                                 removedInTransaction?.Remove(na.Node.__Id);
-                            } else if (chainHeads.TryGetValue(na.Node.__Id, out var lastAdd)) {
-                                (removedInTransaction ??= [])[na.Node.__Id] = lastAdd;
+                            } else {
+                                // the last written add: written this session, or the version the remove found in the node store
+                                if (!chainHeads.TryGetValue(na.Node.__Id, out var lastAdd) && na.Segment.HasValue) lastAdd = na.Segment.Value;
+                                if (lastAdd.Length > 0) (removedInTransaction ??= [])[na.Node.__Id] = lastAdd;
                                 chainHeads.Remove(na.Node.__Id);
                             }
                         }
@@ -296,7 +300,7 @@ internal class WALFile : IDisposable {
         _appendStream.Dispose();
         if (_secondaryAppendStream != null) _secondaryAppendStream.Dispose();
     }
-    internal void ReplaceDataFile(string[] newFileKey, long lastTimestamp, Dictionary<int, NodeSegment> newFileChainHeads) {
+    internal void ReplaceDataFile(string[] newFileKey, long lastTimestamp) {
         FirstTimestamp = 0; // 0 means it will be read from file
         // transactions queued during a rewrite carry timestamps newer than the new file's last timestamp,
         // so the timestamp may only move forward, otherwise duplicate timestamps could be issued after the swap:
@@ -306,13 +310,9 @@ internal class WALFile : IDisposable {
         FileKey = newFileKey;
         FileId = Guid.Empty; // reset file id, so that it is read from new file
         OpenForAppending();
-        // the primary version chains now live in the new file; adopt the heads the rewriter built.
-        // The secondary log is untouched by a rewrite, so its chains simply continue:
-        lock (_chainLock) _chainHeads = newFileChainHeads;
-    }
-    /// <summary>The version-chain heads this file's writer built, for adoption by the live WAL at a hot swap.</summary>
-    internal Dictionary<int, NodeSegment> DetachChainHeads() {
-        lock (_chainLock) return _chainHeads;
+        // the primary version chains now live in the new file, where every node's head is the segment
+        // the store registers for it. The secondary log is untouched by a rewrite, so its chains continue:
+        lock (_chainLock) _chainHeads = new();
     }
     internal void StoreTimestamp(long timestamp) {
         if (timestamp < _lastTimestampID) throw new Exception("New timestamp is less than last timestamp. ");
@@ -396,13 +396,13 @@ internal class WALFile : IDisposable {
             }
             // the OpenForAppending above reopened the secondary stream on the fresh copy, so the
             // format version and file id are current here.
-            // A byte-identical copy of the primary: the primary version-chain heads are valid
-            // positions in it. At store open the heads are empty here and are seeded later
-            // (SeedChainHeadsWhileClosed); at a runtime reset they are live and copied now:
+            // A byte-identical copy of the primary: every node's written segment is a valid head in
+            // it. At store open the node store is still empty here and the heads are seeded later
+            // (SeedChainHeadsWhileClosed); at a runtime reset they are copied now:
             lock (_chainLock) {
                 _secondaryChainHeads.Clear();
                 if (_secondaryFormatVersion >= _logVersioNumber) {
-                    foreach (var kv in _chainHeads) _secondaryChainHeads[kv.Key] = kv.Value;
+                    foreach (var (id, segment) in store._nodes.WrittenSegments()) _secondaryChainHeads.Set(id, segment);
                 }
             }
         } else {
@@ -422,20 +422,17 @@ internal class WALFile : IDisposable {
     #region Version chains
 
     /// <summary>
-    /// Establishes the version-chain heads after a store open. Called while the log streams are
-    /// closed, after the state file and the log replay have produced the final node segments. The
-    /// primary heads are the node segments themselves (they reflect write order after a replay).
-    /// The secondary heads come from the persisted chain state brought up to date by replaying the
-    /// secondary's tail; without usable persisted state they fall back to the primary heads when
-    /// the secondary is a byte-identical copy of the primary, and otherwise start empty (chains in
-    /// the file stay intact but new records start fresh chains).
+    /// Establishes the secondary version-chain heads after a store open. Called while the log streams
+    /// are closed, after the state file and the log replay have produced the final node segments.
+    /// The primary heads start empty (see the field). The secondary heads come from the persisted
+    /// chain state brought up to date by replaying the secondary's tail; without usable persisted
+    /// state they fall back to the node segments when the secondary is a byte-identical copy of the
+    /// primary, and otherwise start empty (chains in the file stay intact but new records start
+    /// fresh chains).
     /// </summary>
-    internal void SeedChainHeadsWhileClosed(WalChainState? persisted, (int nodeId, NodeSegment segment)[] nodeSegments, Action<string> logInfo, Action<string, Exception?> logError) {
+    internal void SeedChainHeadsWhileClosed(WalChainState? persisted, IEnumerable<KeyValuePair<int, NodeSegment>> nodeSegments, Action<string> logInfo, Action<string, Exception?> logError) {
         lock (_chainLock) {
-            _chainHeads = new Dictionary<int, NodeSegment>(_formatVersion >= _logVersioNumber ? nodeSegments.Length : 0);
-            if (_formatVersion >= _logVersioNumber) {
-                foreach (var n in nodeSegments) if (n.segment.Length > 0) _chainHeads[n.nodeId] = n.segment;
-            }
+            _chainHeads = new();
             _secondaryChainHeads.Clear();
             if (_ioSecondary == null || _secondaryFileKey == null) return;
             var secondarySize = _ioSecondary.GetFileSizeOrZeroIfUnknown(_secondaryFileKey);
@@ -452,13 +449,13 @@ internal class WALFile : IDisposable {
             if (_secondaryFormatVersion < _logVersioNumber) return; // legacy format, carries no chains
             if (persisted != null && persisted.SecondaryFileId == _secondaryFileId && persisted.SecondaryLength <= secondarySize) {
                 foreach (var kv in persisted.Heads) {
-                    if (kv.Value.AbsolutePosition + kv.Value.Length <= secondarySize) _secondaryChainHeads[kv.Key] = kv.Value;
+                    if (kv.Value.AbsolutePosition + kv.Value.Length <= secondarySize) _secondaryChainHeads.Set(kv.Key, kv.Value);
                 }
                 if (persisted.SecondaryLength < secondarySize) replaySecondaryTail(persisted.SecondaryLength, logError);
             } else if (_secondaryFileId == FileId && secondarySize == _io.GetFileSizeOrZeroIfUnknown(FileKey)) {
                 // the secondary is a byte-identical copy of the primary (same file id, same length,
-                // and identical files receive identical appends), so the primary heads are valid in it
-                foreach (var kv in _chainHeads) _secondaryChainHeads[kv.Key] = kv.Value;
+                // and identical files receive identical appends), so the primary segments are valid in it
+                foreach (var kv in nodeSegments) if (kv.Value.Length > 0) _secondaryChainHeads.Set(kv.Key, kv.Value);
             } else {
                 logInfo("No usable version-chain state for the secondary log file. Node version chains in the secondary log restart from here; older chains in the file stay readable but unreachable. ");
             }
@@ -471,7 +468,7 @@ internal class WALFile : IDisposable {
         while (reader.ReadNextTransaction(out var transaction, false, logError, out _)) {
             foreach (var a in transaction.ExecutedActions) {
                 if (a is not PrimitiveNodeAction na || na.Segment == null) continue;
-                if (na.Operation == PrimitiveOperation.Add) _secondaryChainHeads[na.Node.__Id] = na.Segment.Value;
+                if (na.Operation == PrimitiveOperation.Add) _secondaryChainHeads.Set(na.Node.__Id, na.Segment.Value);
                 else _secondaryChainHeads.Remove(na.Node.__Id);
             }
         }
@@ -507,12 +504,12 @@ internal class WALFile : IDisposable {
             var fileId = stream.ReadGuid();
             var length = stream.ReadVerifiedLong();
             var count = stream.ReadVerifiedInt();
-            var heads = new Dictionary<int, NodeSegment>(count);
+            var heads = new ValueByIdMap<NodeSegment>(count);
             for (var i = 0; i < count; i++) {
                 var id = (int)stream.ReadUInt();
                 var pos = stream.ReadLong();
                 var len = stream.ReadVerifiedInt();
-                heads[id] = new NodeSegment(pos, len);
+                heads.Set(id, new NodeSegment(pos, len));
             }
             result = new WalChainState { SecondaryFileId = fileId, SecondaryLength = length, Heads = heads };
         }
@@ -594,7 +591,7 @@ internal sealed class WalChainState {
     public required Guid SecondaryFileId { get; init; }
     /// <summary>The secondary log file's length at the state save; the tail after it is replayed at open to bring the heads up to date.</summary>
     public required long SecondaryLength { get; init; }
-    public required Dictionary<int, NodeSegment> Heads { get; init; }
+    public required ValueByIdMap<NodeSegment> Heads { get; init; }
 }
 
 /// <summary>One version of a node found by a chain walk: its transaction timestamp, the log file it

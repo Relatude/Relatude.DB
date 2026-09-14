@@ -68,7 +68,7 @@ public class FlatDiskVectorIndex : IVectorIndex {
             _fileIndex.Remove(nodeId);
         }
     }
-
+    public int Count => _fileIndex.Count;
     #region Attempt 4 - TODO: attempt memory-mapped file with parallel processing
     #endregion
 

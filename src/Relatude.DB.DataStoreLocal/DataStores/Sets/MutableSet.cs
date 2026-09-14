@@ -3,19 +3,26 @@ using System.Collections;
 using System.Diagnostics;
 namespace Relatude.DB.DataStores.Sets;
 
-internal class MutableSet(int item1, int item2) : ICollection<int> {
+internal class MutableSet : ICollection<int> {
     IdSet? _lastSet;
     readonly StateIdTracker _state = new();
-    ICollection<int> _items = new int[] { item1, item2 }; // array, list, hashSet, bitSet - depending on size
+    ICollection<int> _items; // array, list, hashSet, bitSet - depending on size
+    public MutableSet(int item1, int item2) { _items = new int[] { item1, item2 }; }
+    public MutableSet() { _items = Array.Empty<int>(); }
     readonly static int limArr = 10; // upper threshold for using array data structure
     readonly static int limList = 1000; // upper threshold for using list data structure ( when doing lookups ), after which it uses HashSet
-    readonly static int limHash = 10_000; // threshold for switching to a bit set (if dense enough), enabling word-parallel set operations
-    bool? _isDenseBitWorthId = null;
+    readonly static int limHash = 10_000; // from here a bit set is considered, and again at every doubling: a set can become dense as it grows
+    int _nextDenseCheck = limHash;
     public void Add(int item) {
         _lastSet = null;
         _state.RegisterAddition(item);
         if (_items is DenseBitSet bits) {
-            bits.Add(item);
+            if (bits.WorthGrowingTo(item)) {
+                bits.Add(item);
+            } else { // the id lies far outside the window: back to a hash set until the set fills in
+                _items = new HashSet<int>(bits) { item };
+                _nextDenseCheck = Math.Max(limHash, bits.Count * 2);
+            }
         } else if (_items is int[] arr) {
             if (arr.Length >= limArr) {
                 _items = new List<int>(arr) { item };
@@ -32,14 +39,14 @@ internal class MutableSet(int item1, int item2) : ICollection<int> {
             }
         } else if (_items is HashSet<int> hashSet) {
             hashSet.Add(item);
-            if (hashSet.Count >= limHash && _isDenseBitWorthId == null) {
+            if (hashSet.Count >= _nextDenseCheck) {
                 int min = int.MaxValue, max = int.MinValue;
                 foreach (var id in hashSet) {
                     if (id < min) min = id;
                     if (id > max) max = id;
                 }
-                _isDenseBitWorthId = DenseBitSet.WorthIt(hashSet.Count, min, max);
-                if (_isDenseBitWorthId.Value) _items = DenseBitSet.From(hashSet, min, max);
+                if (DenseBitSet.WorthIt(hashSet.Count, min, max)) _items = DenseBitSet.From(hashSet, min, max);
+                else _nextDenseCheck = hashSet.Count * 2;
             }
         }
     }
@@ -116,6 +123,7 @@ internal class MutableSet(int item1, int item2) : ICollection<int> {
         _lastSet = null;
         _state.Reset();
         _items = Array.Empty<int>();
+        _nextDenseCheck = limHash;
     }
     public void CopyTo(int[] array, int arrayIndex) => _items.CopyTo(array, arrayIndex);
     bool ICollection<int>.Remove(int item) => Remove(item);

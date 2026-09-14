@@ -2467,6 +2467,16 @@ them.</p>
 <td>beside the index IO provider</td>
 <td>Where the disk engines write. Each engine gets its own folder there, named by its <code>Id</code>, so two engines of the same type can share one path.</td>
 </tr>
+<tr>
+<td><code>StateStore</code></td>
+<td><code>Memory</code></td>
+<td>Where the per node state lives: the guid to id map, each node's position in the log, addresses and relations. <code>Memory</code> keeps it resident and saves it as one state snapshot. <code>Native</code> keeps it in the built-in key-value engine on disk (a <code>state</code> folder below the index folder), committed with every transaction and made durable with every log flush, so memory use is the budget below instead of the node count and opening no longer grows with the number of nodes. Changing it rebuilds the state from the log at the next open.</td>
+</tr>
+<tr>
+<td><code>StateStoreMaxMemoryUsageInMb</code></td>
+<td><code>256</code></td>
+<td>The cache budget of the <code>Native</code> state store. Not used by <code>Memory</code>.</td>
+</tr>
 </tbody>
 </table>
 <p><strong>Culture, access and files.</strong></p>

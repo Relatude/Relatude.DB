@@ -76,7 +76,7 @@ internal class MemorySemanticIndex : IIndex, ISemanticIndex {
     public void RegisterAddDuringStateLoad(int nodeId, object value) => Add(nodeId, value);
     public void RegisterRemoveDuringStateLoad(int nodeId, object value) => Remove(nodeId, value);
     public int MaxCount(string value) {
-        return 10;
+        return _index.Count;
     }
     public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) {
         // appending a stamp is only sound when the persisted body equals the in-memory state: the

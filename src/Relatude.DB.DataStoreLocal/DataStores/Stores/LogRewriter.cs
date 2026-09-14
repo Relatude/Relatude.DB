@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.DataStores.Definitions;
+using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Relations;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
@@ -56,18 +57,18 @@ internal class LogRewriter {
     public volatile bool _cancelled = false; // volatile, set by Cancel() on another thread while Step1 is running
     List<ExecutedPrimitiveTransaction> _newTransactionsWhileRewriting;
     (int nodeId, NodeSegment segment)[] _snapshot;
-    public Dictionary<int, NodeSegment> _newSegements;
+    readonly ValueByIdMap<NodeSegment> _newSegments = new();
+    /// <summary>Every node's position in the new log file, for the store to adopt after the hot swap.</summary>
+    public IEnumerable<KeyValuePair<int, NodeSegment>> NewSegments => _newSegments;
     (Guid relId, RelData[] relations, PrimitiveRelationReorderAction[] reorders)[] _relations;
     readonly WALFile _newWAL;
-    readonly RegisterNodeSegmentCallbackFunc _registerNodeSegment;
     readonly ReadSegmentsFunc _threadSafeReadSegments;
     bool _finalizing = false;
     public LogRewriter(string[] newFileKey, Definition definition,
         IIOProvider destinationIO,
         (int nodeId, NodeSegment segment)[] snapshot,
         (Guid relId, RelData[] relations, PrimitiveRelationReorderAction[] reorders)[] relations,
-        ReadSegmentsFunc threadSafeReadSegments, // call back to old log file for reading segment content from old file
-        RegisterNodeSegmentCallbackFunc registerNodeSegment // call back to store to register node segments in cache ( NodeStore )
+        ReadSegmentsFunc threadSafeReadSegments // call back to old log file for reading segment content from old file
         ) {
         FileKey = newFileKey;
         _definition = definition;
@@ -80,11 +81,7 @@ internal class LogRewriter {
 
         _relations = relations;
         _threadSafeReadSegments = threadSafeReadSegments;
-        _registerNodeSegment = registerNodeSegment;
-        _newSegements = new();
-        _newWAL = new WALFile(FileKey, _definition, _destIO, (nodeId, seg) => {
-            _newSegements[nodeId] = seg;
-        }, null, null); // no ValueIndex store, or secondary log store
+        _newWAL = new WALFile(FileKey, _definition, _destIO, (nodeId, seg) => _newSegments.Set(nodeId, seg), null, null); // no ValueIndex store, or secondary log store
         _newTransactionsWhileRewriting = new();
     }
     public void Cancel() {
@@ -162,12 +159,7 @@ internal class LogRewriter {
         _newWAL.Dispose(); // dispose new store, so that it can be used by the db
         if (swapToNewFile) {
             if (_cancelled) throw new OperationCanceledException("Log rewrite cancelled. ");
-            // if swapping to new file, all node segments must be registered, so that the new file is used
-            oldLogStore.ReplaceDataFile(FileKey, _newWAL.LastTimestamp, _newWAL.DetachChainHeads()); // replace old log file with new, and allow db to continue
-            foreach (var node in _newSegements) {
-                if (_cancelled) throw new OperationCanceledException("Log rewrite cancelled. ");
-                _registerNodeSegment(node.Key, node.Value); // ensuring that the new segments are registered in segment cache ( NodeStore )
-            }
+            oldLogStore.ReplaceDataFile(FileKey, _newWAL.LastTimestamp); // the store adopts NewSegments right after
         }
     }
     internal void SetTimestamp(long timestamp) {

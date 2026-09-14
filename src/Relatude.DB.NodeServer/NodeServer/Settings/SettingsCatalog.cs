@@ -829,6 +829,14 @@ public static class SettingsCatalog {
                             Help = "Where the disk engines put their files; each engine gets a folder of its own, named by its id. A relative path is resolved against the server data folder. Empty follows the index storage provider, then the database one. Point it at fast local disk when the database lives on network storage.",
                         },
                         new() {
+                            Path = "LocalSettings.StateStore", Label = "State store",
+                            Help = "Where the node maps live that are otherwise rebuilt into memory at every open: the guid to id map, each node's position in the log, addresses and relations. Memory keeps them in RAM and saves them as one snapshot file. Native keeps them in the built-in disk store next to the index engines, so RAM use is bounded by the budget below and opening no longer grows with the number of nodes. Changing it rebuilds the state from the log at the next open.",
+                        },
+                        new() {
+                            Path = "LocalSettings.StateStoreMaxMemoryUsageInMb", Label = "State store memory (MB)",
+                            Help = "The cache budget of the Native state store. A budget, not an allocation: a small database never grows into it. Not used by the Memory store.",
+                        },
+                        new() {
                             Path = "LocalSettings.EnableTextIndexByDefault", Label = "Index text by default",
                             Help = "Whether string properties are full-text indexed unless they say otherwise. Indexing everything makes WhereSearch work everywhere, at the cost of index size and write throughput.",
                         },

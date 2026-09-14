@@ -30,6 +30,11 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _lock.EnterWriteLock();
                 try {
                     _wal.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(deepFlush);
+                    if (_stateStore.Engine is { } stateEngine && _nodes.HasPendingSegments) { // the positions the flush confirmed, written by the single writer
+                        stateEngine.BeginTransaction();
+                        _nodes.DrainPendingSegments();
+                        stateEngine.CommitTransaction(_wal.LastTimestamp);
+                    }
                     if (_revertWindow == null) Engines.MakeDurable(_wal.LastTimestamp);
                 } finally {
                     _lock.ExitWriteLock();

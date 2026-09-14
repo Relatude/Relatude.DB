@@ -17,6 +17,7 @@ public class FlatMemoryVectorIndex : IVectorIndex {
         if (vector.Length == 0) return; // do not store empty vectors
         _index[nodeId] = vector;
     }
+    public int Count => _index.Count;
     public void Clear(int nodeId) => _index.Remove(nodeId);
     public List<VectorHit> Search(float[] u, int skip, int take, float minCosineSimilarity) {
         if (_index.Count == 0) return [];

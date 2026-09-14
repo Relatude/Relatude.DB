@@ -74,7 +74,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             var streamLen = _wal.FileSize;
             var whereOutSide = snapshot.Where(n => n.segment.AbsolutePosition + n.segment.Length > streamLen);
             if (whereOutSide.Any()) throw new Exception("Some node segments point outside log file. ");
-            _rewriter = new LogRewriter(newLogFileKey, _definition, destinationIO, snapshot, _relations.Snapshot(), threadSafeReadSegments, updateNodeDataPositionInLogFile);
+            _rewriter = new LogRewriter(newLogFileKey, _definition, destinationIO, snapshot, _relations.Snapshot(), threadSafeReadSegments);
             UpdateActivity(activityId, "Starting rewrite of log file", 10);
         } catch (Exception err) {
             throw createCriticalErrorAndSetDbToErrorState("Error starting log rewrite. " , err);
@@ -96,6 +96,12 @@ public sealed partial class DataStoreLocal : IDataStore {
                 FlushToDisk(true, activityId); // ensuring all old and queued writes to old log file are flushed before finalizing rewrite ( so they do not write after hot swap )
                 if (_rewriter == null) throw new Exception("Rewriter not initialized. ");
                 _rewriter.Step2_HotSwap_RequiresWriteLock(_wal, hotSwapToNewFile);  // finalizes log rewrite, should be short, but blocks all writes and reads
+                if (hotSwapToNewFile) { // every node now lives in the new file
+                    var stateEngine = _stateStore.Engine;
+                    stateEngine?.BeginTransaction();
+                    _nodes.ReplaceAllSegments(_rewriter.NewSegments);
+                    stateEngine?.CommitTransaction(_wal.LastTimestamp);
+                }
                 // the flag file must be deleted while still holding the write lock, before any new transaction can be
                 // written to the new log file. If deleted after the lock is released, a crash in between would cause
                 // the startup cleanup to delete the new log file, which is now the live log with acknowledged transactions:

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Relatude.DB.Common;
+using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.IO;
 
@@ -226,16 +227,19 @@ public sealed partial class DataStoreLocal : IDataStore {
                 try { Engines.Dispose(); } catch { }
                 UpdateActivity(activityId, "Truncating log", 20);
                 truncateWalFiles(walFileKey, keepEnd, walFileSize);
-                if (!fullReset && _createIndexEngines != null) {
+                if (!fullReset && (_createIndexEngines != null || _createStateStore != null)) {
                     // a freshly created engine reports its durable position (nothing published in
                     // memory yet): reset the ones that persisted past the revert point (e.g. the
                     // SQLite engine, which is durable per transaction), so the reload rebuilds them
                     // instead of tripping the divergence check and rebuilding everything
-                    var probe = _createIndexEngines();
+                    var probe = _createIndexEngines?.Invoke() ?? IndexEngines.Empty;
+                    var stateProbe = _createStateStore?.Invoke();
+                    if (stateProbe?.Engine != null) probe = probe.WithStateEngine(stateProbe.Engine);
                     try {
                         enginesReset = probe.ResetEnginesAhead(afterTimestamp, msg => LogInfo(msg));
                     } finally {
                         probe.Dispose();
+                        stateProbe?.Dispose();
                     }
                 }
                 UpdateActivity(activityId, "Reloading", 30);

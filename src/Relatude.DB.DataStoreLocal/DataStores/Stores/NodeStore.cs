@@ -1,13 +1,14 @@
-﻿using Relatude.DB.Common;
+using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Definitions;
+using Relatude.DB.DataStores.StateStores;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
 using Relatude.DB.Serialization;
 using Relatude.DB.Transactions;
 using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.DataStores.Stores;
-// new nodes are added to cache first, and as empty 
+// new nodes are added to cache first, and as empty
 // they are kept here ( due to size set to 0 ) until they are written to log
 // once written to log, the log update the cache size and updates the segment in _segements
 // the item can now be removed from cache later if cache needs to save memory
@@ -19,19 +20,35 @@ internal sealed class NodeStore {
     readonly static Guid _marker = new Guid("993d32a7-f608-43d7-a800-0be4208f723a");
     readonly ReadSegmentsFunc _read;
     readonly Cache<int, INodeDataInternal> _cache; // threadsafe
-    readonly Dictionary<int, NodeSegment> _segments;  // NOT threadsafe, main store of all valid nodes
+    readonly ISegmentMap _segments; // main store of all valid nodes; an engine backed map is written from the transaction thread only
+    readonly Dictionary<int, NodeSegment> _pending = []; // log positions confirmed by the log writer, waiting for DrainPendingSegments when the map is engine backed
     readonly HashSet<int> _dropWhenWritten = []; // nodes from bulk transactions, evicted the moment the log write makes them readable from disk
     Definition _definition;
-    public NodeStore(Definition definition, SettingsLocal config, ReadSegmentsFunc read) {
+    public NodeStore(Definition definition, SettingsLocal config, ReadSegmentsFunc read, ISegmentMap segments) {
         _read = read;
-        _segments = [];
+        _segments = segments;
         _definition = definition;
         _cache = new((long)(config.NodeCacheSizeGb * Math.Pow(1024, 3)));
     }
+    bool tryGetSegment(int id, out NodeSegment segment) => _pending.TryGetValue(id, out segment) || _segments.TryGet(id, out segment);
     public (int nodeId, NodeSegment segment)[] Snapshot() {
         lock (_lock) {
-            var result = _segments.Select(kv => (nodeId: kv.Key, segment: kv.Value)).ToArray();
-            if (result.Where(s => s.segment.Length == 0).Any()) throw new Exception("Snapshot not ready");
+            var result = new List<(int nodeId, NodeSegment segment)>(_segments.Count);
+            foreach (var kv in _segments.Entries) result.Add((kv.Key, _pending.TryGetValue(kv.Key, out var p) ? p : kv.Value));
+            foreach (var s in result) if (s.segment.Length == 0) throw new Exception("Snapshot not ready");
+            return [.. result];
+        }
+    }
+    // for the open sequence, before anything else runs: no lock, nothing pending
+    internal IEnumerable<KeyValuePair<int, NodeSegment>> EnumerateSegments_NotThreadsafe() => _segments.Entries;
+    /// <summary>The nodes already written to the log, with their positions.</summary>
+    internal List<(int id, NodeSegment segment)> WrittenSegments() {
+        lock (_lock) {
+            var result = new List<(int, NodeSegment)>(_segments.Count);
+            foreach (var kv in _segments.Entries) {
+                var segment = _pending.TryGetValue(kv.Key, out var p) ? p : kv.Value;
+                if (segment.Length > 0) result.Add((kv.Key, segment));
+            }
             return result;
         }
     }
@@ -51,9 +68,11 @@ internal sealed class NodeStore {
         if (missing.Any()) { // load to cache
             // load all missing from cache from log in one batch
             nodesFromDisk += missing.Count;
-            NodeSegment[] segments;
+            var segments = new NodeSegment[missing.Count];
             lock (_lock) { // _segments is not threadsafe
-                segments = missing.Select(id => _segments[id]).ToArray();
+                for (var n = 0; n < segments.Length; n++) {
+                    if (!tryGetSegment(missing[n], out segments[n])) throw new KeyNotFoundException("Node not found: " + missing[n]);
+                }
             }
             var bytes = _read(segments, out var diskReadsInBatch);  // takes time...
             diskReads += diskReadsInBatch; // accumulate, callers pass a running counter
@@ -74,7 +93,7 @@ internal sealed class NodeStore {
         }
         var nodes = new INodeDataInternal[ids.Length];
         for (var i = 0; i < ids.Length; i++) {
-            nodes[i] = Get(ids[i], out var didReadDisk); // will read from log if not in cache            
+            nodes[i] = Get(ids[i], out var didReadDisk); // will read from log if not in cache
             if (didReadDisk) {
                 nodesFromDisk++;
                 diskReads++;
@@ -88,7 +107,7 @@ internal sealed class NodeStore {
         // if not in cache, it must be in log as items are kept in cache until written to log ( size ==0 )
         NodeSegment segment;
         lock (_lock) {
-            if (!_segments.TryGetValue(id, out segment)) {
+            if (!tryGetSegment(id, out segment)) {
                 node = null;
                 return false;
             }
@@ -106,40 +125,63 @@ internal sealed class NodeStore {
         lock (_lock) _cache.ClearAll_NotSize0();
     }
     public bool Contains(int id) {
-        lock (_lock) return _segments.ContainsKey(id);
+        lock (_lock) return _segments.Contains(id);
     }
     public bool TryGetSegment(int id, out NodeSegment segment) {
-        lock (_lock) return _segments.TryGetValue(id, out segment);
+        lock (_lock) return tryGetSegment(id, out segment);
     }
     public void Add(INodeDataInternal node, NodeSegment? segment, bool keepInCache = true) {
         lock (_lock) {
             node.EnsureReadOnly();
-            _segments.Add(node.__Id, segment ?? (new()));
+            _segments.Set(node.__Id, segment ?? (new()));
+            _pending.Remove(node.__Id);
             _cache.Set(node.__Id, node, 0);
             if (!keepInCache) _dropWhenWritten.Add(node.__Id);
         }
     }
     public void Remove(INodeDataInternal node, out NodeSegment segmentInfoRemoved) {
         lock (_lock) {
-            segmentInfoRemoved = _segments[node.__Id];
+            if (!tryGetSegment(node.__Id, out segmentInfoRemoved)) throw new KeyNotFoundException("Node not found: " + node.__Id);
             _segments.Remove(node.__Id);
+            _pending.Remove(node.__Id);
             _dropWhenWritten.Remove(node.__Id);
             _cache.Clear_EvenIf0Size(node.__Id); // if zero size in cache, item will never be written to log, so it can be removed
         }
     }
     public void UpdateNodeDataPositionInLogFile(int id, NodeSegment segment) {
         lock (_lock) {
-            if (!_segments.ContainsKey(id)) return;
-            _segments[id] = segment;
+            if (!_segments.Contains(id)) return;
+            if (_segments.PersistedByEngine) _pending[id] = segment; // the engine takes writes from the transaction thread only
+            else _segments.Set(id, segment);
             if (_dropWhenWritten.Remove(id)) _cache.Clear_EvenIf0Size(id); // now readable from the log, so no reason to keep the bulk inserted node
             else _cache.TryUpdateSize(id, estimateSize(segment.Length));
+        }
+    }
+    internal bool HasPendingSegments { get { lock (_lock) return _pending.Count > 0; } }
+    /// <summary>Writes the confirmed log positions into an engine backed map. Single writer: call inside the engine transaction.</summary>
+    internal void DrainPendingSegments() {
+        lock (_lock) {
+            foreach (var kv in _pending) if (_segments.Contains(kv.Key)) _segments.Set(kv.Key, kv.Value);
+            _pending.Clear();
+        }
+    }
+    /// <summary>After a log rewrite hot swap: every node's position in the new log file. Single writer, under the store's write lock.</summary>
+    internal void ReplaceAllSegments(IEnumerable<KeyValuePair<int, NodeSegment>> segments) {
+        lock (_lock) {
+            _pending.Clear(); // positions in the old file
+            foreach (var kv in segments) {
+                if (!_segments.Contains(kv.Key)) continue;
+                _segments.Set(kv.Key, kv.Value);
+                if (_dropWhenWritten.Remove(kv.Key)) _cache.Clear_EvenIf0Size(kv.Key);
+                else _cache.TryUpdateSize(kv.Key, estimateSize(kv.Value.Length));
+            }
         }
     }
     public void RegisterAction_NotThreadsafe(PrimitiveNodeAction action) { // not threadsafe, must be called from log writer thread only
         switch (action.Operation) {
             case PrimitiveOperation.Add:
                 if (action.Segment == null) throw new Exception("Internal error. ");
-                _segments.Add(action.Node.__Id, action.Segment.Value);
+                _segments.Set(action.Node.__Id, action.Segment.Value);
                 break;
             case PrimitiveOperation.Remove:
                 _segments.Remove(action.Node.__Id);
@@ -147,16 +189,19 @@ internal sealed class NodeStore {
             default: throw new NotImplementedException();
         }
     }
+    // an engine backed map writes -1 instead of a count, so a state file written by the other kind of store is detected
     internal void ReadState(BufferReader stream, Action<string?, int?> progress) {
         stream.ValidateMarker(_marker);
         stream.RecordChecksum();
         var count = stream.ReadVerifiedInt();
+        if (_segments.PersistedByEngine != (count < 0)) throw new Exception("The state file was written by another kind of state store. ");
+        if (count > 0) _segments.EnsureCapacity(count);
         for (var i = 0; i < count; i++) {
             if (i % 79190 == 0) progress("Reading node index " + (i + 1) + " of " + count, (i * 100 / count)); // just a prime number to "avoid" patterns
             var nodeId = (int)stream.ReadUInt();
             var pos = stream.ReadLong();
             var len = stream.ReadVerifiedInt();
-            _segments.Add(nodeId, new NodeSegment(pos, len));
+            _segments.Set(nodeId, new NodeSegment(pos, len));
         }
         stream.ValidateChecksum();
         stream.ValidateMarker(_marker);
@@ -164,11 +209,14 @@ internal sealed class NodeStore {
     internal void SaveState(IAppendStream stream) {
         stream.WriteGuid(_marker);
         stream.RecordChecksum();
-        stream.WriteVerifiedInt(_segments.Count);
-        foreach (var kv in _segments) {
-            stream.WriteUInt((uint)kv.Key); // node id
-            stream.WriteLong(kv.Value.AbsolutePosition); // position in log file
-            stream.WriteVerifiedInt(kv.Value.Length);  // length
+        var count = _segments.PersistedByEngine ? -1 : _segments.Count;
+        stream.WriteVerifiedInt(count);
+        if (count > 0) {
+            foreach (var kv in _segments.Entries) {
+                stream.WriteUInt((uint)kv.Key); // node id
+                stream.WriteLong(kv.Value.AbsolutePosition); // position in log file
+                stream.WriteVerifiedInt(kv.Value.Length);  // length
+            }
         }
         stream.WriteChecksum();
         stream.WriteGuid(_marker);

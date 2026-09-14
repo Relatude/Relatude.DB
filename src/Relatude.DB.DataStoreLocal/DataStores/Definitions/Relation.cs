@@ -41,14 +41,7 @@ namespace Relatude.DB.DataStores.Definitions {
         public HashSet<Guid> AllTargetTypes = null!; // Always initialized in Initialize
         public RelationType RelationType { get => Model.RelationType; }
         public void Initialize(Definition def) {
-            switch (RelationType) {
-                case RelationType.OneOne: _index = new OneOneIndex(); break;
-                case RelationType.OneToOne: _index = new OneToOneIndex(); break;
-                case RelationType.OneToMany: _index = new OneToManyIndex(); break;
-                case RelationType.ManyMany: _index = new ManyManyIndex(); break;
-                case RelationType.ManyToMany: _index = new ManyToManyIndex(); break;
-                default: break;
-            }
+            _index = _store._stateStore.CreateRelationIndex(Model);
             var types = _store._definition.Datamodel.NodeTypes;
             AllSourceTypes = Model.SourceTypes.Select(t => types[t].ThisAndDescendingTypes.Keys).SelectMany(t => t).ToHashSet();
             AllTargetTypes = Model.TargetTypes.Select(t => types[t].ThisAndDescendingTypes.Keys).SelectMany(t => t).ToHashSet();

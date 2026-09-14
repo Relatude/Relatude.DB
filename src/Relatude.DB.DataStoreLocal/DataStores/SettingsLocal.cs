@@ -28,6 +28,14 @@ public class SettingsLocal {
     public bool DoNotCacheMapperFile { get; set; } = false;
     public double NodeCacheSizeGb { get; set; } = 1;
     public double SetCacheSizeGb { get; set; } = 1;
+    /// <summary>
+    /// Where the per node state lives (guid/id map, node positions in the log, addresses, relations).
+    /// Memory: resident collections, saved as one state file and rebuilt from the log when it is missing.
+    /// Native: the built-in KV store on disk, committed with every transaction; memory use is
+    /// <see cref="StateStoreMaxMemoryUsageInMb"/> instead of the node count. Changing it rebuilds the state from the log.
+    /// </summary>
+    public StateStoreEngine StateStore { get; set; } = StateStoreEngine.Memory;
+    public int StateStoreMaxMemoryUsageInMb { get; set; } = 256;
 
     public bool FlushDiskOnEveryTransactionByDefault { get; set; } = false;
     public int ForceDiskFlushAfterActionCountLimit { get; set; } = 10000; // to reduce memory usage, but avoid flushing too often (latency)
@@ -216,6 +224,10 @@ public enum PersistedQueueStoreEngine {
     Memory = 0,
     Native = 1,
     Sqlite = 2,
+}
+public enum StateStoreEngine {
+    Memory = 0,
+    Native = 1,
 }
 public enum FileStoreEngine {
     SingleFile = 0,

@@ -62,6 +62,15 @@ public sealed class IndexEngines : IDisposable {
             if (!map.TryAdd(id, engine)) throw new ArgumentException("Index engine id " + id + " is registered twice. ");
         }
     }
+    IndexEngines(IndexEngines other, IIndexEngine stateEngine) {
+        _value = other._value;
+        _text = other._text;
+        _vector = other._vector;
+        _distinct = other._distinct.Contains(stateEngine) ? other._distinct : [.. other._distinct, stateEngine];
+        _distinctVector = other._distinctVector;
+    }
+    /// <summary>The same engines plus the state store's engine, driven through the same protocol.</summary>
+    public IndexEngines WithStateEngine(IIndexEngine stateEngine) => new(this, stateEngine);
     /// <summary>Convenience for the common case of at most one engine per kind.</summary>
     public static IndexEngines Single(Guid valueId = default, IValueIndexEngine? value = null,
         Guid textId = default, ITextIndexEngine? text = null,

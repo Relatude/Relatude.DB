@@ -1942,7 +1942,7 @@ sealed class UIQuery {
     // How many cards one picture may hold. Every card costs six bytes on the wire per property it is
     // grouped by, and a few tens of bytes of GPU memory in the browser, so a million is a picture the
     // browser can still draw; a result larger than that shows its first million and says so.
-    const int maxVisualCards = 1_000_000;
+    const int maxVisualCards = 10_000_000;
     // How many distinct values one property may colour or stack by. A palette has to keep the colours
     // apart and a bar chart has to keep the bars readable; past this the smaller buckets go unassigned
     // and the page shows them as one "(other)" group.

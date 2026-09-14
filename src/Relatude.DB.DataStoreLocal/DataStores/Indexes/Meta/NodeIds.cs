@@ -14,7 +14,7 @@ namespace Relatude.DB.DataStores.Indexes.Meta;
 class idSet {
     readonly StateIdTracker _state = new();
     public long StateId { get => _state.Current; }
-    HashSet<int> _ids = [];
+    readonly MutableSet _ids = new(); // becomes a bit set once large: a few bits per node instead of a HashSet entry
     IdSet? _lastSet;
     DateTime _createdUsingNowUtc;
     public DateTime? ValidFrom;
@@ -93,7 +93,7 @@ class ctxAndType(Guid ctxTypeId, QueryContextKey ctxKey) : IEquatable<ctxAndType
     }
 }
 class nodeMetasByNodeId {
-    readonly Dictionary<int, uint> _single = new();
+    ValueByIdMap<uint> _single = new();
     readonly Dictionary<int, uint[]> _multiple = new();
     public nodeMetasByNodeId() {
     }
@@ -118,15 +118,14 @@ class nodeMetasByNodeId {
     }
     public void Add(int nodeId, uint metaId) {
         // Console.WriteLine("Adding metaId " + metaId + " to nodeId " + nodeId);
-        if (_single.ContainsKey(nodeId)) {
+        if (_single.TryGetValue(nodeId, out var existingMetaId)) {
             // move to multiple:
-            var existingMetaId = _single[nodeId];
             _single.Remove(nodeId);
             _multiple[nodeId] = [existingMetaId, metaId];
         } else if (_multiple.TryGetValue(nodeId, out var existingMetaIds)) {
             _multiple[nodeId] = [.. existingMetaIds, metaId];
         } else {
-            _single[nodeId] = metaId;
+            _single.Set(nodeId, metaId);
         }
     }
     public void Remove(int nodeId, uint metaId) {
@@ -148,7 +147,7 @@ class nodeMetasByNodeId {
                 _multiple.Remove(nodeId);
             } else if (newMetaIds.Length == 1) {
                 _multiple.Remove(nodeId);
-                _single[nodeId] = newMetaIds[0];
+                _single.Set(nodeId, newMetaIds[0]);
             } else {
                 _multiple[nodeId] = newMetaIds;
             }
@@ -158,10 +157,11 @@ class nodeMetasByNodeId {
     }
     public void ReadFromStream(IReadStream stream) {
         var singleCount = stream.ReadInt();
+        _single = new(singleCount);
         for (int i = 0; i < singleCount; i++) {
             var nodeId = stream.ReadInt();
             var metaId = stream.ReadUInt();
-            _single[nodeId] = metaId;
+            _single.Set(nodeId, metaId);
         }
         var multipleCount = stream.ReadInt();
         for (int i = 0; i < multipleCount; i++) {

@@ -37,6 +37,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         s += System.Text.Json.JsonSerializer.Serialize(_settings.EnableTextIndexByDefault);
         s += System.Text.Json.JsonSerializer.Serialize(_settings.PersistedValueIndexFolderPath);
         s += System.Text.Json.JsonSerializer.Serialize(_settings.EnableSemanticIndexByDefault);
+        s += System.Text.Json.JsonSerializer.Serialize(_settings.StateStore);
         return s.GenerateHashGuid();
         //var g = s.GenerateGuid();
         //Log(SystemLogEntryType.Info, "Model hash: " + g);
@@ -156,6 +157,9 @@ public sealed partial class DataStoreLocal : IDataStore {
                 throw new StateFileReadException(errMsg, err);
             }
         }
+        // an engine backed state store replays from its own position, the state file from its own:
+        var stateEngine = _stateStore.Engine;
+        var stateEngineTimestamp = stateEngine?.GetTimestamp() ?? 0; // after BindToWalFile, which may have reset it
         // reading statefile progress 50-55%
         var stateFileKey = FileKeyUtility.State_GetNewestFileKey(IOIndex); // incomplete files are already deleted above
         if (stateFileKey == null || IOIndex.DoesNotExistOrIsEmpty(stateFileKey)) { // no state file, so read from beginning of log file
@@ -223,9 +227,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         _wal.EnsureTimestamps(stateFileTimestamp); // from statefile, making sure next written transaction is not less than state file
 
-        var nodeSnapshot = _nodes.Snapshot();
-        var whereOutSide = nodeSnapshot.Where(n => n.segment.AbsolutePosition + n.segment.Length > walFileSize);
-        if (whereOutSide.Any()) throw new StateFileReadException("Some node segments point outside log file. ", null);
+        if (stateEngine == null) { // an engine's positions are only made durable after the log they point into
+            foreach (var kv in _nodes.EnumerateSegments_NotThreadsafe()) {
+                if (kv.Value.AbsolutePosition + kv.Value.Length > walFileSize) throw new StateFileReadException("Some node segments point outside log file. ", null);
+            }
+        }
 
         // figuring out from where to read the log file to reach latest state, building on current read state
 
@@ -234,6 +240,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             throw new Exception("   Warning: State file position beyond log file size. Cannot use state file. ");
         }
         var oldestPersistedIndexTimestamp = _index.GetOldestPersistedTimestamp();
+        if (stateEngine != null) oldestPersistedIndexTimestamp = Math.Min(oldestPersistedIndexTimestamp, stateEngineTimestamp);
         if (stateFileTimestamp > oldestPersistedIndexTimestamp) {
             readLogFileFrom = 0; // need to read all to build indexes correctly ( this could be optimized later, to search from timestamp in log file )
         }
@@ -250,8 +257,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         long sizeOfCurrentTransaction;
         var lastBytesRead = 0D;
         Engines.BeginTransaction();
-        var idValidator = new IdValidator(this, throwOnErrors);
-        idValidator.Seed(nodeSnapshot.Select(n => n.nodeId)); // ids loaded from the state file snapshot; validation below only runs for actions newer than the snapshot
+        var idValidator = new IdValidator(this, throwOnErrors); // validation below only runs for actions newer than the node store's position
         using (var logReader = new LogReader(_wal.FileKey, _definition, _io, readLogFileFrom, stateFileTimestamp)) {
             LogInfo("   Log file size: " + logReader.FileSize.ToByteString());
             var noActionsNotCommittedInPersistedIndexes = 0;
@@ -261,11 +267,12 @@ public sealed partial class DataStoreLocal : IDataStore {
                 transactionCount++;
                 actionCountInTransaction = 0;
                 var isTransactionRelevantForStateStores = transaction.Timestamp > stateFileTimestamp;
+                var isTransactionRelevantForStateEngine = stateEngine == null ? isTransactionRelevantForStateStores : transaction.Timestamp > stateEngineTimestamp;
                 var isTransactionRelevantForIndexes = transaction.Timestamp >= oldestPersistedIndexTimestamp;
                 foreach (var a in transaction.ExecutedActions) {
-                    // only validate actions that are applied to the state stores; older actions are already reflected
-                    // in the seeded snapshot, so validating them again would produce false add/remove errors:
-                    if (isTransactionRelevantForStateStores && !idValidator.Validate(a, transaction.Timestamp)) continue;
+                    // only validate actions that are applied to the node store; older actions are already reflected
+                    // in its state, so validating them again would produce false add/remove errors:
+                    if (isTransactionRelevantForStateEngine && !idValidator.Validate(a, transaction.Timestamp)) continue;
                     try {
                         if (actionCount % 100 == 0 && (sw.ElapsedMilliseconds - lastProgress > 200)) {
                             var remainingInTrans = 1D - (double)actionCountInTransaction / transaction.ExecutedActions.Count;
@@ -286,17 +293,19 @@ public sealed partial class DataStoreLocal : IDataStore {
                             setStartupProgressEstimate(progressBar / 2 + 50, (int)remainingMs);
                             lastBytesRead = readBytes;
                         }
-                        if (isTransactionRelevantForStateStores) {
+                        if (isTransactionRelevantForStateEngine) {
                             _guids.RegisterAction(a);
                             if (a is PrimitiveNodeAction na) {
                                 _nodes.RegisterAction_NotThreadsafe(na);
-                                _definition.NodeTypeIndex.RegisterActionDuringStateLoad(na, throwOnErrors, logError);
                                 _addresses.RegisterActionDuringStateLoad(na, throwOnErrors, logError);
                             } else if (a is PrimitiveRelationAction ra) {
                                 _relations.RegisterActionIfPossible(ra); // Simple validation omits fetching nodes to check types etc, would be slow and cause multiple open stream problems
                             } else if (a is PrimitiveRelationReorderAction rra) {
                                 _relations.RegisterActionIfPossible(rra);
                             } else throw new NotImplementedException();
+                        }
+                        if (isTransactionRelevantForStateStores) {
+                            if (a is PrimitiveNodeAction na) _definition.NodeTypeIndex.RegisterActionDuringStateLoad(na, throwOnErrors, logError);
                             _nativeModelStore.RegisterActionDuringStateLoad(a, throwOnErrors, logError);
                         }
                         if (isTransactionRelevantForIndexes) {
@@ -366,7 +375,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         Engines.MakeDurable(_wal.LastTimestamp); // replay work must not stay pending until the first background flush
         // node segments are final here (state + replay, in write order), so the version-chain heads
         // can be established; must happen while the log streams are still closed:
-        _wal.SeedChainHeadsWhileClosed(persistedChainState, _nodes.Snapshot(), msg => LogInfo(msg), logError);
+        _wal.SeedChainHeadsWhileClosed(persistedChainState, _nodes.EnumerateSegments_NotThreadsafe(), msg => LogInfo(msg), logError);
         _wal.OpenForAppending(); // read for appending again
         validateStateInfoIfDebug();
         foreach (var e in idValidator.GetErrors()) logError(e);
@@ -426,13 +435,9 @@ public sealed partial class DataStoreLocal : IDataStore {
 }
 
 class IdValidator(DataStoreLocal store, bool throwOnErrors) {
-    // simple validator to check that node ids are not added or removed multiple times
-    HashSet<int> ids = [];
+    // simple validator to check that node ids are not added or removed multiple times, against the node store as it is replayed
     int maxErrorCount = 256;
     int errorCount = 0;
-    public void Seed(IEnumerable<int> existingIds) {
-        foreach (var id in existingIds) ids.Add(id);
-    }
     public List<string> errors = [];
     public IEnumerable<string> GetErrors() {
         if (maxErrorCount <= errorCount) {
@@ -446,12 +451,13 @@ class IdValidator(DataStoreLocal store, bool throwOnErrors) {
     string date(long timestamp) => new DateTime(timestamp, DateTimeKind.Utc).ToString("yyyy-MM-dd HH:mm:ss.fff") + " UTC";
     public bool Validate(PrimitiveActionBase a, long timestamp) {
         if (a is PrimitiveNodeAction pna) {
-            if (pna.Operation == PrimitiveOperation.Add && ids.Add(pna.Node.__Id) == false) {
+            var exists = store._nodes.Contains(pna.Node.__Id);
+            if (pna.Operation == PrimitiveOperation.Add && exists) {
                 errorCount++;
                 if (errorCount < maxErrorCount) errors.Add("Node " + pna.Node.__Id + " (" + typeName(pna) + ") added twice at " + date(timestamp));
                 if (throwOnErrors) throw new Exception(errors.First());
                 return false;
-            } else if (pna.Operation == PrimitiveOperation.Remove && ids.Remove(pna.Node.__Id) == false) {
+            } else if (pna.Operation == PrimitiveOperation.Remove && !exists) {
                 errorCount++;
                 if (errorCount < maxErrorCount) errors.Add("Node " + pna.Node.__Id + " (" + typeName(pna) + ") removed twice at " + date(timestamp));
                 if (throwOnErrors) throw new Exception(errors.First());

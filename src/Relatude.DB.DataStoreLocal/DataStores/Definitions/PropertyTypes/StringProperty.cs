@@ -117,7 +117,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue, I
         var wordIndex = IndexedByWords ? GetWordIndex(ctx) : null;
         if (IndexedByWords && IndexedBySemantic && ratioSemantic < 1 && ratioSemantic > 0) {
             var wordHits = wordIndex == null ? IdSet.Empty : wordIndex.SearchForIdSetUnranked(textSearches, orSearch, maxWordsEval);
-            var sematicHits = semanticIndex == null ? IdSet.Empty : semanticIndex.SearchForIdSetUnranked(semanticText, minimumVectorSimilarity);
+            var sematicHits = semanticIndex == null || semanticIndex.MaxCount(search) == 0 ? IdSet.Empty : semanticIndex.SearchForIdSetUnranked(semanticText, minimumVectorSimilarity);
             return _sets.Union(wordHits, sematicHits);
         } else if (IndexedByWords && (ratioSemantic < 1 || !IndexedBySemantic)) {
             if (wordIndex == null) throw new NullReferenceException(nameof(wordIndex));
@@ -142,7 +142,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue, I
         var wordIndex = IndexedByWords ? GetWordIndex(ctx) : null;
 
         //if (useSemantic && semanticIndex == null) throw new Exception("Current setup does not have a semantic index configured. ");
-        if (useSemantic && semanticIndex == null) useSemantic = false;
+        if (useSemantic && (semanticIndex == null || semanticIndex.MaxCount(search) == 0)) useSemantic = false;
 
         //if (useWords && wordIndex == null) throw new Exception("Current setup does not have a text index configured. ");
         if (useWords && wordIndex == null) useWords = false;
