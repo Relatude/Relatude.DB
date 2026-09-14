@@ -1,4 +1,4 @@
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.StateStores;
@@ -241,4 +241,6 @@ internal sealed class NodeStore {
     internal int CacheCount { get { lock (_lock) { return _cache.Count; } } }
     internal int Count { get { lock (_lock) { return _segments.Count; } } }
     internal void HalfCacheSize() { lock (_lock) _cache.HalfSize(); }
+    internal long CacheMaxSize => _cache.MaxSize;
+    internal void SetCacheMaxSize(long bytes) => _cache.SetMaxSize(bytes);
 }

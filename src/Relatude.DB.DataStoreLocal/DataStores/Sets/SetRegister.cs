@@ -29,6 +29,13 @@ public class SetRegister(long maxSize) {
 
     }
     static public long NewStateId() => Interlocked.Increment(ref _setStateId);
+    /// <summary>Bytes of cached id sets, against the budget below. The aggregate cache is counted by entries, not bytes, and is not part of it.</summary>
+    public long SetCacheBytes => _cache.Size;
+    public long SetCacheMaxBytes => _cache.MaxSize;
+    public void SetSetCacheMaxBytes(long bytes) {
+        _disabled = bytes == 0;
+        _cache.SetMaxSize(bytes);
+    }
     public void InvalidateAll() {
         if (_disabled) return;
         _cache.ClearAll_NotSize0();

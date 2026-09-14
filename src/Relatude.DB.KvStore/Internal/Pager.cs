@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
@@ -43,6 +43,16 @@ internal sealed class Pager : IPageSource, IDisposable
 
     /// <summary>True when the pager has no backing file: all pages live in memory and nothing is persisted.</summary>
     public bool IsMemoryOnly => _mem is not null;
+
+    /// <summary>Bytes held in memory: the page cache and the pages published but not yet written out.</summary>
+    public long MemoryBytes => ((long)Cache.Count + _pendingWrites.Count) * PageSize;
+
+    /// <summary>Re-splits a byte budget over the page cache and the parked writes, as the constructor did.</summary>
+    public void SetMemoryBudget(long cacheBytes, long pendingWriteBytes)
+    {
+        Cache.SetCapacity((int)Math.Max(16, cacheBytes / PageSize));
+        _spillPages = (int)Math.Max(64, pendingWriteBytes / PageSize);
+    }
 
     // ---- memory-mapped IO ----
     // Bulk page write-outs go through a mapped view of the file: a 4 KiB buffered WriteFile costs
@@ -91,7 +101,7 @@ internal sealed class Pager : IPageSource, IDisposable
     // parked page is always reachable. Entries are immutable committed pages; the writer mutates
     // the map only under the engine's write lock, readers only look up.
     private readonly ConcurrentDictionary<uint, byte[]> _pendingWrites = new();
-    private readonly int _spillPages;
+    private int _spillPages;
 
     // Pages written through the map since the last deep flush, so FlushViewOfFile can be asked
     // for exactly those ranges instead of scanning the whole view's PTEs (which turns a 10-page

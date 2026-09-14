@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.Common {
     /// <summary>
@@ -23,7 +23,7 @@ namespace Relatude.DB.Common {
             public Entry? Older;
         }
         readonly object _lock = new();
-        readonly long _maxSize = maxSize;
+        long _maxSize = maxSize;
         readonly Dictionary<TKey, Entry> _cache = [];
         Entry? _mru;
         Entry? _lru;
@@ -51,6 +51,13 @@ namespace Relatude.DB.Common {
         void remove(Entry e) {
             unlink(e);
             _cache.Remove(e.Key);
+        }
+        /// <summary>Changes the budget; anything over the new one is evicted at once.</summary>
+        public void SetMaxSize(long maxSize) {
+            lock (_lock) {
+                _maxSize = maxSize;
+                if (_size >= _maxSize) reduceToSize(_maxSize / 2);
+            }
         }
         public bool TryUpdateSize(TKey key, int size) {
             lock (_lock) {

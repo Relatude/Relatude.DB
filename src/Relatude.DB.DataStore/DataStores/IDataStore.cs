@@ -1,4 +1,4 @@
-using Relatude.DB.AI;
+﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
@@ -251,6 +251,12 @@ public interface IDataStore : IDisposable {
     /// <see cref="StoreCounters"/> for what the numbers count and what resets them.
     /// </summary>
     StoreCounters PeekCounters();
+
+    /// <summary>Every memory budget of this database, with what it holds right now. See <see cref="MemoryBudget"/>.</summary>
+    MemoryBudget[] GetMemoryBudgets();
+    /// <summary>Changes one budget for as long as the database stays open; false when that component cannot be
+    /// adjusted while running. Persisting the new value is the caller's business (it is a setting).</summary>
+    bool TrySetMemoryBudget(MemoryBudgetKind kind, Guid engineId, long bytes);
     /// <summary>
     /// Queues text extraction and indexing for every node of a text indexed type, and returns how
     /// many were queued. The work itself runs as background tasks: nothing is deleted, each node's

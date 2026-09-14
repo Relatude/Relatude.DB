@@ -3081,6 +3081,10 @@ indistinguishable by timing.</p>
 <td><strong>Status</strong></td>
 <td>Store state, running file conversions, activity and timings.</td>
 </tr>
+<tr>
+<td><strong>Memory</strong> (on the dashboard)</td>
+<td>Every memory budget of one database on one line - the node and result set caches, each index engine, the state store - each showing what it is actually holding against what it is allowed. Dragging a budget takes effect at once where the part can be re-sized while it runs; saving writes them back to <code>relatude.db.json</code> for the next start.</td>
+</tr>
 </tbody>
 </table>
 <p>Two habits worth forming:</p>

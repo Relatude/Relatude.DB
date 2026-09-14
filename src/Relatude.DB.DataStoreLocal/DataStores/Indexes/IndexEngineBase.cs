@@ -1,4 +1,4 @@
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 
 namespace Relatude.DB.DataStores.Indexes;
 
@@ -193,6 +193,13 @@ public abstract class IndexEngineBase : IIndexEngine {
 
     /// <summary>Backend-specific disk optimization (e.g. VACUUM, segment merge).</summary>
     public abstract void OptimizeDisk();
+
+    /// <summary>What the backend holds in memory; null (the default) when it keeps no account of it.</summary>
+    public virtual long? GetMemoryUsage() => null;
+    /// <summary>The budget in force; -1 (the default) when the backend has none of its own.</summary>
+    public virtual long GetMemoryBudget() => -1;
+    /// <summary>Changes the budget at runtime; false (the default) when it only takes effect at open.</summary>
+    public virtual bool TrySetMemoryBudget(long bytes) => false;
 
     /// <summary>Delete indexes that exist in storage but were not opened this session, and drop
     /// their persisted timestamps.</summary>

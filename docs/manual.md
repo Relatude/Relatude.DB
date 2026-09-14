@@ -2024,6 +2024,7 @@ What you do in it:
 | **IO** | Where the append-only transaction log and backups are written. |
 | **Backups** | One-click backup and restore. Take one before upgrading — the project is pre-1.0. |
 | **Status** | Store state, running file conversions, activity and timings. |
+| **Memory** (on the dashboard) | Every memory budget of one database on one line - the node and result set caches, each index engine, the state store - each showing what it is actually holding against what it is allowed. Dragging a budget takes effect at once where the part can be re-sized while it runs; saving writes them back to `relatude.db.json` for the next start. |
 
 Two habits worth forming:
 

@@ -24,6 +24,13 @@ public class ISVEngine : ISemanticIndexEngine {
         _defaults = defaultOptions ?? new();
     }
     public string Name => "Native Vector";
+    public long? GetMemoryUsage() => _indexes.Values.Sum(i => i.CurrentCacheBytes);
+    public long GetMemoryBudget() => _defaults.MaxCacheBytes;
+    public bool TrySetMemoryBudget(long bytes) {
+        _defaults.MaxCacheBytes = bytes;
+        foreach (var index in _indexes.Values) index.MaxCacheBytes = bytes;
+        return true;
+    }
     public ISemanticIndex OpenSemanticIndex(SetRegister sets, string id, string friendlyName, AIEngine ai, Action<string>? log) {
         if (_indexes.TryGetValue(id, out var existing)) return existing; // idempotent re-open
         var folder = Path.Combine(_folderPath, FileKeyUtility.IndexEngine_VectorIndexIndexFolderKey(id));

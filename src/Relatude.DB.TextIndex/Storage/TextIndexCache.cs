@@ -1,4 +1,4 @@
-namespace Relatude.DB.DataStores.Indexes.TextIndexing;
+﻿namespace Relatude.DB.DataStores.Indexes.TextIndexing;
 
 internal readonly record struct CacheKey(int Owner, byte Kind, long A, long B, string? Word);
 
@@ -18,7 +18,17 @@ internal sealed class TextIndexCache(long maxBytes) {
     readonly Dictionary<CacheKey, LinkedListNode<Entry>> _map = [];
     readonly LinkedList<Entry> _lru = new(); // front = most recently used
     long _used;
-    public long MaxBytes { get; } = maxBytes;
+    long _maxBytes = maxBytes;
+    /// <summary>The budget; lowering it evicts down to the new one at once.</summary>
+    public long MaxBytes {
+        get => Interlocked.Read(ref _maxBytes);
+        set {
+            lock (_lock) {
+                Interlocked.Exchange(ref _maxBytes, value);
+                trim();
+            }
+        }
+    }
     /// <summary>Bytes currently held, by the cache's own accounting. Diagnostics only.</summary>
     public long UsedBytes { get { lock (_lock) return _used; } }
     /// <summary>Entries currently held. Diagnostics only.</summary>
@@ -49,12 +59,16 @@ internal sealed class TextIndexCache(long maxBytes) {
                 _map.Add(key, node);
                 _used += size;
             }
-            while (_used > MaxBytes && _lru.Count > 0) {
-                var tail = _lru.Last!;
-                _lru.RemoveLast();
-                _map.Remove(tail.Value.Key);
-                _used -= tail.Value.Size;
-            }
+            trim();
+        }
+    }
+    // caller holds the lock
+    void trim() {
+        while (_used > MaxBytes && _lru.Count > 0) {
+            var tail = _lru.Last!;
+            _lru.RemoveLast();
+            _map.Remove(tail.Value.Key);
+            _used -= tail.Value.Size;
         }
     }
     /// <summary>Drop every entry belonging to one index (owner), optionally only one kind.</summary>

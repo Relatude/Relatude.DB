@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Text;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datastores.Indexes.BTreeIndex;
@@ -17,6 +17,7 @@ public sealed class NativeKvStateStore : IndexEngineBase, IStateStore {
     readonly BPlusTreeStorageEngine _storage;
     readonly ISortedIntIndex<string> _settings;
     bool _disposed;
+    long _budgetBytes;
     internal enum SettingKey : int { WalId = 1, LastId = 2, AddressCultures = 3 }
     /// <param name="folderPath">Folder for the state file, or null for a memory only engine (tests).</param>
     /// <param name="maxMemoryBytes">Cache budget; negative keeps the built-in sizes.</param>
@@ -30,6 +31,7 @@ public sealed class NativeKvStateStore : IndexEngineBase, IStateStore {
         var options = maxMemoryBytes < 0
             ? new BPlusTreeEngineOptions { PageCacheBytes = 64L * 1024 * 1024, PendingWriteBytes = 32L * 1024 * 1024 }
             : new BPlusTreeEngineOptions { PageCacheBytes = Math.Max(minBytes, maxMemoryBytes / 3 * 2), PendingWriteBytes = Math.Max(minBytes, maxMemoryBytes / 3) };
+        _budgetBytes = maxMemoryBytes;
         _storage = new BPlusTreeStorageEngine(filePath, options);
         _settings = _storage.OpenOrCreateSortedIntIndex<string>("settings");
     }
@@ -60,6 +62,13 @@ public sealed class NativeKvStateStore : IndexEngineBase, IStateStore {
         }
     }
     public override long GetTimestamp() => _storage.GetTimestamp();
+    public override long? GetMemoryUsage() => _storage.GetMemoryUsage();
+    public override long GetMemoryBudget() => _budgetBytes;
+    public override bool TrySetMemoryBudget(long bytes) {
+        _storage.SetMemoryBudget(bytes);
+        _budgetBytes = bytes;
+        return true;
+    }
     public override long GetTotalDiskSpace() => _storage.GetTotalDiskSpace();
     public override void OptimizeDisk() { }
     protected override void DeleteUnopenedIndexesCore() => _storage.DeleteUnopenedIndexes();

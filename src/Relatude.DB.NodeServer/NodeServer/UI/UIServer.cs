@@ -37,6 +37,7 @@ public sealed class UIServer {
         _logs.Register(Commands);
         _transfer = new UIFileTransfer(server);
         new UIDashboard(server).Register(Commands);
+        new UIMemory(server).Register(Commands);
         new UITasks(server).Register(Commands);
         new UIDemo(server).Register(Commands);
         new UIRevert(server).Register(Commands);

@@ -1,4 +1,4 @@
-using Relatude.DB.AI;
+﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.FileConversion;
@@ -181,6 +181,8 @@ public class DataStoreSession : IDataStore {
         => _datastore.GetTextExtract(ids, indexType);
     public int ReIndexAllText() => _datastore.ReIndexAllText();
     public StoreCounters PeekCounters() => _datastore.PeekCounters();
+    public MemoryBudget[] GetMemoryBudgets() => _datastore.GetMemoryBudgets();
+    public bool TrySetMemoryBudget(MemoryBudgetKind kind, Guid engineId, long bytes) => _datastore.TrySetMemoryBudget(kind, engineId, bytes);
 
     public int GetId(Guid guid) => _datastore.GetId(guid);
     public Guid GetGuid(int id) => _datastore.GetGuid(id);

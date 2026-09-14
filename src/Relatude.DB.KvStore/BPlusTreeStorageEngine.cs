@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Text;
 using Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
@@ -421,6 +421,19 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
     }
 
     public long GetTotalDiskSpace() => _pager.IsMemoryOnly ? 0 : _pager.FileLength;
+
+    /// <summary>Bytes the engine holds in memory: cached pages plus pages published but not yet written out.</summary>
+    public long GetMemoryUsage() => _pager.MemoryBytes;
+
+    /// <summary>
+    /// Re-splits the memory budget, two thirds to the page cache and one to the parked writes - the
+    /// same split the constructor makes. Takes effect at once: a lowered budget evicts on the spot.
+    /// </summary>
+    public void SetMemoryBudget(long maxMemoryBytes)
+    {
+        const long minBytes = 256L * 1024;
+        _pager.SetMemoryBudget(Math.Max(minBytes, maxMemoryBytes / 3 * 2), Math.Max(minBytes, maxMemoryBytes / 3));
+    }
 
     public void DeleteAll()
     {

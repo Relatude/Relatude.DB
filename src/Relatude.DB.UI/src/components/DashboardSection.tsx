@@ -6,29 +6,27 @@ import {
   IconChartTreemap,
   IconCube3dSphere,
   IconDatabaseSearch,
-  IconEraser,
   IconEyeOff,
   IconLayoutList,
   IconPlayerPlayFilled,
   IconPlayerStopFilled,
-  IconRecycle,
   IconRefresh,
   IconReload,
   IconSchema,
 } from "@tabler/icons-react";
 import { Chart } from "./Chart";
 import { ProcessChart, currentCpu, formatPercent, padToWindow, type ProcessSample } from "./ProcessChart";
+import { MemoryPanel } from "./MemoryPanel";
 import { PanelGrid, type PanelRow } from "./PanelGrid";
 import { TypeChart, otherSliceId, shade, type TypeChartShape, type TypeSlice } from "./TypeChart";
 import { KindIcon } from "./DatamodelIcons";
 import { openInDatamodel, openInQuery } from "../navigate";
 import { showConfirm, showError, showInfo } from "../dialogs";
-import { clearCaches, fetchDashboard, type DashboardInfo, type DashboardLive, type TypeCount } from "../server/dashboard";
+import { fetchDashboard, type DashboardInfo, type DashboardLive, type TypeCount } from "../server/dashboard";
 import { codeSourceGuid, sourceColors } from "../server/datamodel";
 import type { TraceInfo } from "../server/logs";
 import { useMeasuredEvery, useRefreshInterval } from "../refresh";
 import { useLive } from "../live";
-import { collectGarbage } from "../server/overview";
 import { closeStore, openStore } from "../server/storage";
 import type { DatabaseInfo } from "../server/serverInfo";
 import type { SeriesPoint } from "../server/logs";
@@ -84,8 +82,6 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   const [error, setError] = useState<string | null>(null);
   const [metric, setMetric] = useState<MetricId>("queries");
   const [openBusy, setOpenBusy] = useState(false);
-  const [cacheBusy, setCacheBusy] = useState<"clear" | "collect" | null>(null);
-  const [cacheMessage, setCacheMessage] = useState<string | null>(null);
   const samples = useRef<Sample[]>([]);
   const [, setSampleTick] = useState(0);
   const measuredEvery = useMeasuredEvery();
@@ -207,41 +203,6 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
     }
   }
 
-  /**
-   * Empties the caches of this database. Everything it held is read from the indexes again, so the
-   * next queries are slower until they warm back up - which is the point of it, and why it is not
-   * asked about: nothing is lost, the indexes warm again on their own, and a measurement that has
-   * to start from cold is not helped by a dialog in the way.
-   */
-  async function onClearCaches() {
-    setCacheBusy("clear");
-    try {
-      const result = await clearCaches(db.id);
-      setCacheMessage(
-        `Cleared ${formatCount(result.entriesCleared)} entr${result.entriesCleared === 1 ? "y" : "ies"} in ${formatElapsed(result.elapsedMs)}` +
-          `${result.freedBytes > 0 ? `, freeing ${formatBytes(result.freedBytes)}` : ""}.`,
-      );
-      await loadInfo();
-    } catch (e) {
-      showError("Could not clear the caches", e instanceof Error ? e.message : String(e));
-    } finally {
-      setCacheBusy(null);
-    }
-  }
-
-  // the process, not this database: the collection is deep, blocking and compacting, and there is
-  // one heap behind every database on this server
-  async function onCollectGarbage() {
-    setCacheBusy("collect");
-    try {
-      setCacheMessage((await collectGarbage()).message);
-    } catch (e) {
-      showError("Could not collect", e instanceof Error ? e.message : String(e));
-    } finally {
-      setCacheBusy(null);
-    }
-  }
-
   if (error) return <div className="placeholder">{error}</div>;
   if (!info) return null;
 
@@ -347,64 +308,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
     </section>
   );
 
-  // the three caches take the middle of the panel; the two actions and the line explaining them sit
-  // at the bottom, where an action belongs when what it acts on is above it
-  const cachePanel = (
-    <section className="panel panel-fill">
-      <h3>
-        Caches <span className="panel-sub">what is being answered from memory</span>
-      </h3>
-      <div className="fill-body dash-cache-list">
-      <CacheRow
-        label="Nodes"
-        count={live?.nodeCacheCount ?? 0}
-        size={live?.nodeCacheSize ?? 0}
-        fill={info.cache?.nodeCacheSizePercentage ?? 0}
-        hits={info.cache?.nodeCacheHits ?? 0}
-        misses={info.cache?.nodeCacheMisses ?? 0}
-      />
-      <CacheRow
-        label="Result sets"
-        count={live?.setCacheCount ?? 0}
-        size={live?.setCacheSize ?? 0}
-        fill={info.cache?.setCacheSizePercentage ?? 0}
-        hits={info.cache?.setCacheHits ?? 0}
-        misses={info.cache?.setCacheMisses ?? 0}
-      />
-      <CacheRow
-        label="Aggregates"
-        count={info.cache?.aggregateCacheCount ?? 0}
-        size={null}
-        fill={null}
-        hits={info.cache?.aggregateCacheHits ?? 0}
-        misses={info.cache?.aggregateCacheMisses ?? 0}
-      />
-      </div>
-      {/* half a page wide, so the two actions sit side by side with one line under them,
-          rather than each button pushing its own hint into a column too narrow to read */}
-      <div className="dash-cache-actions">
-        <button
-          className="action-button"
-          onClick={onClearCaches}
-          disabled={cacheBusy !== null}
-          title="Empties the caches of this database and frees the memory they held"
-        >
-          <IconEraser size={14} stroke={1.8} /> {cacheBusy === "clear" ? "Clearing…" : "Clear caches"}
-        </button>
-        <button
-          className="action-button"
-          onClick={onCollectGarbage}
-          disabled={cacheBusy !== null}
-          title="The deepest collection the runtime allows - blocking, compacting, repeated - on the whole server process"
-        >
-          <IconRecycle size={14} stroke={1.8} /> {cacheBusy === "collect" ? "Collecting…" : "Collect garbage"}
-        </button>
-      </div>
-      <div className="muted dash-cache-note">
-        {cacheMessage ?? "clearing empties this database and warms the indexes again in the background; collecting is the whole server process"}
-      </div>
-    </section>
-  );
+  const memoryPanel = <MemoryPanel storeId={db.id} cache={info.cache} onChanged={loadInfo} />;
 
   const enginesPanel = (
     <section className="panel">
@@ -521,9 +425,9 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
       : [
           // rows given a height of their own hold a panel that fills whatever it is handed - a chart
           // or a terminal sized to its own content has no height at all
-          // the caches take the sized row: three rows and two buttons have a shape of their own, and
+          // the budgets take the sized row: a row per part with a bar has a shape of its own, and
           // what is running is a list of nothing most of the time, which does not need the height
-          { id: "activity", height: 300, cells: [activityPanel, cachePanel] },
+          { id: "activity", height: 300, cells: [activityPanel, memoryPanel] },
           { id: "engines", cells: [enginesPanel, nowPanel] },
           { id: "trace", height: 260, cells: [tracePanel, <ContentPanel key="content" info={info} storeId={db.id} />] },
         ];
@@ -602,7 +506,6 @@ function seriesPoints(samples: Sample[], metric: MetricId, kind: "rate" | "level
 }
 
 // formatDuration counts in whole seconds, which reads as "00:00:00" for work that took milliseconds
-const formatElapsed = (ms: number) => (ms < 1000 ? Math.round(ms) + " ms" : (ms / 1000).toFixed(1) + " s");
 
 const formatRate = (value: number) => (value >= 100 ? formatCount(Math.round(value)) : value.toFixed(value >= 10 ? 0 : 1));
 
@@ -937,46 +840,3 @@ function Fact({ k, v }: { k: string; v: string }) {
   );
 }
 
-function CacheRow({
-  label,
-  count,
-  size,
-  fill,
-  hits,
-  misses,
-}: {
-  label: string;
-  count: number;
-  size: number | null;
-  fill: number | null;
-  hits: number;
-  misses: number;
-}) {
-  const lookups = hits + misses;
-  // the hit rate is the number that says whether the cache is doing anything; without a lookup
-  // there is nothing to report rather than a rate of zero
-  const rate = lookups > 0 ? Math.round((hits / lookups) * 100) : null;
-  return (
-    <div className="dash-cache">
-      <span className="dash-cache-label">{label}</span>
-      <span className="muted">
-        {formatCount(count)} kept{size != null ? ` · ${formatBytes(size)}` : ""}
-      </span>
-      {fill != null && (
-        <span className="scan-bar" title={`${Math.round(fill)}% of the memory budget`}>
-          <span className="scan-bar-fill" style={{ width: Math.min(100, Math.max(0, fill)) + "%" }} />
-        </span>
-      )}
-      <span className="num">{rate == null ? "—" : rate + "% hit"}</span>
-      {/* The rate on its own hides how much work it stands for: 100% over four lookups and 90% over
-          two million are not the same cache, and only the second says the cache is earning its
-          memory. The two counts run from the moment the database opened, or from the last clearing;
-          the total is their sum, which is not worth a third number. */}
-      <span className="muted dash-cache-lookups">
-        {lookups === 0
-          ? "nothing has asked yet"
-          : `${formatCount(hits)} ${hits === 1 ? "hit" : "hits"} · ${formatCount(misses)} ${misses === 1 ? "miss" : "misses"}`}
-      </span>
-    </div>
-  );
-}

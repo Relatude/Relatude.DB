@@ -5399,6 +5399,28 @@ body.pg-resizing {
   max-width: 320px;
 }
 
+/* the type picker and the refresh, as one set: stretch rather than a fixed height, so the small
+   button is exactly as tall as the picker beside it whatever the picker's contents come to */
+.query-type {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  flex: none;
+}
+
+/* framed like the picker rather than bare, so it reads as one of the controls and not as an icon
+   dropped between them */
+.query-refresh {
+  width: 30px;
+  height: auto;
+  background: var(--button-bg);
+  border: 1px solid var(--border);
+}
+
+.query-refresh:hover {
+  border-color: var(--text-faint);
+}
+
 .query-spacer {
   flex: 1;
 }
@@ -8904,4 +8926,154 @@ body.pg-resizing {
   flex: none;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+
+/* ---- memory budgets (dashboard panel) ---- */
+
+.mem-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+/* one budget on one line: what it is, one control carrying both usage and bound, and the figures */
+.mem-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.mem-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 150px;
+  flex: none;
+  min-width: 0;
+}
+
+.mem-label {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mem-engine {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--badge-bg);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 16px;
+}
+
+/* the fill is the usage and the thumb is the bound, on one scale: the gap between them is headroom */
+.mem-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 70px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+}
+
+.mem-fill {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--badge-bg);
+  overflow: hidden;
+}
+
+.mem-fill > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  opacity: 0.5;
+}
+
+.mem-track input[type="range"] {
+  position: relative;
+  width: 100%;
+  height: 16px;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.mem-track input[type="range"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.mem-track input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  background: transparent;
+}
+
+.mem-track input[type="range"]::-moz-range-track {
+  height: 6px;
+  background: transparent;
+}
+
+.mem-track input[type="range"]::-moz-range-progress {
+  background: transparent;
+}
+
+.mem-track input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+}
+
+.mem-track input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+}
+
+.mem-resident {
+  font-size: 11px;
+  align-items: center;
+}
+
+.mem-figures {
+  width: 116px;
+  flex: none;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* a budget the running database is not on yet: the figures are the ones that differ from the file */
+.mem-figures.pending {
+  color: var(--warning, var(--text));
+}
+
+@container (max-width: 460px) {
+  .mem-engine {
+    display: none;
+  }
+  .mem-name {
+    width: 96px;
+  }
+  .mem-figures {
+    width: 96px;
+  }
 }

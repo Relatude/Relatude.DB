@@ -1,4 +1,4 @@
-using Relatude.DB.DataStores.Indexes;
+﻿using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Indexes.VectorIndex;
 using Relatude.DB.DataStores.Sets;
 using System.Collections.Concurrent;
@@ -89,6 +89,8 @@ public class IVSVectorIndex : ISemanticIndex, IDisposable {
             _cache.MaxBytes = value;
         }
     }
+    /// <summary>Bytes the block cache holds right now.</summary>
+    public long CurrentCacheBytes => _cache.Bytes;
     /// <summary>Fraction of clusters probed per search, see <see cref="VectorIndexOptions.Accuracy"/>.</summary>
     public float Accuracy {
         get => _options.Accuracy;

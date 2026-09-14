@@ -130,6 +130,13 @@ public class TextIndexEngine : IndexEngineBase, ITextIndexEngine {
         foreach (var (index, _) in _indexes.Values) index.ResetToEmpty();
         DeleteUnopenedIndexesCore();
     }
+    public override long? GetMemoryUsage() => _cache.UsedBytes;
+    public override long GetMemoryBudget() => _cache.MaxBytes;
+    public override bool TrySetMemoryBudget(long bytes) {
+        _cache.MaxBytes = bytes;
+        _options.MaxCacheBytes = bytes;
+        return true;
+    }
     public override long GetTotalDiskSpace() {
         if (!Directory.Exists(_folderPath)) return 0;
         return Directory.GetFiles(_folderPath, "*", SearchOption.AllDirectories).Sum(f => {

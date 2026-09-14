@@ -26,6 +26,15 @@ public class HnswEngine : ISemanticIndexEngine {
         _defaults = defaultOptions ?? new();
     }
     public string Name => "HNSW Vector";
+    public long? GetMemoryUsage() => _indexes.Values.Sum(i => i.CurrentMemoryBytes);
+    // the routing graph is never traded for disk reads, so a budget below it is exceeded by design
+    public long GetMemoryFloor() => _indexes.Values.Sum(i => i.FloorMemoryBytes);
+    public long GetMemoryBudget() => _defaults.MaxMemoryBytes;
+    public bool TrySetMemoryBudget(long bytes) {
+        _defaults.MaxMemoryBytes = bytes;
+        foreach (var index in _indexes.Values) index.MaxMemoryBytes = bytes;
+        return true;
+    }
     public ISemanticIndex OpenSemanticIndex(SetRegister sets, string id, string friendlyName, AIEngine ai, Action<string>? log) {
         if (_indexes.TryGetValue(id, out var existing)) return existing; // idempotent re-open
         var folder = Path.Combine(_folderPath, id.ToLowerInvariant());

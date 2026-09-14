@@ -1,4 +1,4 @@
-using Relatude.DB.AI;
+﻿using Relatude.DB.AI;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Sets;
 
@@ -68,6 +68,14 @@ public interface IIndexEngine : IDisposable {
     void ResetAll();
     void OptimizeDisk();
     long GetTotalDiskSpace();
+
+    // ---- memory ---------------------------------------------------------------------------------
+    /// <summary>What the engine holds in memory right now, or null when it cannot measure it.</summary>
+    long? GetMemoryUsage();
+    /// <summary>The budget the engine is running with, or -1 when it has none of its own.</summary>
+    long GetMemoryBudget();
+    /// <summary>Changes the budget while the engine runs; false when it can only be set at open.</summary>
+    bool TrySetMemoryBudget(long bytes);
 }
 
 /// <summary>Engine serving the value and array indexes (equality/range/facet queries).</summary>
@@ -105,6 +113,14 @@ public sealed record WordIndexOptions(int MinWordLength, int MaxWordLength, bool
 public interface ISemanticIndexEngine : IDisposable {
     /// <summary>Short human-readable engine name, used in index friendly names and log messages.</summary>
     string Name { get; }
+    /// <summary>What the engine's indexes hold in memory right now, or null when it cannot measure it.</summary>
+    long? GetMemoryUsage() => null;
+    /// <summary>What they hold whatever the budget says (a resident graph); 0 when everything is evictable.</summary>
+    long GetMemoryFloor() => 0;
+    /// <summary>The budget the engine is running with, or -1 when it has none of its own.</summary>
+    long GetMemoryBudget() => -1;
+    /// <summary>Changes the budget while the engine runs; false when it can only be set at open.</summary>
+    bool TrySetMemoryBudget(long bytes) => false;
     ISemanticIndex OpenSemanticIndex(SetRegister sets, string id, string friendlyName, AIEngine ai, Action<string>? log);
     /// <summary>Durably persists every index's unflushed writes, stamped at the given log position.
     /// Called right after every successful WAL flush (with the newest timestamp the durable log

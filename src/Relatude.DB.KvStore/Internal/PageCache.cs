@@ -1,4 +1,4 @@
-namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
+﻿namespace Relatude.DB.Datastores.Indexes.BTreeIndex.Internal;
 
 /// <summary>
 /// Thread-safe page cache with a configurable byte budget. Page ids are dense (allocation is
@@ -27,7 +27,20 @@ internal sealed class PageCache
 
     private const int MinSlots = 4096;
 
-    public int Capacity { get; }
+    public int Capacity { get; private set; }
+
+    /// <summary>Pages held right now.</summary>
+    public int Count => Volatile.Read(ref _count);
+
+    /// <summary>Changes the budget; anything over the new one goes at the next sweep, or now if it is already over.</summary>
+    public void SetCapacity(int capacity)
+    {
+        lock (_mutateLock)
+        {
+            Capacity = Math.Max(16, capacity);
+            if (_count > Capacity) Evict(_table);
+        }
+    }
 
     public PageCache(long budgetBytes, int pageSize)
     {

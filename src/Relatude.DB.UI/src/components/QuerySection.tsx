@@ -763,26 +763,33 @@ function QueryTab({
   return (
     <>
       <div className="query-toolbar">
-        <TypePicker
-          types={model.types}
-          sources={model.sources ?? []}
-          value={typeId}
-          onChange={(id) => {
-            reset({
-              typeId: id,
-              selections: [], // the facets of another type are different properties
-              sort: null, // and its columns are different properties too
-              columns: null, // and the columns of the table are that type's, not this one's
-              pivot: null, // and what the summaries group by
-              groups: null,
-              visual: null,
-              map: null,
-            });
-            setExpanded([]);
-          }}
-          // the type is chosen, the search box is where the next thing happens
-          onPicked={() => searchBox.current?.focus()}
-        />
+        {/* the type and the refresh belong together: both are about which nodes are on the page,
+            and the refresh is framed like the picker so the two read as one control */}
+        <div className="query-type">
+          <TypePicker
+            types={model.types}
+            sources={model.sources ?? []}
+            value={typeId}
+            onChange={(id) => {
+              reset({
+                typeId: id,
+                selections: [], // the facets of another type are different properties
+                sort: null, // and its columns are different properties too
+                columns: null, // and the columns of the table are that type's, not this one's
+                pivot: null, // and what the summaries group by
+                groups: null,
+                visual: null,
+                map: null,
+              });
+              setExpanded([]);
+            }}
+            // the type is chosen, the search box is where the next thing happens
+            onPicked={() => searchBox.current?.focus()}
+          />
+          <button className="icon-button query-refresh" title="Run the query again" onClick={refreshAll}>
+            <IconRefresh size={15} stroke={1.8} className={loading ? "spinning" : ""} />
+          </button>
+        </div>
         <div className="query-search">
           <IconSearch size={15} stroke={1.8} />
           <input
@@ -845,9 +852,6 @@ function QueryTab({
           onClick={() => onChange({ showSemantic: !showSemantic })}
         >
           <IconSparkles size={16} stroke={1.8} />
-        </button>
-        <button className="icon-button" title="Run the query again" onClick={refreshAll}>
-          <IconRefresh size={16} stroke={1.8} className={loading ? "spinning" : ""} />
         </button>
         <button className={"icon-button" + (showQuery ? " armed" : "")} title="Show the query this page sends" onClick={() => setShowQuery(!showQuery)}>
           <IconCode size={16} stroke={1.8} />

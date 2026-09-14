@@ -1,4 +1,4 @@
-using Relatude.DB.Datamodels.Properties;
+﻿using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.Datastores.Indexes.BTreeIndex;
 using Relatude.DB.IO;
@@ -15,6 +15,7 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
         WalId = 1,
     }
     readonly Action<string>? _log;
+    long _budgetBytes;
     /// <summary>
     /// <paramref name="maxMemoryBytes"/> bounds what the engine spends on its page cache and on
     /// published-but-not-durable pages, two thirds to one; negative keeps the built-in sizes. It is
@@ -48,6 +49,7 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
                 PendingWriteBytes = Math.Max(minBytes, maxMemoryBytes / 3),
                 ValueCacheEntries = 0,
             };
+        _budgetBytes = maxMemoryBytes;
         _fileStorage = new BPlusTreeStorageEngine(filePath, options);
         _settings = _fileStorage.OpenOrCreateSortedIntIndex<string>("settings");
         if (_kvFolder != null) _pendingFacetSets = FacetSetsFile.TryRead(Path.Combine(_kvFolder, FileKeyUtility.IndexEngine_FacetSetsFileKey), _fileStorage.GetTimestamp(), _log, out _lastPersistedCacheTimestamp);
@@ -104,6 +106,13 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
         }
     }
     public override long GetTimestamp() => _fileStorage.GetTimestamp();
+    public override long? GetMemoryUsage() => _fileStorage.GetMemoryUsage();
+    public override long GetMemoryBudget() => _budgetBytes;
+    public override bool TrySetMemoryBudget(long bytes) {
+        _fileStorage.SetMemoryBudget(bytes);
+        _budgetBytes = bytes;
+        return true;
+    }
     public override long GetTotalDiskSpace() => _fileStorage.GetTotalDiskSpace();
     public override void OptimizeDisk() {
         // The KV engine has no separate compaction step.
