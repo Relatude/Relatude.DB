@@ -408,8 +408,10 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       {/* Five things live on this page and they are not alike: copies of the database, the file it
           is, the maintenance of that file, the files it points to, and content to test with. Each is
           a group with a name and a line saying what it is about, and its one panel carries no
-          heading of its own - the group's name is the panel's name, said once. */}
-      <div className="storage-group tone-backups">
+          heading of its own - the group's name is the panel's name, said once. The groups used to be
+          told apart by a colour each; the colour now lives in the menu, where it marks a page rather
+          than a paragraph, and this page is uncoloured. */}
+      <div className="storage-group">
         <div className="storage-group-head">
           <IconDeviceFloppy size={16} stroke={1.8} />
           <h2>Backups</h2>
@@ -424,7 +426,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
               above the list it adds to, rather than in a panel of its own beside it */}
           <div className="storage-make-backup">
             <button className="action-button" onClick={onBackupNow} disabled={db.state !== "Open"}>
-              <IconDeviceFloppy size={14} stroke={1.8} className="tone-ok" /> Backup now
+              <IconDeviceFloppy size={14} stroke={1.8} /> Backup now
             </button>
             <label className="login-remember">
               <input type="checkbox" checked={truncate} onChange={(e) => setTruncate(e.target.checked)} />
@@ -470,7 +472,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       </div>
 
       <div className="overview-columns even">
-      <div className="storage-group tone-database">
+      <div className="storage-group">
         <div className="storage-group-head">
           <IconDatabase size={16} stroke={1.8} />
           <h2>Database file</h2>
@@ -520,7 +522,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
         )}
       </section>
       </div>
-      <div className="storage-group tone-maintenance">
+      <div className="storage-group">
         <div className="storage-group-head">
           <IconTools size={16} stroke={1.8} />
           <h2>Maintenance</h2>
@@ -559,7 +561,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
             </div>
             <div className="process-action">
               <button className="action-button" onClick={onRebuildTextIndex} disabled={!maintenance.open}>
-                <IconTextRecognition size={14} stroke={1.8} className="tone-data" /> Rebuild text index
+                <IconTextRecognition size={14} stroke={1.8} /> Rebuild text index
               </button>
               <span className="muted">
                 {maintenanceMessage ??
@@ -575,7 +577,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       </div>
 
       <div className="overview-columns even">
-      <div className="storage-group tone-files">
+      <div className="storage-group">
         <div className="storage-group-head">
           <IconFolder size={16} stroke={1.8} />
           <h2>File storage</h2>
@@ -584,7 +586,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       <section className="panel">
         <div className="process-action">
           <button className="action-button" onClick={onAuditFiles} disabled={db.state !== "Open"}>
-            <IconFileSearch size={14} stroke={1.8} className="tone-accent" /> Missing and redundant files
+            <IconFileSearch size={14} stroke={1.8} /> Missing and redundant files
           </button>
           <span className="muted">
             {db.state !== "Open"
@@ -594,13 +596,13 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
         </div>
         <div className="process-action">
           <button className="action-button" onClick={onDeleteConverted} disabled={db.state !== "Open"}>
-            <IconPhotoCancel size={14} stroke={1.8} className="tone-accent" /> Reset converted file cache
+            <IconPhotoCancel size={14} stroke={1.8} /> Reset converted file cache
           </button>
           <span className="muted">empties the cache of resized images and converted media; they are recreated on demand</span>
         </div>
         <div className="process-action">
           <button className="action-button" onClick={onDownloadFileStorage} disabled={fileStorages.length === 0}>
-            <IconFolderDown size={14} stroke={1.8} className="tone-accent" /> Download file storage
+            <IconFolderDown size={14} stroke={1.8} /> Download file storage
           </button>
           <span className="muted">
             {fileStorages.length === 0
@@ -617,7 +619,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
         )}
       </section>
       </div>
-      <div className="storage-group tone-demo">
+      <div className="storage-group">
         <div className="storage-group-head">
           <IconFlask size={16} stroke={1.8} />
           <h2>Demo content</h2>

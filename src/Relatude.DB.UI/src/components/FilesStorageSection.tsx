@@ -14,8 +14,10 @@ import type { DatabaseInfo } from "../server/serverInfo";
  * clearing space goes Storage → Files; as separate rail entries that was a trip through the menu
  * each time.
  *
- * Each view keeps its own section id, so the global search still finds "Conversions" and opens it,
- * and the switch is nothing more than those ids: picking one is the same as picking it in the rail.
+ * Each view keeps its own section id, so the global search still finds "Files" or "Conversions" and
+ * opens the page on it, and the switch is nothing more than those ids: picking one here is the same
+ * operation as picking it in the rail. The rail's own entry is the "storage" id, so that is what
+ * opens when someone clicks Storage in the menu.
  */
 export type FilesStorageView = "files" | "storage" | "conversions";
 

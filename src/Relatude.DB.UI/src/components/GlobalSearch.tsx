@@ -138,7 +138,7 @@ export function GlobalSearch({
   const handOverLabel: Record<SearchTarget["section"], string> = {
     datamodel: "Search the data model for this",
     settings: "Search the settings for this",
-    query: "Search the nodes for this in Query & Edit",
+    query: "Search the nodes for this in Query",
   };
 
   const showPanel = open && trimmed.length > 0;

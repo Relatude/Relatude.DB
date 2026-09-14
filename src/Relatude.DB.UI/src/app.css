@@ -58,6 +58,22 @@
   --term-ok: #24803f;
   --term-warn: #9a5f08;
   --term-bad: #b93327;
+  /**
+   * The menu's colours: one per rail entry, so a page is recognised by its colour before its name is
+   * read. They are their own tokens rather than the semantic ones (--ok, --data, --accent) because
+   * they mean nothing - they are labels, not states - and because a set of eight has to be told
+   * apart as a set: the three blues in particular are chosen against each other (cyan-leaning,
+   * true, indigo) rather than each on its own. Every one is a shade that reads on a light panel;
+   * the dark theme lightens all eight below.
+   */
+  --nav-purple: #6b3fb5;
+  --nav-blue-light: #1a86c4;
+  --nav-blue: #1f6fd0;
+  --nav-blue-dark: #35399b;
+  --nav-orange: #cc5a11;
+  --nav-green: #2f7a44;
+  --nav-yellow: #9a7b00;
+  --nav-pink: #bd3a7e;
 }
 
 [data-theme="dark"] {
@@ -94,6 +110,16 @@
   --term-ok: #6fbf85;
   --term-warn: #e0a45c;
   --term-bad: #f2887f;
+  /* the same eight, lifted to read on a dark panel and kept as far apart from each other as they
+     are in the light theme */
+  --nav-purple: #b79cf0;
+  --nav-blue-light: #6ecbf5;
+  --nav-blue: #5c9fe8;
+  --nav-blue-dark: #7a86e0;
+  --nav-orange: #f5945a;
+  --nav-green: #6fbf85;
+  --nav-yellow: #e5cd4f;
+  --nav-pink: #f08bc0;
 }
 
 * {
@@ -952,17 +978,62 @@ a {
   font-weight: 600;
 }
 
+/* An entry's own colour if it has one (see SectionTone in navigation.ts), else icons a step stronger
+   than the labels. The colour holds through hover and through the active state on purpose: it is
+   what the entry is recognised by, and losing it exactly when the page is open would make the mark
+   useless at the one moment it is being looked at. The active state is carried by the background and
+   the weight of the label instead. */
 .nav-item svg {
   flex: none;
-  color: var(--text-soft); /* icons a step stronger than the labels */
+  color: var(--nav-tone, var(--text-soft));
 }
 
 .nav-item:hover svg {
-  color: var(--text);
+  color: var(--nav-tone, var(--text));
 }
 
 .nav-item.active svg {
-  color: var(--accent);
+  color: var(--nav-tone, var(--accent));
+}
+
+.nav-tone-plain {
+  --nav-tone: var(--text);
+}
+
+.nav-tone-purple {
+  --nav-tone: var(--nav-purple);
+}
+
+.nav-tone-blue-light {
+  --nav-tone: var(--nav-blue-light);
+}
+
+.nav-tone-blue {
+  --nav-tone: var(--nav-blue);
+}
+
+.nav-tone-blue-dark {
+  --nav-tone: var(--nav-blue-dark);
+}
+
+.nav-tone-orange {
+  --nav-tone: var(--nav-orange);
+}
+
+.nav-tone-green {
+  --nav-tone: var(--nav-green);
+}
+
+.nav-tone-yellow {
+  --nav-tone: var(--nav-yellow);
+}
+
+.nav-tone-pink {
+  --nav-tone: var(--nav-pink);
+}
+
+.nav-tone-gray {
+  --nav-tone: var(--text-muted);
 }
 
 .nav-item .label {
@@ -970,8 +1041,11 @@ a {
   text-overflow: ellipsis;
 }
 
-/* the mark on the one entry that leaves the UI */
-.nav-item .nav-ext {
+/* the mark on the one entry that leaves the UI. Later than the rules above and on the same
+   specificity, so it keeps the faint colour rather than taking the entry's tone */
+.nav-item .nav-ext,
+.nav-item:hover .nav-ext,
+.nav-item.active .nav-ext {
   margin-left: auto;
   color: var(--text-faint);
 }
@@ -8243,37 +8317,11 @@ body.pg-resizing {
   flex: 1;
 }
 
-/* one tone per group, from the tokens the rest of the app already means something by: green for the
-   copies that are the way back, the data amber for the database's own file, the accent for the files
-   it points at. The tone reaches the group's own icon and the icons of the actions inside it. */
-.storage-group.tone-backups {
-  --tone: var(--ok);
-  --tone-soft: rgba(47, 122, 68, 0.12);
-}
-
-.storage-group.tone-database {
-  --tone: var(--data);
-  --tone-soft: var(--data-soft);
-}
-
-.storage-group.tone-files {
-  --tone: var(--accent);
-  --tone-soft: var(--accent-soft);
-}
-
-.storage-group.tone-maintenance {
-  --tone: var(--viz-7);
-  --tone-soft: color-mix(in srgb, var(--viz-7) 13%, transparent);
-}
-
-.storage-group.tone-demo {
-  --tone: var(--viz-5);
-  --tone-soft: color-mix(in srgb, var(--viz-5) 15%, transparent);
-}
-
-[data-theme="dark"] .storage-group.tone-backups {
-  --tone-soft: rgba(111, 191, 133, 0.14);
-}
+/* The groups had a colour each (green for the copies, amber for the database's own file, and so on).
+   They gave it up when the menu took colour on: a rail of eight coloured entries and a page of five
+   coloured groups is two colour systems arguing, and the one that earns it is the one that says
+   which page you are on. The `--tone` / `--tone-soft` custom properties below are still read, so a
+   group can be given a colour again by setting them - nothing here sets them any more. */
 
 .storage-group-head {
   display: flex;

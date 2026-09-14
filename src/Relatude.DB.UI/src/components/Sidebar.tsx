@@ -24,7 +24,7 @@ export function Sidebar({ collapsed, onToggleCollapsed, databases, activeDb, act
   // conversion count belongs to a view of the files page, so it is shown on the entry that opens it
   const badgeFor = (s: Section) => {
     if (s.id === "server-databases" && errors > 0) return { text: errors === 1 ? "1 error" : `${errors} errors`, danger: true };
-    if (s.id === "files" && conversions > 0) return { text: String(conversions), danger: false };
+    if (s.id === "storage" && conversions > 0) return { text: String(conversions), danger: false };
     if (s.id === "tasks" && tasks > 0) return { text: tasks > 9999 ? Math.round(tasks / 1000) + "k" : String(tasks), danger: false };
     return null;
   };
@@ -52,7 +52,7 @@ export function Sidebar({ collapsed, onToggleCollapsed, databases, activeDb, act
             <span className="full">Help</span>
             <span className="short">?</span>
           </div>
-          <a className="nav-item" href={manualUrl} target="_blank" rel="noreferrer" title="The Relatude.DB manual — opens in a new tab">
+          <a className="nav-item nav-tone-gray" href={manualUrl} target="_blank" rel="noreferrer" title="The Relatude.DB manual — opens in a new tab">
             <IconBook size={16} stroke={1.8} />
             <span className="label">Manual</span>
             <IconExternalLink className="nav-ext" size={12} stroke={1.8} />
@@ -135,7 +135,7 @@ function NavGroup({ label, shortLabel, items, badgeFor, activeSectionId, onSelec
         return (
           <button
             key={section.id}
-            className={"nav-item" + (section.id === activeEntryId ? " active" : "")}
+            className={"nav-item" + (section.tone ? " nav-tone-" + section.tone : "") + (section.id === activeEntryId ? " active" : "")}
             onClick={() => onSelectSection(section.id)}
             title={section.label}
           >
