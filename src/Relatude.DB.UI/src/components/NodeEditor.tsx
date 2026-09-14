@@ -1,9 +1,24 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { IconArrowBackUp, IconChevronDown, IconChevronUp, IconDeviceFloppy, IconExternalLink, IconPlus, IconRefresh, IconSearch, IconTrash, IconX } from "@tabler/icons-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  IconArrowBackUp,
+  IconChevronDown,
+  IconChevronUp,
+  IconDeviceFloppy,
+  IconExternalLink,
+  IconPlus,
+  IconRefresh,
+  IconSearch,
+  IconTrash,
+  IconUpload,
+  IconX,
+} from "@tabler/icons-react";
+import {
+  clearNodeFile,
+  commitNodeFile,
   createNode,
   deleteNode,
   fetchNode,
+  fileUploadTarget,
   lookupNodes,
   saveEmbedded,
   saveNode,
@@ -15,11 +30,13 @@ import {
   type PropertyView,
   type TypeRef,
 } from "../server/query";
+import { abortUpload, newUploadId, uploadStaged } from "../server/files";
+import { notifyNodePicture } from "../nodeMedia";
 import { showChoice, showConfirm, showError } from "../dialogs";
 import { openInDatamodel } from "../navigate";
 import { IndexMarks } from "./DatamodelIcons";
 import { useLiveResult } from "../server/hooks";
-import { formatCount, formatTime } from "../format";
+import { formatBytes, formatCount, formatTime } from "../format";
 import { FilePreview } from "./MediaPreview";
 import { NodeMetaTab } from "./NodeMetaTab";
 import { NodeHistoryTab } from "./NodeHistoryTab";
@@ -36,8 +53,8 @@ type EditorTab = "properties" | "meta" | "history";
  * other. Reverting a field is dropping it from those maps, not writing the old value back.
  *
  * Some property types are shown but not editable, because a text field is the wrong way to change
- * them: a file (the files section owns uploads), a stored vector, a byte array, and the inner
- * nodes of an embedded property, which are a document of their own inside the node.
+ * them: a stored vector, a byte array, and the inner nodes of an embedded property, which are a
+ * document of their own inside the node. A file is editable but not through Save - see FileField.
  *
  * Three tabs: the properties (this form), the meta (access, publishing window, revision - see
  * NodeMetaTab) and the history (the older versions in the transaction log - see NodeHistoryTab).
@@ -226,6 +243,7 @@ export function NodeEditor({
             key={property.id}
             storeId={storeId}
             nodeId={nodeId}
+            intId={node.intId}
             onSaved={() => {
               load();
               onSaved?.();
@@ -247,6 +265,7 @@ export function NodeEditor({
 function Field({
   storeId,
   nodeId,
+  intId,
   property,
   value,
   targets,
@@ -258,6 +277,8 @@ function Field({
 }: {
   storeId: string;
   nodeId: string;
+  /** the node's int id: the file field announces a new picture by it (see nodeMedia.ts) */
+  intId: number;
   onSaved: () => void;
   property: PropertyView;
   value: unknown;
@@ -297,7 +318,17 @@ function Field({
         )}
       </div>
       <div className="node-field-control">
-        <Editor storeId={storeId} nodeId={nodeId} property={property} value={value} targets={targets} onChange={onChange} onTargets={onTargets} onSaved={onSaved} />
+        <Editor
+          storeId={storeId}
+          nodeId={nodeId}
+          intId={intId}
+          property={property}
+          value={value}
+          targets={targets}
+          onChange={onChange}
+          onTargets={onTargets}
+          onSaved={onSaved}
+        />
       </div>
     </div>
   );
@@ -306,6 +337,7 @@ function Field({
 function Editor({
   storeId,
   nodeId,
+  intId,
   property,
   value,
   targets,
@@ -315,6 +347,8 @@ function Editor({
 }: {
   storeId: string;
   nodeId: string;
+  /** the node's int id, or null for an inner node - which has no file editor, see innerFields */
+  intId: number | null;
   property: PropertyView;
   value: unknown;
   targets: NodeRef[];
@@ -470,11 +504,8 @@ function Editor({
       return <NodePicker storeId={storeId} types={property.targetTypes ?? []} typeIds={typeIds} targets={targets} multiple onChange={onTargets} />;
     case "relation":
       return <NodePicker storeId={storeId} types={property.targetTypes ?? []} typeIds={typeIds} targets={targets} multiple={property.isMany === true} onChange={onTargets} />;
-    case "file": {
-      const file = (value ?? null) as FileValueView | null;
-      if (!file) return <span className="muted">No file.</span>;
-      return <FilePreview storeId={storeId} file={file} />;
-    }
+    case "file":
+      return <FileField storeId={storeId} nodeId={nodeId} intId={intId} property={property} file={(value ?? null) as FileValueView | null} />;
     case "embedded": {
       const inner = Array.isArray(value) ? (value as InnerNodeView[]) : [];
       if (property.readOnly) {
@@ -500,6 +531,160 @@ function Editor({
     default:
       return <span className="muted">{property.info ?? "Not editable here."}</span>;
   }
+}
+
+/**
+ * The file on a file property: what is there, and how to put something else there.
+ *
+ * The upload is not part of the form's Save and cannot be. A file store takes a whole stream and
+ * hashes it, so the bytes have to arrive somewhere before there is a value to write at all: the
+ * file is staged slice by slice in the database's own storage (uploadStaged), and the commit hands
+ * that staged file to the store and writes the property in one go. So this field changes the node
+ * the moment the upload finishes, which is why it says so rather than showing an "unsaved" badge
+ * it could not honour.
+ *
+ * Slicing is what makes the progress bar mean anything on a file worth watching, and on storage
+ * that can shorten a file it also means a broken connection resumes from the byte the server holds
+ * rather than from zero. The server says which of the two this database's storage is.
+ *
+ * A picture that changes here is also a picture the visual pivot may be holding in a texture, so the
+ * change is announced (see nodeMedia.ts) rather than left for it to find out about.
+ */
+function FileField({
+  storeId,
+  nodeId,
+  intId,
+  property,
+  file,
+}: {
+  storeId: string;
+  nodeId: string;
+  /** the node's int id, which is what the card views know it by; null leaves the field read-only */
+  intId: number | null;
+  property: PropertyView;
+  file: FileValueView | null;
+}) {
+  // what the field shows: the node's file until an upload replaces it, and the node's again after a
+  // reload hands down a different one
+  const [shown, setShown] = useState<FileValueView | null>(file);
+  useEffect(() => setShown(file), [file]);
+  const [sent, setSent] = useState<{ bytes: number; total: number } | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [resumable, setResumable] = useState<boolean | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const abort = useRef<AbortController | null>(null);
+  // an upload outlives the field when the form is closed under it, so nothing is set after unmount
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+      abort.current?.abort();
+    };
+  }, []);
+
+  async function upload(picked: FileList | null) {
+    const chosen = picked?.[0];
+    if (!chosen || sent) return;
+    setNote(null);
+    setSent({ bytes: 0, total: chosen.size });
+    const controller = new AbortController();
+    abort.current = controller;
+    let target: { ioId: string; uploadId: string } | null = null;
+    try {
+      const where = await fileUploadTarget(storeId, property.id);
+      if (live.current) setResumable(where.resumable);
+      target = { ioId: where.ioId, uploadId: newUploadId() };
+      await uploadStaged(where.ioId, target.uploadId, chosen, (bytes, total) => live.current && setSent({ bytes, total }), controller.signal);
+      const stored = await commitNodeFile(storeId, nodeId, property.id, target.uploadId, chosen.name, chosen.size);
+      // said whether this field is still on screen or not: what is holding the old picture is not
+      if (intId !== null) notifyNodePicture(storeId, intId);
+      if (!live.current) return;
+      setShown(stored);
+      setNote("Stored on the node.");
+    } catch (e) {
+      if (target) abortUpload(target.ioId, target.uploadId); // the staged bytes are nobody's now
+      if (!live.current) return;
+      const message = controller.signal.aborted ? "Upload cancelled." : e instanceof Error ? e.message : String(e);
+      setNote(message);
+      if (!controller.signal.aborted) await showError("Could not upload the file", message);
+    } finally {
+      abort.current = null;
+      if (live.current) setSent(null);
+    }
+  }
+
+  /**
+   * Off the property and out of the file store. Replacing a file leaves the old one behind for the
+   * storage page's redundant-file sweep to find; removing one deletes it, because nothing is left
+   * pointing at it - which is exactly why it is asked about first, and why the question says so.
+   */
+  async function remove() {
+    if (!shown || sent || clearing) return;
+    const confirmed = await showConfirm(
+      `Remove ${shown.name}?`,
+      `The file is taken off ${property.name} and deleted from the file store. This is not part of Save and cannot be undone from here.`,
+      { confirmLabel: "Remove", danger: true },
+    );
+    if (!confirmed.ok) return;
+    setClearing(true);
+    try {
+      await clearNodeFile(storeId, nodeId, property.id);
+      if (intId !== null) notifyNodePicture(storeId, intId);
+      if (!live.current) return;
+      setShown(null);
+      setNote("Removed from the node.");
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (live.current) setNote(message);
+      await showError("Could not remove the file", message);
+    } finally {
+      if (live.current) setClearing(false);
+    }
+  }
+
+  const percent = sent && sent.total > 0 ? Math.min(100, (sent.bytes / sent.total) * 100) : 0;
+  return (
+    <div className="node-file-field">
+      {shown ? <FilePreview storeId={storeId} file={shown} /> : <span className="muted">No file.</span>}
+      {sent ? (
+        <div className="node-file-progress">
+          <div className="node-file-bar">
+            <div className="node-file-fill" style={{ width: Math.max(1, percent) + "%" }} />
+          </div>
+          <span className="muted">
+            {formatBytes(sent.bytes)} of {formatBytes(sent.total)} · {Math.round(percent)}%
+            {resumable === false ? " · this storage cannot resume a broken transfer" : ""}
+          </span>
+          <button className="action-button" onClick={() => abort.current?.abort()}>
+            Cancel
+          </button>
+        </div>
+      ) : intId === null ? null : (
+        <div className="node-file-actions">
+          <button className="action-button" onClick={() => input.current?.click()} disabled={clearing}>
+            <IconUpload size={14} stroke={1.8} /> {shown ? "Replace file" : "Upload file"}
+          </button>
+          {shown && (
+            <button className="icon-button danger" title={`Remove ${shown.name} from this property and delete it`} onClick={remove} disabled={clearing}>
+              <IconTrash size={15} stroke={1.8} />
+            </button>
+          )}
+          <span className="muted">{note ?? "uploaded in parts, and stored on the node as soon as it is there - not on Save"}</span>
+        </div>
+      )}
+      <input
+        ref={input}
+        type="file"
+        hidden
+        onChange={(e) => {
+          void upload(e.target.files);
+          e.target.value = ""; // picking the same file again has to count as a new upload
+        }}
+      />
+    </div>
+  );
 }
 
 /** A repeated scalar: one row per element, in order, with nothing clever about it. */
@@ -670,6 +855,7 @@ function EmbeddedEditor({
                 <Editor
                   storeId={storeId}
                   nodeId={nodeId}
+                  intId={null}
                   property={f}
                   value={f.id in row.values ? row.values[f.id] : f.value}
                   targets={[]}

@@ -6487,6 +6487,51 @@ body.pg-resizing {
   min-width: 0;
 }
 
+/* ---- a file property, with what is on it and the way to put something else there ---- */
+
+/* the upload sits under the file rather than beside it: the file line is already a picture, a name
+   and a size, and a button on the end of that row would be the fourth thing fighting for the width */
+.node-file-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.node-file-actions,
+.node-file-progress {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* the hint gives way before the button does, and wraps rather than widening the form */
+.node-file-actions > .muted {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* wide enough to read as a distance travelled rather than as a state light */
+.node-file-bar {
+  width: 220px;
+  max-width: 100%;
+  height: 6px;
+  background: var(--hover);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.node-file-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.12s linear;
+}
+
 .node-file-text {
   display: flex;
   flex-direction: column;

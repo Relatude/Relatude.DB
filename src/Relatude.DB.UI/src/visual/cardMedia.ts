@@ -61,6 +61,11 @@ export interface CardMedia {
   visible(): { indexes: Int32Array; count: number };
   /** The name of a card, once known. */
   nameOf(index: number): string | null;
+  /**
+   * Everything held for one node, let go of: its name, its picture, the bytes cached for it and the
+   * texture layers its cards draw. For a file replaced under the page - see forgetNode below.
+   */
+  forgetNode(nodeId: number): void;
   destroy(): void;
 }
 
@@ -190,6 +195,12 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
   let cellZ0 = 0;
   /** how many cells deep the picture is: one when it lies in a plane */
   let spanZ = 1;
+  /**
+   * Bumped whenever a node is forgotten. Requests and decodes carry the epoch they were started in,
+   * and an answer from an older one is dropped: a picture that left the server before the file
+   * changed must never be cached under the version that replaced it, nor uploaded into a layer.
+   */
+  let epoch = 0;
   // what is known about the nodes, by node id: kept across results
   const names = new Map<number, string>();
   const images = new Map<number, { p: string; v: string; w: number; h: number }>();
@@ -575,10 +586,23 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
       const i = map.get(id);
       if (i >= 0) state[i] = State.Asked;
     }
+    // what an answer that is not used has to undo: the cards go back to being unknown, so the next
+    // pass asks for them again rather than waiting for an answer nobody is going to apply
+    const release = () => {
+      for (const id of asked) {
+        const i = map.get(id);
+        if (i >= 0 && state[i] === State.Asked) state[i] = State.Unknown;
+      }
+    };
     const signal = abort.signal;
+    const asOf = epoch;
     fetchCards(storeId, asked)
       .then((answer) => {
         if (signal.aborted) return;
+        if (asOf !== epoch) {
+          release(); // a node was forgotten under this request; what it carries may be the old file
+          return;
+        }
         const now = performance.now();
         const seen = new Set<number>();
         for (const card of answer.cards) {
@@ -601,11 +625,7 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
       })
       .catch(() => {
         if (signal.aborted) return;
-        // asked again on a later pass
-        for (const id of asked) {
-          const i = map.get(id);
-          if (i >= 0 && state[i] === State.Asked) state[i] = State.Unknown;
-        }
+        release(); // asked again on a later pass
       })
       .finally(() => {
         if (signal.aborted) return;
@@ -630,6 +650,7 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
       return;
     }
     const signal = abort.signal;
+    const asOf = epoch;
     const map = ensureIndexOf();
     streamCardImages(
       storeId,
@@ -637,6 +658,7 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
       items,
       (id, status, bytes) => {
         if (signal.aborted) return;
+        if (asOf !== epoch) return; // the finally clears what is in flight, and it is asked for again
         const k = key(id, level);
         inFlight.delete(k);
         const i = map.get(id);
@@ -818,13 +840,14 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
     tilesInFlight++;
     inFlight.add(k);
     const signal = abort.signal;
+    const asOf = epoch;
     const n = 1 << w.p;
     streamCardImages(
       storeId,
       w.width,
       [{ id: w.id, p: info.p, tile: { x: w.i / n, y: w.j / n, size: 1 / n, width: w.width } }],
       (id, status, bytes, region) => {
-        if (signal.aborted || id !== w.id) return;
+        if (signal.aborted || id !== w.id || asOf !== epoch) return;
         inFlight.delete(k);
         if (status === 0 && region !== null) {
           retries.delete(k);
@@ -861,9 +884,10 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
 
   function decodeTile(w: TileWanted, bytes: Uint8Array, region: Float32Array) {
     const signal = abort.signal;
+    const asOf = epoch;
     createImageBitmap(new Blob([bytes as BlobPart]), { premultiplyAlpha: "none", colorSpaceConversion: "default" })
       .then((bitmap) => {
-        if (signal.aborted || destroyed) {
+        if (signal.aborted || destroyed || asOf !== epoch) {
           bitmap.close();
           return;
         }
@@ -926,9 +950,10 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
       const job = toDecode.shift()!;
       decoding++;
       const signal = abort.signal;
+      const asOf = epoch;
       createImageBitmap(new Blob([job.bytes as BlobPart]), { premultiplyAlpha: "none", colorSpaceConversion: "default" })
         .then((bitmap) => {
-          if (signal.aborted || destroyed) {
+          if (signal.aborted || destroyed || asOf !== epoch) {
             bitmap.close();
             return;
           }
@@ -972,6 +997,68 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
   }
 
   // ---- the api ----
+
+  /**
+   * One node forgotten: its name and picture property, the encoded bytes cached for it at every
+   * level, its tiles, and the texture layers its cards are drawing. Its cards go back to Unknown, so
+   * the next frame asks for all of it again.
+   *
+   * This is what a file replaced under the page needs. Pictures are cached by node, file version and
+   * level, which tells a new file from an old one by itself - but the version arrives with the card
+   * info, and that is kept across results too, so a node has to be forgotten from the top or it
+   * would go on drawing the picture it was given the first time it came into view.
+   */
+  function forgetNode(nodeId: number) {
+    epoch++;
+    names.delete(nodeId);
+    images.delete(nodeId);
+    noTiles.delete(nodeId);
+    // keys are "id:..." and the colon is what keeps node 12 from matching node 123
+    const prefix = nodeId + ":";
+    for (const [k, bytes] of [...byteCache]) {
+      if (!k.startsWith(prefix)) continue;
+      byteCache.delete(k);
+      tileRegions.delete(k);
+      byteTotal -= bytes.byteLength;
+    }
+    for (const k of [...retries.keys()]) if (k.startsWith(prefix)) retries.delete(k);
+    // bitmaps on their way in are of the file that has just been replaced
+    for (let k = toDecode.length - 1; k >= 0; k--) if (toDecode[k].id === nodeId) toDecode.splice(k, 1);
+    for (let k = ready.length - 1; k >= 0; k--) {
+      if (ready[k].id !== nodeId) continue;
+      ready[k].bitmap.close();
+      ready.splice(k, 1);
+    }
+    for (let k = tileReady.length - 1; k >= 0; k--) {
+      if (tileReady[k].want.id !== nodeId) continue;
+      tileReady[k].bitmap.close();
+      tileReady.splice(k, 1);
+    }
+    let hadTile = false;
+    for (let s = 0; s < tiles.length; s++) {
+      if (tiles[s]?.id !== nodeId) continue;
+      tiles[s] = null;
+      hadTile = true;
+    }
+    if (hadTile) showTiles();
+    // the cards of the node - a result can hold more than one card of it - give their layers back
+    for (let i = 0; i < count; i++) {
+      if (ids[i] !== nodeId) continue;
+      for (const L of levels) {
+        const layer = L.cardSlot.get(i);
+        if (layer === undefined) continue;
+        L.cardSlot.delete(i);
+        L.slotCard[layer] = -1;
+        L.slotSeen[layer] = 0;
+        L.free.push(layer);
+      }
+      shown.delete(i);
+      field.setCardImage(i, CardKind.Image, -1, -1, -1, -1, 0);
+      state[i] = State.Unknown;
+    }
+    field.invalidate();
+    kick();
+  }
 
   function reset() {
     abort.abort();
@@ -1062,6 +1149,7 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
       else kick();
     },
     visible: () => ({ indexes: visibleIndexes, count: visibleCount }),
+    forgetNode,
     nameOf(index) {
       if (index < 0 || index >= count) return null;
       return names.get(ids[index]) ?? null;

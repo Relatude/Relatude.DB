@@ -1,4 +1,4 @@
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 using Relatude.DB.DataStores;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
@@ -81,6 +81,9 @@ sealed class UIQuery {
         commands.Register("query-node-id", ctx => nodeGuid(ctx.Payload<NodeIntPayload>()));
         commands.Register("query-cards", ctx => cards(ctx.Payload<CardsPayload>()));
         commands.Register("query-columns", ctx => columnsOf(ctx.Payload<ColumnsPayload>()));
+        commands.Register("query-file-target", ctx => fileTarget(ctx.Payload<FileTargetPayload>()));
+        commands.Register("query-file-commit", async ctx => await fileCommit(ctx.Payload<FileCommitPayload>()));
+        commands.Register("query-file-clear", async ctx => await fileClear(ctx.Payload<FileClearPayload>()));
     }
 
     // Reading and writing as an administrator: hidden and unpublished nodes are part of what this
@@ -1034,7 +1037,10 @@ sealed class UIQuery {
                 }
             case FilePropertyModel: {
                     view.Editor = "file";
-                    view.ReadOnly = true; // uploads belong to the files section, not to a property form
+                    // the field is editable, but not through the form's Save: uploading is a write of
+                    // its own (query-file-commit), because the bytes have to reach the file store
+                    // before there is a value to put on the node at all
+                    view.ReadOnly = false;
                     var file = value as FileValue;
                     view.Value = file == null || file.IsEmpty ? null : fileView(file, new PropertyPath(n.Id, property.Id));
                     break;
@@ -1286,6 +1292,103 @@ sealed class UIQuery {
         Path = path.ToUrlString(),
         Version = file.Hash.Length > 8 ? file.Hash[..8] : file.Hash,
     };
+
+    // ---- uploading into a file property ----
+
+    /// <summary>
+    /// Where an upload for a file property is staged, and what the staging storage can do.
+    ///
+    /// The bytes do not go to the file store a slice at a time - a file store takes a whole stream and
+    /// hashes it. So an upload is staged the way every other upload in this UI is staged: appended
+    /// slice by slice to a temp file through ui/upload-part, and only once all of it is there handed
+    /// to the store as one stream (query-file-commit). That is what makes the progress honest, the
+    /// transfer resumable, and a cancelled upload leave nothing behind.
+    ///
+    /// Staging happens in the database's own storage, which is the one provider a database is certain
+    /// to have; the temp file lives under the same upload folder the files section uses and is deleted
+    /// whether the commit succeeds or not.
+    /// </summary>
+    object fileTarget(FileTargetPayload p) {
+        var s = store(p.StoreId);
+        if (!s.Datastore.Datamodel.Properties.TryGetValue(p.PropertyId, out var property) || property is not FilePropertyModel) {
+            throw new Exception("Property is not a file. ");
+        }
+        var io = _server.GetIO(stagingIoId(p.StoreId));
+        return new {
+            IoId = stagingIoId(p.StoreId),
+            // Whether a slice lost mid-flight can be repaired in place. A provider that can shorten a
+            // file puts the temp file back to where the client believes it is and the same slice is
+            // sent again; one that cannot (append-only blob storage) has to drop the temp file, so a
+            // broken connection costs the whole upload rather than one slice. Both slice, and both
+            // report progress - this only says what a failure costs, and the form says so too.
+            Resumable = io.CanTruncate,
+        };
+    }
+
+    /// <summary>
+    /// Hands a fully staged upload to the file store and puts the resulting value on the property.
+    /// The temp file goes either way: a commit that cannot be made must not leave one behind.
+    /// </summary>
+    async Task<object> fileCommit(FileCommitPayload p) {
+        var s = store(p.StoreId);
+        var dm = s.Datastore.Datamodel;
+        if (!dm.Properties.TryGetValue(p.PropertyId, out var property) || property is not FilePropertyModel) {
+            throw new Exception("Property is not a file. ");
+        }
+        if (property.Internal) throw new Exception("Property " + property.CodeName + " is maintained by the database. ");
+        if (!s.Datastore.TryGet(p.Id, out var n, adminContext)) throw new Exception("Node not found. ");
+        if (!dm.NodeTypes.TryGetValue(n.NodeType, out var type) || !type.AllProperties.ContainsKey(p.PropertyId)) {
+            throw new Exception("The node has no property with id " + p.PropertyId + ". ");
+        }
+        var io = _server.GetIO(stagingIoId(p.StoreId));
+        var temp = UIFileTransfer.UploadTempKey(p.UploadId);
+        try {
+            var staged = io.GetFileSizeOrZeroIfUnknown(temp);
+            if (staged != p.Size) throw new Exception($"The upload holds {staged.To1000N()} bytes, {p.Size.To1000N()} were expected. ");
+            var fileValue = await s.FileUploadAsync(p.Id, p.PropertyId, io, temp, fileNameOf(p.FileName));
+            return fileView(fileValue, new PropertyPath(p.Id, p.PropertyId));
+        } finally {
+            try { io.DeleteFileIfItExists(temp); } catch { } // the bytes are in the store by now
+        }
+    }
+
+    /// <summary>
+    /// Takes the file off the property and deletes it from the file store.
+    ///
+    /// Unlike replacing one - which leaves the old file behind for the storage page's redundant-file
+    /// sweep to find - this deletes the bytes, because there is nothing left pointing at them and
+    /// nobody asked for the file to be kept. The form asks before calling it.
+    /// </summary>
+    async Task<object> fileClear(FileClearPayload p) {
+        var s = store(p.StoreId);
+        var dm = s.Datastore.Datamodel;
+        if (!dm.Properties.TryGetValue(p.PropertyId, out var property) || property is not FilePropertyModel) {
+            throw new Exception("Property is not a file. ");
+        }
+        if (property.Internal) throw new Exception("Property " + property.CodeName + " is maintained by the database. ");
+        if (!s.Datastore.TryGet(p.Id, out var n, adminContext)) throw new Exception("Node not found. ");
+        if (!dm.NodeTypes.TryGetValue(n.NodeType, out var type) || !type.AllProperties.ContainsKey(p.PropertyId)) {
+            throw new Exception("The node has no property with id " + p.PropertyId + ". ");
+        }
+        await s.FileDeleteAsync(p.Id, p.PropertyId);
+        return new { Cleared = true };
+    }
+
+    /// <summary>The storage an upload is staged in: the database's own, which every database has.</summary>
+    Guid stagingIoId(Guid storeId) {
+        var settings = settingsOf(storeId) ?? throw new Exception("Database not found. ");
+        return settings.IoDatabase ?? throw new Exception("This database has no storage configured to stage an upload in. ");
+    }
+
+    /// <summary>
+    /// The name the file is stored under. It is display text and the extension the store reads the
+    /// format from - never a path - so anything that looks like one is cut down to its last segment.
+    /// </summary>
+    static string fileNameOf(string? name) {
+        var last = (name ?? string.Empty).Split('/', '\\')[^1].Trim();
+        foreach (var c in Path.GetInvalidFileNameChars()) last = last.Replace(c, '_');
+        return last.Length == 0 ? "file" : last;
+    }
 
     // ---- saving the form ----
 
@@ -2472,4 +2575,8 @@ sealed class UIQuery {
     sealed record SaveMetaPayload(Guid StoreId, Guid Id, Dictionary<string, JsonElement>? Values);
     sealed record VersionsPayload(Guid StoreId, Guid Id, int MaxCount = 50);
     sealed record LookupPayload(Guid StoreId, Guid[]? TypeIds, string? Text, int Take = 20);
+    sealed record FileTargetPayload(Guid StoreId, Guid PropertyId);
+    /// <summary>UploadId names the staged temp file; Size is what the client believes it sent.</summary>
+    sealed record FileCommitPayload(Guid StoreId, Guid Id, Guid PropertyId, Guid UploadId, string? FileName, long Size);
+    sealed record FileClearPayload(Guid StoreId, Guid Id, Guid PropertyId);
 }

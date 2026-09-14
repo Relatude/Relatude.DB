@@ -14,6 +14,7 @@ import { buildPalette, hashText, paletteSlot, palettes, parseCssColor, type Pale
 import { shapeLabel, shapeMaskUrl, shapeSlotFor } from "../visual/shapes";
 import { IntMap } from "../visual/intMap";
 import { createCardMedia, type CardMedia } from "../visual/cardMedia";
+import { subscribeNodePicture } from "../nodeMedia";
 import { createCardLabels, type CardLabels, type LabelColors } from "../visual/cardLabels";
 
 /** A visual pivot before anyone has chosen anything: a grid of one colour, in the result's order. */
@@ -532,6 +533,20 @@ export function VisualPivotView({
   useEffect(() => {
     media.current?.setStore(base.storeId);
   }, [base.storeId]);
+
+  // A file put on a node from the form beside this picture (see nodeMedia.ts). The picture of that
+  // node is held here in a texture and its bytes in a cache, both of which are now of the old file,
+  // so the node is forgotten and asked about again the next time it is in view. Everything else the
+  // picture holds is left alone: a result of a million cards must not be rebuilt because one of them
+  // got a new photograph.
+  useEffect(
+    () =>
+      subscribeNodePicture(({ storeId, nodeId }) => {
+        if (storeId !== base.storeId) return;
+        media.current?.forgetNode(nodeId);
+      }),
+    [base.storeId],
+  );
 
   // the switch, thrown on a picture that is already up (a picture built after it is told when it is
   // made, above); off, what was fetched is let go of and the cards go back to plain colour

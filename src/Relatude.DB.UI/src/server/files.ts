@@ -394,7 +394,7 @@ function post(url: string, body: Blob, onProgress: (sent: number) => void, signa
 }
 
 // crypto.randomUUID is only there in a secure context, and the admin UI is not always served over one
-function newUploadId(): string {
+export function newUploadId(): string {
   if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
@@ -404,9 +404,54 @@ function newUploadId(): string {
 }
 
 /**
- * One file, sliced. Progress counts the bytes of the whole file, not of the slice in flight, and a
- * slice lost to the network is sent again from wherever the server says the upload stands.
+ * One file, sliced, into the upload's temp file - and left there. Progress counts the bytes of the
+ * whole file, not of the slice in flight, and a slice lost to the network is sent again from
+ * wherever the server says the upload stands.
+ *
+ * Staging and committing are separate because what a staged file becomes is not always a key: the
+ * node form commits one into a file property instead (query-file-commit in UIQuery.cs), which needs
+ * the whole file in one stream and so cannot be written a slice at a time itself. Whoever stages is
+ * responsible for the temp file: commit it, or drop it with `abortUpload`.
  */
+export async function uploadStaged(
+  ioId: string,
+  uploadId: string,
+  file: File,
+  onProgress: (sent: number, total: number) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const partUrl = `${adminBase}/ui/upload-part?ioId=${ioId}&uploadId=${uploadId}`;
+  let offset = 0;
+  let attempt = 0;
+  for (;;) {
+    throwIfAborted(signal);
+    const at = offset;
+    const slice = file.slice(at, Math.min(at + uploadSizer.bytes(), file.size));
+    try {
+      const started = performance.now();
+      const answer = await post(`${partUrl}&offset=${at}`, slice, (sent) => onProgress(Math.min(at + sent, file.size), file.size), signal);
+      uploadSizer.note(slice.size, performance.now() - started);
+      offset = (JSON.parse(answer) as { received: number }).received;
+      attempt = 0;
+    } catch (error) {
+      throwIfAborted(signal);
+      if (error instanceof UploadError && error.received !== null) offset = error.received; // resync
+      else if (error instanceof UploadError && error.status === 0 && ++attempt <= sliceRetries) await pause(300 * attempt);
+      else throw error;
+      continue;
+    }
+    onProgress(offset, file.size);
+    if (offset >= file.size) break;
+    if (offset <= at) throw new Error("The upload stopped making progress.");
+  }
+}
+
+/** Drops a staged upload. Deliberately a plain fetch: the caller's signal is usually aborted by now. */
+export function abortUpload(ioId: string, uploadId: string): void {
+  void fetch(`${adminBase}/ui/upload-abort?ioId=${ioId}&uploadId=${uploadId}`, { method: "POST" }).catch(() => {});
+}
+
+/** One file, sliced, onto a key of that storage. */
 export async function uploadFile(
   ioId: string,
   key: string,
@@ -415,35 +460,11 @@ export async function uploadFile(
   signal: AbortSignal,
 ): Promise<void> {
   const uploadId = newUploadId();
-  const partUrl = `${adminBase}/ui/upload-part?ioId=${ioId}&uploadId=${uploadId}`;
-  let offset = 0;
-  let attempt = 0;
   try {
-    for (;;) {
-      throwIfAborted(signal);
-      const at = offset;
-      const slice = file.slice(at, Math.min(at + uploadSizer.bytes(), file.size));
-      try {
-        const started = performance.now();
-        const answer = await post(`${partUrl}&offset=${at}`, slice, (sent) => onProgress(Math.min(at + sent, file.size), file.size), signal);
-        uploadSizer.note(slice.size, performance.now() - started);
-        offset = (JSON.parse(answer) as { received: number }).received;
-        attempt = 0;
-      } catch (error) {
-        throwIfAborted(signal);
-        if (error instanceof UploadError && error.received !== null) offset = error.received; // resync
-        else if (error instanceof UploadError && error.status === 0 && ++attempt <= sliceRetries) await pause(300 * attempt);
-        else throw error;
-        continue;
-      }
-      onProgress(offset, file.size);
-      if (offset >= file.size) break;
-      if (offset <= at) throw new Error("The upload stopped making progress.");
-    }
+    await uploadStaged(ioId, uploadId, file, onProgress, signal);
     await post(`${adminBase}/ui/upload-commit?ioId=${ioId}&uploadId=${uploadId}&key=${encodeURIComponent(key)}&size=${file.size}`, new Blob(), () => {}, signal);
   } catch (error) {
-    // the signal is usually aborted by now, so the temp file is dropped with a plain fetch
-    void fetch(`${adminBase}/ui/upload-abort?ioId=${ioId}&uploadId=${uploadId}`, { method: "POST" }).catch(() => {});
+    abortUpload(ioId, uploadId);
     throw error;
   }
 }

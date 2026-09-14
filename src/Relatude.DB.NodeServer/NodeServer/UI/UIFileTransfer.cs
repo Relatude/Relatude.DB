@@ -1,4 +1,4 @@
-using Relatude.DB.IO;
+﻿using Relatude.DB.IO;
 using Relatude.DB.NodeServer.Json;
 using System.Buffers.Binary;
 using System.Text;
@@ -48,7 +48,7 @@ internal sealed class UIFileTransfer {
     async Task<IResult> uploadPartAsync(HttpContext ctx, Guid ioId, Guid uploadId, long offset) {
         unlimitBody(ctx);
         var io = _server.GetIO(ioId);
-        var temp = tempKey(uploadId);
+        var temp = UploadTempKey(uploadId);
         var received = io.GetFileSizeOrZeroIfUnknown(temp);
         if (offset == 0 && received > 0) { // a restarted upload reusing its id
             io.DeleteFileIfItExists(temp);
@@ -75,7 +75,7 @@ internal sealed class UIFileTransfer {
 
     IResult commit(Guid ioId, Guid uploadId, string key, long size) {
         var io = _server.GetIO(ioId);
-        var temp = tempKey(uploadId);
+        var temp = UploadTempKey(uploadId);
         var fileKey = key.SplitKey();
         if (!isWritableKey(io, fileKey, out var error)) {
             io.DeleteFileIfItExists(temp);
@@ -97,7 +97,7 @@ internal sealed class UIFileTransfer {
 
     IResult abort(Guid ioId, Guid uploadId) {
         var io = _server.GetIO(ioId);
-        io.DeleteFileIfItExists(tempKey(uploadId));
+        io.DeleteFileIfItExists(UploadTempKey(uploadId));
         return Results.Ok();
     }
 
@@ -124,7 +124,7 @@ internal sealed class UIFileTransfer {
             var length = BinaryPrimitives.ReadInt64LittleEndian(await readAsync(body, 8, ctx.RequestAborted));
             if (length < 0) return Results.BadRequest(new { error = "Malformed upload batch. " });
             string[] fileKey = [.. baseKey, .. name.SplitKey()];
-            var temp = tempKey(Guid.NewGuid());
+            var temp = UploadTempKey(Guid.NewGuid());
             var failure = isWritableKey(io, fileKey, out var keyError) ? null : keyError;
             IAppendStream? stream = null;
             if (failure == null) {
@@ -233,7 +233,10 @@ internal sealed class UIFileTransfer {
         }
     }
 
-    static string[] tempKey(Guid uploadId) => [FileKeyUtility.UploadFolderName, uploadId.ToString("N") + ".part"];
+    /// <summary>Where an upload is staged while it is still arriving. Internal because the node file
+    /// upload (UIQuery) stages through the same routes and then commits the temp file into a file
+    /// property instead of onto a key.</summary>
+    internal static string[] UploadTempKey(Guid uploadId) => [FileKeyUtility.UploadFolderName, uploadId.ToString("N") + ".part"];
 
     static bool isWritableKey(IIOProvider io, string[] fileKey, out string? error) {
         if (fileKey.Length == 0 || fileKey.Any(segment => !UIServer.IsValidSegment(io, segment))) {

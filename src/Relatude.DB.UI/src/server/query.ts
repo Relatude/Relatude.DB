@@ -410,6 +410,49 @@ export function fetchNodeVersions(storeId: string, id: string, maxCount = 50): P
   return send<NodeHistory>("query-node-versions", { storeId, id, maxCount });
 }
 
+// ---- putting a file on a file property ----
+
+/** Where an upload for a file property is staged, and what a broken transfer costs there. */
+export interface FileUploadTarget {
+  /** the storage the slices are appended to; see uploadStaged in server/files.ts */
+  ioId: string;
+  /**
+   * Whether a slice lost mid-flight is repaired in place and the transfer carries on. Where it is
+   * false (append-only blob storage) the upload still slices and still reports progress, but a
+   * broken connection costs the whole file rather than one slice.
+   */
+  resumable: boolean;
+}
+
+export function fileUploadTarget(storeId: string, propertyId: string): Promise<FileUploadTarget> {
+  return send<FileUploadTarget>("query-file-target", { storeId, propertyId });
+}
+
+/**
+ * Hands a staged upload to the file store and puts it on the property. This is a write of its own,
+ * not part of the form's Save: the bytes have to reach the store before there is a value to save.
+ * Answers the new file as the form shows it.
+ */
+export function commitNodeFile(
+  storeId: string,
+  id: string,
+  propertyId: string,
+  uploadId: string,
+  fileName: string,
+  size: number,
+): Promise<FileValueView> {
+  return send<FileValueView>("query-file-commit", { storeId, id, propertyId, uploadId, fileName, size });
+}
+
+/**
+ * Takes the file off the property and deletes it from the file store. Unlike replacing one - which
+ * leaves the old file for the storage page's redundant-file sweep - this deletes the bytes, so the
+ * form asks before calling it.
+ */
+export function clearNodeFile(storeId: string, id: string, propertyId: string): Promise<{ cleared: boolean }> {
+  return send<{ cleared: boolean }>("query-file-clear", { storeId, id, propertyId });
+}
+
 // ---- the pivot view: the same search, summarized as groups x measures ----
 
 /** A property of the queried type as the pivot builder sees it: what it can be used for. */
