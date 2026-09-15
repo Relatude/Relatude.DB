@@ -58,8 +58,8 @@ import type { DatabaseInfo } from "../server/serverInfo";
 import { formatCount, formatQuery, formatTime } from "../format";
 import { loadTabs, newQuery, saveTabs, type HitsView, type QueryMode, type QueryTabs, type SavedQuery } from "../queryTabs";
 import { useRowWindow } from "../rowWindow";
-import { applyMarquee, applySelect, noSelection, selectedInts, selectionCount, selectModeOf, type PageSelection, type SelectMode } from "../selection";
-import { useListMarquee } from "../marquee";
+import { applyMarquee, applySelect, noSelection, selectedInts, selectionCount, selectModeOf, type MarqueeMode, type PageSelection, type SelectMode } from "../selection";
+import { marqueeModeClass, useListMarquee, useMarqueeMode } from "../marquee";
 
 // How many hits one page holds. The large ones are for reading a whole set in one go - a table
 // someone is going to scroll, or export - and are asked for deliberately; "all" (0 here) is one
@@ -612,12 +612,12 @@ function QueryTab({
   }
 
   /**
-   * A rectangle was drawn round some nodes, in whichever view (see marquee.tsx): they become the
-   * selection, or with shift or ctrl held are added to it - and taken out again if they were already
-   * in. The last of them is where a shift-click's run starts from next.
+   * A rectangle was drawn round some nodes, in whichever view (see marquee.tsx): on its own it is
+   * the selection, with shift held it is added to what was selected, and with alt held it is taken
+   * out of it. The last of them is where a shift-click's run starts from next.
    */
-  function selectMany(ids: number[], keep: boolean) {
-    setSelection({ kind: "ints", ids: applyMarquee(currentInts(), ids, keep) });
+  function selectMany(ids: number[], marqueeMode: MarqueeMode) {
+    setSelection({ kind: "ints", ids: applyMarquee(currentInts(), ids, marqueeMode) });
     if (ids.length > 0) anchor.current = ids[ids.length - 1];
   }
 
@@ -645,8 +645,10 @@ function QueryTab({
     enabled: dragSelect && mode === "search",
     host: results,
     // the rows carry the internal id (data-node-id), which is what the dataset hands back as text
-    onSelect: (ids, keep) => selectMany(ids.map(Number), keep),
+    onSelect: (ids, marqueeMode) => selectMany(ids.map(Number), marqueeMode),
   });
+  // and what the keys held would make of the next rectangle, so the pointer over the rows can show it
+  const listMarqueeMode = useMarqueeMode(dragSelect && mode === "search");
 
   // ctrl+A over the hits: every row of the page into the form at once
   function onHitsKeyDown(e: React.KeyboardEvent) {
@@ -656,7 +658,7 @@ function QueryTab({
     }
   }
   const hitsHint = dragSelect
-    ? "Drag a rectangle round the rows to open them together; shift adds to the selection, and a row caught twice is out again. A click still opens one"
+    ? "Drag a rectangle round the rows to open them together; hold shift to add them to the selection, alt to take them out of it. A click still opens one"
     : "Click a row to open the node; ctrl-click adds one, shift-click a run of them, ctrl+A the whole page";
 
   // A column header cycles through the three states a sort can be in: up, down, and the order the
@@ -854,8 +856,8 @@ function QueryTab({
       aria-pressed={dragSelect}
       title={
         dragSelect
-          ? "Drag to select is on: a drag draws a rectangle, and every node it touches opens in the form. Shift or ctrl adds to the selection - a node caught twice is out again. The right button moves a picture meanwhile. Click to turn it off"
-          : "Drag to select: draw a rectangle round the nodes to open them together (shift or ctrl adds to the selection)"
+          ? "Drag to select is on: a drag draws a rectangle, and every node it touches opens in the form. Hold shift to add what it catches to the selection, alt to take it out. The right button moves a picture meanwhile. Click to turn it off"
+          : "Drag to select: draw a rectangle round the nodes to open them together (shift adds to the selection, alt takes out of it)"
       }
       onClick={() => onChange({ dragSelect: !dragSelect })}
     >
@@ -1136,7 +1138,7 @@ function QueryTab({
         )}
 
         <div
-          className={"query-results panel" + (dragSelect && mode === "search" ? " marquee-mode" : "")}
+          className={"query-results panel" + (dragSelect && mode === "search" ? " marquee-mode" + marqueeModeClass(listMarqueeMode) : "")}
           ref={results}
           onPointerDown={listMarquee.onPointerDown}
           onClickCapture={listMarquee.onClickCapture}

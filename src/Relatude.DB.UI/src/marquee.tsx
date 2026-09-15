@@ -7,14 +7,17 @@
  * and does what a click always did.
  *
  * What the rectangle takes is whatever it touches, however little: a row with one line inside it,
- * a card with one pixel showing. On its own the rectangle becomes the selection - an empty one
- * clears it - and with shift or ctrl held it is added, where a node caught that was already
- * selected is let go of again (applyMarquee in selection.ts). What is here is the part every view
- * shares: the geometry, the box drawn over the view with its count, the gesture over a scrolling
- * list.
+ * a card with one pixel showing. What it then does to the selection is the keys held while it is
+ * drawn (marqueeModeOf in selection.ts): on its own it BECOMES the selection - an empty one clears
+ * it - with shift it is ADDED to what is selected, and with alt it is taken OUT of it. The keys are
+ * read as they are held, so a mind changed halfway through a drag changes the rectangle under way,
+ * and the pointer carries a plus or a minus meanwhile so there is no doubt which one is in hand.
+ * What is here is the part every view shares: the geometry, the keys, the box drawn over the view
+ * with its count, the gesture over a scrolling list.
  */
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { formatCount } from "./format";
+import { marqueeModeOf, type MarqueeMode } from "./selection";
 
 /** A rectangle with x0 <= x1 and y0 <= y1, in whatever coordinates the caller works in. */
 export interface Rect {
@@ -41,9 +44,46 @@ export const marqueeThreshold = 4;
  * askAboveNodes in NodeEditor.tsx); Delete asks there too.
  */
 
-/** Whether the keys held mean "add to what is selected" rather than "replace it". */
-export function keepOf(e: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }): boolean {
-  return e.shiftKey || e.ctrlKey || e.metaKey;
+/**
+ * What the keys held right now would have a rectangle do - watched while the mode is on, so a view
+ * can say so before anything is drawn. The pointer is what says it (see marqueeModeClass and the
+ * cursors in app.css): holding shift puts a plus beside it, alt a minus.
+ *
+ * Keys come from the window, and from the pointer as well: shift held down on the way in from
+ * somewhere else was pressed while the page was not listening, and a move carries the keys with it.
+ * Nothing renders unless the answer actually changes, so a key held down (which repeats) and a
+ * pointer moving over a picture cost a comparison each. A window that loses focus with a key down -
+ * alt-tabbing, which is alt held - never hears it come up again, so that lets go of it too.
+ */
+export function useMarqueeMode(enabled: boolean): MarqueeMode {
+  const [mode, setMode] = useState<MarqueeMode>("replace");
+  useEffect(() => {
+    if (!enabled) {
+      setMode("replace");
+      return;
+    }
+    const read = (e: KeyboardEvent | PointerEvent) => {
+      const now = marqueeModeOf(e);
+      setMode((was) => (now === was ? was : now)); // the same answer is no render: keys repeat, and a hand moves
+    };
+    const drop = () => setMode("replace");
+    window.addEventListener("keydown", read);
+    window.addEventListener("keyup", read);
+    window.addEventListener("pointermove", read);
+    window.addEventListener("blur", drop);
+    return () => {
+      window.removeEventListener("keydown", read);
+      window.removeEventListener("keyup", read);
+      window.removeEventListener("pointermove", read);
+      window.removeEventListener("blur", drop);
+    };
+  }, [enabled]);
+  return mode;
+}
+
+/** The class that puts the plus or the minus on the pointer, for the element the rectangle is drawn over. */
+export function marqueeModeClass(mode: MarqueeMode): string {
+  return mode === "add" ? " marquee-add" : mode === "subtract" ? " marquee-subtract" : "";
 }
 
 /** Escape lets go of a rectangle being drawn; what comes back removes the listener. */
@@ -57,11 +97,18 @@ export function untilEscape(cancel: () => void): () => void {
   return () => window.removeEventListener("keydown", onKey, true);
 }
 
-/** The rectangle as it is drawn over a view, with how many nodes it holds right now. */
-export function MarqueeBox({ rect, count }: { rect: Rect; count: number }) {
+/**
+ * The rectangle as it is drawn over a view, with how many nodes it holds right now - signed by what
+ * letting go would do with them, since the same rectangle means three different things depending on
+ * the keys. The count is what the rectangle HOLDS, not how many of them would change hands: what
+ * that comes to is on screen already, in the marks the preview is laying down as it grows.
+ */
+export function MarqueeBox({ rect, count, mode = "replace" }: { rect: Rect; count: number; mode?: MarqueeMode }) {
+  const sign = mode === "add" ? "+" : mode === "subtract" ? "−" : "";
   return (
     <div className="marquee-box" style={{ left: rect.x0, top: rect.y0, width: Math.max(0, rect.x1 - rect.x0), height: Math.max(0, rect.y1 - rect.y0) }}>
       <span className="marquee-count">
+        {sign}
         {formatCount(count)} {count === 1 ? "node" : "nodes"}
       </span>
     </div>
@@ -106,7 +153,8 @@ interface ListGesture {
   /** where the pointer is, on screen */
   x: number;
   y: number;
-  keep: boolean;
+  /** what the keys held would have this rectangle do, as they are held now (see marqueeModeOf) */
+  mode: MarqueeMode;
   moved: boolean;
   /** the rows marked as inside right now */
   marked: Set<HTMLElement>;
@@ -126,15 +174,16 @@ const maxScroll = 40;
  * rows that then moves becomes a rectangle, and the rows it touches are marked as it grows. Held
  * past the edge of the list the pointer scrolls it, and the rectangle grows with the rows it
  * reaches - its first corner keeps its place among the rows, not on the screen. Letting go hands
- * the rows' node ids to `onSelect`; a press that never moved is left alone and is the click it
- * always was, while the click the browser makes of a drag is swallowed on its way to the row.
+ * the rows' node ids to `onSelect`, with what the keys held make of them; a press that never moved
+ * is left alone and is the click it always was, while the click the browser makes of a drag is
+ * swallowed on its way to the row.
  */
-export function useListMarquee({ enabled, host, onSelect }: { enabled: boolean; host: RefObject<HTMLElement | null>; onSelect: (ids: string[], keep: boolean) => void }): {
+export function useListMarquee({ enabled, host, onSelect }: { enabled: boolean; host: RefObject<HTMLElement | null>; onSelect: (ids: string[], mode: MarqueeMode) => void }): {
   onPointerDown: (e: React.PointerEvent) => void;
   onClickCapture: (e: React.MouseEvent) => void;
   box: ReactNode;
 } {
-  const [shown, setShown] = useState<{ rect: Rect; count: number } | null>(null);
+  const [shown, setShown] = useState<{ rect: Rect; count: number; mode: MarqueeMode } | null>(null);
   const gesture = useRef<ListGesture | null>(null);
   /** the click that follows a rectangle is not a click on the row it happens to end over */
   const swallow = useRef(false);
@@ -183,7 +232,7 @@ export function useListMarquee({ enabled, host, onSelect }: { enabled: boolean; 
     const v = visibleBox(g.scroller);
     const h = host.current?.getBoundingClientRect();
     // drawn in the panel's coordinates and clipped to the list's own window, so it never lies over the head
-    if (h) setShown({ rect: { x0: Math.max(rect.x0, v.x0) - h.left, y0: Math.max(rect.y0, v.y0) - h.top, x1: Math.min(rect.x1, v.x1) - h.left, y1: Math.min(rect.y1, v.y1) - h.top }, count: rows.length });
+    if (h) setShown({ rect: { x0: Math.max(rect.x0, v.x0) - h.left, y0: Math.max(rect.y0, v.y0) - h.top, x1: Math.min(rect.x1, v.x1) - h.left, y1: Math.min(rect.y1, v.y1) - h.top }, count: rows.length, mode: g.mode });
     if (g.raf === 0 && overshoot(g, v) !== null) g.raf = requestAnimationFrame(tick);
   }
 
@@ -205,6 +254,7 @@ export function useListMarquee({ enabled, host, onSelect }: { enabled: boolean; 
     if (!g) return;
     g.x = ev.clientX;
     g.y = ev.clientY;
+    g.mode = marqueeModeOf(ev);
     if (!g.moved) {
       const s = g.scroller;
       if (Math.hypot(ev.clientX - (g.ax - s.scrollLeft), ev.clientY - (g.ay - s.scrollTop)) < marqueeThreshold) return;
@@ -239,7 +289,7 @@ export function useListMarquee({ enabled, host, onSelect }: { enabled: boolean; 
       const id = el.dataset.nodeId;
       if (id) ids.push(id);
     }
-    onSelectRef.current(ids, g.keep);
+    onSelectRef.current(ids, g.mode);
   }
 
   function onPointerDown(e: React.PointerEvent) {
@@ -257,7 +307,7 @@ export function useListMarquee({ enabled, host, onSelect }: { enabled: boolean; 
       ay: e.clientY + scroller.scrollTop,
       x: e.clientX,
       y: e.clientY,
-      keep: keepOf(e),
+      mode: marqueeModeOf(e),
       moved: false,
       marked: new Set(),
       raf: 0,
@@ -268,14 +318,26 @@ export function useListMarquee({ enabled, host, onSelect }: { enabled: boolean; 
     // a cancelled pointer ends the rectangle where the last move left it rather than dropping it:
     // the end point is the gesture's own, never the event's (a cancel arrives at 0,0)
     const up = () => finish(true);
+    // shift or alt pressed or let go of without the pointer moving: the rectangle stands where it is
+    // and changes what it would do, so the rows it holds are marked again in the new light
+    const keys = (ev: KeyboardEvent) => {
+      const mode = marqueeModeOf(ev);
+      if (mode === g.mode) return;
+      g.mode = mode;
+      if (g.moved) update(g);
+    };
     const escape = untilEscape(() => finish(false));
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
+    window.addEventListener("keydown", keys);
+    window.addEventListener("keyup", keys);
     g.stop = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
+      window.removeEventListener("keydown", keys);
+      window.removeEventListener("keyup", keys);
       escape();
     };
     gesture.current = g;
@@ -288,5 +350,5 @@ export function useListMarquee({ enabled, host, onSelect }: { enabled: boolean; 
     e.preventDefault();
   }
 
-  return { onPointerDown, onClickCapture, box: shown ? <MarqueeBox rect={shown.rect} count={shown.count} /> : null };
+  return { onPointerDown, onClickCapture, box: shown ? <MarqueeBox rect={shown.rect} count={shown.count} mode={shown.mode} /> : null };
 }

@@ -4,8 +4,8 @@ import { ColorField } from "./ColorField";
 import { BareButton, FullscreenButton } from "./DatamodelGraph";
 import type { PivotBase } from "./PivotView";
 import { fetchCards, fetchPivotModel, runMap, type MapRequest, type PivotModel, type PivotProperty } from "../server/query";
-import { selectModeOf, type SelectMode } from "../selection";
-import { keepOf, marqueeThreshold, MarqueeBox, rectOf, untilEscape, type Rect } from "../marquee";
+import { marqueeModeOf, selectModeOf, type MarqueeMode, type SelectMode } from "../selection";
+import { marqueeModeClass, marqueeThreshold, MarqueeBox, rectOf, untilEscape, useMarqueeMode, type Rect } from "../marquee";
 import { useLiveResult } from "../server/hooks";
 import { formatCount, formatQuery } from "../format";
 import type { MapDefinition, MapMarks as MarkKind, MapStyle as SavedStyle } from "../queryTabs";
@@ -149,8 +149,8 @@ interface Drag {
   ly: number;
   moved: boolean;
   kind: "pan" | "marquee";
-  /** whether the keys held at the press mean the rectangle adds to the selection rather than replacing it */
-  keep: boolean;
+  /** what the keys held would have the rectangle do to the selection, as they are held now */
+  mode: MarqueeMode;
   /** what stops listening for Escape, while a rectangle is being drawn */
   stopEscape?: () => void;
   /** the view and the camera as they were when the hand went down */
@@ -205,8 +205,8 @@ export function MapView({
   showQuery: boolean;
   /** A node was clicked: it goes to the form beside the map, by the internal id the point carries. */
   onOpen: (nodeId: number, mode: SelectMode) => void;
-  /** A rectangle was drawn round some points: these nodes become the selection, or with `keep` are added to it (see applyMarquee). */
-  onSelectMany: (ids: number[], keep: boolean) => void;
+  /** A rectangle was drawn round some points: these nodes become the selection, or are added to or taken out of it (see applyMarquee). */
+  onSelectMany: (ids: number[], mode: MarqueeMode) => void;
   /** Drag to select is on: the left button draws a rectangle round points rather than moving the map. */
   marquee: boolean;
   /** The nodes the form has open, by internal id: the map marks their points. */
@@ -298,6 +298,8 @@ export function MapView({
   /** the rectangle being drawn round points, on the canvas, and how many it holds */
   const [marqueeRect, setMarqueeRect] = useState<Rect | null>(null);
   const [marqueeCount, setMarqueeCount] = useState(0);
+  /** and what the keys held would do with them: it puts a plus or a minus on the pointer, and signs the count */
+  const marqueeMode = useMarqueeMode(marquee);
   const marqueeOn = useRef(marquee);
   marqueeOn.current = marquee;
   /** when the points may next be counted for a growing rectangle (see previewMarquee) */
@@ -622,7 +624,7 @@ export function MapView({
     const ay = e.clientY - rect.top;
     // drag to select: the left button draws the rectangle, whatever keys are held; the others pan
     const kind = marqueeOn.current && e.button === 0 ? "marquee" : "pan";
-    drag.current = { x: e.clientX, y: e.clientY, ax, ay, lx: ax, ly: ay, moved: false, kind, keep: keepOf(e), stopEscape: kind === "marquee" ? untilEscape(cancelMarquee) : undefined, from: { view, camera } };
+    drag.current = { x: e.clientX, y: e.clientY, ax, ay, lx: ax, ly: ay, moved: false, kind, mode: marqueeModeOf(e), stopEscape: kind === "marquee" ? untilEscape(cancelMarquee) : undefined, from: { view, camera } };
     if (kind === "pan") momentum.current.track(e.clientX, e.clientY);
   };
 
@@ -636,10 +638,11 @@ export function MapView({
     if (d.kind === "marquee") {
       d.lx = e.clientX - rect.left;
       d.ly = e.clientY - rect.top;
+      d.mode = marqueeModeOf(e); // the keys as they are held now, not as they were at the press
       if (!d.moved && Math.hypot(d.lx - d.ax, d.ly - d.ay) < marqueeThreshold) return;
       d.moved = true;
       setTooltip(null);
-      previewMarquee(rectOf(d.ax, d.ay, d.lx, d.ly), d.keep);
+      previewMarquee(rectOf(d.ax, d.ay, d.lx, d.ly), d.mode);
       return;
     }
     const dx = e.clientX - d.x;
@@ -660,7 +663,8 @@ export function MapView({
       setMarqueeRect(null);
       if (d.moved) {
         // from the gesture's own last point rather than the event's: a cancelled pointer arrives at 0,0
-        finishMarquee(rectOf(d.ax, d.ay, d.lx, d.ly), d.keep);
+        // - and with no keys held either, so there the gesture's own last reading of them stands
+        finishMarquee(rectOf(d.ax, d.ay, d.lx, d.ly), e.type === "pointercancel" ? d.mode : marqueeModeOf(e));
         return;
       }
       // a press and release that went nowhere is a click, which opens the node under it as it always has
@@ -797,22 +801,24 @@ export function MapView({
     return found;
   };
 
-  /** The marks as a release with the keys held would leave them: the points in the rectangle added, the marked ones among them let go of. */
-  const mergedMarks = (inside: number[]): number[] => {
+  /** The marks as a release with the keys held now would leave them - the same three answers applyMarquee gives, in the points' own indexes. */
+  const marksAfter = (inside: number[], mode: MarqueeMode): number[] => {
+    if (mode === "replace") return inside;
     const caught = new Set(inside);
+    if (mode === "subtract") return currentMarks.current.filter((i) => !caught.has(i));
     const had = new Set(currentMarks.current);
-    const out = currentMarks.current.filter((i) => !caught.has(i));
+    const out = currentMarks.current.slice();
     for (const i of inside) if (!had.has(i)) out.push(i);
     return out;
   };
 
   /**
    * The rectangle as it is being drawn: the points it holds are marked at once and counted, so what
-   * a release would take can be seen before it is taken - added to the marks with the keys held, or
-   * in their place. A million points are placed again for it, so it is asked no more often than a few
-   * times what the last answer took.
+   * a release would leave can be seen before it is done - the points in their place, added to the
+   * marks, or taken out of them, whichever the keys held say. A million points are placed again for
+   * it, so it is asked no more often than a few times what the last answer took.
    */
-  const previewMarquee = (rect: Rect, keep: boolean) => {
+  const previewMarquee = (rect: Rect, mode: MarqueeMode) => {
     setMarqueeRect(rect);
     const now = performance.now();
     if (now < nextPreview.current) return;
@@ -821,25 +827,27 @@ export function MapView({
     setMarqueeCount(inside.length);
     const f = field.current;
     if (f) {
-      f.setSelection(keep ? mergedMarks(inside) : inside);
+      f.setSelection(marksAfter(inside, mode));
       f.draw(sceneRef.current);
     }
   };
 
   /** The rectangle let go of: every node whose point is inside it, by the id the map was drawn with. */
-  const finishMarquee = (rect: Rect, keep: boolean) => {
+  const finishMarquee = (rect: Rect, mode: MarqueeMode) => {
     if (points === null) return;
     const inside = pointsIn(rect);
     if (inside.length === 0) {
+      // a rectangle round nothing: on its own it clears the selection, and held open by a key it
+      // leaves what is selected alone
       applyMarks();
-      onSelectMany([], keep); // a rectangle round nothing: on its own it clears the selection
+      onSelectMany([], mode);
       return;
     }
     // the ids the page selects by, as they are: nothing to resolve, nothing to wait for and nothing
     // to ask about, however many the rectangle caught (see marquee.tsx)
     const intIds: number[] = new Array(inside.length);
     for (let k = 0; k < inside.length; k++) intIds[k] = points.ids[inside[k]];
-    onSelectMany(intIds, keep);
+    onSelectMany(intIds, mode);
   };
 
   /** Escape, or the mode switched off, while a rectangle is being drawn: nothing is taken, and the marks the preview borrowed go back to the form's own. */
@@ -857,6 +865,17 @@ export function MapView({
     if (!marquee) cancelMarquee();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reads the latest through refs
   }, [marquee]);
+
+  // shift or alt pressed, or let go of, with a rectangle standing still on the map: it now means
+  // something else, so the marks are laid down again at once rather than at the next move of the hand
+  useEffect(() => {
+    const d = drag.current;
+    if (d === null || d.kind !== "marquee" || !d.moved) return;
+    d.mode = marqueeMode;
+    nextPreview.current = 0; // a key is not a hand moving: this one answer is worth paying for straight away
+    previewMarquee(rectOf(d.ax, d.ay, d.lx, d.ly), marqueeMode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reads the latest through refs
+  }, [marqueeMode]);
 
   const click = (px: number, py: number, mode: SelectMode) => {
     if (points === null) return;
@@ -1331,7 +1350,7 @@ export function MapView({
 
       <div className={"visual-stage" + (def.bare === true ? " bare" : "")} ref={stageRef}>
         <div
-          className={"visual-canvas map-canvas" + (marquee ? " marquee" : "")}
+          className={"visual-canvas map-canvas" + (marquee ? " marquee" + marqueeModeClass(marqueeMode) : "")}
           ref={frameRef}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -1345,7 +1364,7 @@ export function MapView({
         >
           <canvas ref={canvasRef} />
           <canvas className="map-bubbles" ref={bubblesRef} />
-          {marqueeRect && <MarqueeBox rect={marqueeRect} count={marqueeCount} />}
+          {marqueeRect && <MarqueeBox rect={marqueeRect} count={marqueeCount} mode={marqueeMode} />}
           {!glOk && <div className="query-empty">This browser has no WebGL 2, which the map is drawn with.</div>}
           {tooltip && (
             <div className="visual-tooltip" style={{ transform: `translate(${tooltip.x + 14}px, ${tooltip.y + 14}px)` }}>

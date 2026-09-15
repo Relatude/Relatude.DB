@@ -35,17 +35,36 @@ export function applySelect<T>(current: readonly T[], id: T, mode: SelectMode, r
 }
 
 /**
- * The selection after a rectangle drawn round `ids` (see marquee.tsx). On its own the rectangle IS
- * the selection, and an empty one clears it. With `keep` (shift or ctrl held) it is added: the nodes
- * not yet selected go in, and the ones already selected come out again - so a node caught in two
- * rectangles is deselected by the second, the way a ctrl-click on it would. What stays keeps its
- * order, and what arrives comes after it in the order the view found it.
+ * What a rectangle drawn round some nodes does to the selection (see marquee.tsx): on its own it
+ * REPLACES it, with shift held it is ADDED to it, and with alt held it is taken OUT of it. The keys
+ * are read as they are held rather than as they were when the drag began, and the pointer carries a
+ * plus or a minus to say which of the three is in hand.
  */
-export function applyMarquee<T>(current: readonly T[], ids: readonly T[], keep: boolean): T[] {
-  if (!keep) return [...ids];
+export type MarqueeMode = "replace" | "add" | "subtract";
+
+/** What the keys held right now would have a rectangle do. Alt wins, so shift and alt still subtracts. */
+export function marqueeModeOf(e: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey: boolean }): MarqueeMode {
+  if (e.altKey) return "subtract";
+  if (e.shiftKey || e.ctrlKey || e.metaKey) return "add";
+  return "replace";
+}
+
+/**
+ * The selection after a rectangle drawn round `ids` (see marquee.tsx).
+ *
+ * On its own the rectangle IS the selection, and an empty one clears it. Added (shift, or ctrl), the
+ * nodes it caught go in and the ones already selected STAY selected - drawing round the same node
+ * twice leaves it selected, which is what adding has to mean if several rectangles are to build one
+ * selection up. Subtracted (alt), every node it caught comes out, whether it was this rectangle that
+ * put it in or not. What stays keeps its order, and what arrives comes after it in the order the view
+ * found it.
+ */
+export function applyMarquee<T>(current: readonly T[], ids: readonly T[], mode: MarqueeMode): T[] {
+  if (mode === "replace") return [...ids];
   const caught = new Set(ids);
+  if (mode === "subtract") return current.filter((id) => !caught.has(id));
   const had = new Set(current);
-  return [...current.filter((id) => !caught.has(id)), ...ids.filter((id) => !had.has(id))];
+  return [...current, ...ids.filter((id) => !had.has(id))];
 }
 
 /**

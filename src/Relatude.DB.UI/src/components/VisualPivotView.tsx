@@ -16,8 +16,8 @@ import { IntMap } from "../visual/intMap";
 import { createCardMedia, type CardMedia } from "../visual/cardMedia";
 import { subscribeNodePicture } from "../nodeMedia";
 import { createCardLabels, type CardLabels, type LabelColors } from "../visual/cardLabels";
-import { selectModeOf, type SelectMode } from "../selection";
-import { keepOf, marqueeThreshold, MarqueeBox, rectOf, untilEscape, type Rect } from "../marquee";
+import { marqueeModeOf, selectModeOf, type MarqueeMode, type SelectMode } from "../selection";
+import { marqueeModeClass, marqueeThreshold, MarqueeBox, rectOf, untilEscape, useMarqueeMode, type Rect } from "../marquee";
 
 /** A visual pivot before anyone has chosen anything: a grid of one colour, in the result's order. */
 export const emptyVisual: VisualDefinition = { colorProperty: null, colorMode: "auto", shapeProperty: null, shapeMode: "auto", depthProperty: null, depthMode: "auto", depthGroupProperty: null, depthGroupMode: "auto", barProperty: null, barMode: "auto", sortProperty: null, sortDescending: false, legend: true, palette: palettes[0].id };
@@ -89,8 +89,8 @@ interface Drag {
   vx: number;
   vy: number;
   kind: "flat" | "orbit" | "pan" | "look" | "marquee";
-  /** whether the keys held at the press mean the rectangle adds to the selection rather than replacing it */
-  keep: boolean;
+  /** what the keys held would have the rectangle do to the selection, as they are held now */
+  mode: MarqueeMode;
   /** what stops listening for Escape, while a rectangle is being drawn */
   stopEscape?: () => void;
 }
@@ -217,8 +217,8 @@ export function VisualPivotView({
    * nothing is looked up to make a selection, and a guid is fetched only for what a form reads.
    */
   onOpen: (nodeId: number, mode: SelectMode) => void;
-  /** A rectangle was drawn round some cards: these nodes become the selection, or with `keep` are added to it (see applyMarquee). */
-  onSelectMany: (ids: number[], keep: boolean) => void;
+  /** A rectangle was drawn round some cards: these nodes become the selection, or are added to or taken out of it (see applyMarquee). */
+  onSelectMany: (ids: number[], mode: MarqueeMode) => void;
   /** Drag to select is on: the left button draws a rectangle round cards rather than moving the picture. */
   marquee: boolean;
   /** The nodes the form has open, by internal id: the picture marks their cards, and stops when the form lets go. */
@@ -409,6 +409,8 @@ export function VisualPivotView({
   /** the rectangle being drawn round cards, on the canvas, and how many it holds */
   const [marqueeRect, setMarqueeRect] = useState<Rect | null>(null);
   const [marqueeCount, setMarqueeCount] = useState(0);
+  /** and what the keys held would do with them: it puts a plus or a minus on the pointer, and signs the count */
+  const marqueeMode = useMarqueeMode(marquee);
   // read from the pointer handlers, which the canvas keeps between renders
   const marqueeOn = useRef(marquee);
   marqueeOn.current = marquee;
@@ -829,6 +831,17 @@ export function VisualPivotView({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reads the latest through refs
   }, [marquee]);
 
+  // shift or alt pressed, or let go of, with a rectangle standing still on the picture: it now means
+  // something else, so the marks are laid down again at once rather than at the next move of the hand
+  useEffect(() => {
+    const d = drag.current;
+    if (d?.kind !== "marquee" || !d.moved) return;
+    d.mode = marqueeMode;
+    nextPreview.current = 0; // a key is not a hand moving: this one answer is worth paying for straight away
+    previewMarquee(rectOf(d.ax, d.ay, d.x, d.y), marqueeMode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reads the latest through refs
+  }, [marqueeMode]);
+
   // ---- drag to select (see marquee.tsx) ----
 
   /** The cards inside a rectangle of the canvas, as indexes into the result: the field's answer less the cards on their way out. */
@@ -842,30 +855,32 @@ export function VisualPivotView({
     return all.subarray(0, n);
   }
 
-  /** The marks as a release with the keys held would leave them: the cards in the rectangle added, the marked ones among them let go of. */
-  function mergedMarks(inside: Int32Array): number[] {
+  /** The marks as a release with the keys held now would leave them - the same three answers applyMarquee gives, in the cards' own indexes. */
+  function marksAfter(inside: Int32Array, mode: MarqueeMode): number[] {
+    if (mode === "replace") return Array.from(inside);
     const caught = new Set<number>(inside);
+    if (mode === "subtract") return currentMarks.current.filter((i) => !caught.has(i));
     const had = new Set(currentMarks.current);
-    const out = currentMarks.current.filter((i) => !caught.has(i));
+    const out = currentMarks.current.slice();
     for (const i of inside) if (!had.has(i)) out.push(i);
     return out;
   }
 
   /**
    * The rectangle as it is being drawn: the cards it holds are marked at once, so what a release
-   * would take can be seen before it is taken - added to the marks with the keys held, or in their
-   * place. The GPU is asked no more often than it can answer: a rectangle over a million cards is a
-   * pick pass and a read-back of the pixels, so the next question waits a few times as long as the
-   * last one took.
+   * would leave can be seen before it is done - the cards in their place, added to the marks, or
+   * taken out of them, whichever the keys held say. The GPU is asked no more often than it can
+   * answer: a rectangle over a million cards is a pass over every one of them, so the next question
+   * waits a few times as long as the last one took.
    */
-  function previewMarquee(rect: Rect, keep: boolean) {
+  function previewMarquee(rect: Rect, mode: MarqueeMode) {
     setMarqueeRect(rect);
     const now = performance.now();
     if (now < nextPreview.current) return;
     const inside = cardsIn(rect);
     nextPreview.current = performance.now() + Math.max(40, (performance.now() - now) * 3);
     setMarqueeCount(inside.length);
-    field.current?.setSelection(keep ? mergedMarks(inside) : inside);
+    field.current?.setSelection(marksAfter(inside, mode));
   }
 
   /**
@@ -873,7 +888,7 @@ export function VisualPivotView({
    * Nothing is resolved and nothing travels - the page selects by that id - so a rectangle round a
    * million cards costs what a rectangle round one does.
    */
-  function finishMarquee(rect: Rect, keep: boolean) {
+  function finishMarquee(rect: Rect, mode: MarqueeMode) {
     setMarqueeRect(null);
     const d = decodedRef.current;
     if (!d) {
@@ -884,14 +899,15 @@ export function VisualPivotView({
     const intIds: number[] = new Array(inside.length);
     for (let k = 0; k < inside.length; k++) intIds[k] = d.ids[inside[k]];
     if (intIds.length === 0) {
-      // a rectangle round nothing: on its own it clears the selection, as a click on the ground would
+      // a rectangle round nothing: on its own it clears the selection, as a click on the ground would,
+      // and held open by a key it leaves the selection alone
       applyMarks();
-      onSelectMany([], keep);
+      onSelectMany([], mode);
       return;
     }
     // nothing to resolve, nothing to wait for and nothing to ask about: these are the ids the page
     // selects by, however many of them the rectangle caught (see marquee.tsx)
-    onSelectMany(intIds, keep);
+    onSelectMany(intIds, mode);
   }
 
   /** Escape, or the mode switched off, while a rectangle is being drawn: nothing is taken, and the marks the preview borrowed go back to the form's own. */
@@ -1256,7 +1272,7 @@ export function VisualPivotView({
       e.preventDefault();
     }
     const [x, y] = canvasPoint(e);
-    drag.current = { x, y, ax: x, ay: y, t: performance.now(), moved: false, vx: 0, vy: 0, kind, keep: keepOf(e), stopEscape };
+    drag.current = { x, y, ax: x, ay: y, t: performance.now(), moved: false, vx: 0, vy: 0, kind, mode: marqueeModeOf(e), stopEscape };
     // the keys are the canvas', so a hand on the picture is what gives them to it
     e.currentTarget.focus({ preventScroll: true });
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -1273,8 +1289,9 @@ export function VisualPivotView({
       if (d.kind === "marquee") {
         d.x = x;
         d.y = y;
+        d.mode = marqueeModeOf(e); // the keys as they are held now, not as they were at the press
         if (!d.moved && Math.hypot(x - d.ax, y - d.ay) > marqueeThreshold) d.moved = true;
-        if (d.moved) previewMarquee(rectOf(d.ax, d.ay, x, y), d.keep);
+        if (d.moved) previewMarquee(rectOf(d.ax, d.ay, x, y), d.mode);
         return;
       }
       const now = performance.now();
@@ -1332,7 +1349,8 @@ export function VisualPivotView({
       d.stopEscape?.();
       if (d.moved) {
         // from the gesture's own last point rather than the event's: a cancelled pointer arrives at 0,0
-        finishMarquee(rectOf(d.ax, d.ay, d.x, d.y), d.keep);
+        // - and with no keys held either, so there the gesture's own last reading of them stands
+        finishMarquee(rectOf(d.ax, d.ay, d.x, d.y), e.type === "pointercancel" ? d.mode : marqueeModeOf(e));
         return;
       }
       // a press and release that went nowhere is a click, and a click in this mode still opens the card
@@ -1571,7 +1589,7 @@ export function VisualPivotView({
           own head above, and how to turn the picture is something the picture teaches by being
           dragged. Both were costing the canvas height it is better off keeping. */}
       <div className={"visual-stage" + (def.bare === true ? " bare" : "")} ref={stageRef}>
-        <div className={"visual-canvas" + (marquee ? " marquee" : "")}>
+        <div className={"visual-canvas" + (marquee ? " marquee" + marqueeModeClass(marqueeMode) : "")}>
           {glOk ? (
             <>
               {/* the mode is the canvas' key: a canvas hands out one drawing context for its life, so each renderer gets an element of its own */}
@@ -1619,7 +1637,7 @@ export function VisualPivotView({
               ))}
             </div>
           )}
-          {marqueeRect && <MarqueeBox rect={marqueeRect} count={marqueeCount} />}
+          {marqueeRect && <MarqueeBox rect={marqueeRect} count={marqueeCount} mode={marqueeMode} />}
           {decoded && decoded.count === 0 && !loading && <div className="visual-empty">Nothing matched.</div>}
           {/* the one thing the head above still had to say, moved onto the picture itself */}
           {loading && <span className="visual-loading-note">{decoded ? "updating…" : "loading the cards…"}</span>}
