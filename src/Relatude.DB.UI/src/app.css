@@ -25,6 +25,12 @@
      since its whole job is to say that an answer is still coming - and neither the danger red nor
      the data amber, because nothing is wrong and nothing is being touched */
   --busy: #d1600a;
+  /* what a selected node is marked with in the pictures - the ring round a card, the walls of a
+     solid, the dot on the map - and the rectangle a drag to select draws over them (marquee.tsx).
+     Neither is the accent: the cards and the dots are very often painted in it, and a mark the same
+     colour as what it marks is no mark. Red for the marks, orange for the rectangle round them. */
+  --select-mark: #d93025;
+  --select-box: #e0860f;
   /**
    * The ground a picture is drawn on: the graph's canvas, the visual pivot's field of cards. The
    * panel by default, since the picture lives in one - a declaration on the same element, so it
@@ -94,6 +100,8 @@
   --danger-soft: rgba(242, 136, 127, 0.14);
   --ok: #6fbf85;
   --busy: #ff9436;
+  --select-mark: #ff5a4f;
+  --select-box: #f5a524;
   --data: #e0a45c;
   --data-soft: rgba(224, 164, 92, 0.14);
   --revert: #c49bf0;
@@ -2231,6 +2239,14 @@ a {
   margin-left: 2px;
 }
 
+/* the same control inside a panel's own head, where a full-size one would be the tallest thing on
+   the line: the dashboard's chart shapes, and anything else that switches a picture rather than a page */
+.module-switch.compact button {
+  gap: 5px;
+  padding: 4px 9px;
+  font-size: 12px;
+}
+
 .files {
   position: relative;
   display: flex;
@@ -2994,12 +3010,17 @@ a.action-button {
 
 /* the page owns its own scrolling: the contents column stays put while the pane scrolls, which is
    what lets the highlight in the contents follow what is on screen */
+/* Every choice on a settings page is painted in the colour its entry wears in the rail rather than
+   in the app's accent: the icon of a section, the group being read, a value set here rather than
+   left at its default, a switch that is on. The page is one long list of choices, and the accent
+   was saying "chosen" in a blue that has nothing to do with Settings (see --section-tone). */
 .settings {
   display: flex;
   flex-direction: column;
   gap: 12px;
   height: 100%;
   min-height: 0;
+  accent-color: var(--section-tone);
 }
 
 .settings-toolbar {
@@ -3082,7 +3103,7 @@ a.action-button {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--section-tone);
 }
 
 /* ---- the scrolling pane ---- */
@@ -3139,7 +3160,7 @@ a.action-button {
 }
 
 .settings-check input {
-  accent-color: var(--accent);
+  accent-color: var(--section-tone);
   cursor: pointer;
 }
 
@@ -3152,7 +3173,7 @@ a.action-button {
   padding: 8px 12px;
   font-size: 13px;
   color: var(--text-soft);
-  background: var(--accent-soft);
+  background: var(--section-tone-soft);
   border-radius: 8px;
 }
 
@@ -3186,7 +3207,7 @@ a.action-button {
 
 .setting.edited {
   /* the marker sits in the panel's own padding, so the row itself does not shift */
-  box-shadow: inset 3px 0 0 -1px var(--accent);
+  box-shadow: inset 3px 0 0 -1px var(--section-tone);
 }
 
 .setting-label {
@@ -3265,8 +3286,8 @@ a.action-button {
 
 .setting-badge.custom,
 .setting-badge.unsaved {
-  color: var(--accent);
-  background: var(--accent-soft);
+  color: var(--section-tone);
+  background: var(--section-tone-soft);
 }
 
 .setting-badge.config {
@@ -3367,7 +3388,7 @@ a.action-button {
 }
 
 .setting-combo-option.current {
-  color: var(--accent);
+  color: var(--section-tone);
   font-weight: 600;
 }
 
@@ -3392,8 +3413,8 @@ a.action-button {
    landing near the right one is not the same as being shown it. It fades on its own after a moment
    (SettingsSection clears the mark), so nothing is left highlighted for the next reader. */
 .setting.marked {
-  background: var(--accent-soft);
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--section-tone-soft);
+  box-shadow: inset 2px 0 0 var(--section-tone);
   border-radius: 6px;
   transition: background 0.4s ease;
 }
@@ -3416,7 +3437,7 @@ a.action-button {
 .setting-toggle input {
   width: 15px;
   height: 15px;
-  accent-color: var(--accent);
+  accent-color: var(--section-tone);
   cursor: pointer;
 }
 
@@ -5463,6 +5484,8 @@ body.pg-resizing {
 }
 
 .dash-tile {
+  display: flex;
+  flex-direction: column;
   padding: 12px 14px;
   background: var(--panel);
   border: 1px solid var(--border);
@@ -5478,6 +5501,9 @@ body.pg-resizing {
 }
 
 .dash-tile-value {
+  /* the tile is a column and this is its first row: never squeezed, whatever else is in it (the
+     overflow below takes its min-height to zero, which otherwise lets a flex parent flatten it) */
+  flex: none;
   font-size: 22px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -5487,9 +5513,19 @@ body.pg-resizing {
 }
 
 .dash-tile-label {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
   margin-top: 2px;
   font-size: 11px;
   color: var(--text-muted);
+}
+
+/* the icon of what the tile counts: the label's own colour, and never wider than its line */
+.dash-tile-label svg {
+  flex: none;
+  opacity: 0.85;
 }
 
 /* what the database is doing this second */
@@ -6073,10 +6109,69 @@ body.pg-resizing {
 }
 
 .query-results {
+  position: relative; /* the rectangle of a drag to select is placed in the panel's own coordinates */
   display: flex;
   flex-direction: column;
   min-height: 0;
   min-width: 0; /* a grid column sizes to its content unless told not to, and a long hit line is wide */
+}
+
+/* ---- drag to select (marquee.tsx): a rectangle drawn round nodes, in every view that has them ---- */
+
+/* with the switch on a drag over the rows is a rectangle, so it must not be a text selection as well */
+.query-results.marquee-mode .query-hits,
+.query-results.marquee-mode .query-table-wrap {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.marquee-box {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  border: 1px dashed var(--accent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+/* how many nodes the rectangle holds right now, hanging off its bottom right corner */
+.marquee-count {
+  position: absolute;
+  right: -1px;
+  top: calc(100% + 4px);
+  padding: 2px 7px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--accent);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
+}
+
+/* the rows the rectangle holds before it is let go of: a shade stronger than a row that is open,
+   since these are about to be and the ones already open may be on their way out */
+.query-hit.marquee-hit,
+.query-table tbody tr.marquee-hit {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* the pictures: with the switch on the pointer draws rectangles rather than dragging, and says so */
+.visual-canvas.marquee,
+.visual-canvas.marquee:active {
+  cursor: crosshair;
+}
+
+/* and there the rectangle is orange, over marks that are red (--select-mark): a blue rectangle
+   over a mosaic painted in the accent was one more blue */
+.visual-canvas .marquee-box {
+  border-color: var(--select-box);
+  background: color-mix(in srgb, var(--select-box) 12%, transparent);
+}
+
+.visual-canvas .marquee-count {
+  color: var(--select-box);
 }
 
 /* the panel pads its content; the head and the list reach the edges so the divider under the head
@@ -6368,6 +6463,48 @@ body.pg-resizing {
   font-weight: 600;
 }
 
+/* ---- a selection of several nodes, before anything is read (see NodeEditor) ---- */
+
+/* What a selection of nodes offers before it is opened: what it holds, and the three things that can
+   be done with it. Deliberately plain - it is a question, not a form - and it reads at the width the
+   editor column happens to have, which on a narrow one is one button per line. */
+.node-selection {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 2px;
+}
+
+.node-selection-lead {
+  margin: 0;
+  max-width: 62ch;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-soft);
+}
+
+.node-selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.node-selection-actions .action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.node-selection-note {
+  margin: 0;
+  max-width: 62ch;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
 /* ---- node editor ---- */
 
 .node-editor {
@@ -6402,6 +6539,14 @@ body.pg-resizing {
 
 .node-editor-title .muted {
   font-size: 11px;
+}
+
+/* The form saying how far it got comparing a selection (see maxSurvey): not an error - the form
+   works - but the one line on it that the reader has to weigh, so it is coloured rather than muted. */
+.node-editor-title .warn-note {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--danger);
 }
 
 /* the nodes of a selection, one chip each, under the head; a long selection scrolls in a short strip */
@@ -7395,7 +7540,7 @@ body.pg-resizing {
   cursor: pointer;
 }
 
-.dash-tile-label {
+.dash-treemap .dash-tile-label {
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
@@ -8558,25 +8703,70 @@ body.pg-resizing {
   position: relative;
 }
 
-.dash-tile-action {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 26px;
-  height: 26px;
-}
-
-/* more than one action on a tile: side by side in the same corner */
+/* the database's own switch, along the foot of the tile that says which way it stands */
 .dash-tile-actions {
-  position: absolute;
-  top: 8px;
-  right: 8px;
   display: flex;
-  gap: 2px;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: auto;
+  padding-top: 10px;
 }
 
-.dash-tile-actions .dash-tile-action {
-  position: static;
+/**
+ * Starting and stopping the database. These are the two things on the dashboard that change what
+ * the server is doing, so they are named and coloured rather than being two more grey glyphs in a
+ * corner: stop wears the danger red it deserves, start the green that says a database is up, and
+ * restart stays quiet between them - it is the one that puts everything back as it was.
+ */
+.dash-tile-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text-soft);
+  background: var(--button-bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+/* the restart, which is neither of the two: an icon between them, in the same frame */
+.dash-tile-button.quiet {
+  padding: 4px 7px;
+}
+
+.dash-tile-button:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--text-faint);
+}
+
+.dash-tile-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.dash-tile-button.stop {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+}
+
+.dash-tile-button.stop:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.dash-tile-button.start {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+}
+
+.dash-tile-button.start:hover:not(:disabled) {
+  color: var(--ok);
+  border-color: var(--ok);
 }
 
 /* ---- picking a colour (ColorField): a source's colour in the settings and in the model editor ---- */
@@ -9522,6 +9712,54 @@ body.pg-resizing {
 /* a budget the running database is not on yet: the figures are the ones that differ from the file */
 .mem-figures.pending {
   color: var(--warning, var(--text));
+}
+
+/* ---- a budget written out: the panel maximized (see panelMaximized.ts) ---- */
+
+/* the row keeps its line - name, bar, figures - and the detail goes under it across the whole width,
+   which is what wrapping a flex row does without turning the row into a grid of its own */
+.mem-row.detailed {
+  flex-wrap: wrap;
+  padding: 8px 0 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mem-list.detailed {
+  gap: 0;
+}
+
+.mem-list.detailed .mem-row:last-child {
+  border-bottom: none;
+}
+
+.mem-detail {
+  /* a whole line of its own: no side margin, or the line is wider than the row and the list scrolls sideways */
+  flex: 1 0 100%;
+  min-width: 0;
+  margin: 6px 0 0;
+}
+
+.mem-help {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+  max-width: 100ch;
+}
+
+/* as many figures as the width takes, each as wide as it needs: three columns on a laptop and eight
+   on a wide screen, without a breakpoint either way. The panel is the page when this is drawn. */
+.mem-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 6px 16px;
+  margin-top: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* a settings path is a sentence, not a number: it gets two of the columns */
+.mem-facts .fact.wide {
+  grid-column: span 2;
 }
 
 @container (max-width: 460px) {

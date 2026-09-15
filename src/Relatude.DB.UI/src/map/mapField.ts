@@ -61,6 +61,8 @@ export interface MapTheme {
   glow: RGB;
   /** what a pin is outlined in, so one pin on top of another is still two pins */
   outline: RGB;
+  /** what a selected node is marked with: a dot or a pin drawn again over its own, in this colour (see setSelection) */
+  mark: RGB;
 }
 
 /** 0..255 per channel, as the rest of the app keeps colours. */
@@ -153,6 +155,13 @@ export interface MapField {
   setTheme(theme: MapTheme): void;
   /** The nodes, in degrees; the same arrays the view keeps, uploaded as they are. */
   setPoints(lon: Float32Array, lat: Float32Array, count: number): void;
+  /**
+   * The nodes marked as selected, as indexes into the points given to setPoints: each is drawn again
+   * over everything else in the mark colour - a larger dot, or a larger pin - whatever way the nodes
+   * are being shown, so a selection can be found on a heat field or among the bubbles too. The whole
+   * set, every time; an empty one unmarks. New points unmark everything, the indexes being new.
+   */
+  setSelection(indexes: ArrayLike<number>): void;
   /** rgb bytes per colour group, and the group of each node; a null assignment paints them all with the first colour. */
   setColors(palette: Uint8Array, assignment: Uint16Array | null): void;
   /** The colours a heat field is read through: rgba bytes, low end first. */
@@ -286,8 +295,11 @@ export function createMapField(canvas: HTMLCanvasElement): MapField | null {
   let width = 1;
   let height = 1;
   let dpr = 1;
-  let theme: MapTheme = { clear: [255, 255, 255], ground: [246, 246, 246], line: [90, 90, 90], grid: [200, 200, 200], glow: [120, 150, 200], outline: [255, 255, 255] };
+  let theme: MapTheme = { clear: [255, 255, 255], ground: [246, 246, 246], line: [90, 90, 90], grid: [200, 200, 200], glow: [120, 150, 200], outline: [255, 255, 255], mark: [217, 48, 37] };
   let pointCount = 0;
+  // the points as given, kept so a selection can be drawn from its indexes (see setSelection)
+  let pointLon: Float32Array = new Float32Array(0);
+  let pointLat: Float32Array = new Float32Array(0);
   let groupCount = 1;
   let hasSurface = false;
 
@@ -377,6 +389,26 @@ export function createMapField(canvas: HTMLCanvasElement): MapField | null {
     gl.vertexAttribDivisor(pinGroup, 1);
   }
   gl.bindVertexArray(null);
+
+  // The selected nodes, drawn again over the rest (see setSelection): their places alone, as sprites
+  // and - on the globe, with pins - as pins. The colour is a uniform there, so no colour group is
+  // read: the group attribute is left disabled and takes the constant set before each draw.
+  const selectedBuffer = gl.createBuffer()!;
+  const selectedVao = gl.createVertexArray()!;
+  gl.bindVertexArray(selectedVao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, selectedBuffer);
+  attribute(gl, markProgram, "aPlace", 2);
+  gl.bindVertexArray(null);
+  const selectedPinVao = gl.createVertexArray()!;
+  gl.bindVertexArray(selectedPinVao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, pinBody);
+  attribute(gl, pinProgram, "aPin", 3, 0, 6, 0);
+  attribute(gl, pinProgram, "aNormal", 3, 0, 6, 3);
+  gl.bindBuffer(gl.ARRAY_BUFFER, selectedBuffer);
+  attribute(gl, pinProgram, "aPlace", 2, 1);
+  gl.bindVertexArray(null);
+  const markGroup = gl.getAttribLocation(markProgram, "aGroup");
+  let selectedCount = 0;
 
   /** the fullscreen passes take no attributes at all and build their triangle from the vertex id */
   const screenVao = gl.createVertexArray()!;
@@ -621,6 +653,60 @@ export function createMapField(canvas: HTMLCanvasElement): MapField | null {
     return [right[0] * x + up[0] * y - forward[0] * z, right[1] * x + up[1] * y - forward[1] * z, right[2] * x + up[2] * y - forward[2] * z];
   }
 
+  /**
+   * The selected nodes, over everything else (see setSelection). On the globe with pins they are
+   * pins again, a little larger and in the mark colour, with the depth test on so they stand on the
+   * ground like the rest and hide behind it round the far side. Everywhere else they are the sprite:
+   * a pin among the flat map's pins, otherwise a dot - larger than the dots round it so a selection
+   * in a crowd can be found, and of a fixed size on a picture that draws no dots at all (the heat,
+   * the rods, the bubbles, the shaded countries). Blending is on, as it is for the marks before them;
+   * the depth test is off for the sprites, which are to lie over everything - a heat field's own pass
+   * has written a depth of its own across the whole canvas, and would otherwise hide them.
+   */
+  function drawSelected(scene: MapScene) {
+    if (scene.marks === "pins" && scene.globe) {
+      gl.enable(gl.DEPTH_TEST);
+      gl.useProgram(pinProgram);
+      place(pinProgram, scene);
+      gl.uniform1f(gl.getUniformLocation(pinProgram, "uLift"), markLift);
+      gl.uniform1f(gl.getUniformLocation(pinProgram, "uPinSize"), Math.max(1, scene.size * 1.25 * dpr));
+      gl.uniform1f(gl.getUniformLocation(pinProgram, "uPerPixel"), (2 * Math.tan(fov / 2)) / Math.max(1, canvas.height));
+      gl.uniform3fv(gl.getUniformLocation(pinProgram, "uLight"), lightInWorld(scene));
+      gl.uniform1f(gl.getUniformLocation(pinProgram, "uGroups"), groupCount);
+      gl.uniform1i(gl.getUniformLocation(pinProgram, "uMarked"), 1);
+      gl.uniform3fv(gl.getUniformLocation(pinProgram, "uMark"), floats(theme.mark));
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, palette);
+      gl.uniform1i(gl.getUniformLocation(pinProgram, "uPalette"), 0);
+      gl.bindVertexArray(selectedPinVao);
+      if (pinGroup >= 0) gl.vertexAttribI4ui(pinGroup, 0, 0, 0, 0);
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, pinVertices, selectedCount);
+      gl.disable(gl.DEPTH_TEST);
+      return;
+    }
+    const pin = scene.marks === "pins";
+    const size = pin ? scene.size * 1.15 : scene.marks === "dots" ? Math.max(6, scene.size * 1.6) : 7;
+    gl.disable(gl.DEPTH_TEST);
+    gl.useProgram(markProgram);
+    place(markProgram, scene);
+    gl.uniform1f(gl.getUniformLocation(markProgram, "uLift"), markLift);
+    gl.uniform1f(gl.getUniformLocation(markProgram, "uPointSize"), Math.max(1, size * dpr));
+    gl.uniform1f(gl.getUniformLocation(markProgram, "uScale"), 1);
+    gl.uniform2f(gl.getUniformLocation(markProgram, "uTarget"), canvas.width, canvas.height);
+    gl.uniform1f(gl.getUniformLocation(markProgram, "uAlpha"), 1);
+    gl.uniform1i(gl.getUniformLocation(markProgram, "uPin"), pin ? 1 : 0);
+    gl.uniform1f(gl.getUniformLocation(markProgram, "uGroups"), groupCount);
+    gl.uniform3fv(gl.getUniformLocation(markProgram, "uOutline"), floats(theme.outline));
+    gl.uniform1i(gl.getUniformLocation(markProgram, "uMarked"), 1);
+    gl.uniform3fv(gl.getUniformLocation(markProgram, "uMark"), floats(theme.mark));
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, palette);
+    gl.uniform1i(gl.getUniformLocation(markProgram, "uPalette"), 0);
+    gl.bindVertexArray(selectedVao);
+    if (markGroup >= 0) gl.vertexAttribI4ui(markGroup, 0, 0, 0, 0);
+    gl.drawArrays(gl.POINTS, 0, selectedCount);
+  }
+
   function toScreen(viewProj: Mat4, eye: Vec3, x: number, y: number, z: number, out: Float32Array): boolean {
     // on the near side when the surface at that point turns towards the camera; tested first,
     // because half the nodes fail it and the projection below is the expensive half
@@ -655,6 +741,9 @@ export function createMapField(canvas: HTMLCanvasElement): MapField | null {
     },
     setPoints(lon, lat, count) {
       pointCount = count;
+      pointLon = lon;
+      pointLat = lat;
+      selectedCount = 0; // new points are new indexes; whoever marks them will say which again
       const places = new Float32Array(count * 2);
       for (let i = 0; i < count; i++) {
         places[i * 2] = lon[i];
@@ -662,6 +751,20 @@ export function createMapField(canvas: HTMLCanvasElement): MapField | null {
       }
       gl.bindBuffer(gl.ARRAY_BUFFER, placeBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, places, gl.STATIC_DRAW);
+    },
+    setSelection(indexes) {
+      const places = new Float32Array(indexes.length * 2);
+      let n = 0;
+      for (let k = 0; k < indexes.length; k++) {
+        const i = indexes[k];
+        if (i < 0 || i >= pointCount) continue;
+        places[n * 2] = pointLon[i];
+        places[n * 2 + 1] = pointLat[i];
+        n++;
+      }
+      selectedCount = n;
+      gl.bindBuffer(gl.ARRAY_BUFFER, selectedBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, places.subarray(0, n * 2), gl.DYNAMIC_DRAW);
     },
     setColors(colors, assignment) {
       groupCount = Math.max(1, colors.length / 3);
@@ -849,6 +952,7 @@ export function createMapField(canvas: HTMLCanvasElement): MapField | null {
         // and no camera to speak of, so one comes over the viewer's left shoulder
         gl.uniform3fv(gl.getUniformLocation(pinProgram, "uLight"), scene.globe ? lightInWorld(scene) : [-0.42, 0.5, 0.76]);
         gl.uniform1f(gl.getUniformLocation(pinProgram, "uGroups"), groupCount);
+        gl.uniform1i(gl.getUniformLocation(pinProgram, "uMarked"), 0);
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, palette);
         gl.uniform1i(gl.getUniformLocation(pinProgram, "uPalette"), 0);
@@ -868,12 +972,15 @@ export function createMapField(canvas: HTMLCanvasElement): MapField | null {
         gl.uniform1i(gl.getUniformLocation(markProgram, "uPin"), scene.marks === "pins" ? 1 : 0);
         gl.uniform1f(gl.getUniformLocation(markProgram, "uGroups"), groupCount);
         gl.uniform3fv(gl.getUniformLocation(markProgram, "uOutline"), floats(theme.outline));
+        gl.uniform1i(gl.getUniformLocation(markProgram, "uMarked"), 0);
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, palette);
         gl.uniform1i(gl.getUniformLocation(markProgram, "uPalette"), 0);
         gl.bindVertexArray(markVao);
         gl.drawArrays(gl.POINTS, 0, Math.min(pointCount, Math.max(1, scene.limit)));
       }
+      // the selection last, over whatever way the nodes are shown
+      if (selectedCount > 0) drawSelected(scene);
       gl.bindVertexArray(null);
     },
     project(scene) {
@@ -914,13 +1021,13 @@ export function createMapField(canvas: HTMLCanvasElement): MapField | null {
     degreesPerPixel,
     destroy() {
       for (const p of [groundProgram, landProgram, lineProgram, rodProgram, pinProgram, haloProgram, markProgram, heatProgram, blurProgram, reduceProgram, rampProgram]) gl.deleteProgram(p);
-      for (const b of [ground.places, ground.indices, land.vertices, outlines.segments, coarse.segments, graticule.segments, corners, hexMesh, pinBody, placeBuffer, groupBuffer, rodBuffer]) gl.deleteBuffer(b);
+      for (const b of [ground.places, ground.indices, land.vertices, outlines.segments, coarse.segments, graticule.segments, corners, hexMesh, pinBody, placeBuffer, groupBuffer, rodBuffer, selectedBuffer]) gl.deleteBuffer(b);
       for (const t of [palette, surfaceRaster, surfaceColors, ramp, rodRamp, dayMap, nightMap]) gl.deleteTexture(t);
       for (const t of [density, scratch, tiles, peak]) {
         gl.deleteFramebuffer(t.frame);
         if (t.texture) gl.deleteTexture(t.texture);
       }
-      for (const v of [groundVao, landVao, outlineVao, coarseVao, graticuleVao, markVao, rodVao, pinVao, screenVao]) gl.deleteVertexArray(v);
+      for (const v of [groundVao, landVao, outlineVao, coarseVao, graticuleVao, markVao, rodVao, pinVao, selectedVao, selectedPinVao, screenVao]) gl.deleteVertexArray(v);
     },
   };
 }
@@ -1703,6 +1810,8 @@ const pinVert = `#version 300 es
   uniform vec3 uLight;
   uniform sampler2D uPalette;
   uniform float uGroups;
+  uniform bool uMarked;     // a selected pin: painted uMark rather than its group's colour (see drawSelected)
+  uniform vec3 uMark;
   out vec4 vColor;
 ${placeGlsl}
   /**
@@ -1718,7 +1827,7 @@ ${placeGlsl}
   }
 
   void main() {
-    vec3 color = texture(uPalette, vec2((float(aGroup) + 0.5) / uGroups, 0.5)).rgb;
+    vec3 color = uMarked ? uMark : texture(uPalette, vec2((float(aGroup) + 0.5) / uGroups, 0.5)).rgb;
     if (uGlobe) {
       vec3 axis = unitOf(aPlace);
       vec3 foot = axis * uLift;
@@ -1826,6 +1935,8 @@ const markFrag = `#version 300 es
   uniform float uAlpha;
   uniform bool uPin;
   uniform vec3 uOutline;
+  uniform bool uMarked;     // a selected node: painted uMark rather than its group's colour (see drawSelected)
+  uniform vec3 uMark;
   out vec4 outColor;
 
   /** where the middle of a pin's head sits in the sprite, and how big it is */
@@ -1845,7 +1956,7 @@ const markFrag = `#version 300 es
     float fill = cover(d, uPin, 0.0);
     float edge = cover(d, uPin, uPin ? 0.045 : 0.06);
     if (edge <= 0.01) discard;
-    vec3 c = texture(uPalette, vec2((float(vGroup) + 0.5) / uGroups, 0.5)).rgb;
+    vec3 c = uMarked ? uMark : texture(uPalette, vec2((float(vGroup) + 0.5) / uGroups, 0.5)).rgb;
     if (uPin) {
       // the head as a dome: how far out of the sprite it would stand at this point, and therefore
       // which way its surface faces. Beyond the head this flattens to the rim, which is what gives

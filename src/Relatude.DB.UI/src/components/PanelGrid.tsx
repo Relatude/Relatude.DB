@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { IconArrowsMaximize, IconArrowsMinimize } from "@tabler/icons-react";
+import { PanelMaximizedContext } from "../panelMaximized";
 
 /**
  * Panels in rows the reader can resize.
@@ -215,7 +216,7 @@ export function PanelGrid({ id, rows, defaultSplit = 0.62 }: { id: string; rows:
         >
           {isMax ? <IconArrowsMinimize size={14} stroke={1.8} /> : <IconArrowsMaximize size={14} stroke={1.8} />}
         </button>
-        {content}
+        <PanelMaximizedContext.Provider value={isMax}>{content}</PanelMaximizedContext.Provider>
       </div>
     );
   };

@@ -58,41 +58,12 @@
   min-height: 30px;
 }
 
+/* The views of the model editor are a segmented control, the same one the storage module wears
+   (.module-switch in app.css, which does all the work): one bordered strip of buttons with the open
+   view carrying the module's own colour. Nothing here but the strip's own width - the toolbar is a
+   row of things that stretch, and this is not one of them. */
 .dm-tabs {
-  display: flex;
-  gap: 2px;
-  height: 30px;
-  padding: 2px;
-  background: var(--badge-bg);
-  border-radius: 9px;
-}
-
-.dm-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 26px;
-  padding: 0 10px;
-  border-radius: 7px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
-.dm-tab:hover {
-  color: var(--text);
-}
-
-.dm-tab.active {
-  background: var(--panel);
-  color: var(--text);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-}
-
-/* the open tab is a raised pill rather than a coloured one; the module's colour comes in on its icon
-   alone, which is enough to tie the page to the entry that opened it (see --section-tone) */
-.dm-tab.active svg {
-  color: var(--section-tone);
+  flex: none;
 }
 
 .dm-search {

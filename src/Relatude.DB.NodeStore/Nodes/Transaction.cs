@@ -635,6 +635,16 @@ public partial class Transaction {
         _transactionData.UpdateIfDifferentProperty(nodeId, propertyId, value);
         return this;
     }
+    /// <summary>
+    /// Writes the same property value on a whole set of nodes, addressed by internal id: ONE action
+    /// for all of them rather than one each, which is what makes writing the same field across a
+    /// million nodes a transaction of a handful of actions. Those that already have the value are
+    /// skipped, as they are for a single node.
+    /// </summary>
+    public Transaction UpdateIfDifferentProperty(int[] nodeIds, Guid propertyId, object value) {
+        _transactionData.UpdateIfDifferentProperty(nodeIds, propertyId, value);
+        return this;
+    }
     /// <summary>Writes several properties of one node, each given as a property lambda paired with its value.</summary>
     public Transaction UpdateIfDifferentProperties<T>(Guid nodeId, IEnumerable<Tuple<Expression<Func<T, object?>>, object>> propertyValuePairs) {
         var propertyIds = propertyValuePairs.Select(tuple => Store.Mapper.GetProperty(tuple.Item1).Id).ToArray();
@@ -680,6 +690,11 @@ public partial class Transaction {
     /// <summary>Puts a property back to its default value, addressed by internal id and raw property id.</summary>
     public Transaction ResetProperty(int nodeId, Guid propertyId) {
         _transactionData.ResetProperty(nodeId, propertyId);
+        return this;
+    }
+    /// <summary>The same, on a whole set of nodes at once (see UpdateIfDifferentProperty(int[], ...)).</summary>
+    public Transaction ResetProperty(int[] nodeIds, Guid propertyId) {
+        _transactionData.ResetProperty(nodeIds, propertyId);
         return this;
     }
     /// <summary>Adds to the current value of a property on a node object, in one atomic read modify write step.</summary>

@@ -103,6 +103,7 @@ sealed class UIDashboard {
                 info.AggregateCacheCount,
                 info.AggregateCacheHits,
                 info.AggregateCacheMisses,
+                info.AggregateCacheOverflows,
             },
             Engines = engines(settings),
             Ai = settings.AISettings == null ? null : new {

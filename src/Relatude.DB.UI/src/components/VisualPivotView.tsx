@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { IconArrowNarrowDown, IconArrowNarrowUp, IconCube3dSphere, IconFocusCentered, IconListDetails, IconMinus, IconPhoto, IconPhotoOff, IconPlus, IconRestore, IconRotate360 } from "@tabler/icons-react";
 import { BareButton, FullscreenButton } from "./DatamodelGraph";
 import type { PivotBase } from "./PivotView";
-import { bytesOf, fetchNodeGuid, fetchPivotModel, runVisual, type PivotModel, type PivotProperty, type VisualGroup, type VisualRequest, type VisualResult } from "../server/query";
+import { bytesOf, fetchPivotModel, runVisual, type PivotModel, type PivotProperty, type VisualGroup, type VisualRequest, type VisualResult } from "../server/query";
 import { useLiveResult } from "../server/hooks";
 import { formatCount, formatQuery } from "../format";
 import { showConfirm } from "../dialogs";
@@ -17,6 +17,7 @@ import { createCardMedia, type CardMedia } from "../visual/cardMedia";
 import { subscribeNodePicture } from "../nodeMedia";
 import { createCardLabels, type CardLabels, type LabelColors } from "../visual/cardLabels";
 import { selectModeOf, type SelectMode } from "../selection";
+import { keepOf, marqueeThreshold, MarqueeBox, rectOf, untilEscape, type Rect } from "../marquee";
 
 /** A visual pivot before anyone has chosen anything: a grid of one colour, in the result's order. */
 export const emptyVisual: VisualDefinition = { colorProperty: null, colorMode: "auto", shapeProperty: null, shapeMode: "auto", depthProperty: null, depthMode: "auto", depthGroupProperty: null, depthGroupMode: "auto", barProperty: null, barMode: "auto", sortProperty: null, sortDescending: false, legend: true, palette: palettes[0].id };
@@ -72,15 +73,26 @@ interface Tooltip {
   lines: string[];
 }
 
-/** what the pointer is doing between down and up; `kind` is which camera channel it holds in 3D */
+/**
+ * What the pointer is doing between down and up; `kind` is which camera channel it holds in 3D, or
+ * that it is drawing a rectangle round cards rather than moving the picture (see marquee.tsx).
+ */
 interface Drag {
+  /** where the pointer is now, on the canvas */
   x: number;
   y: number;
+  /** where it went down: the corner a rectangle grows from */
+  ax: number;
+  ay: number;
   t: number;
   moved: boolean;
   vx: number;
   vy: number;
-  kind: "flat" | "orbit" | "pan" | "look";
+  kind: "flat" | "orbit" | "pan" | "look" | "marquee";
+  /** whether the keys held at the press mean the rectangle adds to the selection rather than replacing it */
+  keep: boolean;
+  /** what stops listening for Escape, while a rectangle is being drawn */
+  stopEscape?: () => void;
 }
 
 const modeOptions = [
@@ -129,8 +141,6 @@ const slideSettleMs = 140;
 /** how far past the picture a line on the floor runs to reach its name, as a share of the picture */
 const leadShare = 0.07;
 const refitSeconds = 0.7; // a fit asked for on its own - the button, a double-click, a resize - with nothing else moving
-/** how long the solid picture takes to settle back into place after its canvas has changed shape */
-const driftSeconds = 0.55;
 /**
  * How thick a card can be, in cells of the grid, so 1 is as deep as a card is wide. The thinnest is
  * a card that still reads as a solid seen edge on; the thickest is a tower two cards deep, which is
@@ -154,7 +164,9 @@ const hopelessFrameMs = 130;
 /**
  * The visual pivot: every node of the result on screen as a card, in a grid or stacked into bars by
  * a property, coloured by another. Pan by dragging, zoom with the wheel, click a card to open it -
- * ctrl-click adds another to the form, shift-click too (see selection.ts).
+ * ctrl-click adds another to the form, shift-click too (see selection.ts). With drag to select on,
+ * the left button draws a rectangle instead and every card showing inside it opens (marquee.tsx);
+ * the other buttons then move the picture.
  *
  * The picture is drawn by the card field (visual/cardField.ts); this component decides what it
  * shows. The server hands over the result as ids and a group index per card per property, a few
@@ -184,7 +196,10 @@ export function VisualPivotView({
   refreshToken,
   showQuery,
   onOpen,
+  onSelectMany,
+  marquee,
   selected,
+  allSelected,
   fullscreen,
   onToggleFullscreen,
   head,
@@ -196,10 +211,24 @@ export function VisualPivotView({
   /** Changes when the page is asked to run again with nothing else changed. */
   refreshToken: number;
   showQuery: boolean;
-  /** A card was clicked: this node goes to the form beside the picture - on its own, toggled (ctrl), or added (shift). */
-  onOpen: (nodeId: string, mode: SelectMode) => void;
-  /** The nodes the form has open, so the picture marks their cards - and stops marking them when the form lets go. */
-  selected: readonly string[];
+  /**
+   * A card was clicked: this node goes to the form beside the picture - on its own, toggled (ctrl),
+   * or added (shift). By the INTERNAL id the card was drawn with, which is what the page selects by:
+   * nothing is looked up to make a selection, and a guid is fetched only for what a form reads.
+   */
+  onOpen: (nodeId: number, mode: SelectMode) => void;
+  /** A rectangle was drawn round some cards: these nodes become the selection, or with `keep` are added to it (see applyMarquee). */
+  onSelectMany: (ids: number[], keep: boolean) => void;
+  /** Drag to select is on: the left button draws a rectangle round cards rather than moving the picture. */
+  marquee: boolean;
+  /** The nodes the form has open, by internal id: the picture marks their cards, and stops when the form lets go. */
+  selected: readonly number[];
+  /**
+   * The selection is the whole result set (the page's Select all). Every card is then marked without
+   * asking which node each one is: the picture knows a card's int id and the form knows a guid, and
+   * pairing a million of them up to say what "all of them" already says would be the only cost in it.
+   */
+  allSelected: boolean;
   /** Whether the row this picture is in - the facet rail with it - is filling the screen. */
   fullscreen: boolean;
   /** Fills the screen with that row, or hands it back; the page owns it, since the rail is not ours. */
@@ -315,6 +344,24 @@ export function VisualPivotView({
     // the token is not part of the request; a new object is how the runner is told to run again
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model, definition === null, base, colorProperty, def.colorMode, shapeProperty, shapeMode, depthProperty, depthMode, rowProperty, rowMode, barProperty, def.barMode, sortProperty, sortDescending, refreshToken]);
+
+  /**
+   * The next picture is this same picture read again, and the camera is to be left alone.
+   *
+   * A change of the token is a REFRESH - somebody saved or deleted, and the page asked for the
+   * result once more (QuerySection.refreshData). The cards that come back are a different set or
+   * stand in different places, which normally fits the camera to them; but nobody moved the view,
+   * they moved the data, and someone who zoomed into a card to edit it should still be looking at
+   * that card once the write lands. Every other way of getting a new picture - another type,
+   * another search, another grouping - is a different thing to look at, and is fitted as it was.
+   */
+  const keepCamera = useRef(false);
+  const tokenSeen = useRef(refreshToken);
+  useEffect(() => {
+    if (tokenSeen.current === refreshToken) return; // the first render is not a refresh of anything
+    tokenSeen.current = refreshToken;
+    keepCamera.current = true;
+  }, [refreshToken]);
   const { result, loading, error } = useLiveResult(request, runVisual);
   const decoded = useMemo(() => (result ? decode(result) : null), [result]);
 
@@ -357,13 +404,21 @@ export function VisualPivotView({
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
   /** the cards marked as open in the form, as indexes into the result; for the note over the picture */
   const [marks, setMarks] = useState<number[]>([]);
-  /** the int id of every node this picture has handed to the form, by the guid the form knows it by */
-  const known = useRef(new Map<string, number>());
-  /** cards clicked whose guid is still on its way: marked at once, so a click answers before the round trip does */
-  const awaitingGuid = useRef(new Set<number>());
-  // both read from callbacks that outlive the render that set them up
+  /** and the same, for the rectangle's preview to work from without waiting for a render */
+  const currentMarks = useRef<number[]>([]);
+  /** the rectangle being drawn round cards, on the canvas, and how many it holds */
+  const [marqueeRect, setMarqueeRect] = useState<Rect | null>(null);
+  const [marqueeCount, setMarqueeCount] = useState(0);
+  // read from the pointer handlers, which the canvas keeps between renders
+  const marqueeOn = useRef(marquee);
+  marqueeOn.current = marquee;
+  /** when the GPU may next be asked what a growing rectangle holds (see previewMarquee) */
+  const nextPreview = useRef(0);
+  // read from callbacks that outlive the render that set them up
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
+  const allSelectedRef = useRef(allSelected);
+  allSelectedRef.current = allSelected;
   const decodedRef = useRef<Decoded | null>(null);
   decodedRef.current = decoded;
   /** where each id is in the result on screen, built the first time something has to be marked in it */
@@ -375,6 +430,15 @@ export function VisualPivotView({
   /** and the offer itself, kept fresh: the watcher that calls it was set up with the field, renders ago */
   const wayBack = useRef<() => void>(() => {});
   const drag = useRef<Drag | null>(null);
+  /**
+   * Whether anyone has moved the picture since it was last fitted - a wheel step, a drag, a fling.
+   *
+   * A picture nobody has touched belongs to the panel it is drawn in, and is fitted again whenever
+   * that panel changes shape. One somebody has zoomed into is THEIRS: the form opening beside it
+   * must not throw away the card they had closed in on, so all that happens then is the half-width
+   * correction below, which leaves the picture where it was on the screen.
+   */
+  const moved = useRef(false);
   /** the keys being held down, the gesture they are driving, and the clock they are driven on */
   const keys = useRef(new Set<string>());
   const keyClock = useRef(0);
@@ -435,24 +499,27 @@ export function VisualPivotView({
     let was = f.size();
     const ro = new ResizeObserver(() => {
       f!.resize();
+      const before = was;
       const now = f!.size();
-      const grewBy = now.width - was.width;
-      const roseBy = now.height - was.height;
+      const roseBy = now.height - before.height;
       was = now;
-      // A dragged splitter fires this many times a second, so what is done about it waits for the
-      // resizing to settle. The flat picture is fitted to whatever room it has and is simply fitted
-      // again. A solid one is NOT: someone who has turned and closed in on a corner of it does not
-      // want that thrown away because a form opened beside the picture. The canvas keeps its middle
-      // where the middle of the canvas is, so a canvas that narrows from the right carries the
-      // picture left with it - and all that is wanted is to undo that much, gently: half the width
-      // it lost, panned back, so the picture stays where it was on the screen.
+      // A canvas that changes shape under a picture someone has zoomed into leaves the CAMERA
+      // exactly where it is. Nothing is refitted and nothing is panned: the middle of the view stays
+      // the middle of the view, at the zoom it was at, and the picture keeps as much of itself on
+      // screen as the new shape can hold. (Panning by half the width lost, to hold the picture still
+      // against the page, was tried and is wrong here: the form takes most of the panel, so
+      // everything that was in the middle of the old canvas ends up outside the new one and the
+      // picture reads as empty.)
+      //
+      // The one thing that is corrected is the SIZE of a solid picture, which a canvas of another
+      // height changes on its own, camera or no camera (see keepScale).
+      if (solid.current && before.height > 1 && Math.abs(roseBy) >= 1) solid.current.keepScale(now.height / before.height);
+      // And a picture nobody has moved is fitted to whatever room it now has - once the resizing has
+      // settled, since a dragged splitter fires this many times a second. A solid picture is never
+      // refitted: it is looked at from an angle someone chose, and a fit would take that away too.
       window.clearTimeout(refit.current);
       refit.current = window.setTimeout(() => {
-        if (solid.current) {
-          if (Math.abs(grewBy) >= 1 || Math.abs(roseBy) >= 1) solid.current.driftBy(-grewBy / 2, -roseBy / 2, driftSeconds);
-        } else {
-          fitToLayout(refitSeconds);
-        }
+        if (!solid.current && !moved.current) fitToLayout(refitSeconds);
       }, 180);
     });
     ro.observe(canvas);
@@ -473,6 +540,7 @@ export function VisualPivotView({
         solid.current.zoomAt(Math.max(-1, Math.min(1, step / 100)) * -1.2, e.clientX - rect.left, e.clientY - rect.top);
       } else {
         flat.current?.zoomBy(Math.exp(-step * 0.0016), e.clientX - rect.left, e.clientY - rect.top);
+        moved.current = true; // zoomed by hand: this picture is theirs now, and is not fitted again
       }
     };
     canvas.addEventListener("wheel", wheel, { passive: false });
@@ -546,8 +614,6 @@ export function VisualPivotView({
   // another database: nothing known about the cards carries over
   useEffect(() => {
     media.current?.setStore(base.storeId);
-    known.current.clear();
-    awaitingGuid.current.clear();
   }, [base.storeId]);
 
   // A file put on a node from the form beside this picture (see nodeMedia.ts). The picture of that
@@ -635,6 +701,12 @@ export function VisualPivotView({
     layoutRef.current = layout;
     const padding = solid.current ? solidFitPadding : fitPadding;
     const prev = previous.current;
+    /** The camera onto the picture that has just been worked out - unless it is being kept (see keepCamera). */
+    const refit = (seconds: number) => {
+      if (keepCamera.current) return;
+      f.fit(fitBounds(layout), padding, seconds);
+      moved.current = false; // fitted afresh: whatever was zoomed into is gone
+    };
     /** the cards flying out of the picture, whose colours and silhouettes are appended to the new ones */
     let leaving: Leaving | null = null;
     if (prev === null || !sameValues(prev.decoded.ids, decoded.ids)) {
@@ -663,7 +735,7 @@ export function VisualPivotView({
       // fly out in their own colour
       media.current?.setCards(decoded.ids);
       // the camera keeps pace with the cards: it arrives on the new picture as the last of them do
-      f.fit(fitBounds(layout), padding, prev !== null ? transitionSeconds : 0);
+      refit(prev !== null ? transitionSeconds : 0);
     } else if (!sameValues(prev.layout.positions, layout.positions) || !sameDepths(prev.layout.rows, layout.rows)) {
       // the same cards somewhere else: across, or into another row, or both. The rows are handed
       // over first, while the old timeline is still there for them to leave from, and the move that
@@ -671,13 +743,14 @@ export function VisualPivotView({
       solid.current?.setRows(layout.rows);
       solid.current?.setDepths(depths, transitionSeconds);
       f.moveTo(layout.positions);
-      f.fit(fitBounds(layout), padding, transitionSeconds);
+      refit(transitionSeconds);
     } else if (!sameDepths(prev.depths, depths)) {
       // the same cards in the same places, given another thickness: they grow or shrink where they
       // stand, and the camera draws back or comes in as the picture changes height
       solid.current?.setDepths(depths, transitionSeconds);
-      f.fit(fitBounds(layout), padding, transitionSeconds);
+      refit(transitionSeconds);
     }
+    keepCamera.current = false; // spent: the next picture is fitted unless something says otherwise
     previous.current = { decoded, layout, depths, colorData, shapeData };
     media.current?.setLayout(layout);
     const colors = paletteBytes(colorData, palette, theme);
@@ -709,25 +782,29 @@ export function VisualPivotView({
   useEffect(() => {
     applyMarks();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reads the latest through refs
-  }, [selected]);
+  }, [selected, allSelected]);
 
   /**
-   * Marks the cards of the nodes the form has open, and the ones just clicked whose guid is still
-   * on its way. The form knows nodes by guid and the picture by int id, so every card this picture
-   * has handed over is remembered both ways; a node opened from the list is not marked here - the
-   * picture has no way of knowing which card that is. The indexes are looked up per result, since
-   * a new result is new indexes for the same ids.
+   * Marks the cards of the nodes the form has open. Both sides speak the same id - the one the store
+   * addresses a node by - so this is a lookup from id to where that card sits in the result and
+   * nothing more; the indexes are rebuilt per result, since a new result is new indexes for the same
+   * ids. A node selected in the list is marked here too, having the same id.
    */
   function applyMarks() {
     const f = field.current;
     const d = decodedRef.current;
+    // the whole result is selected: every card of it, without a guid in sight (see allSelected)
+    if (f && d && allSelectedRef.current) {
+      const every = new Int32Array(d.count);
+      for (let i = 0; i < d.count; i++) every[i] = i;
+      f.setSelection(every);
+      currentMarks.current = [];
+      setMarks((prev) => (prev.length === d.count ? prev : Array.from(every)));
+      return;
+    }
     const wanted: number[] = [];
     if (f && d) {
-      const ids = new Set<number>(awaitingGuid.current);
-      for (const guid of selectedRef.current) {
-        const id = known.current.get(guid);
-        if (id !== undefined) ids.add(id);
-      }
+      const ids = new Set<number>(selectedRef.current);
       if (ids.size > 0) {
         if (indexOf.current?.decoded !== d) {
           const map = new IntMap(Math.max(1, d.count));
@@ -742,7 +819,89 @@ export function VisualPivotView({
       }
       f.setSelection(wanted);
     }
+    currentMarks.current = wanted;
     setMarks((prev) => (prev.length === wanted.length && prev.every((v, k) => v === wanted[k]) ? prev : wanted));
+  }
+
+  // the mode switched off under a rectangle being drawn: nothing is taken
+  useEffect(() => {
+    if (!marquee) cancelMarquee();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reads the latest through refs
+  }, [marquee]);
+
+  // ---- drag to select (see marquee.tsx) ----
+
+  /** The cards inside a rectangle of the canvas, as indexes into the result: the field's answer less the cards on their way out. */
+  function cardsIn(rect: Rect): Int32Array {
+    const f = field.current;
+    const d = decodedRef.current;
+    if (!f || !d) return new Int32Array(0);
+    const all = f.pickRect(rect.x0, rect.y0, rect.x1, rect.y1);
+    let n = 0;
+    for (let k = 0; k < all.length; k++) if (all[k] < d.count) all[n++] = all[k];
+    return all.subarray(0, n);
+  }
+
+  /** The marks as a release with the keys held would leave them: the cards in the rectangle added, the marked ones among them let go of. */
+  function mergedMarks(inside: Int32Array): number[] {
+    const caught = new Set<number>(inside);
+    const had = new Set(currentMarks.current);
+    const out = currentMarks.current.filter((i) => !caught.has(i));
+    for (const i of inside) if (!had.has(i)) out.push(i);
+    return out;
+  }
+
+  /**
+   * The rectangle as it is being drawn: the cards it holds are marked at once, so what a release
+   * would take can be seen before it is taken - added to the marks with the keys held, or in their
+   * place. The GPU is asked no more often than it can answer: a rectangle over a million cards is a
+   * pick pass and a read-back of the pixels, so the next question waits a few times as long as the
+   * last one took.
+   */
+  function previewMarquee(rect: Rect, keep: boolean) {
+    setMarqueeRect(rect);
+    const now = performance.now();
+    if (now < nextPreview.current) return;
+    const inside = cardsIn(rect);
+    nextPreview.current = performance.now() + Math.max(40, (performance.now() - now) * 3);
+    setMarqueeCount(inside.length);
+    field.current?.setSelection(keep ? mergedMarks(inside) : inside);
+  }
+
+  /**
+   * The rectangle let go of: every card inside it goes to the form, by the id it was drawn with.
+   * Nothing is resolved and nothing travels - the page selects by that id - so a rectangle round a
+   * million cards costs what a rectangle round one does.
+   */
+  function finishMarquee(rect: Rect, keep: boolean) {
+    setMarqueeRect(null);
+    const d = decodedRef.current;
+    if (!d) {
+      applyMarks();
+      return;
+    }
+    const inside = cardsIn(rect);
+    const intIds: number[] = new Array(inside.length);
+    for (let k = 0; k < inside.length; k++) intIds[k] = d.ids[inside[k]];
+    if (intIds.length === 0) {
+      // a rectangle round nothing: on its own it clears the selection, as a click on the ground would
+      applyMarks();
+      onSelectMany([], keep);
+      return;
+    }
+    // nothing to resolve, nothing to wait for and nothing to ask about: these are the ids the page
+    // selects by, however many of them the rectangle caught (see marquee.tsx)
+    onSelectMany(intIds, keep);
+  }
+
+  /** Escape, or the mode switched off, while a rectangle is being drawn: nothing is taken, and the marks the preview borrowed go back to the form's own. */
+  function cancelMarquee() {
+    const d = drag.current;
+    if (d?.kind !== "marquee") return;
+    drag.current = null;
+    d.stopEscape?.();
+    setMarqueeRect(null);
+    applyMarks();
   }
 
   /**
@@ -850,7 +1009,9 @@ export function VisualPivotView({
   function fitToLayout(seconds: number) {
     const f = field.current;
     const layout = layoutRef.current;
-    if (f && layout) f.fit(fitBounds(layout), solid.current ? solidFitPadding : fitPadding, seconds);
+    if (!f || !layout) return;
+    f.fit(fitBounds(layout), solid.current ? solidFitPadding : fitPadding, seconds);
+    moved.current = false; // fitted: the picture belongs to the panel again until someone moves it
   }
 
   /** back to the angle the picture opened at, and the whole of it on screen again */
@@ -1073,7 +1234,14 @@ export function VisualPivotView({
   function onPointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
     const s = solid.current;
     let kind: Drag["kind"] = "flat";
-    if (s) {
+    let stopEscape: (() => void) | undefined;
+    if (marqueeOn.current && e.button === 0) {
+      // drag to select: the left button draws the rectangle whatever keys are held - the keys say
+      // what the rectangle does to the selection - and the other buttons move the picture
+      kind = "marquee";
+      e.preventDefault();
+      stopEscape = untilEscape(cancelMarquee);
+    } else if (s) {
       if (e.button === 1 || (e.button === 0 && (e.ctrlKey || e.altKey))) kind = "look";
       else if (e.button === 2 || (e.button === 0 && e.shiftKey)) kind = "pan";
       else if (e.button === 0) kind = "orbit";
@@ -1081,9 +1249,14 @@ export function VisualPivotView({
       e.preventDefault();
       const [hx, hy] = canvasPoint(e);
       s.hold(kind, hx, hy);
-    } else if (e.button !== 0) return;
+    } else if (e.button !== 0) {
+      // the flat picture pans on the left button alone - unless that button is drawing rectangles,
+      // when the right and the middle button take the panning over
+      if (!marqueeOn.current || (e.button !== 1 && e.button !== 2)) return;
+      e.preventDefault();
+    }
     const [x, y] = canvasPoint(e);
-    drag.current = { x, y, t: performance.now(), moved: false, vx: 0, vy: 0, kind };
+    drag.current = { x, y, ax: x, ay: y, t: performance.now(), moved: false, vx: 0, vy: 0, kind, keep: keepOf(e), stopEscape };
     // the keys are the canvas', so a hand on the picture is what gives them to it
     e.currentTarget.focus({ preventScroll: true });
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -1097,6 +1270,13 @@ export function VisualPivotView({
     const [x, y] = canvasPoint(e);
     const d = drag.current;
     if (d) {
+      if (d.kind === "marquee") {
+        d.x = x;
+        d.y = y;
+        if (!d.moved && Math.hypot(x - d.ax, y - d.ay) > marqueeThreshold) d.moved = true;
+        if (d.moved) previewMarquee(rectOf(d.ax, d.ay, x, y), d.keep);
+        return;
+      }
       const now = performance.now();
       const dt = Math.max(1, now - d.t) / 1000;
       const dx = x - d.x;
@@ -1109,6 +1289,7 @@ export function VisualPivotView({
         else s.panBy(dx, dy);
       } else if (d.moved) {
         flat.current?.panBy(dx, dy);
+        moved.current = true;
       }
       // a running estimate of the speed, for the coast after the drag ends
       d.vx = d.vx * 0.6 + (dx / dt) * 0.4;
@@ -1147,35 +1328,32 @@ export function VisualPivotView({
     const d = drag.current;
     drag.current = null;
     if (!f || !d) return;
+    if (d.kind === "marquee") {
+      d.stopEscape?.();
+      if (d.moved) {
+        // from the gesture's own last point rather than the event's: a cancelled pointer arrives at 0,0
+        finishMarquee(rectOf(d.ax, d.ay, d.x, d.y), d.keep);
+        return;
+      }
+      // a press and release that went nowhere is a click, and a click in this mode still opens the card
+    }
     // a hand that stopped before letting go leaves the picture where it is; one still going hands
     // its speed over and the picture carries it a little way further, turning or sliding
     const carried = d.moved && performance.now() - d.t < 80;
-    if (d.kind !== "flat") solid.current?.release(d.kind, carried ? d.vx : 0, carried ? d.vy : 0);
+    if (d.kind !== "flat" && d.kind !== "marquee") solid.current?.release(d.kind, carried ? d.vx : 0, carried ? d.vy : 0);
     if (d.moved) {
-      if (d.kind === "flat" && carried) flat.current?.fling(d.vx, d.vy);
+      if (d.kind === "flat" && carried) {
+        flat.current?.fling(d.vx, d.vy);
+        moved.current = true;
+      }
       return;
     }
     const [x, y] = canvasPoint(e);
     const i = f.pick(x, y);
     if (i < 0 || !decoded || i >= decoded.count) return;
-    const mode = selectModeOf(e);
-    const id = decoded.ids[i];
-    // marked at once, so the click answers before the round trip for the guid does - except a
-    // toggle of a card already marked, which is on its way out and is left to the page's answer
-    const already = selectedRef.current.some((guid) => known.current.get(guid) === id);
-    if (!(mode === "toggle" && already)) awaitingGuid.current.add(id);
-    applyMarks();
-    fetchNodeGuid(base.storeId, id)
-      .then((r) => {
-        known.current.set(r.id, id);
-        awaitingGuid.current.delete(id);
-        // the page answers through `selected`, and the marks follow that
-        onOpen(r.id, mode);
-      })
-      .catch(() => {
-        awaitingGuid.current.delete(id);
-        applyMarks();
-      });
+    // the page answers through `selected`, and the marks follow that - which is this frame, since
+    // the id the card was drawn with is the id the page selects by
+    onOpen(decoded.ids[i], selectModeOf(e));
   }
 
   function onPointerLeave() {
@@ -1393,7 +1571,7 @@ export function VisualPivotView({
           own head above, and how to turn the picture is something the picture teaches by being
           dragged. Both were costing the canvas height it is better off keeping. */}
       <div className={"visual-stage" + (def.bare === true ? " bare" : "")} ref={stageRef}>
-        <div className="visual-canvas">
+        <div className={"visual-canvas" + (marquee ? " marquee" : "")}>
           {glOk ? (
             <>
               {/* the mode is the canvas' key: a canvas hands out one drawing context for its life, so each renderer gets an element of its own */}
@@ -1410,7 +1588,8 @@ export function VisualPivotView({
                 onPointerCancel={onPointerUp}
                 onPointerLeave={onPointerLeave}
                 onDoubleClick={() => fitToLayout(refitSeconds)}
-                onContextMenu={(e) => solidPicture && e.preventDefault()}
+                // the right button turns the solids and, with drag to select on, pans the flat picture: no menu either way
+                onContextMenu={(e) => (solidPicture || marquee) && e.preventDefault()}
               />
               {!solidPicture && <canvas className="visual-text" ref={textRef} />}
             </>
@@ -1440,6 +1619,7 @@ export function VisualPivotView({
               ))}
             </div>
           )}
+          {marqueeRect && <MarqueeBox rect={marqueeRect} count={marqueeCount} />}
           {decoded && decoded.count === 0 && !loading && <div className="visual-empty">Nothing matched.</div>}
           {/* the one thing the head above still had to say, moved onto the picture itself */}
           {loading && <span className="visual-loading-note">{decoded ? "updating…" : "loading the cards…"}</span>}
@@ -1876,7 +2056,9 @@ function readTheme(el: HTMLElement): Theme {
     panel,
     accent,
     clear: f(panel),
-    outline: f(accent),
+    // the selected cards' mark: a red of its own rather than the accent, which is what the cards
+    // themselves are very often painted in (--select-mark, app.css)
+    outline: f(parseCssColor(v("--select-mark", "#d93025"))),
     ink: f(text),
     // the nodes without a value, and the ones outside the groups kept: two greys the palette does not use
     none: faint,

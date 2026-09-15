@@ -252,6 +252,12 @@ export interface SavedQuery {
   hitsView: HitsView;
   /** the table view with its cells open for typing; off unless someone asked for it */
   editCells?: boolean;
+  /**
+   * Drag to select: a drag over the hits, the cards or the map draws a rectangle that selects what
+   * it touches, instead of dragging the picture (see marquee.tsx). Off unless someone asked for it,
+   * and remembered with the query like the other switches of its views.
+   */
+  dragSelect?: boolean;
   sort: { key: string; descending: boolean } | null;
   pageSize: number;
   /** The columns of the table view, by column key, in order; null is the type's own set of them. */
@@ -294,6 +300,7 @@ export function newQuery(): SavedQuery {
     mode: "search",
     hitsView: "list",
     editCells: false,
+    dragSelect: false,
     sort: null,
     pageSize: 25,
     columns: null,

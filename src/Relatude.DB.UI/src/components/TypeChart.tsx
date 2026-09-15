@@ -330,8 +330,8 @@ const ringLabelHeight = 15;
  * names follow the thickness of the rings - up to a point, past which a name is simply large enough
  * and the ring carries the size instead.
  */
-const sunLabelBase = 11.5;
-const sunLabelMax = 21;
+const sunLabelBase = 10;
+const sunLabelMax = 17;
 /**
  * What the hole in the middle takes of the radius. The rings share the rest, however many they are,
  * so the figure is always as large as the panel allows - a model of two levels is a thicker picture
@@ -398,9 +398,9 @@ function Sunburst({ slices, total, onTileClick }: { slices: TypeSlice[]; total: 
   const hole = Math.max(30, room * sunburstHoleShare);
   const outer = Math.max(hole, room);
   const thickness = rings > 0 ? Math.max(0, (outer - hole) / rings) : 0;
-  const totalSize = Math.max(13, hole * 0.34);
+  const totalSize = Math.max(12, hole * 0.3);
   // and the names in the rings grow with them, measured at the base size and scaled from there
-  const labelSize = Math.max(sunLabelBase, Math.min(thickness * 0.16, sunLabelMax));
+  const labelSize = Math.max(sunLabelBase, Math.min(thickness * 0.14, sunLabelMax));
   const labelScale = labelSize / sunLabelBase;
 
   return (
@@ -455,7 +455,7 @@ function Sunburst({ slices, total, onTileClick }: { slices: TypeSlice[]; total: 
                         x={at.x}
                         y={at.y + 7 * labelScale}
                         className="dash-sun-count"
-                        style={{ fontSize: Math.max(10, labelSize * 0.87) }}
+                        style={{ fontSize: Math.max(9, labelSize * 0.85) }}
                         textAnchor="middle"
                         dominantBaseline="central"
                       >

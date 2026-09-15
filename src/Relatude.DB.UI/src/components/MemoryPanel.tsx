@@ -6,17 +6,48 @@ import { collectGarbage } from "../server/overview";
 import { applyMemoryBudget, fetchMemory, type MemoryBudget, type MemoryReport } from "../server/memory";
 import { saveDatabaseSettings } from "../server/settings";
 import { useLive } from "../live";
+import { usePanelMaximized } from "../panelMaximized";
 import { formatBytes, formatCount } from "../format";
 
 const mb = 1024 * 1024;
 const gb = 1024 * mb;
 
-/** The hit counts of the two caches, from the dashboard's own reading: they belong in the tooltips. */
+/**
+ * What the dashboard reads about the caches themselves, as opposed to their budgets: how often each
+ * one answered, how full it is, and how many times it filled up and was cut back. Cumulative since
+ * the caches were last cleared, and taken with the full picture, so it is up to a minute old.
+ */
 export interface CacheStats {
+  nodeCacheSizePercentage: number;
   nodeCacheHits: number;
   nodeCacheMisses: number;
+  nodeCacheOverflows: number;
+  setCacheSizePercentage: number;
   setCacheHits: number;
   setCacheMisses: number;
+  setCacheOverflows: number;
+  aggregateCacheCount: number;
+  aggregateCacheHits: number;
+  aggregateCacheMisses: number;
+  /** unset when the server is older than this page, which a dashboard must survive rather than blank */
+  aggregateCacheOverflows?: number;
+}
+
+/** What the two caches hold this second, from the live sample rather than the full picture. */
+export interface CacheCounts {
+  nodeCacheCount?: number;
+  nodeCacheSize?: number;
+  setCacheCount?: number;
+  setCacheSize?: number;
+}
+
+/** One figure in the detail of a row: the label, the value, and the whole of it for the title. */
+interface Detail {
+  k: string;
+  v: string;
+  title?: string;
+  /** two columns rather than one: a settings path is a sentence, not a number */
+  wide?: boolean;
 }
 
 /**
@@ -29,16 +60,33 @@ export interface CacheStats {
  * everything else - what the budget is for, whether a change takes hold now or at the next open, how
  * often the cache is being hit - is in the tooltip, so the panel stays a list of bars.
  *
+ * Maximized, the panel has the page and there is nothing left to save room for: every row opens into
+ * what its tooltip says plus every figure behind it - saved against running, headroom, floor, and for
+ * the caches what they hold and how often they answered - and the aggregate cache, which has no
+ * budget and therefore no bar, joins the list at the bottom.
+ *
  * Letting a slider go applies the bound at once wherever the part can be re-sized while it runs.
  * Saving is separate and writes the same values into the settings file, so trying a budget costs a
  * drag and keeping one costs a click.
  */
-export function MemoryPanel({ storeId, cache, onChanged }: { storeId: string; cache?: CacheStats; onChanged?: () => void }) {
+export function MemoryPanel({
+  storeId,
+  cache,
+  counts,
+  onChanged,
+}: {
+  storeId: string;
+  cache?: CacheStats;
+  counts?: CacheCounts;
+  onChanged?: () => void;
+}) {
   const [report, setReport] = useState<MemoryReport | null>(null);
   // where a slider is being dragged to, until it lands: live samples must not fight the pointer
   const [drafts, setDrafts] = useState<Record<string, number>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // the panel is the page: the rows have room for everything behind them, so they show it
+  const detailed = usePanelMaximized();
 
   const apply = useCallback((data: MemoryReport) => setReport(data), []);
   useLive<MemoryReport>("memory", { storeId }, apply);
@@ -137,6 +185,18 @@ export function MemoryPanel({ storeId, cache, onChanged }: { storeId: string; ca
     }
   }
 
+  /** The hit counts of one row, where it is a cache the store keeps count of: node and result sets. */
+  function hitCounts(b: MemoryBudget): { hits: number; misses: number; overflows: number; entries: number | null } | null {
+    if (cache == null) return null;
+    if (b.kind === "NodeCache") {
+      return { hits: cache.nodeCacheHits, misses: cache.nodeCacheMisses, overflows: cache.nodeCacheOverflows, entries: counts?.nodeCacheCount ?? null };
+    }
+    if (b.kind === "SetCache") {
+      return { hits: cache.setCacheHits, misses: cache.setCacheMisses, overflows: cache.setCacheOverflows, entries: counts?.setCacheCount ?? null };
+    }
+    return null;
+  }
+
   function tooltip(b: MemoryBudget): string {
     const lines = [b.help];
     if (b.settingPath == null) lines.push("Everything is resident, so there is no budget to set: what it costs is the heap.");
@@ -145,12 +205,79 @@ export function MemoryPanel({ storeId, cache, onChanged }: { storeId: string; ca
       lines.push(`Saved as ${formatBytes(b.settingBytes)}; the running database is on ${formatBytes(b.limitBytes)}.`);
     }
     if (b.floorBytes > 0 && valueOf(b) < b.floorBytes) lines.push(`It holds ${formatBytes(b.floorBytes)} it cannot give back, which is over this budget.`);
-    const hits = b.kind === "NodeCache" ? cache?.nodeCacheHits : b.kind === "SetCache" ? cache?.setCacheHits : undefined;
-    const misses = b.kind === "NodeCache" ? cache?.nodeCacheMisses : b.kind === "SetCache" ? cache?.setCacheMisses : undefined;
-    if (hits != null && misses != null && hits + misses > 0) {
-      lines.push(`${formatCount(hits)} hits · ${formatCount(misses)} misses · ${Math.round((hits / (hits + misses)) * 100)}% answered from memory`);
+    const hit = hitCounts(b);
+    if (hit != null && hit.hits + hit.misses > 0) {
+      lines.push(`${formatCount(hit.hits)} hits · ${formatCount(hit.misses)} misses · ${Math.round((hit.hits / (hit.hits + hit.misses)) * 100)}% answered from memory`);
     }
     return lines.join("\n");
+  }
+
+  /**
+   * Everything behind one row, written out. The bar says holding against budget and the tooltip says
+   * the rest; this is the same material with nothing left out, which is what the room is for.
+   */
+  function details(b: MemoryBudget): Detail[] {
+    const list: Detail[] = [];
+    const value = valueOf(b);
+    const used = b.usedBytes;
+    list.push({ k: "Holding", v: used == null ? "not counted" : formatBytes(used) });
+    if (b.settingPath == null) {
+      list.push({ k: "Budget", v: "none - resident" });
+    } else {
+      list.push({ k: "Budget", v: formatBytes(value) });
+      list.push({
+        k: "Saved",
+        v: b.settingBytes === b.limitBytes ? formatBytes(b.settingBytes) : `${formatBytes(b.settingBytes)} (running on ${formatBytes(b.limitBytes)})`,
+        title: `The settings file says ${formatBytes(b.settingBytes)}, which is what the database opens with.`,
+      });
+      if (used != null) {
+        const room = value - used;
+        list.push({
+          k: room >= 0 ? "Headroom" : "Over budget",
+          v: formatBytes(Math.abs(room)),
+          title: room >= 0 ? "Memory it is allowed and not using." : "It is holding more than the budget: what is over it is being evicted, or cannot be given back.",
+        });
+        if (value > 0) list.push({ k: "Fill", v: Math.round((used / value) * 100) + "%" });
+      }
+      if (b.floorBytes > 0) {
+        list.push({ k: "Never released", v: formatBytes(b.floorBytes), title: "Held whatever the budget says: a resident graph the index cannot give back." });
+      }
+    }
+    const hit = hitCounts(b);
+    if (hit != null) {
+      if (hit.entries != null) list.push({ k: "Entries", v: formatCount(hit.entries), title: "What it holds this second." });
+      list.push({ k: "Hits", v: formatCount(hit.hits), title: "Answered from memory since the caches were last cleared." });
+      list.push({ k: "Misses", v: formatCount(hit.misses), title: "Had to be read or computed since the caches were last cleared." });
+      list.push({
+        k: "Answered",
+        v: hit.hits + hit.misses === 0 ? "—" : Math.round((hit.hits / (hit.hits + hit.misses)) * 100) + "%",
+        title: "The share of lookups the cache answered. A low share on a large cache is memory better spent elsewhere.",
+      });
+      list.push({ k: "Trims", v: formatCount(hit.overflows), title: "Times it filled up and was cut back to half. Many of these means the budget is too small for what is being read." });
+    }
+    list.push({ k: "Engine", v: b.engine });
+    if (b.settingPath != null) {
+      list.push({ k: "Takes effect", v: b.adjustable ? "at once" : "next open", title: b.adjustable ? "A change here applies to the running database." : "The running database keeps its budget until it is opened again." });
+      list.push({ k: "Setting", v: b.settingPath, title: b.settingPath + (b.settingUnit ? " (" + b.settingUnit + ")" : ""), wide: true });
+    }
+    return list;
+  }
+
+  /**
+   * The aggregate cache: counts, sums and facet totals a query already worked out. It has no budget
+   * to drag - it is a fixed number of entries, and the bytes behind them are the sets it points at,
+   * which the set cache is already accounting for - so it is only here where there is room for it.
+   */
+  function aggregateDetails(c: CacheStats): Detail[] {
+    const lookups = c.aggregateCacheHits + c.aggregateCacheMisses;
+    return [
+      { k: "Entries", v: formatCount(c.aggregateCacheCount) },
+      { k: "Hits", v: formatCount(c.aggregateCacheHits), title: "Answered from memory since the caches were last cleared." },
+      { k: "Misses", v: formatCount(c.aggregateCacheMisses), title: "Had to be counted again since the caches were last cleared." },
+      { k: "Answered", v: lookups === 0 ? "—" : Math.round((c.aggregateCacheHits / lookups) * 100) + "%" },
+      { k: "Trims", v: c.aggregateCacheOverflows == null ? "—" : formatCount(c.aggregateCacheOverflows), title: "Times it filled up and was cut back to half." },
+      { k: "Budget", v: "a fixed number of entries" },
+    ];
   }
 
   const totals = report == null ? "" : `${formatBytes(report.managedBytes)} heap · ${formatBytes(report.processBytes)} resident`;
@@ -159,10 +286,30 @@ export function MemoryPanel({ storeId, cache, onChanged }: { storeId: string; ca
       <h3>
         Memory <span className="panel-sub">{totals || "what each part may keep, and what it holds"}</span>
       </h3>
-      <div className="fill-body mem-list">
+      <div className={"fill-body mem-list" + (detailed ? " detailed" : "")}>
         {budgets.map((b) => (
-          <BudgetRow key={b.key} budget={b} value={valueOf(b)} title={tooltip(b)} onDrag={(bytes) => setDrafts((d) => ({ ...d, [b.key]: bytes }))} onCommit={() => void commit(b)} />
+          <BudgetRow
+            key={b.key}
+            budget={b}
+            value={valueOf(b)}
+            title={tooltip(b)}
+            details={detailed ? details(b) : null}
+            onDrag={(bytes) => setDrafts((d) => ({ ...d, [b.key]: bytes }))}
+            onCommit={() => void commit(b)}
+          />
         ))}
+        {detailed && report?.open && cache != null && (
+          // a cache with no bar of its own: the row is its name, what it holds, and the figures
+          <div className="mem-row detailed" title={"Counts, sums and facet totals a query already worked out.\nNo budget to set: a fixed number of entries."}>
+            <span className="mem-name">
+              <span className="mem-label">Aggregate cache</span>
+              <span className="mem-engine">Sets</span>
+            </span>
+            <span className="mem-track mem-resident muted">no budget</span>
+            <span className="mem-figures">{formatCount(cache.aggregateCacheCount)} entries</span>
+            <DetailBlock help="Counts, sums and facet totals a query already worked out, so a repeated count or a facet drilled into does not walk the sets again." details={aggregateDetails(cache)} />
+          </div>
+        )}
         {report != null && !report.open && <div className="muted">The database is {report.state.toLowerCase()}, so it is holding nothing.</div>}
       </div>
       <div className="dash-cache-actions">
@@ -184,7 +331,7 @@ export function MemoryPanel({ storeId, cache, onChanged }: { storeId: string; ca
         </button>
       </div>
       <div className="muted dash-cache-note">
-        {message ?? "drag to change a budget now, save to keep it; hover a row for what it is for"}
+        {message ?? (detailed ? "drag to change a budget now, save to keep it; the hit counts are since the caches were last cleared" : "drag to change a budget now, save to keep it; hover a row for what it is for")}
       </div>
     </section>
   );
@@ -194,12 +341,15 @@ function BudgetRow({
   budget,
   value,
   title,
+  details,
   onDrag,
   onCommit,
 }: {
   budget: MemoryBudget;
   value: number;
   title: string;
+  /** Written out under the bar when the panel has the page; null when it does not. */
+  details: Detail[] | null;
   onDrag: (bytes: number) => void;
   onCommit: () => void;
 }) {
@@ -211,7 +361,9 @@ function BudgetRow({
   const used = b.usedBytes;
   const pending = b.settingPath != null && b.settingBytes !== b.limitBytes;
   return (
-    <div className="mem-row" title={title}>
+    // the tooltip stays on the detailed row too: it is the same material, and a pointer that has
+    // learned to rest on a row should not find it gone
+    <div className={"mem-row" + (details ? " detailed" : "")} title={title}>
       <span className="mem-name">
         <span className="mem-label">{b.label}</span>
         <span className="mem-engine">{b.engine}</span>
@@ -242,6 +394,26 @@ function BudgetRow({
         {used == null ? <span className="muted">—</span> : formatBytes(used)}
         {b.settingPath != null && <span className="muted"> / {formatBytes(value)}</span>}
       </span>
+      {details != null && <DetailBlock help={b.help} details={details} />}
+    </div>
+  );
+}
+
+/** What a row is for, and every figure behind it. Sits under the bar, across the whole row. */
+function DetailBlock({ help, details }: { help: string; details: Detail[] }) {
+  return (
+    <div className="mem-detail">
+      <div className="mem-help">{help}</div>
+      <div className="mem-facts">
+        {details.map((d) => (
+          <div className={"fact" + (d.wide ? " wide" : "")} key={d.k}>
+            <div className="fact-k">{d.k}</div>
+            <div className="fact-v" title={d.title ?? d.v}>
+              {d.v}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

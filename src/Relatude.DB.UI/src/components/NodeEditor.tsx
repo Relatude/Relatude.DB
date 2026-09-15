@@ -8,6 +8,7 @@ import {
   IconPlus,
   IconRefresh,
   IconSearch,
+  IconPencil,
   IconTrash,
   IconUpload,
   IconX,
@@ -16,24 +17,31 @@ import {
   clearNodeFile,
   commitNodeFile,
   createNode,
+  deleteAll,
   deleteNodes,
+  fetchAllIds,
+  fetchCommon,
   fetchNodes,
   fileUploadTarget,
   lookupNodes,
   saveEmbedded,
+  saveAll,
   saveNodes,
+  type CommonSurvey,
   type EditorKind,
   type GeoValue,
   type FileValueView,
   type InnerNodeView,
   type NodeRef,
   type NodeView,
+  type SearchRequest,
   type PropertyView,
   type TypeRef,
 } from "../server/query";
 import { abortUpload, newUploadId, uploadStaged } from "../server/files";
 import { notifyNodePicture } from "../nodeMedia";
 import { showChoice, showConfirm, showError } from "../dialogs";
+import { selectionCount, type PageSelection } from "../selection";
 import { openInDatamodel } from "../navigate";
 import { IndexMarks } from "./DatamodelIcons";
 import { useLiveResult } from "../server/hooks";
@@ -47,11 +55,50 @@ type EditorTab = "properties" | "meta" | "history";
 /** how many of a selection's nodes are named in the head before the rest are a count */
 const maxChips = 24;
 
+/**
+ * How many nodes may be opened together without being asked about first.
+ *
+ * Opening a selection together is not free: the nodes are read, their properties compared, and every
+ * field of the form then writes to all of them. Below this it is instant and nobody needs to be
+ * asked; above it the wait is worth a sentence, and the answer is always allowed to be yes - there
+ * is no number of nodes this refuses to open.
+ */
+const askAboveNodes = 10_000;
+
+/**
+ * How many of a selection's nodes are read INTO the form: the fields, their values, the type names.
+ *
+ * A rectangle dragged over a picture can select two million of them (marquee.tsx), and a node form
+ * is six kilobytes of json, so the form is built from this many and says so. It WRITES to every
+ * selected node regardless: a save and a delete are lists of ids - or the search itself - sent to
+ * the store, and never needed the nodes here in the first place.
+ *
+ * What the form claims about the nodes it did not read is a separate question, and a separate call:
+ * see maxSurvey.
+ */
+const maxRead = 200;
+
+/**
+ * How many are read to work out what the selection AGREES on (see fetchCommon).
+ *
+ * "Every one of these holds the same value" is a claim about the whole selection, and reading two
+ * hundred of two million says very little about it. So the agreement is worked out on the server,
+ * where it costs a node read rather than a node form, over as much of the selection as it can take:
+ * it stops as soon as every property has been caught differing - on any ordinary selection, within
+ * a handful of nodes - and otherwise at this many, which the form then says out loud, because a
+ * value that held for a hundred thousand nodes still says nothing certain about the rest.
+ *
+ * It is not a bound on anything else. The selection is any size, and so is what a save writes to.
+ */
+const maxSurvey = 100_000;
+
 /** A property every selected node has: the first node's view of it, every node's, and whether they agree on its value. */
 interface SharedProperty {
   property: PropertyView;
   all: PropertyView[];
   mixed: boolean;
+  /** values the survey found out past the nodes read here, which the form has no PropertyView for */
+  beyond?: unknown[];
 }
 
 /**
@@ -81,21 +128,32 @@ interface SharedProperty {
  */
 export function NodeEditor({
   storeId,
-  nodeIds,
+  selection,
+  request,
   onSaved,
   onClose,
   onDeleted,
   onDeselect,
+  onClearSelection,
 }: {
   storeId: string;
-  /** the nodes the form has open: one, or a selection edited together */
-  nodeIds: readonly string[];
+  /**
+   * What the form has open (see PageSelection): nodes by the internal id the page selects by, one
+   * node by guid when another page handed it over, or a whole QUERY - every node the search matches,
+   * which is never resolved into ids at all. The form reads a sample of whichever it is, and saves
+   * and deletes through the shape it was given.
+   */
+  selection: PageSelection;
+  /** the search behind a query selection, which is what such a selection is saved and deleted through */
+  request?: SearchRequest | null;
   onSaved?: () => void;
   onClose?: () => void;
   /** the nodes were deleted from here: the list they came from is stale and the form has nothing to show */
   onDeleted?: () => void;
-  /** one node of a selection was taken out of it from the form's own head */
-  onDeselect?: (nodeId: string) => void;
+  /** one node of a selection was taken out of it from the form's own head, by internal id */
+  onDeselect?: (nodeId: number) => void;
+  /** the whole selection let go of, and the way it was made with it (the page leaves drag-to-select) */
+  onClearSelection?: () => void;
 }) {
   const [nodes, setNodes] = useState<NodeView[] | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
@@ -107,58 +165,171 @@ export function NodeEditor({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
   const [tab, setTab] = useState<EditorTab>("properties");
+  /**
+   * Whether a selection of several nodes is being EDITED together, rather than merely being selected.
+   *
+   * Selecting a hundred thousand nodes should cost nothing, and it used to cost a read of every one
+   * of them the moment the selection was made: the form opened straight onto the combined editor,
+   * which reads the nodes to find the properties they share and which of those they disagree on. So
+   * a selection now opens on a summary - how many, and what can be done with them - and nothing is
+   * read until someone asks for the combined form. One node is not a selection and opens as it
+   * always did.
+   */
+  const [combined, setCombined] = useState(false);
 
+  /** how many nodes are selected: the ids there are, or what the query said it matched */
+  const count = selectionCount(selection);
+  const multi = count > 1;
+  const isQuery = selection.kind === "query";
   // the ids as one value, so a render that hands over the same ids in a new array changes nothing
-  const idsKey = nodeIds.join("\n");
-  const ids = useMemo(() => idsKey.split("\n").filter((id) => id.length > 0), [idsKey]);
-  const multi = ids.length > 1;
+  const idsKey = isQuery ? "" : selection.ids.join("\n");
+  /**
+   * The ids of the sample a QUERY selection is read from, fetched when the combined form is asked
+   * for. The other two shapes need none of this - they already name their nodes - and neither does a
+   * selection sitting on its summary, which reads nothing at all.
+   */
+  const [sample, setSample] = useState<number[] | null>(null);
+  /**
+   * What the selection turned out to agree on, read over far more of it than the form itself is
+   * (see maxSurvey), and null until it has been asked for or while it is being asked. It only ever
+   * makes the form's own verdict stricter: a property the two hundred read here agree on may be
+   * caught differing out at node fifty thousand, never the other way round.
+   */
+  const [survey, setSurvey] = useState<CommonSurvey | null>(null);
+  const [surveying, setSurveying] = useState(false);
+  /** counts the times the nodes have been read: a write changes what they agree on, so it is asked again */
+  const [pass, setPass] = useState(0);
+  // the ones the form reads and builds itself from; a save still writes to all of them (see maxRead)
+  const read = useMemo<string[] | readonly number[] | null>(
+    () => {
+      if (selection.kind === "query") return sample;
+      return selection.ids.length > maxRead ? selection.ids.slice(0, maxRead) : selection.ids;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the ids by value, not by array identity
+    [selection.kind, idsKey, sample],
+  );
+  const sampled = count - (read?.length ?? 0);
+  /** whether the form itself is on screen, rather than the summary a selection opens on */
+  const showForm = !multi || combined;
 
   const load = useCallback(() => {
     setNodes(null);
-    fetchNodes(storeId, ids)
+    // a selection sitting on its summary reads nothing at all (see combined), and a query selection
+    // reads nothing until the sample of it has arrived
+    if (!showFormRef.current || readRef.current === null) return;
+    fetchNodes(storeId, readRef.current)
       .then((list) => {
-        if (list.length === 0) throw new Error(ids.length === 1 ? "Node not found." : "None of the selected nodes could be read.");
+        if (list.length === 0) throw new Error(countRef.current === 1 ? "Node not found." : "None of the selected nodes could be read.");
         setNodes(list);
         setError(null);
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [storeId, ids]);
+  }, [storeId]);
+  // read by load, which is made once and must see all three as they stand at the moment it runs
+  const combinedRef = useRef(combined);
+  combinedRef.current = combined;
+  const showFormRef = useRef(showForm);
+  showFormRef.current = showForm;
+  const readRef = useRef(read);
+  readRef.current = read;
+  const countRef = useRef(count);
+  countRef.current = count;
+
+  // the sample has arrived (or the ids changed under an open form): read what it names
+  useEffect(() => {
+    if (showForm && read !== null) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load reads the rest through refs
+  }, [read, showForm, load]);
+
+  // What the whole selection agrees on, asked for once the combined form is on screen: the fields
+  // are there straight away, built from the nodes read, and the verdict tightens them when it lands.
+  // One node has nothing to survey - it agrees with itself - and neither has a selection sitting on
+  // its summary, which has not asked to be read at all.
+  useEffect(() => {
+    if (!showForm || !multi) return;
+    // sliced here rather than on the server: sending two hundred thousand ids to have the first
+    // hundred thousand read is a megabyte on the wire that nothing ever looks at
+    const target =
+      selection.kind === "query"
+        ? request
+          ? { search: request }
+          : null
+        : { ids: (selection.ids.length > maxSurvey ? selection.ids.slice(0, maxSurvey) : selection.ids) as string[] | readonly number[] };
+    if (target === null) return;
+    let live = true;
+    setSurveying(true);
+    fetchCommon(storeId, target, maxSurvey)
+      .then((answer) => live && setSurvey(answer))
+      .catch(() => live && setSurvey(null)) // the form is still usable on what it read itself
+      .finally(() => live && setSurveying(false));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the ids by value, not by array identity
+  }, [storeId, showForm, multi, selection.kind, idsKey, request, pass]);
 
   /** Reads the nodes again and drops every unsaved edit: the Reload button, and what follows a write. */
   function reload() {
     setValues({});
     setTargets({});
+    setPass((n) => n + 1); // what the selection agrees on is a question about values that just changed
     load();
   }
 
   // The selection changed under the form. Edits are kept when it grew or shrank - select several,
   // set a field, add one more, save - and dropped when it is a different selection altogether: an
   // edit made to one node must not turn up unsaved on the next one clicked.
-  const previous = useRef<string[]>(ids);
+  const previous = useRef<string>(idsKey);
   useEffect(() => {
     const before = previous.current;
-    previous.current = ids;
-    const grew = before.every((id) => ids.includes(id));
-    const shrank = ids.every((id) => before.includes(id));
+    previous.current = idsKey;
+    if (selection.kind === "query") {
+      // the whole result: a fresh decision about what to do with it, and nothing read yet
+      setValues({});
+      setTargets({});
+      setCombined(false);
+      combinedRef.current = false;
+      setSample(null);
+      setSurvey(null);
+      setSaved(null);
+      return;
+    }
+    // through sets, not includes: a selection can be a hundred thousand nodes, and two nested
+    // linear scans of that is ten billion comparisons and a browser that has stopped answering
+    const ids: (string | number)[] = selection.ids;
+    const now = new Set<string | number>(ids);
+    const had = new Set<string | number>(before === "" ? [] : before.split("\n").map((x) => (selection.kind === "ints" ? Number(x) : x)));
+    const grew = [...had].every((id) => now.has(id));
+    const shrank = ids.every((id) => had.has(id));
     if (!grew && !shrank) {
       setValues({});
       setTargets({});
+      // a different selection altogether is a fresh decision about what to do with it
+      setCombined(false);
+      combinedRef.current = false;
+      setSample(null);
     }
+    setSurvey(null); // whatever it said was about the nodes that were selected then
     setSaved(null);
-    load();
-  }, [ids, load]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the ids by value, not by array identity
+  }, [idsKey, selection.kind]);
 
   // the other two tabs are one node's: several nodes have only their properties in common
   useEffect(() => {
     if (multi) setTab("properties");
   }, [multi]);
 
-  /** The properties every selected node has, in the first node's order, and whether the nodes agree on each. */
+  /**
+   * The properties every selected node has, in the first node's order, and whether the nodes agree
+   * on each - from the nodes actually read here, and then from the survey of the rest of the
+   * selection, which can only ever turn an agreement into a disagreement (see maxSurvey).
+   */
   const shared = useMemo<{ properties: SharedProperty[]; hidden: number }>(() => {
     if (!nodes || nodes.length === 0) return { properties: [], hidden: 0 };
     const [first, ...rest] = nodes;
     const union = new Set<string>();
     for (const n of nodes) for (const p of n.properties) union.add(p.id);
+    const found = new Map(survey?.properties.map((s) => [s.id, s]));
     const properties: SharedProperty[] = [];
     for (const p of first.properties) {
       const all: PropertyView[] = [p];
@@ -167,10 +338,12 @@ export function NodeEditor({
         if (q) all.push(q);
       }
       if (all.length !== nodes.length) continue;
-      properties.push({ property: p, all, mixed: all.some((q) => !sameValue(p, q)) });
+      const beyond = found.get(p.id);
+      if (beyond?.missing) continue; // a node further out has not got it, so it is not shared after all
+      properties.push({ property: p, all, mixed: all.some((q) => !sameValue(p, q)) || beyond?.mixed === true, beyond: beyond?.values });
     }
     return { properties, hidden: union.size - properties.length };
-  }, [nodes]);
+  }, [nodes, survey]);
 
   // an edit of a property the selection no longer shares has nowhere to go, and is let go of
   useEffect(() => {
@@ -218,16 +391,19 @@ export function NodeEditor({
         else if (editor === "references") editedValues[propertyId] = linked;
         else editedValues[propertyId] = linked[0] ?? null;
       }
-      const result = await saveNodes(
-        storeId,
-        nodes.map((n) => n.id),
-        editedValues,
-        relations,
-      );
+      // Every selected node, not just the ones read into the form (see maxRead). Each shape of
+      // selection is written through as it stands: a query through the query, so its ids are
+      // resolved on the server and never travel; a set of ids as those ids, four bytes each.
+      const result =
+        selection.kind === "query"
+          ? request
+            ? await saveAll(storeId, request, editedValues, relations)
+            : { changed: 0 }
+          : await saveNodes(storeId, selection.ids, editedValues, relations);
       setSaved(
         result.changed === 0
           ? "Nothing changed."
-          : `Saved ${formatCount(result.changed)} ${result.changed === 1 ? "change" : "changes"}` + (multi ? ` across ${formatCount(nodes.length)} nodes.` : "."),
+          : `Saved ${formatCount(result.changed)} ${result.changed === 1 ? "change" : "changes"}` + (multi ? ` across ${formatCount(count)} nodes.` : "."),
       );
       reload();
       onSaved?.();
@@ -239,27 +415,63 @@ export function NodeEditor({
   }
 
   /**
+   * The combined form asked for. Past askAboveNodes the wait is long enough to be worth a sentence
+   * first - every node is looked up and a sample of them read - but the answer may always be yes:
+   * there is no number of nodes this refuses to open.
+   */
+  async function editCombined() {
+    if (count > askAboveNodes) {
+      const answer = await showConfirm(
+        "Edit " + formatCount(count) + " nodes together?",
+        "They are opened as one form: the properties they have in common are read from the first few hundred of them, and anything changed there is written to all " +
+          formatCount(count) +
+          " when you save.",
+        { confirmLabel: "Edit " + formatCount(count) + " nodes" },
+      );
+      if (!answer.ok) return;
+    }
+    combinedRef.current = true;
+    setCombined(true);
+    // a query selection has no ids yet: the first few hundred of them, which is all the form reads
+    if (selection.kind === "query" && sample === null) {
+      setNodes(null);
+      if (!request) {
+        setError("The search behind this selection is not available.");
+        return;
+      }
+      try {
+        const first = await fetchAllIds(request, maxRead);
+        setSample(Array.from(first.intIds));
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  }
+
+  /**
    * Deleting is asked about first, and says what is being deleted rather than "are you sure": the
    * name and the type are what tell someone whether this is the node they meant - and for a
    * selection, how many of what.
    */
   async function remove() {
-    if (!nodes) return;
-    const one = nodes.length === 1 ? nodes[0] : null;
+    const one = count === 1 ? (nodes?.[0] ?? null) : null;
+    if (count === 0) return;
     const confirmed = await showConfirm(
-      one ? `Delete ${one.displayName || "this node"}?` : `Delete ${formatCount(nodes.length)} nodes?`,
+      one ? `Delete ${one.displayName || "this node"}?` : `Delete ${formatCount(count)} nodes?`,
       one
         ? `The ${one.typeName} node is removed from the database. Relations and references to it are cleared with it. This cannot be undone from here - a revert window can take it back.`
-        : `${typeSummary(nodes)} are removed from the database, all at once. Relations and references to them are cleared with them. This cannot be undone from here - a revert window can take it back.`,
-      { confirmLabel: one ? "Delete" : `Delete ${formatCount(nodes.length)} nodes`, danger: true },
+        : `${formatCount(count)} nodes are removed from the database, all at once. Relations and references to them are cleared with them. This cannot be undone from here - a revert window can take it back.`,
+      { confirmLabel: one ? "Delete" : `Delete ${formatCount(count)} nodes`, danger: true },
     );
     if (!confirmed.ok) return;
     setSaving(true);
     try {
-      await deleteNodes(
-        storeId,
-        nodes.map((n) => n.id),
-      );
+      // every selected node, as a save does - through the query when that is what is selected
+      if (selection.kind === "query") {
+        if (request) await deleteAll(request);
+      } else {
+        await deleteNodes(storeId, selection.ids);
+      }
       onDeleted?.();
       onClose?.();
     } catch (e) {
@@ -270,17 +482,90 @@ export function NodeEditor({
   }
 
   if (error) return <div className="placeholder">{error}</div>;
+
+  /**
+   * A selection of several nodes, before anything is read: how many there are, and the three things
+   * that can be done with them. Everything here works from the ids alone, so this is as cheap for a
+   * million nodes as for two.
+   */
+  if (multi && !combined) {
+    return (
+      <div className="node-editor">
+        <div className="node-editor-head">
+          <div className="node-editor-title">
+            <h3>{formatCount(count)} nodes selected</h3>
+            <span className="muted">Nothing has been read yet — choose what to do with them.</span>
+          </div>
+          <div className="query-spacer" />
+          {onClose && (
+            <button className="icon-button" title="Close, and let go of the selection" onClick={onClose}>
+              <IconX size={16} stroke={1.8} />
+            </button>
+          )}
+        </div>
+        <div className="node-selection">
+          <p className="node-selection-lead">
+            Editing them together opens one form for the lot: a field written there is written to every one of them, and a field they do not agree on says so rather than
+            showing one node's value as though it were everyone's.
+          </p>
+          <div className="node-selection-actions">
+            <button className="action-button primary" onClick={editCombined} disabled={saving}>
+              <IconPencil size={15} stroke={1.8} />
+              Edit combined
+            </button>
+            <button className="action-button danger" onClick={remove} disabled={saving}>
+              <IconTrash size={15} stroke={1.8} />
+              Delete {formatCount(count)} nodes
+            </button>
+            <button className="action-button" onClick={onClearSelection ?? onClose} disabled={saving}>
+              <IconX size={15} stroke={1.8} />
+              Clear selection
+            </button>
+          </div>
+          <p className="node-selection-note">
+            A delete asks first and cannot be undone from here — a revert window can take it back.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (!nodes) return null;
   const node = nodes[0];
-  const missing = ids.length - nodes.length;
+  /**
+   * The survey stopped at its bound rather than because it knew (see maxSurvey), AND something is
+   * still being shown as agreed: that is the only case worth a word, since a form where everything
+   * differs claims nothing about the nodes nobody read.
+   */
+  const partial = survey !== null && !survey.settled && survey.read < count && shared.properties.some((s) => !s.mixed);
+  // of the ones asked for: a node that has been deleted since the selection was made
+  const missing = (read?.length ?? 0) - nodes.length;
 
   return (
     <div className="node-editor">
       <div className="node-editor-head">
         {multi ? (
           <div className="node-editor-title">
-            <h3>{formatCount(nodes.length)} nodes selected</h3>
-            <span className="muted">{typeSummary(nodes)} · what is changed here is written to all of them</span>
+            <h3>{formatCount(count)} nodes selected</h3>
+            {/* counted only when every selected node was read: "200 Product" of a hundred thousand
+                selected would be a count of the sample, which is not what it looks like */}
+            <span className="muted">{(sampled > 0 ? typeNames(nodes) : typeSummary(nodes)) + " · what is changed here is written to all of them"}</span>
+            {sampled > 0 && (
+              // a selection too large to read into a form: what is on show is the first few hundred,
+              // and the save is still every one of them (see maxRead)
+              <span className="muted">
+                The fields below are read from the first {formatCount(read?.length ?? 0)}; Save writes to all {formatCount(count)}.
+              </span>
+            )}
+            {surveying && <span className="muted">Comparing the rest of the selection…</span>}
+            {partial && (
+              // it read as far as it was allowed to and some fields still agreed: those are the ones
+              // to be careful with, since they are the claim the unread nodes could still break
+              <span className="warn-note">
+                Compared {formatCount(survey?.read ?? 0)} of {formatCount(count)} nodes and stopped there. The fields showing a value agree across those{" "}
+                {formatCount(survey?.read ?? 0)} — the rest of the selection was not read, and may not agree.
+              </span>
+            )}
             {missing > 0 && (
               <span className="muted">
                 {formatCount(missing)} of the selected nodes could not be read - {missing === 1 ? "it" : "they"} may have been deleted.
@@ -314,7 +599,7 @@ export function NodeEditor({
               <IconDeviceFloppy size={15} stroke={1.8} />
               {dirty === 0 ? "Save" : `Save ${dirty} ${dirty === 1 ? "field" : "fields"}`}
             </button>
-            <button className="icon-button danger" title={multi ? `Delete these ${formatCount(nodes.length)} nodes` : "Delete this node"} onClick={remove} disabled={saving}>
+            <button className="icon-button danger" title={multi ? `Delete these ${formatCount(count)} nodes` : "Delete this node"} onClick={remove} disabled={saving}>
               <IconTrash size={16} stroke={1.8} />
             </button>
           </>
@@ -332,14 +617,14 @@ export function NodeEditor({
             <span className="node-chip" key={n.id} title={`${n.typeName} · id ${n.id} · #${n.intId}`}>
               {n.displayName || n.typeName}
               <em>{n.typeName}</em>
-              {onDeselect && (
-                <button className="icon-button" title="Take this node out of the selection" onClick={() => onDeselect(n.id)}>
+              {onDeselect && selection.kind === "ints" && (
+                <button className="icon-button" title="Take this node out of the selection" onClick={() => onDeselect(n.intId)}>
                   <IconX size={12} stroke={2} />
                 </button>
               )}
             </span>
           ))}
-          {nodes.length > maxChips && <span className="muted">and {formatCount(nodes.length - maxChips)} more</span>}
+          {count > maxChips && <span className="muted">and {formatCount(count - maxChips)} more</span>}
         </div>
       )}
       <div className="tabs" role="tablist">
@@ -384,7 +669,7 @@ export function NodeEditor({
             {formatCount(shared.hidden)} {shared.hidden === 1 ? "property is" : "properties are"} not on every selected node, and {shared.hidden === 1 ? "is" : "are"} not shown.
           </div>
         )}
-        {shared.properties.map(({ property, all, mixed }) => {
+        {shared.properties.map(({ property, all, mixed, beyond }) => {
           const edited = property.id in values || property.id in targets;
           return (
             <Field
@@ -400,7 +685,7 @@ export function NodeEditor({
               property={property}
               edited={edited}
               mixed={mixed && !edited}
-              differing={mixed ? distinctValues(property, all) : null}
+              differing={mixed ? distinctValues(property, all, beyond) : null}
               value={property.id in values ? values[property.id] : mixed ? undefined : property.value}
               targets={targets[property.id] ?? (mixed ? [] : property.targets ?? [])}
               onChange={(v) => setValue(property, v)}
@@ -424,13 +709,17 @@ function sameValue(a: PropertyView, b: PropertyView): boolean {
   return JSON.stringify(a.value ?? null) === JSON.stringify(b.value ?? null);
 }
 
-/** The values a differing scalar property holds across the selection, as text, a handful at most; null for a property with no short text. */
-function distinctValues(property: PropertyView, all: PropertyView[]): string[] | null {
+/**
+ * The values a differing scalar property holds across the selection, as text, a handful at most;
+ * null for a property with no short text. `beyond` is what the survey saw out past the nodes the
+ * form read (see maxSurvey), and travels in the same shape a property's value does, so the two
+ * lists are written out by the same lines here rather than formatted twice.
+ */
+function distinctValues(property: PropertyView, all: PropertyView[], beyond?: unknown[]): string[] | null {
   const scalar: EditorKind[] = ["text", "integer", "number", "bool", "enum", "guid", "datetime", "datetimeoffset", "timespan"];
   if (!scalar.includes(property.editor)) return null;
   const seen = new Set<string>();
-  for (const p of all) {
-    const v = p.value;
+  for (const v of [...all.map((p) => p.value), ...(beyond ?? [])]) {
     let text: string;
     if (v === null || v === undefined || v === "") text = "(empty)";
     else if (property.editor === "enum") text = property.options?.find((o) => String(o.value) === String(v))?.label ?? String(v);
@@ -440,6 +729,11 @@ function distinctValues(property: PropertyView, all: PropertyView[]): string[] |
     if (seen.size > 6) break;
   }
   return [...seen];
+}
+
+/** "Product · Article": the kinds in a selection, for when they cannot honestly be counted (see maxRead). */
+function typeNames(nodes: NodeView[]): string {
+  return [...new Set(nodes.map((n) => n.typeName))].sort().join(" · ");
 }
 
 /** "2 Product · 1 Article": what a selection is made of, most of a kind first. */

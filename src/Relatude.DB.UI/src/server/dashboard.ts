@@ -67,6 +67,8 @@ export interface DashboardInfo {
     aggregateCacheCount: number;
     aggregateCacheHits: number;
     aggregateCacheMisses: number;
+    /** unset when the server is older than this page: it started being sent with the memory detail */
+    aggregateCacheOverflows?: number;
   };
   ai?: { provider: string | null; embeddingModel: string | null } | null;
   relationTypes?: number;

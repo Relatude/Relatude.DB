@@ -926,13 +926,15 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
         {/* two rows on purpose rather than one that wraps where it happens to: the first is how
             the model is looked at and what can be done to it, the second is what of it is shown */}
         <div className="dm-toolbar-row">
-          <div className="dm-tabs">
+          {/* the same segmented control the storage module uses (module-switch, app.css); the
+              per-view class stays, since the narrow layout hides one of them by it */}
+          <div className="dm-tabs module-switch" role="tablist">
             {/* the matrix has no tab of its own until it is what is on screen: opened from the ⋯ menu,
                 it still needs somewhere to show that it is up, and a way back off it */}
             {(view === matrixView.id ? [...views, matrixView] : views).map((v) => {
               const Icon = v.icon;
               return (
-                <button key={v.id} className={"dm-tab dm-tab-" + v.id + (view === v.id ? " active" : "")} onClick={() => setView(v.id)} title={v.label}>
+                <button key={v.id} role="tab" aria-selected={view === v.id} className={"dm-tab-" + v.id + (view === v.id ? " active" : "")} onClick={() => setView(v.id)} title={v.label}>
                   <Icon size={15} stroke={1.9} />
                   <span>{v.label}</span>
                 </button>

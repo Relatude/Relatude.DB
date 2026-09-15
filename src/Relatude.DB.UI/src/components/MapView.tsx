@@ -3,15 +3,17 @@ import { IconFocusCentered, IconGrid3x3, IconListDetails, IconMinus, IconPlus, I
 import { ColorField } from "./ColorField";
 import { BareButton, FullscreenButton } from "./DatamodelGraph";
 import type { PivotBase } from "./PivotView";
-import { fetchCards, fetchNodeGuid, fetchPivotModel, runMap, type MapRequest, type PivotModel, type PivotProperty } from "../server/query";
+import { fetchCards, fetchPivotModel, runMap, type MapRequest, type PivotModel, type PivotProperty } from "../server/query";
 import { selectModeOf, type SelectMode } from "../selection";
+import { keepOf, marqueeThreshold, MarqueeBox, rectOf, untilEscape, type Rect } from "../marquee";
 import { useLiveResult } from "../server/hooks";
 import { formatCount, formatQuery } from "../format";
 import type { MapDefinition, MapMarks as MarkKind, MapStyle as SavedStyle } from "../queryTabs";
 import { buildPalette, buildRamp, buildRodRamp, palettes, parseCssColor, type PaletteColor, type RGB } from "../visual/palette";
 import { clampView, fitView, projections, projectionOf, type View } from "../map/projection";
 import { countCountries, countryAt, countryRaster, countryRasterSize, rankedCountries } from "../map/countries";
-import { decodeMap, PointIndex, type MapGroup } from "../map/points";
+import { decodeMap, PointIndex, type MapGroup, type MapPoints } from "../map/points";
+import { IntMap } from "../visual/intMap";
 import { clusterPoints, clusterRadius, drawClusters, rodsOf, type Cluster } from "../map/clusters";
 import { createMapField, maxGlobeZoom, minGlobeZoom, type GlobeCamera, type MapField, type MapScene, type MapStyle } from "../map/mapField";
 import { Momentum } from "../map/motion";
@@ -125,6 +127,8 @@ interface Theme {
   faint: RGB;
   none: RGB;
   other: RGB;
+  /** what a selected node is marked with: a red of its own, never the accent the dots may be painted in */
+  mark: RGB;
 }
 
 interface Tooltip {
@@ -133,11 +137,22 @@ interface Tooltip {
   lines: string[];
 }
 
-/** What the pointer is doing between down and up. */
+/** What the pointer is doing between down and up: moving the map, or drawing a rectangle round its points. */
 interface Drag {
+  /** where the hand went down, on the screen: what a pan measures from */
   x: number;
   y: number;
+  /** the same on the canvas, and where the pointer is now: the two corners of a rectangle */
+  ax: number;
+  ay: number;
+  lx: number;
+  ly: number;
   moved: boolean;
+  kind: "pan" | "marquee";
+  /** whether the keys held at the press mean the rectangle adds to the selection rather than replacing it */
+  keep: boolean;
+  /** what stops listening for Escape, while a rectangle is being drawn */
+  stopEscape?: () => void;
   /** the view and the camera as they were when the hand went down */
   from: { view: View; camera: GlobeCamera };
 }
@@ -160,6 +175,11 @@ interface Drag {
  * The server sends a position per node read straight from the geo index - no node is read, whatever
  * the size of the result - and, for the colouring, the same groups the visual pivot uses. Which
  * countries the points are in is worked out here, from a raster of the world drawn once.
+ *
+ * With drag to select on (marquee.tsx) the left button draws a rectangle instead of moving the map,
+ * and every point placed inside it opens; the other buttons still pan and turn. The nodes the form
+ * has open are marked in red on the map, whatever way the nodes are shown - the ones the map knows,
+ * that is, having handed them over itself by a click or a rectangle.
  */
 export function MapView({
   base,
@@ -168,6 +188,10 @@ export function MapView({
   refreshToken,
   showQuery,
   onOpen,
+  onSelectMany,
+  marquee,
+  selected,
+  allSelected,
   fullscreen,
   onToggleFullscreen,
   head,
@@ -179,8 +203,16 @@ export function MapView({
   /** Changes when the page is asked to run again with nothing else changed. */
   refreshToken: number;
   showQuery: boolean;
-  /** A node was clicked: it goes to the form beside the map - on its own, toggled (ctrl), or added (shift). */
-  onOpen: (nodeId: string, mode: SelectMode) => void;
+  /** A node was clicked: it goes to the form beside the map, by the internal id the point carries. */
+  onOpen: (nodeId: number, mode: SelectMode) => void;
+  /** A rectangle was drawn round some points: these nodes become the selection, or with `keep` are added to it (see applyMarquee). */
+  onSelectMany: (ids: number[], keep: boolean) => void;
+  /** Drag to select is on: the left button draws a rectangle round points rather than moving the map. */
+  marquee: boolean;
+  /** The nodes the form has open, by internal id: the map marks their points. */
+  selected: readonly number[];
+  /** The selection is the whole result set (the page's Select all): every point is marked, no guid needed. */
+  allSelected: boolean;
   fullscreen: boolean;
   onToggleFullscreen: () => void;
   /** What the result's own head would say, when the page has folded that head away (see the visual pivot). */
@@ -263,6 +295,24 @@ export function MapView({
   const [view, setView] = useState<View>({ cx: 0, cy: 0, scale: 200 });
   const [camera, setCamera] = useState<GlobeCamera>({ lat: 20, lon: 0, zoom: 1 });
   const drag = useRef<Drag | null>(null);
+  /** the rectangle being drawn round points, on the canvas, and how many it holds */
+  const [marqueeRect, setMarqueeRect] = useState<Rect | null>(null);
+  const [marqueeCount, setMarqueeCount] = useState(0);
+  const marqueeOn = useRef(marquee);
+  marqueeOn.current = marquee;
+  /** when the points may next be counted for a growing rectangle (see previewMarquee) */
+  const nextPreview = useRef(0);
+  /** where each id is among the points on screen, built the first time something has to be marked */
+  const indexOf = useRef<{ points: MapPoints; map: IntMap } | null>(null);
+  /** the points marked right now, as indexes: what a rectangle's preview merges with */
+  const currentMarks = useRef<number[]>([]);
+  // both read from callbacks that outlive the render that set them up
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const allSelectedRef = useRef(allSelected);
+  allSelectedRef.current = allSelected;
+  const pointsRef = useRef(points);
+  pointsRef.current = points;
   const momentum = useRef(new Momentum());
   const frame = useRef(0);
   const pending = useRef<{ view?: View; camera?: GlobeCamera } | null>(null);
@@ -567,8 +617,13 @@ export function MapView({
   const onPointerDown = (e: React.PointerEvent) => {
     (e.target as Element).setPointerCapture?.(e.pointerId);
     momentum.current.stop();
-    drag.current = { x: e.clientX, y: e.clientY, moved: false, from: { view, camera } };
-    momentum.current.track(e.clientX, e.clientY);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ax = e.clientX - rect.left;
+    const ay = e.clientY - rect.top;
+    // drag to select: the left button draws the rectangle, whatever keys are held; the others pan
+    const kind = marqueeOn.current && e.button === 0 ? "marquee" : "pan";
+    drag.current = { x: e.clientX, y: e.clientY, ax, ay, lx: ax, ly: ay, moved: false, kind, keep: keepOf(e), stopEscape: kind === "marquee" ? untilEscape(cancelMarquee) : undefined, from: { view, camera } };
+    if (kind === "pan") momentum.current.track(e.clientX, e.clientY);
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -576,6 +631,15 @@ export function MapView({
     const rect = e.currentTarget.getBoundingClientRect();
     if (d === null) {
       hover(e.clientX - rect.left, e.clientY - rect.top);
+      return;
+    }
+    if (d.kind === "marquee") {
+      d.lx = e.clientX - rect.left;
+      d.ly = e.clientY - rect.top;
+      if (!d.moved && Math.hypot(d.lx - d.ax, d.ly - d.ay) < marqueeThreshold) return;
+      d.moved = true;
+      setTooltip(null);
+      previewMarquee(rectOf(d.ax, d.ay, d.lx, d.ly), d.keep);
       return;
     }
     const dx = e.clientX - d.x;
@@ -591,6 +655,16 @@ export function MapView({
     const d = drag.current;
     drag.current = null;
     if (d === null) return;
+    if (d.kind === "marquee") {
+      d.stopEscape?.();
+      setMarqueeRect(null);
+      if (d.moved) {
+        // from the gesture's own last point rather than the event's: a cancelled pointer arrives at 0,0
+        finishMarquee(rectOf(d.ax, d.ay, d.lx, d.ly), d.keep);
+        return;
+      }
+      // a press and release that went nowhere is a click, which opens the node under it as it always has
+    }
     if (!d.moved) {
       momentum.current.stop();
       const rect = e.currentTarget.getBoundingClientRect();
@@ -702,6 +776,88 @@ export function MapView({
     return null;
   };
 
+  // ---- drag to select (see marquee.tsx) ----
+
+  /**
+   * The points inside a rectangle of the canvas, as indexes: every point placed where the map puts
+   * it now - on the globe the far side places nowhere and is left out - and, with pins, only the
+   * ones drawn (see pinBudget): a rectangle round three pins should not take fifty nobody can see.
+   */
+  const pointsIn = (rect: Rect): number[] => {
+    const f = field.current;
+    if (points === null || f === null) return [];
+    const place = f.project(sceneRef.current);
+    const out = new Float32Array(2);
+    const n = Math.min(points.count, sceneRef.current.limit);
+    const found: number[] = [];
+    for (let i = 0; i < n; i++) {
+      if (!place(points.lon[i], points.lat[i], out)) continue;
+      if (out[0] >= rect.x0 && out[0] <= rect.x1 && out[1] >= rect.y0 && out[1] <= rect.y1) found.push(i);
+    }
+    return found;
+  };
+
+  /** The marks as a release with the keys held would leave them: the points in the rectangle added, the marked ones among them let go of. */
+  const mergedMarks = (inside: number[]): number[] => {
+    const caught = new Set(inside);
+    const had = new Set(currentMarks.current);
+    const out = currentMarks.current.filter((i) => !caught.has(i));
+    for (const i of inside) if (!had.has(i)) out.push(i);
+    return out;
+  };
+
+  /**
+   * The rectangle as it is being drawn: the points it holds are marked at once and counted, so what
+   * a release would take can be seen before it is taken - added to the marks with the keys held, or
+   * in their place. A million points are placed again for it, so it is asked no more often than a few
+   * times what the last answer took.
+   */
+  const previewMarquee = (rect: Rect, keep: boolean) => {
+    setMarqueeRect(rect);
+    const now = performance.now();
+    if (now < nextPreview.current) return;
+    const inside = pointsIn(rect);
+    nextPreview.current = performance.now() + Math.max(40, (performance.now() - now) * 3);
+    setMarqueeCount(inside.length);
+    const f = field.current;
+    if (f) {
+      f.setSelection(keep ? mergedMarks(inside) : inside);
+      f.draw(sceneRef.current);
+    }
+  };
+
+  /** The rectangle let go of: every node whose point is inside it, by the id the map was drawn with. */
+  const finishMarquee = (rect: Rect, keep: boolean) => {
+    if (points === null) return;
+    const inside = pointsIn(rect);
+    if (inside.length === 0) {
+      applyMarks();
+      onSelectMany([], keep); // a rectangle round nothing: on its own it clears the selection
+      return;
+    }
+    // the ids the page selects by, as they are: nothing to resolve, nothing to wait for and nothing
+    // to ask about, however many the rectangle caught (see marquee.tsx)
+    const intIds: number[] = new Array(inside.length);
+    for (let k = 0; k < inside.length; k++) intIds[k] = points.ids[inside[k]];
+    onSelectMany(intIds, keep);
+  };
+
+  /** Escape, or the mode switched off, while a rectangle is being drawn: nothing is taken, and the marks the preview borrowed go back to the form's own. */
+  const cancelMarquee = () => {
+    const d = drag.current;
+    if (d === null || d.kind !== "marquee") return;
+    drag.current = null;
+    d.stopEscape?.();
+    setMarqueeRect(null);
+    applyMarks();
+  };
+
+  // the mode switched off under a rectangle being drawn
+  useEffect(() => {
+    if (!marquee) cancelMarquee();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reads the latest through refs
+  }, [marquee]);
+
   const click = (px: number, py: number, mode: SelectMode) => {
     if (points === null) return;
     if (marks === "clusters") {
@@ -719,10 +875,49 @@ export function MapView({
     if (marks === "heat") return;
     const i = pointAt(px, py);
     if (i < 0) return;
-    fetchNodeGuid(base.storeId, points.ids[i])
-      .then((r) => onOpen(r.id, mode))
-      .catch(() => undefined);
+    onOpen(points.ids[i], mode);
   };
+
+  // ---- the marks: the form's selection, on the map ----
+
+  /**
+   * Marks the points of the nodes the form has open. Both sides speak the same id - the one the store
+   * addresses a node by - so this is a lookup from id to where that point sits, and the indexes are
+   * rebuilt per result. Drawn straight away: the marks are the field's own and cost the rest of the
+   * frame nothing.
+   */
+  const applyMarks = useCallback(() => {
+    const f = field.current;
+    const p = pointsRef.current;
+    // the whole result is selected: every point of it, without a guid in sight (see allSelected)
+    if (f && p && allSelectedRef.current) {
+      const every = new Int32Array(p.count);
+      for (let i = 0; i < p.count; i++) every[i] = i;
+      f.setSelection(every);
+      f.draw(sceneRef.current);
+      currentMarks.current = [];
+      return;
+    }
+    const wanted: number[] = [];
+    if (f && p) {
+      if (indexOf.current?.points !== p) {
+        const map = new IntMap(Math.max(1, p.count));
+        for (let i = 0; i < p.count; i++) map.set(p.ids[i], i);
+        indexOf.current = { points: p, map };
+      }
+      for (const id of selectedRef.current) {
+        const i = indexOf.current.map.get(id);
+        if (i >= 0) wanted.push(i);
+      }
+      f.setSelection(wanted);
+      f.draw(sceneRef.current);
+    }
+    currentMarks.current = wanted;
+  }, []);
+
+  // the form's selection changed, or the points did (the field forgets its marks with them): the marks follow
+  useEffect(() => applyMarks(), [selected, allSelected, points, applyMarks]);
+
 
   const zoomTo = (lat: number, lon: number, times: number) => {
     touched.current = true;
@@ -841,6 +1036,7 @@ export function MapView({
       grid: mix(theme.panel, theme.line, 0.75),
       glow: grey(mix(theme.panel, theme.text, 0.4)),
       outline: theme.panel,
+      mark: theme.mark,
     });
   }, [theme, glOk]);
 
@@ -1135,7 +1331,7 @@ export function MapView({
 
       <div className={"visual-stage" + (def.bare === true ? " bare" : "")} ref={stageRef}>
         <div
-          className="visual-canvas map-canvas"
+          className={"visual-canvas map-canvas" + (marquee ? " marquee" : "")}
           ref={frameRef}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -1144,9 +1340,12 @@ export function MapView({
           onPointerLeave={() => setTooltip(null)}
           onWheel={onWheel}
           onDoubleClick={fit}
+          // with drag to select on the right button is what pans, and a pan should not end in a menu
+          onContextMenu={(e) => marquee && e.preventDefault()}
         >
           <canvas ref={canvasRef} />
           <canvas className="map-bubbles" ref={bubblesRef} />
+          {marqueeRect && <MarqueeBox rect={marqueeRect} count={marqueeCount} />}
           {!glOk && <div className="query-empty">This browser has no WebGL 2, which the map is drawn with.</div>}
           {tooltip && (
             <div className="visual-tooltip" style={{ transform: `translate(${tooltip.x + 14}px, ${tooltip.y + 14}px)` }}>
@@ -1262,6 +1461,7 @@ function readTheme(el: HTMLElement): Theme {
     // the nodes without a value, and the ones outside the groups kept: two greys the palette does not use
     none: faint,
     other: v("--border", "#c6c1b9"),
+    mark: v("--select-mark", "#d93025"),
   };
 }
 

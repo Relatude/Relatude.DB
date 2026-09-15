@@ -87,6 +87,20 @@ export type DetailLevel = (typeof DetailLevel)[keyof typeof DetailLevel];
 
 export interface CardField3D extends CardFieldCommon, FieldSurface {
   /**
+   * The cards a rectangle of the canvas takes - EVERY card whose box falls inside it, near or far,
+   * in front of the picture or buried in the middle of it, whether or not the camera can see it.
+   *
+   * A rectangle drawn on a picture of solids is not a rectangle on a wall of cards: it is a shaft
+   * cast through the whole of it, and what is caught is what stands in that shaft. Marking only what
+   * can be seen would mean a rectangle over a block of a hundred thousand cards selecting the few
+   * hundred on its near face - which is not what anyone draws a rectangle round a block of cards for.
+   *
+   * So this is not the pick pass: every card is projected through the camera of this moment and
+   * tested against the rectangle, mid-move and mid-thickness as it stands, which costs one pass over
+   * the cards and answers about all of them rather than about the nearest one per pixel.
+   */
+  pickRect(x0: number, y0: number, x1: number, y1: number): Int32Array;
+  /**
    * How thick every card is, in units of the grid pitch (so 1 is as deep as a card is wide); null
    * for one thickness for all of them. The cards grow or shrink to it over `seconds`.
    */
@@ -125,10 +139,17 @@ export interface CardField3D extends CardFieldCommon, FieldSurface {
   /** Slides the picture, so that the point taken hold of follows the pointer. */
   panBy(dxPx: number, dyPx: number): void;
   /**
-   * The same slide, taken slowly and without a hold: what a canvas that has changed shape under the
-   * picture asks for, so the view is nudged along rather than fitted afresh.
+   * Keeps the picture the size it was when the canvas has changed HEIGHT.
+   *
+   * What a world unit comes to on the screen in a perspective view is set by how tall the canvas is -
+   * the field of view is an angle across that height - so a canvas that loses a tenth of its height
+   * shrinks everything drawn in it by a tenth, without the camera having moved at all. Coming a tenth
+   * closer undoes exactly that: the ratio is the new height over the old. It is taken about the point
+   * the camera is looking at, so nothing turns and nothing slides across; the picture is simply the
+   * size it was. The flat picture needs none of this - its zoom is pixels per world unit and a
+   * shorter canvas shows less of it rather than a smaller version of it.
    */
-  driftBy(dxPx: number, dyPx: number, seconds: number): void;
+  keepScale(heightRatio: number): void;
   /** Where the camera stands, in world units: what the picture is being looked at from. */
   eye(): Vec3;
   /** A wheel step: closer to, or further from, whatever is under the pointer, which stays put. */
@@ -418,6 +439,14 @@ void main() {
  */
 const rimPx = 2.75;
 
+/**
+ * How wide a card has to be on the screen, in device pixels, before a selected one is marked with a
+ * rim round its picture rather than being painted in the mark colour all over (see markRingPx, which
+ * is the same rule in the flat picture). Drawn from far enough back, a block shows a face of two
+ * pixels and a rim has nowhere to go: what is wanted there is simply a red block.
+ */
+const markAllPx = 9;
+
 /** Everything both fragment shaders share: the card's own face, and the material it is lit with. */
 const fragmentCommon = `
 const float SHARE = ${imageShare.toFixed(4)};
@@ -654,12 +683,14 @@ void main() {
   }
   float pictured;
   bool marked = vFlags == 1;
-  // a selected card: accent walls, lit as walls (see rimPx); its ends keep the picture
+  // a selected card: accent walls, lit as walls (see rimPx); its ends keep the picture - unless the
+  // card is too small on the screen for a rim to show at all, when every face of it takes the colour
   bool wall = vFace != 2;
-  vec3 c = marked && wall ? uOutline : cardFace(vColor.rgb, vUv, pictured);
-  if (marked && wall) pictured = 0.0;
+  bool allOver = marked && (wall || vPxPerWorld * vSide < ${markAllPx.toFixed(1)});
+  vec3 c = allOver ? uOutline : cardFace(vColor.rgb, vUv, pictured);
+  if (allOver) pictured = 0.0;
   vec3 lit = shade(c, n, vWorld, pictured);
-  if (marked && !wall) {
+  if (marked && !allOver) {
     float rim = max(${rimPx.toFixed(2)} / vPxPerWorld, bevel);
     lit = mix(lit, uOutline, 1.0 - smoothstep(rim * 0.7, rim, edge));
   }
@@ -776,10 +807,12 @@ void main() {
   float hzz = max(hz, 1e-5);
   bool marked = vFlags == 1;
   bool onEnd = abs(q.z) > hz - pad;
-  if (onEnd) {
+  // too small on the screen for a rim to show: the whole solid is the mark colour (see markAllPx)
+  bool allOver = marked && (!onEnd || vPxPerWorld * vSide < ${markAllPx.toFixed(1)});
+  if (onEnd && !allOver) {
     vec2 uv = vec2(q.z > 0.0 ? q.x + 0.5 : 0.5 - q.x, 0.5 - q.y);
     c = cardFace(c, uv, pictured);
-  } else if (marked) {
+  } else if (allOver) {
     // the walls of a selected card take the accent, whatever shape it is (see rimPx)
     c = uOutline;
   } else if (vShape.w < 0.0) {
@@ -797,7 +830,7 @@ void main() {
     }
   }
   vec3 lit = shade(c, n, world, pictured);
-  if (marked && onEnd) {
+  if (marked && onEnd && !allOver) {
     // and its ends keep their picture, edged with a rim of the accent. How far a point of the face
     // is from its edge is how far inside the silhouette it lies - on the fillet that is under the
     // fillet's own radius, so the rim, never thinner than that radius, covers the whole of the turn
@@ -1021,6 +1054,8 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
   gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, pickDepth);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   const pickPixel = new Uint8Array(4);
+  /** what pickRect fills and hands back a view on, grown to the largest set it has been asked about */
+  let rectFound = new Int32Array(0);
 
   // ---- state ----
   let count = 0;
@@ -1500,6 +1535,70 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
     return id === 0xffffff || id >= count ? -1 : id;
   }
 
+  /**
+   * Every card the rectangle stands over, however deep in the picture it is (see CardField3D.pickRect).
+   *
+   * One pass over the cards: each is put where it is at this moment - part way through a move, part
+   * way through a change of thickness - through the camera's own matrix, and kept when its box falls
+   * inside the rectangle. A card is allowed its own size rather than being treated as a point, so a
+   * rectangle that clips the corner of a card takes it, the way the flat picture takes a card with a
+   * pixel showing; the box is measured about its middle, which at the sizes a rectangle is drawn at
+   * is a difference of half a card at the edges.
+   *
+   * Nothing is drawn and nothing is read back from the GPU, so this costs the same whether the
+   * picture is a wall of solids or a thicket of them, and a card hidden behind ten others is picked
+   * exactly as readily as the one in front.
+   */
+  function pickRect(cx0: number, cy0: number, cx1: number, cy1: number): Int32Array {
+    if (count === 0) return new Int32Array(0);
+    const x0 = Math.min(cx0, cx1);
+    const x1 = Math.max(cx0, cx1);
+    const y0 = Math.min(cy0, cy1);
+    const y1 = Math.max(cy0, cy1);
+    // the camera as it stands now, and the origin the coordinates are measured from (see matrices)
+    matrices();
+    const cssW = width / dpr;
+    const cssH = height / dpr;
+    // how many css pixels a world unit covers one unit of depth away: what a card's own size is
+    // turned into on the screen, divided by the depth it is at
+    const perWorld = cssH / 2 / Math.tan(cam.fov / 2);
+    const now = performance.now();
+    const time = elapsed(now);
+    // as in the flat picture: past the end of the wave nothing is interpolated
+    const moving = cardsMoving && time <= duration + maxDelay;
+    const ox = origin[0];
+    const oy = origin[1];
+    const oz = origin[2];
+    if (rectFound.length < count) rectFound = new Int32Array(count);
+    let found = 0;
+    for (let i = 0; i < count; i++) {
+      const travelled = moving ? ease((time - timing[i * 2]) / duration) : 1;
+      const fx = from[i * 2];
+      const fy = from[i * 2 + 1];
+      const x = fx + (to[i * 2] - fx) * travelled;
+      const y = fy + (to[i * 2 + 1] - fy) * travelled;
+      const z = i < rowTo.length ? rowFrom[i] + (rowTo[i] - rowFrom[i]) * travelled : 0;
+      const thick = i < depths.length ? depths[i] : defaultDepth;
+      // the middle of the card's box, as the vertex shader builds it
+      const wx = x + 0.5 - ox;
+      const wy = -(y + 0.5) - oy;
+      const wz = z + thick * 0.5 - oz;
+      const cw = viewProj[3] * wx + viewProj[7] * wy + viewProj[11] * wz + viewProj[15];
+      if (cw <= 1e-6) continue; // at or behind the camera: not on the canvas at all
+      const cx = viewProj[0] * wx + viewProj[4] * wy + viewProj[8] * wz + viewProj[12];
+      const cy = viewProj[1] * wx + viewProj[5] * wy + viewProj[9] * wz + viewProj[13];
+      const sx = ((cx / cw + 1) / 2) * cssW;
+      const sy = ((1 - cy / cw) / 2) * cssH;
+      // half the card on the screen, taken across its widest way round so that a thick card seen
+      // edge on is not missed by the corner of a rectangle
+      const r = (Math.max(cardFill, thick) * 0.5 * perWorld) / cw;
+      if (sx + r < x0 || sx - r > x1 || sy + r < y0 || sy - r > y1) continue;
+      rectFound[found++] = i;
+    }
+    // a view on the field's own buffer, as the flat picture does it (see CardField.pickRect)
+    return rectFound.subarray(0, found);
+  }
+
   /** Where one card stands right now, mid-move or not; O(1), unlike asking for all of them. */
   function cardCentre(i: number): Vec3 {
     const time = elapsed(performance.now());
@@ -1885,6 +1984,7 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
       return { group: pulsedGroup, shape: pulsedShape, amount: pulseAmountAt(frameNow) };
     },
     pick: pickAt,
+    pickRect,
     fit(next, paddingPx, seconds) {
       bounds = next;
       fitAt(next, paddingPx, seconds, cam.yaw, cam.pitch);
@@ -1964,13 +2064,11 @@ export function createCardField3D(canvas: HTMLCanvasElement): CardField3D | null
       dirty = true;
       schedule();
     },
-    driftBy(dxPx, dyPx, seconds) {
-      const pivot = cam.target();
-      const reach = Math.max(cam.minDist, distance(pivot, cam.pos));
-      const perPixel = (2 * reach * Math.tan(cam.fov / 2)) / Math.max(1, height / dpr);
-      const move = add(scale(cam.right(), -dxPx * perPixel), scale(cam.up(), dyPx * perPixel));
+    keepScale(heightRatio) {
+      if (!(heightRatio > 0) || Math.abs(heightRatio - 1) < 1e-4) return;
+      const target = cam.target();
       zoomTo = null;
-      cam.animateTo({ pos: add(cam.pos, move), yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist }, seconds * 1000);
+      cam.setPose(cam.poseLookingAt(target, Math.max(cam.minDist, cam.dist * heightRatio)));
       dirty = true;
       schedule();
     },

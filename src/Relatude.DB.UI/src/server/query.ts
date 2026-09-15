@@ -843,9 +843,115 @@ export function runCloud(request: CloudRequest): Promise<CloudResult> {
   return send<CloudResult>("query-cloud", request);
 }
 
-/** The guid of a node from its int id, which is what the cards carry. */
-export function fetchNodeGuid(storeId: string, id: number): Promise<{ id: string }> {
-  return send<{ id: string }>("query-node-id", { storeId, id });
+/* Nothing here turns an id into a guid to make a selection any more: the page selects by the id the
+   store addresses a node with, which is the id a hit carries and a card is drawn with, and the guids
+   are read with the handful of nodes a form actually opens (see fetchNodes, which takes either). */
+
+/**
+ * The ids of the nodes a query matches: the search as the page has it, without paging, answering
+ * with the int id and the guid of each. `take` bounds how many come back - a few hundred for the
+ * sample a form is built from - and without one it is the whole result. `total` is what the search
+ * found, `count` what came back. The same byte format as fetchNodeGuids, and for the same reason.
+ *
+ * Selecting a whole result does NOT go through here: a selection of a million nodes is kept as the
+ * query itself (see saveAll and deleteAll), and this is only for the handful a form has to read.
+ */
+export async function fetchAllIds(request: SearchRequest, take = 0): Promise<{ intIds: Int32Array; guids: string[]; total: number }> {
+  const answer = await send<{ count: number; total: number; intIds: string; guids: string }>("query-select-all", { ...request, page: 0, pageSize: take });
+  const intBytes = bytesOf(answer.intIds);
+  return { intIds: new Int32Array(intBytes.buffer, intBytes.byteOffset, answer.count), guids: guidsOf(bytesOf(answer.guids), answer.count), total: answer.total };
+}
+
+/** What a selection turned out to hold in common for one property (see fetchCommon). */
+export interface CommonProperty {
+  id: string;
+  /** the nodes read do not all hold the same thing here */
+  mixed: boolean;
+  /** the property is not on every selected node's type, so the form does not show it */
+  missing: boolean;
+  /** a couple of the distinct values found, in the shape a PropertyView's value takes */
+  values: unknown[];
+}
+
+/** How far a survey got, and what it found (see fetchCommon). */
+export interface CommonSurvey {
+  /** how many nodes were actually read and compared */
+  read: number;
+  /** how many are selected altogether */
+  total: number;
+  /** it stopped because every property had been caught differing, not because it ran out of room */
+  settled: boolean;
+  durationMs: number;
+  properties: CommonProperty[];
+}
+
+/**
+ * What a selection of nodes holds in COMMON: per property, whether the nodes disagree about it and
+ * a couple of the values found. The form is built from the first few hundred nodes (see fetchNodes)
+ * but "they all have this value" is a claim about the whole selection, so it is asked of as much of
+ * the selection as can be read - the server stops as soon as every property has been caught
+ * differing, and otherwise at `take` nodes, saying which in `read`.
+ *
+ * Only the verdict comes back, never the nodes: a hundred thousand node forms is six hundred
+ * megabytes of json for an answer that fits in a line per property. A selection of a whole result
+ * is asked about as the SEARCH, so nothing is resolved in the browser at all.
+ */
+export function fetchCommon(
+  storeId: string,
+  target: { ids: string[] | readonly number[] } | { search: SearchRequest },
+  take: number,
+): Promise<CommonSurvey> {
+  if ("search" in target) return send<CommonSurvey>("query-common", { storeId, search: target.search, take });
+  const ids = target.ids;
+  return send<CommonSurvey>("query-common", isInts(ids) ? { storeId, intIds: base64Of(intBytesOf(ids)), take } : { storeId, ids, take });
+}
+
+/**
+ * The same write as saveNodes, to every node a QUERY matches rather than to a list of ids: the
+ * search travels, the ids are resolved on the server and never come back. What a selection of a
+ * million nodes is saved through.
+ */
+export function saveAll(
+  storeId: string,
+  search: SearchRequest,
+  values: Record<string, unknown>,
+  relations: Record<string, string[]> = {},
+): Promise<{ changed: number }> {
+  return send<{ changed: number }>("query-save-all", { storeId, search, values, relations });
+}
+
+/** And the same delete, to every node a query matches. The search carries the store it belongs to. */
+export function deleteAll(search: SearchRequest): Promise<{ deleted: number }> {
+  return send<{ deleted: number }>("query-delete-all", search);
+}
+
+/** Bytes as base64, in chunks: a whole megabyte of arguments at once is more than apply takes. */
+export function base64Of(bytes: Uint8Array): string {
+  let text = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) text += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  return btoa(text);
+}
+
+const hex: string[] = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, "0"));
+
+/**
+ * Guids out of the sixteen bytes each, as .NET writes them (Guid.TryWriteBytes): the first three
+ * fields little-endian, the last eight bytes in order. Written out by hand rather than by
+ * formatting, since this runs over as many nodes as a rectangle caught.
+ */
+function guidsOf(bytes: Uint8Array, count: number): string[] {
+  const out = new Array<string>(count);
+  for (let i = 0; i < count; i++) {
+    const b = i * 16;
+    out[i] =
+      hex[bytes[b + 3]] + hex[bytes[b + 2]] + hex[bytes[b + 1]] + hex[bytes[b]] + "-" +
+      hex[bytes[b + 5]] + hex[bytes[b + 4]] + "-" +
+      hex[bytes[b + 7]] + hex[bytes[b + 6]] + "-" +
+      hex[bytes[b + 8]] + hex[bytes[b + 9]] + "-" +
+      hex[bytes[b + 10]] + hex[bytes[b + 11]] + hex[bytes[b + 12]] + hex[bytes[b + 13]] + hex[bytes[b + 14]] + hex[bytes[b + 15]];
+  }
+  return out;
 }
 
 /** What a card shows when it is wide enough to be read: the node's display name and where its picture is. */
@@ -994,9 +1100,23 @@ export function fetchNode(storeId: string, id: string): Promise<NodeView> {
   return send<NodeView>("query-node", { storeId, id });
 }
 
-/** Several nodes as forms, for editing a selection together. A node that is gone is left out rather than failing the lot. */
-export function fetchNodes(storeId: string, ids: string[]): Promise<NodeView[]> {
-  return send<NodeView[]>("query-nodes", { storeId, ids });
+/**
+ * Several nodes as forms, for editing a selection together - by guid, or by the internal id a
+ * selection made on this page holds. A node that is gone is left out rather than failing the lot.
+ */
+export function fetchNodes(storeId: string, ids: string[] | readonly number[]): Promise<NodeView[]> {
+  return send<NodeView[]>("query-nodes", isInts(ids) ? { storeId, intIds: base64Of(intBytesOf(ids)) } : { storeId, ids });
+}
+
+/** Whether a list of ids is internal ids rather than guids; an empty list is neither and goes as guids. */
+function isInts(ids: string[] | readonly number[]): ids is readonly number[] {
+  return ids.length > 0 && typeof ids[0] === "number";
+}
+
+/** Internal ids as the int32 little-endian bytes the server reads them from. */
+function intBytesOf(ids: readonly number[]): Uint8Array {
+  const array = ids instanceof Int32Array ? ids : Int32Array.from(ids);
+  return new Uint8Array(array.buffer, array.byteOffset, array.length * 4);
 }
 
 /**
@@ -1017,7 +1137,8 @@ export function saveNode(
  * The same fields written to several nodes, in one transaction: every node takes the change or none
  * does. `changed` counts the writes over all of them.
  */
-export function saveNodes(storeId: string, ids: string[], values: Record<string, unknown>, relations: Record<string, string[]> = {}): Promise<{ changed: number }> {
+export function saveNodes(storeId: string, ids: string[] | readonly number[], values: Record<string, unknown>, relations: Record<string, string[]> = {}): Promise<{ changed: number }> {
+  if (isInts(ids)) return send<{ changed: number }>("query-save-many", { storeId, intIds: base64Of(intBytesOf(ids)), values, relations });
   return send<{ changed: number }>("query-save-many", { storeId, ids, values, relations });
 }
 
@@ -1032,7 +1153,8 @@ export function deleteNode(storeId: string, id: string): Promise<{ deleted: bool
 }
 
 /** Deletes several nodes in one transaction: all of them, or none if one is already gone. */
-export function deleteNodes(storeId: string, ids: string[]): Promise<{ deleted: number }> {
+export function deleteNodes(storeId: string, ids: string[] | readonly number[]): Promise<{ deleted: number }> {
+  if (isInts(ids)) return send<{ deleted: number }>("query-delete-many", { storeId, intIds: base64Of(intBytesOf(ids)) });
   return send("query-delete-many", { storeId, ids });
 }
 

@@ -8,6 +8,12 @@ import {
   IconDatabaseSearch,
   IconEyeOff,
   IconLayoutList,
+  IconActivityHeartbeat,
+  IconArrowsExchange,
+  IconCircles,
+  IconClock,
+  IconCpu,
+  IconDatabase,
   IconPlayerPlayFilled,
   IconPlayerStopFilled,
   IconRefresh,
@@ -314,7 +320,9 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
     </section>
   );
 
-  const memoryPanel = <MemoryPanel storeId={db.id} cache={info.cache} onChanged={loadInfo} />;
+  // the hit counts come from the full picture and the entry counts from the live sample: the panel
+  // writes both out when it is maximized
+  const memoryPanel = <MemoryPanel storeId={db.id} cache={info.cache} counts={live ?? undefined} onChanged={loadInfo} />;
 
   const enginesPanel = (
     <section className="panel">
@@ -453,33 +461,42 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
       <div className="dash-tiles">
         <Tile
           label="State"
+          icon={IconActivityHeartbeat}
           value={state}
           tone={open ? "ok" : state === "Error" ? "bad" : undefined}
           action={
-            // the switch for the database itself, on the tile that says which way it stands
+            // The switch for the database itself, on the tile that says which way it stands - and
+            // said in words rather than as one more grey glyph: stopping a database and starting it
+            // are the two things on this page that change what the server is doing, so they are
+            // named, coloured (stop reads as danger, start as the green of a database that is up)
+            // and are the only buttons here anyone has to find in a hurry.
             open ? (
               <span className="dash-tile-actions">
-                <button className="icon-button dash-tile-action" title="Restart the database — close it and open it again" disabled={openBusy} onClick={onRestart}>
-                  <IconReload size={14} stroke={1.8} />
+                <button className="dash-tile-button quiet" title="Restart the database — close it and open it again" disabled={openBusy} onClick={onRestart}>
+                  <IconReload size={14} stroke={2} />
                 </button>
-                <button className="icon-button dash-tile-action" title="Close the database" disabled={openBusy} onClick={onClose}>
-                  <IconPlayerStopFilled size={14} stroke={1.8} />
+                <button className="dash-tile-button stop" title="Close the database" disabled={openBusy} onClick={onClose}>
+                  <IconPlayerStopFilled size={13} stroke={2} />
+                  Stop
                 </button>
               </span>
             ) : opening ? null : (
-              <button className="icon-button dash-tile-action" title="Open the database" disabled={openBusy} onClick={onOpen}>
-                <IconPlayerPlayFilled size={14} stroke={1.8} />
-              </button>
+              <span className="dash-tile-actions">
+                <button className="dash-tile-button start" title="Open the database" disabled={openBusy} onClick={onOpen}>
+                  <IconPlayerPlayFilled size={13} stroke={2} />
+                  Start
+                </button>
+              </span>
             )
           }
         />
-        <Tile label="Nodes" value={formatCount(live?.nodeCount ?? 0)} />
-        <Tile label="Relations" value={formatCount(live?.relationCount ?? 0)} />
-        <Tile label="Open for" value={uptime == null ? "—" : formatDuration(uptime)} />
-        <Tile label="On disk" value={formatBytes(totalDisk)} />
+        <Tile label="Nodes" icon={IconCircles} value={formatCount(live?.nodeCount ?? 0)} />
+        <Tile label="Relations" icon={IconArrowsExchange} value={formatCount(live?.relationCount ?? 0)} />
+        <Tile label="Open for" icon={IconClock} value={uptime == null ? "—" : formatDuration(uptime)} />
+        <Tile label="On disk" icon={IconDatabase} value={formatBytes(totalDisk)} />
         {/* the one tile that is the server process rather than this database: one heap serves every
             database on it */}
-        <Tile label="Memory" value={formatBytes(live?.processMemory ?? 0)} />
+        <Tile label="Memory" icon={IconCpu} value={formatBytes(live?.processMemory ?? 0)} />
       </div>
 
       <PanelGrid id="dashboard" rows={rows} defaultSplit={0.5} />
@@ -629,11 +646,11 @@ function ContentPanel({ info, storeId }: { info: DashboardInfo; storeId: string 
         </span>
       </h3>
       <div className="dash-chart-toolbar">
-        <div className="dm-tabs">
+        <div className="module-switch compact" role="tablist">
           {chartShapes.map((s) => {
             const Icon = s.icon;
             return (
-              <button key={s.id} className={"dm-tab" + (shape === s.id ? " active" : "")} onClick={() => setShape(s.id)} title={s.help}>
+              <button key={s.id} role="tab" aria-selected={shape === s.id} className={shape === s.id ? "active" : ""} onClick={() => setShape(s.id)} title={s.help}>
                 <Icon size={14} stroke={1.9} />
                 <span>{s.label}</span>
               </button>
@@ -825,11 +842,20 @@ function useLeaving<T>(items: T[], keyOf: (item: T, index: number, taken: Set<st
   return [...current.map((c) => ({ ...c, leaving: false })), ...leaving];
 }
 
-function Tile({ label, value, tone, action }: { label: string; value: string; tone?: "ok" | "bad"; action?: React.ReactNode }) {
+/**
+ * One number about the database, with the icon of what it counts.
+ *
+ * The icon goes beside the LABEL rather than over the number: the top right corner of a tile is
+ * where its buttons are, and the number is what the tile is for and should have the row to itself.
+ */
+function Tile({ label, icon: Icon, value, tone, action }: { label: string; icon?: typeof IconCircles; value: string; tone?: "ok" | "bad"; action?: React.ReactNode }) {
   return (
     <div className={"dash-tile" + (tone ? " " + tone : "")}>
       <div className="dash-tile-value">{value}</div>
-      <div className="dash-tile-label">{label}</div>
+      <div className="dash-tile-label">
+        {Icon && <Icon size={13} stroke={1.8} />}
+        {label}
+      </div>
       {action}
     </div>
   );

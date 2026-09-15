@@ -30,7 +30,7 @@ builder.AddRelatudeDB(options => {
         db.RegisterTransactionPlugin(new DemoArticlePlugin());
     };
     options.OnStoreOpenBackground = db => {
-        Website.Simple.Data.ShopSeeder.SeedIfEmpty(db, 2000000, 1000); // populates the facet search example (see wwwroot/search.html)
+        Website.Simple.Data.ShopSeeder.SeedIfEmpty(db, 20000, 1000); // populates the facet search example (see wwwroot/search.html)
         //Website.Simple.Data.PageSeeder.SeedIfEmpty(db); // populates the dynamic URL example (see the /pages* endpoints)
     };
 });
@@ -63,6 +63,7 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
     + $@"<p><a href='/tv/sony-x90/info'>A page: /tv/sony-x90/info (its ""info"" slug is shared with /mobile/pixel/info)</a></p>"
     + $@"<p><a href='/pages/rename-demo'>Rename the TV section (one write; links inside HTML keep working)</a></p>"
     + $@"<p><a href='/pages/resolve?url=https%3A%2F%2Fwww.site-two.local%2Fcontact-us'>Resolve a URL on the other domain</a></p>"
+    + $@"<p>InstallationIdentity: {Relatude.DB.Common.InstallationIdentity.Get()}</p>"
     + "</body></html>";
     return Results.Content(html, "text/html; charset=utf-8");
 });

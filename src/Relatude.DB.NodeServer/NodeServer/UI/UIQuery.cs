@@ -82,6 +82,11 @@ sealed class UIQuery {
         commands.Register("query-map", async ctx => await map(ctx.Payload<MapPayload>()));
         commands.Register("query-cloud", async ctx => await cloud(ctx.Payload<CloudPayload>()));
         commands.Register("query-node-id", ctx => nodeGuid(ctx.Payload<NodeIntPayload>()));
+        commands.Register("query-node-ids", ctx => nodeGuids(ctx.Payload<NodeIntsPayload>()));
+        commands.Register("query-select-all", async ctx => await selectAll(ctx.Payload<SearchPayload>()));
+        commands.Register("query-common", async ctx => await common(ctx.Payload<CommonPayload>()));
+        commands.Register("query-save-all", async ctx => await saveAll(ctx.Payload<SaveAllPayload>()));
+        commands.Register("query-delete-all", async ctx => await deleteAll(ctx.Payload<SearchPayload>()));
         commands.Register("query-cards", ctx => cards(ctx.Payload<CardsPayload>()));
         commands.Register("query-columns", ctx => columnsOf(ctx.Payload<ColumnsPayload>()));
         commands.Register("query-file-target", ctx => fileTarget(ctx.Payload<FileTargetPayload>()));
@@ -860,11 +865,25 @@ sealed class UIQuery {
     object nodes(NodesPayload p) {
         var s = store(p.StoreId);
         var list = new List<object>();
+        // by internal id, which is what a selection made in a picture holds; these are the few hundred
+        // a form reads to build itself, so turning them into guids here costs nothing
+        foreach (var intId in intIdsOf(p.IntIds).Distinct()) {
+            if (!s.Datastore.TryGetGuid(intId, out var guid, adminContext)) continue;
+            list.Add(node(new NodePayload(p.StoreId, guid)));
+        }
         foreach (var id in (p.Ids ?? []).Distinct()) {
             if (!s.Datastore.Exists(id, adminContext)) continue;
             list.Add(node(new NodePayload(p.StoreId, id)));
         }
         return list;
+    }
+
+    /// <summary>Int32 little-endian bytes back into ids; nothing at all when none were sent.</summary>
+    static int[] intIdsOf(byte[]? bytes) {
+        if (bytes == null || bytes.Length < 4) return [];
+        var ids = new int[bytes.Length / 4];
+        for (var i = 0; i < ids.Length; i++) ids[i] = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(i * 4, 4));
+        return ids;
     }
 
     // ---- the node's meta: who may see it, when it is live, which revision and culture it is ----
@@ -1522,7 +1541,13 @@ sealed class UIQuery {
     /// node as it was. Each node is checked for the property by its own type - the form only offers
     /// the properties every selected node has, but it is the type that decides.
     /// </summary>
-    async Task<object> saveMany(SaveManyPayload p) => await saveNodes(p.StoreId, (p.Ids ?? []).Distinct().ToArray(), p.Values, p.Relations);
+    async Task<object> saveMany(SaveManyPayload p) {
+        var ints = intIdsOf(p.IntIds);
+        // a selection held as internal ids is written the way a whole query is: the same value to the
+        // whole set in one action, rather than a node at a time (see saveByIds)
+        if (ints.Length > 0) return await saveByIds(p.StoreId, ints, p.Values, p.Relations);
+        return await saveNodes(p.StoreId, (p.Ids ?? []).Distinct().ToArray(), p.Values, p.Relations);
+    }
 
     async Task<object> saveNodes(Guid storeId, Guid[] ids, Dictionary<string, JsonElement>? values, Dictionary<string, Guid[]>? relations) {
         var s = store(storeId);
@@ -1633,6 +1658,13 @@ sealed class UIQuery {
     /// </summary>
     async Task<object> deleteMany(NodesPayload p) {
         var s = store(p.StoreId);
+        var ints = intIdsOf(p.IntIds);
+        if (ints.Length > 0) {
+            var byInt = s.CreateTransaction();
+            byInt.Delete(ints);
+            await byInt.ExecuteAsync();
+            return new { Deleted = ints.Length };
+        }
         var ids = (p.Ids ?? []).Distinct().ToArray();
         foreach (var id in ids) if (!s.Datastore.Exists(id, adminContext)) throw new Exception("There is no node with id " + id + ". ");
         if (ids.Length == 0) return new { Deleted = 0 };
@@ -2195,6 +2227,19 @@ sealed class UIQuery {
     // grouped by, and a few tens of bytes of GPU memory in the browser, so a million is a picture the
     // browser can still draw; a result larger than that shows its first million and says so.
     const int maxVisualCards = 10_000_000;
+    /// <summary>
+    /// How many nodes "select all" may take. There is no sensible number of nodes to edit or delete
+    /// at once and this is not meant to be one: it is the bound that keeps a query nobody thought
+    /// about from turning into an answer of hundreds of megabytes. Twenty bytes a node, so ten
+    /// million is two hundred megabytes on the wire, which is already far past reasonable.
+    /// </summary>
+    const int maxSelectAll = 10_000_000;
+    /// <summary>
+    /// How many nodes a relation may be written across in one save. Unlike a property, a relation is
+    /// written as the difference from what each node already has, so it costs a read per node however
+    /// it is asked for; past this the honest answer is to say so rather than to sit there.
+    /// </summary>
+    const int maxRelationsPerSave = 10_000;
     // How many distinct values one property may colour or stack by. A palette has to keep the colours
     // apart and a bar chart has to keep the bars readable; past this the smaller buckets go unassigned
     // and the page shows them as one "(other)" group.
@@ -2350,6 +2395,336 @@ sealed class UIQuery {
     }
     // the cards carry the store's int ids; the form opens on a guid
     object nodeGuid(NodeIntPayload p) => new { Id = store(p.StoreId).Datastore.GetGuid(p.Id) };
+
+    /// <summary>
+    /// The guids of a set of nodes by int id, in one round trip: what a rectangle drawn over a
+    /// picture selects (see marquee.tsx), resolved together rather than a request per card. There is
+    /// no bound on how many are asked for - a rectangle may take the whole of a picture - so both
+    /// sides of this travel as BYTES rather than as json: four per id going out, sixteen per guid
+    /// coming back, against roughly ten and forty as text. At a million nodes that is the difference
+    /// between twenty megabytes and sixty.
+    ///
+    /// A node the store no longer has is left out, and the answer carries both ids in step, so the
+    /// browser can pair them up; it has no other way of knowing which of the ones it asked about are
+    /// missing.
+    /// </summary>
+    object nodeGuids(NodeIntsPayload p) {
+        var s = store(p.StoreId);
+        var asked = p.Ids ?? [];
+        var count = asked.Length / 4;
+        var ints = new byte[count * 4];
+        var guids = new byte[count * 16];
+        var found = 0;
+        for (var i = 0; i < count; i++) {
+            var id = BinaryPrimitives.ReadInt32LittleEndian(asked.AsSpan(i * 4, 4));
+            if (!s.Datastore.TryGetGuid(id, out var guid, adminContext)) continue;
+            BinaryPrimitives.WriteInt32LittleEndian(ints.AsSpan(found * 4, 4), id);
+            guid.TryWriteBytes(guids.AsSpan(found * 16, 16));
+            found++;
+        }
+        return new {
+            Count = found,
+            IntIds = found == count ? ints : ints[..(found * 4)],
+            Guids = found == count ? guids : guids[..(found * 16)],
+        };
+    }
+
+    /// <summary>
+    /// Every node the query matches, to select the lot of them: the same search the list runs, with
+    /// the paging taken off, answering with the int id and the guid of each - the two the browser
+    /// needs to mark a card and to open a form.
+    ///
+    /// It is the search itself rather than a walk of the pages: one query, one pass, and the ids come
+    /// back in one array. The facet selection filters as it does everywhere else; no bucket is
+    /// counted, since nothing here is going to draw them. Buckets() with no property is how a query
+    /// is asked for its ids and nothing else (see the visual pivot, which reads the same shape).
+    /// </summary>
+    async Task<object> selectAll(SearchPayload p) {
+        var s = store(p.StoreId);
+        var dm = s.Datastore.Datamodel;
+        var typeId = queriedType(dm, p.TypeId);
+        // PageSize is how many are wanted - a few hundred for a sample, the lot for everything else
+        var take = p.PageSize > 0 ? Math.Min(p.PageSize, maxSelectAll) : maxSelectAll;
+        var search = p with { Page = 0, PageSize = take, Facets = false };
+        var queryString = queryFor(s, dm, search, typeId, 0, take) + ".Buckets()";
+        var sw = Stopwatch.StartNew();
+        var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
+        if (data is not BucketsQueryResultData buckets) throw new Exception("The query did not return the ids of a collection of nodes. ");
+        var ids = buckets.Ids;
+        var guids = new byte[ids.Length * 16];
+        for (var i = 0; i < ids.Length; i++) {
+            if (s.Datastore.TryGetGuid(ids[i], out var guid, adminContext)) guid.TryWriteBytes(guids.AsSpan(i * 16, 16));
+        }
+        sw.Stop();
+        return new {
+            Count = ids.Length,
+            Total = buckets.TotalCount,
+            DurationMs = sw.Elapsed.TotalMilliseconds,
+            Query = queryString,
+            IntIds = intBytes(ids),
+            Guids = guids,
+        };
+    }
+
+    /// <summary>
+    /// The INTERNAL ids of every node a query matches, without handing them to the browser.
+    ///
+    /// This is what "the whole result" means on the server: a selection of a million nodes is a QUERY
+    /// in the browser, and is resolved here at the moment something is done with it. The ids stay as
+    /// the query gave them - the int the store addresses a node by - because everything written here
+    /// takes those: turning a million of them into guids for the sake of the call signature is a
+    /// million lookups and thirty megabytes for nothing.
+    /// </summary>
+    async Task<int[]> idsOf(SearchPayload p) => (await idsOf(p, maxSelectAll)).Ids;
+
+    /// <summary>
+    /// The same, bounded: the first `take` of them, and beside it how many the search found
+    /// altogether - which is how a reader of part of a selection can say what part it read.
+    /// </summary>
+    async Task<(int[] Ids, int Total)> idsOf(SearchPayload p, int take) {
+        var s = store(p.StoreId);
+        var dm = s.Datastore.Datamodel;
+        var typeId = queriedType(dm, p.TypeId);
+        take = take > 0 ? Math.Min(take, maxSelectAll) : maxSelectAll;
+        var search = p with { Page = 0, PageSize = take, Facets = false };
+        var queryString = queryFor(s, dm, search, typeId, 0, take) + ".Buckets()";
+        var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
+        if (data is not BucketsQueryResultData buckets) throw new Exception("The query did not return the ids of a collection of nodes. ");
+        return (buckets.Ids, buckets.TotalCount);
+    }
+
+    /// <summary>
+    /// How many nodes the combined form's survey reads before it stops and says how far it got.
+    ///
+    /// The form shows what a selection holds in COMMON: a property every node agrees on is shown as
+    /// that value, and one they disagree on is shown blank and marked as differing. Agreement is a
+    /// claim about the WHOLE selection made from however much of it was actually looked at, so this
+    /// looks at as much of it as it can - node after node until every property has been caught
+    /// disagreeing, at which point there is nothing left to learn and it stops early, or until this
+    /// many have been read. Past that the page says what it read, because a value that held for a
+    /// hundred thousand nodes still says nothing certain about two million.
+    ///
+    /// It is a hundred thousand rather than everything because this is a read per node: a scan of
+    /// two million takes minutes, and the answer it would give is the same one in all but the rarest
+    /// case. Nothing about it is a bound on the SELECTION - a selection is any size at all, and what
+    /// is written from the form is written to every node in it.
+    /// </summary>
+    const int maxCommonRead = 100_000;
+
+    /// <summary>
+    /// What a selection of nodes holds in common, for the form that edits them together.
+    ///
+    /// Answers, per property of the first node read: whether the nodes disagree about it, whether it
+    /// is missing from one of their types altogether, and a handful of the distinct values found -
+    /// in the shape the form's own fields take, so the page formats them with the same code it
+    /// formats everything else with. What does NOT come back is the nodes: the browser reads a few
+    /// hundred of them to build the form (see query-nodes), and a hundred thousand node forms is six
+    /// hundred megabytes of json for a question that fits in a line per property.
+    ///
+    /// The scan drops a property the moment it is caught disagreeing - there is nothing further to
+    /// learn about it - and stops altogether once every property has been dropped, which on a real
+    /// selection of anything but near-identical nodes happens within a handful of reads. What it
+    /// costs in the bad case is one node read each, and for a relation property still agreeing, one
+    /// relation lookup each.
+    /// </summary>
+    async Task<object> common(CommonPayload p) {
+        var s = store(p.StoreId);
+        var dm = s.Datastore.Datamodel;
+        var take = p.Take > 0 ? Math.Min(p.Take, maxCommonRead) : maxCommonRead;
+        var sw = Stopwatch.StartNew();
+        int[] ints;
+        int total;
+        if (p.Search != null) {
+            (ints, total) = await idsOf(p.Search with { StoreId = p.StoreId }, take);
+        } else if (p.IntIds != null && p.IntIds.Length > 0) {
+            var all = intIdsOf(p.IntIds);
+            total = all.Length;
+            ints = all.Length > take ? all[..take] : all;
+        } else {
+            var guids = p.Ids ?? [];
+            total = guids.Length;
+            ints = [];
+        }
+        // by guid only when a node was handed over from another page, which is one node at a time
+        var byGuid = ints.Length == 0 ? (p.Ids ?? []).Take(take).ToArray() : [];
+
+        var found = new List<Agreement>();
+        var open = new List<Agreement>(); // the ones still agreeing: the only ones worth another read
+        var read = 0;
+        foreach (var n in nodesOf(s, ints, byGuid)) {
+            if (!dm.NodeTypes.TryGetValue(n.NodeType, out var type)) continue;
+            read++;
+            if (read == 1) {
+                // the first node decides what is asked about at all, as it does in the form itself
+                foreach (var property in type.AllProperties.Values.Where(x => !x.Internal && surveyed(x))) {
+                    var a = new Agreement(property) { Key = commonKey(s, n, property) };
+                    var value = shortValue(s, dm, type, n, property);
+                    if (value != null) a.Values.Add(value);
+                    found.Add(a);
+                    open.Add(a);
+                }
+                continue;
+            }
+            for (var k = open.Count - 1; k >= 0; k--) {
+                var a = open[k];
+                if (!type.AllProperties.ContainsKey(a.Property.Id)) {
+                    // not on every selected node: the form does not show it, so there is no
+                    // agreement to work out either
+                    a.Missing = true;
+                    open.RemoveAt(k);
+                    continue;
+                }
+                if (commonKey(s, n, a.Property) == a.Key) continue;
+                a.Mixed = true;
+                var value = shortValue(s, dm, type, n, a.Property);
+                if (value != null) a.Values.Add(value);
+                open.RemoveAt(k);
+            }
+            if (open.Count == 0) break; // every property has been caught differing: nothing left to learn
+        }
+        sw.Stop();
+        return new {
+            Read = read,
+            Total = total,
+            Settled = open.Count == 0, // it stopped because it knew, not because it ran out of room
+            DurationMs = sw.Elapsed.TotalMilliseconds,
+            Properties = found.Select(a => new { Id = a.Property.Id, a.Mixed, a.Missing, Values = a.Values.ToArray() }).ToArray(),
+        };
+    }
+
+    /// <summary>What one property of a selection has turned out to be, as the survey reads through it.</summary>
+    sealed class Agreement(PropertyModel property) {
+        public PropertyModel Property { get; } = property;
+        /// <summary>the first node's value, as the text the others are held against</summary>
+        public string Key { get; init; } = string.Empty;
+        public bool Mixed { get; set; }
+        public bool Missing { get; set; }
+        /// <summary>the distinct values seen, which is the first one and the one that differed from it</summary>
+        public List<object> Values { get; } = [];
+    }
+
+    /// <summary>The nodes of a survey, by whichever id shape it was given; one that is gone is left out.</summary>
+    static IEnumerable<INodeDataExternal> nodesOf(NodeStore s, int[] ints, Guid[] guids) {
+        foreach (var id in ints) if (s.Datastore.TryGet(id, out var n, adminContext)) yield return n;
+        foreach (var id in guids) if (s.Datastore.TryGet(id, out var n, adminContext)) yield return n;
+    }
+
+    /// <summary>
+    /// Whether a property is one the survey has anything to say about. A stored vector and a byte
+    /// array are not: the form shows them as a size and never compares them, so asking whether two
+    /// nodes agree about one would be a question the page cannot act on - and one that would keep
+    /// the scan reading to the bound every time, since the answer is always yes.
+    /// </summary>
+    static bool surveyed(PropertyModel property) => property is not FloatArrayPropertyModel and not ByteArrayPropertyModel;
+
+    /// <summary>
+    /// A node's value for one property as text to compare by: equal text is the same value. It is
+    /// not the value the form shows - see shortValue for that - just something cheap that two nodes
+    /// can be held against each other with, which is why a relation is its related ids in order and
+    /// a file is the id of the file rather than anything about it.
+    /// </summary>
+    static string commonKey(NodeStore s, INodeDataExternal n, PropertyModel property) {
+        if (property is RelationPropertyModel) return string.Join(",", related(s, property.Id, n.Id).Select(r => r.Id));
+        n.TryGetValue(property.Id, out var value);
+        return value switch {
+            null => string.Empty,
+            string text => text,
+            Guid[] guids => string.Join(",", guids),
+            int[] ints => string.Join(",", ints),
+            string[] strings => string.Join("\u0001", strings),
+            IInnerNodeDataMap map => string.Join(",", map.Select(inner => inner.Id)),
+            FileValue file => file.IsEmpty ? string.Empty : file.FileId.ToString(),
+            DateTime time => time.Ticks.ToString(CultureInfo.InvariantCulture),
+            DateTimeOffset offset => offset.UtcTicks.ToString(CultureInfo.InvariantCulture) + "|" + offset.Offset.Ticks,
+            GeoCoordinate geo => geo.IsEmpty ? string.Empty : geo.Latitude.ToString(CultureInfo.InvariantCulture) + "," + geo.Longitude.ToString(CultureInfo.InvariantCulture),
+            _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty,
+        };
+    }
+
+    /// <summary>
+    /// The value the FORM would show for this property of this node, for the short scalar kinds the
+    /// page lists the differing values of - and null for everything else, which it does not. It is
+    /// taken from the property view itself rather than written out again here, so that a date, a
+    /// long past 2^53 and an enum's number arrive in exactly the shape the page already knows how to
+    /// read; building one view is a handful of allocations and happens twice per property at most.
+    /// </summary>
+    static object? shortValue(NodeStore s, Datamodel dm, NodeTypeModel type, INodeDataExternal n, PropertyModel property) {
+        var shown = property is StringPropertyModel { StringType: StringValueType.AnyString } or IntegerPropertyModel or LongPropertyModel
+            or DecimalPropertyModel or DoublePropertyModel or BooleanPropertyModel or GuidPropertyModel
+            or DateTimePropertyModel or DateTimeOffsetPropertyModel or TimeSpanPropertyModel;
+        if (!shown) return null;
+        return propertyView(s, dm, type, n, property).Value;
+    }
+
+    /// <summary>
+    /// The same write as query-save-many, to every node a query matches rather than to a list of ids.
+    ///
+    /// A property is written to the whole set in ONE action (see Transaction.UpdateIfDifferentProperty
+    /// for a set of ids), so a field written across two million nodes is a transaction of one action
+    /// rather than two million, and no node is read to get there. Relations are the exception: what
+    /// is written there is the DIFFERENCE from what each node already has, so they are done one node
+    /// at a time and are refused on a selection too large to do that for.
+    /// </summary>
+    async Task<object> saveAll(SaveAllPayload p) {
+        if (p.Search == null) throw new Exception("No query to save to. ");
+        var ids = await idsOf(p.Search with { StoreId = p.StoreId });
+        return await saveByIds(p.StoreId, ids, p.Values, p.Relations);
+    }
+
+    /// <summary>The write itself, to a set of nodes held by internal id (see saveAll for what it costs).</summary>
+    async Task<object> saveByIds(Guid storeId, int[] ids, Dictionary<string, JsonElement>? values, Dictionary<string, Guid[]>? relations) {
+        var s = store(storeId);
+        var dm = s.Datastore.Datamodel;
+        if (ids.Length == 0) return new { Changed = 0 };
+        var transaction = s.CreateTransaction();
+        var changed = 0;
+        foreach (var pair in values ?? []) {
+            var property = writableProperty(dm, pair.Key);
+            if (property is RelationPropertyModel) throw new Exception("Relations are saved through \"relations\", not \"values\". ");
+            if (pair.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) transaction.ResetProperty(ids, property.Id);
+            else transaction.UpdateIfDifferentProperty(ids, property.Id, parse(property, pair.Value));
+            changed += ids.Length;
+        }
+        if ((relations?.Count ?? 0) > 0) {
+            if (ids.Length > maxRelationsPerSave)
+                throw new Exception("A relation is written as the difference from what each node already has, which has to be worked out one node at a time. That is more than "
+                    + maxRelationsPerSave + " nodes; narrow the selection, or change the other fields on their own. ");
+            foreach (var id in ids) {
+                var guid = s.Datastore.GetGuid(id);
+                foreach (var pair in relations!) {
+                    var property = writableProperty(dm, pair.Key);
+                    if (property is not RelationPropertyModel) throw new Exception("Property " + property.CodeName + " is not a relation. ");
+                    changed += relate(s, transaction, guid, property.Id, pair.Value ?? []);
+                }
+            }
+        }
+        if (changed == 0) return new { Changed = 0 };
+        await transaction.ExecuteAsync();
+        return new { Changed = changed };
+    }
+
+    /// <summary>And the same delete, to every node a query matches - by internal id, as the query gave them.</summary>
+    async Task<object> deleteAll(SearchPayload p) {
+        var s = store(p.StoreId);
+        var ids = await idsOf(p);
+        if (ids.Length == 0) return new { Deleted = 0 };
+        var transaction = s.CreateTransaction();
+        transaction.Delete(ids);
+        await transaction.ExecuteAsync();
+        return new { Deleted = ids.Length };
+    }
+
+    /// <summary>
+    /// A property by id, checked against the data model rather than against one node's type: a write
+    /// to a whole query has no single type to look it up on, and the store refuses a property a node
+    /// does not have when the action runs, which is the same answer one step later.
+    /// </summary>
+    static PropertyModel writableProperty(Datamodel dm, string key) {
+        if (!Guid.TryParse(key, out var propertyId)) throw new Exception("Not a property id: " + key + ". ");
+        if (!dm.Properties.TryGetValue(propertyId, out var property)) throw new Exception("There is no property with id " + key + " in the data model. ");
+        if (property.Internal) throw new Exception("Property " + property.CodeName + " is maintained by the database. ");
+        return property;
+    }
 
     // ---- the map view: the result set as points on the world ----
 
@@ -2676,7 +3051,11 @@ sealed class UIQuery {
 
     sealed record StorePayload(Guid StoreId);
     sealed record NodePayload(Guid StoreId, Guid Id);
-    sealed record NodesPayload(Guid StoreId, Guid[]? Ids);
+    /// <summary>
+    /// A set of nodes, by guid or - for a selection made in one of the pictures, which knows nodes by
+    /// the id the store addresses them with - as int32 little-endian bytes. Whichever is given.
+    /// </summary>
+    sealed record NodesPayload(Guid StoreId, Guid[]? Ids, byte[]? IntIds = null);
     internal sealed record PivotModelPayload(Guid StoreId, Guid? TypeId);
     internal sealed record CloudPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity, FacetSelection[]? Selections,
         Guid PropertyId, int MaxWords, int MinDocuments, int MinWordLength, string[]? Ignore, bool ExcludeNumbers);
@@ -2697,6 +3076,8 @@ sealed class UIQuery {
     internal sealed record MapPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity, FacetSelection[]? Selections,
         Guid PropertyId, VisualLevelPayload[]? Properties, int MaxPoints = 0);
     sealed record NodeIntPayload(Guid StoreId, int Id);
+    /// <summary>The nodes to find the guids of (see nodeGuids), as int32 little-endian bytes.</summary>
+    sealed record NodeIntsPayload(Guid StoreId, byte[]? Ids);
     /// <summary>The cards to name and find the picture of, by their int ids.</summary>
     sealed record CardsPayload(Guid StoreId, int[]? Ids);
     /// <summary>One card's picture to make: the node's int id and the file property it is in; with a Tile, a part of the picture instead of the whole.</summary>
@@ -2720,7 +3101,15 @@ sealed class UIQuery {
         bool Summary = false);
     internal sealed record ColumnsPayload(Guid StoreId, Guid? TypeId);
     sealed record SavePayload(Guid StoreId, Guid Id, Dictionary<string, JsonElement>? Values, Dictionary<string, Guid[]>? Relations);
-    sealed record SaveManyPayload(Guid StoreId, Guid[]? Ids, Dictionary<string, JsonElement>? Values, Dictionary<string, Guid[]>? Relations);
+    sealed record SaveManyPayload(Guid StoreId, Guid[]? Ids, Dictionary<string, JsonElement>? Values, Dictionary<string, Guid[]>? Relations, byte[]? IntIds = null);
+    /// <summary>
+    /// The nodes to work out what is held in common by (see common): a list of ids in either shape,
+    /// or the SEARCH behind a selection of a whole result, which is resolved here rather than sent.
+    /// Take bounds how many are read; 0 is as many as maxCommonRead allows.
+    /// </summary>
+    sealed record CommonPayload(Guid StoreId, Guid[]? Ids, byte[]? IntIds, SearchPayload? Search, int Take = 0);
+    /// <summary>A write to every node a query matches (see saveAll): the search, and the same values and relations a save of a list takes.</summary>
+    sealed record SaveAllPayload(Guid StoreId, SearchPayload? Search, Dictionary<string, JsonElement>? Values, Dictionary<string, Guid[]>? Relations);
     sealed record CreatePayload(Guid StoreId, Guid TypeId);
     sealed record InnerNodePayload(Guid? Id, Guid TypeId, Dictionary<string, JsonElement>? Values);
     sealed record SaveEmbeddedPayload(Guid StoreId, Guid Id, Guid PropertyId, InnerNodePayload[]? Nodes);

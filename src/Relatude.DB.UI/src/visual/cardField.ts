@@ -54,7 +54,7 @@ export type RGBf = [number, number, number];
 export interface FieldTheme {
   /** what the frame is cleared to: the panel behind the picture */
   clear: RGBf;
-  /** the accent the selected cards are marked with: a ring round each in the flat picture, the walls and a rim in the solid one */
+  /** what the selected cards are marked with (a red, see --select-mark): a ring round each in the flat picture, the walls and a rim in the solid one */
   outline: RGBf;
   /**
    * The page's own text colour: what a card is mixed toward to stand out under the pointer, and the
@@ -138,6 +138,23 @@ export interface CardField {
   pulseFade(): PulseFade | null;
   /** The card under a css pixel of the canvas, or -1. */
   pick(cssX: number, cssY: number): number;
+  /**
+   * The cards a rectangle of the canvas (css px) takes, as indexes in no particular order - what a
+   * rectangle drawn over the picture selects (see marquee.tsx): every card whose own square falls
+   * inside it, mid-move and all.
+   *
+   * Worked out from where each card IS rather than from what was drawn. It used to be the pick pass
+   * read back over the rectangle, and that answers a different question - which cards put a pixel on
+   * the screen - so a picture zoomed out far enough that cards are smaller than a pixel dropped most
+   * of them: a card that falls between two pixel centres is rasterized away and was never in the
+   * answer. Selecting is about what is there, not about what happened to be sampled, and the solid
+   * picture has always done it this way (see CardField3D.pickRect). Cards flying out of the picture
+   * are among them; the caller knows which.
+   */
+  pickRect(x0: number, y0: number, x1: number, y1: number): Int32Array;
+  /* The answer is a view on a buffer the field keeps and refills: read it, copy what you need from
+     it, and do not hold it across another call. A drag asks several times a second over a set that
+     can be millions, and handing back a fresh array each time is the largest cost in the whole pass. */
   /** Brings the bounds into view with a margin, gliding there over `seconds` (0 jumps). */
   fit(bounds: Bounds, paddingPx: number, seconds: number): void;
   /** Zooms by a factor about a css pixel of the canvas, which stays put. */
@@ -229,6 +246,7 @@ export type CardFieldCommon = Pick<
   | "pulseShape"
   | "pulseFade"
   | "pick"
+  | "pickRect"
   | "fit"
   | "size"
   | "moving"
@@ -349,6 +367,22 @@ export const detailCssPx = 25;
 export const alwaysPicturesBelow = 5000;
 /** how long a picture takes to come up, or to take over from the level before it, in ms */
 export const imageFadeMs = 320;
+/** GLSL's smoothstep, for the few places the CPU has to agree with a shader about a ramp. */
+export function smoothstepAt(edge0: number, edge1: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+/**
+ * How wide a selected card has to be, in device pixels, before it is marked with a RING rather than
+ * being painted in the mark colour altogether (see the fragment shader).
+ *
+ * A ring is the right mark on a card anyone can see: it says "this one" without covering the picture
+ * that the card was opened for. On a card two pixels across there is no ring - the pixel is either
+ * the ring or the card - so a selection made in a mosaic of a million cards was invisible the moment
+ * the picture was fitted, which is exactly when a selection most needs to be seen. Below this the
+ * card is simply the mark colour, and the two are blended across the few pixels between.
+ */
+export const markRingPx = 7;
 /**
  * The most layers any level is ever given: what bounds the GPU memory, together with the sizes in
  * imageLevels. The smallest level wants one layer per card on screen and a screen holds thousands
@@ -509,6 +543,7 @@ uniform float uTileTime[${tileSlots}]; // when each tile arrived
 out vec4 outColor;
 const float SHARE = ${imageShare.toFixed(4)};
 const float FADE_MS = ${imageFadeMs.toFixed(1)};
+const float RING_PX = ${markRingPx.toFixed(1)};
 // samplers can only be indexed by a constant, so the level is a switch
 vec3 sampleLevel(int level, vec3 uv) {
   switch (level) {
@@ -618,7 +653,12 @@ void main() {
     }
     c = mix(c, pic, vDetail * show);
   }
-  if (vFlags == 1 && vHalfPx > 4.0) c = mix(c, uOutline, clamp(d + 2.5, 0.0, 1.0));
+  if (vFlags == 1) {
+    // a ring round a card with room for one, the whole card when there is none (see markRingPx)
+    float ringed = smoothstep(RING_PX * 0.5, RING_PX, vHalfPx);
+    float ring = clamp(d + 2.5, 0.0, 1.0);
+    c = mix(c, uOutline, mix(1.0, ring, ringed));
+  }
   // the pulse, last of all: the whole card - picture, name strip and edge - is taken into the page
   // by the blend, which is a multiply here rather than anything drawn over the picture
   outColor = vec4(c, alpha * vColor.a * (1.0 - vFade));
@@ -774,6 +814,8 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pickTexture, 0);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   const pickPixel = new Uint8Array(4);
+  /** what pickRect fills and hands back a view on, grown to the largest set it has been asked about */
+  let rectFound = new Int32Array(0);
 
   // ---- state ----
   let count = 0;
@@ -1216,6 +1258,44 @@ export function createCardField(canvas: HTMLCanvasElement): CardField | null {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       const id = pickPixel[0] | (pickPixel[1] << 8) | (pickPixel[2] << 16);
       return id === 0xffffff || id >= count ? -1 : id;
+    },
+    pickRect(cx0, cy0, cx1, cy1) {
+      if (count === 0) return new Int32Array(0);
+      const x0 = Math.min(cx0, cx1);
+      const x1 = Math.max(cx0, cx1);
+      const y0 = Math.min(cy0, cy1);
+      const y1 = Math.max(cy0, cy1);
+      const cssW = width / dpr;
+      const cssH = height / dpr;
+      const now = performance.now();
+      const time = elapsed(now);
+      // the wave has a last card and a moment it lands: past that every card is simply at `to`, and
+      // the interpolation below is skipped for the whole set (the flag itself is cleared on the next
+      // frame, which is not a thing to wait for here)
+      const moving = cardsMoving && time <= duration + maxDelay;
+      // where a card sits on the canvas: the same arithmetic worldToCss does, taken apart so the
+      // loop below is two multiplies and an add per card
+      const zoom = cur.zoom;
+      const offsetX = cssW / 2 - cur.x * zoom;
+      const offsetY = cssH / 2 - cur.y * zoom;
+      // and how large it is there: the gap between cards opens as they get room for it, exactly as
+      // the vertex shader works it out, so a card is the square it is drawn as
+      const fill = 1 + (cardFill - 1) * smoothstepAt(2.5, 7, zoom * dpr);
+      const half = 0.5 * fill * zoom;
+      if (rectFound.length < count) rectFound = new Int32Array(count);
+      let found = 0;
+      for (let i = 0; i < count; i++) {
+        const travelled = moving ? ease((time - timing[i * 2]) / duration) : 1;
+        const fx = from[i * 2];
+        const fy = from[i * 2 + 1];
+        // the middle of the card, which is its position plus half a cell (see the vertex shader)
+        const sx = (fx + (to[i * 2] - fx) * travelled + 0.5) * zoom + offsetX;
+        if (sx + half < x0 || sx - half > x1) continue;
+        const sy = (fy + (to[i * 2 + 1] - fy) * travelled + 0.5) * zoom + offsetY;
+        if (sy + half < y0 || sy - half > y1) continue;
+        rectFound[found++] = i;
+      }
+      return rectFound.subarray(0, found);
     },
     fit(bounds, padding, seconds) {
       const cssW = width / dpr;

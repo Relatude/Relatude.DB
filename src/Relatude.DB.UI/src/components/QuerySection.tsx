@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   IconArrowNarrowDown,
   IconArrowNarrowUp,
@@ -13,6 +13,8 @@ import {
   IconFilter,
   IconLayoutList,
   IconMap2,
+  IconMarquee2,
+  IconSelectAll,
   IconPlus,
   IconRefresh,
   IconSearch,
@@ -56,7 +58,8 @@ import type { DatabaseInfo } from "../server/serverInfo";
 import { formatCount, formatQuery, formatTime } from "../format";
 import { loadTabs, newQuery, saveTabs, type HitsView, type QueryMode, type QueryTabs, type SavedQuery } from "../queryTabs";
 import { useRowWindow } from "../rowWindow";
-import { applySelect, selectModeOf, type SelectMode } from "../selection";
+import { applyMarquee, applySelect, noSelection, selectedInts, selectionCount, selectModeOf, type PageSelection, type SelectMode } from "../selection";
+import { useListMarquee } from "../marquee";
 
 // How many hits one page holds. The large ones are for reading a whole set in one go - a table
 // someone is going to scroll, or export - and are asked for deliberately; "all" (0 here) is one
@@ -221,6 +224,19 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
     };
   }, [db.id]);
 
+  /**
+   * The model again, for the count each type carries in the picker: nodes have been written or
+   * deleted, so those numbers are as stale as the result was. Read in place rather than through the
+   * effect above, which clears the model first and would take the whole page down to a spinner for
+   * the four milliseconds this takes; a failure leaves the counts as they were, which is a number
+   * slightly out of date rather than a page that has stopped working.
+   */
+  const refreshCounts = useCallback(() => {
+    fetchQueryModel(db.id)
+      .then(setModel)
+      .catch(() => {});
+  }, [db.id]);
+
   const active = tabs.queries.find((q) => q.id === tabs.active) ?? tabs.queries[0];
 
   // Another page asking for a query on a type - the dashboard's treemap, the global search - gets a
@@ -348,6 +364,7 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
           query={active}
           openNode={openNode?.tabId === active.id ? openNode.nodeId : null}
           onChange={(changes) => patch(active.id, changes)}
+          onNodesChanged={refreshCounts}
         />
       )}
     </div>
@@ -374,8 +391,9 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
  *
  * The editor opens beside the result list rather than over it, so working through a set of nodes is
  * a click per node and the list keeps its scroll position between them. Several nodes can be open
- * at once - ctrl-click adds one, shift-click a run of them, ctrl+A the page (see selection.ts) -
- * and the form then edits them together.
+ * at once - ctrl-click adds one, shift-click a run of them, ctrl+A the page (see selection.ts), or a
+ * rectangle dragged round them with the Select switch on (see marquee.tsx) - and the form then edits
+ * them together.
  */
 function QueryTab({
   db,
@@ -383,6 +401,7 @@ function QueryTab({
   query: q,
   openNode,
   onChange,
+  onNodesChanged,
 }: {
   db: DatabaseInfo;
   model: QueryModel;
@@ -390,10 +409,14 @@ function QueryTab({
   /** a node someone asked to have open here, from another page or the global search */
   openNode: string | null;
   onChange: (changes: Partial<SavedQuery>) => void;
+  /** nodes were written or deleted from this tab: the counts the type picker shows are stale */
+  onNodesChanged: () => void;
 }) {
   // a type the model no longer has - or never named - falls back to the base type
   const typeId = q.typeId !== null && model.types.some((t) => t.id === q.typeId) ? q.typeId : model.baseTypeId;
   const { text, semanticRatio, minimumSimilarity: minSimilarity, selections, showFacets, mode, hitsView, sort, pageSize } = q;
+  // drag to select (marquee.tsx): a drag draws a rectangle round nodes instead of dragging the picture
+  const dragSelect = q.dragSelect === true;
   // The panel is open wherever there is an AI provider to search with, until someone on this query
   // says otherwise: a search against such a database is already part vectors - the engine resolves
   // the unset knobs to the database's own ratio - so how it is ranked should be on screen rather
@@ -421,9 +444,21 @@ function QueryTab({
   // The nodes the form beside the result has open, in the order they were chosen: one from a plain
   // click, several from ctrl-clicks and shift-clicks. The anchor is the row a shift-click takes its
   // run from - the last row clicked without shift.
-  const [selected, setSelected] = useState<string[]>(openNode ? [openNode] : []);
-  const selectedSet = useMemo(() => new Set(selected), [selected]);
-  const anchor = useRef<string | null>(openNode);
+  /**
+   * What is selected, addressed by internal id (see PageSelection): a rectangle over a million cards
+   * is then four bytes each and needs nothing resolved, which is what it used to spend twelve seconds
+   * and several hundred megabytes doing. A node handed over by another page arrives as a guid and is
+   * the one shape that is not an internal id.
+   */
+  const [selection, setSelection] = useState<PageSelection>(openNode ? { kind: "guids", ids: [openNode] } : noSelection);
+  /** how many NODES are selected (selectedCount, further down, is how many facet values are) */
+  const nodesSelected = selectionCount(selection);
+  /** and whether that is the whole result set rather than nodes named one by one */
+  const allSelected = selection.kind === "query";
+  const marked = useMemo(() => new Set(selectedInts(selection)), [selection]);
+  /** whether a row of the list or the table is in the selection: all of them while the whole result is */
+  const isSelected = (hit: { intId: number }) => selection.kind === "query" || marked.has(hit.intId);
+  const anchor = useRef<number | null>(null);
   // The editor column's width, dragged on the bar between the list and the form. null is the
   // stylesheet's own share of the page, which is where most people leave it; a width someone has
   // dragged is theirs for good, so it outlives the page and the session.
@@ -490,19 +525,35 @@ function QueryTab({
   const hits = useMemo(() => result?.hits ?? [], [result]);
   const rowWindow = useRowWindow(hits);
 
-  // the database changed under the page as a whole (a rollback, a reconnect), or someone asked for
-  // the result again: the list is searched again and the open node read again - it may now be a
-  // different node, or none. The summaries take the same token and run again with it.
   const [epoch, setEpoch] = useState(0);
-  function refreshAll() {
+  const [formEpoch, setFormEpoch] = useState(0);
+  /**
+   * The nodes on this page are not what they were, so everything drawn from them runs again: the
+   * list, the facets, and every summary view, which take `epoch` as their refreshToken.
+   *
+   * What it does NOT do is touch the form. A write made in the form is the commonest reason to be
+   * here, and the form has just finished reading itself back (NodeEditor.reload) - taking it apart
+   * and building it again would throw away the combined editor the write was made in and leave the
+   * selection sitting on its summary again.
+   */
+  function refreshData() {
     refresh();
     setEpoch((e) => e + 1);
+    onNodesChanged(); // the type picker counts nodes too, and is as stale as everything else
+  }
+  // the database changed under the page as a whole (a rollback, a reconnect), or someone asked for
+  // the result again: everything above, and the form started over with it - what it has open may
+  // now be a different node, or none
+  function refreshAll() {
+    refreshData();
+    setFormEpoch((e) => e + 1);
   }
   useEffect(
     () =>
       subscribeResync(() => {
         refresh();
         setEpoch((e) => e + 1);
+        setFormEpoch((e) => e + 1);
       }),
     [refresh],
   );
@@ -537,32 +588,76 @@ function QueryTab({
   // Paging and the view switches do not go through here - they are the same search, still.
   function reset(changes: Partial<SavedQuery>) {
     setPage(0);
-    setSelected([]);
+    setSelection(noSelection); // a different search is a different result set, and a different selection
     onChange(changes);
   }
 
+  /** What is selected now, as ids to work from: a query or a guid selection has none to add to. */
+  function currentInts(): number[] {
+    return selection.kind === "ints" ? selection.ids : [];
+  }
+
   /** A row of the list or the table clicked, with whatever keys were held (see selection.ts). */
-  function selectHit(e: React.MouseEvent, id: string) {
+  function selectHit(e: React.MouseEvent, hit: { intId: number }) {
     const mode = selectModeOf(e);
-    const order = hits.map((h) => h.id);
-    setSelected((prev) => applySelect(prev, id, mode, { order, anchor: anchor.current, keep: e.ctrlKey || e.metaKey }));
-    if (mode !== "extend") anchor.current = id;
+    const order = hits.map((h) => h.intId);
+    setSelection({ kind: "ints", ids: applySelect(currentInts(), hit.intId, mode, { order, anchor: anchor.current, keep: e.ctrlKey || e.metaKey }) });
+    if (mode !== "extend") anchor.current = hit.intId;
   }
 
   /** A card or a point clicked in one of the pictures, which have no run of rows for shift to take. */
-  function selectNode(id: string, mode: SelectMode) {
-    setSelected((prev) => applySelect(prev, id, mode));
+  function selectNode(id: number, mode: SelectMode) {
+    setSelection({ kind: "ints", ids: applySelect(currentInts(), id, mode) });
     anchor.current = id;
   }
+
+  /**
+   * A rectangle was drawn round some nodes, in whichever view (see marquee.tsx): they become the
+   * selection, or with shift or ctrl held are added to it - and taken out again if they were already
+   * in. The last of them is where a shift-click's run starts from next.
+   */
+  function selectMany(ids: number[], keep: boolean) {
+    setSelection({ kind: "ints", ids: applyMarquee(currentInts(), ids, keep) });
+    if (ids.length > 0) anchor.current = ids[ids.length - 1];
+  }
+
+  /**
+   * Every node this query matches, selected at once - the whole result and not the page on screen.
+   *
+   * Nothing is asked of the server and nothing is read: the selection is the query (see allSelected),
+   * which is why this is instant on a result of any size.
+   */
+  function selectAll() {
+    if (!result) return;
+    setSelection({ kind: "query", count: result.total });
+    anchor.current = null;
+  }
+
+  /** The selection let go of, and the drag-to-select mode with it: the way out of a selection. */
+  function clearSelection() {
+    setSelection(noSelection);
+    anchor.current = null;
+    if (dragSelect) onChange({ dragSelect: false });
+  }
+
+  // the rectangle over the list and the table; the pictures draw their own (see VisualPivotView, MapView)
+  const listMarquee = useListMarquee({
+    enabled: dragSelect && mode === "search",
+    host: results,
+    // the rows carry the internal id (data-node-id), which is what the dataset hands back as text
+    onSelect: (ids, keep) => selectMany(ids.map(Number), keep),
+  });
 
   // ctrl+A over the hits: every row of the page into the form at once
   function onHitsKeyDown(e: React.KeyboardEvent) {
     if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "a" && hits.length > 0) {
       e.preventDefault();
-      setSelected(hits.map((h) => h.id));
+      setSelection({ kind: "ints", ids: hits.map((h) => h.intId) });
     }
   }
-  const hitsHint = "Click a row to open the node; ctrl-click adds one, shift-click a run of them, ctrl+A the whole page";
+  const hitsHint = dragSelect
+    ? "Drag a rectangle round the rows to open them together; shift adds to the selection, and a row caught twice is out again. A click still opens one"
+    : "Click a row to open the node; ctrl-click adds one, shift-click a run of them, ctrl+A the whole page";
 
   // A column header cycles through the three states a sort can be in: up, down, and the order the
   // store itself returns. Sorting is a different view of the same search, so the open node stays
@@ -669,12 +764,12 @@ function QueryTab({
   // beside it. Pull it back in rather than squeezing the list the form was opened from - without
   // writing it back, so the width someone actually dragged is still theirs when the room returns.
   useEffect(() => {
-    if (selected.length === 0 || editorWidth === null) return;
+    if (nodesSelected === 0 || editorWidth === null) return;
     const fit = () => setEditorWidth((w) => (w === null ? w : applyWidth(w)));
     fit();
     window.addEventListener("resize", fit);
     return () => window.removeEventListener("resize", fit);
-  }, [selected, showFacets, editorWidth]);
+  }, [nodesSelected, showFacets, editorWidth]);
 
   // the same bar from the keyboard, and a double click to hand the width back to the stylesheet
   function resizeByKey(e: React.KeyboardEvent) {
@@ -749,6 +844,40 @@ function QueryTab({
       ? `All (${formatCount(maxPageRows)} of ${formatCount(result.total)})`
       : `All (${formatCount(result.total)})`;
 
+  // Drag to select (marquee.tsx), wherever there are nodes on screen to draw a rectangle round: the
+  // hits as a list or a table, the cards, the points of the map. The groups, the pivot and the cloud
+  // have no nodes on them, so the switch is not offered there.
+  const selectable = mode === "search" || visual || map;
+  const selectToggle = selectable && (
+    <button
+      className={"icon-button labelled" + (dragSelect ? " active" : "")}
+      aria-pressed={dragSelect}
+      title={
+        dragSelect
+          ? "Drag to select is on: a drag draws a rectangle, and every node it touches opens in the form. Shift or ctrl adds to the selection - a node caught twice is out again. The right button moves a picture meanwhile. Click to turn it off"
+          : "Drag to select: draw a rectangle round the nodes to open them together (shift or ctrl adds to the selection)"
+      }
+      onClick={() => onChange({ dragSelect: !dragSelect })}
+    >
+      <IconMarquee2 size={16} stroke={1.8} />
+      Select
+    </button>
+  );
+
+  // Every node the query matches, however many pages that is. Beside the drag switch, since the two
+  // are the same job asked at two scales: a rectangle round some of them, or the lot.
+  const selectAllButton = selectable && result !== null && result.total > 1 && (
+    <button
+      className={"icon-button labelled" + (allSelected ? " active" : "")}
+      aria-pressed={allSelected}
+      title={`Select all ${formatCount(result.total)} nodes this query matches — every page, not just this one`}
+      onClick={selectAll}
+    >
+      <IconSelectAll size={16} stroke={1.8} />
+      Select all
+    </button>
+  );
+
   // Filling the screen with the picture: the result's own head is a line spent on a count and the
   // switch for the facet rail, and in the visual pivot both of those fit on the line of controls the
   // picture already has. So they go down there, and the head goes away - one more line of canvas.
@@ -783,6 +912,8 @@ function QueryTab({
         <IconFilter size={16} stroke={1.8} />
         Filter
       </button>
+      {selectToggle}
+      {selectAllButton}
     </>
   );
 
@@ -966,7 +1097,7 @@ function QueryTab({
 
       <div
         ref={body}
-        className={"query-body" + (selected.length > 0 ? " with-editor" : "") + (showFacets ? "" : " no-facets") + (resizing ? " resizing" : "")}
+        className={"query-body" + (nodesSelected > 0 ? " with-editor" : "") + (showFacets ? "" : " no-facets") + (resizing ? " resizing" : "")}
         // capped as a share of the page as well as in pixels: a width dragged on a wide window
         // would otherwise leave nothing of the list on a narrow one
         style={editorWidth === null ? undefined : ({ "--editor-width": `min(${editorWidth}px, ${maxEditorShare * 100}%)` } as React.CSSProperties)}
@@ -1004,7 +1135,12 @@ function QueryTab({
           </aside>
         )}
 
-        <div className="query-results panel" ref={results}>
+        <div
+          className={"query-results panel" + (dragSelect && mode === "search" ? " marquee-mode" : "")}
+          ref={results}
+          onPointerDown={listMarquee.onPointerDown}
+          onClickCapture={listMarquee.onClickCapture}
+        >
           {/* Filling the screen with the picture gives every pixel of it to the picture: this head
               would be a whole line of it spent on a count and one switch, so in that one case both
               go down to the picture's own line of controls instead (see head, below). */}
@@ -1068,6 +1204,8 @@ function QueryTab({
                   Edit
                 </button>
               )}
+              {selectToggle}
+              {selectAllButton}
               {!summary && (
                 <select className="select compact" value={pageSize} title="Rows per page" onChange={(e) => reset({ pageSize: Number(e.target.value) })}>
                   {pageSizes.map((size) => (
@@ -1123,7 +1261,10 @@ function QueryTab({
               refreshToken={epoch}
               showQuery={showQuery}
               onOpen={selectNode}
-              selected={selected}
+              onSelectMany={selectMany}
+              marquee={dragSelect}
+              selected={selectedInts(selection)}
+              allSelected={allSelected}
               fullscreen={fullscreen}
               onToggleFullscreen={toggleFullscreen}
               head={headInToolbar ? resultHead : undefined}
@@ -1137,6 +1278,10 @@ function QueryTab({
               refreshToken={epoch}
               showQuery={showQuery}
               onOpen={selectNode}
+              onSelectMany={selectMany}
+              marquee={dragSelect}
+              selected={selectedInts(selection)}
+              allSelected={allSelected}
               fullscreen={fullscreen}
               onToggleFullscreen={toggleFullscreen}
               head={headInToolbar ? resultHead : undefined}
@@ -1164,11 +1309,12 @@ function QueryTab({
               storeId={db.id}
               columns={result.columns}
               hits={hits}
-              selected={selectedSet}
+              selected={marked}
+              allSelected={allSelected}
               sort={sort}
               sortApplied={result.sortApplied}
               onSort={toggleSort}
-              onSaved={refresh}
+              onSaved={refreshData}
               loading={loading}
             />
           ) : table && result?.columns ? (
@@ -1199,10 +1345,11 @@ function QueryTab({
                   {hits.slice(0, rowWindow.count).map((hit) => (
                     <tr
                       key={hit.id}
-                      className={selectedSet.has(hit.id) ? "selected" : ""}
+                      className={isSelected(hit) ? "selected" : ""}
+                      data-node-id={hit.intId}
                       // a shift-click takes a run of rows, not a run of text
                       onMouseDown={(e) => e.shiftKey && e.preventDefault()}
-                      onClick={(e) => selectHit(e, hit.id)}
+                      onClick={(e) => selectHit(e, hit)}
                     >
                       {(hit.cells ?? []).map((value, i) => (
                         <td key={result.columns![i]?.key ?? i} title={value}>
@@ -1219,7 +1366,7 @@ function QueryTab({
             <div className={"query-hits" + (loading ? " loading" : "")} tabIndex={-1} title={hitsHint} onScroll={rowWindow.onScroll} onKeyDown={onHitsKeyDown}>
               {result && hits.length === 0 && <div className="query-empty">Nothing matched.</div>}
               {hits.slice(0, rowWindow.count).map((hit) => (
-                <button className={"query-hit" + (selectedSet.has(hit.id) ? " selected" : "")} key={hit.id} onClick={(e) => selectHit(e, hit.id)}>
+                <button className={"query-hit" + (isSelected(hit) ? " selected" : "")} key={hit.id} data-node-id={hit.intId} onClick={(e) => selectHit(e, hit)}>
                   <div className="query-hit-head">
                     <span className="query-hit-name" title={hit.displayName}>
                       <Sampled sample={hit.nameSample} plain={hit.displayName} />
@@ -1245,9 +1392,10 @@ function QueryTab({
               ))}
             </div>
           )}
+          {listMarquee.box}
         </div>
 
-        {selected.length > 0 && (
+        {nodesSelected > 0 && (
           <>
             {/* a grid item of its own in the editor's column rather than a child of the panel: the
                 panel clips its content to keep its rounded corners, and would clip the bar with it */}
@@ -1264,17 +1412,30 @@ function QueryTab({
             />
             <aside className="query-editor panel" ref={editor}>
               <NodeEditor
-                // keyed by the epoch alone: a change of selection is the form's own business, which
-                // keeps the edits made so far when a node is added to or taken out of it
-                key={epoch}
+                // keyed by the form's own epoch alone (see refreshData): a change of selection is
+                // the form's business, and so is a write made in it - both keep the edits made so
+                // far. Only the page being started over takes the form with it.
+                key={formEpoch}
                 storeId={db.id}
-                nodeIds={selected}
-                onSaved={refresh}
-                onClose={() => setSelected([])}
-                onDeselect={(id) => setSelected((prev) => prev.filter((x) => x !== id))}
+                selection={selection}
+                // what a selection of the whole result is resolved through, when something is done with it
+                request={query}
+                // Saved: the list, the facets and every picture are drawn from values that have
+                // just changed, so they are asked again - and drag-to-select is switched off, the
+                // way a delete already leaves it, so the left button goes back to turning the
+                // picture. The selection itself stays: the form is still open on it.
+                onSaved={() => {
+                  refreshData();
+                  if (dragSelect) onChange({ dragSelect: false });
+                }}
+                onClose={() => setSelection(noSelection)}
+                onClearSelection={clearSelection}
+                onDeselect={(intId) =>
+                  setSelection((prev) => (prev.kind === "ints" ? { kind: "ints", ids: prev.ids.filter((x) => x !== intId) } : noSelection))
+                }
                 onDeleted={() => {
-                  setSelected([]);
-                  refresh(); // the rows they were are still in the list until the search runs again
+                  clearSelection();
+                  refreshData(); // the rows and the cards they were are there until the query runs again
                 }}
               />
             </aside>
@@ -1293,8 +1454,8 @@ function QueryTab({
               const ref = await createNode(db.id, t.id);
               // the list is a search result and the new node may not match it; the form opens on it
               // either way, and the refresh puts it in the list whenever the query does match it
-              setSelected([ref.id]);
-              anchor.current = ref.id;
+              setSelection({ kind: "guids", ids: [ref.id] });
+              anchor.current = null;
               refresh();
             } catch (e) {
               await showError("Could not create the node", e instanceof Error ? e.message : String(e));
