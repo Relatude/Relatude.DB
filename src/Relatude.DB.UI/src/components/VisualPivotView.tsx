@@ -855,9 +855,13 @@ export function VisualPivotView({
     return all.subarray(0, n);
   }
 
-  /** The marks as a release with the keys held now would leave them - the same three answers applyMarquee gives, in the cards' own indexes. */
-  function marksAfter(inside: Int32Array, mode: MarqueeMode): number[] {
-    if (mode === "replace") return Array.from(inside);
+  /**
+   * The marks as a release with the keys held now would leave them - the same three answers
+   * applyMarquee gives, in the cards' own indexes. On its own the rectangle IS the marks, and the
+   * field takes the array the field itself filled: a million cards are not copied to say so.
+   */
+  function marksAfter(inside: Int32Array, mode: MarqueeMode): ArrayLike<number> {
+    if (mode === "replace") return inside;
     const caught = new Set<number>(inside);
     if (mode === "subtract") return currentMarks.current.filter((i) => !caught.has(i));
     const had = new Set(currentMarks.current);
