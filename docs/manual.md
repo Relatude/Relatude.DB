@@ -2022,7 +2022,7 @@ What you do in it:
 | **Indexing** | Text, semantic and value index configuration; reindexing. |
 | **File storage** | Add and configure storage providers (local disk, Azure Blob) and pick a default. The id you paste into `[FileProperty(FileStorageProviderId = "…")]` comes from here. |
 | **IO** | Where the append-only transaction log and backups are written. |
-| **Backups** | One-click backup and restore. Take one before upgrading — the project is pre-1.0. |
+| **Storage** | Backups — one click to take one, one to go back to it. Take one before upgrading, the project is pre-1.0. The database file itself lives here too: download it, upload one, or copy it up to a moment in time and open the database on that copy. Any file the Files page lists can be made the database file, which is the way back from all three: whatever is replaced is kept beside the new file, never deleted. |
 | **Status** | Store state, running file conversions, activity and timings. |
 | **Memory** (on the dashboard) | Every memory budget of one database on one line - the node and result set caches, each index engine, the state store - each showing what it is actually holding against what it is allowed. Dragging a budget takes effect at once where the part can be re-sized while it runs; saving writes them back to `relatude.db.json` for the next start. |
 

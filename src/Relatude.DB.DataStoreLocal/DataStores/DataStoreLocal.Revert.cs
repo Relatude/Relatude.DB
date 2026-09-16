@@ -70,6 +70,9 @@ public sealed partial class DataStoreLocal : IDataStore {
             LogInfo("Revert window begun at UTC " + new DateTime(_revertWindow.Timestamp, DateTimeKind.Utc).ToString("o")
                 + " (timestamp " + _revertWindow.Timestamp + "). "
                 + "Engine durability, state snapshots and log rewrites are suspended until the window is committed or rolled back. ");
+            // noted beside the database, so the moment stays findable after the window has ended
+            // and after the store has been closed - see RevertMark
+            RevertMark.Write(IOIndex, new RevertMark(_revertWindow.Timestamp, _revertWindow.BegunUtc), logError);
             return _revertWindow.Timestamp;
         } finally {
             _lock.ExitWriteLock();

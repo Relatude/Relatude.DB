@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { IconCheck, IconChevronDown, IconCube, IconDatabase, IconSearch, IconX } from "@tabler/icons-react";
+import { DialogTools } from "./DialogTools";
 import { KindIcon, SourceDot } from "./DatamodelIcons";
 import { codeSourceGuid, sourceColors, type ModelKind, type SourceType } from "../server/datamodel";
 import { formatCount } from "../format";
@@ -212,6 +213,7 @@ export function NewNodeDialog({
       <div className="dialog new-node-dialog" onKeyDown={onKeyDown}>
         <h3>
           <IconCube size={16} stroke={2} /> New node
+          <DialogTools onClose={onClose} closeTitle="Cancel" />
         </h3>
         <div className="dialog-body">The node is written straight away, with the defaults of its type, and opens in the form beside the list.</div>
         <div className="type-picker-search">
@@ -244,7 +246,8 @@ export function NewNodeDialog({
           ))}
           {shown.length === 0 && <div className="muted type-picker-empty">No type matches “{query}”.</div>}
         </div>
-        <div className="dialog-actions">
+        <div className="dialog-row">
+          <div className="header-spacer" />
           <button className="action-button" onClick={onClose}>
             Cancel
           </button>

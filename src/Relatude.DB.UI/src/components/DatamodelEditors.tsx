@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { IconArrowLeft, IconChevronDown, IconChevronRight, IconLoader2, IconPlus, IconRefreshAlert, IconSearch, IconTrash, IconWand, IconX } from "@tabler/icons-react";
 import { IndexMarks, KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, relationMeta, sourceKindMeta } from "./DatamodelIcons";
 import { Combobox, type ComboOption } from "./Combobox";
+import { DialogTools } from "./DialogTools";
 import { ColorField } from "./ColorField";
 import {
   allProperties,
@@ -455,7 +456,10 @@ export function SourcePickerDialog({ what, sources, ctx, onPick, onClose }: { wh
   return (
     <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="dialog dm-source-pick">
-        <h3>Which source holds the new {noun}?</h3>
+        <h3>
+          Which source holds the new {noun}?
+          <DialogTools onClose={onClose} closeTitle="Cancel" />
+        </h3>
         <div className="dialog-body">The {noun} is written into the source you pick when the draft is activated.</div>
         <div className="dm-source-cards dm-source-pick-list">
           {sources.map((s) => {
@@ -539,7 +543,10 @@ function PropertyTypeDialog({ typeName, schema, onPick, onClose }: { typeName: s
     <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       {/* Enter on the filter takes the one type still standing, so a kind can be added by typing alone */}
       <div className="dialog dm-ptype-dialog" onKeyDown={(e) => e.key === "Enter" && matching.length === 1 && onPick(matching[0].value)}>
-        <h3>Add a property to {typeName}</h3>
+        <h3>
+          Add a property to {typeName}
+          <DialogTools onClose={onClose} closeTitle="Cancel" />
+        </h3>
         <div className="dialog-body">What the property holds. This cannot be changed afterwards: a property of another kind is a different property.</div>
         <div className="dm-ptype-search">
           <IconSearch size={15} stroke={2} />

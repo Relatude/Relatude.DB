@@ -19,7 +19,11 @@ export default function App() {
       {hello && (
         <p>
           {hello.message} <br />
-          <small>Server time (UTC): {hello.serverTimeUtc}</small>
+          <small>Server time (UTC): {hello.utc}</small>
+          <br />
+          <br />
+          <a href="/relatude.db">ADMIN UI</a>           
+          <br />
         </p>
       )}
     </main>

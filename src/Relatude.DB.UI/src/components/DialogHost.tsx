@@ -1,5 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { IconAlertTriangle, IconCheck, IconLoader2, IconMinus, IconX } from "@tabler/icons-react";
+import { DialogTools } from "./DialogTools";
 import {
   acceptChoice,
   acceptConfirm,
@@ -31,6 +32,7 @@ export function DialogHost() {
           <h3 className={dialog.tone === "error" ? "dialog-title-error" : ""}>
             {dialog.tone === "error" && <IconAlertTriangle size={16} stroke={2} />}
             {dialog.title}
+            <DialogTools onClose={closeDialog} />
           </h3>
           <div className="dialog-body">{dialog.body}</div>
           {dialog.details.length > 0 && (
@@ -54,7 +56,10 @@ export function DialogHost() {
     return (
       <div className="dialog-backdrop">
         <div className="dialog">
-          <h3>{dialog.title}</h3>
+          <h3>
+            {dialog.title}
+            <DialogTools onClose={closeDialog} closeTitle="Cancel" />
+          </h3>
           <div className="dialog-body">{dialog.body}</div>
           <div className="dialog-choices">
             {dialog.options.map((option, i) => (
@@ -82,6 +87,7 @@ export function DialogHost() {
           <h3 className={dialog.danger ? "dialog-title-error" : ""}>
             {dialog.danger && <IconAlertTriangle size={16} stroke={2} />}
             {dialog.title}
+            <DialogTools onClose={closeDialog} closeTitle="Cancel" />
           </h3>
           <div className="dialog-body">{dialog.body}</div>
           {dialog.option && (
@@ -90,17 +96,19 @@ export function DialogHost() {
               {dialog.option.label}
             </label>
           )}
+          {/* the doing button first, the way out last: the one on the right is the one a hand
+              coming back from the cross in the corner reaches first */}
           <div className="dialog-row">
             <div className="header-spacer" />
-            <button className="action-button" onClick={closeDialog}>
-              Cancel
-            </button>
             <button
               className={"action-button dialog-confirm" + (dialog.danger ? " danger" : "")}
               disabled={blocked}
               onClick={acceptConfirm}
             >
               {dialog.confirmLabel}
+            </button>
+            <button className="action-button" onClick={closeDialog}>
+              Cancel
             </button>
           </div>
         </div>
@@ -127,7 +135,10 @@ function PromptDialog({ dialog }: { dialog: PromptState }) {
   return (
     <div className="dialog-backdrop">
       <div className="dialog">
-        <h3>{dialog.title}</h3>
+        <h3>
+          {dialog.title}
+          <DialogTools onClose={closeDialog} closeTitle="Cancel" />
+        </h3>
         {dialog.body && <div className="dialog-body">{dialog.body}</div>}
         <label className="dialog-field">
           <span className="muted">{dialog.label}</span>
@@ -152,11 +163,11 @@ function PromptDialog({ dialog }: { dialog: PromptState }) {
         </label>
         <div className="dialog-row">
           <div className="header-spacer" />
-          <button className="action-button" onClick={closeDialog}>
-            Cancel
-          </button>
           <button className="action-button dialog-confirm" disabled={blocked} onClick={acceptPrompt}>
             {dialog.confirmLabel}
+          </button>
+          <button className="action-button" onClick={closeDialog}>
+            Cancel
           </button>
         </div>
       </div>
@@ -186,7 +197,16 @@ function ProgressDialog({ dialog }: { dialog: ProgressState }) {
     // than doing nothing, the way the button does
     <div className="dialog-backdrop" onClick={canMinimize ? (e) => e.target === e.currentTarget && minimizeProgress(dialog.id) : undefined}>
       <div className="dialog">
-        <h3>{dialog.title}</h3>
+        <h3>
+          {dialog.title}
+          {/* the cross does what the button below it does: a running task is closed by cancelling
+              it, a finished one by dismissing it */}
+          <DialogTools
+            onMinimize={canMinimize ? () => minimizeProgress(dialog.id) : undefined}
+            onClose={running ? () => cancelProgress(dialog.id) : closeDialog}
+            closeTitle={running ? "Cancel" : "Close"}
+          />
+        </h3>
         <div className="dialog-label" title={dialog.message ?? dialog.label}>
           {dialog.message ?? dialog.label ?? ""}
         </div>
@@ -203,15 +223,6 @@ function ProgressDialog({ dialog }: { dialog: ProgressState }) {
             )}
           </span>
           <div className="header-spacer" />
-          {canMinimize && (
-            <button
-              className="action-button"
-              onClick={() => minimizeProgress(dialog.id)}
-              title="Keep it running and carry on - it goes to the top bar"
-            >
-              <IconMinus size={14} stroke={1.8} /> Minimize
-            </button>
-          )}
           {running ? (
             <button className="action-button" onClick={() => cancelProgress(dialog.id)}>
               Cancel

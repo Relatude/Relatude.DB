@@ -5,6 +5,7 @@ import {
   IconArrowUp,
   IconChevronDown,
   IconChevronRight,
+  IconDatabaseImport,
   IconDownload,
   IconEye,
   IconFile,
@@ -57,8 +58,9 @@ import {
   type ZipSink,
 } from "../server/files";
 import type { DatabaseInfo } from "../server/serverInfo";
-import { formatBytes, formatTime } from "../format";
-import { runWithProgress, showConfirm, showError, showPrompt, type ProgressController } from "../dialogs";
+import { formatBytes, formatDateTime, formatTime } from "../format";
+import { runWithProgress, showConfirm, showError, showInfo, showPrompt, type ProgressController } from "../dialogs";
+import { adoptDbFile } from "../server/storage";
 import { displayType } from "../code/language";
 import { useVirtualWindow, windowPad } from "../virtualWindow";
 import { FileTile } from "./FileTile";
@@ -874,6 +876,38 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     openFolder(parent); // also after cancel or failures: shows what is left
   }
 
+  /**
+   * Makes the selected file the database: the server copies it onto the next database file key and
+   * restarts the database on the copy. The file itself is only read, and so the database file in
+   * use now is only left behind, one key back - which is what makes both this and going back in
+   * time on the Storage page reversible, by adopting that file in turn.
+   *
+   * The server refuses anything that is not a readable database file, so this cannot leave the
+   * database unable to open; what it can do is put a different database in front of an application
+   * that was using this one, hence the confirmation.
+   */
+  async function onMakeDatabaseFile(file: FileInfo) {
+    if (!ioId) return;
+    const name = fileName(file.key);
+    const choice = await showConfirm(
+      `Make ${name} the database file?`,
+      `It is copied onto the next database file key of ${db.name} and the database is restarted on the copy.`
+        + ` ${name} itself is left where it is, and so is the database file in use now - it stays beside the new one,`
+        + " so this can be undone by making that one the database file again.",
+      { confirmLabel: "Make it the database", danger: true },
+    );
+    if (!choice.ok) return;
+    const result = await runWithProgress(`Make ${name} the database file of ${db.name}`, (ctl) => adoptDbFile(ctl, db.id, ioId, file.key));
+    if (!result) return;
+    setMessage(`${name} is now the database, as ${result.newKey}.`);
+    await showInfo(
+      "The database file was replaced",
+      `${db.name} now runs on ${result.newKey} (${formatBytes(result.size)}), a copy of ${name}.`
+        + (result.firstChangeUtc ? ` Its first transaction is ${formatDateTime(result.firstChangeUtc)}.` : " It holds no transactions yet."),
+    );
+    reloadList(ioId, path); // the copy is a new file in the data folder
+  }
+
   async function onDownloadFolder() {
     if (!ioId) return;
     const directory = await pickDirectory();
@@ -1039,6 +1073,14 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
         {selected.size > 0 && (
           <button className="action-button" onClick={onDownloadSelectionZip}>
             <IconFileZip size={14} stroke={1.8} className="tone-accent" /> Download {selected.size} as zip
+          </button>
+        )}
+        {/* Only for one selected file, and only for the two extensions a database file can have: the
+            offer would otherwise stand next to every picture and text file in the storage. The
+            server checks what the file actually is; this only keeps the button out of the way. */}
+        {viewFile && looksLikeDatabaseFile(viewFile.key) && (
+          <button className="action-button" onClick={() => onMakeDatabaseFile(viewFile)}>
+            <IconDatabaseImport size={14} stroke={1.8} className="tone-data" /> Make it the database
           </button>
         )}
         {deletable > 0 && (
@@ -1345,6 +1387,12 @@ function sortFiles(files: FileInfo[], sort: SortState, typeOf: (f: FileInfo) => 
 function fileName(key: string): string {
   const i = key.lastIndexOf("/");
   return i < 0 ? key : key.slice(i + 1);
+}
+
+/** The two extensions a database file arrives under: the log files themselves and their backups. */
+function looksLikeDatabaseFile(key: string): boolean {
+  const name = fileName(key).toLowerCase();
+  return name.endsWith(".bin") || name.endsWith(".bkup");
 }
 
 // the key as it reads below the open folder; the key itself for anything not under it

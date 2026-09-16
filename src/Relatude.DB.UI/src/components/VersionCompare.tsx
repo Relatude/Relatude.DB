@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { IconArrowsExchange, IconGitCompare, IconX } from "@tabler/icons-react";
+import { IconArrowsExchange, IconGitCompare } from "@tabler/icons-react";
+import { DialogTools } from "./DialogTools";
 import { diffStats, diffText, toHunks, type DiffRun, type Granularity } from "../diff";
 import type { VersionRow } from "../server/query";
 import { formatCount, formatTime } from "../format";
@@ -66,10 +67,7 @@ export function VersionCompare({
         <h3>
           <IconGitCompare size={16} stroke={1.8} />
           Compare versions
-          <span className="header-spacer" />
-          <button className="icon-button" title="Close" onClick={onClose}>
-            <IconX size={16} stroke={1.8} />
-          </button>
+          <DialogTools onClose={onClose} />
         </h3>
         <div className="compare-pick">
           <label>

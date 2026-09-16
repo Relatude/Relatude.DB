@@ -10,6 +10,7 @@ import {
   IconDownload,
   IconFileSearch,
   IconFolderDown,
+  IconHistory,
   IconPhotoCancel,
   IconTextRecognition,
   IconRefresh,
@@ -32,10 +33,12 @@ import {
   fetchDbFileInfo,
   fetchFileStorages,
   fetchMaintenanceInfo,
+  fetchTimeTravelInfo,
   rebuildTextIndex,
   revertToBackup,
   runFileScan,
   saveStateSnapshot,
+  timeTravel as goBackInTime,
   truncateDatabase,
   uploadDatabase,
   type BackupFile,
@@ -44,11 +47,13 @@ import {
   type DemoContentInfo,
   type FileStorageInfo,
   type MaintenanceInfo,
+  type TimeTravelInfo,
   type UnreferencedResult,
 } from "../server/storage";
 import type { DatabaseInfo } from "../server/serverInfo";
+import { TimeTravelDialog } from "./TimeTravelDialog";
 import { useLive } from "../live";
-import { formatBytes, formatCount, formatTime } from "../format";
+import { formatBytes, formatCount, formatDateTime, formatTime } from "../format";
 
 export function StorageSection({ db }: { db: DatabaseInfo }) {
   const [backups, setBackups] = useState<BackupList | null>(null);
@@ -61,7 +66,10 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const [demoMessage, setDemoMessage] = useState<string | null>(null);
   const [truncate, setTruncate] = useState(false);
   const [keepForever, setKeepForever] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  // open when the go-back-in-time dialog is up; holds what it offers to go back to
+  const [timeTravel, setTimeTravel] = useState<TimeTravelInfo | null>(null);
+  const [message, setMessage] = useState<string | null>(null); // the backups panel
+  const [dbFileMessage, setDbFileMessage] = useState<string | null>(null); // the database file panel
   const [maintenanceMessage, setMaintenanceMessage] = useState<string | null>(null);
   const [filesMessage, setFilesMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -390,16 +398,57 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
     document.body.appendChild(link);
     link.click();
     link.remove();
-    if (choice.option) setMessage("Preparing the truncated copy — the download starts when the rewrite is done.");
+    if (choice.option) setDbFileMessage("Preparing the truncated copy — the download starts when the rewrite is done.");
   }
 
   async function onUploadDatabase(list: FileList | null) {
     if (!list || list.length === 0 || !dbFile) return;
     const file = list[0];
     const info = dbFile;
-    const uploadedKey = await runWithProgress(`Upload database to ${db.name}`, (ctl) => uploadDatabase(ctl, db.id, info, file));
-    if (uploadedKey) setMessage(`Uploaded as ${uploadedKey}. The database was reopened.`);
+    const result = await runWithProgress(`Upload database to ${db.name}`, (ctl) => uploadDatabase(ctl, db.id, info, file));
+    if (result) setDbFileMessage(`Uploaded as ${result.newKey}. The database was reopened on it.`);
     load();
+  }
+
+  /**
+   * Opening the dialog is a question to the server: where the log begins and ends, and where the
+   * last revert window was begun. A closed database has to be read off its file for the first two,
+   * which on a large one is a walk worth showing a progress dialog for.
+   */
+  async function onOpenTimeTravel() {
+    const info = await runWithProgress(`Go back in time — ${db.name}`, async (ctl) => {
+      ctl.set({ label: "Reading the database file…" });
+      return await fetchTimeTravelInfo(db.id);
+    });
+    if (info) setTimeTravel(info);
+  }
+
+  /**
+   * The database as it was at a moment in time. The log is copied up to the last transaction at or
+   * before it and the copy takes over; the file it was copied from stays where it is, one file key
+   * behind, which is what makes this reversible from the Files page.
+   */
+  async function onGoBackInTime(when: Date) {
+    setTimeTravel(null); // the dialog was the confirmation; it goes before the work starts
+    const result = await runWithProgress(`Go back in time — ${db.name}`, (ctl) => goBackInTime(ctl, db.id, when));
+    if (!result) return;
+    setDbFileMessage(`Went back in time. New database file: ${result.newKey}.`);
+    load(); // the panel behind the dialog is about the file that was just replaced
+    // what the operation was for, said as the one number that answers it: where the database ends now
+    await showInfo(
+      "The database went back in time",
+      result.lastChangeUtc
+        ? `The last transaction is now ${formatDateTime(result.lastChangeUtc)}.`
+        : "The copy holds no transactions at all: the database is empty.",
+      [
+        `New database file: ${result.newKey} (${formatBytes(result.bytesKept)})`,
+        `Kept ${formatCount(result.transactionsKept)} transaction${result.transactionsKept === 1 ? "" : "s"}`,
+        `Left out ${formatCount(result.transactionsDropped)} transaction${result.transactionsDropped === 1 ? "" : "s"}`
+          + ` with ${formatCount(result.actionsDropped)} action${result.actionsDropped === 1 ? "" : "s"} (${formatBytes(result.bytesDropped)})`
+          + (result.droppedFromUtc ? `, up to ${formatDateTime(result.droppedFromUtc)}` : ""),
+        `The file it was copied from is kept as ${result.previousKey}`,
+      ],
+    );
   }
 
   return (
@@ -438,7 +487,9 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
             </label>
             <span className="muted">{db.state !== "Open" ? "the database must be open" : (message ?? "")}</span>
           </div>
-          <div className="db-table">
+          {/* the list grows with every backup taken: it scrolls rather than pushing the rest of
+              the page down, with the column names staying put above it */}
+          <div className="db-table backup-list">
             <div className="backup-row db-table-head">
               <span>Name</span>
               <span className="num">Size</span>
@@ -507,7 +558,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
               <button className="action-button" onClick={() => uploadInput.current?.click()}>
                 <IconDatabaseImport size={14} stroke={1.8} /> Upload database
               </button>
-              <span className="muted">{message ?? `closes the database, uploads as ${dbFile.nextKey}, clears the state file and reopens`}</span>
+              <span className="muted">closes the database, puts the uploaded file in place as the next database file, and reopens on it</span>
             </div>
             <input
               ref={uploadInput}
@@ -518,6 +569,21 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
                 e.target.value = "";
               }}
             />
+            {/* Going back in time is the third thing that can be done to the file, after taking a
+                copy out and putting one in - and it is the same operation as those two: a database
+                file is written next to the current one and the database opens on it. Which moment
+                is a question of its own, so it is asked in a dialog. */}
+            <div className="process-action">
+              <button className="action-button" onClick={onOpenTimeTravel}>
+                <IconHistory size={14} stroke={1.8} /> Go back in time…
+              </button>
+              <span className="muted">copies the database up to a moment you pick and opens it on the copy; the current file is kept</span>
+            </div>
+            {dbFileMessage && (
+              <div className="process-action">
+                <span className="muted">{dbFileMessage}</span>
+              </div>
+            )}
           </>
         )}
       </section>
@@ -680,6 +746,9 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       </section>
       </div>
       </div>
+      {timeTravel && (
+        <TimeTravelDialog dbName={db.name} info={timeTravel} onCancel={() => setTimeTravel(null)} onConfirm={onGoBackInTime} />
+      )}
     </div>
   );
 }

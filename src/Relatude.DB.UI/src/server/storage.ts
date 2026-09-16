@@ -1,6 +1,6 @@
 import { send } from "./channel";
 import { adminBase } from "./base";
-import { downloadFilesToDirectory, downloadFolderToDirectory, uploadFile } from "./files";
+import { abortUpload, downloadFilesToDirectory, downloadFolderToDirectory, newUploadId, uploadStaged } from "./files";
 import { formatBytes } from "../format";
 import type { ProgressController } from "../dialogs";
 
@@ -20,7 +20,6 @@ export interface BackupList {
 export interface DbFileInfo {
   ioId: string;
   currentKey: string;
-  nextKey: string;
   size: number;
   state: string;
   canUpload: boolean;
@@ -105,28 +104,117 @@ export function closeStore(storeId: string): Promise<{ done: boolean }> {
   return send<{ done: boolean }>("store-close", { storeId });
 }
 
-// Replaces the database: closes it, uploads the file as the next WAL file key, clears the
-// state file, and reopens. The database comes back up in every outcome (failure or cancel
-// included) — reopening a cancelled upload is safe since the partial file is deleted.
-export async function uploadDatabase(ctl: ProgressController, storeId: string, info: DbFileInfo, file: File): Promise<string> {
+/**
+ * What a database file put in place by any of the three routes below reports back: the key it
+ * landed on, its size, and the time of its first transaction.
+ */
+export interface AdoptResult {
+  newKey: string;
+  size: number;
+  firstChangeUtc: string | null;
+}
+
+/**
+ * Replaces the database with an uploaded file: closes it, stages the upload, and lets the server
+ * put it in place as the next log file and drop everything built from the old one. The database
+ * comes back up in every outcome, failure and cancel included.
+ *
+ * The staged file only becomes the database once it has fully arrived and the database is closed,
+ * and which key it lands on is the server’s decision at that moment: a key worked out before the
+ * upload started can be the live database file by the time the last byte is in.
+ */
+export async function uploadDatabase(ctl: ProgressController, storeId: string, info: DbFileInfo, file: File): Promise<AdoptResult> {
   ctl.set({ label: "Closing the database…", total: null });
   await closeStore(storeId);
+  const uploadId = newUploadId();
   try {
-    ctl.set({ label: `${file.name} → ${info.nextKey}`, total: file.size, done: 0 });
-    await uploadFile(
+    ctl.set({ label: file.name, total: file.size, done: 0 });
+    await uploadStaged(
       info.ioId,
-      info.nextKey,
+      uploadId,
       file,
-      (sent, total) => ctl.set({ done: sent, label: `${info.nextKey} — ${formatBytes(sent)} / ${formatBytes(total)}` }),
+      (sent, total) => ctl.set({ done: sent, label: `${file.name} — ${formatBytes(sent)} / ${formatBytes(total)}` }),
       ctl.signal,
     );
-    ctl.set({ label: "Clearing the state file…", done: file.size });
-    await send("db-upload-finalize", { storeId });
+    ctl.set({ label: "Putting it in place…", total: null });
+    return await send<AdoptResult>("db-upload-adopt", { storeId, ioId: info.ioId, uploadId, size: file.size });
+  } catch (error) {
+    abortUpload(info.ioId, uploadId); // a staged file nothing will commit is only taking up room
+    throw error;
   } finally {
     ctl.set({ label: "Opening the database…", total: null });
     await openStore(storeId);
   }
-  return info.nextKey;
+}
+
+/**
+ * Makes an existing file the database: it is copied onto the next log file key and the database is
+ * opened on the copy. The file itself is only read, so this is also the way back from a time
+ * travel — the log that was cut is still there, one file key behind.
+ */
+export async function adoptDbFile(ctl: ProgressController, storeId: string, ioId: string, key: string): Promise<AdoptResult> {
+  ctl.set({ label: "Closing the database…", total: null });
+  await closeStore(storeId);
+  try {
+    ctl.set({ label: `Copying ${key}…` });
+    return await send<AdoptResult>("db-adopt-file", { storeId, ioId, key });
+  } finally {
+    ctl.set({ label: "Opening the database…" });
+    await openStore(storeId);
+  }
+}
+
+/**
+ * What the "go back in time" dialog offers as moments to go back to. Asked for when the dialog
+ * opens: a closed database has to be read off its log file, which means walking it.
+ */
+export interface TimeTravelInfo {
+  currentKey: string;
+  size: number;
+  open: boolean;
+  firstChangeUtc: string | null;
+  lastChangeUtc: string | null;
+  /** The start of the last revert window begun on this database, active or long since ended. */
+  revertWindowUtc: string | null;
+  /** When that window was begun, which is not the same as the moment it marks. */
+  revertWindowBegunUtc: string | null;
+  revertWindowActive: boolean;
+}
+
+export function fetchTimeTravelInfo(storeId: string): Promise<TimeTravelInfo> {
+  return send<TimeTravelInfo>("db-time-travel-info", { storeId });
+}
+
+/** What the database was left at after going back in time, and what was left out getting there. */
+export interface TimeTravelResult {
+  newKey: string;
+  previousKey: string;
+  /** The newest transaction the copy holds: where the database now ends. */
+  lastChangeUtc: string | null;
+  /** The newest transaction the file it was copied from held. */
+  droppedFromUtc: string | null;
+  transactionsKept: number;
+  transactionsDropped: number;
+  actionsDropped: number;
+  bytesKept: number;
+  bytesDropped: number;
+}
+
+/**
+ * Copies the log file up to a moment in time and opens the database on the copy. Closing first is
+ * not a precaution but a requirement: a running database holds its log file exclusively, so
+ * nothing can read it until it lets go.
+ */
+export async function timeTravel(ctl: ProgressController, storeId: string, untilUtc: Date): Promise<TimeTravelResult> {
+  ctl.set({ label: "Closing the database…", total: null });
+  await closeStore(storeId);
+  try {
+    ctl.set({ label: `Copying the database up to ${untilUtc.toLocaleString()}…` });
+    return await send<TimeTravelResult>("db-time-travel", { storeId, untilUtc: untilUtc.toISOString() });
+  } finally {
+    ctl.set({ label: "Opening the database…" });
+    await openStore(storeId);
+  }
 }
 
 // ---- converted file cache ----

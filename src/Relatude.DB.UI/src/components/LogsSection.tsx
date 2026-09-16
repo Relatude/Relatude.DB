@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
   IconAlertTriangle,
+  IconArrowAutofitWidth,
   IconArrowsExchange,
   IconBolt,
   IconChartHistogram,
-  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconDatabaseSearch,
@@ -27,7 +27,7 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import { Chart, groupColor, intervalLabel } from "./Chart";
 import { showChoice, showConfirm, showError, showInfo } from "../dialogs";
 import {
@@ -359,6 +359,84 @@ function writeLayout(layout: LogsLayout) {
   }
 }
 
+/**
+ * How wide each column of one log's entry table has been dragged, in pixels, by column key.
+ *
+ * Only the dragged ones are in here: a column nobody has touched keeps the width its data type
+ * asks for (a share of the row, wider for text), which is what makes a log look right before
+ * anybody has done anything to it. Stored per log, because the columns are the log's own - what
+ * the query log wants from its Query column says nothing about the task log.
+ */
+type ColumnWidths = Record<string, number>;
+const columnWidthsKey = (logKey: string) => "logs:columns:" + logKey;
+// A floor, and deliberately no ceiling: a Query column holding a four hundred character query is
+// worth dragging as wide as it takes, and the table scrolls sideways to allow it. Double-clicking
+// the grip is the way back to a column that fits the row again, so nothing can be dragged into a
+// state there is no escape from.
+const minColumnWidth = 60;
+
+function readColumnWidths(logKey: string): ColumnWidths {
+  try {
+    const saved = localStorage.getItem(columnWidthsKey(logKey));
+    if (!saved) return {};
+    const parsed = JSON.parse(saved) as Record<string, unknown>;
+    const widths: ColumnWidths = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === "number" && isFinite(value)) widths[key] = Math.max(minColumnWidth, value);
+    }
+    return widths;
+  } catch {
+    return {}; // private windows and cleared site data: the defaults are no worse
+  }
+}
+
+function writeColumnWidths(logKey: string, widths: ColumnWidths) {
+  try {
+    if (Object.keys(widths).length === 0) localStorage.removeItem(columnWidthsKey(logKey));
+    else localStorage.setItem(columnWidthsKey(logKey), JSON.stringify(widths));
+  } catch {
+    // nothing depends on it holding
+  }
+}
+
+/**
+ * Folding a panel away, in view rather than between two frames.
+ *
+ * Two states, because a thing that is not in the document cannot be animated out of it: `mounted`
+ * keeps the content in the page until the fold has finished closing, `shown` is the class that
+ * drives it. Opening mounts first at nothing and only then opens, one frame later, so the browser
+ * has a height to move from - which is why the frame is asked for in an effect that waits for
+ * `mounted` to have been committed rather than in the one that asked for it.
+ *
+ * The timer beside the frame is not a belt on a brace: a window that is hidden or minimised runs no
+ * animation frames at all, and without it a panel opened there would mount at nothing and stay
+ * there. Whichever arrives first opens it; the other is cancelled.
+ */
+const foldMs = 180;
+
+function useFold(open: boolean) {
+  const [mounted, setMounted] = useState(open);
+  const [shown, setShown] = useState(open);
+  useEffect(() => {
+    if (open) setMounted(true);
+  }, [open]);
+  useEffect(() => {
+    if (!open) {
+      setShown(false);
+      const id = window.setTimeout(() => setMounted(false), foldMs);
+      return () => window.clearTimeout(id); // reopened before it finished closing: it never unmounts
+    }
+    if (!mounted) return;
+    const frame = requestAnimationFrame(() => setShown(true));
+    const fallback = window.setTimeout(() => setShown(true), 80);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(fallback);
+    };
+  }, [open, mounted]);
+  return { mounted, shown };
+}
+
 function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChanged: () => void }) {
   const [rangeId, setRangeId] = useState("24h");
   const [seriesKey, setSeriesKey] = useState(seriesId(log.series[0]));
@@ -378,7 +456,13 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
   const [applied, setApplied] = useState<AppliedSearch>(noSearch);
   const [loading, setLoading] = useState(false);
   const [layout, setLayout] = useState<LogsLayout>(readLayout);
+  const statsFold = useFold(layout.statistics);
+  const entriesFold = useFold(layout.entries);
   const [resizing, setResizing] = useState(false);
+  // the widths the columns have been dragged to; see ColumnWidths. Re-read when the tab changes log
+  const [widths, setWidths] = useState<ColumnWidths>(() => readColumnWidths(log.key));
+  const [draggingColumn, setDraggingColumn] = useState<string | null>(null);
+  const headRef = useRef<HTMLDivElement>(null);
   const range = ranges.find((r) => r.id === rangeId) ?? ranges[2];
   const selected = log.series.find((s) => seriesId(s) === seriesKey) ?? log.series[0];
   const columns = log.columns;
@@ -609,10 +693,68 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
   const total = filtering ? matches.length : (page?.total ?? 0);
   // the range holds more than the filter window brought back, so the filter has not seen all of it
   const beyondWindow = filtering && (page?.total ?? 0) > entries.length;
-  const gridTemplate = "150px " + columns.map((c) => (c.dataType === "String" ? "minmax(0, 2fr)" : "minmax(0, 1fr)")).join(" ");
+  // A dragged column is that many pixels wide; an untouched one is still a share of the row, wider
+  // for text than for a number. Mixing the two is the point: widening the one column being read
+  // must not turn the other eleven into fixed columns that no longer follow the window.
+  const track = (key: string, fallback: string) => (widths[key] ? widths[key] + "px" : fallback);
+  const gridTemplate = [
+    track(timeKey, "150px"),
+    ...columns.map((c) => track(c.key, c.dataType === "String" ? "minmax(0, 2fr)" : "minmax(0, 1fr)")),
+  ].join(" ");
   // a log with many columns scrolls sideways rather than squeezing every one of them into an
   // ellipsis: below this width the table is unreadable, and the panel around it has a scrollbar
-  const rowStyle = { gridTemplateColumns: gridTemplate, minWidth: 170 + columns.length * 110 };
+  const minRowWidth =
+    20 + (widths[timeKey] ?? 150) + columns.reduce((sum, c) => sum + (widths[c.key] ?? 110), 0) + (columns.length + 1) * 10;
+  const rowStyle = { gridTemplateColumns: gridTemplate, minWidth: minRowWidth };
+
+  /**
+   * Dragging the grip on the right edge of a heading. A column with no width yet starts from the
+   * width it happens to have on screen, so the first pixel of the drag moves it from where it is
+   * rather than jumping to some default. Double-clicking the grip gives the column back to the
+   * row - see resetColumn.
+   */
+  function startColumnResize(e: ReactMouseEvent, key: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    const cell = (e.currentTarget as HTMLElement).parentElement;
+    const startWidth = widths[key] ?? Math.round(cell?.getBoundingClientRect().width ?? 120);
+    const startX = e.clientX;
+    setDraggingColumn(key);
+    document.body.style.cursor = "col-resize";
+    const move = (ev: MouseEvent) => {
+      const next = Math.max(minColumnWidth, startWidth + ev.clientX - startX);
+      setWidths((prev) => (prev[key] === next ? prev : { ...prev, [key]: next }));
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      document.body.style.cursor = "";
+      setDraggingColumn(null);
+      // read the final widths out of the setter rather than off a stale closure
+      setWidths((current) => {
+        writeColumnWidths(log.key, current);
+        return current;
+      });
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }
+
+  /** Gives one column back to the row: it shares the width again like an untouched one. */
+  function resetColumn(key: string) {
+    setWidths((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      writeColumnWidths(log.key, next);
+      return next;
+    });
+  }
+
+  function resetAllColumns() {
+    setWidths({});
+    writeColumnWidths(log.key, {});
+  }
   return (
     <div className="logs-body">
       <div className="logs-toolbar">
@@ -647,6 +789,13 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
         >
           <IconReload size={15} stroke={1.8} />
         </button>
+        {/* only once a column has been dragged: until then there is nothing to give back, and the
+            button would only be a question about a feature nobody had used */}
+        {Object.keys(widths).length > 0 && (
+          <button className="action-button" onClick={resetAllColumns} title="Give every column back to the row">
+            <IconArrowAutofitWidth size={15} stroke={1.8} /> Reset widths
+          </button>
+        )}
         <button
           className="action-button"
           onClick={download}
@@ -666,13 +815,17 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
       {/* the two panels and the divider that shares the page between them: the divider is the gap,
           so a folded graph leaves nothing to drag and the panels sit together */}
       <div className={"logs-split" + (resizing ? " resizing" : "")}>
-      <section className={"panel" + (layout.statistics ? "" : " folded")}>
+      <section className={"panel" + (statsFold.shown ? "" : " folded")}>
         <h3 className="with-fold">
-          <FoldButton open={layout.statistics} label="the statistics" onToggle={() => togglePanel("statistics")} />
-          Statistics <span className="panel-sub">{summaryText(series)}</span>
+          {/* the whole heading is the switch, not just the arrow: it is the one row a folded panel
+              has left, and there is no other thing to click on it */}
+          <FoldHead open={layout.statistics} label="the statistics" onToggle={() => togglePanel("statistics")}>
+            Statistics <span className="panel-sub">{summaryText(series)}</span>
+          </FoldHead>
         </h3>
-        {layout.statistics && (
-          <>
+        {statsFold.mounted && (
+          <div className={"fold" + (statsFold.shown ? " open" : "")}>
+            <div className="fold-inner">
         <div className="logs-series">
           {log.series.map((s) => (
             <button
@@ -730,13 +883,14 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
             </div>
           </>
         ) : null}
-          </>
+            </div>
+          </div>
         )}
       </section>
 
-      {layout.statistics && (
+      {statsFold.mounted && (
         <div
-          className={"pg-bar pg-hbar logs-divider" + (resizing ? " active" : "")}
+          className={"pg-bar pg-hbar logs-divider" + (resizing ? " active" : "") + (statsFold.shown ? "" : " folding")}
           role="separator"
           aria-orientation="horizontal"
           aria-label="Resize the graph"
@@ -746,18 +900,21 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
         />
       )}
 
-      <section className={"panel" + (layout.entries ? "" : " folded")}>
+      <section className={"panel" + (entriesFold.shown ? "" : " folded")}>
         <h3 className="with-fold">
-          <FoldButton open={layout.entries} label="the entries" onToggle={() => togglePanel("entries")} />
-          Entries <span className="panel-sub">{entriesText(range.label, total, skip, rows.length, filtering, entries.length, searching)}</span>
+          <FoldHead open={layout.entries} label="the entries" onToggle={() => togglePanel("entries")}>
+            Entries <span className="panel-sub">{entriesText(range.label, total, skip, rows.length, filtering, entries.length, searching)}</span>
+          </FoldHead>
+          {/* outside the switch: it is its own action, and a button inside a button is not one */}
           {filtering && layout.entries && (
             <button className="link-button" onClick={() => setFilters({})} title="Empty every filter field">
               Clear filter
             </button>
           )}
         </h3>
-        {layout.entries && (
-          <>
+        {entriesFold.mounted && (
+          <div className={"fold" + (entriesFold.shown ? " open" : "")}>
+            <div className="fold-inner">
         {/* The search reads the whole range on the server, the filter row under the headings only
             what the browser holds: this is the one to reach for when the range is large. */}
         <SearchBox
@@ -787,11 +944,21 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
             {searching ? " The search itself reads every one of them." : " The search box above reads every one of them."}
           </div>
         )}
-        <div className="log-table">
-          <div className="log-table-row log-table-head with-filter-row" style={rowStyle}>
-            <span>Time</span>
-            {columns.map((c) => (
-              <span key={c.key}>{c.name}</span>
+        <div className={"log-table" + (draggingColumn ? " resizing" : "")}>
+          {/* Every heading carries a grip on its right edge: drag to set that column's width,
+              double-click to give it back to the row. The grip sits in the gap between the columns,
+              so it is a target without taking width from either of them. */}
+          <div ref={headRef} className="log-table-row log-table-head with-filter-row" style={rowStyle}>
+            {[{ key: timeKey, name: "Time" }, ...columns].map((c) => (
+              <span key={c.key} className="log-head-cell" title={c.name}>
+                <span className="log-head-label">{c.name}</span>
+                <span
+                  className={"log-col-grip" + (draggingColumn === c.key ? " active" : "") + (widths[c.key] ? " sized" : "")}
+                  onMouseDown={(e) => startColumnResize(e, c.key)}
+                  onDoubleClick={() => resetColumn(c.key)}
+                  title={widths[c.key] ? "Drag to resize, double-click to fit it to the row again" : "Drag to resize this column"}
+                />
+              </span>
             ))}
           </div>
           {/* one field per column, under the heading it filters, so which column it narrows needs no
@@ -841,7 +1008,8 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
             </button>
           </div>
         )}
-          </>
+            </div>
+          </div>
         )}
       </section>
       </div>
@@ -849,11 +1017,19 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
   );
 }
 
-/** Folds a panel away to its heading, and back. The heading keeps saying what is in there. */
-function FoldButton({ open, label, onToggle }: { open: boolean; label: string; onToggle: () => void }) {
+/**
+ * The heading of a foldable panel, and the switch that folds it. The whole row is the button - the
+ * arrow alone is a small target, and on a folded panel the heading is all there is to aim at - so
+ * anything else that belongs on the row (the Entries panel's "Clear filter") stays outside it: a
+ * button inside a button is not one.
+ */
+function FoldHead({ open, label, onToggle, children }: { open: boolean; label: string; onToggle: () => void; children: ReactNode }) {
   return (
-    <button className="panel-fold" onClick={onToggle} title={(open ? "Fold away " : "Open ") + label} aria-expanded={open}>
-      {open ? <IconChevronDown size={14} stroke={2} /> : <IconChevronRight size={14} stroke={2} />}
+    <button className="panel-fold-head" onClick={onToggle} title={(open ? "Fold away " : "Open ") + label} aria-expanded={open}>
+      <span className="panel-fold">
+        <IconChevronRight size={14} stroke={2} />
+      </span>
+      {children}
     </button>
   );
 }

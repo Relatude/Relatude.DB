@@ -2,9 +2,12 @@ using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Indexes.KvStore;
+using Relatude.DB.DataStores.Stores;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.Utils;
+// both namespaces above hold a NodeStore; the one these tests drive is the public API
+using NodeStore = Relatude.DB.Nodes.NodeStore;
 
 namespace Relatude.Persistence;
 
@@ -274,5 +277,55 @@ public class RevertTests {
         var noop = store.RollbackRevertWindow();
         Assert.AreEqual(0, noop.TransactionsDeleted);
         Assert.IsNull(store.RevertWindow);
+    }
+
+    /// <summary>
+    /// The note beside the database saying where the last window began. It outlives the window and
+    /// the store, which is the whole point: the admin UI offers that moment as somewhere to go back
+    /// to long after the window itself has been committed (see RevertMark).
+    /// </summary>
+    [TestMethod]
+    public void RevertMark_OutlivesTheWindowAndTheStore() {
+        var dir = tempDir();
+        try {
+            Assert.IsNull(RevertMark.ReadOrNull(new IOProviderDisk(dir)), "nothing has marked anything yet");
+            long first, second;
+            using (var store = openStore(dir, "Memory", "Memory")) {
+                var updateId = insertBaseNodes(store);
+                first = store.BeginRevertWindow();
+                Assert.AreEqual(first, RevertMark.ReadOrNull(new IOProviderDisk(dir))?.Timestamp, "written as the window begins");
+                store.CommitRevertWindow();
+                Assert.IsNull(store.RevertWindow);
+                Assert.AreEqual(first, RevertMark.ReadOrNull(new IOProviderDisk(dir))?.Timestamp, "and it survives the window ending");
+
+                // a second window replaces it: the note is about the last one, not the first
+                mutate(store, updateId);
+                second = store.BeginRevertWindow();
+                store.CommitRevertWindow();
+            }
+            var mark = RevertMark.ReadOrNull(new IOProviderDisk(dir));
+            Assert.IsNotNull(mark, "and the store closing");
+            Assert.AreEqual(second, mark!.Timestamp);
+            Assert.AreNotEqual(first, second);
+            Assert.AreEqual(new DateTime(second, DateTimeKind.Utc), mark.Utc);
+        } finally {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    /// <summary>Losing the note costs nothing but the suggestion, so every way of failing to read
+    /// one answers null instead of throwing.</summary>
+    [TestMethod]
+    public void RevertMark_UnreadableIsNoMark() {
+        var io = new IOProviderMemory();
+        Assert.IsNull(RevertMark.ReadOrNull(io), "no file at all");
+        foreach (var rubbish in new[] { "", "not a mark", "123", "abc|2026-01-01T00:00:00.0000000Z", "0|2026-01-01T00:00:00.0000000Z", "123|not a date" }) {
+            io.WriteAllTextUTF8(FileKeyUtility.RevertMarkFileKey, rubbish);
+            Assert.IsNull(RevertMark.ReadOrNull(io), "\"" + rubbish + "\" is not a mark");
+        }
+        RevertMark.Write(io, new RevertMark(639250000000000000, new DateTime(2026, 9, 15, 12, 0, 0, DateTimeKind.Utc)));
+        var read = RevertMark.ReadOrNull(io);
+        Assert.AreEqual(639250000000000000, read?.Timestamp);
+        Assert.AreEqual(new DateTime(2026, 9, 15, 12, 0, 0, DateTimeKind.Utc), read?.BegunUtc);
     }
 }

@@ -109,6 +109,11 @@ public static class FileKeyUtility {
     const string queueFileName = "queue";
     static readonly string[] queueFileKeyPattern = [StateFolderName, "queue.*"];
 
+    // Where the last revert window's start is noted; see RevertMark. Beside the state snapshot
+    // because that is what it is about, but deliberately not matched by any state pattern above:
+    // clearing the state must not forget where somebody marked a point worth returning to.
+    static readonly string[] revertMarkFileKey = [StateFolderName, "revert.txt"];
+
     // The datamodel editor's files. The draft is the one model being edited (one per database);
     // history files are timestamped copies of every model that has been active, newest last.
     static readonly string[] datamodelDraftFileKey = [DatamodelsFolderName, "datamodel.draft.json"];
@@ -292,6 +297,9 @@ public static class FileKeyUtility {
     }
 
     public static string[] Queue_GetFileKey(string ext) => [StateFolderName, queueFileName + "." + ext];
+
+    /// <summary>The note holding the last revert window's start; see RevertMark.</summary>
+    public static string[] RevertMarkFileKey => revertMarkFileKey;
 
     /// <summary>The draft model of the datamodel editor; there is one per database.</summary>
     public static string[] Datamodel_DraftFileKey => datamodelDraftFileKey;

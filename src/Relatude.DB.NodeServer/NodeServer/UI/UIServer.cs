@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.DataStores;
+using Relatude.DB.DataStores.Stores;
 using Relatude.DB.FileConversion;
 using Relatude.DB.IO;
 using Relatude.DB.NodeServer.API;
@@ -533,6 +534,81 @@ public sealed class UIServer {
         if (s.IoBackup.HasValue && s.IoBackup != Guid.Empty) return s.IoBackup.Value;
         return s.IoDatabase ?? throw new Exception("No backup or database IO provider configured. ");
     }
+    /// <summary>A UTC time the way the admin UI reads it back: an ISO string that says it is UTC.
+    /// A zero tick count is how the store reports "no such moment" (an empty log has no first and no
+    /// last transaction), and it reaches the page as nothing rather than as the year 1.</summary>
+    static string? utc(DateTime? value) => value is DateTime v && v.Ticks > 0 ? DateTime.SpecifyKind(v, DateTimeKind.Utc).ToString("o") : null;
+
+    // ---- putting a different file in place as the database ----
+    // Restoring a backup, going back in time, adopting a file from the Files page and uploading one
+    // are the same operation with four sources: a new log file is written next to the current one
+    // and the database is opened on it. The current file is never touched - it stays one file key
+    // behind, which is what makes every one of them reversible (by adopting it again).
+
+    /// <summary>
+    /// Writes a new write ahead log file and drops everything derived from the one it replaces, so
+    /// the next open reads the new file and rebuilds around it. Returns the key it was written to.
+    /// The database must be closed.
+    /// <para><paramref name="write"/> is handed the database's IO provider and the key to write, and
+    /// the key is worked out here rather than by the caller on purpose: one picked before the
+    /// database was closed can have become the live file in the meantime, and writing onto that
+    /// would destroy the database instead of replacing it.</para>
+    /// </summary>
+    string[] switchToLogFile(NodeStoreContainer c, Action<IIOProvider, string[]> write) {
+        if (c.IsOpenOrOpening()) throw new Exception("The database must be closed first. ");
+        var dbIo = _server.GetIO(c.Settings.IoDatabase ?? throw new Exception("No database IO provider configured. "));
+        var destKey = FileKeyUtility.WAL_NextFileKey(dbIo);
+        if (!dbIo.DoesNotExistOrIsEmpty(destKey)) throw new Exception("The database file " + destKey.AsKeyString() + " already exists. ");
+        write(dbIo, destKey);
+        try {
+            LogFileScan.ReadHeader(dbIo, destKey); // a file the database cannot open must never be left in its place
+        } catch {
+            dbIo.DeleteFileIfItExists(destKey);
+            throw;
+        }
+        clearLogDerivedFiles(c, dbIo);
+        return destKey;
+    }
+
+    /// <summary>
+    /// Deletes everything built from the log file being replaced: the state snapshot, the state
+    /// files of the memory indexes, and the secondary log (recreated from the new primary at the
+    /// next open). The index engines are not touched here - they reset themselves on seeing a log
+    /// file id they do not know, which is why every writer above stamps a fresh one.
+    /// </summary>
+    void clearLogDerivedFiles(NodeStoreContainer c, IIOProvider dbIo) {
+        // the state files live with the index provider when there is one, which is not necessarily
+        // the database provider
+        foreach (var io in new[] { dbIo, _server.GetOrNullIO(c.Settings.IoIndexes) }.OfType<IIOProvider>().Distinct()) {
+            FileKeyUtility.State_DeleteAll(io);
+            foreach (var key in FileKeyUtility.Index_GetAll(io)) io.DeleteFileIfItExists(key);
+        }
+        if (c.Settings.LocalSettings?.SecondaryBackupLog == true) {
+            var secondaryIo = _server.GetOrNullIO(c.Settings.IoDatabaseSecondary) ?? dbIo;
+            secondaryIo.DeleteFileIfItExists(FileKeyUtility.WAL_GetSecondaryFileKey());
+        }
+    }
+
+    /// <summary>The database's current log file, with the provider it lives in. Throws when there is
+    /// nothing to read - every operation below copies from it or replaces it.</summary>
+    (IIOProvider Io, string[] Key) currentLogFile(NodeStoreContainer c) {
+        var io = _server.GetIO(c.Settings.IoDatabase ?? throw new Exception("No database IO provider configured. "));
+        var key = FileKeyUtility.WAL_GetLatestFileKey(io);
+        if (io.DoesNotExistOrIsEmpty(key)) throw new Exception("There is no database file to read. ");
+        return (io, key);
+    }
+
+    /// <summary>The file id of the log being replaced, or null when there is no readable one - an
+    /// installation that has never been opened has no database file at all, and a file that cannot
+    /// be read is one nothing can be said to collide with.</summary>
+    Guid? currentLogFileId(NodeStoreContainer c) {
+        try {
+            var (io, key) = currentLogFile(c);
+            return LogFileScan.ReadHeader(io, key).FileId;
+        } catch {
+            return null;
+        }
+    }
     // ---- the drives the server writes to ----
 
     /// <summary>One drive with server folders on it: what it is, how big, and what put it there.</summary>
@@ -898,24 +974,97 @@ public sealed class UIServer {
             return (object?)new { Done = true };
         });
         // copies a backup into place as the next WAL file key (the old current file is kept)
-        // and clears the state file; the database must be closed, the UI reopens it after
+        // and clears everything derived from the old log; the database must be closed, the UI reopens it after
         Commands.Register("backup-restore", ctx => {
             var p = ctx.Payload<BackupRestorePayload>();
             var c = getContainer(p.StoreId);
-            if (c.IsOpenOrOpening()) throw new Exception("The database must be closed first. ");
             var backupIo = _server.GetIO(getBackupIoId(c));
-            var dbIo = _server.GetIO(c.Settings.IoDatabase ?? throw new Exception("No database IO provider configured. "));
             var sourceKey = p.Key.SplitKey();
             if (backupIo.DoesNotExistOrIsEmpty(sourceKey)) throw new Exception("Backup not found. ");
-            var destKey = FileKeyUtility.WAL_NextFileKey(dbIo);
-            using (var source = backupIo.OpenRead(sourceKey, 0))
-            using (var dest = dbIo.OpenAppend(destKey)) {
-                using var readStream = ReadStreamWrapper.Wrap(source);
-                using var writeStream = new WriteStreamWrapper(dest);
-                readStream.CopyTo(writeStream);
+            var size = backupIo.GetFileSizeOrZeroIfUnknown(sourceKey);
+            LogFileScan.ReadHeader(backupIo, sourceKey); // refuses anything that is not a readable log file
+            var newKey = switchToLogFile(c, (dbIo, destKey) => LogFileScan.Copy(backupIo, sourceKey, dbIo, destKey, size, Guid.NewGuid()));
+            return (object?)new { NewKey = newKey.AsKeyString() };
+        });
+        // What the "go back in time" dialog offers to go back to: the ends of the log, and the last
+        // revert window somebody began (whatever became of it - see RevertMark). Asked for when the
+        // dialog opens rather than reported with the rest of the page, because a closed database
+        // has to be read off its file, which means walking the log.
+        Commands.Register("db-time-travel-info", async ctx => {
+            var p = ctx.Payload<IoListPayload>();
+            var c = getContainer(p.StoreId);
+            var dbIo = _server.GetIO(c.Settings.IoDatabase ?? throw new Exception("No database IO provider configured. "));
+            var key = FileKeyUtility.WAL_GetLatestFileKey(dbIo);
+            DateTime? first = null, last = null;
+            var store = c.Store;
+            if (store != null && store.State == DataStoreState.Open) {
+                // the running database holds its log file exclusively, so it is the only one that
+                // can say where the log begins and ends
+                var info = await store.Datastore.GetInfoAsync();
+                first = info.LogFirstStateUtc;
+                last = info.LogLastChange;
+            } else if (!dbIo.DoesNotExistOrIsEmpty(key)) {
+                var cut = LogFileScan.Until(dbIo, key, DateTime.MaxValue); // closed: the file is ours to read
+                first = cut.FirstUtc;
+                last = cut.LastUtc;
             }
-            FileKeyUtility.State_DeleteAll(dbIo); // an old state must never pair with the restored log
-            return (object?)new { NewKey = destKey.AsKeyString() };
+            var mark = RevertMark.ReadOrNull(_server.GetOrNullIO(c.Settings.IoIndexes) ?? dbIo);
+            return (object?)new {
+                CurrentKey = key.AsKeyString(),
+                Size = dbIo.GetFileSizeOrZeroIfUnknown(key),
+                Open = store != null && store.State == DataStoreState.Open,
+                FirstChangeUtc = utc(first),
+                LastChangeUtc = utc(last),
+                RevertWindowUtc = utc(mark?.Utc),
+                RevertWindowBegunUtc = utc(mark?.BegunUtc),
+                RevertWindowActive = store?.Datastore.RevertWindow != null,
+            };
+        });
+        // The database as it was at a moment in time: the current log is copied up to the last
+        // transaction at or before it and the copy takes over. Nothing is deleted - the log it was
+        // copied from stays one file key behind, and the Files page can make it the database again.
+        Commands.Register("db-time-travel", ctx => {
+            var p = ctx.Payload<TimeTravelPayload>();
+            var c = getContainer(p.StoreId);
+            if (c.IsOpenOrOpening()) throw new Exception("The database must be closed first. ");
+            var (io, sourceKey) = currentLogFile(c);
+            // whatever the client's timezone did to the text, the log is measured in UTC ticks
+            var untilUtc = p.UntilUtc.Kind == DateTimeKind.Utc ? p.UntilUtc : p.UntilUtc.ToUniversalTime();
+            var cut = LogFileScan.Until(io, sourceKey, untilUtc);
+            if (cut.FirstTimestamp > 0 && untilUtc.Ticks < cut.FirstTimestamp)
+                throw new Exception("The database file begins at UTC " + cut.FirstUtc!.Value.ToString("u")
+                    + ". Copying it up to an earlier moment would leave nothing at all. ");
+            if (cut.TransactionsDropped == 0)
+                throw new Exception("The database file already ends at UTC " + (cut.LastUtc?.ToString("u") ?? "its beginning")
+                    + ", so there is nothing after " + untilUtc.ToString("u") + " to leave out. ");
+            var newKey = switchToLogFile(c, (dbIo, destKey) => LogFileScan.Copy(io, sourceKey, dbIo, destKey, cut.KeepEnd, Guid.NewGuid()));
+            return (object?)new {
+                NewKey = newKey.AsKeyString(),
+                PreviousKey = sourceKey.AsKeyString(),
+                LastChangeUtc = utc(cut.LastKeptUtc),
+                DroppedFromUtc = utc(cut.LastUtc),
+                cut.TransactionsKept,
+                cut.TransactionsDropped,
+                cut.ActionsDropped,
+                cut.BytesKept,
+                cut.BytesDropped,
+            };
+        });
+        // Makes any file the database: it is copied onto the next WAL file key and everything built
+        // from the old log is dropped. The file is only read, so the one the database is running on
+        // can be adopted back after a time travel, and a copy someone dropped in the Files page can
+        // be tried without moving it anywhere first.
+        Commands.Register("db-adopt-file", ctx => {
+            var p = ctx.Payload<AdoptFilePayload>();
+            var c = getContainer(p.StoreId);
+            if (c.IsOpenOrOpening()) throw new Exception("The database must be closed first. ");
+            var sourceIo = _server.GetIO(p.IoId);
+            var sourceKey = p.Key.SplitKey();
+            if (sourceIo.DoesNotExistOrIsEmpty(sourceKey)) throw new Exception("The file is empty or does not exist. ");
+            var header = LogFileScan.ReadHeader(sourceIo, sourceKey); // refuses anything that is not a log file
+            var size = sourceIo.GetFileSizeOrZeroIfUnknown(sourceKey);
+            var newKey = switchToLogFile(c, (dbIo, destKey) => LogFileScan.Copy(sourceIo, sourceKey, dbIo, destKey, size, Guid.NewGuid()));
+            return (object?)new { NewKey = newKey.AsKeyString(), Size = size, FirstChangeUtc = utc(header.FirstUtc) };
         });
         // log size, snapshot staleness and truncation potential, plus old WAL files no longer in use
         Commands.Register("db-maintenance-info", async ctx => {
@@ -998,8 +1147,9 @@ public sealed class UIServer {
             store.Datastore.SaveIndexStates();
             return (object?)new { Done = true };
         });
-        // the database is a single WAL file; downloading it is a copy of the database,
-        // uploading one (as the next file key, with the state file cleared) is a restore
+        // the database is a single WAL file; downloading it is a copy of the database, and every
+        // way of putting one in place (uploading, restoring, going back in time) writes the next
+        // file key and reopens on it
         Commands.Register("db-file-info", ctx => {
             var p = ctx.Payload<IoListPayload>();
             var c = getContainer(p.StoreId);
@@ -1009,20 +1159,44 @@ public sealed class UIServer {
             return (object?)new {
                 IoId = ioId,
                 CurrentKey = current.AsKeyString(),
-                NextKey = FileKeyUtility.WAL_NextFileKey(io).AsKeyString(),
                 Size = io.GetFileSizeOrZeroIfUnknown(current),
                 State = c.HasFailed ? "Error" : c.Store?.State.ToString() ?? "Closed",
                 CanUpload = c.Store == null || c.Store.State == DataStoreState.Closed,
             };
         });
-        Commands.Register("db-upload-finalize", ctx => {
-            var p = ctx.Payload<IoListPayload>();
+        // The end of a database upload: the staged file becomes the database. Which key it lands on
+        // is decided here, once the database is closed and the file has arrived, rather than named
+        // by the client before the upload started - by then the log may have moved on, and the next
+        // key from back then can be the live file.
+        Commands.Register("db-upload-adopt", ctx => {
+            var p = ctx.Payload<UploadAdoptPayload>();
             var c = getContainer(p.StoreId);
             if (c.IsOpenOrOpening()) throw new Exception("The database must be closed before uploading. ");
-            var ioId = c.Settings.IoDatabase ?? throw new Exception("No database IO provider configured. ");
-            // an old state file must never be paired with a newer log file
-            FileKeyUtility.State_DeleteAll(_server.GetIO(ioId));
-            return (object?)new { Done = true };
+            var io = _server.GetIO(p.IoId);
+            var temp = UIFileTransfer.UploadTempKey(p.UploadId);
+            var received = io.GetFileSizeOrZeroIfUnknown(temp);
+            if (received == 0) throw new Exception("The upload is missing; nothing was staged. ");
+            if (received != p.Size) throw new Exception($"The upload holds {received} bytes, {p.Size} were expected. ");
+            LogFileHeader header;
+            try {
+                header = LogFileScan.ReadHeader(io, temp); // refuses anything that is not a database file
+            } catch {
+                io.DeleteFileIfItExists(temp);
+                throw;
+            }
+            // The index engines rebuild when the log file id is one they have not seen, which is
+            // what an uploaded database normally is - so the upload is moved into place as it is.
+            // A file carrying the same id as the log being replaced (re-uploading a download of it)
+            // would look to them like the log they are already up to date with, so that one is
+            // copied with an id of its own instead.
+            var sameId = header.FileId == currentLogFileId(c);
+            var newKey = switchToLogFile(c, (dbIo, destKey) => {
+                var canMove = !sameId && p.IoId == c.Settings.IoDatabase && io.CanRenameFile;
+                if (canMove) io.RenameFile(temp, destKey);
+                else LogFileScan.Copy(io, temp, dbIo, destKey, received, sameId ? Guid.NewGuid() : null);
+            });
+            io.DeleteFileIfItExists(temp); // a no-op when it was renamed into place
+            return (object?)new { NewKey = newKey.AsKeyString(), Size = received, FirstChangeUtc = utc(header.FirstUtc) };
         });
         // ---- the converted file cache: the resized images and transcoded media the conversion
         // engine derives from stored files. Everything in it is rebuilt on demand, so deleting it
@@ -1218,6 +1392,12 @@ public sealed class UIServer {
 sealed record IoListPayload(Guid StoreId);
 sealed record BackupNowPayload(Guid StoreId, bool Truncate, bool KeepForever);
 sealed record BackupRestorePayload(Guid StoreId, string Key);
+/// <summary>UntilUtc is the moment the copy of the log should end at, as UTC.</summary>
+sealed record TimeTravelPayload(Guid StoreId, DateTime UntilUtc);
+/// <summary>The file to make the database, in any of the server's storages.</summary>
+sealed record AdoptFilePayload(Guid StoreId, Guid IoId, string Key);
+/// <summary>A database upload staged through ui/upload-part, ready to take over.</summary>
+sealed record UploadAdoptPayload(Guid StoreId, Guid IoId, Guid UploadId, long Size);
 sealed record TruncatePayload(Guid StoreId, bool KeepOld);
 sealed record IoFolderPayload(Guid IoId, string? Path, bool Recursive = false);
 /// <summary>Key is the file (rename file), the folder (rename folder) or the parent folder (create folder).</summary>

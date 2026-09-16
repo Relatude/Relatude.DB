@@ -30,6 +30,15 @@ export function formatTime(iso: string): string {
 }
 
 /**
+ * An exact moment, always with its date. Where two stamps stand next to each other - the ends of a
+ * span, a before and an after - formatTime's shortcut for today would make one of them a time and
+ * the other a date and time, which reads as a mistake rather than as a convenience.
+ */
+export function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString();
+}
+
+/**
  * A query string as lines: what is being queried, then one call per line.
  *
  * The page shows the query it sends so it can be read as an explanation of the result and pasted

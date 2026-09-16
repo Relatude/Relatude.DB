@@ -1930,25 +1930,81 @@ a {
   display: flex;
   align-items: center;
   gap: 6px;
+  transition: margin-bottom 180ms ease;
 }
 
 .panel.folded h3 {
   margin-bottom: 0;
 }
 
-.panel-fold {
+/* The whole heading row is the switch, so it is the button: it carries the heading's own type, and
+   it stretches across the row so there is no dead strip beside the name that does nothing. */
+.panel-fold-head {
   display: flex;
-  flex: none;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
   padding: 0;
-  margin-left: -3px;
-  color: var(--text-muted);
+  margin: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+  color: inherit;
   background: none;
   border: none;
   cursor: pointer;
 }
 
-.panel-fold:hover {
+.panel-fold-head:hover {
   color: var(--text);
+}
+
+.panel-fold {
+  display: flex;
+  flex: none;
+  margin-left: -3px;
+  /* one chevron for both states: it turns a quarter as the panel opens, which is the same movement
+     the panel itself makes and cheaper to follow than two icons swapping */
+  transition: transform 180ms ease;
+}
+
+.panel-fold-head[aria-expanded="true"] .panel-fold {
+  transform: rotate(90deg);
+}
+
+/* ---- folding a panel away, in view ----
+   The row the content takes shrinks to nothing rather than disappearing between two frames. A grid
+   whose single row goes from 0fr to 1fr is what animates it: no height has to be measured, and the
+   content keeps its own natural height throughout. The inner box does the clipping, because the
+   grid track is what is being animated and it cannot clip itself. */
+.fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 180ms ease,
+    opacity 140ms ease;
+}
+
+.fold.open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.fold-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fold,
+  .panel-fold,
+  .panel h3.with-fold,
+  .logs-divider {
+    transition: none;
+  }
 }
 
 .muted {
@@ -2797,6 +2853,71 @@ a {
   padding-top: 0;
 }
 
+/* A database that has been backed up nightly for a year has a lot of these. The list scrolls on its
+   own so the groups below it stay where they are, and the column names ride along at the top of the
+   scroller - without them a scrolled list is six unlabelled columns. */
+.backup-list {
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.backup-list .backup-row.db-table-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding-top: 4px;
+  background: var(--panel);
+}
+
+/* ---- going back in time: the dialog that picks the moment ---- */
+
+.time-travel-dialog {
+  width: 480px;
+}
+
+/* the moments the database knows, listed under the field they fill in */
+.time-travel-moments {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.time-travel-moments > .muted {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* a moment with no time behind it stays listed - the row is what says there is none - but it
+   cannot be clicked, so it must not look as if it could be */
+.time-travel-moment:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.time-travel-moment:disabled:hover {
+  border-color: var(--border);
+}
+
+.time-travel-moment-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.time-travel-moment-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.time-travel-note {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
 .storage-facts {
   margin-bottom: 12px;
 }
@@ -2845,6 +2966,23 @@ a.action-button {
   gap: 6px;
   margin: 0 0 10px;
   font-size: 14px;
+}
+
+/* The corner buttons of a dialog: minimize where there is something to put away, and the cross.
+   They push themselves to the end of the title row and are pulled out into the dialog's own
+   padding, so the title sits where it always did and the cross lands in the corner. A title long
+   enough to reach them ellipsises rather than pushing them off. */
+.dialog h3 > .dialog-tools {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  margin: -6px -8px -6px auto;
+  padding-left: 8px;
+}
+
+.dialog h3 > .dialog-tools .icon-button {
+  width: 26px;
+  height: 26px;
 }
 
 .dialog-title-error {
@@ -3130,8 +3268,10 @@ a.action-button {
   font-weight: 600;
 }
 
+/* the section's own colour, the one the rail entry and the contents list beside it are painted in -
+   not the app accent, which said "chosen" in a blue that has nothing to do with Settings */
 .settings-section-head svg {
-  color: var(--accent);
+  color: var(--section-tone, var(--accent));
 }
 
 .settings-section .panel + .panel {
@@ -4544,6 +4684,62 @@ a.action-button {
   border-bottom: none;
 }
 
+/* ---- dragging a column wider ----
+   Every heading is the anchor for a grip on its right edge. The grip lies in the 10px gap between
+   the columns rather than inside either of them, so it is a comfortable target that costs the
+   table no width, and it only draws itself once the pointer is near it. */
+.log-head-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* the name is what gets clipped; the cell around it has to stay unclipped so the grip on its edge
+   is not cut in half */
+.log-head-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.log-col-grip {
+  position: absolute;
+  top: -5px;
+  bottom: -5px;
+  right: -10px;
+  width: 11px;
+  cursor: col-resize;
+}
+
+.log-col-grip::after {
+  content: "";
+  position: absolute;
+  inset: 2px 4px;
+  border-radius: 99px;
+  background: transparent;
+}
+
+.log-col-grip:hover::after,
+.log-col-grip.active::after {
+  background: var(--accent);
+}
+
+/* a column that has been dragged keeps a faint line, so it is clear which widths are being held
+   and which are still following the row */
+.log-col-grip.sized::after {
+  background: var(--border);
+}
+
+/* while a column is being dragged nothing else reacts to the pointer: no text selection, no row
+   hover, and the cursor stays the one the drag started with wherever it goes */
+.log-table.resizing,
+.log-table.resizing * {
+  user-select: none;
+  cursor: col-resize !important;
+}
+
 .log-table-filter {
   padding-top: 3px;
   padding-bottom: 5px;
@@ -4566,6 +4762,12 @@ a.action-button {
 .logs-divider {
   flex: none;
   height: 14px;
+  transition: height 180ms ease;
+}
+
+/* it belongs to the graph above it, so it closes up with it rather than vanishing when it does */
+.logs-divider.folding {
+  height: 0;
 }
 
 /* while the divider is dragged, nothing under the pointer is selected or hovered into life */

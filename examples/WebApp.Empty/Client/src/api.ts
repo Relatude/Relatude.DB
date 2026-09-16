@@ -2,7 +2,7 @@
 // and in production the Backend serves this client from wwwroot.
 export interface Hello {
   message: string;
-  serverTimeUtc: string;
+  utc: string;
 }
 
 export async function getHello(): Promise<Hello> {
