@@ -60,7 +60,7 @@ internal class LogReader : IDisposable {
             if (!foundMarker) break;
             var from = _readStream.Position;
             try {
-                transaction = tryReadNext(_readStream, _definition, _formatVersion, ref _lastTimestampID, out byteSizeOfTransaction);
+                transaction = tryReadNext(_readStream, _definition, _formatVersion, log, ref _lastTimestampID, out byteSizeOfTransaction);
                 return true;
             } catch (Exception error) {
                 var to = _readStream.Position;
@@ -78,7 +78,7 @@ internal class LogReader : IDisposable {
         byteSizeOfTransaction = 0;
         return false;
     }
-    static ExecutedPrimitiveTransaction tryReadNext(IReadStream readStream, Definition def, long formatVersion, ref long lastTimestampID, out long byteSizeOfTransaction) {
+    static ExecutedPrimitiveTransaction tryReadNext(IReadStream readStream, Definition def, long formatVersion, Action<string, Exception?> log, ref long lastTimestampID, out long byteSizeOfTransaction) {
         var startPosition = readStream.Position;
         var timestamp = readStream.ReadLong();
         var noActions = readStream.ReadVerifiedInt();
@@ -98,18 +98,27 @@ internal class LogReader : IDisposable {
                     actions.Add(action);
                 } else {
                     // unknown node types are ignored
+#if DEBUG
+                    log("Unknown node type found in log file: " + na.Node.NodeType + ", ignoring this action.", null);
+#endif
                 }
             } else if (action is PrimitiveRelationAction ra) { // check that loaded relation is of known type
                 if (def.Relations.ContainsKey(ra.RelationId)) {
                     actions.Add(action);
                 } else {
                     // unknown relation types are ignored
+#if DEBUG
+                    log("Unknown relation type found in log file: " + ra.RelationId + ", ignoring this action.", null);
+#endif
                 }
             } else if (action is PrimitiveRelationReorderAction rra) { // check that loaded relation is of known type
                 if (def.Relations.ContainsKey(rra.RelationId)) {
                     actions.Add(action);
                 } else {
                     // unknown relation types are ignored
+#if DEBUG
+                    log("Unknown relation type during reorder found in log file: " + rra.RelationId + ", ignoring this action.", null);
+#endif
                 }
             } else { // cultures and collections....
                 throw new NotSupportedException("Unknown action type: " + action.GetType().Name);
