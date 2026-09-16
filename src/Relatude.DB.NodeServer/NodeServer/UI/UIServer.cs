@@ -589,6 +589,76 @@ public sealed class UIServer {
         }
     }
 
+    // ---- finding log files to go back in ----
+
+    /// <summary>Every storage a database log file could be lying in: the providers of the database's
+    /// own settings, and the website project folder the Files page lists as well. Named the way that
+    /// page names them, so a file found here is one the reader can go and look at.</summary>
+    List<(Guid Id, string Name)> logFileProviders(NodeStoreContainer c) {
+        var providers = (c.Settings.IOSettings ?? [])
+            .Select(io => (io.Id, Name: string.IsNullOrEmpty(io.Name) ? io.IOType.ToString() : io.Name))
+            .DistinctBy(provider => provider.Id).ToList();
+        if (!providers.Any(provider => provider.Id == RelatudeDBServer.ProjectRootIOId))
+            providers.Add((RelatudeDBServer.ProjectRootIOId, "[Server root]"));
+        return providers;
+    }
+
+    /// <summary>One log file as the dialog lists it. The header is read for the moment the file
+    /// begins at, which is what tells two copies of a database apart at a glance - except on the file
+    /// a running database is holding, where there is nothing to read and nothing wrong with that
+    /// (<see cref="isLiveLogFile"/>); the dialog fills that one in from the database itself. A file
+    /// that cannot be read is listed with what went wrong rather than left out: a backup that has
+    /// gone bad is exactly what somebody looking for one wants to be told.</summary>
+    object describeLogFile(IIOProvider io, Guid ioId, string ioName, string[] key, long size, DateTime? modifiedUtc,
+        bool isBackup, bool isCurrent, NodeStoreContainer c) {
+        var inUse = isCurrent && c.Store != null && c.Store.State == DataStoreState.Open;
+        string? firstChangeUtc = null, fileId = null, error = null;
+        if (!inUse) {
+            try {
+                var header = LogFileScan.ReadHeader(io, key);
+                firstChangeUtc = utc(header.FirstUtc);
+                fileId = header.FileId.ToString();
+            } catch (Exception e) {
+                error = e.Message;
+            }
+        }
+        return new {
+            IoId = ioId,
+            IoName = ioName,
+            Key = key.AsKeyString(),
+            Name = key.FileName(),
+            Folder = key.Length > 1 ? key[0] : "",
+            Size = size,
+            ModifiedUtc = utc(modifiedUtc),
+            IsCurrent = isCurrent,
+            InUse = inUse,
+            BackupUtc = isBackup ? utc(backupTimeOrNull(key)) : null,
+            KeepForever = isBackup && FileKeyUtility.WAL_KeepForever(key),
+            FirstChangeUtc = firstChangeUtc,
+            FileId = fileId,
+            Error = error,
+        };
+    }
+
+    /// <summary>The moment in a backup's file name. A name that does not parse is not an error worth
+    /// refusing the file over - it is only what the list is sorted by.</summary>
+    static DateTime? backupTimeOrNull(string[] key) {
+        try {
+            return FileKeyUtility.WAL_GetBackUpDateTimeFromFileKey(key);
+        } catch {
+            return null;
+        }
+    }
+    static DateTime backupTimeOrDefault(string[] key) => backupTimeOrNull(key) ?? DateTime.MinValue;
+
+    /// <summary>Whether this is the log file a running database is holding. It keeps it to itself
+    /// (FileShare.None), so nothing can read the file until the database is closed.</summary>
+    bool isLiveLogFile(NodeStoreContainer c, Guid ioId, string[] key) {
+        if (c.Store == null || c.Store.State != DataStoreState.Open) return false;
+        if (c.Settings.IoDatabase is not Guid dbIoId || dbIoId != ioId) return false;
+        return key.IsSameKey(FileKeyUtility.WAL_GetLatestFileKey(_server.GetIO(dbIoId)));
+    }
+
     /// <summary>The database's current log file, with the provider it lives in. Throws when there is
     /// nothing to read - every operation below copies from it or replaces it.</summary>
     (IIOProvider Io, string[] Key) currentLogFile(NodeStoreContainer c) {
@@ -1020,27 +1090,119 @@ public sealed class UIServer {
                 RevertWindowActive = store?.Datastore.RevertWindow != null,
             };
         });
-        // The database as it was at a moment in time: the current log is copied up to the last
-        // transaction at or before it and the copy takes over. Nothing is deleted - the log it was
-        // copied from stays one file key behind, and the Files page can make it the database again.
+        // Every database log file the server can see: the one the database is running on, the ones it
+        // has moved on from, and every backup of one, in each storage the database has plus the
+        // website project folder. This is what the "go back in time" dialog offers to go back in -
+        // going back is a copy of a log file cut short, and any log file will do, not only the one in
+        // use. IoId/Key name one more file to include, which is how the dialog opened from the Files
+        // page carries in a file lying somewhere neither folder below is looked at.
+        Commands.Register("db-log-files", ctx => {
+            var p = ctx.Payload<LogFilesPayload>();
+            var c = getContainer(p.StoreId);
+            var dbIoId = c.Settings.IoDatabase;
+            var currentKey = dbIoId is Guid dbId ? FileKeyUtility.WAL_GetLatestFileKey(_server.GetIO(dbId)) : null;
+            var files = new List<object>();
+            var listed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var provider in logFileProviders(c)) {
+                IIOProvider io;
+                FileMeta[] listing;
+                try {
+                    io = _server.GetIO(provider.Id);
+                    listing = io.GetFiles();
+                } catch {
+                    continue; // a storage that cannot be reached holds nothing the dialog could offer
+                }
+                var data = new List<object>();
+                var backups = new List<(DateTime When, object File)>();
+                foreach (var meta in listing) {
+                    var key = meta.KeyOf();
+                    var isBackup = FileKeyUtility.WAL_IsBackUpFileKey(key);
+                    if (!isBackup && !FileKeyUtility.WAL_IsFileKey(key)) continue;
+                    listed.Add(provider.Id + "|" + key.AsKeyString());
+                    var file = describeLogFile(io, provider.Id, provider.Name, key, meta.Size, meta.LastModifiedUtc,
+                        isBackup, provider.Id == dbIoId && key.IsSameKey(currentKey), c);
+                    if (isBackup) backups.Add((backupTimeOrDefault(key), file));
+                    else data.Add(file);
+                }
+                files.AddRange(data); // oldest key first: the listing is ordered, and the last one is the current file
+                files.AddRange(backups.OrderByDescending(b => b.When).Select(b => b.File)); // newest backup first
+            }
+            if (p.IoId is Guid extraIo && !string.IsNullOrWhiteSpace(p.Key) && !listed.Contains(extraIo + "|" + p.Key)) {
+                var key = p.Key.SplitKey();
+                var io = _server.GetIO(extraIo);
+                var name = logFileProviders(c).FirstOrDefault(provider => provider.Id == extraIo).Name ?? "";
+                files.Add(describeLogFile(io, extraIo, name, key, io.GetFileSizeOrZeroIfUnknown(key), null,
+                    FileKeyUtility.WAL_IsBackUpFileKey(key), extraIo == dbIoId && key.IsSameKey(currentKey), c));
+            }
+            return (object?)files;
+        });
+        // The picture the dialog can draw of a log file: every transaction in it, gathered into
+        // slices of equal width (see LogFileScan.Timeline). It walks the whole file, which on a big
+        // one outlasts a request, so it runs as a job the dialog polls and can give up on - in the
+        // registry the file store scans use, so one database cannot be reading two of these at once.
+        Commands.Register("db-log-scan-start", ctx => {
+            var p = ctx.Payload<LogScanPayload>();
+            var c = getContainer(p.StoreId);
+            var io = _server.GetIO(p.IoId);
+            var key = p.Key.SplitKey();
+            if (io.DoesNotExistOrIsEmpty(key)) throw new Exception("The file is empty or does not exist. ");
+            if (isLiveLogFile(c, p.IoId, key))
+                throw new Exception("The database is open and holds this file to itself. It has to be closed before the file can be read. ");
+            var name = key.AsKeyString();
+            var job = FileScanJobs.Start(p.StoreId, "log timeline", j => Task.FromResult((object)LogFileScan.Timeline(
+                io, key, p.FromPosition, p.ToPosition, p.Slices,
+                (done, total) => j.SetProgress("Reading " + name + "…", total > 0 ? (int)(done * 100 / total) : 100),
+                j.Cancellation.Token)));
+            return (object?)new { JobId = job.Id };
+        });
+        Commands.Register("db-log-scan-progress", ctx => {
+            var p = ctx.Payload<FileScanJobPayload>();
+            var job = FileScanJobs.Get(p.JobId);
+            // the timeline is only set once the job is done, so the slices travel once rather than
+            // on every poll
+            return (object?)new { job.State, job.Description, job.Percent, job.Error, Timeline = job.Result as LogFileTimeline };
+        });
+        Commands.Register("db-log-scan-cancel", ctx => {
+            var p = ctx.Payload<FileScanJobPayload>();
+            FileScanJobs.Get(p.JobId).Cancellation.Cancel();
+            return (object?)new { Cancelled = true };
+        });
+        // The database as it was at a moment in time: a log file is copied up to the last transaction
+        // at or before it and the copy takes over. The log copied from is by default the one the
+        // database is running on; IoId/Key name another, which is how an older file or a backup is
+        // gone back into rather than restored whole. Nothing is deleted either way - the file that
+        // was in place stays one file key behind, and the Files page can make it the database again.
         Commands.Register("db-time-travel", ctx => {
             var p = ctx.Payload<TimeTravelPayload>();
             var c = getContainer(p.StoreId);
             if (c.IsOpenOrOpening()) throw new Exception("The database must be closed first. ");
-            var (io, sourceKey) = currentLogFile(c);
+            var (currentIo, currentKey) = currentLogFile(c);
+            var io = currentIo;
+            var sourceKey = currentKey;
+            var fromCurrent = true;
+            if (p.IoId is Guid sourceIoId && !string.IsNullOrWhiteSpace(p.Key)) {
+                io = _server.GetIO(sourceIoId);
+                sourceKey = p.Key.SplitKey();
+                if (io.DoesNotExistOrIsEmpty(sourceKey)) throw new Exception("The file is empty or does not exist. ");
+                fromCurrent = sourceIoId == c.Settings.IoDatabase && sourceKey.IsSameKey(currentKey);
+            }
             // whatever the client's timezone did to the text, the log is measured in UTC ticks
             var untilUtc = p.UntilUtc.Kind == DateTimeKind.Utc ? p.UntilUtc : p.UntilUtc.ToUniversalTime();
             var cut = LogFileScan.Until(io, sourceKey, untilUtc);
             if (cut.FirstTimestamp > 0 && untilUtc.Ticks < cut.FirstTimestamp)
-                throw new Exception("The database file begins at UTC " + cut.FirstUtc!.Value.ToString("u")
+                throw new Exception(sourceKey.AsKeyString() + " begins at UTC " + cut.FirstUtc!.Value.ToString("u")
                     + ". Copying it up to an earlier moment would leave nothing at all. ");
-            if (cut.TransactionsDropped == 0)
+            // Leaving nothing out is only a mistake when the file being cut is the one in use: the
+            // database would be replaced by a copy of itself. From any other file it is the whole of
+            // that file becoming the database, which is a thing somebody can mean to do.
+            if (cut.TransactionsDropped == 0 && fromCurrent)
                 throw new Exception("The database file already ends at UTC " + (cut.LastUtc?.ToString("u") ?? "its beginning")
                     + ", so there is nothing after " + untilUtc.ToString("u") + " to leave out. ");
             var newKey = switchToLogFile(c, (dbIo, destKey) => LogFileScan.Copy(io, sourceKey, dbIo, destKey, cut.KeepEnd, Guid.NewGuid()));
             return (object?)new {
                 NewKey = newKey.AsKeyString(),
-                PreviousKey = sourceKey.AsKeyString(),
+                SourceKey = sourceKey.AsKeyString(),
+                PreviousKey = currentKey.AsKeyString(),
                 LastChangeUtc = utc(cut.LastKeptUtc),
                 DroppedFromUtc = utc(cut.LastUtc),
                 cut.TransactionsKept,
@@ -1392,8 +1554,16 @@ public sealed class UIServer {
 sealed record IoListPayload(Guid StoreId);
 sealed record BackupNowPayload(Guid StoreId, bool Truncate, bool KeepForever);
 sealed record BackupRestorePayload(Guid StoreId, string Key);
-/// <summary>UntilUtc is the moment the copy of the log should end at, as UTC.</summary>
-sealed record TimeTravelPayload(Guid StoreId, DateTime UntilUtc);
+/// <summary>UntilUtc is the moment the copy of the log should end at, as UTC. IoId and Key name the
+/// log file to copy; without them it is the one the database is running on.</summary>
+sealed record TimeTravelPayload(Guid StoreId, DateTime UntilUtc, Guid? IoId = null, string? Key = null);
+/// <summary>IoId and Key name one more file to list beside the ones found in the data and backup
+/// folders - the file the dialog was opened from, wherever it happens to lie.</summary>
+sealed record LogFilesPayload(Guid StoreId, Guid? IoId = null, string? Key = null);
+/// <summary>The log file to draw, and how much of it: FromPosition and ToPosition are transaction
+/// boundaries from a previous scan's slices (0 for the whole file), Slices how many the picture is
+/// gathered into.</summary>
+sealed record LogScanPayload(Guid StoreId, Guid IoId, string Key, long FromPosition = 0, long ToPosition = 0, int Slices = 1200);
 /// <summary>The file to make the database, in any of the server's storages.</summary>
 sealed record AdoptFilePayload(Guid StoreId, Guid IoId, string Key);
 /// <summary>A database upload staged through ui/upload-part, ready to take over.</summary>

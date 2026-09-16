@@ -24,6 +24,26 @@ public sealed record LogFileCut(
 }
 
 /// <summary>
+/// One slice of a log file's timeline: a stretch of time of fixed width, and what the log holds in
+/// it. Times are unix milliseconds rather than tick counts, because that is what the admin UI draws
+/// the picture on and a tick count is past what a javascript number holds exactly.
+/// <para><see cref="StartPosition"/> and <see cref="EndPosition"/> are transaction boundaries, so a
+/// second scan can be handed the ends of the stretch being looked at and walk only that much of the
+/// file rather than all of it again.</para>
+/// </summary>
+public sealed record LogFileSlice(long FromMs, long ToMs, long FirstMs, long LastMs,
+    long Transactions, long Actions, long Bytes, long StartPosition, long EndPosition);
+
+/// <summary>A log file's transactions over time; see <see cref="LogFileScan.Timeline"/>. Slices
+/// holding nothing are left out, so a quiet week costs nothing to carry: a slice says where it sits
+/// (<see cref="LogFileSlice.FromMs"/>), it is not found by its place in the list.</summary>
+public sealed record LogFileTimeline(long FileSize, long ScanStart, long ScanEnd, long SliceMs,
+    long Transactions, long Actions, long FirstTimestamp, long LastTimestamp, List<LogFileSlice> Slices) {
+    public DateTime? FirstUtc => LogFileScan.AsUtc(FirstTimestamp);
+    public DateTime? LastUtc => LogFileScan.AsUtc(LastTimestamp);
+}
+
+/// <summary>
 /// Reading a write ahead log from the outside: its header, where its transactions end, and a copy
 /// of it that stops at a moment in time.
 /// <para>Unlike <see cref="LogReader"/> this walks the file's framing only - transaction and action
@@ -100,7 +120,37 @@ public static class LogFileScan {
         // transaction that is too new, everything goes. Without that rule a copy could keep a
         // transaction whose effect depends on one it left out.
         var pastTarget = false;
-        while (stream.Position + markerLength <= fileSize) {
+        walk(stream, fileSize, t => {
+            if (first == 0) first = t.Timestamp;
+            last = t.Timestamp;
+            if (!pastTarget && t.Timestamp <= untilTimestamp) {
+                kept++;
+                actionsKept += t.Actions;
+                lastKept = t.Timestamp;
+                keepEnd = t.End;
+            } else {
+                pastTarget = true;
+                dropped++;
+                actionsDropped += t.Actions;
+            }
+            return true;
+        });
+        return new LogFileCut(keepEnd, fileSize, kept, dropped, actionsKept, actionsDropped, first, lastKept, last);
+    }
+
+    /// <summary>One transaction as the walk met it: when it was written, how many actions it holds,
+    /// and the bytes it occupies.</summary>
+    readonly record struct walkedTransaction(long Timestamp, int Actions, long Start, long End);
+
+    /// <summary>
+    /// Walks the framing of a log file from where the stream stands to <paramref name="endPosition"/>,
+    /// handing over every transaction that reads cleanly. The walk stops at the end, at a transaction
+    /// the callback says no more after, or at the first one that does not parse - a torn tail is
+    /// everything after the last transaction that reads cleanly, which is the rule the log format is
+    /// built on.
+    /// </summary>
+    static void walk(IReadStream stream, long endPosition, Func<walkedTransaction, bool> onTransaction) {
+        while (stream.Position + markerLength <= endPosition) {
             var start = stream.Position;
             long timestamp;
             int actions;
@@ -112,8 +162,8 @@ public static class LogFileScan {
                 for (var i = 0; i < actions; i++) {
                     if (stream.ReadGuid() != WALFile._actionMarker) throw new IOException("Action marker missing. ");
                     var length = stream.ReadVerifiedInt();
-                    // the action's own checksum follows its bytes; both must be inside the file
-                    if (length < 0 || stream.Position + length + 4 > fileSize) throw new IOException("Action length outside the file. ");
+                    // the action's own checksum follows its bytes; both must be inside the walk
+                    if (length < 0 || stream.Position + length + 4 > endPosition) throw new IOException("Action length outside the file. ");
                     stream.Skip(length);
                     stream.Skip(4); // the checksum: the bytes are copied as they are, so it is not re-verified here
                 }
@@ -121,21 +171,130 @@ public static class LogFileScan {
             } catch {
                 break; // a tail that does not parse is a partially written transaction: the file ends here
             }
-            if (first == 0) first = timestamp;
-            last = timestamp;
-            if (!pastTarget && timestamp <= untilTimestamp) {
-                kept++;
-                actionsKept += actions;
-                lastKept = timestamp;
-                keepEnd = stream.Position;
-            } else {
-                pastTarget = true;
-                dropped++;
-                actionsDropped += actions;
-            }
-            if (stream.Position <= start) break; // a transaction that consumed nothing would loop forever
+            var end = stream.Position;
+            if (!onTransaction(new walkedTransaction(timestamp, actions, start, end))) break;
+            if (end <= start) break; // a transaction that consumed nothing would loop forever
         }
-        return new LogFileCut(keepEnd, fileSize, kept, dropped, actionsKept, actionsDropped, first, lastKept, last);
+    }
+
+    /// <summary>The narrowest slice a timeline is measured in. A log written in one burst lands
+    /// inside a single millisecond whatever is done, and every slice edge being a whole millisecond
+    /// is what lets the admin UI do its own arithmetic on them.</summary>
+    const long minSliceTicks = TimeSpan.TicksPerMillisecond;
+    const int progressEveryTransactions = 4096;
+
+    /// <summary>
+    /// Every transaction in a log file, gathered into slices of equal width so the whole file can be
+    /// drawn as one picture: how much was written when, from the first transaction to the last.
+    /// <para>The width is not given but found: slices start one millisecond wide and are merged in
+    /// pairs whenever the file turns out to reach further than <paramref name="maxSlices"/> of them,
+    /// so one pass over the file produces a picture of the whole of it at the finest width that
+    /// fits. That is why this cannot be answered from the header - the walk is the answer.</para>
+    /// <para><paramref name="startPosition"/> and <paramref name="endPosition"/> narrow the walk to
+    /// part of the file (0 for the whole of it). They must be transaction boundaries, which is what
+    /// the positions on a previous scan's slices are: handing back the ends of a stretch that was
+    /// drawn is how the same stretch is looked at more closely without reading the file again.</para>
+    /// </summary>
+    public static LogFileTimeline Timeline(IIOProvider io, string[] fileKey, long startPosition, long endPosition,
+        int maxSlices, Action<long, long>? progress = null, CancellationToken cancellation = default) {
+        maxSlices = Math.Clamp(maxSlices, 8, 16384);
+        if ((maxSlices & 1) != 0) maxSlices++; // merging works in pairs, so an odd last slice would fall off
+        using var stream = io.OpenRead(fileKey, 0);
+        var header = readHeader(stream);
+        var fileSize = stream.Length;
+        var from = startPosition <= header.Length ? header.Length : Math.Min(startPosition, fileSize);
+        var to = endPosition <= 0 ? fileSize : Math.Min(endPosition, fileSize);
+        if (to < from) to = from;
+        stream.Position = from;
+
+        var transactions = new long[maxSlices];
+        var actions = new long[maxSlices];
+        var bytes = new long[maxSlices];
+        var firstTicks = new long[maxSlices];
+        var lastTicks = new long[maxSlices];
+        var startPos = new long[maxSlices];
+        var endPos = new long[maxSlices];
+        var used = 0; // slices 0..used-1 have been written to; a slice is empty when its count is 0
+
+        // Halves the resolution: each pair of slices becomes one, which frees the upper half of the
+        // arrays for the time the file turned out to reach into. A zero is "nothing here" throughout
+        // - no transaction carries a zero timestamp and none begins at byte zero, the header is there.
+        void mergePairs() {
+            var half = maxSlices / 2;
+            for (var i = 0; i < half; i++) {
+                var a = i * 2;
+                var b = a + 1;
+                transactions[i] = transactions[a] + transactions[b];
+                actions[i] = actions[a] + actions[b];
+                bytes[i] = bytes[a] + bytes[b];
+                firstTicks[i] = firstTicks[a] != 0 ? firstTicks[a] : firstTicks[b];
+                lastTicks[i] = lastTicks[b] != 0 ? lastTicks[b] : lastTicks[a];
+                startPos[i] = startPos[a] != 0 ? startPos[a] : startPos[b];
+                endPos[i] = endPos[b] != 0 ? endPos[b] : endPos[a];
+            }
+            foreach (var array in new[] { transactions, actions, bytes, firstTicks, lastTicks, startPos, endPos })
+                Array.Clear(array, half, maxSlices - half);
+            used = (used + 1) / 2;
+        }
+
+        var width = minSliceTicks;
+        long origin = 0, total = 0, totalActions = 0, first = 0, last = 0;
+        var started = false;
+        var sinceProgress = 0;
+        walk(stream, to, t => {
+            if (!started) {
+                started = true;
+                first = t.Timestamp;
+                origin = alignDownToMs(t.Timestamp); // so every slice edge lands on a whole millisecond
+            }
+            last = t.Timestamp;
+            total++;
+            totalActions += t.Actions;
+            // a timestamp older than the first one is a clock that went backwards: it belongs to the
+            // start of the picture rather than to a slice before it, which there is no room for
+            var index = t.Timestamp <= origin ? 0 : (t.Timestamp - origin) / width;
+            while (index >= maxSlices) {
+                mergePairs();
+                width *= 2;
+                index = (t.Timestamp - origin) / width;
+            }
+            var i = (int)index;
+            if (i >= used) used = i + 1;
+            transactions[i]++;
+            actions[i] += t.Actions;
+            bytes[i] += t.End - t.Start;
+            if (firstTicks[i] == 0) firstTicks[i] = t.Timestamp;
+            lastTicks[i] = t.Timestamp;
+            if (startPos[i] == 0) startPos[i] = t.Start;
+            endPos[i] = t.End;
+            if (++sinceProgress >= progressEveryTransactions) {
+                sinceProgress = 0;
+                cancellation.ThrowIfCancellationRequested();
+                progress?.Invoke(t.End - from, to - from);
+            }
+            return true;
+        });
+
+        var slices = new List<LogFileSlice>();
+        for (var i = 0; i < used; i++) {
+            if (transactions[i] == 0) continue;
+            var sliceStart = origin + i * width;
+            slices.Add(new LogFileSlice(ToUnixMs(sliceStart), ToUnixMs(sliceStart + width),
+                ToUnixMs(firstTicks[i]), ToUnixMsRoundUp(lastTicks[i]),
+                transactions[i], actions[i], bytes[i], startPos[i], endPos[i]));
+        }
+        return new LogFileTimeline(fileSize, from, stream.Position, width / TimeSpan.TicksPerMillisecond,
+            total, totalActions, first, last, slices);
+    }
+
+    static long alignDownToMs(long ticks) => ticks - (ticks - DateTime.UnixEpoch.Ticks) % TimeSpan.TicksPerMillisecond;
+    /// <summary>A tick count as unix milliseconds, the unit the admin UI measures the picture in.</summary>
+    public static long ToUnixMs(long ticks) => (ticks - DateTime.UnixEpoch.Ticks) / TimeSpan.TicksPerMillisecond;
+    /// <summary>The same, rounded up: a moment named in whole milliseconds includes the transaction
+    /// it was taken from, which one rounded down would cut away.</summary>
+    public static long ToUnixMsRoundUp(long ticks) {
+        var rest = (ticks - DateTime.UnixEpoch.Ticks) % TimeSpan.TicksPerMillisecond;
+        return ToUnixMs(ticks) + (rest == 0 ? 0 : 1);
     }
 
     /// <summary>

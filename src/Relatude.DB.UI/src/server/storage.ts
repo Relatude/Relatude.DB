@@ -185,9 +185,156 @@ export function fetchTimeTravelInfo(storeId: string): Promise<TimeTravelInfo> {
   return send<TimeTravelInfo>("db-time-travel-info", { storeId });
 }
 
+/** A log file named by the storage it lies in and its key there; what everything below works on. */
+export interface LogFileSource {
+  ioId: string;
+  key: string;
+}
+
+/**
+ * One database log file the dialog can go back in: the file the database is running on, one it has
+ * moved on from, or a backup of either. Found in the data and backup folders of every storage the
+ * database has, so a copy kept somewhere else is listed beside the one in use.
+ *
+ * `firstChangeUtc` is read from the file's own header, which is what tells two copies apart at a
+ * glance - except on the file a running database holds (`inUse`), which nothing else can read; that
+ * one is filled in from the database itself. `error` is what the file said when it could not be
+ * read, and the file is listed with it rather than left out.
+ */
+export interface LogFileInfo extends LogFileSource {
+  ioName: string;
+  name: string;
+  folder: string; // "data", "backup", or "" for a file in the storage root
+  size: number;
+  modifiedUtc: string | null;
+  isCurrent: boolean; // the database's current log file key
+  inUse: boolean; // ... and the database is open, so the file is held and cannot be read
+  backupUtc: string | null;
+  keepForever: boolean;
+  firstChangeUtc: string | null;
+  fileId: string | null;
+  error: string | null;
+}
+
+/** `include` lists one more file wherever it lies, for the dialog opened from a file on the Files page. */
+export function fetchLogFiles(storeId: string, include?: LogFileSource | null): Promise<LogFileInfo[]> {
+  return send<LogFileInfo[]>("db-log-files", { storeId, ioId: include?.ioId ?? null, key: include?.key ?? null });
+}
+
+/**
+ * One stretch of a log file's timeline and what it holds. The times are unix milliseconds - what the
+ * picture is drawn on - and the positions are transaction boundaries, so handing a pair of them back
+ * to a second scan reads only the stretch being looked at (see `scanLogFile`).
+ */
+export interface LogSlice {
+  fromMs: number;
+  toMs: number;
+  /** The first and last transaction in the slice; lastMs is rounded up, so it can be gone back to. */
+  firstMs: number;
+  lastMs: number;
+  transactions: number;
+  actions: number;
+  bytes: number;
+  startPosition: number;
+  endPosition: number;
+}
+
+/** What one scan of a log file found: see `scanLogFile`. Empty slices are left out. */
+export interface LogTimeline {
+  fileSize: number;
+  scanStart: number;
+  scanEnd: number;
+  /** The width every slice was gathered at, in milliseconds; found by the scan, not asked of it. */
+  sliceMs: number;
+  transactions: number;
+  actions: number;
+  firstUtc: string | null;
+  lastUtc: string | null;
+  slices: LogSlice[];
+}
+
+export interface LogScanProgress {
+  state: "running" | "done" | "cancelled" | "failed";
+  description: string;
+  percent: number;
+  error: string | null;
+  timeline: LogTimeline | null; // set once the job is done, so the slices travel once
+}
+
+/**
+ * Walks a log file and gathers its transactions into slices of equal width, which is what the
+ * timeline is drawn from. The walk reads the whole file, so like the file store scans it runs as a
+ * server job that is polled and can be cancelled.
+ *
+ * `range` narrows it to part of the file, given as the positions of a previous scan's slices: that
+ * is how a stretch of the picture is looked at more closely without reading the file again.
+ */
+export async function scanLogFile(
+  ctl: ProgressController,
+  storeId: string,
+  source: LogFileSource,
+  range?: { fromPosition: number; toPosition: number },
+  slices = 1200,
+): Promise<LogTimeline> {
+  ctl.set({ label: "Starting…", total: 100, done: 0, meta: "0%" }); // the job reports percent, so the bar counts to 100
+  const { jobId } = await send<{ jobId: string }>("db-log-scan-start", {
+    storeId,
+    ioId: source.ioId,
+    key: source.key,
+    fromPosition: range?.fromPosition ?? 0,
+    toPosition: range?.toPosition ?? 0,
+    slices,
+  });
+  const cancelJob = () => {
+    void send("db-log-scan-cancel", { jobId }).catch(() => {}); // a job that already finished is not an error worth showing
+  };
+  ctl.signal.addEventListener("abort", cancelJob, { once: true });
+  try {
+    for (;;) {
+      const progress = await send<LogScanProgress>("db-log-scan-progress", { jobId });
+      ctl.set({ label: progress.description || "Reading…", done: progress.percent, meta: progress.percent + "%" });
+      if (progress.state === "running") {
+        await new Promise((r) => setTimeout(r, 300));
+        continue;
+      }
+      if (progress.state === "failed") throw new Error(progress.error ?? "The scan failed.");
+      if (progress.state === "cancelled") throw new DOMException("Aborted", "AbortError");
+      if (!progress.timeline) throw new Error("The scan finished without a timeline.");
+      return progress.timeline;
+    }
+  } finally {
+    ctl.signal.removeEventListener("abort", cancelJob);
+  }
+}
+
+/**
+ * The same scan of the file a running database is holding: it keeps that file to itself, so it is
+ * closed for the length of the scan and opened again afterwards, failure and cancel included. Only
+ * for that one file - every other log file can be read with the database running.
+ */
+export async function scanLogFileClosed(
+  ctl: ProgressController,
+  storeId: string,
+  source: LogFileSource,
+  range?: { fromPosition: number; toPosition: number },
+  slices?: number,
+): Promise<LogTimeline> {
+  ctl.set({ label: "Closing the database…", total: null });
+  await closeStore(storeId);
+  try {
+    return await scanLogFile(ctl, storeId, source, range, slices);
+  } finally {
+    ctl.set({ label: "Opening the database…", total: null, meta: null });
+    await openStore(storeId);
+  }
+}
+
 /** What the database was left at after going back in time, and what was left out getting there. */
 export interface TimeTravelResult {
   newKey: string;
+  /** The log file that was copied - the one the database was running on unless another was picked. */
+  sourceKey: string;
+  /** The database file that was in place before, which is kept beside the new one. */
   previousKey: string;
   /** The newest transaction the copy holds: where the database now ends. */
   lastChangeUtc: string | null;
@@ -201,16 +348,27 @@ export interface TimeTravelResult {
 }
 
 /**
- * Copies the log file up to a moment in time and opens the database on the copy. Closing first is
- * not a precaution but a requirement: a running database holds its log file exclusively, so
- * nothing can read it until it lets go.
+ * Copies a log file up to a moment in time and opens the database on the copy. `source` is the file
+ * to copy; without one it is the file the database is running on. Closing first is not a precaution
+ * but a requirement: a running database holds its log file exclusively, so nothing can read it -
+ * and the copy has to become the database, which is not something done underneath a running one.
  */
-export async function timeTravel(ctl: ProgressController, storeId: string, untilUtc: Date): Promise<TimeTravelResult> {
+export async function timeTravel(
+  ctl: ProgressController,
+  storeId: string,
+  untilUtc: Date,
+  source?: LogFileSource | null,
+): Promise<TimeTravelResult> {
   ctl.set({ label: "Closing the database…", total: null });
   await closeStore(storeId);
   try {
-    ctl.set({ label: `Copying the database up to ${untilUtc.toLocaleString()}…` });
-    return await send<TimeTravelResult>("db-time-travel", { storeId, untilUtc: untilUtc.toISOString() });
+    ctl.set({ label: `Copying ${source ? source.key : "the database"} up to ${untilUtc.toLocaleString()}…` });
+    return await send<TimeTravelResult>("db-time-travel", {
+      storeId,
+      untilUtc: untilUtc.toISOString(),
+      ioId: source?.ioId ?? null,
+      key: source?.key ?? null,
+    });
   } finally {
     ctl.set({ label: "Opening the database…" });
     await openStore(storeId);

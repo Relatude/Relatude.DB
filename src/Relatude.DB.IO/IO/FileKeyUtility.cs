@@ -242,6 +242,11 @@ public static class FileKeyUtility {
     public static string[] WAL_NextFileKey(IIOProvider io) => nextFileKey(WAL_GetLatestFileKey(io), WAL_GetFileKey);
     public static DateTime WAL_GetBackUpDateTimeFromFileKey(string[] fileKey) => backupDateTime(fileKey);
     public static string[][] WAL_GetAllBackUpFileKeys(IIOProvider io) => [.. io.Search(walFileBackupPattern)];
+    /// <summary>Whether the key names a database log file in the data folder (data/db.00000001.bin).
+    /// For listings that are already in hand: the search helpers above list a provider's files again.</summary>
+    public static bool WAL_IsFileKey(string[] fileKey) => fileKey.MatchesPattern(walFilePattern);
+    /// <summary>Whether the key names a database backup in the backup folder (backup/db.2026-01-31-02-00-00.bkup).</summary>
+    public static bool WAL_IsBackUpFileKey(string[] fileKey) => fileKey.MatchesPattern(walFileBackupPattern);
     public static string[] WAL_GetFileKeyForBackup(DateTime dt, bool keepForever)
         => fill(keepForever ? walFileBackupPatternKeepForever : walFileBackupPattern, dt.ToString(dateTimeTemplate));
     public static bool WAL_KeepForever(string[] fileKey) => fileKey.MatchesPattern(walFileBackupPatternKeepForever);

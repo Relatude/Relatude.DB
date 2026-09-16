@@ -16,6 +16,7 @@ import {
   IconFolderPlus,
   IconFolderUp,
   IconFolderX,
+  IconHistory,
   IconLayoutGrid,
   IconList,
   IconPencil,
@@ -60,7 +61,8 @@ import {
 import type { DatabaseInfo } from "../server/serverInfo";
 import { formatBytes, formatDateTime, formatTime } from "../format";
 import { runWithProgress, showConfirm, showError, showInfo, showPrompt, type ProgressController } from "../dialogs";
-import { adoptDbFile } from "../server/storage";
+import { adoptDbFile, type LogFileSource } from "../server/storage";
+import { TimeTravelDialog } from "./TimeTravelDialog";
 import { displayType } from "../code/language";
 import { useVirtualWindow, windowPad } from "../virtualWindow";
 import { FileTile } from "./FileTile";
@@ -102,6 +104,8 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   const [treeSizes, setTreeSizes] = useState<Record<string, FolderSize | "pending">>({});
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // the file the go-back-in-time dialog was opened on, when it is up
+  const [timeTravel, setTimeTravel] = useState<LogFileSource | null>(null);
   // whether the viewer's editor holds unsaved changes (a ref: the guards below read it inside
   // async handlers)
   const viewerDirty = useRef(false);
@@ -1052,6 +1056,20 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
             <IconDatabaseImport size={14} stroke={1.8} className="tone-data" /> Make it the database
           </button>
         )}
+        {/* The same file, taken back to a moment inside it rather than whole: the dialog opens on
+            this file, and can read it and draw everything ever written to it before a moment is
+            picked. It stands next to the button above because it is the same operation with one
+            more question asked - and it is the one to reach for on a backup, where "all of it" is
+            rarely the moment anybody wants. */}
+        {viewFile && ioId && looksLikeDatabaseFile(viewFile.key) && (
+          <button
+            className="action-button"
+            onClick={() => setTimeTravel({ ioId, key: viewFile.key })}
+            title="Copy this file up to a moment inside it and open the database on the copy"
+          >
+            <IconHistory size={14} stroke={1.8} className="tone-data" /> Go back in time…
+          </button>
+        )}
         {deletable > 0 && (
           <button className="action-button danger" onClick={deleteSelected}>
             <IconTrash size={14} stroke={1.8} /> Delete {deletable} selected
@@ -1225,6 +1243,18 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
           </>
         )}
       </div>
+      {timeTravel && (
+        <TimeTravelDialog
+          db={db}
+          initialFile={timeTravel}
+          onCancel={() => setTimeTravel(null)}
+          onDone={(result) => {
+            setTimeTravel(null);
+            setMessage(`${db.name} went back in time. New database file: ${result.newKey}.`);
+            if (ioId) reloadList(ioId, path); // the copy is a new file in the data folder
+          }}
+        />
+      )}
     </div>
   );
 }

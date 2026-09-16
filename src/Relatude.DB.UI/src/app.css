@@ -2844,52 +2844,329 @@ a {
   background: var(--panel);
 }
 
-/* ---- going back in time: the dialog that picks the moment ---- */
+/* ---- going back in time: the dialog that picks the file and the moment ----
+   Two panes under a shared heading: the log files on the left, and on the right the picture of the
+   one selected with the moment picked under it. It takes the screen it is given - a timeline of a
+   year of writes on a 480px dialog is a smear - and stops growing where a line of text stops being
+   readable across. Everything inside it is a flex column: the plot takes what the file list, the
+   field and the buttons do not. */
 
-.time-travel-dialog {
-  width: 480px;
-}
-
-/* the moments the database knows, listed under the field they fill in */
-.time-travel-moments {
+/* the class is doubled up so the width beats .dialog's own, the way .dialog.dialog-wide does */
+.dialog.time-travel-dialog {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 14px;
+  width: min(1500px, calc(100vw - 32px));
+  height: min(920px, calc(100vh - 32px));
+  max-width: calc(100vw - 32px);
 }
 
-.time-travel-moments > .muted {
+.tt-body {
+  display: flex;
+  flex: 1;
+  gap: 14px;
+  min-height: 0; /* so the two panes scroll rather than pushing the dialog past the screen */
+}
+
+.tt-files {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: 300px;
+  min-height: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+.tt-files-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tt-files-head > .muted {
+  flex: 1;
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
-/* a moment with no time behind it stays listed - the row is what says there is none - but it
+.tt-files-list {
+  flex: 1;
+  min-height: 0;
+  padding: 6px;
+  overflow-y: auto;
+}
+
+.tt-files-group + .tt-files-group {
+  margin-top: 10px;
+}
+
+.tt-files-group-head {
+  padding: 4px 4px 6px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.tt-file {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 7px 9px;
+  font-size: 12.5px;
+  text-align: left;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.tt-file + .tt-file {
+  margin-top: 5px;
+}
+
+.tt-file:hover {
+  border-color: var(--accent);
+}
+
+.tt-file.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* a file the server could not read stays listed - a backup that has gone bad is exactly what
+   somebody looking for one wants to be told - but it is not a thing to go back into */
+.tt-file.unreadable {
+  opacity: 0.6;
+}
+
+.tt-file-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+}
+
+.tt-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+
+.tt-file-size,
+.tt-file-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.tt-badge {
+  margin-left: 5px;
+  padding: 1px 5px;
+  font-size: 10.5px;
+  border-radius: 99px;
+  background: var(--badge-bg);
+}
+
+.tt-badge.current {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.tt-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.tt-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.tt-toolbar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tt-switch {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* the plot takes what is left of the dialog's height; below this it is a line with no room under it */
+.log-timeline,
+.tt-plot-empty {
+  position: relative;
+  flex: 1;
+  min-height: 150px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+.log-timeline {
+  cursor: crosshair;
+  user-select: none;
+}
+
+/* before a scan there is nothing to draw, and the box says what a scan would put there */
+.tt-plot-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 24px;
+  font-size: 13px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.log-timeline-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  opacity: 0.55;
+}
+
+.log-timeline-axis {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.log-timeline-label {
+  font-size: 10.5px;
+  fill: var(--text-faint);
+}
+
+.log-timeline-bar {
+  fill: var(--accent);
+}
+
+/* a column written after the moment picked: it would not be in the copy */
+.log-timeline-bar.dropped {
+  fill: var(--danger);
+  opacity: 0.75;
+}
+
+.log-timeline-dropped {
+  fill: var(--danger);
+  opacity: 0.07;
+}
+
+.log-timeline-pick {
+  stroke: var(--danger);
+  stroke-width: 1.5;
+}
+
+.log-timeline-cursor {
+  stroke: var(--text-faint);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.log-timeline-drag {
+  fill: var(--accent);
+  opacity: 0.16;
+}
+
+.log-timeline-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+
+/* the tooltip rides the column under the pointer and never leaves the plot's right edge */
+.log-timeline-tip {
+  position: absolute;
+  top: 8px;
+  transform: translateX(-50%);
+  max-width: 260px;
+  padding: 5px 9px;
+  font-size: 11.5px;
+  pointer-events: none;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+
+.log-timeline-tip-time {
+  font-variant-numeric: tabular-nums;
+}
+
+/* the moment: the box it is typed in, and the moments the file knows beside it */
+.tt-pick {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tt-field {
+  flex: none;
+  margin: 0;
+}
+
+.tt-moments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tt-moment {
+  gap: 2px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.tt-moment-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.tt-moment-time {
+  font-variant-numeric: tabular-nums;
+}
+
+/* a moment with no time behind it stays listed - the button is what says there is none - but it
    cannot be clicked, so it must not look as if it could be */
-.time-travel-moment:disabled {
+.tt-moment:disabled {
   opacity: 0.55;
   cursor: default;
 }
 
-.time-travel-moment:disabled:hover {
+.tt-moment:disabled:hover {
   border-color: var(--border);
 }
 
-.time-travel-moment-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
+.tt-summary {
+  font-size: 12px;
 }
 
-.time-travel-moment-time {
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
-}
-
-.time-travel-note {
-  margin-top: 10px;
+.tt-note {
+  padding: 8px 4px;
   font-size: 12px;
 }
 
