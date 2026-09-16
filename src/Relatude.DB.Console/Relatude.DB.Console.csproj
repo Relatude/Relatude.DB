@@ -2,7 +2,9 @@
 
 	<PropertyGroup>
 		<OutputType>Exe</OutputType>
-		<TargetFramework>net8.0</TargetFramework>
+		<!-- both: the tool reflects over the application's model assembly, which only loads on a runtime at
+		     least as new as the one it was built for. "dotnet tool install" picks the newest the machine has. -->
+		<TargetFrameworks>net8.0;net10.0</TargetFrameworks>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<!-- NOT Relatude.DB.Console: a namespace named Console would shadow System.Console -->
@@ -13,7 +15,7 @@
 		<PackAsTool>true</PackAsTool>
 		<ToolCommandName>relatude</ToolCommandName>
 		<PackageId>Relatude.DB.Tool</PackageId>
-		<Description>Command line tool for Relatude.DB: inspect the datamodel, run queries, generate model code and run maintenance on a local database.</Description>
+		<Description>Command line tool for Relatude.DB: create a new web application (relatude new), inspect the datamodel, run queries, generate model code and run maintenance on a local database.</Description>
 		<!-- package metadata, kept in sync with the .nuspec files in \nuget -->
 		<Authors>Ole Gulbrandsen</Authors>
 		<PackageProjectUrl>https://www.github.com/relatude/relatude.db</PackageProjectUrl>
@@ -31,8 +33,19 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<!-- the project template "relatude new" writes: embedded as text, never compiled as part of this tool -->
+		<Compile Remove="Templates\**" />
+		<None Remove="Templates\**" />
+		<EmbeddedResource Include="Templates\**" LogicalName="Templates/%(RecursiveDir)%(Filename)%(Extension)" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<!-- the server library is an ASP.NET Core library; its settings and container handling is reused as is -->
 		<FrameworkReference Include="Microsoft.AspNetCore.App" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.13" />
 	</ItemGroup>
 
 	<ItemGroup>

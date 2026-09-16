@@ -1,0 +1,17 @@
+# Build output
+bin/
+obj/
+Client/node_modules/
+Client/dist/
+
+# The client is built into the Backend's wwwroot by "npm run build" (see Client/vite.config.ts)
+Backend/wwwroot/
+
+# The database itself: transaction log, indexes, uploaded files. Delete the folder to start over.
+Backend/relatude.db/
+
+# Editors and OS
+.vs/
+*.user
+.DS_Store
+*.local

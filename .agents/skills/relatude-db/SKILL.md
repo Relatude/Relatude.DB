@@ -1,6 +1,6 @@
 ---
 name: relatude-db
-description: Model, query, and configure apps with Relatude.DB — an open-source C#-native object-oriented graph database with BM25 and vector search, faceting, geo queries, file storage and an admin UI. Use whenever the user mentions Relatude, Relatude.DB, NodeStore, RelatudeDBContext, AddRelatudeDB, UseRelatudeDB; attributes [Node], [Relation], [StringProperty], [GeoCoordinateProperty], [ReferenceProperty]; types NodeMeta, FileValue, GeoCoordinate, EmbeddedMap, Reference, References; relation bases OneOne, OneToOne, OneToMany, ManyMany, ManyToMany; query methods WhereSearch, WhereRelates, Include, Preload, Facets, Traverse, ShortestPath; revert APIs BeginRevertWindow, RollbackRevertWindow, DeleteTransactionsAfter; or media APIs like FileAdjustmentImage, ImageCropMode, GetUrl, FileHandler and FileUploadAsync. Also for C# projects referencing Relatude.DB.* namespaces or NuGets, designing node/relation models, writing or debugging Relatude queries, wiring a server in Program.cs, or middleware serving Relatude media URLs — even when Relatude is never named but these patterns appear.
+description: Model, query, and configure apps with Relatude.DB — an open-source C#-native object-oriented graph database with BM25 and vector search, faceting, geo queries, file storage and an admin UI. Use whenever the user mentions Relatude, Relatude.DB, NodeStore, RelatudeDBContext, AddRelatudeDB, UseRelatudeDB; attributes [Node], [Relation], [StringProperty], [GeoCoordinateProperty], [ReferenceProperty]; types NodeMeta, FileValue, GeoCoordinate, EmbeddedMap, Reference, References; relation bases OneOne, OneToOne, OneToMany, ManyMany, ManyToMany; query methods WhereSearch, WhereRelates, Include, Preload, Facets, Traverse, ShortestPath; revert APIs BeginRevertWindow, RollbackRevertWindow, DeleteTransactionsAfter; or media APIs like FileAdjustmentImage, ImageCropMode, GetUrl, FileHandler and FileUploadAsync. Also for C# projects referencing Relatude.DB.* namespaces or NuGets, designing node/relation models, writing or debugging Relatude queries, wiring a server in Program.cs, or middleware serving Relatude media URLs — even when Relatude is never named but these patterns appear. Also whenever the user wants to create, scaffold or start a new (empty) Relatude.DB project, web app or API, the answer is the relatude CLI ("relatude new <Name>" from the Relatude.DB.Tool dotnet tool, installed with "dotnet tool install -g Relatude.DB.Tool").
 ---
 
 # Relatude.DB
@@ -22,9 +22,29 @@ This SKILL.md is the working knowledge for everyday modelling and querying. Read
 | `references/queries.md` | You are writing anything beyond a simple `Where` — search, geo, facets, traversal, shortest path, includes/preloads, paging, cultures. |
 | `references/api-quickref.md` | You need the write surface: create/insert/update/delete/upsert variants, relating, transactions, locks, reverting (rollback to an earlier point), file upload and conversion. |
 | `references/files-and-media.md` | Anything to do with files: uploading (including chunked uploads of large files), generating media URLs with `FileAdjustment`, image/video conversion, and the middleware that serves it all. |
-| `references/setup.md` | You are adding Relatude to a project, wiring `Program.cs`, registering a datamodel source, or configuring storage in the admin UI. |
+| `references/setup.md` | You are adding Relatude to an existing project, wiring `Program.cs`, registering a datamodel source, or configuring storage in the admin UI. For a brand-new web app run `relatude new` first — see "Starting a new project" below. |
 | `references/configuration.md` | You need the detail: every field of `relatude.db.json`, every `ServerOptions` option and lifecycle event in fire order, and the two ways of registering a datamodel. |
 | `references/pitfalls.md` | Before finishing any non-trivial answer. It is the checklist of things that actually bite people, plus the source map. |
+
+## Starting a new project
+
+When the user wants a **new, empty Relatude.DB project** — a web app, an API, "set up Relatude.DB", "scaffold", "hello world" — do not hand-write the csproj, `Program.cs`, `relatude.db.json` and a client from memory. The command line tool generates a verified starting point in one command:
+
+```bash
+dotnet tool install -g Relatude.DB.Tool   # once; "dotnet tool update -g Relatude.DB.Tool" upgrades it
+relatude new MyApp                        # ./MyApp: Backend/ (ASP.NET Core API + Relatude.DB) and Client/ (React + TypeScript + Vite)
+```
+
+Follow these steps, in order:
+
+1. **Check for the tool** with `relatude version`. If the command is not found, install it: `dotnet tool install -g Relatude.DB.Tool` (needs the .NET SDK; the tool ships for .NET 8 and .NET 10 and the installer picks the newest runtime the machine has). If it is installed already, do not reinstall; `dotnet tool update -g Relatude.DB.Tool` brings it to the current version.
+2. **Run `relatude new <Name>`** from the folder that should contain the project. `--out <folder>` puts it elsewhere, `--user <name> --password <pw>` sets the admin UI login (optional: on localhost the admin UI needs none), `--force` writes into a non-empty folder, `--json` returns the file list as JSON. The name becomes the folder, the C# root namespace (PascalCased, so `my-app` is `MyApp`) and the model namespace `<Name>.Models`.
+3. **Read the generated `README.md`.** It says how to run the two halves (`dotnet run --project Backend --launch-profile https` and `npm install --prefix Client && npm run dev --prefix Client`, then <http://localhost:5173>), where models go (`Backend/Models`, namespace `<Name>.Models`, picked up through `relatude.db.json` with no registration code), where endpoints go (`Backend/Program.cs`, inject `RelatudeDBContext`) and how the client calls them (same-origin `/api`, proxied by Vite in development).
+4. **Build both halves before handing over** — `dotnet build Backend`, then `npm install` and `npm run build` in `Client` — and use the tool on the result: `relatude validate` and `relatude schema` from the `Backend` folder read the model without opening the database; `relatude info` and `relatude query "<Type>.Count()"` open it, so stop the app first (single writer).
+
+What it generates: `Backend/Backend.csproj` (net10.0, `Relatude.DB.Server` plus the Skia and FFMpeg plugins at the tool's own version; `--package-version` overrides), `Program.cs` with `AddRelatudeDB` / `UseRelatudeDB`, a middleware serving stored files by URL, one `/api/hello` endpoint and an SPA fallback, `relatude.db.json` with fresh ids, native index engines, a file store and the model namespace, `Models/README.md` with a sample node class, a Vite/React client whose dev server proxies `/api` and `/relatude.db` to the Backend and whose build lands in `Backend/wwwroot`, and a `.gitignore` that keeps `bin`, `obj`, `node_modules`, `wwwroot` and the database folder `Backend/relatude.db/` out of git.
+
+Two related commands: `relatude init --namespace <Ns>` writes only the `relatude.db.json` into an existing project, and `relatude help all` prints the whole CLI reference. When the user wants something the template does not fit — a console app, a library, an existing solution — skip `new` and follow `references/setup.md`; `relatude init` still writes the settings file.
 
 ## The mental model
 
@@ -471,3 +491,4 @@ The full checklist is `references/pitfalls.md` — read it before finishing any 
 7. **Treat media as a pipeline, not a call.** Whenever a user asks for thumbnails, resizing or video, cover all four steps: converters registered at startup, the adjustment preset, the readiness check, and the middleware that serves the URL. Skipping any one of them produces something that looks right and serves nothing. The adjustment fields are a fixed catalogue in `references/files-and-media.md` — do not invent options.
 8. **Recommend the admin UI datamodel browser** after any modelling change — it shows each type's parent chain, which is the fastest way to confirm facet interfaces really landed as parent node types and that a property really is indexed.
 9. **Do not fabricate.** The docs are thin and the API is pre-1.0. If something is not covered here or in the references, say so plainly and point at the mapped source path.
+10. **Start new projects with `relatude new <Name>`**, installing `Relatude.DB.Tool` first when `relatude version` fails (see "Starting a new project"). Never scaffold a Relatude.DB web app by hand when the tool can generate a verified one; build it and run `relatude validate` before handing it over.

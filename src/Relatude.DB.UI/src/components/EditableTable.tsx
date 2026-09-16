@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { IconArrowNarrowDown, IconArrowNarrowUp } from "@tabler/icons-react";
 import { saveNode, type Column, type Hit } from "../server/query";
+import { AddColumnHead, ColumnHead, type TableColumnsUi } from "./TableColumns";
 import { useRowWindow } from "../rowWindow";
 
 interface Props {
   storeId: string;
   columns: Column[];
+  /** dropping, sizing and adding columns - the same headings the read-only table wears */
+  columnsUi: TableColumnsUi;
   hits: Hit[];
   /** the nodes the form beside the table has open, by internal id: their rows are marked */
   selected: ReadonlySet<number>;
@@ -42,7 +45,7 @@ interface Cursor {
  * embedded document each need a control of their own, and the form beside the table is where they
  * are edited; their columns are marked read only here rather than pretending otherwise.
  */
-export function EditableTable({ storeId, columns, hits, selected, allSelected, sort, sortApplied, onSort, onSaved, loading }: Props) {
+export function EditableTable({ storeId, columns, columnsUi, hits, selected, allSelected, sort, sortApplied, onSort, onSaved, loading }: Props) {
   const [cursor, setCursor] = useState<Cursor>({ row: 0, col: 0 });
   const [editing, setEditing] = useState<{ row: number; col: number; value: string } | null>(null);
   // what was written here since the last search, keyed "<node id>/<column key>": the table shows
@@ -218,16 +221,19 @@ export function EditableTable({ storeId, columns, hits, selected, allSelected, s
         <thead>
           <tr>
             {columns.map((column) => (
-              <th
+              <ColumnHead
                 key={column.key}
-                className={(column.sortable ? "sortable" : "") + (sort?.key === column.key ? (sortApplied ? " sorted" : " sorted-inactive") : "") + (column.editor ? "" : " locked")}
+                ui={columnsUi}
+                colKey={column.key}
+                className={(sort?.key === column.key ? (sortApplied ? "sorted" : "sorted-inactive") : "") + (column.editor ? "" : " locked")}
                 title={column.editor ? `${column.type} — editable` : `${column.type} — edited in the form, not in a cell`}
                 onClick={column.sortable ? () => onSort(column.key) : undefined}
               >
                 {column.name}
                 {sort?.key === column.key && (sort.descending ? <IconArrowNarrowDown size={13} stroke={2} /> : <IconArrowNarrowUp size={13} stroke={2} />)}
-              </th>
+              </ColumnHead>
             ))}
+            <AddColumnHead ui={columnsUi} />
           </tr>
         </thead>
         <tbody>
@@ -240,6 +246,7 @@ export function EditableTable({ storeId, columns, hits, selected, allSelected, s
                 return (
                   <td
                     key={column.key}
+                    style={columnsUi.sizing.styleOf(column.key)}
                     className={(here ? "cursor " : "") + (column.editor ? "editable" : "locked") + (written[cellKey] ? " written" : "") + (failed?.key === cellKey ? " failed" : "")}
                     title={failed?.key === cellKey ? failed.message : textOf(hit, column, col)}
                     onMouseDown={(e) => {
@@ -286,6 +293,7 @@ export function EditableTable({ storeId, columns, hits, selected, allSelected, s
                   </td>
                 );
               })}
+              <td className="th-add-cell" />
             </tr>
           ))}
         </tbody>

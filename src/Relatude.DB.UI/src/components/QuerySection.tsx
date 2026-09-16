@@ -8,7 +8,6 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconCode,
-  IconColumns3,
   IconDownload,
   IconFilter,
   IconLayoutList,
@@ -31,6 +30,7 @@ import { VisualPivotView, emptyVisual } from "./VisualPivotView";
 import { MapView, emptyMap } from "./MapView";
 import { WordCloudView } from "./WordCloudView";
 import { EditableTable } from "./EditableTable";
+import { AddColumnHead, ColumnHead, useColumnDrag, useColumnSizing, type TableColumnsUi } from "./TableColumns";
 import { CopyButton } from "./CopyButton";
 import { NewNodeDialog, TypePicker } from "./TypePicker";
 import { showChoice, showError } from "../dialogs";
@@ -473,9 +473,13 @@ function QueryTab({
   const editor = useRef<HTMLElement>(null);
   const searchBox = useRef<HTMLInputElement>(null);
 
-  // every column this type could show, for the picker beside the table; the columns it IS showing
-  // come back with the result, so the table needs none of this to be drawn
+  // every column this type could show, for the picker in the table's last heading; the columns it IS
+  // showing come back with the result, so the table needs none of this to be drawn
   const [available, setAvailable] = useState<SelectColumn[] | null>(null);
+  // how wide the columns have been dragged. Kept per type: a column is the same column in every
+  // query on it, and a width is about reading it, not about the query
+  const columnSizing = useColumnSizing(typeId || "all");
+  const columnDrag = useColumnDrag();
   useEffect(() => {
     if (!table) return;
     let cancelled = false;
@@ -674,6 +678,20 @@ function QueryTab({
     onChange({ columns: shownColumns.filter((k) => k !== key), ...(sort?.key === key ? { sort: null } : {}) });
   }
 
+  /**
+   * Puts a column at another place in the row. Moving one is a choice about the columns, so it
+   * writes the list even when the query had not named one before: from here on this query says what
+   * it shows and in what order, rather than following whatever the type happens to offer.
+   */
+  function moveColumn(key: string, index: number) {
+    const from = shownColumns.indexOf(key);
+    const to = Math.max(0, Math.min(shownColumns.length - 1, index));
+    if (from < 0 || from === to) return;
+    const columns = shownColumns.filter((k) => k !== key);
+    columns.splice(to, 0, key);
+    onChange({ columns });
+  }
+
   function toggleFacet(facet: Facet, value: FacetValue) {
     const current = selections.find((s) => s.propertyId === facet.propertyId)?.values ?? [];
     const key = keyOf(value);
@@ -831,11 +849,30 @@ function QueryTab({
   // keeps "no choice made" a state of its own, so the type's own set can change under a query that
   // never asked for anything else, and touching a chip is what writes a list of its own.
   const shownColumns = q.columns ?? result?.columns?.map((c) => c.key) ?? [];
-  const columnLabel = (key: string): { name: string; type: string; declaredBy: string | null } => {
-    const picked = available?.find((c) => c.key === key);
-    if (picked) return picked;
-    const shown = result?.columns?.find((c) => c.key === key);
-    return { name: shown?.name ?? key, type: shown?.type ?? "", declaredBy: null };
+
+  // Everything a heading can do, in one place: drop the column, size it, or add another. Built here
+  // because only this component knows what the type has left to offer and what "no choice" means.
+  const columnsUi: TableColumnsUi = {
+    sizing: columnSizing,
+    drag: columnDrag,
+    order: shownColumns,
+    onMove: moveColumn,
+    onRemove: removeColumn,
+    addOptions:
+      available === null
+        ? null
+        : available
+            .filter((c) => !shownColumns.includes(c.key))
+            .map((c) => ({ key: c.key, name: c.name, hint: (c.declaredBy ? c.declaredBy + " · " : "") + c.type })),
+    onAdd: (key) => onChange({ columns: [...shownColumns, key] }),
+    extras:
+      q.columns !== null
+        ? [
+            // back to no choice at all, which is not the same as choosing what the type happens to
+            // show today: a query that never asked follows the type as the model changes
+            { label: "Show the type's own columns", onClick: () => onChange({ columns: null }) },
+          ]
+        : [],
   };
 
   // "all" says how many that is, so choosing it is not a guess. A set larger than one page can hold
@@ -1048,51 +1085,6 @@ function QueryTab({
       </div>
       )}
 
-      {table && (
-        // What the table shows, in the order it shows it: a column is added from what the type has
-        // left to offer, and taken away on its own chip. Ordering is the order they were added; a
-        // column removed from the middle leaves the rest as they were.
-        <div className="query-columns">
-          <span className="pivot-builder-label">
-            <IconColumns3 size={13} stroke={1.8} /> Columns
-          </span>
-          {shownColumns.map((key) => {
-            const column = columnLabel(key);
-            return (
-              <span className="query-column" key={key} title={column.type + (column.declaredBy ? " · from " + column.declaredBy : "")}>
-                {column.name}
-                <button className="icon-button" title="Remove this column" onClick={() => removeColumn(key)}>
-                  <IconX size={12} stroke={2} />
-                </button>
-              </span>
-            );
-          })}
-          <select
-            className="select compact"
-            value=""
-            disabled={available === null}
-            title="Add a column"
-            onChange={(e) => e.target.value && onChange({ columns: [...shownColumns, e.target.value] })}
-          >
-            <option value="">{available === null ? "loading…" : "+ add column…"}</option>
-            {available
-              ?.filter((c) => !shownColumns.includes(c.key))
-              .map((c) => (
-                <option key={c.key} value={c.key}>
-                  {c.name}
-                  {c.declaredBy ? " (" + c.declaredBy + ")" : ""} · {c.type}
-                </option>
-              ))}
-          </select>
-          {q.columns !== null && (
-            // back to no choice at all, which is not the same as choosing what the type happens to
-            // show today: a query that never asked follows the type as the model changes
-            <button className="link-button" title="Show the columns this type comes with" onClick={() => onChange({ columns: null })}>
-              reset
-            </button>
-          )}
-        </div>
-      )}
 
       {showQuery && result && !summary && <div className="query-string">{formatQuery(result.query)}</div>}
       {error && !summary && <div className="query-error">{error}</div>}
@@ -1310,6 +1302,7 @@ function QueryTab({
               key={typeId}
               storeId={db.id}
               columns={result.columns}
+              columnsUi={columnsUi}
               hits={hits}
               selected={marked}
               allSelected={allSelected}
@@ -1325,22 +1318,25 @@ function QueryTab({
                 <thead>
                   <tr>
                     {result.columns.map((column) => (
-                      <th
+                      <ColumnHead
                         key={column.key}
-                        className={(column.sortable ? "sortable" : "") + (sort?.key === column.key ? (result.sortApplied ? " sorted" : " sorted-inactive") : "")}
+                        ui={columnsUi}
+                        colKey={column.key}
+                        className={sort?.key === column.key ? (result.sortApplied ? "sorted" : "sorted-inactive") : ""}
                         title={
                           sort?.key === column.key && !result.sortApplied
                             ? "Sorted by this column, but a facet selection is filtering and the rows come back in the database's own order"
                             : column.sortable
-                              ? `${column.type} — click to sort`
+                              ? `${column.type} — click the name to sort`
                               : `${column.type} — cannot be sorted on`
                         }
                         onClick={column.sortable ? () => toggleSort(column.key) : undefined}
                       >
                         {column.name}
                         {sort?.key === column.key && (sort.descending ? <IconArrowNarrowDown size={13} stroke={2} /> : <IconArrowNarrowUp size={13} stroke={2} />)}
-                      </th>
+                      </ColumnHead>
                     ))}
+                    <AddColumnHead ui={columnsUi} />
                   </tr>
                 </thead>
                 <tbody>
@@ -1354,10 +1350,12 @@ function QueryTab({
                       onClick={(e) => selectHit(e, hit)}
                     >
                       {(hit.cells ?? []).map((value, i) => (
-                        <td key={result.columns![i]?.key ?? i} title={value}>
+                        <td key={result.columns![i]?.key ?? i} title={value} style={columnSizing.styleOf(result.columns![i]?.key ?? "")}>
                           {value}
                         </td>
                       ))}
+                      {/* under the heading that adds a column; it takes what is left of the row */}
+                      <td className="th-add-cell" />
                     </tr>
                   ))}
                 </tbody>

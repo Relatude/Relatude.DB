@@ -151,6 +151,33 @@ public static class Help {
         {settingsFileOptions}
         {globalOptions}
         """,
+        ["new"] = $"""
+        relatude new <name> [options]
+
+          Creates a new web application in a folder named after it: a Backend folder with an ASP.NET
+          Core minimal API on Relatude.DB, and a Client folder with a React + TypeScript + Vite app that
+          calls it under /api. Source only, nothing is built or installed. A relatude.db.json is written
+          with fresh ids, pointing at the <Name>.Models namespace in the Backend project, so every class
+          added there becomes a node type. The README in the folder explains how to run it and where
+          models, endpoints and client code go.
+
+            relatude new MyApp
+            relatude new MyApp --user admin --password secret
+            relatude new MyApp --out ./apps/my-app
+
+          Options:
+            --out <folder>          where to create it (default: ./<name>)
+            --user <name>           admin user for the admin UI (optional: on localhost no login is
+                                    needed, so a fresh project runs without one)
+            --password <password>   admin password
+            --package-version <v>   Relatude.DB NuGet version to reference (default: the version of
+                                    this tool)
+            --force                 write into a folder that is not empty
+
+          Next steps it prints: dotnet run --project Backend --launch-profile https, and
+          npm install --prefix Client && npm run dev --prefix Client.
+        {globalOptions}
+        """,
         ["init"] = $"""
         relatude init [options]
 
@@ -305,6 +332,7 @@ public static class Help {
           codegen       generate C# model code from a datamodel
           validate      check the model code and report problems worth fixing
           settings      print relatude.db.json, resolved and without secrets
+          new           create a new web application: Backend (API + Relatude.DB) and Client (React)
           init          create a relatude.db.json
           maintenance   flush, truncate the log, save state, back up, rebuild indexes
           timestamp     print the head of the transaction log, to remember before experimenting

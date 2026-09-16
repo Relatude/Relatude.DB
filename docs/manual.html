@@ -4940,13 +4940,18 @@ only — <strong>never hand it to a request handler</strong>.</p>
 <p><code>Relatude.DB.Console</code> is a command line tool that works on a database and a datamodel <strong>from the
 outside</strong>: nothing of your application has to run, it only has to be readable. It exists for the
 things that otherwise need a running app and the admin UI — looking at the model, running a query,
-generating model code, checking a model before it is wired up, and routine maintenance. It is also
-the fastest way for a coding agent to find out what a Relatude.DB project actually contains.</p>
-<div class="codehilite"><pre><span></span><code>dotnet<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>src/Relatude.DB.Console<span class="w"> </span>--<span class="w"> </span><span class="nb">help</span><span class="w">          </span><span class="c1"># from this repository</span>
-dotnet<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>-g<span class="w"> </span>Relatude.DB.Tool<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>relatude<span class="w"> </span><span class="nb">help</span><span class="w">      </span><span class="c1"># as a global tool</span>
+generating model code, checking a model before it is wired up, and routine maintenance — and for
+the one thing that comes before any of that: <code>relatude new</code> writes a complete new web application.
+It is also the fastest way for a coding agent to start a Relatude.DB project and then find out what
+it actually contains.</p>
+<div class="codehilite"><pre><span></span><code>dotnet<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>src/Relatude.DB.Console<span class="w"> </span>-f<span class="w"> </span>net10.0<span class="w"> </span>--<span class="w"> </span><span class="nb">help</span><span class="w">   </span><span class="c1"># from this repository</span>
+dotnet<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>-g<span class="w"> </span>Relatude.DB.Tool<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>relatude<span class="w"> </span><span class="nb">help</span><span class="w">          </span><span class="c1"># as a global tool</span>
 </code></pre></div>
 
-<p>The binary is called <code>relatude</code>. Every example below assumes it is on the path.</p>
+<p>The binary is called <code>relatude</code>. Every example below assumes it is on the path. The tool is built
+for both net8.0 and net10.0 and <code>dotnet tool install</code> picks the newest runtime the machine has:
+it loads your model assembly, which needs a runtime at least as new as the one the application
+targets.</p>
 <h3 id="two-things-every-command-needs-to-know">Two things every command needs to know<a class="anchor" href="#two-things-every-command-needs-to-know" aria-label="Link to this section">#</a></h3>
 <p><strong>Where the database is.</strong> A database is named by its <code>relatude.db.json</code> (see
 <a href="#12-registering-the-model-the-admin-ui">section 12</a>). The tool looks for it in the current folder
@@ -5026,6 +5031,9 @@ relatude<span class="w"> </span>validate<span class="w">                        
 relatude<span class="w"> </span>settings<span class="w">                        </span><span class="c1"># relatude.db.json resolved, without secrets</span>
 relatude<span class="w"> </span>init<span class="w"> </span>--namespace<span class="w"> </span>MyApp.Models<span class="w">   </span><span class="c1"># write a relatude.db.json</span>
 
+relatude<span class="w"> </span>new<span class="w"> </span>MyApp<span class="w">                       </span><span class="c1"># a new web application: Backend (API + Relatude.DB) + Client (React)</span>
+relatude<span class="w"> </span>new<span class="w"> </span>MyApp<span class="w"> </span>--user<span class="w"> </span>admin<span class="w"> </span>--password<span class="w"> </span>secret
+
 relatude<span class="w"> </span>insert<span class="w"> </span>--type<span class="w"> </span>Product<span class="w"> </span><span class="s1">&#39;{ &quot;Name&quot;: &quot;Rucksack&quot;, &quot;Price&quot;: 249 }&#39;</span>
 relatude<span class="w"> </span>insert<span class="w"> </span>--type<span class="w"> </span>Product<span class="w"> </span>--file<span class="w"> </span>products.json
 relatude<span class="w"> </span>delete<span class="w"> </span>--id<span class="w"> </span>4101bdce-040a-4aa7-940f-354e31cdc4c5<span class="w"> </span>--yes
@@ -5044,6 +5052,15 @@ relatude<span class="w"> </span>maintenance<span class="w"> </span>reset-indexes
 
 <p><code>relatude help &lt;command&gt;</code> documents one command, <strong><code>relatude help all</code> prints the whole reference in
 one go</strong> — that is the built-in reference, and it is the same text this section summarises.</p>
+<p><code>new</code> is the one command that does not need an existing project: <code>relatude new MyApp</code> writes a
+complete web application into <code>./MyApp</code> — a <code>Backend</code> folder with an ASP.NET Core minimal API on
+Relatude.DB and a <code>Client</code> folder with a React + TypeScript + Vite app that calls it under <code>/api</code>.
+Source only, nothing built: the folder's README says how to run the two halves (<code>dotnet run</code> and
+<code>npm run dev</code>), where models and endpoints go, and how to inspect the result with the tool. The
+generated <code>relatude.db.json</code> points at the <code>MyApp.Models</code> namespace, so every class added to
+<code>Backend/Models</code> becomes a node type. <code>--user</code>/<code>--password</code> set the admin login (optional on
+localhost), <code>--package-version</code> pins the NuGet version, which defaults to the tool's own.
+<code>examples/WebApp.Empty</code> in the repository is the same application, kept as a reference.</p>
 <p><code>timestamp</code> and <code>revert</code> are the two halves of the experiment workflow from
 <a href="#161-reverting-the-database-to-an-earlier-point">section 16.1</a>, run from the outside: capture the
 head of the log before making changes, and put the database back afterwards. <code>timestamp</code> prints the

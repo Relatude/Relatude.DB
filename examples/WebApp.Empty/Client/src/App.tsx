@@ -18,14 +18,16 @@ export default function App() {
       {!error && !hello && <p>Loading…</p>}
       {hello && (
         <p>
-          {hello.message} <br />
-          <small>Server time (UTC): {hello.utc}</small>
+          {hello.message}
           <br />
-          <br />
-          <a href="/relatude.db">ADMIN UI</a>           
-          <br />
+          <small>
+            {hello.nodesInDatabase} nodes in the database. Server time (UTC): {hello.utc}
+          </small>
         </p>
       )}
+      <p>
+        <a href="/relatude.db">Relatude.DB admin UI</a>
+      </p>
     </main>
   );
 }

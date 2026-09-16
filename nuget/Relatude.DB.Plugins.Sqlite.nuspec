@@ -15,7 +15,7 @@
 		<tags>Database ORM CMS</tags>
 		<dependencies>
 			<group targetFramework="net8.0">
-				<dependency id="Microsoft.Data.Sqlite" version="9.0.1" />
+				<dependency id="Microsoft.Data.Sqlite" version="10.0.12" />
 			</group>
 		</dependencies>
 	</metadata>

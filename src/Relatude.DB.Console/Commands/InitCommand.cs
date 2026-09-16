@@ -1,13 +1,10 @@
-using Relatude.DB.Datamodels;
-using Relatude.DB.DataStores;
 using Relatude.DB.NodeServer;
-using Relatude.DB.NodeServer.Settings;
 
 namespace Relatude.DB.Cli.Commands;
 
 /// <summary>
-/// Writes a relatude.db.json. The default the server writes when it finds no file points at the bundled
-/// demo model, which is almost never what is wanted; this one points at the caller's own model instead.
+/// Writes a relatude.db.json next to an existing application (see <see cref="SettingsTemplate"/> for
+/// what goes in it). "relatude new" writes the same file into a freshly generated project.
 /// </summary>
 public static class InitCommand {
     public static Task<int> RunAsync(CommandArgs args) {
@@ -23,39 +20,15 @@ public static class InitCommand {
         var modelNamespace = args.Get("namespace");
         var dataPath = args.Get("path") ?? Defaults.DataFolderPath;
 
-        var io = new IOSettings {
-            Id = Guid.NewGuid(),
-            Name = "Local disk",
-            Path = dataPath,
-            IOType = IOTypes.LocalDisk,
-        };
-        var container = new NodeStoreContainerSettings {
-            Id = Guid.NewGuid(),
-            Name = args.Get("name") ?? "MyDatabase",
-            AutoOpen = true,
-            WaitUntilOpen = false,
-            LocalSettings = SettingsLocal.CreateWithNativeEngines(),
-            IOSettings = [io],
-            IoDatabase = io.Id,
-            IoBackup = io.Id,
-            IoLog = io.Id,
-            FileStoreSettings = [new FileStoreSettings {
-                Id = Guid.NewGuid(),
-                IoProviderId = io.Id,
-                StoreType = FileStoreEngine.MultiFile,
-                MultiFileFolderDepth = 2,
-            }],
-            DatamodelSources = sources(modelNamespace, assemblyName),
-        };
-        var settings = new RelatudeDBServerSettings {
-            Name = "Relatude.DB Server",
-            Id = Guid.NewGuid(),
-            ContainerSettings = [container],
-            DefaultStoreId = container.Id,
-            MasterUserName = args.Get("user"),
-            MasterPassword = args.Get("password"),
-            TokenEncryptionSecret = Guid.NewGuid().ToString(),
-        };
+        var settings = SettingsTemplate.Create(
+            databaseName: args.Get("name") ?? "MyDatabase",
+            dataPath: dataPath,
+            modelNamespace: modelNamespace,
+            assemblyName: assemblyName,
+            user: args.Get("user"),
+            password: args.Get("password"),
+            waitUntilOpen: false);
+        var container = settings.ContainerSettings!.First();
         var folder = Path.GetDirectoryName(path);
         if (folder != null && folder.Length > 0) Directory.CreateDirectory(folder);
         File.WriteAllText(path, SettingsReader.Serialize(settings));
@@ -82,28 +55,5 @@ public static class InitCommand {
             Output.WriteLine("MasterUserName and MasterPassword are empty: the admin UI cannot be logged into until they are set.");
         }
         return Task.FromResult(0);
-    }
-
-    static DatamodelSource[] sources(string? modelNamespace, string? assemblyName) {
-        // the engine's own model is always needed: it backs users, groups, collections and cultures
-        var list = new List<DatamodelSource> {
-            new() {
-                Id = Guid.NewGuid(),
-                Name = "Native",
-                Type = DatamodelSourceType.TypeReference,
-                Namespace = ModelSource.NativeNamespace,
-                Reference = "Relatude.DB.NodeStore",
-            },
-        };
-        if (modelNamespace != null) {
-            list.Insert(0, new DatamodelSource {
-                Id = Guid.NewGuid(),
-                Name = "Model",
-                Type = DatamodelSourceType.TypeReference,
-                Namespace = modelNamespace,
-                Reference = assemblyName,
-            });
-        }
-        return [.. list];
     }
 }

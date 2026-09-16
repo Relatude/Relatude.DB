@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>WebAppEmpty</RootNamespace>
+    <ClientDir>$(MSBuildProjectDirectory)/../Client</ClientDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Relatude.DB.Server" Version="0.3.0.187-alpha" />
+    <PackageReference Include="Relatude.DB.Plugins.Skia" Version="0.3.0.187-alpha" />
+    <PackageReference Include="Relatude.DB.Plugins.FFMpeg" Version="0.3.0.187-alpha" />
+  </ItemGroup>
+
+  <!-- On publish, build the React client into wwwroot so one deployment holds both. -->
+  <Target Name="BuildClient" BeforeTargets="ComputeFilesToPublish">
+    <Exec Command="npm install" WorkingDirectory="$(ClientDir)" />
+    <Exec Command="npm run build" WorkingDirectory="$(ClientDir)" />
+    <ItemGroup>
+      <Content Include="wwwroot\**" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
+</Project>

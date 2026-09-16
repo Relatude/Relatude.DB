@@ -383,7 +383,7 @@ nuget.exe
 /examples/Website.Simple/appsettings.Development.json
 /nuget/Output
 /docs/.obsidian
-examples/WebApp.Empty/Server/Backend/relatude.db.json
-/examples/WebApp.Empty/Server/Backend/relatude.db
+examples/WebApp.Empty/Backend/relatude.db.json
+/examples/WebApp.Empty/Backend/relatude.db
 /examples/Website.Simple/.uploads
 examples/Website.Simple/relatude.db.rar

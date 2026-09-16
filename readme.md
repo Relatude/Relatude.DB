@@ -50,7 +50,16 @@ Because Relatude.DB acts as a complete storage layer, it includes features you w
 
 ## Getting Started
 
-Install the all-in-one package via NuGet:
+The quickest way is the command line tool, which writes a complete web application in one command: an ASP.NET Core API with Relatude.DB in `Backend/` and a React + TypeScript + Vite client in `Client/`, with a README that says how to run it and where models and endpoints go.
+
+```bash
+dotnet tool install -g Relatude.DB.Tool
+relatude new MyApp
+```
+
+The same tool inspects a project afterwards: `relatude schema`, `relatude validate`, `relatude query "Product.Count()"`, and `relatude help all` for the whole reference (see [the manual](docs/manual.md#31-the-command-line-tool)).
+
+To add Relatude.DB to an existing project instead, install the all-in-one package via NuGet:
 
 ```bash
 dotnet add package Relatude.DB.Server

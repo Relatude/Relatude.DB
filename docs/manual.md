@@ -3829,15 +3829,20 @@ A checklist of the things that actually bite people.
 `Relatude.DB.Console` is a command line tool that works on a database and a datamodel **from the
 outside**: nothing of your application has to run, it only has to be readable. It exists for the
 things that otherwise need a running app and the admin UI — looking at the model, running a query,
-generating model code, checking a model before it is wired up, and routine maintenance. It is also
-the fastest way for a coding agent to find out what a Relatude.DB project actually contains.
+generating model code, checking a model before it is wired up, and routine maintenance — and for
+the one thing that comes before any of that: `relatude new` writes a complete new web application.
+It is also the fastest way for a coding agent to start a Relatude.DB project and then find out what
+it actually contains.
 
 ```bash
-dotnet run --project src/Relatude.DB.Console -- help          # from this repository
-dotnet tool install -g Relatude.DB.Tool && relatude help      # as a global tool
+dotnet run --project src/Relatude.DB.Console -f net10.0 -- help   # from this repository
+dotnet tool install -g Relatude.DB.Tool && relatude help          # as a global tool
 ```
 
-The binary is called `relatude`. Every example below assumes it is on the path.
+The binary is called `relatude`. Every example below assumes it is on the path. The tool is built
+for both net8.0 and net10.0 and `dotnet tool install` picks the newest runtime the machine has:
+it loads your model assembly, which needs a runtime at least as new as the one the application
+targets.
 
 ### Two things every command needs to know
 
@@ -3902,6 +3907,9 @@ relatude validate                        # what would break at startup, and what
 relatude settings                        # relatude.db.json resolved, without secrets
 relatude init --namespace MyApp.Models   # write a relatude.db.json
 
+relatude new MyApp                       # a new web application: Backend (API + Relatude.DB) + Client (React)
+relatude new MyApp --user admin --password secret
+
 relatude insert --type Product '{ "Name": "Rucksack", "Price": 249 }'
 relatude insert --type Product --file products.json
 relatude delete --id 4101bdce-040a-4aa7-940f-354e31cdc4c5 --yes
@@ -3920,6 +3928,16 @@ relatude maintenance reset-indexes --yes # delete state and index files, rebuild
 
 `relatude help <command>` documents one command, **`relatude help all` prints the whole reference in
 one go** — that is the built-in reference, and it is the same text this section summarises.
+
+`new` is the one command that does not need an existing project: `relatude new MyApp` writes a
+complete web application into `./MyApp` — a `Backend` folder with an ASP.NET Core minimal API on
+Relatude.DB and a `Client` folder with a React + TypeScript + Vite app that calls it under `/api`.
+Source only, nothing built: the folder's README says how to run the two halves (`dotnet run` and
+`npm run dev`), where models and endpoints go, and how to inspect the result with the tool. The
+generated `relatude.db.json` points at the `MyApp.Models` namespace, so every class added to
+`Backend/Models` becomes a node type. `--user`/`--password` set the admin login (optional on
+localhost), `--package-version` pins the NuGet version, which defaults to the tool's own.
+`examples/WebApp.Empty` in the repository is the same application, kept as a reference.
 
 `timestamp` and `revert` are the two halves of the experiment workflow from
 [section 16.1](#161-reverting-the-database-to-an-earlier-point), run from the outside: capture the

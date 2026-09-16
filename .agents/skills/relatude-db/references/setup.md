@@ -5,6 +5,7 @@ How a model gets from your C# into a running engine, and what has to be configur
 ## Contents
 
 - [Targets](#targets)
+- [Starting from nothing: `relatude new`](#starting-from-nothing-relatude-new)
 - [Server-hosted wiring](#server-hosted-wiring)
 - [Pointing the server at your model](#pointing-the-server-at-your-model)
 - [The admin UI](#the-admin-ui)
@@ -18,6 +19,19 @@ How a model gets from your C# into a running engine, and what has to be configur
 .NET 8+. The engine runs in-process or server-hosted. `Relatude.DB.Server` is the package that ships the server and the admin UI; plugin packages exist for Azure, Lucene and Sqlite (`Relatude.DB.Plugins.Azure` / `.Lucene` / `.Sqlite`).
 
 Because the project is pre-1.0, check the current package list on the repo rather than trusting a hard-coded list here: https://github.com/Relatude/Relatude.DB
+
+## Starting from nothing: `relatude new`
+
+For a brand-new web application, generate it instead of writing the wiring below by hand:
+
+```bash
+dotnet tool install -g Relatude.DB.Tool   # once; skip when "relatude version" already works
+relatude new MyApp
+```
+
+The tool writes `./MyApp/Backend` — an ASP.NET Core minimal API with `AddRelatudeDB` / `UseRelatudeDB`, the media-serving middleware, one `/api/hello` endpoint and a `relatude.db.json` pointing at the `MyApp.Models` namespace — and `./MyApp/Client`, a React + TypeScript + Vite app whose dev server proxies `/api` and `/relatude.db` to the Backend and whose production build lands in `Backend/wwwroot`. A README in the folder explains running, adding models and endpoints, and inspecting the result with the tool. Options: `--out <folder>`, `--user`/`--password` (the admin login, optional on localhost), `--package-version`, `--force`, `--json`. `relatude init` writes only the `relatude.db.json` into an existing project; `relatude help all` lists every command. The tool is built for .NET 8 and .NET 10; `dotnet tool install` picks the newest runtime present, which matters because the tool loads your model assembly.
+
+The rest of this file is what the generated code does, for when you wire an existing project by hand.
 
 ## Server-hosted wiring
 

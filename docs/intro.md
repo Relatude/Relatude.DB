@@ -131,6 +131,17 @@ entirely — `db.Create<IArticle>()` generates the implementation for you.
 
 ## 3. Setup — one call plus one file
 
+The fastest start is the command line tool, which writes a runnable project — an ASP.NET Core
+API with Relatude.DB in `Backend/` and a React + TypeScript + Vite client in `Client/` — with a
+README that says how to run it and where models and endpoints go:
+
+```bash
+dotnet tool install -g Relatude.DB.Tool
+relatude new MyApp
+```
+
+What it generates amounts to one call and one file:
+
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
 builder.AddRelatudeDB();          // no using needed

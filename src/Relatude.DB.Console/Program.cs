@@ -57,6 +57,7 @@ public static class Program {
         "query" => QueryCommand.RunAsync(args),
         "codegen" => CodeGenCommand.RunAsync(args),
         "validate" => ValidateCommand.RunAsync(args),
+        "new" => NewCommand.RunAsync(args),
         "init" => InitCommand.RunAsync(args),
         "settings" => SettingsCommand.RunAsync(args),
         "maintenance" => MaintenanceCommand.RunAsync(args),

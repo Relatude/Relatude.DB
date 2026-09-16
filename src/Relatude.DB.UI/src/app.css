@@ -6661,12 +6661,202 @@ body.pg-resizing {
   white-space: nowrap;
 }
 
-.query-table th.sortable {
-  cursor: pointer;
+/* ---- a column heading: the name, the controls, the grip ----
+   The name is on the left and does the sorting; the three controls are together at the right end,
+   which is where a close belongs and where the eye goes back to for the next one. A click meant for
+   a control is never a sort - each of them stops its own event. */
+.query-table th.th-column {
+  padding-right: 8px;
 }
 
-.query-table th.sortable:hover {
+.th-inner {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.th-inner > .th-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: grab;
+}
+
+.th-inner > .th-name.sortable:hover {
   color: var(--text);
+}
+
+.th-column.th-dragging .th-name {
+  cursor: grabbing;
+}
+
+/* The controls keep their place in the row but are invisible until the heading is hovered into:
+   three buttons on every heading of every table at all times is a row of buttons, and what a
+   heading is for is its name. They stay in the flow, so nothing shifts when they appear. */
+.th-tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 1px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.th-column:hover .th-tools,
+.th-tools:focus-within {
+  opacity: 1;
+}
+
+.th-tools .icon-button {
+  width: 17px;
+  height: 17px;
+  border-radius: 5px;
+}
+
+.th-tools .th-drop:hover {
+  color: var(--danger);
+}
+
+
+/* a column at one end of the row cannot go further that way; the button stays for the shape of the
+   group rather than jumping about as columns move */
+.th-tools .icon-button:disabled {
+  opacity: 0.3;
+}
+
+/* ---- moving a column ---- */
+.query-table th.th-dragging {
+  opacity: 0.5;
+}
+
+/* where it would land: a line down the edge of the heading it is over */
+.query-table th.th-drop-before,
+.query-table th.th-drop-after {
+  position: relative;
+}
+
+.query-table th.th-drop-before::before,
+.query-table th.th-drop-after::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+}
+
+.query-table th.th-drop-before::before {
+  left: -1px;
+}
+
+.query-table th.th-drop-after::after {
+  right: -1px;
+}
+
+/* the grip lies in the gap between two columns: a target that costs the table no width, drawn only
+   once the pointer is near it or the column is being held at a width */
+.th-grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -4px;
+  width: 9px;
+  cursor: col-resize;
+}
+
+.th-grip::after {
+  content: "";
+  position: absolute;
+  inset: 4px 3px;
+  border-radius: 99px;
+  background: transparent;
+}
+
+.th-grip:hover::after,
+.th-grip.active::after {
+  background: var(--accent);
+}
+
+.th-grip.sized::after {
+  background: var(--border);
+}
+
+/* ---- the heading that adds a column ---- */
+.query-table th.th-add {
+  width: 1%;
+  padding: 2px 6px;
+}
+
+.query-table th.th-add .icon-button {
+  width: 22px;
+  height: 22px;
+}
+
+.th-add-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 5;
+  min-width: 240px;
+  max-width: 340px;
+  padding: 6px;
+  font-weight: 400;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+}
+
+.th-add-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.th-add-option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 8px;
+  font-size: 12px;
+  color: var(--text);
+  text-align: left;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.th-add-option:hover {
+  background: var(--hover);
+}
+
+.th-add-option .muted {
+  font-size: 11px;
+}
+
+.th-add-empty {
+  padding: 8px;
+  font-size: 12px;
+  white-space: normal;
+}
+
+.th-add-extras {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+/* the rest of the row, under the heading that adds: it has no value in it */
+.query-table td.th-add-cell {
+  width: 1%;
+  padding: 0;
 }
 
 .query-table th.sorted {

@@ -562,6 +562,14 @@ automatically — you never store a <code>ParentId</code>.</p>
 entirely — <code>db.Create&lt;IArticle&gt;()</code> generates the implementation for you.</p>
 <hr />
 <h2 id="3-setup-one-call-plus-one-file">3. Setup — one call plus one file<a class="anchor" href="#3-setup-one-call-plus-one-file" aria-label="Link to this section">#</a></h2>
+<p>The fastest start is the command line tool, which writes a runnable project — an ASP.NET Core
+API with Relatude.DB in <code>Backend/</code> and a React + TypeScript + Vite client in <code>Client/</code> — with a
+README that says how to run it and where models and endpoints go:</p>
+<div class="codehilite"><pre><span></span><code>dotnet<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>-g<span class="w"> </span>Relatude.DB.Tool
+relatude<span class="w"> </span>new<span class="w"> </span>MyApp
+</code></pre></div>
+
+<p>What it generates amounts to one call and one file:</p>
 <div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">builder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">WebApplication</span><span class="p">.</span><span class="n">CreateBuilder</span><span class="p">(</span><span class="n">args</span><span class="p">);</span>
 <span class="n">builder</span><span class="p">.</span><span class="n">AddRelatudeDB</span><span class="p">();</span><span class="w">          </span><span class="c1">// no using needed</span>
 <span class="kt">var</span><span class="w"> </span><span class="n">app</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">builder</span><span class="p">.</span><span class="n">Build</span><span class="p">();</span>
