@@ -2636,31 +2636,6 @@ a {
   height: 24px;
 }
 
-/* A folder in the file list (the "Show folders" switch). It is a row like any other, and the one
-   thing it does differently is what clicking it means: a file is selected, a folder is opened. So it
-   takes the pointer, and its name is set in the weight a heading is, which is how a file manager has
-   always said "this one is a place, not a thing" without a colour of its own. */
-.file-folder-row,
-.file-folder-tile {
-  cursor: pointer;
-}
-
-.file-folder-row .file-name,
-.file-folder-tile .file-tile-name {
-  font-weight: 600;
-}
-
-.file-folder-row .file-name svg,
-.file-folder-tile .file-tile-frame svg {
-  color: var(--text-muted);
-}
-
-/* the checkerboard behind a thumbnail says "this picture has transparency in it"; a folder icon is
-   not a picture, so it sits on the plain ground */
-.file-folder-tile .file-tile-frame {
-  background-image: none;
-}
-
 .files-empty {
   padding: 14px 4px;
 }
