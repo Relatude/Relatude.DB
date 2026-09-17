@@ -60,12 +60,13 @@ Full treatment in `files-and-media.md`.
 - **`FileType` and `Format` are derived from the file name**, not from the bytes. A wrong extension routes the file to the wrong converter.
 - **Multipart chunks must be appended in order**, one at a time per upload id. The session lives in memory on that store instance — so no load balancing across instances mid-upload — and expires after 10 minutes idle.
 - **Only file stores implementing `IFileStoreMultiPartSupport` accept chunked uploads.** Check `FileStoreSupportsMultipartUploads` first; otherwise you get "File store does not support multipart upload".
-- **Your media middleware must fall through.** The default URL root is `/`, so it sees every request; register it after `UseStaticFiles()` and always call `next` when `TryParseUrlForContent` returns `false`.
+- **Your media middleware must fall through.** The default URL root is `/`, so it sees every request; register it before `UseStaticFiles()`, so database content wins over a file of the same name in `wwwroot`, and always call `next` when `TryParseUrlForContent` returns `false`.
 
 ## Operational
 
 - **Take a backup from the admin UI before upgrading.** The project is pre-1.0.
 - **`UseRelatudeDB()` goes after your own `UseCors` / `UseHttpsRedirection` / `UseAuthentication`.**
+- **Call `UseRouting()` yourself, after `UseStaticFiles()`, when the app maps a catch-all route** such as `MapFallbackToFile` for a single page client. `UseRelatudeDB()` registers endpoints, so `WebApplication` inserts routing at the very start of the pipeline unless the app calls it: the catch-all then matches before the static files are reached, and `UseStaticFiles` skips itself whenever an endpoint is already selected. The symptom is the client's own js and css arriving as `index.html` with `Content-Type: text/html`, and a blank page.
 - **No admin user is created for you, and no credentials are printed anywhere.** Set `MasterUserName` / `MasterPassword` in `relatude.db.json` or — better — in the `RelatudeDB` configuration section (user secrets, environment variables); the stored user name must be lowercase. Set `TokenEncryptionSecret` too, or every restart logs everyone out.
 - **A missing `relatude.db.json` is created from a default that points at the bundled demo model.** A store full of `Relatude.DB.Demo.Models` types means the file was never configured.
 - **The admin UI rewrites the whole settings file** when anything is saved from it, so comments and formatting in a hand-written file are lost.

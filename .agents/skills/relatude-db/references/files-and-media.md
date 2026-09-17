@@ -386,10 +386,10 @@ public class RelatudeDBMiddleware(RequestDelegate next) {
 Registered in `Program.cs`:
 
 ```csharp
+app.UseMiddleware<RelatudeDBMiddleware>();   // before the static files: database content wins
+
 app.UseDefaultFiles();
 app.UseStaticFiles();
-
-app.UseMiddleware<RelatudeDBMiddleware>();
 
 app.StartRelatudeDB();
 app.MapRelatudeDBAdmin();
@@ -399,7 +399,7 @@ Four things to get right:
 
 1. **The `RelatudeDBRuntime.IsReady` gate.** The store opens asynchronously; without the gate, requests arriving during startup throw instead of falling through.
 2. **Pass `Path + QueryString`, not `Path`.** The whole addressing payload is in the query parameter — parsing the path alone silently fails to match anything.
-3. **Order.** The default `UrlNodeRoot` is `/`, so this middleware sees *every* request. Put it after `UseStaticFiles()` so real static files win, and make sure every non-match calls `next` — which the `TryParse…` shape does naturally, since it returns `false` rather than throwing.
+3. **Order.** The default `UrlNodeRoot` is `/`, so this middleware sees *every* request. Put it before `UseStaticFiles()`, so content addressed by a database URL wins over a file of the same name in `wwwroot`, and make sure every non-match calls `next` — which the `TryParse…` shape does naturally, since it returns `false` rather than throwing.
 4. **Node targets are yours to render.** `UrlTarget.Node` / `EmbeddedNode` hand you `UrlContent.NodeData`; returning JSON is a placeholder, not a design. Return your own view, or `null` to fall through to MVC/Razor routing.
 
 ### Access control
@@ -427,7 +427,7 @@ This middleware serves whatever the URL points at. Filtering by the caller's per
 - **Multipart chunks are strictly ordered**, sessions are in-memory and per-instance, and they expire after 10 minutes idle.
 - **Only stores implementing `IFileStoreMultiPartSupport` accept chunked uploads.** Check `FileStoreSupportsMultipartUploads` first.
 - **Register file converters at startup**, or every conversion returns "No converter available".
-- **Put the media middleware after `UseStaticFiles()`** and always fall through when the URL is not a Relatude URL.
+- **Put the media middleware before `UseStaticFiles()`** and always fall through when the URL is not a Relatude URL.
 
 ## Where to look in the source
 

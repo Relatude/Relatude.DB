@@ -459,7 +459,7 @@ public async Task Invoke(HttpContext http, RelatudeDBContext ctx) {
 }
 ```
 
-Register it **after** `UseStaticFiles()` — the default URL root is `/`, so it sees every request.
+Register it **before** `UseStaticFiles()`, so content addressed by a database URL wins over a file of the same name in `wwwroot` — and note the default URL root is `/`, so it sees every request.
 
 ## Top pitfalls to watch for
 

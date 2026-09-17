@@ -15,6 +15,18 @@ public static class AddUse {
         builder.Services.AddSingleton(options);
         return builder;
     }
+    /// <summary>
+    /// Opens the database and maps the admin UI and its API on /relatude.db. Call it after your own
+    /// UseCors / UseHttpsRedirection / UseAuthentication, so the engine's startup-progress and auth
+    /// middleware sit behind them.
+    /// </summary>
+    /// <remarks>
+    /// This registers endpoints, so WebApplication adds UseRouting at the very start of the pipeline
+    /// unless the application calls UseRouting itself. An app that also maps a catch-all route, such
+    /// as MapFallbackToFile for a single page client, must therefore call UseRouting by hand, after
+    /// its UseStaticFiles: the catch-all would otherwise match first and the static file middleware
+    /// skips itself whenever an endpoint is already selected, leaving static assets unreachable.
+    /// </remarks>
     public static IEndpointRouteBuilder UseRelatudeDB(this WebApplication app, string? urlPath = null) {
         return UseRelatudeDBAsync(app, urlPath).Result;
     }
