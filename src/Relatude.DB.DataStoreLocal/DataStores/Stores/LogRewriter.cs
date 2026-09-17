@@ -81,7 +81,7 @@ internal class LogRewriter {
 
         _relations = relations;
         _threadSafeReadSegments = threadSafeReadSegments;
-        _newWAL = new WALFile(FileKey, _definition, _destIO, (nodeId, seg) => _newSegments.Set(nodeId, seg), null, null); // no ValueIndex store, or secondary log store
+        _newWAL = new WALFile(FileKey, _definition, _destIO, segments => { foreach (var (nodeId, seg) in segments) _newSegments.Set(nodeId, seg); }, null, null); // no ValueIndex store, or secondary log store
         _newTransactionsWhileRewriting = new();
     }
     public void Cancel() {

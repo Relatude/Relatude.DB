@@ -10,8 +10,11 @@ public class StoreStreamDiscWrite : IAppendStream {
     readonly ChecksumUtil _checkSum = new();
     public string FileKey { get; }
     Action _disposeCallback;
-    object _lock = new();
+    readonly System.Threading.Lock _lock = new();
     long _lastLength;
+    // The logical length, kept here so Length never has to ask the file system. This object is the only
+    // writer of the file (FileShare.None), so every byte appended goes through Append below.
+    long _length;
     public StoreStreamDiscWrite(string fileKey, string filePath, bool readOnly, Action disposeCallback) {
         _disposeCallback = disposeCallback;
         _filePath = filePath;
@@ -22,6 +25,7 @@ public class StoreStreamDiscWrite : IAppendStream {
         if (!Directory.Exists(dirPath)) Directory.CreateDirectory(dirPath);
         _stream = getStream(_filePath);
         _lastLength = _stream.Length;
+        _length = _lastLength;
     }
     long _bytesRead;
     long _bytesWritten;
@@ -47,6 +51,7 @@ public class StoreStreamDiscWrite : IAppendStream {
             _checkSum.EvaluateChecksumIfRecording(data);
             _stream.Write(data, 0, data.Length);
             _bytesWritten += data.Length;
+            _length += data.Length;
             if (!_unflushed) _unflushed = true;
         }
     }
@@ -55,11 +60,13 @@ public class StoreStreamDiscWrite : IAppendStream {
             _checkSum.EvaluateChecksumIfRecording(data, count);
             _stream.Write(data, 0, count);
             _bytesWritten += count;
+            _length += count;
             if (!_unflushed) _unflushed = true;
         }
     }
     public async Task AppendAsyncNoChecksumOrLock(byte[] buffer, int count) {
         await _stream.WriteAsync(buffer, 0, count);
+        _length += count; // no lock by contract: the caller is the only writer while this runs
     }
     bool _unflushed = true;
     public void Flush(bool deepFlush) {
@@ -79,15 +86,12 @@ public class StoreStreamDiscWrite : IAppendStream {
     }
     public long Length {
         get {
-            lock (_lock) {
-                if (!_stream.CanRead) return new FileInfo(_stream.Name).Length;
-                return _stream.Length;
-            }
+            lock (_lock) return _length;
         }
     }
     public void Get(long position, int count, byte[] buffer) {
         lock (_lock) {
-            var length = _stream.Length;
+            var length = _length;
             if (position < 0 || position >= length) throw new ArgumentOutOfRangeException(nameof(position));
             if (count > length - position) throw new EndOfStreamException("Attempt to read " + count + " bytes at position " + position + " which is past the end of file \"" + _filePath + "\" (" + length + " bytes). ");
             long position1 = this._stream.Position;
@@ -127,4 +131,3 @@ public class StoreStreamDiscWrite : IAppendStream {
         _unflushed = false;
     }
 }
-

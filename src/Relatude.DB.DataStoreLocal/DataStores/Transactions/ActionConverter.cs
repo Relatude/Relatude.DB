@@ -238,17 +238,24 @@ internal class ActionConverter {
                 throw new NotImplementedException();
         }
     }
+    // the common case, both ends given as guids, resolves both under one guid store lock
+    static void resolveEnds(DataStoreLocal db, RelationAction a, out int source, out int target) {
+        if (a.Source == 0 && a.Target == 0) {
+            db._guids.GetIds(a.SourceGuid, a.TargetGuid, out source, out target);
+        } else {
+            source = a.Source != 0 ? a.Source : db._guids.GetId(a.SourceGuid);
+            target = a.Target != 0 ? a.Target : db._guids.GetId(a.TargetGuid);
+        }
+    }
     IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, RelationAction a, List<KeyValuePair<TaskData, string?>> newTasks) {
         if (a.Operation == RelationOperation.Add) {
-            var source = a.Source > default(int) ? a.Source : db._guids.GetId(a.SourceGuid);
-            var target = a.Target > default(int) ? a.Target : db._guids.GetId(a.TargetGuid);
+            resolveEnds(db, a, out var source, out var target);
             var date = a.ChangeUtc > default(DateTime) ? a.ChangeUtc : DateTime.UtcNow;
             var operation = PrimitiveOperation.Add;
             if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.AddedRelation;
             yield return new PrimitiveRelationAction(operation, a.RelationId, source, target, date);
         } else if (a.Operation == RelationOperation.Remove) {
-            var source = a.Source != 0 ? a.Source : db._guids.GetId(a.SourceGuid);
-            var target = a.Target != 0 ? a.Target : db._guids.GetId(a.TargetGuid);
+            resolveEnds(db, a, out var source, out var target);
             var date = a.ChangeUtc > default(DateTime) ? a.ChangeUtc : DateTime.UtcNow;
             var operation = PrimitiveOperation.Remove;
             if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.RemovedRelation;

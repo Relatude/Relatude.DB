@@ -20,7 +20,7 @@ namespace Relatude.DB.DataStores.Definitions {
             }
         }
         public bool IsSymmetric { get => _index.IsSymmetric; }
-        object _stateLock = new();
+        readonly System.Threading.Lock _stateLock = new();
         long? _stateId = null;
         void newState() {
             lock (_stateLock) {
@@ -97,8 +97,9 @@ namespace Relatude.DB.DataStores.Definitions {
             return $"from " + source + " and " + target;
         }
         bool canAdd(int source, int target, [MaybeNullWhen(true)] out string reason) {
-            if (!_store._nodes.Contains(source)) { reason = $"Unable to add {source} to the relation {Model}. It does not exist. "; return false; }
-            if (!_store._nodes.Contains(target)) { reason = $"Unable to add {target} to the relation {Model}. It does not exist. "; return false; }
+            _store._nodes.Contains(source, target, out var sourceExists, out var targetExists);
+            if (!sourceExists) { reason = $"Unable to add {source} to the relation {Model}. It does not exist. "; return false; }
+            if (!targetExists) { reason = $"Unable to add {target} to the relation {Model}. It does not exist. "; return false; }
             if (!_store._definition.TryGetTypeOfNode(source, out var typeIdFrom)) { reason = $"Unable to add {source} to the relation {Model}. It does not have a valid type. "; return false; }
             if (!_store._definition.TryGetTypeOfNode(target, out var typeIdTo)) { reason = $"Unable to add {target} to the relation {Model}. It does not have a valid type. "; return false; }
             if (!AllSourceTypes.Contains(typeIdFrom)) { reason = $"Relation {Model} does not support from type {_store._definition.NodeTypes[typeIdFrom]}"; return false; }

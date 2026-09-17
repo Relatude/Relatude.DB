@@ -9,7 +9,8 @@ using Relatude.DB.Transactions;
 
 namespace Relatude.DB.DataStores.Stores;
 
-internal delegate void RegisterNodeSegmentCallbackFunc(int id, NodeSegment seg);
+/// <summary>Confirms the log positions of node records just written, a batch at a time so the node store is locked once per batch and not once per node.</summary>
+internal delegate void RegisterNodeSegmentsCallbackFunc(ReadOnlySpan<(int id, NodeSegment segment)> segments);
 /// <summary>
 // WAL (Write Ahead Log) store, used to store all changes to the database
 // Threadsafe read operations to support multiple read queries at the same time
@@ -37,7 +38,7 @@ internal class WALFile : IDisposable {
     internal Guid FileId { get; private set; } // a unique id for the file, created at start up and links til file to a statefile
     internal string[] FileKey { get; private set; }
     readonly Definition _definition;
-    readonly RegisterNodeSegmentCallbackFunc _registerAndConfrimeNodeWrite; // callback to store to register byte position a node in log file
+    readonly RegisterNodeSegmentsCallbackFunc _registerAndConfrimeNodeWrite; // callback to store to register byte position a node in log file
     readonly LogQueue _workQueue; // queue for write operations, to make sure they are written in bacthes for better performance
     IIOProvider _io;
     IIOProvider? _ioSecondary;
@@ -54,10 +55,10 @@ internal class WALFile : IDisposable {
     // and version walks on other threads, hence the lock. The primary heads only cover nodes
     // written this session: the remove of a version written earlier carries that version's segment
     // on the action, so nothing has to be seeded at open.
-    readonly object _chainLock = new();
+    readonly System.Threading.Lock _chainLock = new();
     ValueByIdMap<NodeSegment> _chainHeads = new();
     readonly ValueByIdMap<NodeSegment> _secondaryChainHeads = new();
-    public WALFile(string[] fileKey, Definition definition, IIOProvider io, RegisterNodeSegmentCallbackFunc confirmWrite, IIOProvider? ioSecondary, string[]? secondaryFileKey) {
+    public WALFile(string[] fileKey, Definition definition, IIOProvider io, RegisterNodeSegmentsCallbackFunc confirmWrite, IIOProvider? ioSecondary, string[]? secondaryFileKey) {
         FileKey = fileKey;
         _io = io;
         _definition = definition;
@@ -140,12 +141,14 @@ internal class WALFile : IDisposable {
         }
         return written;
     }
-    static long writeStatic(ExecutedPrimitiveTransaction[] transactions, IAppendStream stream, long formatVersion, Datamodel datamodel, RegisterNodeSegmentCallbackFunc? regCallback,
-        ValueByIdMap<NodeSegment>? chainHeads, object chainLock, Action<string, int>? progress, int actionCount, int transactionCount) {
+    const int _confirmBatchSize = 1024; // node positions are confirmed to the store in batches of this size (one store lock per batch)
+    static long writeStatic(ExecutedPrimitiveTransaction[] transactions, IAppendStream stream, long formatVersion, Datamodel datamodel, RegisterNodeSegmentsCallbackFunc? regCallback,
+        ValueByIdMap<NodeSegment>? chainHeads, System.Threading.Lock chainLock, Action<string, int>? progress, int actionCount, int transactionCount) {
         long bytesStartPos = stream.Length;
         if (progress != null) progress("Flushing " + transactionCount + " transactions and " + actionCount + " actions", 0);
         int transactionsWritten = 0;
         int actionsWritten = 0;
+        var confirmed = regCallback != null ? new List<(int id, NodeSegment segment)>(_confirmBatchSize) : null;
         foreach (var transaction in transactions) {
             transactionsWritten++;
             stream.WriteMarker(_transactionStartMarker);  // marking end of a new transaction, making it possible to separate each transaction in a corrupted file
@@ -203,8 +206,18 @@ internal class WALFile : IDisposable {
                             }
                         }
                     }
-                    if (regCallback != null) regCallback(na.Node.__Id, segment);
+                    if (confirmed != null) {
+                        confirmed.Add((na.Node.__Id, segment));
+                        if (confirmed.Count >= _confirmBatchSize) {
+                            regCallback!(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(confirmed));
+                            confirmed.Clear();
+                        }
+                    }
                 }
+            }
+            if (confirmed is { Count: > 0 }) { // the rest of this transaction's nodes are readable from the file now
+                regCallback!(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(confirmed));
+                confirmed.Clear();
             }
             stream.WriteMarker(_transactionEndMarker);  // marking end of a new transaction, making it possible to separate each transaction in a corrupted file
         }
@@ -224,6 +237,8 @@ internal class WALFile : IDisposable {
         if (FirstTimestamp == 0) FirstTimestamp = transaction.Timestamp;
         _workQueue.Add(transaction);
     }
+    /// <summary>True while transactions are queued and not yet written to the log file. No lock, an estimate like <see cref="GetQueueActionCount"/>.</summary>
+    public bool HasQueuedWrites => _workQueue.EstimateTransactionCount > 0;
     public void DequeuAllTransactionWritesAndFlushStreamsThreadSafe(bool deepFlush) => DequeuAllTransactionWritesAndFlushStreamsThreadSafe(deepFlush, null, out _, out _, out _);
     public void DequeuAllTransactionWritesAndFlushStreamsThreadSafe(bool deepFlush, Action<string, int>? progress, out int transactionCount, out int actionCount, out long bytesWritten) {
         // write everything to stream, no locks needed as _workQueue is threadsafe ( and write method uses locks)
@@ -286,7 +301,7 @@ internal class WALFile : IDisposable {
         if (batch.Count > 0) readBatchAndAddToResult(batch, result, ref batchSize, ref diskReads); // read last batch
         return result;
     }
-    readonly object _bufferLock = new(); // dedicated lock object, _buffer itself cannot be used as it is reassigned when it grows
+    readonly System.Threading.Lock _bufferLock = new(); // dedicated lock object, _buffer itself cannot be used as it is reassigned when it grows
     byte[] _buffer = new byte[batchLimit]; // common buffer for reading segments, ( simultaneous reads are not allowed)
     void readBatchAndAddToResult(List<(int pos, NodeSegment seg)> batch, byte[][] result, ref long batchSize, ref int diskReads) {
         //Console.WriteLine("Reading batch of " + batch.Count);

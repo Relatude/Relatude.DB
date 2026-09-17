@@ -16,7 +16,7 @@ namespace Relatude.DB.DataStores.Stores;
 
 // threadsafe, excect when loading and using method "_NotThreadsafe"
 internal sealed class NodeStore {
-    object _lock = new();
+    readonly System.Threading.Lock _lock = new();
     readonly static Guid _marker = new Guid("993d32a7-f608-43d7-a800-0be4208f723a");
     readonly ReadSegmentsFunc _read;
     readonly Cache<int, INodeDataInternal> _cache; // threadsafe
@@ -127,6 +127,13 @@ internal sealed class NodeStore {
     public bool Contains(int id) {
         lock (_lock) return _segments.Contains(id);
     }
+    /// <summary>Both lookups under one lock, for the two ends of a relation.</summary>
+    public void Contains(int id1, int id2, out bool contains1, out bool contains2) {
+        lock (_lock) {
+            contains1 = _segments.Contains(id1);
+            contains2 = _segments.Contains(id2);
+        }
+    }
     public bool TryGetSegment(int id, out NodeSegment segment) {
         lock (_lock) return tryGetSegment(id, out segment);
     }
@@ -149,13 +156,20 @@ internal sealed class NodeStore {
         }
     }
     public void UpdateNodeDataPositionInLogFile(int id, NodeSegment segment) {
+        lock (_lock) updateNodeDataPositionInLogFile(id, segment);
+    }
+    /// <summary>The log writer confirms positions a batch at a time: one lock per batch instead of one per node, so readers see far fewer lock handovers during a flush.</summary>
+    public void UpdateNodeDataPositionsInLogFile(ReadOnlySpan<(int id, NodeSegment segment)> segments) {
         lock (_lock) {
-            if (!_segments.Contains(id)) return;
-            if (_segments.PersistedByEngine) _pending[id] = segment; // the engine takes writes from the transaction thread only
-            else _segments.Set(id, segment);
-            if (_dropWhenWritten.Remove(id)) _cache.Clear_EvenIf0Size(id); // now readable from the log, so no reason to keep the bulk inserted node
-            else _cache.TryUpdateSize(id, estimateSize(segment.Length));
+            foreach (var (id, segment) in segments) updateNodeDataPositionInLogFile(id, segment);
         }
+    }
+    void updateNodeDataPositionInLogFile(int id, NodeSegment segment) {
+        if (!_segments.Contains(id)) return;
+        if (_segments.PersistedByEngine) _pending[id] = segment; // the engine takes writes from the transaction thread only
+        else _segments.Set(id, segment);
+        if (_dropWhenWritten.Remove(id)) _cache.Clear_EvenIf0Size(id); // now readable from the log, so no reason to keep the bulk inserted node
+        else _cache.TryUpdateSize(id, estimateSize(segment.Length));
     }
     internal bool HasPendingSegments { get { lock (_lock) return _pending.Count > 0; } }
     /// <summary>Writes the confirmed log positions into an engine backed map. Single writer: call inside the engine transaction.</summary>
