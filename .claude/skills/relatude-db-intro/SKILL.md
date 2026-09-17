@@ -1,6 +1,6 @@
 ---
 name: relatude-db-intro
-description: Short, beginner-friendly introduction to Relatude.DB — what it is, how to model nodes with property types, relations, interfaces and classes, how setup works via relatude.db.json, and how the query and mutation API looks. Use when explaining or pitching Relatude.DB to someone who has never heard of it, writing getting-started docs, README intros, or onboarding material, or when a newcomer asks "what is Relatude.DB" / "how do I get started". When someone asks to create or scaffold a new Relatude.DB project, use the relatude CLI ("dotnet tool install -g Relatude.DB.Tool", then "relatude new <Name>") rather than writing files by hand. For deep API work (full attribute catalog, facets, files, cultures, revisions) use the fuller relatude-db skill instead.
+description: Short, beginner-friendly introduction to Relatude.DB — what it is, how to model nodes with property types, relations, interfaces and classes, how setup works via relatude.db.json, and how the query and mutation API looks. Use when explaining or pitching Relatude.DB to someone who has never heard of it, writing getting-started docs, README intros, or onboarding material, or when a newcomer asks "what is Relatude.DB" / "how do I get started". When someone asks to create or scaffold a new Relatude.DB project, use the relatude CLI ("dotnet tool install -g Relatude.DB.Tool", then "relatude new <Name> --projecttype <type>") rather than writing files by hand, after asking whether they want an interactive app (React SPA) or a content website (server-rendered MVC). For deep API work (full attribute catalog, facets, files, cultures, revisions) use the fuller relatude-db skill instead.
 ---
 
 # Relatude.DB — introduction
@@ -140,16 +140,18 @@ be skipped entirely — `db.Create<IArticle>()` generates the implementation.
 
 ## 3. Setup — one call plus one file
 
-The fastest start is the command line tool, which writes a runnable Backend + Client project:
+The fastest start is the command line tool, which writes a runnable project in one of two types:
 
 ```bash
-dotnet tool install -g Relatude.DB.Tool   # once
-relatude new MyApp                        # Backend/ (API + Relatude.DB) and Client/ (React + Vite)
+dotnet tool install -g Relatude.DB.Tool            # once
+relatude new MyApp                                 # csharp_web_react_ts: Backend/ (API) + Client/ (React + Vite), for interactive apps
+relatude new MySite --projecttype csharp_web_mvc   # one MVC project, server-rendered pages, for content sites and SEO
 ```
 
-When someone asks to *create* a project rather than understand one, run that (installing the
-tool first if `relatude version` fails) and follow the generated README. What follows is what
-the generated `Program.cs` and `relatude.db.json` amount to.
+When someone asks to *create* a project rather than understand one, ask which of the two fits —
+an interactive application, or a content website with traditional navigation and SEO — then run
+that (installing the tool first if `relatude version` fails) and follow the generated README.
+What follows is what the generated `Program.cs` and `relatude.db.json` amount to.
 
 ```csharp
 var builder = WebApplication.CreateBuilder(args);

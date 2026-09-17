@@ -153,19 +153,35 @@ public static class Help {
         """,
         ["new"] = $"""
         relatude new <name> [options]
+        relatude new --list-types
 
-          Creates a new web application in a folder named after it: a Backend folder with an ASP.NET
-          Core minimal API on Relatude.DB, and a Client folder with a React + TypeScript + Vite app that
-          calls it under /api. Source only, nothing is built or installed. A relatude.db.json is written
-          with fresh ids, pointing at the <Name>.Models namespace in the Backend project, so every class
-          added there becomes a node type. The README in the folder explains how to run it and where
-          models, endpoints and client code go.
+          Creates a new application in a folder named after it, from one of the project types below.
+          Source only, nothing is built or installed. A relatude.db.json is written with fresh ids,
+          pointing at the <Name>.Models namespace of the C# project, so every class added there becomes
+          a node type. The README in the folder explains how to run it and where models, pages,
+          endpoints and client code go.
 
-            relatude new MyApp
+            relatude new MyApp                                   (the default type, csharp_web_react_ts)
+            relatude new MySite --projecttype csharp_web_mvc
             relatude new MyApp --user admin --password secret
             relatude new MyApp --out ./apps/my-app
 
+          Project types (--projecttype; "relatude new --list-types" prints this list, --json too):
+            csharp_web_react_ts   C# ASP.NET Core API + React/TypeScript client (Vite), two folders:
+                                  Backend/ and Client/. For interactive web applications: rich,
+                                  app-like user interfaces where a browser client talks to an API.
+                                  Needs the .NET 10 SDK and Node.js 20+. The default.
+            csharp_web_mvc        C# ASP.NET Core MVC website in one project: controllers, Razor views,
+                                  HTML rendered on the server. For content websites with traditional
+                                  page navigation and SEO: crawlable URLs, titles and descriptions per
+                                  page, no JavaScript build step. Needs the .NET 10 SDK.
+          Ask what the site is for before choosing: an application wants the SPA type, a content site
+          wants the MVC type. More types (other languages and stacks) will be added under the same
+          language_platform_flavour naming.
+
           Options:
+            --projecttype <type>    which project type to generate (default: csharp_web_react_ts)
+            --list-types            print the project types with what each is suited for, and exit
             --out <folder>          where to create it (default: ./<name>)
             --user <name>           admin user for the admin UI (optional: on localhost no login is
                                     needed, so a fresh project runs without one)
@@ -174,8 +190,8 @@ public static class Help {
                                     this tool)
             --force                 write into a folder that is not empty
 
-          Next steps it prints: dotnet run --project Backend --launch-profile https, and
-          npm install --prefix Client && npm run dev --prefix Client.
+          The command ends by printing what to run next: for the SPA type dotnet run --project Backend
+          plus npm install and npm run dev in Client; for the MVC type a single dotnet run.
         {globalOptions}
         """,
         ["init"] = $"""
@@ -332,7 +348,7 @@ public static class Help {
           codegen       generate C# model code from a datamodel
           validate      check the model code and report problems worth fixing
           settings      print relatude.db.json, resolved and without secrets
-          new           create a new web application: Backend (API + Relatude.DB) and Client (React)
+          new           create a new application from a project type: API + React client, or MVC site
           init          create a relatude.db.json
           maintenance   flush, truncate the log, save state, back up, rebuild indexes
           timestamp     print the head of the transaction log, to remember before experimenting

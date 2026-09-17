@@ -22,14 +22,16 @@ Because the project is pre-1.0, check the current package list on the repo rathe
 
 ## Starting from nothing: `relatude new`
 
-For a brand-new web application, generate it instead of writing the wiring below by hand:
+For a brand-new web application or website, generate it instead of writing the wiring below by hand:
 
 ```bash
-dotnet tool install -g Relatude.DB.Tool   # once; skip when "relatude version" already works
-relatude new MyApp
+dotnet tool install -g Relatude.DB.Tool            # once; skip when "relatude version" already works
+relatude new --list-types                          # the project types and what each is suited for
+relatude new MyApp                                 # csharp_web_react_ts (default): Backend/ + Client/
+relatude new MySite --projecttype csharp_web_mvc   # one server-rendered MVC project
 ```
 
-The tool writes `./MyApp/Backend` — an ASP.NET Core minimal API with `AddRelatudeDB` / `UseRelatudeDB`, the media-serving middleware, one `/api/hello` endpoint and a `relatude.db.json` pointing at the `MyApp.Models` namespace — and `./MyApp/Client`, a React + TypeScript + Vite app whose dev server proxies `/api` and `/relatude.db` to the Backend and whose production build lands in `Backend/wwwroot`. A README in the folder explains running, adding models and endpoints, and inspecting the result with the tool. Options: `--out <folder>`, `--user`/`--password` (the admin login, optional on localhost), `--package-version`, `--force`, `--json`. `relatude init` writes only the `relatude.db.json` into an existing project; `relatude help all` lists every command. The tool is built for .NET 8 and .NET 10; `dotnet tool install` picks the newest runtime present, which matters because the tool loads your model assembly.
+Ask the user which type fits before generating. `csharp_web_react_ts` writes `./MyApp/Backend` — an ASP.NET Core minimal API with `AddRelatudeDB` / `UseRelatudeDB`, the media-serving middleware, one `/api/hello` endpoint and a `relatude.db.json` pointing at the `MyApp.Models` namespace — and `./MyApp/Client`, a React + TypeScript + Vite app whose dev server proxies `/api` and `/relatude.db` to the Backend and whose production build lands in `Backend/wwwroot`; it suits interactive, app-like user interfaces. `csharp_web_mvc` writes one ASP.NET Core MVC project — controllers, Razor views with a layout that emits `<title>` and `<meta name="description">`, static files, the same middleware and `relatude.db.json` — with the HTML rendered on the server; it suits content websites with traditional page navigation and SEO and needs no Node.js. Both come with a README that explains running, adding models, pages or endpoints, and inspecting the result with the tool. Options: `--out <folder>`, `--user`/`--password` (the admin login, optional on localhost), `--package-version`, `--force`, `--json`. `relatude init` writes only the `relatude.db.json` into an existing project; `relatude help all` lists every command. The tool is built for .NET 8 and .NET 10; `dotnet tool install` picks the newest runtime present, which matters because the tool loads your model assembly.
 
 The rest of this file is what the generated code does, for when you wire an existing project by hand.
 
@@ -76,14 +78,14 @@ Two ways, and they compose — JSON sources load first, then `OnDatamodelInit` a
   {
     "Id": "...",
     "Name": "VenueApp",
-    "Type": "TypeReference",           // or TextFiles (+ "FileFormat": "Json" | "CSharpCode")
+    "Type": "CompiledTypes",           // or RuntimeTypes (model files on disk, always JSON)
     "Namespace": "VenueApp.Models",    // matched exactly, not by prefix
     "Reference": "VenueApp"            // assembly name; null means the entry assembly
   }
 ]
 ```
 
-`TypeReference` was called `AssemblyNameReference` before September 2026 (the old name still reads); the single-type `TypeNameReference` kind was removed then, and `JsonFile`/`CSharpCodeFile` became `TextFiles` with a `FileFormat` (the old names still read). C# text files are compiled while the database opens.
+`CompiledTypes` was called `AssemblyNameReference`, then `TypeReference`, before September 2026, and `RuntimeTypes` was `JsonFile`, then `TextFiles`; all the old names still read, and `TypeNameReference` was removed. On load, a settings file's `TypeReference` is rewritten to `CompiledTypes` and its file-based sources are dropped: compiling C# model files while the database opens is gone, so a model kept in files is added again as a `RuntimeTypes` source.
 
 **From `Program.cs`**, which is the common case when the model ships with the app — refactor-safe, and it fails at compile time rather than at boot:
 

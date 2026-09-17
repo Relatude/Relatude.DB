@@ -3906,7 +3906,9 @@ relatude validate                        # what would break at startup, and what
 relatude settings                        # relatude.db.json resolved, without secrets
 relatude init --namespace MyApp.Models   # write a relatude.db.json
 
-relatude new MyApp                       # a new web application: Backend (API + Relatude.DB) + Client (React)
+relatude new --list-types                # the project types: what each generates and is suited for
+relatude new MyApp                       # default type csharp_web_react_ts: Backend (API + Relatude.DB) + Client (React)
+relatude new MySite --projecttype csharp_web_mvc   # one ASP.NET Core MVC project, server-rendered pages
 relatude new MyApp --user admin --password secret
 
 relatude insert --type Product '{ "Name": "Rucksack", "Price": 249 }'
@@ -3929,14 +3931,23 @@ relatude maintenance reset-indexes --yes # delete state and index files, rebuild
 one go** — that is the built-in reference, and it is the same text this section summarises.
 
 `new` is the one command that does not need an existing project: `relatude new MyApp` writes a
-complete web application into `./MyApp` — a `Backend` folder with an ASP.NET Core minimal API on
-Relatude.DB and a `Client` folder with a React + TypeScript + Vite app that calls it under `/api`.
-Source only, nothing built: the folder's README says how to run the two halves (`dotnet run` and
-`npm run dev`), where models and endpoints go, and how to inspect the result with the tool. The
-generated `relatude.db.json` points at the `MyApp.Models` namespace, so every class added to
-`Backend/Models` becomes a node type. `--user`/`--password` set the admin login (optional on
-localhost), `--package-version` pins the NuGet version, which defaults to the tool's own.
-`examples/WebApp.Empty` in the repository is the same application, kept as a reference.
+complete application into `./MyApp`, source only, nothing built. `--projecttype` picks what kind:
+
+| Type | What it writes | Suited for |
+|---|---|---|
+| `csharp_web_react_ts` (default) | `Backend/`, an ASP.NET Core minimal API on Relatude.DB, and `Client/`, a React + TypeScript + Vite app that calls it under `/api` and is built into `Backend/wwwroot` for production | interactive web applications: rich, app-like user interfaces where a browser client talks to an API |
+| `csharp_web_mvc` | one ASP.NET Core MVC project — controllers, Razor views, static files — with the HTML rendered on the server and a layout that writes `<title>` and `<meta name="description">` per page | content websites with traditional page navigation and SEO: crawlable URLs, no JavaScript build step |
+
+`relatude new --list-types` prints the same list (`--json` for tooling), so an agent can ask the
+user which fits before generating; types for other languages and stacks will be added under the
+same `language_platform_flavour` naming. Every type gets a README that says how to run it, where
+models, pages or endpoints go, and how to inspect the result with the tool, plus a
+`relatude.db.json` pointing at the `MyApp.Models` namespace, so every class added to the `Models`
+folder becomes a node type. `--user`/`--password` set the admin login (optional on localhost),
+`--package-version` pins the NuGet version, which defaults to the tool's own — keep the two on
+the same version, the settings file is written in the vocabulary of the tool's version.
+`examples/WebApp.Empty` and `examples/WebApp.Mvc` in the repository are the two types, kept as
+references.
 
 `timestamp` and `revert` are the two halves of the experiment workflow from
 [section 16.1](#161-reverting-the-database-to-an-earlier-point), run from the outside: capture the

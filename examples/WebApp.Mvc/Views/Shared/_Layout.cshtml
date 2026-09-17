@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@(ViewData["Title"] is string title ? title + " - " : "")WebApp.Mvc</title>
+    @if (ViewData["Description"] is string description) {
+        <meta name="description" content="@description" />
+    }
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+    <header>
+        <nav>
+            <a asp-controller="Home" asp-action="Index">WebApp.Mvc</a>
+            <a href="/relatude.db">Admin UI</a>
+        </nav>
+    </header>
+    <main>
+        @RenderBody()
+    </main>
+    <footer>
+        <small>&copy; @DateTime.UtcNow.Year WebApp.Mvc &middot; built on <a href="https://db.relatude.com">Relatude.DB</a></small>
+    </footer>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

@@ -1,14 +1,14 @@
 # Models
 
-Node classes for WebApp.Empty go in this folder, in the namespace `WebAppEmpty.Models`.
+Node classes for __NAME__ go in this folder, in the namespace `__NAMESPACE__.Models`.
 `relatude.db.json` names that namespace as a datamodel source, so every class here is a node type
-the next time the Backend starts. No registration code, no migrations.
+the next time the app starts. No registration code, no migrations.
 
 ```csharp
 using Relatude.DB.Common;
 using Relatude.DB.Nodes;
 
-namespace WebAppEmpty.Models;
+namespace __NAMESPACE__.Models;
 
 [Node(TextIndex = BoolValue.True)]                       // the whole node is free-text searchable
 public class Product {
@@ -21,8 +21,8 @@ public class Product {
 }
 ```
 
-- **Only node types belong in this namespace.** Every class in it becomes a node type, so keep
-  request/response DTOs and helpers elsewhere, for example in `WebAppEmpty.Api`.
+- **Only node types belong in this namespace.** Every class in it becomes a node type, so keep view
+  models, form models and helpers elsewhere, for example in `__NAMESPACE__.ViewModels`.
 - `Indexed = true` makes a property filterable, sortable and facetable.
 - Scalars, strings, arrays, `DateTime`, `Guid`, enums, `GeoCoordinate`, `FileValue` (uploaded
   files), `Reference<T>` and `References<T>` (links to other nodes) and `Embedded<T>` (owned
@@ -30,6 +30,6 @@ public class Product {
 - A relation that must be navigable from both sides is a class deriving from `OneToMany<,>`,
   `ManyToMany<,>`, `OneToOne<,>`, `OneOne<>` or `ManyMany<>`.
 - Renaming a type or property loses the data under the old name unless its id is pinned with an
-  attribute. `relatude validate` (from the Backend folder) warns about that and other model problems.
+  attribute. `relatude validate` (from this folder's parent) warns about that and other model problems.
 
 Reference: <https://db.relatude.com>

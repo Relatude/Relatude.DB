@@ -1,0 +1,11 @@
+# Build output
+bin/
+obj/
+
+# The database itself: transaction log, indexes, uploaded files. Delete the folder to start over.
+relatude.db/
+
+# Editors and OS
+.vs/
+*.user
+.DS_Store

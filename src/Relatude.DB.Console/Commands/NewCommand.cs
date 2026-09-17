@@ -5,22 +5,26 @@ using Relatude.DB.NodeServer;
 namespace Relatude.DB.Cli.Commands;
 
 /// <summary>
-/// Creates a new web application from the template embedded in this tool (Templates/WebApp in the
-/// source): a Backend folder with an ASP.NET Core minimal API on Relatude.DB and a Client folder with a
-/// React + TypeScript + Vite app. Source only, nothing built: the caller runs dotnet and npm afterwards.
+/// Creates a new application from one of the templates embedded in this tool (Templates/&lt;type&gt; in
+/// the source, described by <see cref="ProjectTypes"/>). Source only, nothing built: the caller runs
+/// dotnet (and npm, for the types that have a client) afterwards.
 /// </summary>
 public static class NewCommand {
-    const string _templatePrefix = "Templates/WebApp/";
-    const string _backendFolder = "Backend";
-    const string _backendAssembly = "Backend";
+    const string _templatesRoot = "Templates/";
 
     public static Task<int> RunAsync(CommandArgs args) {
-        args.Accept("out", "user", "password", "package-version", "force");
+        args.Accept("out", "user", "password", "package-version", "force", ProjectTypes.Option, "project-type", "list-types");
+        if (args.Flag("list-types")) {
+            ProjectTypes.WriteList(args.Flag("json"));
+            return Task.FromResult(0);
+        }
         var name = args.SinglePositional("project name")
             ?? throw new UsageException("A project name is required, for example: relatude new MyApp");
         if (name.Any(c => !(char.IsLetterOrDigit(c) || c is '-' or '_' or '.' or ' ')) || !name.Any(char.IsLetter)) {
             throw new UsageException("The project name needs a letter and may only hold letters, digits, '-', '_', '.' and spaces: \"" + name + "\".");
         }
+        var typeName = args.Get(ProjectTypes.Option) ?? args.Get("project-type");
+        var type = ProjectTypes.Resolve(typeName);
         var ns = toIdentifier(name);
         var packageName = toPackageName(name) + "-client";
         var packageVersion = args.Get("package-version") ?? DefaultPackageVersion;
@@ -32,41 +36,46 @@ public static class NewCommand {
                 + "Pass --force to write into it anyway; files with the same names are overwritten, others are kept.");
         }
 
+        string substitute(string text) => text
+            .Replace("__NAME__", name)
+            .Replace("__NAMESPACE__", ns)
+            .Replace("__PACKAGE_NAME__", packageName)
+            .Replace("__PACKAGE_VERSION__", packageVersion);
+
+        var prefix = _templatesRoot + type.Name + "/";
         var written = new List<string>();
         var assembly = typeof(NewCommand).Assembly;
         var resources = assembly.GetManifestResourceNames()
             .Select(n => (Resource: n, Path: n.Replace('\\', '/')))
-            .Where(r => r.Path.StartsWith(_templatePrefix, StringComparison.Ordinal))
+            .Where(r => r.Path.StartsWith(prefix, StringComparison.Ordinal))
             .OrderBy(r => r.Path, StringComparer.Ordinal)
             .ToArray();
-        if (resources.Length == 0) throw new CliException("This build of the tool holds no project template.");
+        if (resources.Length == 0) throw new CliException("This build of the tool holds no template for the project type " + type.Name + ".");
         foreach (var (resource, path) in resources) {
-            var relative = path[_templatePrefix.Length..];
+            var relative = substitute(path[prefix.Length..]); // file names carry placeholders too: __NAMESPACE__.csproj
             var target = Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             using var stream = assembly.GetManifestResourceStream(resource)!;
             using var reader = new StreamReader(stream, Encoding.UTF8);
-            var text = reader.ReadToEnd()
-                .Replace("__NAME__", name)
-                .Replace("__NAMESPACE__", ns)
-                .Replace("__PACKAGE_NAME__", packageName)
-                .Replace("__PACKAGE_VERSION__", packageVersion);
-            File.WriteAllText(target, text, new UTF8Encoding(false));
+            File.WriteAllText(target, substitute(reader.ReadToEnd()), new UTF8Encoding(false));
             written.Add(relative);
         }
 
         // the settings file is generated, not copied: fresh ids and secret, the model namespace of this project
+        var assemblyName = type.AssemblyName ?? ns;
+        var modelNamespace = ns + ".Models";
         var settings = SettingsTemplate.Create(
             databaseName: name,
             dataPath: Defaults.DataFolderPath,
-            modelNamespace: ns + ".Models",
-            assemblyName: _backendAssembly,
+            modelNamespace: modelNamespace,
+            assemblyName: assemblyName,
             user: args.Get("user"),
             password: args.Get("password"),
             waitUntilOpen: true);
-        var settingsRelative = _backendFolder + "/" + Defaults.SettingsFileName;
-        File.WriteAllText(Path.Combine(root, _backendFolder, Defaults.SettingsFileName), SettingsReader.Serialize(settings));
-        written.Add(settingsRelative);
+        var projectFolder = Path.Combine(root, type.ProjectFolder);
+        Directory.CreateDirectory(projectFolder);
+        File.WriteAllText(Path.Combine(projectFolder, Defaults.SettingsFileName), SettingsReader.Serialize(settings));
+        written.Add(joinRelative(type.ProjectFolder, Defaults.SettingsFileName));
 
         var relativeRoot = Path.GetRelativePath(cwd, root);
         if (relativeRoot.StartsWith("..")) relativeRoot = root; // far away: the absolute path reads better
@@ -74,28 +83,31 @@ public static class NewCommand {
             Output.Json(new {
                 Folder = root,
                 Name = name,
+                ProjectType = type.Name,
                 Namespace = ns,
-                ModelNamespace = ns + ".Models",
+                ModelNamespace = modelNamespace,
+                ModelFolder = joinRelative(type.ProjectFolder, "Models"),
+                ProjectFolder = type.ProjectFolder,
                 PackageVersion = packageVersion,
                 AdminUser = args.Get("user"),
+                NextSteps = type.NextSteps.Select(s => type.Substitute(s, name, ns, packageVersion, root).Trim()).Where(s => s.Length > 0),
                 Files = written,
             });
             return Task.FromResult(0);
         }
         Output.WriteLine("Created " + name + " in " + root);
         Output.Table([
-            (_backendFolder + "/", "ASP.NET Core minimal API + Relatude.DB " + packageVersion + " (net10.0)"),
-            ("Client/", "React + TypeScript + Vite"),
-            ("model namespace", ns + ".Models, in " + _backendFolder + "/Models"),
+            ("project type", type.Name + " - " + type.Title),
+            .. type.Summary.Select(r => (type.Substitute(r.Key, name, ns, packageVersion, root), type.Substitute(r.Value, name, ns, packageVersion, root))),
+            ("model namespace", modelNamespace + ", in " + joinRelative(type.ProjectFolder, "Models")),
             ("admin login", args.Get("user") ?? "not set (not needed on localhost)"),
         ]);
         Output.WriteLine();
-        Output.WriteLine("Next, in two terminals:");
-        Output.WriteLine("  cd " + quote(relativeRoot));
-        Output.WriteLine("  dotnet run --project Backend --launch-profile https           # API on https://localhost:7238");
-        Output.WriteLine("  npm install --prefix Client && npm run dev --prefix Client     # client on http://localhost:5173");
-        Output.WriteLine("Then open http://localhost:5173. The admin UI is at /relatude.db on either port.");
-        Output.WriteLine("README.md explains where models, endpoints and client code go.");
+        foreach (var line in type.NextSteps) Output.WriteLine(type.Substitute(line, name, ns, packageVersion, quote(relativeRoot)));
+        Output.WriteLine("README.md explains where models, pages and endpoints go.");
+        if (typeName == null) {
+            Output.Info("Project type " + type.Name + " is the default; \"relatude new --list-types\" describes the others.");
+        }
         return Task.FromResult(0);
     }
 
@@ -113,7 +125,9 @@ public static class NewCommand {
         }
     }
 
-    /// <summary>"my-app" or "my app" becomes MyApp: a C# identifier for the root namespace.</summary>
+    static string joinRelative(string folder, string file) => folder.Length == 0 ? file : folder + "/" + file;
+
+    /// <summary>"my-app" or "my app" becomes MyApp: a C# identifier for the root namespace and the assembly.</summary>
     static string toIdentifier(string name) {
         var sb = new StringBuilder();
         var startOfWord = true;

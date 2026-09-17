@@ -10,6 +10,9 @@
   <Folder Name="/.Examples/WebApp.Empty/">
     <Project Path="examples/WebApp.Empty/Backend/Backend.csproj" Id="d24cf090-414f-41fd-bf6b-df1b27fd960a" />
   </Folder>
+  <Folder Name="/.Examples/WebApp.Mvc/">
+    <Project Path="examples/WebApp.Mvc/WebAppMvc.csproj" />
+  </Folder>
   <Folder Name="/Assets/">
     <File Path=".gitignore" />
     <File Path="license.txt" />

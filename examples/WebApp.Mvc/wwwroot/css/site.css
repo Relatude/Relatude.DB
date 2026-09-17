@@ -1,0 +1,38 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  line-height: 1.5;
+}
+
+header nav {
+  display: flex;
+  gap: 1.5rem;
+  padding: 1rem 2rem;
+  border-bottom: 1px solid #8884;
+}
+
+header nav a:first-child {
+  font-weight: 600;
+}
+
+main {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+footer {
+  padding: 1rem 2rem;
+  border-top: 1px solid #8884;
+}
+
+code {
+  font-size: 0.95em;
+  padding: 0.1em 0.3em;
+  border-radius: 0.25em;
+  background: #8882;
+}

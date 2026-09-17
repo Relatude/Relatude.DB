@@ -21,6 +21,8 @@ public class Product {
 }
 ```
 
+- **Only node types belong in this namespace.** Every class in it becomes a node type, so keep
+  request/response DTOs and helpers elsewhere, for example in `__NAMESPACE__.Api`.
 - `Indexed = true` makes a property filterable, sortable and facetable.
 - Scalars, strings, arrays, `DateTime`, `Guid`, enums, `GeoCoordinate`, `FileValue` (uploaded
   files), `Reference<T>` and `References<T>` (links to other nodes) and `Embedded<T>` (owned

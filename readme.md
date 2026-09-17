@@ -50,11 +50,12 @@ Because Relatude.DB acts as a complete storage layer, it includes features you w
 
 ## Getting Started
 
-The quickest way is the command line tool, which writes a complete web application in one command: an ASP.NET Core API with Relatude.DB in `Backend/` and a React + TypeScript + Vite client in `Client/`, with a README that says how to run it and where models and endpoints go.
+The quickest way is the command line tool, which writes a complete application in one command. Two project types today: `csharp_web_react_ts` (the default), an ASP.NET Core API with Relatude.DB in `Backend/` plus a React + TypeScript + Vite client in `Client/`, for interactive web applications; and `csharp_web_mvc`, one server-rendered ASP.NET Core MVC project, for content websites with traditional navigation and SEO. Both come with a README that says how to run them and where models, pages and endpoints go.
 
 ```bash
 dotnet tool install -g Relatude.DB.Tool
-relatude new MyApp
+relatude new MyApp                                 # API + React client
+relatude new MySite --projecttype csharp_web_mvc   # MVC website
 ```
 
 The same tool inspects a project afterwards: `relatude schema`, `relatude validate`, `relatude query "Product.Count()"`, and `relatude help all` for the whole reference (see [the manual](docs/manual.md#31-the-command-line-tool)).
