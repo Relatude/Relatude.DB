@@ -28,7 +28,7 @@ using VectorIndexBenchmarks.Harness;
 // else the harness takes is in BenchOptions.
 var defaults = new BenchOptions {
     // the data and the workload
-    N = 500_00,                // --n           vectors indexed
+    N = 50_000,                // --n           vectors indexed
     Dimensions = 1536,          // --dims        384 = a small sentence model, 1536 = OpenAI text-embedding-3-small
     Clusters = 200,             // --clusters    centers the vectors are drawn around; 0 = uniformly random directions
     ClusterNoise = 1.0f,        // --noise       how loosely they scatter around their center

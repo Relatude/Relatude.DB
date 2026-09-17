@@ -67,7 +67,7 @@ public static class Engines {
 }
 
 public sealed class BenchOptions {
-    public int N = 500_000;
+    public int N = 50_000;
     public int WordsPerDocument = 60;
     public int VocabularySize = 40_000;
     /// <summary>Documents per transaction during the index, update and remove phases.</summary>

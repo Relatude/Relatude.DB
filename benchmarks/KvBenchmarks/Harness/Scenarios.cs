@@ -5,11 +5,11 @@ namespace KvBenchmarks.Harness;
 
 public static class Engines {
     /// <summary>Every engine in its ordered layout, and the same four in their unordered one.</summary>
-    //public static readonly string[] Sorted = ["sqlite", "zonetree", "faster", "native"];
-    //public static readonly string[] Hash = ["sqlite-hash", "zonetree-hash", "faster-hash", "native-hash"];
+    public static readonly string[] Sorted = ["sqlite", "zonetree", "faster", "native"];
+    public static readonly string[] Hash = ["sqlite-hash", "zonetree-hash", "faster-hash", "native-hash"];
 
-    public static readonly string[] Sorted = [];
-    public static readonly string[] Hash = ["faster-hash", "native-hash"];
+    //public static readonly string[] Sorted = [];
+    //public static readonly string[] Hash = ["faster-hash", "native-hash"];
 
     public static readonly string[] All = [.. Sorted, .. Hash];
 
