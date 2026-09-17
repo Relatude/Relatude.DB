@@ -201,7 +201,7 @@ sealed class UIQuery {
         // the table needs a value per column for every row, which is a node read per cell; the list
         // needs a handful of values per row. Only one of them is built.
         var columns = columnsFor(dm, nodeType, p);
-        var terms = termsOf(p.Text);
+        var terms = termsOf(string.IsNullOrWhiteSpace(p.Text) ? p.Text : applyMatch(p.Text, p.Match));
         object[] hits = p.Summary ? [] : [.. nodes.NodeValues
             .Select(n => columns == null ? hitView(dm, n, terms) : hitView(dm, n, terms, s, columns, maxTableCellLength, p.Edit))];
         return new {
@@ -232,21 +232,30 @@ sealed class UIQuery {
     static Guid queriedType(Datamodel dm, Guid? given)
         => given is Guid id && dm.NodeTypes.ContainsKey(id) ? id : NodeConstants.BaseNodeTypeId;
 
-    // Every word the page splits the search text into, with a trailing wildcard. The search runs on
-    // every keystroke, so the word being typed is almost always half a word, and a term the index
-    // has to match whole would find nothing until the moment it is finished - TermSet.Parse reads
-    // the trailing star as a prefix term, which is what makes "cor" find "cork".
+    // Every word the page splits the search text into, marked with the operator the chosen match
+    // asks for. WILDCARD, the default and what the box has always done, appends a trailing star:
+    // the search runs on every keystroke, so the word being typed is almost always half a word, and
+    // a term the index has to match whole would find nothing until the moment it is finished -
+    // TermSet.Parse reads the trailing star as a prefix term, which is what makes "cor" find "cork".
+    // FUZZY appends a tilde instead, so a word may be misspelled by an edit or two. EXACT marks
+    // nothing: the word has to be in the text as written.
     //
-    // A word already carrying a wildcard or a fuzzy marker is left exactly as written: someone who
-    // types their own search syntax means it. The wildcard stays out of the separator set for the
-    // same reason - splitting on it would hide the very character being looked for. Only the word
-    // index sees any of this; the semantic half is given the plain words (SearchUtil.StripOperators).
+    // A word already carrying a wildcard or a fuzzy marker is left exactly as written, whatever the
+    // setting says: someone who types their own search syntax means it. The wildcard stays out of
+    // the separator set for the same reason - splitting on it would hide the very character being
+    // looked for. Only the word index sees any of this; the semantic half is given the plain words
+    // (SearchUtil.StripOperators).
+    internal const string matchWildcard = "wildcard";
+    internal const string matchFuzzy = "fuzzy";
+    internal const string matchExact = "exact";
     static readonly char[] searchWordSeparators = [.. SearchConst.DEVIDERS.Where(c => c != SearchConst.WILDCARD)];
-    static string prefixEachWord(string text) {
+    static string applyMatch(string text, string? match) {
+        if (string.Equals(match, matchExact, StringComparison.OrdinalIgnoreCase)) return text;
+        var marker = string.Equals(match, matchFuzzy, StringComparison.OrdinalIgnoreCase) ? SearchConst.FUZZY : SearchConst.WILDCARD;
         var words = text.Split(searchWordSeparators, StringSplitOptions.RemoveEmptyEntries);
         if (words.Length == 0) return text;
         return string.Join(' ', words.Select(w =>
-            w.Contains(SearchConst.WILDCARD) || w.Contains(SearchConst.FUZZY) ? w : w + SearchConst.WILDCARD));
+            w.Contains(SearchConst.WILDCARD) || w.Contains(SearchConst.FUZZY) ? w : w + marker));
     }
 
     /// <summary>
@@ -260,7 +269,7 @@ sealed class UIQuery {
     static string queryFor(NodeStore s, Datamodel dm, SearchPayload p, Guid typeId, int pageIndex, int pageSize) {
         var q = s.QueryType(typeId, adminContext);
         if (!string.IsNullOrWhiteSpace(p.Text)) {
-            q = q.WhereSearch(prefixEachWord(p.Text), p.SemanticRatio, (float?)p.MinimumSimilarity);
+            q = q.WhereSearch(applyMatch(p.Text, p.Match), p.SemanticRatio, (float?)p.MinimumSimilarity, p.AnyWord);
         }
         var selections = (p.Selections ?? []).Where(s => dm.Properties.ContainsKey(s.PropertyId) && s.Values?.Length > 0).ToArray();
         var order = selections.Length == 0 ? orderClause(dm, p.SortBy, p.SortDescending) : "";
@@ -765,10 +774,12 @@ sealed class UIQuery {
 
     /// <summary>
     /// The words a hit is marked on: the search text as the index reads it. <see cref="TermSet.Parse"/>
-    /// strips the operators, so the wildcard <see cref="prefixEachWord"/> appends is gone and "cor*"
-    /// marks the "cor" of "cork" - the part the index actually matched. The word length limits are the
-    /// model's defaults rather than any one property's: a hit is sampled from whichever property holds
-    /// the text, and they may each say something different.
+    /// strips the operators, so the wildcard <see cref="applyMatch"/> appends is gone and "cor*"
+    /// marks the "cor" of "cork" - the part the index actually matched. It is given the MARKED text
+    /// rather than what was typed, so the terms carry the same flags the search ran with: a fuzzy
+    /// term is what lets <see cref="TextSample"/> mark a word that is only nearly the one searched for.
+    /// The word length limits are the model's defaults rather than any one property's: a hit is
+    /// sampled from whichever property holds the text, and they may each say something different.
     /// </summary>
     static TermSet termsOf(string? text) => string.IsNullOrWhiteSpace(text) ? TermSet.Empty
         : TermSet.Parse(text, StringPropertyModel.DefaultMinWordLength, StringPropertyModel.DefaultMaxWordLength, allowInfix: true);
@@ -1842,7 +1853,7 @@ sealed class UIQuery {
         try {
             var s = store(storeId);
             var dm = s.Datastore.Datamodel;
-            var q = s.QueryType(NodeConstants.BaseNodeTypeId, adminContext).WhereSearch(prefixEachWord(text));
+            var q = s.QueryType(NodeConstants.BaseNodeTypeId, adminContext).WhereSearch(applyMatch(text, null));
             if (s.Datastore.Query(paged(q, 0, take), [], adminContext) is not IStoreNodeDataCollection nodes) return [];
             return [.. nodes.NodeValues.Select(n => (object)new {
                 n.Id,
@@ -1866,7 +1877,7 @@ sealed class UIQuery {
         foreach (var typeId in typeIds) {
             if (found.Count >= take) break;
             var q = s.QueryType(typeId, adminContext);
-            if (!string.IsNullOrWhiteSpace(p.Text)) q = q.WhereSearch(prefixEachWord(p.Text));
+            if (!string.IsNullOrWhiteSpace(p.Text)) q = q.WhereSearch(applyMatch(p.Text, null));
             if (s.Datastore.Query(paged(q, 0, take), [], adminContext) is not IStoreNodeDataCollection nodes) continue;
             foreach (var n in nodes.NodeValues) {
                 if (found.Count >= take) break;
@@ -2014,7 +2025,7 @@ sealed class UIQuery {
         var typeId = queriedType(dm, p.TypeId);
         var nodeType = dm.NodeTypes[typeId];
         var q = s.QueryType(typeId, adminContext);
-        if (!string.IsNullOrWhiteSpace(p.Text)) q = q.WhereSearch(prefixEachWord(p.Text), p.SemanticRatio, (float?)p.MinimumSimilarity);
+        if (!string.IsNullOrWhiteSpace(p.Text)) q = q.WhereSearch(applyMatch(p.Text, p.Match), p.SemanticRatio, (float?)p.MinimumSimilarity, p.AnyWord);
         var selections = (p.Selections ?? []).Where(sel => dm.Properties.ContainsKey(sel.PropertyId) && sel.Values?.Length > 0).ToArray();
         QueryOfPivot<object, object> pq;
         if (selections.Length == 0) {
@@ -2150,7 +2161,7 @@ sealed class UIQuery {
             return new { TypeId = typeId, TypeName = nodeType.CodeName, Query = "", DurationMs = 0.0, SourceCount = 0, Keys = keyViews, Measures = measureViews, Rows = Array.Empty<object>(), TotalRows = 0, Page = 0, PageSize = pageSize };
 
         var q = s.QueryType(typeId, adminContext);
-        if (!string.IsNullOrWhiteSpace(p.Text)) q = q.WhereSearch(prefixEachWord(p.Text), p.SemanticRatio, (float?)p.MinimumSimilarity);
+        if (!string.IsNullOrWhiteSpace(p.Text)) q = q.WhereSearch(applyMatch(p.Text, p.Match), p.SemanticRatio, (float?)p.MinimumSimilarity, p.AnyWord);
         var selections = (p.Selections ?? []).Where(sel => dm.Properties.ContainsKey(sel.PropertyId) && sel.Values?.Length > 0).ToArray();
         QueryOfGroups<object, object, object?[]> groups;
         if (selections.Length == 0) {
@@ -2277,7 +2288,8 @@ sealed class UIQuery {
         // the same search as the list, as one page as large as the picture may be, with the grouping
         // and the sort as clauses of the query: a facet selection contributes its filter only, no
         // bucket of it is counted
-        var search = new SearchPayload(p.StoreId, p.TypeId, p.Text, p.SemanticRatio, p.MinimumSimilarity, p.Selections, null, 0, cards, Facets: false);
+        var search = new SearchPayload(p.StoreId, p.TypeId, p.Text, p.SemanticRatio, p.MinimumSimilarity, p.Selections, null, 0, cards, Facets: false,
+            Match: p.Match, AnyWord: p.AnyWord);
         var queryString = queryFor(s, dm, search, typeId, 0, cards) + ".Buckets()" + bucketClauses(dm, p.Properties) + sortClause(dm, p.SortBy, p.SortDescending);
 
         var sw = Stopwatch.StartNew();
@@ -2759,7 +2771,8 @@ sealed class UIQuery {
         // the same search as the list, as one page as large as the map may be, with the positions and
         // the grouping as clauses of the query: a facet selection contributes its filter only, no
         // bucket of it is counted
-        var search = new SearchPayload(p.StoreId, p.TypeId, p.Text, p.SemanticRatio, p.MinimumSimilarity, p.Selections, null, 0, wanted, Facets: false);
+        var search = new SearchPayload(p.StoreId, p.TypeId, p.Text, p.SemanticRatio, p.MinimumSimilarity, p.Selections, null, 0, wanted, Facets: false,
+            Match: p.Match, AnyWord: p.AnyWord);
         var queryString = queryFor(s, dm, search, typeId, 0, wanted) + ".Coordinates(" + propertyRef(geoProperty) + ")" + bucketClauses(dm, p.Properties);
 
         var sw = Stopwatch.StartNew();
@@ -2824,7 +2837,7 @@ sealed class UIQuery {
             throw new Exception("The words of \"" + property.CodeName + "\" cannot be counted: the text index holding them cannot list the words it holds. Only the memory and the native text index can. ");
 
         var q = s.QueryType(typeId, adminContext);
-        if (!string.IsNullOrWhiteSpace(p.Text)) q = q.WhereSearch(prefixEachWord(p.Text), p.SemanticRatio, (float?)p.MinimumSimilarity);
+        if (!string.IsNullOrWhiteSpace(p.Text)) q = q.WhereSearch(applyMatch(p.Text, p.Match), p.SemanticRatio, (float?)p.MinimumSimilarity, p.AnyWord);
         var selections = (p.Selections ?? []).Where(sel => dm.Properties.ContainsKey(sel.PropertyId) && sel.Values?.Length > 0).ToArray();
         string queryString;
         if (selections.Length == 0) {
@@ -3058,23 +3071,28 @@ sealed class UIQuery {
     sealed record NodesPayload(Guid StoreId, Guid[]? Ids, byte[]? IntIds = null);
     internal sealed record PivotModelPayload(Guid StoreId, Guid? TypeId);
     internal sealed record CloudPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity, FacetSelection[]? Selections,
-        Guid PropertyId, int MaxWords, int MinDocuments, int MinWordLength, string[]? Ignore, bool ExcludeNumbers);
+        Guid PropertyId, int MaxWords, int MinDocuments, int MinWordLength, string[]? Ignore, bool ExcludeNumbers,
+        string? Match = null, bool AnyWord = false);
     /// <summary>Mode: auto | values | ranges, or a calendar interval (year, quarter, month, week, day, hour) on a date property.</summary>
     internal sealed record PivotLevelPayload(Guid PropertyId, string? Mode);
     internal sealed record PivotMeasurePayload(string Function, Guid? PropertyId);
     internal sealed record PivotAxisOptionsPayload(int MaxGroups = 0, string? SortByMeasure = null, bool Descending = true, bool OtherGroup = false, bool IncludeMissing = false);
     internal sealed record PivotPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity, FacetSelection[]? Selections,
         PivotLevelPayload[]? Rows, PivotLevelPayload[]? Columns, PivotMeasurePayload[]? Measures,
-        PivotAxisOptionsPayload? RowOptions, PivotAxisOptionsPayload? ColumnOptions, bool SubTotals = false, int MaxCells = 0, int RowPage = 0, int RowPageSize = 0);
+        PivotAxisOptionsPayload? RowOptions, PivotAxisOptionsPayload? ColumnOptions, bool SubTotals = false, int MaxCells = 0, int RowPage = 0, int RowPageSize = 0,
+        string? Match = null, bool AnyWord = false);
     internal sealed record GroupByPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity, FacetSelection[]? Selections,
-        PivotLevelPayload[]? Keys, PivotMeasurePayload[]? Measures, bool IncludeMissing = true, string? SortBy = null, bool Descending = true, int Page = 0, int PageSize = 200);
+        PivotLevelPayload[]? Keys, PivotMeasurePayload[]? Measures, bool IncludeMissing = true, string? SortBy = null, bool Descending = true, int Page = 0, int PageSize = 200,
+        string? Match = null, bool AnyWord = false);
     /// <summary>A property the visual pivot groups by; Mode: auto | values | ranges.</summary>
     internal sealed record VisualLevelPayload(Guid PropertyId, string? Mode);
     internal sealed record VisualPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity, FacetSelection[]? Selections,
-        VisualLevelPayload[]? Properties, int MaxCards = 0, Guid? SortBy = null, bool SortDescending = false);
+        VisualLevelPayload[]? Properties, int MaxCards = 0, Guid? SortBy = null, bool SortDescending = false,
+        string? Match = null, bool AnyWord = false);
     /// <summary>PropertyId is the position the points are placed by; Properties are grouped for their colours, as the visual pivot's are.</summary>
     internal sealed record MapPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity, FacetSelection[]? Selections,
-        Guid PropertyId, VisualLevelPayload[]? Properties, int MaxPoints = 0);
+        Guid PropertyId, VisualLevelPayload[]? Properties, int MaxPoints = 0,
+        string? Match = null, bool AnyWord = false);
     sealed record NodeIntPayload(Guid StoreId, int Id);
     /// <summary>The nodes to find the guids of (see nodeGuids), as int32 little-endian bytes.</summary>
     sealed record NodeIntsPayload(Guid StoreId, byte[]? Ids);
@@ -3098,7 +3116,11 @@ sealed class UIQuery {
         // pivot, the map, the word cloud - asks with this set: it needs the total and the facets and
         // not one node's values. False is the list, which is what an older page asking without the
         // field means too.
-        bool Summary = false);
+        bool Summary = false,
+        // How the words of Text are matched (see applyMatch): wildcard - the default and what an
+        // older page asking without the field means - fuzzy, or exact. AnyWord true finds the nodes
+        // holding ANY of the words rather than all of them (the engine's orSearch).
+        string? Match = null, bool AnyWord = false);
     internal sealed record ColumnsPayload(Guid StoreId, Guid? TypeId);
     sealed record SavePayload(Guid StoreId, Guid Id, Dictionary<string, JsonElement>? Values, Dictionary<string, Guid[]>? Relations);
     sealed record SaveManyPayload(Guid StoreId, Guid[]? Ids, Dictionary<string, JsonElement>? Values, Dictionary<string, Guid[]>? Relations, byte[]? IntIds = null);

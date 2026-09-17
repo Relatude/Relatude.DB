@@ -1,4 +1,4 @@
-import type { FacetSelection, PivotAxisOptions, PivotLevelSpec, PivotMeasureSpec } from "./server/query";
+import type { FacetSelection, PivotAxisOptions, PivotLevelSpec, PivotMeasureSpec, SearchMatch } from "./server/query";
 
 /**
  * The queries open on the query page, one tab each, kept per database in localStorage.
@@ -237,6 +237,13 @@ export interface SavedQuery {
   /** null until the model is known: the base type, whatever it is called in this database. */
   typeId: string | null;
   text: string;
+  /**
+   * How each word of the text is matched, and whether all of them have to be there. Both are
+   * absent in a save written before they existed, which reads as the search the box has always
+   * run: every word a prefix, every word required.
+   */
+  match?: SearchMatch;
+  anyWord?: boolean;
   semanticRatio: number | null;
   minimumSimilarity: number | null;
   selections: FacetSelection[];
@@ -292,6 +299,8 @@ export function newQuery(): SavedQuery {
     name: null,
     typeId: null,
     text: "",
+    match: "wildcard",
+    anyWord: false,
     semanticRatio: null,
     minimumSimilarity: null,
     selections: [],

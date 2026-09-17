@@ -149,6 +149,8 @@ export function WordCloudView({
       storeId: base.storeId,
       typeId: base.typeId,
       text: base.text,
+      match: base.match,
+      anyWord: base.anyWord,
       semanticRatio: base.semanticRatio,
       minimumSimilarity: base.minimumSimilarity,
       selections: base.selections,

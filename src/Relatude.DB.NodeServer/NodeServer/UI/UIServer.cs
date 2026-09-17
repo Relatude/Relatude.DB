@@ -1207,6 +1207,7 @@ public sealed class UIServer {
                 DroppedFromUtc = utc(cut.LastUtc),
                 cut.TransactionsKept,
                 cut.TransactionsDropped,
+                cut.ActionsKept,
                 cut.ActionsDropped,
                 cut.BytesKept,
                 cut.BytesDropped,
@@ -1318,22 +1319,28 @@ public sealed class UIServer {
             var ioId = c.Settings.IoDatabase ?? throw new Exception("No database IO provider configured. ");
             var io = _server.GetIO(ioId);
             var current = FileKeyUtility.WAL_GetLatestFileKey(io);
+            // The storage type decides when an upload can close the database: the files of a memory
+            // provider live in the instance the server drops when the last database closes, so a
+            // file staged there has to be put in place while that instance is still the one in use.
+            var ioType = (c.Settings.IOSettings ?? []).FirstOrDefault(s => s.Id == ioId)?.IOType ?? IOTypes.LocalDisk;
             return (object?)new {
                 IoId = ioId,
                 CurrentKey = current.AsKeyString(),
                 Size = io.GetFileSizeOrZeroIfUnknown(current),
                 State = c.HasFailed ? "Error" : c.Store?.State.ToString() ?? "Closed",
-                CanUpload = c.Store == null || c.Store.State == DataStoreState.Closed,
+                IoType = ioType.ToString(),
             };
         });
-        // The end of a database upload: the staged file becomes the database. Which key it lands on
-        // is decided here, once the database is closed and the file has arrived, rather than named
-        // by the client before the upload started - by then the log may have moved on, and the next
-        // key from back then can be the live file.
+        // The end of a database upload: the staged file becomes the database. The upload itself runs
+        // against an open database - it only writes a temp file in the upload folder - and the client
+        // closes the database once the last byte is in, so the downtime is the swap rather than the
+        // transfer. Which key the file lands on is decided here, once the database is closed and the
+        // file has arrived, rather than named by the client before the upload started - by then the
+        // log may have moved on, and the next key from back then can be the live file.
         Commands.Register("db-upload-adopt", ctx => {
             var p = ctx.Payload<UploadAdoptPayload>();
             var c = getContainer(p.StoreId);
-            if (c.IsOpenOrOpening()) throw new Exception("The database must be closed before uploading. ");
+            if (c.IsOpenOrOpening()) throw new Exception("The database must be closed before the uploaded file can be put in place. ");
             var io = _server.GetIO(p.IoId);
             var temp = UIFileTransfer.UploadTempKey(p.UploadId);
             var received = io.GetFileSizeOrZeroIfUnknown(temp);

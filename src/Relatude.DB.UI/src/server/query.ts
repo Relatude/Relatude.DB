@@ -146,15 +146,36 @@ export interface FacetSelection {
   values: { value: string | null; value2: string | null }[];
 }
 
-export interface SearchRequest {
+/**
+ * How the words in the search box are matched. `wildcard` is what the box has always done: every
+ * word is read as a prefix, so a half typed word still finds something ("cor" finds "cork").
+ * `fuzzy` lets a word be misspelled by an edit or two, and `exact` wants the word as written.
+ * A word somebody marks themselves - "cork*", "cork~" - is left alone whatever this says.
+ */
+export type SearchMatch = "wildcard" | "fuzzy" | "exact";
+
+/**
+ * What every view of a query searches for, and how: the text with its two options, the semantic
+ * knobs and the facet selection. The list, the table, the summaries, the picture, the map and the
+ * cloud are all the same search shown differently, so they send the same fields and this is where
+ * those fields are said once.
+ */
+export interface SearchTerms {
+  text: string;
+  semanticRatio: number | null;
+  minimumSimilarity: number | null;
+  /** How each word is matched; see SearchMatch. */
+  match: SearchMatch;
+  /** true finds the nodes holding ANY of the words; false wants every one of them (the default). */
+  anyWord: boolean;
+  selections: FacetSelection[];
+}
+
+export interface SearchRequest extends SearchTerms {
   /** ask for the values behind the cells as well, so the table can be typed into */
   edit?: boolean;
   storeId: string;
   typeId: string | null;
-  text: string;
-  semanticRatio: number | null;
-  minimumSimilarity: number | null;
-  selections: FacetSelection[];
   expanded: string[];
   page: number;
   pageSize: number;
@@ -534,13 +555,9 @@ export interface PivotAxisOptions {
   includeMissing: boolean;
 }
 
-export interface PivotRequest {
+export interface PivotRequest extends SearchTerms {
   storeId: string;
   typeId: string | null;
-  text: string;
-  semanticRatio: number | null;
-  minimumSimilarity: number | null;
-  selections: FacetSelection[];
   rows: PivotLevelSpec[];
   columns: PivotLevelSpec[];
   measures: PivotMeasureSpec[];
@@ -625,13 +642,9 @@ export interface PivotResult {
 
 // ---- the group-by view: the same search, one row per group ----
 
-export interface GroupByRequest {
+export interface GroupByRequest extends SearchTerms {
   storeId: string;
   typeId: string | null;
-  text: string;
-  semanticRatio: number | null;
-  minimumSimilarity: number | null;
-  selections: FacetSelection[];
   /** The key properties, in order; `mode` is values | ranges, or a calendar interval on a date. */
   keys: PivotLevelSpec[];
   /** The aggregates beyond the count, which every row has. */
@@ -683,13 +696,9 @@ export function runGroupBy(request: GroupByRequest): Promise<GroupByResult> {
 
 // ---- the visual pivot: every node of the result as a card, grouped by its values ----
 
-export interface VisualRequest {
+export interface VisualRequest extends SearchTerms {
   storeId: string;
   typeId: string | null;
-  text: string;
-  semanticRatio: number | null;
-  minimumSimilarity: number | null;
-  selections: FacetSelection[];
   /** The properties the picture is grouped by (colour, bars); `mode` is auto | values | ranges. */
   properties: PivotLevelSpec[];
   /** How many cards at most; 0 is the server's own ceiling. */
@@ -745,13 +754,9 @@ export function runVisual(request: VisualRequest): Promise<VisualResult> {
 
 // ---- the map view: the nodes of the result as points on the world ----
 
-export interface MapRequest {
+export interface MapRequest extends SearchTerms {
   storeId: string;
   typeId: string | null;
-  text: string;
-  semanticRatio: number | null;
-  minimumSimilarity: number | null;
-  selections: FacetSelection[];
   /** The geo coordinate property the points are placed by. */
   propertyId: string;
   /** The properties the points are coloured by, grouped as the visual pivot's cards are. */
@@ -787,13 +792,9 @@ export function runMap(request: MapRequest): Promise<MapResult> {
 
 // ---- the word cloud: the words the result set is written with ----
 
-export interface CloudRequest {
+export interface CloudRequest extends SearchTerms {
   storeId: string;
   typeId: string | null;
-  text: string;
-  semanticRatio: number | null;
-  minimumSimilarity: number | null;
-  selections: FacetSelection[];
   /** The text property whose word index the words are read from. */
   propertyId: string;
   /** How many words at most; 0 is the server's own default. */

@@ -527,7 +527,9 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
               <button className="action-button" onClick={() => uploadInput.current?.click()}>
                 <IconDatabaseImport size={14} stroke={1.8} /> Upload database
               </button>
-              <span className="muted">closes the database, puts the uploaded file in place as the next database file, and reopens on it</span>
+              <span className="muted">
+                uploads with the database running, then closes it, puts the file in place as the next database file, and reopens on it
+              </span>
             </div>
             <input
               ref={uploadInput}

@@ -32,6 +32,7 @@ import { WordCloudView } from "./WordCloudView";
 import { EditableTable } from "./EditableTable";
 import { AddColumnHead, ColumnHead, useColumnDrag, useColumnSizing, type TableColumnsUi } from "./TableColumns";
 import { CopyButton } from "./CopyButton";
+import { SearchOptions } from "./SearchOptions";
 import { NewNodeDialog, TypePicker } from "./TypePicker";
 import { showChoice, showError } from "../dialogs";
 import { peekSearchTarget, takeQueryTarget, takeSearchTarget, useNavigationRequest } from "../navigate";
@@ -415,6 +416,9 @@ function QueryTab({
   // a type the model no longer has - or never named - falls back to the base type
   const typeId = q.typeId !== null && model.types.some((t) => t.id === q.typeId) ? q.typeId : model.baseTypeId;
   const { text, semanticRatio, minimumSimilarity: minSimilarity, selections, showFacets, mode, hitsView, sort, pageSize } = q;
+  // absent in a query saved before the options existed: the search the box has always run
+  const match = q.match ?? "wildcard";
+  const anyWord = q.anyWord ?? false;
   // drag to select (marquee.tsx): a drag draws a rectangle round nodes instead of dragging the picture
   const dragSelect = q.dragSelect === true;
   // The panel is open wherever there is an AI provider to search with, until someone on this query
@@ -500,6 +504,8 @@ function QueryTab({
             storeId: db.id,
             typeId,
             text,
+            match,
+            anyWord,
             semanticRatio,
             minimumSimilarity: minSimilarity,
             selections: selectionList,
@@ -517,7 +523,7 @@ function QueryTab({
             // total and the facets, and the hits of it would be read and thrown away
             summary,
     }),
-    [db.id, typeId, text, semanticRatio, minSimilarity, selectionList, expanded, page, pageRows, table, editCells, q.columns, showFacets, sort, summary],
+    [db.id, typeId, text, match, anyWord, semanticRatio, minSimilarity, selectionList, expanded, page, pageRows, table, editCells, q.columns, showFacets, sort, summary],
   );
 
   const { result, loading, error, refresh } = useLiveResult(query, runSearch);
@@ -564,8 +570,8 @@ function QueryTab({
 
   // the summaries' source: the search as this page has it, without the paging and the view switches
   const pivotBase = useMemo<PivotBase>(
-    () => ({ storeId: db.id, typeId, text, semanticRatio, minimumSimilarity: minSimilarity, selections: selectionList }),
-    [db.id, typeId, text, semanticRatio, minSimilarity, selectionList],
+    () => ({ storeId: db.id, typeId, text, match, anyWord, semanticRatio, minimumSimilarity: minSimilarity, selections: selectionList }),
+    [db.id, typeId, text, match, anyWord, semanticRatio, minSimilarity, selectionList],
   );
 
   // a pivot cell clicked: its groups become the facet selection, and the list shows the nodes behind
@@ -1016,6 +1022,8 @@ function QueryTab({
               <IconX size={14} stroke={1.8} />
             </button>
           )}
+          {/* how the words are matched and combined: in the box, because that is what it searches for */}
+          <SearchOptions match={match} anyWord={anyWord} onChange={(change) => reset(change)} />
         </div>
         <button className="action-button" onClick={() => setNewNode(true)} title="Make a node and open it here">
           <IconPlus size={15} stroke={1.9} /> New node

@@ -22,7 +22,8 @@ export interface DbFileInfo {
   currentKey: string;
   size: number;
   state: string;
-  canUpload: boolean;
+  /** Memory | LocalDisk | AzureBlobStorage: what the database file is kept on. */
+  ioType: string;
 }
 
 export function fetchBackupList(storeId: string): Promise<BackupList> {
@@ -115,19 +116,35 @@ export interface AdoptResult {
 }
 
 /**
- * Replaces the database with an uploaded file: closes it, stages the upload, and lets the server
- * put it in place as the next log file and drop everything built from the old one. The database
- * comes back up in every outcome, failure and cancel included.
+ * Replaces the database with an uploaded file: stages the upload, and once all of it is there
+ * closes the database and lets the server put the staged file in place as the next log file,
+ * dropping everything built from the old one. The database comes back up in every outcome,
+ * failure and cancel included.
+ *
+ * The upload runs while the database is still open and serving - it goes to a temp file in the
+ * upload folder, which is nothing the open database touches - so a slow link costs the transfer
+ * time in downtime no longer. Only the swap itself needs the database down, and an upload that
+ * fails or is cancelled never takes it down at all.
  *
  * The staged file only becomes the database once it has fully arrived and the database is closed,
  * and which key it lands on is the server’s decision at that moment: a key worked out before the
  * upload started can be the live database file by the time the last byte is in.
  */
 export async function uploadDatabase(ctl: ProgressController, storeId: string, info: DbFileInfo, file: File): Promise<AdoptResult> {
-  ctl.set({ label: "Closing the database…", total: null });
-  await closeStore(storeId);
   const uploadId = newUploadId();
+  // A memory storage holds its files in the provider instance, and the server drops those when the
+  // last database on it closes - a file staged there would not outlive the close. So that one keeps
+  // the old order and is uploaded with the database already down; everything on disk or in blob
+  // storage uploads first.
+  const closeFirst = info.ioType === "Memory";
+  let closed = false; // only what this call closed is reopened: a failed upload leaves the database alone
+  async function close(): Promise<void> {
+    ctl.set({ label: "Closing the database…", total: null });
+    await closeStore(storeId);
+    closed = true;
+  }
   try {
+    if (closeFirst) await close();
     ctl.set({ label: file.name, total: file.size, done: 0 });
     await uploadStaged(
       info.ioId,
@@ -136,14 +153,17 @@ export async function uploadDatabase(ctl: ProgressController, storeId: string, i
       (sent, total) => ctl.set({ done: sent, label: `${file.name} — ${formatBytes(sent)} / ${formatBytes(total)}` }),
       ctl.signal,
     );
+    if (!closed) await close();
     ctl.set({ label: "Putting it in place…", total: null });
     return await send<AdoptResult>("db-upload-adopt", { storeId, ioId: info.ioId, uploadId, size: file.size });
   } catch (error) {
     abortUpload(info.ioId, uploadId); // a staged file nothing will commit is only taking up room
     throw error;
   } finally {
-    ctl.set({ label: "Opening the database…", total: null });
-    await openStore(storeId);
+    if (closed) {
+      ctl.set({ label: "Opening the database…", total: null });
+      await openStore(storeId);
+    }
   }
 }
 
@@ -342,6 +362,7 @@ export interface TimeTravelResult {
   droppedFromUtc: string | null;
   transactionsKept: number;
   transactionsDropped: number;
+  actionsKept: number;
   actionsDropped: number;
   bytesKept: number;
   bytesDropped: number;

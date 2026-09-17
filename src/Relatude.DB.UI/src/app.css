@@ -2997,10 +2997,27 @@ a {
   font-size: 12px;
 }
 
-.tt-toolbar-name {
+.tt-toolbar-name,
+.tt-toolbar-counts {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* the file name gives way first, then the counts; the buttons keep their size, so the row stays one */
+.tt-toolbar-name {
+  flex: 0 3 auto;
+  min-width: 3em;
+}
+
+.tt-toolbar-counts {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.tt-toolbar > .action-button,
+.tt-toolbar > .tt-switch {
+  flex: none;
 }
 
 .tt-switch {
@@ -3026,6 +3043,11 @@ a {
 .log-timeline {
   cursor: crosshair;
   user-select: none;
+}
+
+/* dragging carries the plot, so the pointer says so for as long as it is held */
+.log-timeline.panning {
+  cursor: grabbing;
 }
 
 /* before a scan there is nothing to draw, and the box says what a scan would put there */
@@ -3081,11 +3103,6 @@ a {
   stroke: var(--text-faint);
   stroke-width: 1;
   stroke-dasharray: 3 3;
-}
-
-.log-timeline-drag {
-  fill: var(--accent);
-  opacity: 0.16;
 }
 
 .log-timeline-empty {
@@ -6289,6 +6306,102 @@ body.pg-resizing {
 
 .query-search .text-input:focus {
   outline: none;
+}
+
+/* How the words are matched, and whether all of them are wanted: one small button at the right edge
+   of the search box, saying where both stand ("ab* all"), and a popover holding the choices. It is
+   kept this small deliberately - the toolbar is full, and these are settings changed rarely and
+   read often, so what has to fit on the line is the answer and not the question. */
+.search-options {
+  position: relative;
+  flex: none;
+}
+
+.search-options-button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 5px;
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--text-muted);
+  background: var(--button-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.search-options-button:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+/* the options are off their defaults: said in the section's colour as well as in its words */
+.search-options-button.set {
+  color: var(--section-tone);
+  border-color: var(--section-tone);
+}
+
+.search-options-button.active {
+  color: var(--section-tone);
+  background: var(--section-tone-soft);
+  border-color: var(--section-tone);
+}
+
+/* the operator as it would be typed, so the button teaches the syntax it stands for */
+.search-options-button .so-chip {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+.search-options-button .so-words {
+  opacity: 0.85;
+}
+
+.search-options-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 6;
+  width: 300px;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+}
+
+.so-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.so-row + .so-row {
+  margin-top: 10px;
+}
+
+.so-label {
+  flex: none;
+  width: 44px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* what the setting above it does, in the words of an example: the popover is where there is room */
+.so-hint {
+  margin: 5px 0 0 54px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.so-note {
+  margin-top: 10px;
+  padding-top: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-faint);
+  border-top: 1px solid var(--border);
 }
 
 .query-sliders {

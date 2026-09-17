@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { IconAlertTriangle, IconArrowsMaximize, IconDatabase, IconFileSearch, IconHistory, IconRefresh } from "@tabler/icons-react";
 import { DialogTools } from "./DialogTools";
-import { LogTimelineView, formatSpan, type TimelineView } from "./LogTimelineView";
+import { LogTimelineView, formatSpan, wholeView, type TimelineView } from "./LogTimelineView";
 import {
   fetchLogFiles,
   fetchTimeTravelInfo,
@@ -205,9 +205,11 @@ export function TimeTravelDialog({
         : "The copy holds no transactions at all: the database is empty.",
       [
         `New database file: ${result.newKey} (${formatBytes(result.bytesKept)}), copied from ${result.sourceKey}`,
-        `Kept ${formatCount(result.transactionsKept)} transaction${result.transactionsKept === 1 ? "" : "s"}`,
-        `Left out ${formatCount(result.transactionsDropped)} transaction${result.transactionsDropped === 1 ? "" : "s"}`
-          + ` with ${formatCount(result.actionsDropped)} action${result.actionsDropped === 1 ? "" : "s"} (${formatBytes(result.bytesDropped)})`
+        `Kept ${formatCount(result.actionsKept)} action${result.actionsKept === 1 ? "" : "s"}`
+          + ` in ${formatCount(result.transactionsKept)} transaction${result.transactionsKept === 1 ? "" : "s"}`,
+        `Left out ${formatCount(result.actionsDropped)} action${result.actionsDropped === 1 ? "" : "s"}`
+          + ` in ${formatCount(result.transactionsDropped)} transaction${result.transactionsDropped === 1 ? "" : "s"}`
+          + ` (${formatBytes(result.bytesDropped)})`
           + (result.droppedFromUtc ? `, up to ${formatDateTime(result.droppedFromUtc)}` : ""),
         `The database file that was in place is kept as ${result.previousKey}`,
       ],
@@ -291,10 +293,10 @@ export function TimeTravelDialog({
             <div className="tt-toolbar">
               <IconDatabase size={14} stroke={1.8} className="tone-data" />
               <span className="tt-toolbar-name">{file ? file.key : "No file selected"}</span>
-              <span className="muted">
+              <span className="muted tt-toolbar-counts">
                 {timeline
-                  ? `${formatCount(timeline.transactions)} transaction${timeline.transactions === 1 ? "" : "s"}`
-                    + `, ${formatCount(timeline.actions)} action${timeline.actions === 1 ? "" : "s"}`
+                  ? `${formatCount(timeline.actions)} action${timeline.actions === 1 ? "" : "s"}`
+                    + ` in ${formatCount(timeline.transactions)} transaction${timeline.transactions === 1 ? "" : "s"}`
                     + ` · ${formatSpan(timeline.sliceMs)} per column`
                   : "not scanned"}
               </span>
@@ -374,7 +376,7 @@ export function TimeTravelDialog({
             </div>
             {split && (
               <div className="muted tt-summary">
-                About {formatCount(split.kept)} transaction{split.kept === 1 ? "" : "s"} would be kept and {formatCount(split.dropped)} left out
+                About {formatCount(split.kept)} action{split.kept === 1 ? "" : "s"} would be kept and {formatCount(split.dropped)} left out
                 {split.uncertain > 0 && `, with ${formatCount(split.uncertain)} in the column the moment falls inside`}. The copy is cut at the
                 last transaction at or before the moment, so the exact numbers are the ones reported when it is done.
               </div>
@@ -418,29 +420,22 @@ function groupByStorage(files: LogFileInfo[]): StorageGroup[] {
   return groups;
 }
 
-function wholeView(timeline: LogTimeline): TimelineView {
-  const slices = timeline.slices;
-  if (slices.length === 0) return { fromMs: 0, toMs: 1 };
-  const fromMs = slices[0].fromMs;
-  const toMs = Math.max(slices[slices.length - 1].toMs, fromMs + 1);
-  return { fromMs, toMs };
-}
-
 const sameView = (a: TimelineView, b: TimelineView) => a.fromMs === b.fromMs && a.toMs === b.toMs;
 
 /**
- * What a moment would keep and leave out, counted off the slices. The slice the moment falls inside
- * holds transactions on both sides of it and the scan did not record where, so it is counted apart
- * rather than guessed at - the numbers that matter are the ones the copy reports when it is made.
+ * What a moment would keep and leave out, in actions, counted off the slices. The slice the moment
+ * falls inside holds actions on both sides of it and the scan did not record where, so it is counted
+ * apart rather than guessed at - the numbers that matter are the ones the copy reports when it is
+ * made.
  */
 function splitAt(timeline: LogTimeline, ms: number): { kept: number; dropped: number; uncertain: number } {
   let kept = 0;
   let dropped = 0;
   let uncertain = 0;
   for (const slice of timeline.slices) {
-    if (slice.lastMs <= ms) kept += slice.transactions;
-    else if (slice.firstMs > ms) dropped += slice.transactions;
-    else uncertain += slice.transactions;
+    if (slice.lastMs <= ms) kept += slice.actions;
+    else if (slice.firstMs > ms) dropped += slice.actions;
+    else uncertain += slice.actions;
   }
   return { kept, dropped, uncertain };
 }

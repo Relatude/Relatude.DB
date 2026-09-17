@@ -18,6 +18,7 @@ import {
   type PivotProperty,
   type PivotRequest,
   type PivotResult,
+  type SearchTerms,
 } from "../server/query";
 import { useLiveResult } from "../server/hooks";
 import { formatCount, formatQuery } from "../format";
@@ -25,13 +26,9 @@ import type { PivotDefinition, SummaryView } from "../queryTabs";
 import { BarChart, maxSeries, type BarSeries } from "./BarChart";
 
 /** What the pivot summarizes: the search as the rest of the page has it. */
-export interface PivotBase {
+export interface PivotBase extends SearchTerms {
   storeId: string;
   typeId: string;
-  text: string;
-  semanticRatio: number | null;
-  minimumSimilarity: number | null;
-  selections: FacetSelection[];
 }
 
 const rowPageSize = 200;
@@ -174,6 +171,8 @@ export function PivotView({
             storeId: base.storeId,
             typeId: base.typeId,
             text: base.text,
+            match: base.match,
+            anyWord: base.anyWord,
             semanticRatio: base.semanticRatio,
             minimumSimilarity: base.minimumSimilarity,
             selections: base.selections,
