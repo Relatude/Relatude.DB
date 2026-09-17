@@ -4,7 +4,7 @@
 
 Relatude.DB is an open-source, C#-native object-oriented graph database with integrated full-text
 (BM25) search, vector/semantic search, file storage, faceting and a built-in admin UI. It runs
-in-process or server-hosted, and targets .NET 8+.
+in-process or server-hosted, and targets .NET 10+.
 
 This manual covers the part of the engine you touch every day: how to shape your data, and how to
 get it back out. It uses **one running example domain** — a venue-and-events platform — so every
@@ -3834,14 +3834,13 @@ It is also the fastest way for a coding agent to start a Relatude.DB project and
 it actually contains.
 
 ```bash
-dotnet run --project src/Relatude.DB.Console -f net10.0 -- help   # from this repository
+dotnet run --project src/Relatude.DB.Console -- help              # from this repository
 dotnet tool install -g Relatude.DB.Tool && relatude help          # as a global tool
 ```
 
 The binary is called `relatude`. Every example below assumes it is on the path. The tool is built
-for both net8.0 and net10.0 and `dotnet tool install` picks the newest runtime the machine has:
-it loads your model assembly, which needs a runtime at least as new as the one the application
-targets.
+for net10.0 and needs the .NET 10 runtime: it loads your model assembly, which needs a runtime at
+least as new as the one the application targets.
 
 ### Two things every command needs to know
 

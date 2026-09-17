@@ -101,7 +101,7 @@ for %%f in (.\*.nuspec) do (
 )
 
 :: Pack the command line tool. dotnet pack, not nuget pack: PackAsTool in the csproj
-:: publishes the tool and bundles every dependency under tools\net8.0\any.
+:: publishes the tool and bundles every dependency under tools\net10.0\any.
 :: This rebuilds the referenced projects with the tagged version, so it runs after the
 :: nuspec packing above, which picks its dlls straight out of bin\Release.
 echo.

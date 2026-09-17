@@ -116,7 +116,9 @@ public class StoreStreamDiscWriteTester : IAppendStream {
             if (count > length - position) count = (int)(length - position);
             long position1 = this._stream.Position;
             _stream.Position = position;
-            _stream.Read(buffer, 0, count);
+            // count is clamped to what is left in the file above, so all of it must arrive:
+            // Stream.Read may return fewer bytes and a partial read would leave stale bytes in the buffer
+            _stream.ReadExactly(buffer, 0, count);
             _stream.Position = position1;
             _bytesRead += count;
 #if DEBUG

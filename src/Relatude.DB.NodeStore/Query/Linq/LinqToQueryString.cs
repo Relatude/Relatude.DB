@@ -225,13 +225,29 @@ internal sealed class LinqToQueryString : ExpressionVisitor {
     private static bool IsExtension(MethodInfo m)
         => m.IsStatic && m.IsDefined(typeof(ExtensionAttribute), inherit: false);
 
+    /// <summary>
+    /// Strips the implicit array-to-span conversion C# 14 inserts. Since "first class spans",
+    /// x.Tags.Contains("red") on an array binds to MemoryExtensions.Contains(ReadOnlySpan&lt;T&gt;, T)
+    /// rather than Enumerable.Contains(IEnumerable&lt;T&gt;, T), and the receiver arrives here as
+    /// ReadOnlySpan&lt;T&gt;.op_Implicit(x.Tags). The query language has no span, so the array it wraps
+    /// is what must be rendered: without this the receiver emits as "op_Implicit(x.Tags)" and the
+    /// parser rejects it as not being a property of the queried node.
+    /// </summary>
+    private static Expression UnwrapSpanConversion(Expression e)
+        => e is MethodCallExpression { Object: null, Arguments.Count: 1 } call
+           && call.Method.IsSpecialName
+           && call.Method.Name == "op_Implicit"
+           && call.Type.IsByRefLike
+            ? call.Arguments[0]
+            : e;
+
     protected override Expression VisitMethodCall(MethodCallExpression node) {
         bool parens = NeedParens(Precedence.CallAccess);
         if (parens) _sb.Append('(');
 
         // Extension method? Render as receiver.Method(args...)
         if (node.Method.IsStatic && IsExtension(node.Method) && node.Arguments.Count > 0) {
-            var receiver = node.Arguments[0];
+            var receiver = UnwrapSpanConversion(node.Arguments[0]);
             EmitWithParensIfNeeded(receiver, Precedence.CallAccess);
             _sb.Append('.').Append(node.Method.Name).Append('(');
             for (int i = 1; i < node.Arguments.Count; i++) {

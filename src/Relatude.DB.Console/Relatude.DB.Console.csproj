@@ -2,9 +2,10 @@
 
 	<PropertyGroup>
 		<OutputType>Exe</OutputType>
-		<!-- both: the tool reflects over the application's model assembly, which only loads on a runtime at
-		     least as new as the one it was built for. "dotnet tool install" picks the newest the machine has. -->
-		<TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+		<!-- the tool reflects over the application's model assembly, which only loads on a runtime at least
+		     as new as the one it was built for, so this has to stay at or above the framework the projects
+		     "relatude new" writes target (see Templates\*, net10.0). -->
+		<TargetFramework>net10.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<!-- NOT Relatude.DB.Console: a namespace named Console would shadow System.Console -->

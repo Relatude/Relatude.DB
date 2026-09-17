@@ -5,7 +5,7 @@ description: Model, query, and configure apps with Relatude.DB — an open-sourc
 
 # Relatude.DB
 
-Relatude.DB is an open-source, C#-native **object-oriented graph database** with integrated full-text (BM25) search, vector/semantic search, faceting, geo/spatial queries, file storage and a built-in web admin UI at `/relatude.db`. It runs in-process or server-hosted and targets **.NET 8+**.
+Relatude.DB is an open-source, C#-native **object-oriented graph database** with integrated full-text (BM25) search, vector/semantic search, faceting, geo/spatial queries, file storage and a built-in web admin UI at `/relatude.db`. It runs in-process or server-hosted and targets **.NET 10+**.
 
 Repository: https://github.com/Relatude/Relatude.DB
 
@@ -39,7 +39,7 @@ relatude new MySite --projecttype csharp_web_mvc   # one server-rendered MVC pro
 
 Follow these steps, in order:
 
-1. **Check for the tool** with `relatude version`. If the command is not found, install it: `dotnet tool install -g Relatude.DB.Tool` (needs the .NET SDK; the tool ships for .NET 8 and .NET 10 and the installer picks the newest runtime the machine has). If it is installed already, do not reinstall; `dotnet tool update -g Relatude.DB.Tool` brings it to the current version.
+1. **Check for the tool** with `relatude version`. If the command is not found, install it: `dotnet tool install -g Relatude.DB.Tool` (needs the .NET 10 SDK; the tool ships for .NET 10). If it is installed already, do not reinstall; `dotnet tool update -g Relatude.DB.Tool` brings it to the current version.
 2. **Ask which project type the user wants**, unless the request already makes it clear. Run `relatude new --list-types` (`--json` for a machine-readable list) and present each type in a sentence or two. Today there are two:
    - `csharp_web_react_ts` (the default) — a C# ASP.NET Core API in `Backend/` plus a React + TypeScript + Vite client in `Client/`. Suited for **interactive web applications**: rich, app-like user interfaces where a browser client talks to an API. Needs the .NET 10 SDK and Node.js 20+.
    - `csharp_web_mvc` — one C# ASP.NET Core MVC project with controllers and Razor views, HTML rendered on the server. Suited for **content websites with traditional page navigation and SEO**: every page is a crawlable URL with its own title and description, and there is no JavaScript build step. Needs only the .NET 10 SDK.

@@ -30,13 +30,13 @@ public class StringArrayPropertyModel : PropertyModel, IPropertyModelUniqueContr
     }
     static int readInt(Stream s) {
         byte[] b = new byte[4];
-        s.Read(b, 0, 4);
+        s.ReadExactly(b, 0, 4); // a partial read would silently decode stale buffer bytes as the value
         return BitConverter.ToInt32(b, 0);
     }
     static string readString(Stream s) {
         var length = readInt(s);
         var bs = new byte[length];
-        s.Read(bs, 0, length);
+        s.ReadExactly(bs, 0, length);
         return RelatudeDBGlobals.Encoding.GetString(bs);
     }
     static void writeInt(Stream s, int v) {

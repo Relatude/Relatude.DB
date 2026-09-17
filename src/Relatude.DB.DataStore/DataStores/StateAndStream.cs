@@ -13,7 +13,9 @@ public class StateAndStream(Stream stream, bool isReady, FileValue fileValue, Fi
     public Stream Stream { get; } = stream;
     public byte[] GetBytes() {
         var bytes = new byte[Stream.Length];
-        Stream.Read(bytes, 0, bytes.Length);
+        // sized from Length, so the whole stream is expected: a partial read would leave the tail
+        // of the buffer as zeroes and hand back a silently truncated file
+        Stream.ReadExactly(bytes, 0, bytes.Length);
         return bytes;
     }
     public bool IsReady { get; } = isReady;

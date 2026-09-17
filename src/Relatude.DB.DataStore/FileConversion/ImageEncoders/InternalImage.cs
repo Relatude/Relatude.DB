@@ -216,7 +216,7 @@ internal sealed class InternalImage
         }
 
         ReadOnlySpan<uint> sourcePixels = MemoryMarshal.Cast<byte, uint>(_rgba);
-        Span<uint> destinationPixels = MemoryMarshal.Cast<byte, uint>(destination);
+        Span<uint> destinationPixels = MemoryMarshal.Cast<byte, uint>(destination.AsSpan());
 
         for (int y = 0; y < Height; y++)
         {
@@ -275,7 +275,7 @@ internal sealed class InternalImage
         }
 
         ReadOnlySpan<uint> sourcePixels = MemoryMarshal.Cast<byte, uint>(_rgba);
-        Span<uint> destinationPixels = MemoryMarshal.Cast<byte, uint>(destination);
+        Span<uint> destinationPixels = MemoryMarshal.Cast<byte, uint>(destination.AsSpan());
 
         for (int y = 0; y < Height; y++)
         {
@@ -310,7 +310,7 @@ internal sealed class InternalImage
         }
 
         ReadOnlySpan<uint> sourcePixels = MemoryMarshal.Cast<byte, uint>(_rgba);
-        Span<uint> destinationPixels = MemoryMarshal.Cast<byte, uint>(destination);
+        Span<uint> destinationPixels = MemoryMarshal.Cast<byte, uint>(destination.AsSpan());
 
         for (int y = 0; y < Height; y++)
         {
@@ -344,7 +344,7 @@ internal sealed class InternalImage
         }
 
         ReadOnlySpan<uint> sourcePixels = MemoryMarshal.Cast<byte, uint>(_rgba);
-        Span<uint> destinationPixels = MemoryMarshal.Cast<byte, uint>(destination);
+        Span<uint> destinationPixels = MemoryMarshal.Cast<byte, uint>(destination.AsSpan());
 
         for (int i = 0, j = sourcePixels.Length - 1; i < sourcePixels.Length; i++, j--)
         {
@@ -947,7 +947,7 @@ internal sealed class InternalImage
         }
 
         ReadOnlySpan<uint> sourcePixels = MemoryMarshal.Cast<byte, uint>(_rgba);
-        Span<uint> destinationPixels = MemoryMarshal.Cast<byte, uint>(destination);
+        Span<uint> destinationPixels = MemoryMarshal.Cast<byte, uint>(destination.AsSpan());
         for (int y = 0; y < height; y++)
         {
             int sourceRow = sourceYs[y] * Width;
@@ -1162,7 +1162,7 @@ internal sealed class InternalImage
     {
         if (color == default) return;
         uint packed = (uint)(color.R | (color.G << 8) | (color.B << 16) | (color.A << 24));
-        Span<uint> pixels = MemoryMarshal.Cast<byte, uint>(destination);
+        Span<uint> pixels = MemoryMarshal.Cast<byte, uint>(destination.AsSpan());
         pixels.Fill(packed);
     }
 

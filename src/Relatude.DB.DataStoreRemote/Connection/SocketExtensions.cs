@@ -26,7 +26,9 @@ public static class SocketExtensions {
         while (sent < message.Length) {
             var bytesLeft = message.Length - message.Position;
             var bytesToSend = buffer.Length > bytesLeft ? (int)bytesLeft : buffer.Length;
-            message.Read(buffer, 0, bytesToSend);
+            // reading the outgoing message, not the socket: bytesToSend is capped at what is left in
+            // the stream, so a short read here would put stale buffer bytes on the wire
+            message.ReadExactly(buffer, 0, bytesToSend);
             var mem = new Memory<byte>(buffer, 0, bytesToSend);
             sent += await socket.SendAsync(mem, SocketFlags.None);
         }

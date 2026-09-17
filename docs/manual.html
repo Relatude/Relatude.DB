@@ -410,7 +410,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p><strong>A practical manual</strong></p>
 <p>Relatude.DB is an open-source, C#-native object-oriented graph database with integrated full-text
 (BM25) search, vector/semantic search, file storage, faceting and a built-in admin UI. It runs
-in-process or server-hosted, and targets .NET 8+.</p>
+in-process or server-hosted, and targets .NET 10+.</p>
 <p>This manual covers the part of the engine you touch every day: how to shape your data, and how to
 get it back out. It uses <strong>one running example domain</strong> — a venue-and-events platform — so every
 concept builds on the last.</p>
@@ -4943,14 +4943,13 @@ generating model code, checking a model before it is wired up, and routine maint
 the one thing that comes before any of that: <code>relatude new</code> writes a complete new web application.
 It is also the fastest way for a coding agent to start a Relatude.DB project and then find out what
 it actually contains.</p>
-<div class="codehilite"><pre><span></span><code>dotnet<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>src/Relatude.DB.Console<span class="w"> </span>-f<span class="w"> </span>net10.0<span class="w"> </span>--<span class="w"> </span><span class="nb">help</span><span class="w">   </span><span class="c1"># from this repository</span>
+<div class="codehilite"><pre><span></span><code>dotnet<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>src/Relatude.DB.Console<span class="w"> </span>--<span class="w"> </span><span class="nb">help</span><span class="w">              </span><span class="c1"># from this repository</span>
 dotnet<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>-g<span class="w"> </span>Relatude.DB.Tool<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>relatude<span class="w"> </span><span class="nb">help</span><span class="w">          </span><span class="c1"># as a global tool</span>
 </code></pre></div>
 
 <p>The binary is called <code>relatude</code>. Every example below assumes it is on the path. The tool is built
-for both net8.0 and net10.0 and <code>dotnet tool install</code> picks the newest runtime the machine has:
-it loads your model assembly, which needs a runtime at least as new as the one the application
-targets.</p>
+for net10.0 and needs the .NET 10 runtime: it loads your model assembly, which needs a runtime at
+least as new as the one the application targets.</p>
 <h3 id="two-things-every-command-needs-to-know">Two things every command needs to know<a class="anchor" href="#two-things-every-command-needs-to-know" aria-label="Link to this section">#</a></h3>
 <p><strong>Where the database is.</strong> A database is named by its <code>relatude.db.json</code> (see
 <a href="#12-registering-the-model-the-admin-ui">section 12</a>). The tool looks for it in the current folder
