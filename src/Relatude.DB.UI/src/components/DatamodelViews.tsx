@@ -550,10 +550,10 @@ export function SourcesView({ ctx, selection, hiddenSources, onToggleVisible, on
           return (
             <div key={s.Id} className={"dm-source-card" + (isSelected(selection, "source", s.Id) ? " selected" : "") + (hidden ? " off" : "") + (!s.Enabled ? " disabled" : "")} style={{ borderLeftColor: color }} onClick={() => ctx.select({ kind: "source", id: s.Id })}>
               <div className="dm-source-card-head">
-                <SourceIcon type={s.Type} fileFormat={s.FileFormat} color={color} size={20} />
+                <SourceIcon type={s.Type} color={color} size={20} />
                 <div className="dm-source-card-title">
                   <div className="dm-source-card-name">{s.Name || s.Id}</div>
-                  <div className="muted">{sourceKindMeta(s.Type, s.FileFormat).label}</div>
+                  <div className="muted">{sourceKindMeta(s.Type).label}</div>
                 </div>
                 <button
                   className="icon-button"
@@ -600,19 +600,19 @@ export function SourcesView({ ctx, selection, hiddenSources, onToggleVisible, on
                       <span className="fact-k">Namespace</span> {s.Namespace}
                     </div>
                   )}
-                  {s.Type === "TypeReference" && (
+                  {s.Type === "CompiledTypes" && (
                     <div>
                       <span className="fact-k">Assembly</span> {s.Reference || "Current project"}
                     </div>
                   )}
-                  {s.Type !== "TypeReference" && s.Reference && (
+                  {s.Type !== "CompiledTypes" && s.Reference && (
                     <div>
                       <span className="fact-k">File name</span> {s.Reference}
                     </div>
                   )}
                   {(info?.resolvedPath || s.Filepath || s.SourceCodePath) && (
                     <div className={info?.pathExists === false ? "dm-missing" : ""}>
-                      <span className="fact-k">{s.Type === "TypeReference" ? (s.GenerateModelFile ? "Generated code" : "Source code") : "Path"}</span> {info?.resolvedPath ?? s.Filepath ?? s.SourceCodePath}
+                      <span className="fact-k">{s.Type === "CompiledTypes" ? (s.GenerateModelFile ? "Generated code" : "Source code") : "Path"}</span> {info?.resolvedPath ?? s.Filepath ?? s.SourceCodePath}
                       {info?.pathExists === false ? " (missing)" : ""}
                     </div>
                   )}

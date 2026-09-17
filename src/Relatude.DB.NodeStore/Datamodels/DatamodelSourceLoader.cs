@@ -20,13 +20,39 @@ namespace Relatude.DB.Datamodels;
 public static class DatamodelSourceLoader {
     public const string DefaultJsonFolder = "Models/Json";
     public const string DefaultCSharpFolder = "Models/CSharp";
-    /// <summary>The folder a text file source reads when it names none: by its file format.</summary>
-    public static string DefaultFolder(DatamodelSource source) => source.FileFormat == DatamodelSourceFileFormat.Json ? DefaultJsonFolder : DefaultCSharpFolder;
     /// <param name="dm">The datamodel the source is combined into.</param>
     /// <param name="source">The source to load.</param>
     /// <param name="rootFolder">The folder relative file paths resolve against — the folder holding the settings file.</param>
     /// <param name="resolveIO">Resolves an IO provider by id, only needed for legacy JsonFile sources using FileIO.</param>
     public static void Load(Datamodel dm, DatamodelSource source, string rootFolder, Func<Guid, IIOProvider?>? resolveIO = null) {
+        register(dm, source, () => {
+            switch (source.Type) {
+                case DatamodelSourceType.CompiledTypes:
+                    loadAssemblySource(dm, source);
+                    stampSourceCodeFiles(dm, source, rootFolder);
+                    break;
+                case DatamodelSourceType.RuntimeTypes:
+                    loadJsonSource(dm, source, rootFolder, resolveIO);
+                    break;
+                default:
+                    throw new NotSupportedException("Unknown datamodel source type: " + source.Type);
+            }
+        });
+    }
+    /// <summary>
+    /// Loads model types by compiling the C# files of a folder in memory, registering them the way
+    /// <see cref="Load"/> registers a configured source. C# files are not a configurable source kind:
+    /// this is here for the datamodel editor's dry run, which proves the code it is about to write into
+    /// a compiled source compiles, and reads back what it says, without the application being rebuilt.
+    /// The source names the file or folder in <see cref="DatamodelSource.Filepath"/> and may narrow what
+    /// is taken from it with <see cref="DatamodelSource.Namespace"/>.
+    /// </summary>
+    public static void LoadCSharpFiles(Datamodel dm, DatamodelSource source, string rootFolder) {
+        register(dm, source, () => loadCSharpSource(dm, source, rootFolder));
+    }
+    // what every kind of load has in common: the checks, the source on the model, and the source id
+    // everything added while it loads is tagged with
+    static void register(Datamodel dm, DatamodelSource source, Action load) {
         // a turned off source is not a source at all: it is not registered either, so nothing on the
         // model claims to come from it
         if (!source.Enabled) return;
@@ -38,18 +64,7 @@ public static class DatamodelSourceLoader {
         dm.Sources.Add(source);
         dm.CurrentSourceId = source.Id;
         try {
-            switch (source.Type) {
-                case DatamodelSourceType.TypeReference:
-                    loadAssemblySource(dm, source);
-                    stampSourceCodeFiles(dm, source, rootFolder);
-                    break;
-                case DatamodelSourceType.TextFiles:
-                    if (source.FileFormat == DatamodelSourceFileFormat.Json) loadJsonSource(dm, source, rootFolder, resolveIO);
-                    else loadCSharpSource(dm, source, rootFolder);
-                    break;
-                default:
-                    throw new NotSupportedException("Unknown datamodel source type: " + source.Type);
-            }
+            load();
         } finally {
             // anything added outside a configured source (e.g. the OnDatamodelInit event) is tagged as code:
             dm.CurrentSourceId = DatamodelSource.CodeSourceId;
@@ -61,7 +76,7 @@ public static class DatamodelSourceLoader {
         dm.SourceNotices.Add("The datamodel source \"" + name + "\" adds no types: " + message);
     }
     /// <summary>
-    /// The assembly a <see cref="DatamodelSourceType.TypeReference"/> source reads: the one named by
+    /// The assembly a <see cref="DatamodelSourceType.CompiledTypes"/> source reads: the one named by
     /// <see cref="DatamodelSource.Reference"/>, or the entry assembly - the current project - when that is
     /// null or empty. Throws, with the fix in the message, when it cannot be loaded.
     /// </summary>
@@ -172,6 +187,8 @@ public static class DatamodelSourceLoader {
             throw new Exception("The datamodel file \"" + file + "\" contains invalid JSON or an invalid datamodel: " + ex.Message, ex);
         }
     }
+    // Compiles the source's C# files into one assembly and takes its model types. Only reached through
+    // LoadCSharpFiles: see there for why compiling model code at open is no longer a source kind.
     static void loadCSharpSource(Datamodel dm, DatamodelSource source, string rootFolder) {
         var (files, baseFolder, emptyReason) = ResolveFiles(source, rootFolder, DefaultCSharpFolder, "*.cs");
         if (emptyReason != null) {
@@ -234,7 +251,8 @@ public static class DatamodelSourceLoader {
     /// The absolute file or folder path a file based source reads from, whether or not it exists yet:
     /// Filepath, else the default folder combined with Reference, else the default folder, resolved
     /// against the settings folder. The default folder for the source's type is
-    /// <see cref="DefaultJsonFolder"/> or <see cref="DefaultCSharpFolder"/>.
+    /// <see cref="DefaultJsonFolder"/> for a runtime source, <see cref="DefaultCSharpFolder"/> for the
+    /// editor's dry run over C# files.
     /// </summary>
     public static string ResolveFilePath(DatamodelSource source, string rootFolder, string defaultFolder) {
         var path = !string.IsNullOrEmpty(source.Filepath) ? source.Filepath

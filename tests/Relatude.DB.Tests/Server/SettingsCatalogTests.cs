@@ -337,7 +337,7 @@ public class SettingsCatalogTests {
             SettingsAccessor.Write(container, prefix + field, JsonSerializer.SerializeToElement(value));
         }
         Assert.IsFalse(source.Enabled);
-        Assert.AreEqual(DatamodelSourceType.TypeReference, source.Type);
+        Assert.AreEqual(DatamodelSourceType.CompiledTypes, source.Type);
         Assert.AreEqual("New model source", source.Name);
     }
 

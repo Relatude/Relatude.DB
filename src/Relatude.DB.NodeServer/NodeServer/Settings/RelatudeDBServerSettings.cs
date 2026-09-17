@@ -62,7 +62,7 @@ public class RelatudeDBServerSettings {
             {
                 Id = Guid.NewGuid(),
                 Name = "Demo",
-                Type = DatamodelSourceType.TypeReference,
+                Type = DatamodelSourceType.CompiledTypes,
                 Namespace = "Relatude.DB.Demo.Models",
                 Reference = "Relatude.DB.NodeStore",
             }

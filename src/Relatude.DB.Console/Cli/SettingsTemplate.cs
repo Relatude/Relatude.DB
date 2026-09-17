@@ -61,7 +61,7 @@ public static class SettingsTemplate {
             new() {
                 Id = Guid.NewGuid(),
                 Name = "Native",
-                Type = DatamodelSourceType.TypeReference,
+                Type = DatamodelSourceType.CompiledTypes,
                 Namespace = ModelSource.NativeNamespace,
                 Reference = "Relatude.DB.NodeStore",
             },
@@ -70,7 +70,7 @@ public static class SettingsTemplate {
             list.Insert(0, new DatamodelSource {
                 Id = Guid.NewGuid(),
                 Name = "Model",
-                Type = DatamodelSourceType.TypeReference,
+                Type = DatamodelSourceType.CompiledTypes,
                 Namespace = modelNamespace,
                 Reference = assemblyName,
             });

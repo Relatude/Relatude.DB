@@ -1887,14 +1887,13 @@ deployments of the same binary:
   {
     "Id": "8a3f...",                   // required, and unique across the sources
     "Name": "VenueApp",
-    "Type": "TypeReference",           // see the table below
-    "FileFormat": "Json",              // TextFiles: what the files hold, Json or CSharpCode
+    "Type": "CompiledTypes",           // see the table below
     "Namespace": "VenueApp.Models",    // one namespace, or a pattern: "VenueApp.Models.*" takes it and everything under it
     "Reference": "VenueApp",           // assembly name; null means the current project (the entry assembly)
-    "Filepath": null,                  // file or folder, for the file-based types
-    "FileIO": null,                    // legacy: read a JSON model file through an IO provider instead
-    "SourceCodePath": null,            // TypeReference: the folder with the C# files, for the model editor
-    "GenerateModelFile": false,        // TypeReference: the model editor owns that folder and regenerates it
+    "Filepath": null,                  // model file or folder, for RuntimeTypes
+    "FileIO": null,                    // legacy: read a model file through an IO provider instead
+    "SourceCodePath": null,            // CompiledTypes: the folder with the C# files, for the model editor
+    "GenerateModelFile": false,        // CompiledTypes: the model editor owns that folder and regenerates it
     "Enabled": true,                   // false skips the source entirely
     "Color": null                      // the colour the admin UI marks this source's types with; null picks one from a palette
   }
@@ -1903,8 +1902,8 @@ deployments of the same binary:
 
 | `Type` | What it does |
 |---|---|
-| `TypeReference` | loads the assembly named by `Reference` (or the entry assembly — the current project — when it is null or empty) and adds every type whose namespace matches `Namespace`. `Namespace` is required: one namespace, or a pattern in which `*` stands for any run of characters — `VenueApp.Models.*` takes `VenueApp.Models` and every namespace under it, `VenueApp.*.Models` takes `VenueApp.Web.Models` and `VenueApp.Api.Models`. Called `AssemblyNameReference` before September 2026; the old name still reads. The single-type `TypeNameReference` kind was removed at the same time: name the type's namespace instead. |
-| `TextFiles` | reads model files from disk when the database opens, in the format `FileFormat` names. `Filepath` may name a file or a folder (searched recursively). With `FileFormat: "Json"` (the default) the files hold serialised `Datamodel` JSON, the default folder is `Models/Json`, and each node type still needs a backing CLR class at runtime for the mapper to compile against. With `FileFormat: "CSharpCode"` the `.cs` files are compiled in memory and their types added, the default folder is `Models/CSharp`, and with no `Namespace` every non-nested, non-enum top-level type in the compilation is added. Before September 2026 these were two kinds, `JsonFile` and `CSharpCodeFile`; both names still read and set the format. |
+| `CompiledTypes` | loads the assembly named by `Reference` (or the entry assembly — the current project — when it is null or empty) and adds every type whose namespace matches `Namespace`. `Namespace` is required: one namespace, or a pattern in which `*` stands for any run of characters — `VenueApp.Models.*` takes `VenueApp.Models` and every namespace under it, `VenueApp.*.Models` takes `VenueApp.Web.Models` and `VenueApp.Api.Models`. Called `AssemblyNameReference`, and then `TypeReference`, before September 2026; both old names still read, and a settings file carrying one is rewritten to `CompiledTypes` when it is loaded. The single-type `TypeNameReference` kind was removed at the same time: name the type's namespace instead. |
+| `RuntimeTypes` | reads model files from disk when the database opens: serialised `Datamodel` JSON, in the form the model editor writes, so the model can change without rebuilding the application. `Filepath` may name a file or a folder (searched recursively); the default folder is `Models/Json`. Each node type still needs a backing CLR class of the same full name at runtime for the mapper to compile against. Called `JsonFile`, and then `TextFiles`, before September 2026 — and a `TextFiles` source could also hold `.cs` files compiled while the database opened, chosen by a `FileFormat` key. That kind is gone: **a source of any of the old file kinds is dropped from the settings file when it is loaded**, along with the `FileFormat` key, so a model kept in files is added again as a `RuntimeTypes` source (from the model editor, or by hand). |
 | `Code` | **reserved.** It is the id stamped on types added from `OnDatamodelInit`, and configuring it as a source throws. |
 
 Relative `Filepath` values resolve against the root data folder. Every source must carry a unique
@@ -1917,7 +1916,7 @@ content panel, the query page's type picker. Any CSS colour (`"#2f7fd6"`, `"teal
 source takes one from a ten-hue palette by its position in the list, which is what every source did
 before there was anything to set. It can be changed on the settings page while the database is open.
 
-A `TypeReference` source is compiled into the application, so the admin UI's model editor can only
+A `CompiledTypes` source is compiled into the application, so the admin UI's model editor can only
 write to it when `GenerateModelFile` is on and `SourceCodePath` names the folder the generated C#
 files go into (relative to the settings folder unless rooted, and inside the project that builds the
 assembly); the application then has to be rebuilt and restarted for the change to take effect. That

@@ -1,6 +1,3 @@
-using System.Reflection;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace Relatude.DB.Datamodels;
@@ -10,30 +7,25 @@ public enum DatamodelSourceType {
     /// <summary>
     /// Model classes compiled into the application: the assembly named by <see cref="DatamodelSource.Reference"/>
     /// (or the entry assembly when it is null) and every model type in <see cref="DatamodelSource.Namespace"/>.
-    /// Called AssemblyNameReference before September 2026; the old name still reads from settings files.
+    /// Called AssemblyNameReference before September 2026 and TypeReference until later that month;
+    /// both old names still read from settings and model files.
     /// </summary>
-    TypeReference = 0,
+    CompiledTypes = 0,
     // 1 was TypeNameReference (one type by its assembly qualified name), removed September 2026
     /// <summary>
-    /// Model files on disk, read when the database opens: JSON model files or C# files compiled in memory,
-    /// as <see cref="DatamodelSource.FileFormat"/> says. Before September 2026 these were the two kinds
-    /// JsonFile (2) and CSharpCodeFile (3); both names still read, and set the file format.
+    /// Model files on disk, read when the database opens: datamodel JSON, in the form the editor writes.
+    /// The types exist only at runtime, so the model can change without rebuilding the application.
+    /// Called JsonFile, and then TextFiles, before September 2026. A TextFiles source could also hold C#
+    /// files compiled while the database opened; that kind is gone, and so is the FileFormat that chose
+    /// between them - these files are always JSON.
     /// </summary>
-    TextFiles = 2,
-    // 3 was CSharpCodeFile, folded into TextFiles + FileFormat.CSharpCode
+    RuntimeTypes = 2,
+    // 3 was CSharpCodeFile (C# files compiled while the database opened), removed September 2026
     /// <summary>
     /// Reserved for model types added directly from code at startup (for example in the OnDatamodelInit event).
     /// Cannot be used as a configured source in settings.
     /// </summary>
     Code = 4,
-}
-
-/// <summary>What the files of a <see cref="DatamodelSourceType.TextFiles"/> source hold.</summary>
-public enum DatamodelSourceFileFormat {
-    /// <summary>Serialized datamodel JSON (the <see cref="DatamodelJson"/> form), *.json files.</summary>
-    Json = 0,
-    /// <summary>C# model classes compiled while the database opens, *.cs files.</summary>
-    CSharpCode = 1,
 }
 
 /// <remarks>
@@ -52,23 +44,18 @@ public class DatamodelSource {
     public string? Name { get; set; }
     public string? Namespace { get; set; }
     public DatamodelSourceType Type { get; set; }
-    /// <summary>
-    /// For a <see cref="DatamodelSourceType.TextFiles"/> source: whether the files hold datamodel JSON or C# model
-    /// classes. Ignored by the other kinds. Defaults to JSON.
-    /// </summary>
-    public DatamodelSourceFileFormat FileFormat { get; set; } = DatamodelSourceFileFormat.Json;
     public string? Filepath { get; set; }
     public string? Reference { get; set; }
     public Guid? FileIO { get; set; }
     /// <summary>
-    /// For a source read from a compiled assembly (<see cref="DatamodelSourceType.TypeReference"/>): the folder
+    /// For a source read from a compiled assembly (<see cref="DatamodelSourceType.CompiledTypes"/>): the folder
     /// holding the C# files the assembly is built from, relative to the settings folder unless rooted. When
     /// set, the datamodel editor can write model changes back into those files (the application then has to
     /// be rebuilt and restarted for them to take effect). Without it the source is read only in the editor.
     /// </summary>
     public string? SourceCodePath { get; set; }
     /// <summary>
-    /// For a <see cref="DatamodelSourceType.TypeReference"/> source with a <see cref="SourceCodePath"/>: when
+    /// For a <see cref="DatamodelSourceType.CompiledTypes"/> source with a <see cref="SourceCodePath"/>: when
     /// true, the folder is owned by the datamodel editor. Activating a model regenerates it from scratch - every
     /// file in it is deleted and one file per node type and relation is generated, each starting with a comment
     /// saying it is generated and will be overwritten. Files in the folder that do not carry that comment are
@@ -140,8 +127,6 @@ public class DatamodelSource {
         return p == pattern.Length;
     }
 
-    /// <summary>Text files holding datamodel JSON.</summary>
-    public bool IsJsonFiles => Type == DatamodelSourceType.TextFiles && FileFormat == DatamodelSourceFileFormat.Json;
-    /// <summary>Text files holding C# model classes, compiled when the database opens.</summary>
-    public bool IsCSharpFiles => Type == DatamodelSourceType.TextFiles && FileFormat == DatamodelSourceFileFormat.CSharpCode;
+    /// <summary>Model files on disk holding datamodel JSON.</summary>
+    public bool IsJsonFiles => Type == DatamodelSourceType.RuntimeTypes;
 }

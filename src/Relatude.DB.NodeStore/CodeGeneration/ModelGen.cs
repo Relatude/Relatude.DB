@@ -141,13 +141,7 @@ public static class ModelGen {
             sb.AppendLine(CodeUtils.FieldOrProperty(typeof(NodeMeta).FullName!, nodeDef.NameOfMetaProperty, nodeDef.ModelType));
         }
         foreach (var p in nodeDef.Properties.Values.Where(p => !p.Internal)) {
-            if (addAttributes) addPropertyAttribute(p, datamodel, sb);
-            var typeName = CodeUtils.GetTypeName(p, datamodel);
-            typeName = typeAndNamespace(nodeDef.Namespace, typeName);
-            // embedded (list) properties must be getter-only, the model builder rejects a setter
-            var getterOnly = p is EmbeddedPropertyModel ep && ep.EmbeddedValueType == EmbeddedValueType.InnerNodeList;
-            sb.Append("        ");
-            sb.AppendLine(CodeUtils.FieldOrProperty(typeName, p.CodeName, nodeDef.ModelType, CodeUtils.getDefaultDeclaration(nodeDef.Namespace, p, datamodel), getterOnly));
+            appendPropertyCode(p, nodeDef, datamodel, sb, addAttributes, "        ");
         }
         // a class or record implementing a model interface must physically implement the members
         // that the interface's model owns. They are emitted without attributes: the model builder
@@ -166,6 +160,37 @@ public static class ModelGen {
             }
         }
         sb.AppendLine("    }"); // end class
+    }
+    /// <summary>
+    /// One property as it is declared inside its type: the attributes that carry its settings, then the
+    /// member itself, each line starting with <paramref name="indent"/>.
+    /// </summary>
+    static void appendPropertyCode(PropertyModel p, NodeTypeModel nodeDef, Datamodel datamodel, StringBuilder sb, bool addAttributes, string indent) {
+        if (addAttributes) {
+            var attributes = new StringBuilder();
+            addPropertyAttribute(p, datamodel, attributes);
+            // the attribute writer indents for a member of a nested class; re-indent for the caller
+            foreach (var line in attributes.ToString().TrimEnd('\r', '\n').Split('\n')) {
+                sb.AppendLine(indent + line.TrimStart().TrimEnd('\r'));
+            }
+        }
+        var typeName = typeAndNamespace(nodeDef.Namespace, CodeUtils.GetTypeName(p, datamodel));
+        // embedded (list) properties must be getter-only, the model builder rejects a setter
+        var getterOnly = p is EmbeddedPropertyModel ep && ep.EmbeddedValueType == EmbeddedValueType.InnerNodeList;
+        sb.Append(indent);
+        sb.AppendLine(CodeUtils.FieldOrProperty(typeName, p.CodeName, nodeDef.ModelType, CodeUtils.getDefaultDeclaration(nodeDef.Namespace, p, datamodel), getterOnly));
+    }
+    /// <summary>
+    /// The declaration of one property on its own - the attributes and the member, indented as a member
+    /// of a class - for tooling that shows a property as code rather than writing a whole file. The
+    /// property must belong to a node type of <paramref name="datamodel"/>, which must be initialized.
+    /// </summary>
+    public static string GenerateCSharpPropertyCode(Datamodel datamodel, PropertyModel property, bool addAttributes = true) {
+        if (!datamodel.NodeTypes.TryGetValue(property.NodeType, out var nodeDef)) throw new Exception(
+            "The property " + property.CodeName + " belongs to a node type (" + property.NodeType + ") that is not in the data model. ");
+        var sb = new StringBuilder();
+        appendPropertyCode(property, nodeDef, datamodel, sb, addAttributes, "    ");
+        return sb.ToString();
     }
     static void addBaseAttributes<T>(PropertyModel p, Datamodel dm, StringBuilder sb, string? attributeName = null) where T : PropertyAttribute {
         if (attributeName == null) attributeName = nameAtt<T>();

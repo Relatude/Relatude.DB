@@ -6,7 +6,6 @@ import {
   IconAssembly,
   IconBinary,
   IconBraces,
-  IconBrandCSharp,
   IconCalendar,
   IconClock,
   IconCode,
@@ -32,7 +31,7 @@ import {
   IconToggleLeft,
   IconVector,
 } from "@tabler/icons-react";
-import type { ModelKind, RelationKind, SourceFileFormat, SourceType } from "../server/datamodel";
+import type { ModelKind, RelationKind, SourceType } from "../server/datamodel";
 
 type Icon = ComponentType<{ size?: number; stroke?: number; color?: string; className?: string }>;
 
@@ -176,18 +175,16 @@ export function RelationIcon({ kind, size = 16 }: { kind: RelationKind; size?: n
 
 /** Source kinds. Color comes from the source's own swatch; the shape tells the kind apart. */
 export const sourceMeta: Record<SourceType, { icon: Icon; label: string }> = {
-  TypeReference: { icon: IconAssembly, label: "Compiled types" },
-  TextFiles: { icon: IconBraces, label: "Text files" },
+  CompiledTypes: { icon: IconAssembly, label: "Compiled types" },
+  RuntimeTypes: { icon: IconBraces, label: "Runtime types" },
   Code: { icon: IconCode, label: "Application code" },
 };
-/** Text files split further by what they hold; the other kinds are one shape each. */
-export function sourceKindMeta(type: SourceType, fileFormat?: SourceFileFormat | null): { icon: Icon; label: string } {
-  if (type === "TextFiles") return fileFormat === "CSharpCode" ? { icon: IconBrandCSharp, label: "C# files" } : { icon: IconBraces, label: "JSON files" };
+export function sourceKindMeta(type: SourceType): { icon: Icon; label: string } {
   return sourceMeta[type] ?? sourceMeta.Code;
 }
 
-export function SourceIcon({ type, fileFormat, color, size = 16 }: { type: SourceType; fileFormat?: SourceFileFormat | null; color?: string; size?: number }) {
-  const Cmp = sourceKindMeta(type, fileFormat).icon;
+export function SourceIcon({ type, color, size = 16 }: { type: SourceType; color?: string; size?: number }) {
+  const Cmp = sourceKindMeta(type).icon;
   return <Cmp size={size} stroke={1.9} color={color} />;
 }
 

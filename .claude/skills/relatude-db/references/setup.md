@@ -76,14 +76,14 @@ Two ways, and they compose — JSON sources load first, then `OnDatamodelInit` a
   {
     "Id": "...",
     "Name": "VenueApp",
-    "Type": "TypeReference",           // or TextFiles (+ "FileFormat": "Json" | "CSharpCode")
+    "Type": "CompiledTypes",           // or RuntimeTypes (model files on disk, always JSON)
     "Namespace": "VenueApp.Models",    // matched exactly, not by prefix
     "Reference": "VenueApp"            // assembly name; null means the entry assembly
   }
 ]
 ```
 
-`TypeReference` was called `AssemblyNameReference` before September 2026 (the old name still reads); the single-type `TypeNameReference` kind was removed then, and `JsonFile`/`CSharpCodeFile` became `TextFiles` with a `FileFormat` (the old names still read). C# text files are compiled while the database opens.
+`CompiledTypes` was called `AssemblyNameReference`, then `TypeReference`, before September 2026, and `RuntimeTypes` was `JsonFile`, then `TextFiles`; all the old names still read, and `TypeNameReference` was removed. On load, a settings file's `TypeReference` is rewritten to `CompiledTypes` and its file-based sources are dropped: compiling C# model files while the database opens is gone, so a model kept in files is added again as a `RuntimeTypes` source.
 
 **From `Program.cs`**, which is the common case when the model ships with the app — refactor-safe, and it fails at compile time rather than at boot:
 

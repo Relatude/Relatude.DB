@@ -76,7 +76,7 @@ namespace Relatude.Datamodels {
         static DatamodelSource jsonSource(string? filepath, string? reference = null) => new() {
             Id = new Guid("11111111-0000-0000-0000-000000000001"),
             Name = "JsonModel",
-            Type = DatamodelSourceType.TextFiles,
+            Type = DatamodelSourceType.RuntimeTypes,
             Filepath = filepath,
             Reference = reference,
         };
@@ -189,11 +189,12 @@ namespace Relatude.Datamodels {
                 public class EmployedBy : One { }
             }
             """;
+        // C# files are not a configurable source kind any more: DatamodelSourceLoader.LoadCSharpFiles
+        // compiles them for the data model editor's dry run, and that is what these tests cover.
         DatamodelSource csharpSource(string? filepath) => new() {
             Id = new Guid("22222222-0000-0000-0000-000000000001"),
             Name = "CsModel",
-            Type = DatamodelSourceType.TextFiles,
-            FileFormat = DatamodelSourceFileFormat.CSharpCode,
+            Type = DatamodelSourceType.RuntimeTypes,
             Filepath = filepath,
         };
         string writeCsFiles() {
@@ -209,7 +210,7 @@ namespace Relatude.Datamodels {
             writeCsFiles();
             var dm = new Datamodel();
             var source = csharpSource(null); // empty Filepath: the default folder
-            DatamodelSourceLoader.Load(dm, source, _root);
+            DatamodelSourceLoader.LoadCSharpFiles(dm, source, _root);
             dm.EnsureInitalization();
 
             var person = dm.NodeTypesByFullName["My.CsModels.CsPerson"];
@@ -228,9 +229,9 @@ namespace Relatude.Datamodels {
         public void CSharpFileSource_SameContentReusesLoadedAssembly() {
             writeCsFiles();
             var dm1 = new Datamodel();
-            DatamodelSourceLoader.Load(dm1, csharpSource(null), _root);
+            DatamodelSourceLoader.LoadCSharpFiles(dm1, csharpSource(null), _root);
             var dm2 = new Datamodel();
-            DatamodelSourceLoader.Load(dm2, csharpSource(null), _root);
+            DatamodelSourceLoader.LoadCSharpFiles(dm2, csharpSource(null), _root);
             var t1 = dm1.NodeTypes.Values.First(t => t.CodeName == "CsPerson");
             // the CLR types must be identical instances, or compiled mappers would bind to another copy:
             Assert.AreSame(dm1.Assemblies.Single(a => a.GetName().Name!.StartsWith("RelatudeModel.")),
@@ -243,7 +244,7 @@ namespace Relatude.Datamodels {
             Directory.CreateDirectory(folder);
             File.WriteAllText(Path.Combine(folder, "Broken.cs"), "namespace X;\npublic class Broken { this does not compile }\n");
             var dm = new Datamodel();
-            var ex = Assert.ThrowsException<Exception>(() => DatamodelSourceLoader.Load(dm, csharpSource(null), _root));
+            var ex = Assert.ThrowsException<Exception>(() => DatamodelSourceLoader.LoadCSharpFiles(dm, csharpSource(null), _root));
             StringAssert.Contains(ex.Message, "Broken.cs");
             StringAssert.Contains(ex.Message, "(2)");
         }
@@ -255,7 +256,7 @@ namespace Relatude.Datamodels {
             // in Filepath still shows up in the log
             var dm = new Datamodel();
             var source = csharpSource("does/not/exist");
-            DatamodelSourceLoader.Load(dm, source, _root);
+            DatamodelSourceLoader.LoadCSharpFiles(dm, source, _root);
             Assert.AreEqual(1, dm.Sources.Count, "an empty source is still registered on the model");
             Assert.AreEqual(source.Id, dm.Sources[0].Id);
             Assert.AreEqual(0, dm.NodeTypes.Values.Count(t => t.Id != NodeConstants.BaseNodeTypeId));
@@ -295,7 +296,7 @@ namespace Relatude.Datamodels {
             // model assembly (no file on disk), open, insert and read a node:
             writeCsFiles();
             var dm = new Datamodel();
-            DatamodelSourceLoader.Load(dm, csharpSource(null), _root);
+            DatamodelSourceLoader.LoadCSharpFiles(dm, csharpSource(null), _root);
             var dataFolder = Path.Combine(_root, "data");
             Directory.CreateDirectory(dataFolder);
             var storeData = DataStoreLocal.Open(dm, new SettingsLocal(), new IOProviderDisk(dataFolder));
@@ -328,7 +329,7 @@ namespace Relatude.Datamodels {
             Assert.IsFalse(dm.NodeTypesByFullName.ContainsKey("Relatude.SourceLoaderModels.SlAuthor"));
 
             // unfinished and pointing nowhere: exactly what "Add model source" leaves behind
-            var unfinished = new DatamodelSource() { Id = Guid.NewGuid(), Type = DatamodelSourceType.TypeReference, Enabled = false };
+            var unfinished = new DatamodelSource() { Id = Guid.NewGuid(), Type = DatamodelSourceType.CompiledTypes, Enabled = false };
             DatamodelSourceLoader.Load(dm, unfinished, _root);
             Assert.AreEqual(0, dm.Sources.Count);
 

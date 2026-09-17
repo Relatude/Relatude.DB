@@ -408,11 +408,11 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     const known = page?.sources ?? [];
     return model.Sources.map((s) => {
       const info = known.find((k) => k.id === s.Id);
-      const compiled = s.Type === "TypeReference";
+      const compiled = s.Type === "CompiledTypes";
       if (info) {
         // the draft may have changed what decides writability (the kind, or a compiled source's code
         // folder); the server's verdict only holds while the definition it judged is the one shown
-        const sameDefinition = info.type === s.Type && info.fileFormat === (s.FileFormat ?? "Json") && (info.sourceCodePath ?? "") === (s.SourceCodePath ?? "") && info.generateModelFile === !!s.GenerateModelFile;
+        const sameDefinition = info.type === s.Type && (info.sourceCodePath ?? "") === (s.SourceCodePath ?? "") && info.generateModelFile === !!s.GenerateModelFile;
         if (sameDefinition) return { ...info, name: s.Name || info.name, enabled: s.Enabled, color: s.Color ?? null };
         const writable = s.Type !== "Code" && (!compiled || !!s.SourceCodePath);
         return {
@@ -421,7 +421,6 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
           enabled: s.Enabled,
           color: s.Color ?? null,
           type: s.Type,
-          fileFormat: s.FileFormat ?? "Json",
           sourceCodePath: s.SourceCodePath ?? null,
           generateModelFile: !!s.GenerateModelFile,
           writable,
@@ -435,7 +434,6 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
         id: s.Id,
         name: s.Name || "New source",
         type: s.Type,
-        fileFormat: s.FileFormat ?? "Json",
         enabled: s.Enabled,
         namespace: s.Namespace ?? null,
         filepath: s.Filepath ?? null,
@@ -566,9 +564,9 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
   const ctx: EditorContext | null = useMemo(
     () =>
       model && schema
-        ? { model, schema, baseTypeId, codeSourceId, sources: sourceInfos, colors, typeCounts: page?.typeCounts ?? {}, writableSource, readOnlyReason, update, select: setSelection }
+        ? { storeId: db.id, model, schema, baseTypeId, codeSourceId, sources: sourceInfos, colors, typeCounts: page?.typeCounts ?? {}, writableSource, readOnlyReason, update, select: setSelection }
         : null,
-    [model, schema, baseTypeId, codeSourceId, sourceInfos, colors, page, writableSource, readOnlyReason, update],
+    [db.id, model, schema, baseTypeId, codeSourceId, sourceInfos, colors, page, writableSource, readOnlyReason, update],
   );
 
   // a selection whose target has gone (deleted, or another draft loaded) is dropped
@@ -773,7 +771,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     if (!model) return;
     const id = newGuid();
     update((m) => {
-      m.Sources.push({ Id: id, Name: uniqueName("New source", (n) => m.Sources.some((s) => (s.Name ?? "") === n)), Type: "TextFiles", FileFormat: "Json", Filepath: "Models/Json", Enabled: true });
+      m.Sources.push({ Id: id, Name: uniqueName("New source", (n) => m.Sources.some((s) => (s.Name ?? "") === n)), Type: "RuntimeTypes", Filepath: "Models/Json", Enabled: true });
     });
     setSelection({ kind: "source", id });
     setView("sources");
@@ -1064,7 +1062,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
                       setHitsOpen(false);
                     }}
                   >
-                    {h.kind === "type" ? <KindIcon kind={model.NodeTypes[h.id].ModelType} size={14} /> : h.kind === "property" ? <PropertyIcon propertyType={model.NodeTypes[h.typeId!].Properties[h.id].PropertyType} /> : h.kind === "relation" ? <RelationIcon kind={model.Relations[h.id].RelationType} size={14} /> : <SourceIcon type={sourceInfos.find((s) => s.id === h.id)?.type ?? "Code"} fileFormat={sourceInfos.find((s) => s.id === h.id)?.fileFormat} size={14} color={colors.get(h.id)} />}
+                    {h.kind === "type" ? <KindIcon kind={model.NodeTypes[h.id].ModelType} size={14} /> : h.kind === "property" ? <PropertyIcon propertyType={model.NodeTypes[h.typeId!].Properties[h.id].PropertyType} /> : h.kind === "relation" ? <RelationIcon kind={model.Relations[h.id].RelationType} size={14} /> : <SourceIcon type={sourceInfos.find((s) => s.id === h.id)?.type ?? "Code"} size={14} color={colors.get(h.id)} />}
                     <span className="dm-hit-label">{h.label}</span>
                     <span className="muted">{h.detail}</span>
                   </button>

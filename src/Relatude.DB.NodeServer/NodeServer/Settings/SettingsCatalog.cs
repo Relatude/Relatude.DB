@@ -344,7 +344,7 @@ public static class SettingsCatalog {
                         EmptyHelp = "No model source is configured, so this database only has the types application code registers itself. "
                             + "Without either it has no model, and everything stored in it is a bare node.",
                         // an assembly namespace: the code first case, and the only kind needing nothing on disk
-                        NewItem = new() { ["Name"] = "New model source", ["Type"] = "TypeReference", ["Enabled"] = "false" },
+                        NewItem = new() { ["Name"] = "New model source", ["Type"] = "CompiledTypes", ["Enabled"] = "false" },
                         Fields = [
                             new() {
                                 Path = "Name", Label = "Name",
@@ -356,56 +356,41 @@ public static class SettingsCatalog {
                             },
                             new() {
                                 Path = "Type", Label = "Kind", ExcludedChoices = ["Code"],
-                                Help = "Where the types are read from. A type reference uses classes compiled into the application: an assembly and the namespace holding the model classes. Text files are read from disk when the database opens, so the model can change without rebuilding: C# files are compiled on the spot, JSON files hold the model itself (but every type in one still needs a plain backing class in the application for queries to map onto).",
-                            },
-                            new() {
-                                Path = "FileFormat", Label = "File format",
-                                VisibleWhen = new() { Path = "Type", Values = ["TextFiles"] },
-                                Help = "What the files hold. C# code is compiled while the database opens and the classes become the model, attributes and all. JSON is the model itself in the same form the data model editor exports, with no code involved - each type then needs a plain class of the same name in the application for typed queries.",
+                                Help = "Where the types are read from. Compiled types are classes compiled into the application: an assembly and the namespace holding the model classes. Runtime types are model files on disk, read when the database opens, so the model can change without rebuilding - each type in one still needs a plain backing class in the application for queries to map onto.",
                             },
                             new() {
                                 Path = "Reference", Label = "Assembly", Placeholder = "Current project",
-                                VisibleWhen = new() { Path = "Type", Values = ["TypeReference"] },
+                                VisibleWhen = new() { Path = "Type", Values = ["CompiledTypes"] },
                                 Help = "The assembly holding the model classes, by name and without \".dll\". Empty is the current project: the assembly the application runs as. The assembly has to be referenced by, or copied next to, the application - naming one that is not there fails when the database opens. The data model editor can scan the running application for the assemblies it can see.",
                             },
                             new() {
                                 Path = "Namespace", Label = "Namespace", Placeholder = "MyApp.Models",
-                                VisibleWhen = new() { Path = "Type", Values = ["TypeReference"] },
+                                VisibleWhen = new() { Path = "Type", Values = ["CompiledTypes"] },
                                 Help = "The namespace the model classes live in. Required. One namespace, or a pattern where * stands for any run of characters: \"MyApp.Models.*\" takes MyApp.Models and every namespace under it, \"MyApp.*.Models\" takes MyApp.Web.Models and MyApp.Api.Models. A namespace that holds no model types is loaded as an empty source, so a source can be configured before its first type exists - the database opens and notes it in the log, which is also where a typo shows up.",
                             },
                             new() {
                                 Path = "GenerateModelFile", Label = "Generate source code",
-                                VisibleWhen = new() { Path = "Type", Values = ["TypeReference"] },
+                                VisibleWhen = new() { Path = "Type", Values = ["CompiledTypes"] },
                                 Help = "Lets the data model editor write the model as C# files into a folder of the project, named below. When a model is activated, every file in that folder is deleted and one file per node type and relation is generated in its place, each starting with a comment saying it is generated and will be overwritten. Files in the folder without that comment are listed before the activation, which goes ahead only when they are given up. The application then has to be rebuilt and restarted before the change takes effect. Off, the source is shown read only in the editor.",
                             },
                             new() {
                                 Path = "SourceCodePath", Label = "Source code folder", Placeholder = "Models",
-                                VisibleWhen = new() { Path = "GenerateModelFile", Values = ["true"], And = new() { Path = "Type", Values = ["TypeReference"] } },
+                                VisibleWhen = new() { Path = "GenerateModelFile", Values = ["true"], And = new() { Path = "Type", Values = ["CompiledTypes"] } },
                                 Help = "The folder the generated C# files go into, relative to the folder holding this settings file unless rooted. It has to be inside the project that builds the assembly above, so the generated classes are compiled into it.",
                             },
                             new() {
-                                Path = "Filepath", Label = "C# file or folder", Placeholder = "Models/CSharp",
-                                VisibleWhen = new() { Path = "FileFormat", Values = ["CSharpCode"], And = new() { Path = "Type", Values = ["TextFiles"] } },
-                                Help = "A .cs file, or a folder whose .cs files are compiled together as one assembly (bin and obj are skipped). Relative paths resolve against the folder holding this settings file. Empty uses \"Models/CSharp\". A folder that is empty, or not there yet, loads as an empty source and is created when the data model editor writes the first type into it.",
-                            },
-                            new() {
-                                Path = "Namespace", Label = "Namespace filter", Placeholder = "every namespace",
-                                VisibleWhen = new() { Path = "Type", Values = ["TextFiles"], And = new() { Path = "FileFormat", Values = ["CSharpCode"] } },
-                                Help = "Limits what is taken from the compiled files to one namespace. Empty adds every top level class in them, which is what a folder written for this database alone usually wants.",
-                            },
-                            new() {
-                                Path = "Filepath", Label = "JSON file or folder", Placeholder = "Models/Json",
-                                VisibleWhen = new() { Path = "FileFormat", Values = ["Json"], And = new() { Path = "Type", Values = ["TextFiles"] } },
+                                Path = "Filepath", Label = "Model file or folder", Placeholder = "Models/Json",
+                                VisibleWhen = new() { Path = "Type", Values = ["RuntimeTypes"] },
                                 Help = "A .json model file, or a folder whose .json files are all loaded. Relative paths resolve against the folder holding this settings file, and empty uses \"Models/Json\". A folder that is empty, or not there yet, loads as an empty source and is created when the data model editor writes the first type into it. Ignored when a storage provider is named below.",
                             },
                             new() {
                                 Path = "FileIO", Label = "Read through provider", Picker = "ioProviders",
-                                VisibleWhen = new() { Path = "Type", Values = ["TextFiles"], And = new() { Path = "FileFormat", Values = ["Json"] } },
+                                VisibleWhen = new() { Path = "Type", Values = ["RuntimeTypes"] },
                                 Help = "Reads the model from one of the storage providers instead of from the file system, which is how a model kept in blob storage is loaded. Setting it takes over from the path above and makes the file name below the one that is read.",
                             },
                             new() {
                                 Path = "Reference", Label = "File name",
-                                VisibleWhen = new() { Path = "Type", Values = ["TextFiles"], And = new() { Path = "FileFormat", Values = ["Json"] } },
+                                VisibleWhen = new() { Path = "Type", Values = ["RuntimeTypes"] },
                                 Help = "The model file to read from the storage provider above. Only used when a provider is set - the path above is what names the file otherwise.",
                             },
                             new() {

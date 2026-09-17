@@ -29,6 +29,7 @@ sealed class UIDatamodel {
         commands.Register("datamodel-history-load", ctx => historyLoad(ctx.Payload<HistoryPayload>()));
         commands.Register("datamodel-history-delete", ctx => historyDelete(ctx.Payload<HistoryPayload>()));
         commands.Register("datamodel-export", ctx => export(ctx.Payload<ExportPayload>()));
+        commands.Register("datamodel-code", ctx => code(ctx.Payload<CodePayload>()));
         // the type reference form: process wide lookups, on demand (see AssemblyScanner)
         commands.Register("datamodel-scan-assemblies", ctx => AssemblyScanner.ScanAssemblies());
         commands.Register("datamodel-scan-namespaces", ctx => AssemblyScanner.ScanNamespaces(ctx.Payload<ReferencePayload>().Reference));
@@ -131,13 +132,13 @@ sealed class UIDatamodel {
             string? resolved = null;
             bool? exists = null;
             try {
-                if (s.Type == DatamodelSourceType.TypeReference) {
+                if (s.Type == DatamodelSourceType.CompiledTypes) {
                     resolved = DatamodelSourceLoader.ResolveSourceCodeFolder(s, root);
                     if (resolved != null) exists = Directory.Exists(resolved);
                 } else if (s.IsJsonFiles && s.FileIO != null) {
                     resolved = "provider " + s.FileIO + " / " + s.Reference;
-                } else if (s.Type == DatamodelSourceType.TextFiles) {
-                    resolved = DatamodelSourceLoader.ResolveFilePath(s, root, DatamodelSourceLoader.DefaultFolder(s));
+                } else if (s.Type == DatamodelSourceType.RuntimeTypes) {
+                    resolved = DatamodelSourceLoader.ResolveFilePath(s, root, DatamodelSourceLoader.DefaultJsonFolder);
                     exists = File.Exists(resolved) || Directory.Exists(resolved);
                 }
             } catch { }
@@ -147,7 +148,6 @@ sealed class UIDatamodel {
                 s.Id,
                 Name = string.IsNullOrEmpty(s.Name) ? (s.Type == DatamodelSourceType.Code ? "Code" : s.Id.ToString()) : s.Name,
                 Type = s.Type.ToString(),
-                FileFormat = s.FileFormat.ToString(),
                 s.Enabled,
                 s.Namespace,
                 s.Filepath,
@@ -275,12 +275,43 @@ sealed class UIDatamodel {
         return new { Content = DatamodelJson.Serialize(model), FileName = name + ".json", ContentType = "application/json" };
     }
 
+    // ---- one part of the model as code ----
+
+    /// <summary>
+    /// The "As code" tab of the editor's forms: the model, one source, one node type, one property or
+    /// one relation, generated as model code to copy into a code editor. The model comes with the call
+    /// (the draft being edited), so what the tab shows is what the form says rather than what the
+    /// database opened with; without one it is the active model.
+    /// </summary>
+    object code(CodePayload p) {
+        var language = string.IsNullOrEmpty(p.Language) ? "csharp" : p.Language;
+        if (!string.Equals(language, "csharp", StringComparison.OrdinalIgnoreCase)) throw new Exception("\"" + language + "\" is not a language the model can be generated in. ");
+        var c = container(p.StoreId);
+        var model = p.Model != null ? DatamodelJson.Deserialize(p.Model.Value.GetRawText()) : new DatamodelValidator(_server, c).LoadActive();
+        model.EnsureInitalization();
+        var attributes = p.Attributes ?? true;
+        var content = (p.Scope ?? "model").ToLowerInvariant() switch {
+            "source" => ModelGen.GenerateCSharpModelCode(model, attributes, t => t.DatamodelSourceId == p.Id, r => r.DatamodelSourceId == p.Id),
+            "type" => ModelGen.GenerateCSharpModelCode(model, attributes, t => t.Id == p.Id, _ => false),
+            "relation" => ModelGen.GenerateCSharpModelCode(model, attributes, _ => false, r => r.Id == p.Id),
+            "property" => propertyCode(model, p, attributes),
+            _ => ModelGen.GenerateCSharpModelCode(model, attributes),
+        };
+        return new { Language = "csharp", Content = content.Trim('\r', '\n') };
+    }
+    static string propertyCode(Datamodel model, CodePayload p, bool attributes) {
+        if (!model.NodeTypes.TryGetValue(p.TypeId ?? Guid.Empty, out var type)) throw new Exception("The node type of the property is not in the model. ");
+        if (!type.Properties.TryGetValue(p.Id, out var property)) throw new Exception("The type " + type.CodeName + " has no property " + p.Id + ". ");
+        return ModelGen.GenerateCSharpPropertyCode(model, property, attributes);
+    }
+
     sealed record StorePayload(Guid StoreId);
     sealed record DraftPayload(Guid StoreId, JsonElement Model, string? Note);
     sealed record ValidatePayload(Guid StoreId, JsonElement Model, bool DryRun = true);
     sealed record ActivatePayload(Guid StoreId, JsonElement Model, bool AcceptWarnings, string? Note);
     sealed record HistoryPayload(Guid StoreId, string Key);
     sealed record ExportPayload(Guid StoreId, JsonElement? Model, string Format, bool? Attributes);
+    sealed record CodePayload(Guid StoreId, JsonElement? Model, string? Scope, Guid Id, Guid? TypeId, string? Language, bool? Attributes);
     sealed record ReferencePayload(string? Reference);
     sealed record ProbePayload(string? Reference, string? Namespace);
 }

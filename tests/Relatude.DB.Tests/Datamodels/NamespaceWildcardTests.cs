@@ -74,7 +74,7 @@ public class NamespaceWildcardTests {
         Directory.CreateDirectory(root);
         try {
             var source = new DatamodelSource {
-                Id = Guid.NewGuid(), Name = "Wild", Type = DatamodelSourceType.TypeReference,
+                Id = Guid.NewGuid(), Name = "Wild", Type = DatamodelSourceType.CompiledTypes,
                 Reference = typeof(SlAuthor).Assembly.GetName().Name, Namespace = "Relatude.SourceLoaderModels.Json*",
             };
             var dm = new Datamodel();

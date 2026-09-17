@@ -133,7 +133,6 @@ public sealed class DatamodelActivator {
             target.Name = ds.Name;
             target.Namespace = ds.Namespace;
             target.Type = ds.Type;
-            target.FileFormat = ds.FileFormat;
             target.Filepath = ds.Filepath;
             target.Reference = ds.Reference;
             target.FileIO = ds.FileIO;

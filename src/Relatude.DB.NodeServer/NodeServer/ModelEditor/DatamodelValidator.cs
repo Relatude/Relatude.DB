@@ -310,15 +310,15 @@ public sealed class DatamodelValidator {
                     // the application is rebuilt and the database opens.
                     var mirrored = mirrorSource(source, files, draft, tempRoot, rootFolder);
                     var probe = new Datamodel();
-                    DatamodelSourceLoader.Load(probe, mirrored, rootFolder, id => _server.TryGetIO(id, out var io) ? io : null);
+                    loadMirror(probe, mirrored, rootFolder);
                     probe.EnsureInitalization();
                     foreach (var t in probe.NodeTypes.Values.Where(t => t.Id != NodeConstants.BaseNodeTypeId)) probed[t.Id] = t;
                     foreach (var r in probe.Relations.Values) probedRelations[r.Id] = r;
                     DatamodelSourceLoader.Load(dm, source, rootFolder, id => _server.TryGetIO(id, out var io) ? io : null);
                     continue;
                 }
-                var toLoad = rewritten ? mirrorSource(source, files, draft, tempRoot, rootFolder) : source;
-                DatamodelSourceLoader.Load(dm, toLoad, rootFolder, id => _server.TryGetIO(id, out var io) ? io : null);
+                if (rewritten) loadMirror(dm, mirrorSource(source, files, draft, tempRoot, rootFolder), rootFolder);
+                else DatamodelSourceLoader.Load(dm, source, rootFolder, id => _server.TryGetIO(id, out var io) ? io : null);
             }
             _server.RaiseEventDatamodelInit(dm, _container.Settings);
             dm.EnsureInitalization();
@@ -364,25 +364,27 @@ public sealed class DatamodelValidator {
     }
     /// <summary>
     /// A copy of the source's model files as they would be after the plan is applied, in the scratch
-    /// folder, and a source definition reading from there. Only files that hold model types are
-    /// copied: a compiled source's folder is a whole project, which could not be compiled on its own.
+    /// folder, and a source definition reading from there - with whether those files hold C# rather
+    /// than model JSON, which is how a compiled source is proved to compile without the application
+    /// being rebuilt (see <see cref="loadMirror"/>). Only files that hold model types are copied: a
+    /// compiled source's folder is a whole project, which could not be compiled on its own.
     /// </summary>
-    static DatamodelSource mirrorSource(DatamodelSource source, List<PlannedFile> files, Datamodel draft, string tempRoot, string rootFolder) {
+    static (DatamodelSource source, bool csharp) mirrorSource(DatamodelSource source, List<PlannedFile> files, Datamodel draft, string tempRoot, string rootFolder) {
         var folder = Path.Combine(tempRoot, source.Id.ToString("N"));
         Directory.CreateDirectory(folder);
         var isJson = source.IsJsonFiles;
         if (isJson && source.FileIO != null) {
             var file = Path.Combine(folder, "model.json");
             File.WriteAllText(file, files[0].Content ?? "{}");
-            return new DatamodelSource { Id = source.Id, Name = source.Name, Type = DatamodelSourceType.TextFiles, FileFormat = DatamodelSourceFileFormat.Json, Filepath = file, Enabled = true };
+            return (new DatamodelSource { Id = source.Id, Name = source.Name, Type = DatamodelSourceType.RuntimeTypes, Filepath = file, Enabled = true }, false);
         }
         // the files the plan leaves alone but that hold model types come along unchanged
         var written = files.Select(f => f.RelativePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
         string baseFolder;
-        if (source.Type == DatamodelSourceType.TypeReference) {
+        if (source.Type == DatamodelSourceType.CompiledTypes) {
             baseFolder = DatamodelSourceLoader.ResolveSourceCodeFolder(source, rootFolder)!;
         } else {
-            var target = DatamodelSourceLoader.ResolveFilePath(source, rootFolder, DatamodelSourceLoader.DefaultFolder(source));
+            var target = DatamodelSourceLoader.ResolveFilePath(source, rootFolder, DatamodelSourceLoader.DefaultJsonFolder);
             baseFolder = File.Exists(target) || !Directory.Exists(target) && Path.HasExtension(target) ? Path.GetDirectoryName(target)! : target;
         }
         // a generated folder is described by the plan alone: the files the types were stamped with are
@@ -407,13 +409,22 @@ public sealed class DatamodelValidator {
             File.WriteAllText(to, f.Content);
         }
         var ns = source.Namespace;
-        return new DatamodelSource {
+        return (new DatamodelSource {
             Id = source.Id, Name = source.Name, Enabled = true,
-            Type = DatamodelSourceType.TextFiles,
-            FileFormat = isJson ? DatamodelSourceFileFormat.Json : DatamodelSourceFileFormat.CSharpCode,
+            Type = DatamodelSourceType.RuntimeTypes,
             Filepath = folder,
             Namespace = isJson ? null : ns,
-        };
+        }, !isJson);
+    }
+    /// <summary>
+    /// Loads a mirrored source: the JSON half goes through the ordinary loader, the C# half through the
+    /// compiler. Compiling model code while the database opens is not a source kind any more - it is
+    /// only this dry run, which needs to know that the code the editor is about to write compiles and
+    /// says what the draft says.
+    /// </summary>
+    void loadMirror(Datamodel target, (DatamodelSource source, bool csharp) mirror, string rootFolder) {
+        if (mirror.csharp) DatamodelSourceLoader.LoadCSharpFiles(target, mirror.source, rootFolder);
+        else DatamodelSourceLoader.Load(target, mirror.source, rootFolder, id => _server.TryGetIO(id, out var io) ? io : null);
     }
     /// <summary>Which top level fields (and which properties) differ between two fingerprints, for a message.</summary>
     static string describeDifference(string a, string b) {

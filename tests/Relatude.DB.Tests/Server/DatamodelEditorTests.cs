@@ -28,9 +28,9 @@ public class DatamodelEditorTests {
     static readonly Guid sourceId = new("22222222-0000-0000-0000-000000000001");
 
     /// <summary>The library model (authors, books, a relation) tagged as coming from one source.</summary>
-    static Datamodel libraryModel(DatamodelSourceType type, DatamodelSourceFileFormat format = DatamodelSourceFileFormat.Json) {
+    static Datamodel libraryModel(DatamodelSourceType type) {
         var dm = new Datamodel();
-        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = type, FileFormat = format, Namespace = "Relatude.SourceLoaderModels" };
+        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = type, Namespace = "Relatude.SourceLoaderModels" };
         dm.Sources.Add(source);
         dm.CurrentSourceId = sourceId;
         dm.Add<SlAuthor>();
@@ -68,7 +68,7 @@ public class DatamodelEditorTests {
         var io = new IOProviderDisk(Path.Combine(_root, "db"));
         var drafts = new DatamodelDrafts(io);
         Assert.IsNull(drafts.LoadDraft());
-        var model = libraryModel(DatamodelSourceType.TextFiles);
+        var model = libraryModel(DatamodelSourceType.RuntimeTypes);
         var checksum = DatamodelJson.Checksum(initialized(model));
         drafts.SaveDraft(new DatamodelDraft { Model = model, Checksum = checksum, BaseChecksum = Guid.NewGuid(), Note = "first" });
         Assert.IsTrue(drafts.HasDraft);
@@ -89,7 +89,7 @@ public class DatamodelEditorTests {
     public void Drafts_AwaitingRebuild_CarriesTheFilesItWrote() {
         var io = new IOProviderDisk(Path.Combine(_root, "db"));
         var drafts = new DatamodelDrafts(io);
-        var model = libraryModel(DatamodelSourceType.TypeReference);
+        var model = libraryModel(DatamodelSourceType.CompiledTypes);
         drafts.SaveDraft(new DatamodelDraft { Model = model, AwaitingRebuild = true, AwaitingRebuildSinceUtc = DateTime.UtcNow, FilesWritten = [@"C:\app\Models\SlAuthor.cs"], FilesDeleted = [@"C:\app\Models\Old.cs"] });
         var peeked = drafts.PeekDraft()!;
         Assert.IsTrue(peeked.AwaitingRebuild);
@@ -104,7 +104,7 @@ public class DatamodelEditorTests {
     public void Drafts_LoadRecomputesTheChecksum_PeekReportsTheSavedOne() {
         var io = new IOProviderDisk(Path.Combine(_root, "db"));
         var drafts = new DatamodelDrafts(io);
-        var model = libraryModel(DatamodelSourceType.TextFiles);
+        var model = libraryModel(DatamodelSourceType.RuntimeTypes);
         var stale = Guid.NewGuid(); // what an older way of making checksums might have written
         drafts.SaveDraft(new DatamodelDraft { Model = model, Checksum = stale });
         Assert.AreEqual(stale, drafts.PeekDraft()!.Checksum);
@@ -121,7 +121,7 @@ public class DatamodelEditorTests {
     public void Drafts_AwaitingRebuild_IsRemovedWhenTheStoreOpensWithItsModel_InAnotherOrder() {
         var io = new IOProviderDisk(Path.Combine(_root, "db"));
         var drafts = new DatamodelDrafts(io);
-        var draftModel = libraryModel(DatamodelSourceType.TypeReference); // raw, as the editor saves it
+        var draftModel = libraryModel(DatamodelSourceType.CompiledTypes); // raw, as the editor saves it
         drafts.SaveDraft(new DatamodelDraft { Model = draftModel, AwaitingRebuild = true, AwaitingRebuildSinceUtc = DateTime.UtcNow });
         var opened = copy(draftModel);
         reverse(opened.NodeTypes);
@@ -153,7 +153,7 @@ public class DatamodelEditorTests {
 
     [TestMethod]
     public void Checksum_DoesNotDependOnInsertionOrder_OnlyOnContent() {
-        var a = initialized(libraryModel(DatamodelSourceType.TextFiles));
+        var a = initialized(libraryModel(DatamodelSourceType.RuntimeTypes));
         var b = copy(a);
         reverse(b.NodeTypes);
         reverse(b.Relations);
@@ -179,7 +179,7 @@ public class DatamodelEditorTests {
     public void History_SkipsUnchangedModels_AndKeepsAtMostFifty() {
         var io = new IOProviderDisk(Path.Combine(_root, "db"));
         var drafts = new DatamodelDrafts(io);
-        var model = initialized(libraryModel(DatamodelSourceType.TextFiles));
+        var model = initialized(libraryModel(DatamodelSourceType.RuntimeTypes));
         Assert.IsNotNull(drafts.Snapshot(model, "open"));
         Assert.IsNull(drafts.Snapshot(model, "open"), "the same model again is not a new entry");
         Assert.AreEqual(1, drafts.ListHistory().Count);
@@ -213,9 +213,9 @@ public class DatamodelEditorTests {
     public void Plan_JsonSource_RewritesTheFileHoldingAChangedType() {
         var folder = Path.Combine(_root, "Models", "Json");
         Directory.CreateDirectory(folder);
-        var seed = libraryModel(DatamodelSourceType.TextFiles);
+        var seed = libraryModel(DatamodelSourceType.RuntimeTypes);
         File.WriteAllText(Path.Combine(folder, "library.json"), DatamodelJson.SerializeForSourceFile(seed, seed.NodeTypes.Keys, seed.Relations.Keys));
-        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = DatamodelSourceType.TextFiles, Filepath = "Models/Json" };
+        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = DatamodelSourceType.RuntimeTypes, Filepath = "Models/Json" };
         var active = new Datamodel();
         DatamodelSourceLoader.Load(active, source, _root);
         active.EnsureInitalization();
@@ -254,14 +254,14 @@ public class DatamodelEditorTests {
     public void Plan_JsonSource_DeletesAFileWhoseTypesAreAllRemoved_AndAddsNewTypesInTheirOwnFile() {
         var folder = Path.Combine(_root, "Models", "Json");
         Directory.CreateDirectory(folder);
-        var seed = libraryModel(DatamodelSourceType.TextFiles);
+        var seed = libraryModel(DatamodelSourceType.RuntimeTypes);
         var review = new Datamodel();
         review.CurrentSourceId = sourceId;
         review.Add<Relatude.SourceLoaderModels.JsonGen.SlReview>();
         File.WriteAllText(Path.Combine(folder, "library.json"), DatamodelJson.SerializeForSourceFile(seed, seed.NodeTypes.Keys, seed.Relations.Keys));
         File.WriteAllText(Path.Combine(folder, "review.json"), DatamodelJson.SerializeForSourceFile(review, review.NodeTypes.Keys, review.Relations.Keys));
         File.WriteAllText(Path.Combine(folder, "Tag.json"), "{ \"NodeTypes\": {}, \"Relations\": {} }"); // an empty model file that happens to carry a future type's name
-        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = DatamodelSourceType.TextFiles, Filepath = "Models/Json" };
+        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = DatamodelSourceType.RuntimeTypes, Filepath = "Models/Json" };
         var active = new Datamodel();
         DatamodelSourceLoader.Load(active, source, _root);
         active.EnsureInitalization();
@@ -290,7 +290,7 @@ public class DatamodelEditorTests {
 
     [TestMethod]
     public void Plan_ReadOnlySource_ReportsEveryDifferenceAsAnError() {
-        var active = initialized(libraryModel(DatamodelSourceType.TypeReference)); // no SourceCodePath: read only
+        var active = initialized(libraryModel(DatamodelSourceType.CompiledTypes)); // no SourceCodePath: read only
         var draft = copy(active);
         var book = typeNamed(draft, "SlBook");
         book.Hidden = true;
@@ -310,7 +310,7 @@ public class DatamodelEditorTests {
 
     [TestMethod]
     public void Plan_CodeTypesAreReadOnly_AndTypesWithoutASourceAreErrors() {
-        var active = initialized(libraryModel(DatamodelSourceType.TextFiles));
+        var active = initialized(libraryModel(DatamodelSourceType.RuntimeTypes));
         var draft = copy(active);
         var orphan = new NodeTypeModel { Id = Guid.NewGuid(), CodeName = "Orphan", ModelType = ModelType.Class, DatamodelSourceId = Guid.NewGuid() };
         draft.NodeTypes.Add(orphan.Id, orphan);
@@ -322,36 +322,32 @@ public class DatamodelEditorTests {
         Assert.IsTrue(plan.Issues.Any(i => i.Code == "read-only-source" && i.NodeTypeId == fromCode.Id));
     }
 
+    /// <summary>
+    /// What the dry run leans on: model code generated from a model, compiled on its own, comes back as
+    /// exactly that model. C# files are not a source kind any more - this is the path DatamodelValidator
+    /// takes to prove the code it is about to write into a compiled source is right, without waiting for
+    /// the application to be rebuilt.
+    /// </summary>
     [TestMethod]
-    public void Plan_CSharpSource_WritesCodeTheLoaderReadsBack() {
+    public void LoadCSharpFiles_ReadsBackTheModelTheCodeWasGeneratedFrom() {
         var folder = Path.Combine(_root, "Models", "CSharp");
         Directory.CreateDirectory(folder);
-        var seed = initialized(libraryModel(DatamodelSourceType.TextFiles, DatamodelSourceFileFormat.CSharpCode));
-        File.WriteAllText(Path.Combine(folder, "Library.cs"), ModelGen.GenerateCSharpModelCode(seed, true));
-        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = DatamodelSourceType.TextFiles, FileFormat = DatamodelSourceFileFormat.CSharpCode, Filepath = "Models/CSharp" };
-        var active = new Datamodel();
-        DatamodelSourceLoader.Load(active, source, _root);
-        active.EnsureInitalization();
-        Assert.AreEqual("Library.cs", typeNamed(active, "SlAuthor").DatamodelSourceFilename);
-
-        var draft = copy(active);
-        var author = typeNamed(draft, "SlAuthor");
-        var born = new IntegerPropertyModel { Id = Guid.NewGuid(), CodeName = "Born", Indexed = true };
+        var seed = initialized(libraryModel(DatamodelSourceType.CompiledTypes));
+        var author = typeNamed(seed, "SlAuthor");
+        var born = new IntegerPropertyModel { Id = Guid.NewGuid(), CodeName = "Born", Indexed = true, NodeType = author.Id };
         author.Properties.Add(born.Id, born);
-        draft.EnsureInitalization();
-        var plan = DatamodelSourceWriter.Plan(active, draft, _root, _ => null);
-        Assert.AreEqual(0, plan.Issues.Count, string.Join("\n", plan.Issues.Select(i => i.Message)));
-        var file = plan.Files.Single();
-        Assert.AreEqual("Library.cs", file.RelativePath);
-        Assert.IsTrue(file.Content!.Contains("Born"), "the generated code declares the new property");
+        seed.EnsureInitalization();
+        var code = ModelGen.GenerateCSharpModelCode(seed, true);
+        Assert.IsTrue(code.Contains("Born"), "the generated code declares the property");
+        File.WriteAllText(Path.Combine(folder, "Library.cs"), code);
 
-        // apply it and load the source again: the new property is there
-        File.WriteAllText(file.Path, file.Content);
+        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = DatamodelSourceType.RuntimeTypes, Filepath = "Models/CSharp" };
         var reloaded = new Datamodel();
-        DatamodelSourceLoader.Load(reloaded, source, _root);
+        DatamodelSourceLoader.LoadCSharpFiles(reloaded, source, _root);
         reloaded.EnsureInitalization();
+        Assert.AreEqual("Library.cs", typeNamed(reloaded, "SlAuthor").DatamodelSourceFilename);
         Assert.IsTrue(typeNamed(reloaded, "SlAuthor").Properties.ContainsKey(born.Id));
-        Assert.AreEqual(DatamodelJson.Checksum(draft), DatamodelJson.Checksum(reloaded), "the written code loads back as exactly the draft");
+        Assert.AreEqual(DatamodelJson.Checksum(seed), DatamodelJson.Checksum(reloaded), "the written code loads back as exactly the model");
     }
 
     [TestMethod]
@@ -359,10 +355,10 @@ public class DatamodelEditorTests {
         // a "project" folder holding the model classes as C# files, the way an application would
         var project = Path.Combine(_root, "MyApp");
         Directory.CreateDirectory(Path.Combine(project, "Models"));
-        var seed = initialized(libraryModel(DatamodelSourceType.TypeReference));
+        var seed = initialized(libraryModel(DatamodelSourceType.CompiledTypes));
         File.WriteAllText(Path.Combine(project, "Models", "Library.cs"), ModelGen.GenerateCSharpModelCode(seed, true));
         File.WriteAllText(Path.Combine(project, "Program.cs"), "namespace MyApp { public static class Program { public static void Main() { } } }");
-        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = DatamodelSourceType.TypeReference, Namespace = "Relatude.SourceLoaderModels", SourceCodePath = "MyApp" };
+        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = DatamodelSourceType.CompiledTypes, Namespace = "Relatude.SourceLoaderModels", SourceCodePath = "MyApp" };
         var (writable, reason, rebuild) = DatamodelSourceWriter.Writability(source, _root);
         Assert.IsTrue(writable, reason);
         Assert.IsTrue(rebuild);
@@ -402,7 +398,7 @@ public class DatamodelEditorTests {
     public void Plan_GeneratedFolder_HoldsExactlyTheGeneratedFiles_AndWarnsBeforeDeletingHandWrittenOnes() {
         var project = Path.Combine(_root, "MyApp", "Models");
         Directory.CreateDirectory(Path.Combine(project, "Sub"));
-        var seed = initialized(libraryModel(DatamodelSourceType.TypeReference));
+        var seed = initialized(libraryModel(DatamodelSourceType.CompiledTypes));
         File.WriteAllText(Path.Combine(project, "Library.cs"), ModelGen.GenerateCSharpModelCode(seed, true)); // by hand: no marker
         File.WriteAllText(Path.Combine(project, "Sub", "Helper.cs"), "namespace MyApp { public static class Helper { } }");
         File.WriteAllText(Path.Combine(project, "Stale.cs"), ModelGen.AutoGeneratedHeader("Library") + "// left over from an earlier activation");
@@ -444,7 +440,7 @@ public class DatamodelEditorTests {
             Directory.GetFiles(project, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(project, f)).ToArray());
         // what the folder now says is what the draft says
         var reloaded = new Datamodel();
-        DatamodelSourceLoader.Load(reloaded, new DatamodelSource { Id = sourceId, Type = DatamodelSourceType.TextFiles, FileFormat = DatamodelSourceFileFormat.CSharpCode, Filepath = project, Namespace = "Relatude.SourceLoaderModels" }, _root);
+        DatamodelSourceLoader.LoadCSharpFiles(reloaded, new DatamodelSource { Id = sourceId, Type = DatamodelSourceType.RuntimeTypes, Filepath = project, Namespace = "Relatude.SourceLoaderModels" }, _root);
         reloaded.EnsureInitalization();
         foreach (var t in draft.NodeTypes.Values.Where(t => t.DatamodelSourceId == sourceId))
             Assert.AreEqual(DatamodelSourceWriter.Fingerprint(t), DatamodelSourceWriter.Fingerprint(reloaded.NodeTypes[t.Id]), t.CodeName);
@@ -470,14 +466,14 @@ public class DatamodelEditorTests {
 
     [TestMethod]
     public void Plan_GeneratedFolder_IsWritableBeforeItExists_AndNamesClashingTypesByFullName() {
-        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = DatamodelSourceType.TypeReference, Namespace = "Relatude.SourceLoaderModels", SourceCodePath = "NotThereYet", GenerateModelFile = true };
+        var source = new DatamodelSource { Id = sourceId, Name = "Library", Type = DatamodelSourceType.CompiledTypes, Namespace = "Relatude.SourceLoaderModels", SourceCodePath = "NotThereYet", GenerateModelFile = true };
         var (writable, reason, rebuild) = DatamodelSourceWriter.Writability(source, _root);
         Assert.IsTrue(writable, reason);
         Assert.IsTrue(rebuild);
         source.GenerateModelFile = false;
         Assert.IsFalse(DatamodelSourceWriter.Writability(source, _root).writable, "a folder edited in place has to exist");
 
-        var active = initialized(libraryModel(DatamodelSourceType.TypeReference));
+        var active = initialized(libraryModel(DatamodelSourceType.CompiledTypes));
         active.Sources[0].SourceCodePath = "NotThereYet";
         active.Sources[0].GenerateModelFile = true;
         var draft = copy(active);
@@ -492,45 +488,96 @@ public class DatamodelEditorTests {
     }
 
     [TestMethod]
-    public void SourceType_ReadsTheOldName_AndRefusesTheRemovedOne() {
-        Assert.AreEqual(DatamodelSourceType.TypeReference, System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"AssemblyNameReference\"}")!.Type, "settings files written before the rename keep loading");
-        Assert.AreEqual(DatamodelSourceType.TypeReference, System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"typereference\"}")!.Type);
-        // the two old file kinds became one kind plus a format, which only a converter seeing the whole source can carry over
-        var oldCSharp = System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":3}")!;
-        Assert.AreEqual(DatamodelSourceType.TextFiles, oldCSharp.Type);
-        Assert.AreEqual(DatamodelSourceFileFormat.CSharpCode, oldCSharp.FileFormat);
+    public void SourceType_ReadsTheOldNames_AndRefusesTheRemovedOne() {
+        // every name the kind now called CompiledTypes has been written under
+        Assert.AreEqual(DatamodelSourceType.CompiledTypes, System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"AssemblyNameReference\"}")!.Type, "settings files written before the rename keep loading");
+        Assert.AreEqual(DatamodelSourceType.CompiledTypes, System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"typereference\"}")!.Type);
+        Assert.AreEqual(DatamodelSourceType.CompiledTypes, System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":0}")!.Type);
+        // and the file kinds, which are all one kind now: model files holding JSON
+        Assert.AreEqual(DatamodelSourceType.RuntimeTypes, System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":3}")!.Type);
         var oldJson = System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"JsonFile\",\"Filepath\":\"Models/Json\"}")!;
-        Assert.AreEqual(DatamodelSourceType.TextFiles, oldJson.Type);
-        Assert.AreEqual(DatamodelSourceFileFormat.Json, oldJson.FileFormat);
+        Assert.AreEqual(DatamodelSourceType.RuntimeTypes, oldJson.Type);
         Assert.AreEqual("Models/Json", oldJson.Filepath);
         var oldCSharpFiles = System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"type\":\"CSharpCodeFile\",\"namespace\":\"X\",\"enabled\":false}", Relatude.DB.NodeServer.LocalSettingsLoaderFile.JsonOptions)!;
-        Assert.AreEqual(DatamodelSourceType.TextFiles, oldCSharpFiles.Type);
-        Assert.AreEqual(DatamodelSourceFileFormat.CSharpCode, oldCSharpFiles.FileFormat);
+        Assert.AreEqual(DatamodelSourceType.RuntimeTypes, oldCSharpFiles.Type);
         Assert.AreEqual("X", oldCSharpFiles.Namespace);
         Assert.IsFalse(oldCSharpFiles.Enabled);
-        var explicitFormat = System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"CSharpCodeFile\",\"FileFormat\":\"Json\"}")!;
-        Assert.AreEqual(DatamodelSourceFileFormat.Json, explicitFormat.FileFormat, "an explicit format wins over what the old type name implies");
-        var roundTrip = new DatamodelSource { Id = Guid.NewGuid(), Name = "T", Type = DatamodelSourceType.TextFiles, FileFormat = DatamodelSourceFileFormat.CSharpCode, Filepath = "Models/CSharp", FileIO = null, GenerateModelFile = true, Enabled = false, Color = "#2f7fd6" };
+        // the removed FileFormat is read over, not choked on
+        Assert.AreEqual(DatamodelSourceType.RuntimeTypes, System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"TextFiles\",\"FileFormat\":\"CSharpCode\"}")!.Type);
+
+        var roundTrip = new DatamodelSource { Id = Guid.NewGuid(), Name = "T", Type = DatamodelSourceType.RuntimeTypes, Filepath = "Models/Json", FileIO = null, GenerateModelFile = true, Enabled = false, Color = "#2f7fd6" };
         var json = System.Text.Json.JsonSerializer.Serialize(roundTrip, DatamodelJson.Options);
-        StringAssert.Contains(json, "\"TextFiles\"");
-        StringAssert.Contains(json, "\"CSharpCode\"");
+        StringAssert.Contains(json, "\"RuntimeTypes\"");
+        Assert.IsFalse(json.Contains("FileFormat"), "the format that chose between JSON and C# files is gone");
         var back = System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>(json, DatamodelJson.Options)!;
         Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(roundTrip, DatamodelJson.Options), System.Text.Json.JsonSerializer.Serialize(back, DatamodelJson.Options), "every property survives the converter");
         Assert.AreEqual("#2f7fd6", back.Color, "the colour of a source is one of them");
-        Assert.IsNull(System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"TypeReference\"}")!.Color, "a source written before there was a colour has none, and takes the palette's");
+        Assert.IsNull(System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"CompiledTypes\"}")!.Color, "a source written before there was a colour has none, and takes the palette's");
         var error = Assert.ThrowsException<System.Text.Json.JsonException>(() => System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"TypeNameReference\"}"));
-        StringAssert.Contains(error.Message, "TypeReference", "the message says what to use instead");
-        StringAssert.Contains(System.Text.Json.JsonSerializer.Serialize(new DatamodelSource { Type = DatamodelSourceType.TypeReference }), "\"TypeReference\"");
-        StringAssert.Contains(DatamodelJson.Serialize(libraryModel(DatamodelSourceType.TypeReference)), "\"TypeReference\"");
+        StringAssert.Contains(error.Message, "CompiledTypes", "the message says what to use instead");
+        StringAssert.Contains(System.Text.Json.JsonSerializer.Serialize(new DatamodelSource { Type = DatamodelSourceType.CompiledTypes }), "\"CompiledTypes\"");
+        StringAssert.Contains(DatamodelJson.Serialize(libraryModel(DatamodelSourceType.CompiledTypes)), "\"CompiledTypes\"");
         Assert.IsFalse(Enum.IsDefined(typeof(DatamodelSourceType), 1), "the removed value's number is not reused");
+        Assert.IsFalse(Enum.IsDefined(typeof(DatamodelSourceType), 3), "nor the C# file kind's");
         // the serializer options the settings file and the model files are read with carry a JsonStringEnumConverter,
         // which outranks a converter on the enum type - the property attribute is what makes the old name load there
         var withStringEnums = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
         withStringEnums.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
-        Assert.AreEqual(DatamodelSourceType.TypeReference, System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"AssemblyNameReference\"}", withStringEnums)!.Type);
-        Assert.AreEqual(DatamodelSourceType.TypeReference, System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"AssemblyNameReference\"}", Relatude.DB.NodeServer.LocalSettingsLoaderFile.JsonOptions)!.Type, "the settings file reader");
-        var legacyModel = DatamodelJson.Serialize(libraryModel(DatamodelSourceType.TypeReference)).Replace("\"TypeReference\"", "\"AssemblyNameReference\"");
-        Assert.AreEqual(DatamodelSourceType.TypeReference, DatamodelJson.Deserialize(legacyModel).Sources[0].Type, "history and draft envelopes written before the rename");
+        Assert.AreEqual(DatamodelSourceType.CompiledTypes, System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"AssemblyNameReference\"}", withStringEnums)!.Type);
+        Assert.AreEqual(DatamodelSourceType.CompiledTypes, System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"AssemblyNameReference\"}", Relatude.DB.NodeServer.LocalSettingsLoaderFile.JsonOptions)!.Type, "the settings file reader");
+        var legacyModel = DatamodelJson.Serialize(libraryModel(DatamodelSourceType.CompiledTypes)).Replace("\"CompiledTypes\"", "\"AssemblyNameReference\"");
+        Assert.AreEqual(DatamodelSourceType.CompiledTypes, DatamodelJson.Deserialize(legacyModel).Sources[0].Type, "history and draft envelopes written before the rename");
+    }
+
+    /// <summary>
+    /// What a settings file written before the kinds were cut down turns into: compiled sources renamed,
+    /// the file based kinds and the reserved Code kind dropped, and the removed FileFormat gone from
+    /// every source. A file already on the new names is left exactly as it is.
+    /// </summary>
+    [TestMethod]
+    public void SettingsMigration_RenamesCompiledSources_AndDropsTheRemovedKinds() {
+        const string legacy = """
+            {
+              "ContainerSettings": [
+                {
+                  "DatamodelSources": [
+                    { "Id": "11111111-0000-0000-0000-000000000001", "Name": "Model", "Type": "TypeReference", "Namespace": "MyApp.Models", "FileFormat": "Json" },
+                    { "Id": "11111111-0000-0000-0000-000000000002", "Name": "Old assembly", "Type": "AssemblyNameReference", "Namespace": "MyApp.More" },
+                    { "Id": "11111111-0000-0000-0000-000000000003", "Name": "Json files", "Type": "TextFiles", "FileFormat": "Json", "Filepath": "Models/Json" },
+                    { "Id": "11111111-0000-0000-0000-000000000004", "Name": "C# files", "Type": "CSharpCodeFile", "Filepath": "Models/CSharp" },
+                    { "Id": "11111111-0000-0000-0000-000000000005", "Name": "Numbered", "Type": 2 },
+                    { "id": "11111111-0000-0000-0000-000000000006", "name": "camelCased", "type": "typeReference", "fileFormat": "Json" },
+                    { "Id": "00000000-0000-0000-0000-00000000c0de", "Name": "Code", "Type": "Code" }
+                  ]
+                }
+              ]
+            }
+            """;
+        // parsed the way the settings file reader parses it: names are matched without regard to case,
+        // since settings files have been written both camelCased and not
+        var root = System.Text.Json.Nodes.JsonNode.Parse(legacy,
+            new System.Text.Json.Nodes.JsonNodeOptions { PropertyNameCaseInsensitive = true }) as System.Text.Json.Nodes.JsonObject;
+        Assert.IsTrue(Relatude.DB.NodeServer.LocalSettingsLoaderFile.MigrateLegacyDatamodelSources(root!));
+        var settings = System.Text.Json.JsonSerializer.Deserialize<Relatude.DB.NodeServer.Settings.RelatudeDBServerSettings>(
+            root!.ToJsonString(), Relatude.DB.NodeServer.LocalSettingsLoaderFile.JsonOptions)!;
+        var sources = settings.ContainerSettings![0].DatamodelSources!;
+        CollectionAssert.AreEqual(new[] { "Model", "Old assembly", "camelCased" }, sources.Select(s => s.Name).ToArray(),
+            "the file based kinds and the reserved Code kind leave the settings file");
+        Assert.IsTrue(sources.All(s => s.Type == DatamodelSourceType.CompiledTypes));
+        Assert.AreEqual("MyApp.Models", sources[0].Namespace, "the rest of a renamed source is untouched");
+        Assert.IsFalse(root!.ToJsonString().Contains("FileFormat", StringComparison.OrdinalIgnoreCase));
+        // a camelCased source is rewritten in place rather than gaining a second kind under another casing
+        var camelCased = (System.Text.Json.Nodes.JsonObject)(root["ContainerSettings"]![0]!["DatamodelSources"] as System.Text.Json.Nodes.JsonArray)![2]!;
+        Assert.AreEqual(1, camelCased.Count(kv => string.Equals(kv.Key, "Type", StringComparison.OrdinalIgnoreCase)));
+
+        // nothing to do twice, and a file already on the new names is left alone
+        Assert.IsFalse(Relatude.DB.NodeServer.LocalSettingsLoaderFile.MigrateLegacyDatamodelSources(root!));
+        var current = System.Text.Json.Nodes.JsonNode.Parse("""
+            { "ContainerSettings": [ { "DatamodelSources": [ { "Id": "11111111-0000-0000-0000-000000000009", "Type": "RuntimeTypes" } ] } ] }
+            """) as System.Text.Json.Nodes.JsonObject;
+        Assert.IsFalse(Relatude.DB.NodeServer.LocalSettingsLoaderFile.MigrateLegacyDatamodelSources(current!));
+        Assert.AreEqual(1, (current!["ContainerSettings"]![0]!["DatamodelSources"] as System.Text.Json.Nodes.JsonArray)!.Count,
+            "a runtime source written under the new name stays");
     }
 
     // ---- validation helpers ----

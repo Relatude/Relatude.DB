@@ -32,9 +32,9 @@ public static class DatamodelSourceWriter {
         switch (source.Type) {
             case DatamodelSourceType.Code:
                 return (false, "These types are registered from application code (OnDatamodelInit); change the code instead.", false);
-            case DatamodelSourceType.TextFiles:
+            case DatamodelSourceType.RuntimeTypes:
                 return (true, null, false);
-            case DatamodelSourceType.TypeReference: {
+            case DatamodelSourceType.CompiledTypes: {
                     var folder = DatamodelSourceLoader.ResolveSourceCodeFolder(source, rootFolder);
                     if (folder == null) return (false, "The types are compiled into the application and the source has no source code folder set, so there is nowhere to write them.", false);
                     // a generated folder is created when it is first written; a folder edited in place has to be there
@@ -160,7 +160,7 @@ public static class DatamodelSourceWriter {
     static string definition(DatamodelSource source) => JsonSerializer.Serialize(source, DatamodelJson.Options);
 
     /// <summary>Whether the source's code folder is generated as a whole by the editor rather than edited in place.</summary>
-    public static bool IsGeneratedFolder(DatamodelSource source) => source.Type == DatamodelSourceType.TypeReference && source.GenerateModelFile;
+    public static bool IsGeneratedFolder(DatamodelSource source) => source.Type == DatamodelSourceType.CompiledTypes && source.GenerateModelFile;
 
     /// <summary>
     /// The plan for a generated folder (<see cref="DatamodelSource.GenerateModelFile"/>): the folder ends
@@ -256,11 +256,11 @@ public static class DatamodelSourceWriter {
         // model at open, but the code folder may have been set in this very draft, in which case the
         // active model carries no file names and the folder is read here instead
         Dictionary<string, string>? fileByFullName = null;
-        if (source.Type == DatamodelSourceType.TypeReference) {
+        if (source.Type == DatamodelSourceType.CompiledTypes) {
             baseFolder = DatamodelSourceLoader.ResolveSourceCodeFolder(source, rootFolder)!;
             fileByFullName = ModelSourceFiles.MapTypesToFiles(baseFolder);
         } else {
-            var target = DatamodelSourceLoader.ResolveFilePath(source, rootFolder, DatamodelSourceLoader.DefaultFolder(source));
+            var target = DatamodelSourceLoader.ResolveFilePath(source, rootFolder, DatamodelSourceLoader.DefaultJsonFolder);
             if (File.Exists(target) || (!Directory.Exists(target) && target.EndsWith(ext, StringComparison.OrdinalIgnoreCase))) {
                 singleFile = Path.GetFileName(target);
                 baseFolder = Path.GetDirectoryName(target)!;

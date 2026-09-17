@@ -2565,3 +2565,64 @@ button.dm-source-card {
   outline: 2px solid var(--accent-soft);
   outline-offset: -2px;
 }
+
+/* ---- the "As code" tab of the editor forms ---- */
+
+/* The model written out as code, to copy into a code editor. The code sits in the panel's own
+   scroll rather than a box of its own: a type is a few lines, a source is a file, and both read
+   better whole than in a window inside a window. Long lines are the exception, and they scroll
+   sideways on their own. */
+.dm-code-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dm-code-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dm-code-spacer {
+  flex: 1;
+}
+
+.dm-code-language {
+  padding: 3px 6px;
+  font-size: 12.5px;
+}
+
+.dm-code-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  color: var(--text-soft);
+  cursor: pointer;
+  user-select: none;
+}
+
+.dm-code-bar .spin {
+  animation: dm-spin 0.9s linear infinite;
+  color: var(--text-muted);
+}
+
+.dm-code-error {
+  color: var(--danger);
+  word-break: normal;
+}
+
+.dm-code {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-x: auto;
+  font: var(--code-font);
+  tab-size: 2;
+  white-space: pre;
+  color: var(--term-text);
+  background: var(--term-bg);
+}

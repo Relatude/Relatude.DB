@@ -9,15 +9,9 @@ import { send } from "./channel";
 
 export type ModelKind = "Class" | "Interface" | "Record" | "Struct";
 export type RelationKind = "OneOne" | "OneToOne" | "OneToMany" | "ManyMany" | "ManyToMany";
-export type SourceType = "TypeReference" | "TextFiles" | "Code";
-/** what the files of a TextFiles source hold */
-export type SourceFileFormat = "Json" | "CSharpCode";
-export function isJsonFiles(s: { Type: SourceType; FileFormat?: SourceFileFormat | null }): boolean {
-  return s.Type === "TextFiles" && (s.FileFormat ?? "Json") === "Json";
-}
-export function isCSharpFiles(s: { Type: SourceType; FileFormat?: SourceFileFormat | null }): boolean {
-  return s.Type === "TextFiles" && s.FileFormat === "CSharpCode";
-}
+/** CompiledTypes: classes compiled into the application. RuntimeTypes: model files on disk, read when
+    the database opens. Code: the synthetic source of types registered from application code. */
+export type SourceType = "CompiledTypes" | "RuntimeTypes" | "Code";
 
 /** A property as the model serializes it. Only the fields the editor reads by name are typed; the
     rest are edited through the schema and ride along untouched. */
@@ -78,8 +72,6 @@ export interface SourceJson {
   Name?: string | null;
   Namespace?: string | null;
   Type: SourceType;
-  /** TextFiles only; absent means Json */
-  FileFormat?: SourceFileFormat | null;
   Filepath?: string | null;
   Reference?: string | null;
   FileIO?: string | null;
@@ -133,7 +125,6 @@ export interface SourceInfo {
   id: string;
   name: string;
   type: SourceType;
-  fileFormat: SourceFileFormat;
   enabled: boolean;
   namespace: string | null;
   filepath: string | null;
@@ -441,6 +432,25 @@ export function namespaceBase(pattern: string | null | undefined): string | null
   if (star < 0) return pattern;
   const head = pattern.slice(0, star).replace(/\.+$/, "");
   return head.length === 0 ? null : head;
+}
+
+/**
+ * One part of the model as code, for the "As code" tab: the whole model, one source, one node type,
+ * one property (which also needs the type it sits on) or one relation. The model travels with the
+ * call, so the tab shows what the form says rather than what the database opened with.
+ */
+export type CodeScope = "model" | "source" | "type" | "property" | "relation";
+export type CodeLanguage = "csharp";
+export function fetchModelCode(
+  storeId: string,
+  model: ModelJson | null,
+  scope: CodeScope,
+  id: string,
+  typeId?: string | null,
+  language: CodeLanguage = "csharp",
+  attributes = true,
+): Promise<{ language: string; content: string }> {
+  return send("datamodel-code", { storeId, model, scope, id, typeId: typeId ?? null, language, attributes });
 }
 
 export function exportModel(

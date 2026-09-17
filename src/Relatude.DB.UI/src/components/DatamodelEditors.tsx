@@ -4,6 +4,7 @@ import { IndexMarks, KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon
 import { Combobox, type ComboOption } from "./Combobox";
 import { DialogTools } from "./DialogTools";
 import { ColorField } from "./ColorField";
+import { CodeTab } from "./DatamodelCodeTab";
 import {
   allProperties,
   fullName,
@@ -27,8 +28,6 @@ import {
   type SourceInfo,
   type SourceJson,
   type TypeProbe,
-  isCSharpFiles,
-  isJsonFiles,
 } from "../server/datamodel";
 import type { ModelKind, RelationKind } from "../server/datamodel";
 
@@ -36,6 +35,8 @@ const emptyGuid = "00000000-0000-0000-0000-000000000000";
 
 /** What every editor needs to know about the model around the thing it edits. */
 export interface EditorContext {
+  /** the database whose model is being edited; the server calls a form makes carry it */
+  storeId: string;
   model: ModelJson;
   schema: Schema;
   baseTypeId: string;
@@ -50,8 +51,8 @@ export interface EditorContext {
   select: (selection: Selection | null) => void;
 }
 
-/** Which half of the type form is up: what the type itself is, or the properties it holds. */
-export type TypeTab = "type" | "properties";
+/** Which part of the type form is up: what the type itself is, the properties it holds, or its code. */
+export type TypeTab = "type" | "properties" | "code";
 
 /**
  * What the editor panel shows. focusField names a field of the thing selected that takes the
@@ -471,10 +472,10 @@ export function SourcePickerDialog({ what, sources, ctx, onPick, onClose }: { wh
             return (
               <button key={s.Id} type="button" className="dm-source-card" style={{ borderLeftColor: color }} onClick={() => onPick(s)}>
                 <div className="dm-source-card-head">
-                  <SourceIcon type={s.Type} fileFormat={s.FileFormat} color={color} size={20} />
+                  <SourceIcon type={s.Type} color={color} size={20} />
                   <div className="dm-source-card-title">
                     <div className="dm-source-card-name">{s.Name || s.Id}</div>
-                    <div className="muted">{sourceKindMeta(s.Type, s.FileFormat).label}</div>
+                    <div className="muted">{sourceKindMeta(s.Type).label}</div>
                   </div>
                 </div>
                 <div className="dm-source-card-body">
@@ -498,7 +499,7 @@ export function SourcePickerDialog({ what, sources, ctx, onPick, onClose }: { wh
                     )}
                     {path && (
                       <div className={info?.pathExists === false ? "dm-missing" : ""}>
-                        <span className="fact-k">{s.Type === "TypeReference" ? "Generated code" : "Path"}</span> {path}
+                        <span className="fact-k">{s.Type === "CompiledTypes" ? "Generated code" : "Path"}</span> {path}
                         {info?.pathExists === false ? " (missing)" : ""}
                       </div>
                     )}
@@ -648,6 +649,9 @@ export function TypeEditor({ type, ctx, onDelete, focusField, onFocused, tab: wa
           Properties
           <span className="badge">{own.length}</span>
         </button>
+        <button className={"tab" + (tab === "code" ? " active" : "")} role="tab" aria-selected={tab === "code"} onClick={() => setTab("code")} title="The type and its properties as model code, to copy into a code editor">
+          As code
+        </button>
       </div>
       {picking && <PropertyTypeDialog typeName={type.CodeName} schema={ctx.schema} onPick={addProperty} onClose={() => setPicking(false)} />}
       {tab === "type" && (
@@ -700,6 +704,7 @@ export function TypeEditor({ type, ctx, onDelete, focusField, onFocused, tab: wa
           )}
         </>
       )}
+      {tab === "code" && <CodeTab storeId={ctx.storeId} model={ctx.model} scope="type" id={type.Id} name={type.CodeName} />}
       {tab === "properties" && (
         <>
           {writable && (
@@ -755,6 +760,7 @@ export function TypeEditor({ type, ctx, onDelete, focusField, onFocused, tab: wa
 
 export function PropertyEditor({ type, property, ctx, onDelete, focusField, onFocused }: { type: NodeTypeJson; property: PropertyJson; ctx: EditorContext; onDelete: () => void; focusField?: string | null; onFocused?: () => void }) {
   const writable = ctx.writableSource(type.DatamodelSourceId) && !property.Internal;
+  const [tab, setTab] = useState<"property" | "code">("property");
   const typeDef = ctx.schema.propertyTypes.find((p) => p.value === property.PropertyType);
   const fields = [...ctx.schema.propertyCommon, ...(ctx.schema.propertyByType[property.PropertyType] ?? [])];
   // a relation property is one end of a relation that has a form of its own: the rules for both ends
@@ -784,24 +790,37 @@ export function PropertyEditor({ type, property, ctx, onDelete, focusField, onFo
           </button>
         )}
       </div>
-      {relation && (
-        <div className="dm-editor-actions">
-          <button className="action-button dm-button" onClick={() => ctx.select({ kind: "relation", id: relation.Id })} title={`Open ${relation.CodeName}, the relation this property is one end of`}>
-            <RelationIcon kind={relation.RelationType} size={15} /> Open relation {relation.CodeName}
-          </button>
-        </div>
+      <div className="tabs dm-editor-tabs" role="tablist">
+        <button className={"tab" + (tab === "property" ? " active" : "")} role="tab" aria-selected={tab === "property"} onClick={() => setTab("property")}>
+          Property
+        </button>
+        <button className={"tab" + (tab === "code" ? " active" : "")} role="tab" aria-selected={tab === "code"} onClick={() => setTab("code")} title="The property as model code, to copy into a code editor">
+          As code
+        </button>
+      </div>
+      {tab === "code" && <CodeTab storeId={ctx.storeId} model={ctx.model} scope="property" id={property.Id} typeId={type.Id} name={type.CodeName + "." + property.CodeName} />}
+      {tab === "property" && (
+        <>
+          {relation && (
+            <div className="dm-editor-actions">
+              <button className="action-button dm-button" onClick={() => ctx.select({ kind: "relation", id: relation.Id })} title={`Open ${relation.CodeName}, the relation this property is one end of`}>
+                <RelationIcon kind={relation.RelationType} size={15} /> Open relation {relation.CodeName}
+              </button>
+            </div>
+          )}
+          <Groups
+            fields={fields}
+            target={property as unknown as Record<string, unknown>}
+            disabled={!writable}
+            ctx={ctx}
+            typeId={type.Id}
+            open={["General", "Indexing", "Text search"]}
+            focusPath={focusField}
+            onFocused={onFocused}
+            onChange={(path, value) => ctx.update((m) => setField(m.NodeTypes[type.Id].Properties[property.Id] as unknown as Record<string, unknown>, path, value))}
+          />
+        </>
       )}
-      <Groups
-        fields={fields}
-        target={property as unknown as Record<string, unknown>}
-        disabled={!writable}
-        ctx={ctx}
-        typeId={type.Id}
-        open={["General", "Indexing", "Text search"]}
-        focusPath={focusField}
-        onFocused={onFocused}
-        onChange={(path, value) => ctx.update((m) => setField(m.NodeTypes[type.Id].Properties[property.Id] as unknown as Record<string, unknown>, path, value))}
-      />
     </div>
   );
 }
@@ -810,6 +829,7 @@ export function PropertyEditor({ type, property, ctx, onDelete, focusField, onFo
 
 export function RelationEditor({ relation, ctx, onDelete, focusField, onFocused }: { relation: RelationJson; ctx: EditorContext; onDelete: () => void; focusField?: string | null; onFocused?: () => void }) {
   const writable = ctx.writableSource(relation.DatamodelSourceId);
+  const [tab, setTab] = useState<"relation" | "code">("relation");
   const color = ctx.colors.get(relation.DatamodelSourceId) ?? "#888";
   const source = ctx.sources.find((s) => s.id === relation.DatamodelSourceId);
   const members = Object.values(ctx.model.NodeTypes).flatMap((t) => Object.values(t.Properties).filter((p) => p.PropertyType === "Relation" && p.RelationId === relation.Id).map((p) => ({ t, p })));
@@ -830,34 +850,47 @@ export function RelationEditor({ relation, ctx, onDelete, focusField, onFocused 
           </button>
         )}
       </div>
-      <Groups
-        fields={ctx.schema.relation}
-        target={relation as unknown as Record<string, unknown>}
-        disabled={!writable}
-        ctx={ctx}
-        open={["General", "Constraints"]}
-        focusPath={focusField}
-        onFocused={onFocused}
-        onChange={(path, value) => ctx.update((m) => setField(m.Relations[relation.Id] as unknown as Record<string, unknown>, path, value))}
-      />
-      {members.length > 0 && (
-        <div className="dm-group">
-          <div className="dm-group-head static">
-            <span>Members</span>
-            <span className="badge">{members.length}</span>
-          </div>
-          <div className="dm-proplist">
-            {members.map(({ t, p }) => (
-              <button key={p.Id} className="dm-proprow" onClick={() => ctx.select({ kind: "property", id: p.Id, typeId: t.Id })}>
-                <PropertyIcon propertyType="Relation" />
-                <span className="dm-propname">
-                  {t.CodeName}.{p.CodeName}
-                </span>
-                <span className="muted">{p.FromTargetToSource ? "target → source" : "source → target"}{p.IsMany ? ", many" : ""}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+      <div className="tabs dm-editor-tabs" role="tablist">
+        <button className={"tab" + (tab === "relation" ? " active" : "")} role="tab" aria-selected={tab === "relation"} onClick={() => setTab("relation")}>
+          Relation
+        </button>
+        <button className={"tab" + (tab === "code" ? " active" : "")} role="tab" aria-selected={tab === "code"} onClick={() => setTab("code")} title="The relation as model code, to copy into a code editor">
+          As code
+        </button>
+      </div>
+      {tab === "code" && <CodeTab storeId={ctx.storeId} model={ctx.model} scope="relation" id={relation.Id} name={relation.CodeName} />}
+      {tab === "relation" && (
+        <>
+          <Groups
+            fields={ctx.schema.relation}
+            target={relation as unknown as Record<string, unknown>}
+            disabled={!writable}
+            ctx={ctx}
+            open={["General", "Constraints"]}
+            focusPath={focusField}
+            onFocused={onFocused}
+            onChange={(path, value) => ctx.update((m) => setField(m.Relations[relation.Id] as unknown as Record<string, unknown>, path, value))}
+          />
+          {members.length > 0 && (
+            <div className="dm-group">
+              <div className="dm-group-head static">
+                <span>Members</span>
+                <span className="badge">{members.length}</span>
+              </div>
+              <div className="dm-proplist">
+                {members.map(({ t, p }) => (
+                  <button key={p.Id} className="dm-proprow" onClick={() => ctx.select({ kind: "property", id: p.Id, typeId: t.Id })}>
+                    <PropertyIcon propertyType="Relation" />
+                    <span className="dm-propname">
+                      {t.CodeName}.{p.CodeName}
+                    </span>
+                    <span className="muted">{p.FromTargetToSource ? "target → source" : "source → target"}{p.IsMany ? ", many" : ""}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -865,21 +898,21 @@ export function RelationEditor({ relation, ctx, onDelete, focusField, onFocused 
 
 // ---- a source ----
 
-/** Which source fields apply to which kind (and, for text files, which format); the same rule the settings page uses. */
+/** Which source fields apply to which kind; the same rule the settings page uses. */
 const sourceFieldVisibility: Record<string, (s: SourceJson) => boolean> = {
-  FileFormat: (s) => s.Type === "TextFiles",
-  Reference: (s) => s.Type === "TypeReference" || isJsonFiles(s),
-  Namespace: (s) => s.Type === "TypeReference" || isCSharpFiles(s),
-  Filepath: (s) => s.Type === "TextFiles",
-  FileIO: (s) => isJsonFiles(s),
-  GenerateModelFile: (s) => s.Type === "TypeReference",
+  Reference: (s) => s.Type === "CompiledTypes" || s.Type === "RuntimeTypes",
+  Namespace: (s) => s.Type === "CompiledTypes",
+  Filepath: (s) => s.Type === "RuntimeTypes",
+  FileIO: (s) => s.Type === "RuntimeTypes",
+  GenerateModelFile: (s) => s.Type === "CompiledTypes",
   // the folder only means something when code is generated into it
-  SourceCodePath: (s) => s.Type === "TypeReference" && !!s.GenerateModelFile,
+  SourceCodePath: (s) => s.Type === "CompiledTypes" && !!s.GenerateModelFile,
 };
 
 export function SourceEditor({ source, info, ctx, locked, onDelete }: { source: SourceJson; info: SourceInfo | undefined; ctx: EditorContext; locked: boolean; onDelete: () => void }) {
+  const [tab, setTab] = useState<"source" | "code">("source");
   const isCode = source.Type === "Code" || source.Id === ctx.codeSourceId;
-  const compiled = source.Type === "TypeReference";
+  const compiled = source.Type === "CompiledTypes";
   const disabled = locked || isCode;
   const color = ctx.colors.get(source.Id) ?? "#888";
   // what the source would be marked with if it named no colour: the same palette pick every page
@@ -902,7 +935,7 @@ export function SourceEditor({ source, info, ctx, locked, onDelete }: { source: 
   return (
     <div className="dm-editor">
       <div className="dm-editor-head">
-        <SourceIcon type={source.Type} fileFormat={source.FileFormat} color={color} size={20} />
+        <SourceIcon type={source.Type} color={color} size={20} />
         <div className="dm-editor-title">
           <div className="dm-editor-name">{source.Name || source.Id}</div>
           <div className="dm-editor-sub">
@@ -917,97 +950,110 @@ export function SourceEditor({ source, info, ctx, locked, onDelete }: { source: 
           </button>
         )}
       </div>
-      {info && !info.writable && !isCode && <div className="dm-note">{info.readOnlyReason}</div>}
-      {info?.resolvedPath && (
-        <div className="dm-note">
-          {info.pathExists === false ? "Path does not exist: " : "Path: "}
-          <code>{info.resolvedPath}</code>
-        </div>
-      )}
-      <div className="dm-group">
-        <div className="dm-group-body">
-          {fields.map((f) => {
-            if (f.path === "Type") {
-              return <FieldEditor key={f.path} field={{ ...f, choices }} value={source.Type} disabled={disabled || types.length + relations.length > 0} ctx={ctx} onChange={(v) => set("Type", v)} />;
-            }
-            if (compiled && f.path === "Reference") {
-              return <AssemblyField key={f.path} field={f} value={source.Reference ?? null} disabled={disabled} onChange={(v) => set("Reference", v)} />;
-            }
-            if (compiled && f.path === "Namespace") {
-              return <NamespaceField key={f.path} field={f} reference={source.Reference ?? null} value={source.Namespace ?? null} disabled={disabled} onChange={(v) => set("Namespace", v)} />;
-            }
-            if (f.path === "Reference") {
-              // JSON files read through a provider: the same setting names the file
-              return <FieldEditor key={f.path} field={{ ...f, label: "File name", help: "The model file to read from the storage provider. Only used when a provider is set." }} value={source.Reference} disabled={disabled} ctx={ctx} onChange={(v) => set("Reference", v)} />;
-            }
-            if (f.path === "GenerateModelFile") {
-              // the folder goes with the box: unchecked, there is nothing for the folder to mean
-              return (
-                <FieldEditor
-                  key={f.path}
-                  field={f}
-                  value={source.GenerateModelFile}
-                  disabled={disabled}
-                  ctx={ctx}
-                  onChange={(v) =>
-                    ctx.update((m) => {
-                      const s = m.Sources.find((x) => x.Id === source.Id) as unknown as Record<string, unknown>;
-                      setField(s, "GenerateModelFile", v);
-                      // only when there is something to clear: a source that never had a folder stays byte for byte as it was
-                      if (v !== true && s.SourceCodePath) setField(s, "SourceCodePath", null);
-                    })
-                  }
-                />
-              );
-            }
-            return (
-              <FieldEditor
-                key={f.path}
-                field={f}
-                value={(source as Record<string, unknown>)[f.path]}
-                disabled={disabled}
-                ctx={ctx}
-                fallbackColor={autoColor}
-                onChange={(v) => set(f.path, v)}
-              />
-            );
-          })}
-        </div>
+      <div className="tabs dm-editor-tabs" role="tablist">
+        <button className={"tab" + (tab === "source" ? " active" : "")} role="tab" aria-selected={tab === "source"} onClick={() => setTab("source")}>
+          Source
+        </button>
+        <button className={"tab" + (tab === "code" ? " active" : "")} role="tab" aria-selected={tab === "code"} onClick={() => setTab("code")} title="Everything this source defines as model code, to copy into a code editor">
+          As code
+        </button>
       </div>
-      {compiled && !isCode && <FoundTypes reference={source.Reference ?? null} namespace={source.Namespace ?? null} sourceId={source.Id} ctx={ctx} />}
-      {info && info.files.length > 0 && (
-        <div className="dm-group">
-          <div className="dm-group-head static">
-            <span>Files</span>
-            <span className="badge">{info.files.length}</span>
+      {tab === "code" && <CodeTab storeId={ctx.storeId} model={ctx.model} scope="source" id={source.Id} name={source.Name || "model"} />}
+      {tab === "source" && (
+        <>
+          {info && !info.writable && !isCode && <div className="dm-note">{info.readOnlyReason}</div>}
+          {info?.resolvedPath && (
+            <div className="dm-note">
+              {info.pathExists === false ? "Path does not exist: " : "Path: "}
+              <code>{info.resolvedPath}</code>
+            </div>
+          )}
+          <div className="dm-group">
+            <div className="dm-group-body">
+              {fields.map((f) => {
+                if (f.path === "Type") {
+                  return <FieldEditor key={f.path} field={{ ...f, choices }} value={source.Type} disabled={disabled || types.length + relations.length > 0} ctx={ctx} onChange={(v) => set("Type", v)} />;
+                }
+                if (compiled && f.path === "Reference") {
+                  return <AssemblyField key={f.path} field={f} value={source.Reference ?? null} disabled={disabled} onChange={(v) => set("Reference", v)} />;
+                }
+                if (compiled && f.path === "Namespace") {
+                  return <NamespaceField key={f.path} field={f} reference={source.Reference ?? null} value={source.Namespace ?? null} disabled={disabled} onChange={(v) => set("Namespace", v)} />;
+                }
+                if (f.path === "Reference") {
+                  // JSON files read through a provider: the same setting names the file
+                  return <FieldEditor key={f.path} field={{ ...f, label: "File name", help: "The model file to read from the storage provider. Only used when a provider is set." }} value={source.Reference} disabled={disabled} ctx={ctx} onChange={(v) => set("Reference", v)} />;
+                }
+                if (f.path === "GenerateModelFile") {
+                  // the folder goes with the box: unchecked, there is nothing for the folder to mean
+                  return (
+                    <FieldEditor
+                      key={f.path}
+                      field={f}
+                      value={source.GenerateModelFile}
+                      disabled={disabled}
+                      ctx={ctx}
+                      onChange={(v) =>
+                        ctx.update((m) => {
+                          const s = m.Sources.find((x) => x.Id === source.Id) as unknown as Record<string, unknown>;
+                          setField(s, "GenerateModelFile", v);
+                          // only when there is something to clear: a source that never had a folder stays byte for byte as it was
+                          if (v !== true && s.SourceCodePath) setField(s, "SourceCodePath", null);
+                        })
+                      }
+                    />
+                  );
+                }
+                return (
+                  <FieldEditor
+                    key={f.path}
+                    field={f}
+                    value={(source as Record<string, unknown>)[f.path]}
+                    disabled={disabled}
+                    ctx={ctx}
+                    fallbackColor={autoColor}
+                    onChange={(v) => set(f.path, v)}
+                  />
+                );
+              })}
+            </div>
           </div>
-          <div className="dm-proplist">
-            {info.files.map((f) => (
-              <div key={f} className="dm-proprow static">
-                <span className="dm-propname">{f}</span>
+          {compiled && !isCode && <FoundTypes reference={source.Reference ?? null} namespace={source.Namespace ?? null} sourceId={source.Id} ctx={ctx} />}
+          {info && info.files.length > 0 && (
+            <div className="dm-group">
+              <div className="dm-group-head static">
+                <span>Files</span>
+                <span className="badge">{info.files.length}</span>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
-      {types.length > 0 && (
-        <div className="dm-group">
-          <div className="dm-group-head static">
-            <span>Types</span>
-            <span className="badge">{types.length}</span>
-          </div>
-          <div className="dm-proplist">
-            {types
-              .sort((a, b) => a.CodeName.localeCompare(b.CodeName))
-              .map((t) => (
-                <button key={t.Id} className="dm-proprow" onClick={() => ctx.select({ kind: "type", id: t.Id })}>
-                  <KindIcon kind={t.ModelType} size={14} />
-                  <span className="dm-propname">{t.CodeName}</span>
-                  <span className="muted">{t.DatamodelSourceFilename ?? ""}</span>
-                </button>
-              ))}
-          </div>
-        </div>
+              <div className="dm-proplist">
+                {info.files.map((f) => (
+                  <div key={f} className="dm-proprow static">
+                    <span className="dm-propname">{f}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {types.length > 0 && (
+            <div className="dm-group">
+              <div className="dm-group-head static">
+                <span>Types</span>
+                <span className="badge">{types.length}</span>
+              </div>
+              <div className="dm-proplist">
+                {types
+                  .sort((a, b) => a.CodeName.localeCompare(b.CodeName))
+                  .map((t) => (
+                    <button key={t.Id} className="dm-proprow" onClick={() => ctx.select({ kind: "type", id: t.Id })}>
+                      <KindIcon kind={t.ModelType} size={14} />
+                      <span className="dm-propname">{t.CodeName}</span>
+                      <span className="muted">{t.DatamodelSourceFilename ?? ""}</span>
+                    </button>
+                  ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
