@@ -6,7 +6,7 @@ namespace Relatude.DB.DataStores;
 ///  Lock of id 0 is a global lock, and will prevent all other locks from being obtained.
 /// </summary>
 internal class NodeWriteLocks {
-    readonly object _sync = new(); // protects the two dictionaries below. Needed as lock requests can be retried on thread pool threads after an await,
+    readonly System.Threading.Lock _sync = new(); // protects the two dictionaries below. Needed as lock requests can be retried on thread pool threads after an await,
                                    // outside the store write lock. NB: never held across an await, and no code inside it takes the store write lock (always innermost).
     readonly Dictionary<int, Guid> _locksByNodeId = [];
     readonly Dictionary<Guid, lockRecord> _locksById = [];

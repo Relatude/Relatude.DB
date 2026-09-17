@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.Arm;
 using System.Runtime.Intrinsics.X86;
 
 namespace Relatude.DB.AI.HNSW;
@@ -19,7 +20,34 @@ internal static class VectorMath {
     public static float Dot(ReadOnlySpan<float> a, ReadOnlySpan<float> b) {
         if (Vector512.IsHardwareAccelerated && Avx512F.IsSupported && a.Length >= 64) return dot512(a, b);
         if (Fma.IsSupported && a.Length >= 32) return dot256(a, b);
+        // NEON is 128 bit, so Arm64 never reaches the two above and would otherwise drop to the
+        // non-fused Vector<T> loop; FMLA is always present when AdvSimd.Arm64 is.
+        if (AdvSimd.Arm64.IsSupported && a.Length >= 16) return dot128(a, b);
         return dotFallback(a, b);
+    }
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    static float dot128(ReadOnlySpan<float> a, ReadOnlySpan<float> b) {
+        ref var ra = ref MemoryMarshal.GetReference(a);
+        ref var rb = ref MemoryMarshal.GetReference(b);
+        var n = a.Length;
+        var acc0 = Vector128<float>.Zero;
+        var acc1 = Vector128<float>.Zero;
+        var acc2 = Vector128<float>.Zero;
+        var acc3 = Vector128<float>.Zero;
+        var i = 0;
+        for (; i <= n - 16; i += 16) {
+            acc0 = Vector128.FusedMultiplyAdd(Vector128.LoadUnsafe(ref ra, (nuint)i), Vector128.LoadUnsafe(ref rb, (nuint)i), acc0);
+            acc1 = Vector128.FusedMultiplyAdd(Vector128.LoadUnsafe(ref ra, (nuint)(i + 4)), Vector128.LoadUnsafe(ref rb, (nuint)(i + 4)), acc1);
+            acc2 = Vector128.FusedMultiplyAdd(Vector128.LoadUnsafe(ref ra, (nuint)(i + 8)), Vector128.LoadUnsafe(ref rb, (nuint)(i + 8)), acc2);
+            acc3 = Vector128.FusedMultiplyAdd(Vector128.LoadUnsafe(ref ra, (nuint)(i + 12)), Vector128.LoadUnsafe(ref rb, (nuint)(i + 12)), acc3);
+        }
+        acc0 += acc1 + acc2 + acc3;
+        for (; i <= n - 4; i += 4) {
+            acc0 = Vector128.FusedMultiplyAdd(Vector128.LoadUnsafe(ref ra, (nuint)i), Vector128.LoadUnsafe(ref rb, (nuint)i), acc0);
+        }
+        var sum = Vector128.Sum(acc0);
+        for (; i < n; i++) sum += a[i] * b[i];
+        return sum;
     }
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     static float dot512(ReadOnlySpan<float> a, ReadOnlySpan<float> b) {

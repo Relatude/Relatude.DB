@@ -524,12 +524,7 @@ const THEMES = {
     deep:[0.033,0.033,0.033], mid:[0.157,0.157,0.157], lit:[0.612,0.612,0.612],
     hot :[0.936,0.936,0.936], fog:[0.067,0.067,0.067], sun:[0.338,0.338,0.338],
     top :[0.024,0.024,0.024], dust:[0.83,0.83,0.83],
-    edge:[0.46,0.46,0.46],    node:[0.957,0.957,0.957], star:1, sub:0,
-    // the one exception to the greyscale rule: an aurora with no hue is
-    // just fog. Oxygen green along the lower edge, the high red/violet
-    // line above it. The colour stays in the sky — it never touches the
-    // terrain, so the ridges still read as the same black and white.
-    aurA:[0.12,1.00,0.48],    aurB:[0.62,0.16,1.00], aur:0.62
+    edge:[0.46,0.46,0.46],    node:[0.957,0.957,0.957], star:1, sub:0
   },
   light: {
     // terrain sits darker than the sky so the ridges read as silhouettes,
@@ -538,14 +533,11 @@ const THEMES = {
     hot :[0.900,0.906,0.912], fog:[0.982,0.986,0.992], sun:[0.120,0.124,0.130],
     // mid-grey, not near-black: dark specks on white read as sensor dirt
     top :[0.800,0.808,0.820], dust:[0.56,0.57,0.585],
-    edge:[0.38,0.40,0.42],    node:[0.15,0.16,0.17], star:0, sub:1,
-    // off in daylight, for the same reason the starfield is: additive
-    // light on a near-white sky renders nothing
-    aurA:[0.12,1.00,0.48],    aurB:[0.62,0.16,1.00], aur:0
+    edge:[0.38,0.40,0.42],    node:[0.15,0.16,0.17], star:0, sub:1
   }
 };
-const K3 = ['deep','mid','lit','hot','fog','sun','top','dust','edge','node','aurA','aurB'];
-const K1 = ['star','sub','aur'];
+const K3 = ['deep','mid','lit','hot','fog','sun','top','dust','edge','node'];
+const K1 = ['star','sub'];
 
 // The page resolves light/dark; the scene only ever mirrors that answer.
 const resolve = () => {
@@ -702,8 +694,7 @@ const ANCH_N = ANCH.length / 3;
 
 // The palette is uniform state, not compile-time constants, so a theme can
 // cross-fade at runtime without relinking any program.
-const PAL_SKY = `uniform vec3 C_FOG, C_TOP, C_SUN, C_HOT, C_AUR_A, C_AUR_B;
-                 uniform float C_STAR, C_AUR;`;
+const PAL_SKY = `uniform vec3 C_FOG, C_TOP, C_SUN, C_HOT; uniform float C_STAR;`;
 const PAL_TER = `uniform vec3 C_DEEP, C_MID, C_LIT, C_HOT, C_FOG, C_SUN;`;
 
 const SKY_VS = `#version 300 es
@@ -727,97 +718,6 @@ float hash13(vec3 p){
   p += dot(p, p.yzx + 33.33);
   return fract((p.x + p.y) * p.z);
 }
-
-// Triangle wave with its peaks clipped off. Value noise gives smooth
-// dunes; this gives creases, and creases are what a curtain is made of.
-float tri(float x){ return clamp(abs(fract(x) - 0.5), 0.01, 0.49); }
-vec2  tri2(vec2 p){ return vec2(tri(p.x) + tri(p.y), tri(p.y + tri(p.x))); }
-mat2  rot2(float a){ float c = cos(a), s = sin(a); return mat2(c, s, -s, c); }
-
-/* Domain-warped triangle noise. Each pass displaces the sample point by a
-   rotated copy of itself, which curls straight bands into the folded,
-   filamentary ribbons an aurora actually makes — something no amount of
-   fbm will do, because the folding has to happen in the domain, not the
-   range. The two rotations are passed in already built: they depend only
-   on time, and recomputing a sin/cos per pass per layer is most of the
-   cost of the whole effect. */
-float ribbon(vec2 p, mat2 rp, mat2 rm){
-  float z = 1.8, z2 = 2.5, rz = 0.0;
-  p = rot2(p.x * 0.06) * p;
-  vec2 bp = p;
-  // Three passes, not four: z falls by 0.35 each time, so a fourth adds
-  // about 3% of the total and costs a quarter of the whole effect.
-  for (int i = 0; i < 3; i++){
-    vec2 dg = rp * (tri2(bp * 1.85) * 0.75);
-    p  -= dg / z2;
-    bp *= 1.30;
-    z2 *= 0.45; z *= 0.35;
-    p  *= 1.21 + (rz - 1.0) * 0.02;
-    rz += tri(p.x + tri(p.y)) * z;
-    p   = rm * p;
-  }
-  return clamp(1.0 / pow(rz * 29.0, 1.3), 0.0, 0.55);
-}
-
-/* Aurora: a stack of glowing sheets, marched from low to high.
-   Each step intersects the view ray with a horizontal plane and reads the
-   ribbon field where it pierces. That 1/dir.y intersection is doing all
-   the work: overhead the sheets stack into a ceiling, and toward the
-   horizon they fan out and converge, which is the perspective that makes
-   a real display radiate from a point instead of standing in stripes.
-
-   The running average along the ray is the other half of it. Summing the
-   layers outright averages them into haze; carrying a smoothed value
-   forward keeps whatever is coherent between neighbouring sheets and lets
-   the rest cancel, and that is what leaves hard filaments behind.
-
-   Sampling is in view-direction space only, so the whole display sits at
-   infinity and never slides as the camera flies — which is how a 100 km
-   curtain behaves against a ridge line 2 km out. */
-// Enough sheets that the stack resolves smoothly on its own. A per-pixel
-// dither would let a third of these do the same job, but it pays for it in
-// grain, and grain is the one thing a clean night sky must not have.
-#define AUR_N 32
-vec3 aurora(vec3 dir, float t){
-  if (dir.y < 0.0) return vec3(0.0);
-
-  // Built once: every pass of every layer warps with these, and a sin/cos
-  // per pass would otherwise be most of the cost of the whole effect.
-  float ts = t * 0.055;
-  mat2  rp = rot2(ts), rm = rot2(-ts);
-
-  // The stack is walked in units of the old 16-step march, so adding
-  // sheets only refines the sampling: the altitudes, the falloff and the
-  // width of the running average all stay put, and only the steps between
-  // them get finer. S is the step, and it scales the total back down.
-  const float S = 16.0 / float(AUR_N);
-
-  vec3 acc = vec3(0.0);
-  vec4 avg = vec4(0.0);
-  for (int i = 0; i < AUR_N; i++){
-    float fs = float(i) * S;
-    // Altitude rises faster than linearly, so the sheets crowd together
-    // low and open out overhead. The +0.40 bounds the denominator: at the
-    // true horizon the plane is infinitely far and would alias to confetti.
-    float pt = (0.80 + pow(fs, 1.25) * 0.0222) / (dir.y * 2.0 + 0.40);
-    float r  = ribbon(dir.zx * pt * 3.20, rp, rm);
-
-    // oxygen green along the bottom, the high red/violet line above it
-    vec4 lay = vec4(mix(C_AUR_A, C_AUR_B,
-                        smoothstep(0.20, 0.82, fs * 0.0625)) * r, r);
-    // Widened deliberately: the ribbon field spikes hard along the climb,
-    // and a narrow window lets each sheet hit or miss a spike, which comes
-    // out as ribbing. Averaging over more of them costs a little vertical
-    // detail and buys a clean gradient.
-    avg = mix(avg, lay, 0.32 * S);
-
-    // fade the first sheets in, and every sheet out with depth
-    acc += avg.rgb * exp2(-fs * 0.062 - 1.20) * smoothstep(0.0, 4.0, fs);
-  }
-  // let the horizon haze eat their feet, as it does the stars
-  return acc * S * 2.40 * smoothstep(0.0, 0.11, dir.y);
-}
-
 void main(){
   vec4 w = uInvVP * vec4(vNdc, 1.0, 1.0);
   vec3 dir = normalize(w.xyz / w.w - uCam);
@@ -832,16 +732,7 @@ void main(){
   col += C_SUN * sun * exp(-abs(up) * 4.5) * 0.85;
   col += C_SUN * pow(max(dot(dir, uLight), 0.0), 34.0) * 0.55;
 
-  // On the light theme C_AUR eases to zero and the march is dead work, so
-  // skip it outright. The test is on a uniform, so every pixel takes the
-  // same branch and nothing diverges.
-  vec3 aur = vec3(0.0);
-  if (C_AUR > 0.001) aur = aurora(dir, uTime) * C_AUR;
-  col += aur;
-
-  // sparse starfield, fading out into the haze band — and washed out
-  // wherever the aurora is burning, the way it is from the ground
-  float wash = 1.0 - clamp(dot(aur, vec3(0.30, 0.59, 0.11)) * 2.6, 0.0, 0.85);
+  // sparse starfield, fading out into the haze band
   vec3 g  = dir * 190.0;
   vec3 id = floor(g), f = fract(g);
   float r = hash13(id);
@@ -849,7 +740,7 @@ void main(){
     vec3 c = vec3(hash13(id + 11.0), hash13(id + 23.0), hash13(id + 37.0));
     float s = smoothstep(0.30, 0.0, length(f - c));
     float tw = 0.55 + 0.45 * sin(uTime * 0.8 + r * 340.0);
-    col += C_HOT * s * tw * 0.55 * C_STAR * wash * smoothstep(0.02, 0.42, up);
+    col += C_HOT * s * tw * 0.55 * C_STAR * smoothstep(0.02, 0.42, up);
   }
   frag = vec4(col, 1.0);
 }`;
@@ -1444,9 +1335,6 @@ function frame(now) {
   gl.uniform3fv(skyP.u.C_SUN, P.sun);
   gl.uniform3fv(skyP.u.C_HOT, P.hot);
   gl.uniform1f (skyP.u.C_STAR, P.star);
-  gl.uniform3fv(skyP.u.C_AUR_A, P.aurA);
-  gl.uniform3fv(skyP.u.C_AUR_B, P.aurB);
-  gl.uniform1f (skyP.u.C_AUR, P.aur);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
   gl.enable(gl.DEPTH_TEST);

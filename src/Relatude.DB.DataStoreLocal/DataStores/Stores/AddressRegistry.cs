@@ -195,7 +195,6 @@ public class AddressRegistry {
         address = null;
         return false;
     }
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public string? NormalizeAddress(string? address, out bool changed) {
         if (string.IsNullOrEmpty(address)) { changed = false; return address; }
         var table = _normalizeTable;

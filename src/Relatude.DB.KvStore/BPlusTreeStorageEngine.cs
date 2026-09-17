@@ -182,7 +182,7 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
     private readonly Pager _pager;
     private readonly ReaderTable _readers = new();
     //private readonly Lock _writeLock = new();
-    private readonly object _writeLock = new();
+    private readonly System.Threading.Lock _writeLock = new();
     private readonly Dictionary<string, object> _openIndexes = new();
     private readonly HashSet<string> _uncataloged = new(); // created but not yet persisted to the catalog
     private volatile EngineSnapshot _committed;

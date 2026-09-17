@@ -14,7 +14,7 @@ namespace Relatude.DB.Common {
             public int Size = size;
         }
 
-        readonly object _lock = new();
+        readonly System.Threading.Lock _lock = new();
         readonly long _maxSize = maxSize;
         readonly Dictionary<TKey, LinkedListNode<Entry>> _map = [];
         readonly LinkedList<Entry> _list = new();

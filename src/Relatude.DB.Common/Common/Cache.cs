@@ -22,7 +22,7 @@ namespace Relatude.DB.Common {
             public Entry? Newer;
             public Entry? Older;
         }
-        readonly object _lock = new();
+        readonly System.Threading.Lock _lock = new();
         long _maxSize = maxSize;
         readonly Dictionary<TKey, Entry> _cache = [];
         Entry? _mru;

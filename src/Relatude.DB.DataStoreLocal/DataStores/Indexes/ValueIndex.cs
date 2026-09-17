@@ -34,7 +34,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     // so validity of _min/_max is tracked explicitly:
     bool _hasMin;
     bool _hasMax;
-    readonly object _sortLock = new();
+    readonly System.Threading.Lock _sortLock = new();
     (List<(int id, T from, T to)> list, long fromStateId, long toStateId)? _last;
     readonly SetRegister _sets;
     readonly IdByValue<T> _idByValue;

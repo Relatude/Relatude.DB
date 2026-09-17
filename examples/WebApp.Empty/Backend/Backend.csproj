@@ -7,6 +7,10 @@
     <RootNamespace>WebAppEmpty</RootNamespace>
     <ClientDir>$(MSBuildProjectDirectory)/../Client</ClientDir>
     <Version>0.4.0.190</Version>
+    <!-- .NET 9+ enables DATAS by default with Server GC; the engine holds large resident indexes, so keep the pre-.NET 9 behaviour -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <GarbageCollectionAdaptationMode>0</GarbageCollectionAdaptationMode>
   </PropertyGroup>
 
   <ItemGroup>

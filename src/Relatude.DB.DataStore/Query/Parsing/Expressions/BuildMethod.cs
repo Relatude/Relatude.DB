@@ -126,7 +126,7 @@ sealed class OrderByMethodDef : MethodDef {
     public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Lambda), MethodParamDef.Optional(MethodParamKind.Any)];
     protected override IExpression Create(MethodCallToken e, Datamodel dm) {
         if (e.Arguments[0] is not LambdaToken lambda) throw new Exception("OrderBy statement only accepts lambda expressions as argument.");
-        var descending = e.Arguments.Count > 1 && (e.Arguments[1] + "").ToLower() == "true";
+        var descending = e.Arguments.Count > 1 && string.Equals(e.Arguments[1] + "", "true", StringComparison.OrdinalIgnoreCase);
         return new OrderByMethod(BuildSource(e, dm), BuildLambda(lambda, dm, Names[0]), descending);
     }
 }
@@ -254,7 +254,7 @@ sealed class SearchMethodDef : MethodDef {
         bool? orSearch = args.Length > 3 ? args[3].GetBoolOrNullValue() : null;
         int? maxWordsEvaluated = args.Length > 4 ? args[4].GetIntOrNullValue() : null;
         int? maxHitsEvaluated = args.Length > 5 ? args[5].GetIntOrNullValue() : null;
-        return e.Name.ToLower() == "wheresearch"
+        return string.Equals(e.Name, "wheresearch", StringComparison.OrdinalIgnoreCase)
             ? new WhereSearchMethod(source, searchText, semanticRatio, minVectorSimilarity, orSearch, maxWordsEvaluated)
             : new SearchMethod(source, searchText, semanticRatio, minVectorSimilarity, orSearch, maxWordsEvaluated, maxHitsEvaluated);
     }
@@ -827,10 +827,10 @@ internal class BuildMethod {
     );
 
     private static Dictionary<string, MethodDef> BuildRegistry(params MethodDef[] defs)
-        => defs.SelectMany(d => d.Names.Select(n => (n, d))).ToDictionary(x => x.n, x => x.d);
+        => defs.SelectMany(d => d.Names.Select(n => (n, d))).ToDictionary(x => x.n, x => x.d, StringComparer.OrdinalIgnoreCase);
 
     public static IExpression BuildMethodCall(MethodCallToken e, Datamodel dm)
-        => _registry.TryGetValue(e.Name.ToLower(), out var def)
+        => _registry.TryGetValue(e.Name, out var def)
             ? def.Build(e, dm)
             : throw new NotSupportedException($"The method \"{e}\" is not supported.");
 }

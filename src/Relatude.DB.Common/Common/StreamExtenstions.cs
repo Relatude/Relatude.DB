@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Relatude.DB.Common {
     public static class StreamExtenstions {
@@ -20,7 +21,7 @@ namespace Relatude.DB.Common {
         }
 
         public static void WriteUInt(this Stream s, uint v) {
-            s.Write(BitConverter.GetBytes(v), 0, 4);
+            Span<byte> b = stackalloc byte[4]; BitConverter.TryWriteBytes(b, v); s.Write(b);
         }
         public static uint ReadUInt(this Stream s) {
             byte[] b = new byte[4];
@@ -29,7 +30,7 @@ namespace Relatude.DB.Common {
         }
 
         public static void WriteInt(this Stream s, int v) {
-            s.Write(BitConverter.GetBytes(v), 0, 4);
+            Span<byte> b = stackalloc byte[4]; BitConverter.TryWriteBytes(b, v); s.Write(b);
         }
         public static int ReadInt(this Stream s) {
             byte[] b = new byte[4];
@@ -37,7 +38,7 @@ namespace Relatude.DB.Common {
             return BitConverter.ToInt32(b, 0);
         }
         public static void WriteLong(this Stream s, long v) {
-            s.Write(BitConverter.GetBytes(v), 0, 8);
+            Span<byte> b = stackalloc byte[8]; BitConverter.TryWriteBytes(b, v); s.Write(b);
         }
         public static long ReadLong(this Stream s) {
             byte[] b = new byte[8];
@@ -46,7 +47,7 @@ namespace Relatude.DB.Common {
         }
 
         public static void WriteDateTime(this Stream s, DateTime v) {
-            s.Write(BitConverter.GetBytes(v.Ticks), 0, 8);
+            Span<byte> b = stackalloc byte[8]; BitConverter.TryWriteBytes(b, v.Ticks); s.Write(b);
         }
         public static DateTime ReadDateTime(this Stream s) {
             byte[] b = new byte[8];
@@ -70,8 +71,9 @@ namespace Relatude.DB.Common {
         }
 
         public static void WriteDateTimeOffset(this Stream s, DateTimeOffset v) {
-            s.Write(BitConverter.GetBytes(v.Ticks), 0, 8);
-            s.Write(BitConverter.GetBytes(v.Offset.Ticks), 0, 8);
+            Span<byte> b = stackalloc byte[8];
+            BitConverter.TryWriteBytes(b, v.Ticks); s.Write(b);
+            BitConverter.TryWriteBytes(b, v.Offset.Ticks); s.Write(b);
         }
         public static DateTimeOffset ReadDateTimeOffset(this Stream s) {
             byte[] b = new byte[8];
@@ -83,7 +85,7 @@ namespace Relatude.DB.Common {
         }
 
         public static void WriteGeoCoordinate(this Stream s, GeoCoordinate v) {
-            s.Write(BitConverter.GetBytes(v.StorageValue), 0, 8);
+            Span<byte> b = stackalloc byte[8]; BitConverter.TryWriteBytes(b, v.StorageValue); s.Write(b);
         }
         public static GeoCoordinate ReadGeoCoordinate(this Stream s) {
             byte[] b = new byte[8];
@@ -92,7 +94,7 @@ namespace Relatude.DB.Common {
         }
 
         public static void WriteTimeSpan(this Stream s, TimeSpan v) {
-            s.Write(BitConverter.GetBytes(v.Ticks), 0, 8);
+            Span<byte> b = stackalloc byte[8]; BitConverter.TryWriteBytes(b, v.Ticks); s.Write(b);
         }
         public static TimeSpan ReadTimeSpan(this Stream s) {
             byte[] b = new byte[8];
@@ -127,7 +129,7 @@ namespace Relatude.DB.Common {
         }
 
         public static void WriteDouble(this Stream s, double v) {
-            s.Write(BitConverter.GetBytes(v), 0, 8);
+            Span<byte> b = stackalloc byte[8]; BitConverter.TryWriteBytes(b, v); s.Write(b);
         }
         public static double ReadDouble(this Stream s) {
             byte[] b = new byte[8];
@@ -135,7 +137,7 @@ namespace Relatude.DB.Common {
             return BitConverter.ToDouble(b, 0);
         }
         public static void WriteFloat(this Stream s, float v) {
-            s.Write(BitConverter.GetBytes(v), 0, 4);
+            Span<byte> b = stackalloc byte[4]; BitConverter.TryWriteBytes(b, v); s.Write(b);
         }
         public static float ReadFloat(this Stream s) {
             byte[] b = new byte[4];
@@ -144,7 +146,7 @@ namespace Relatude.DB.Common {
         }
 
         public static void WriteChar(this Stream s, char v) {
-            s.Write(BitConverter.GetBytes(v), 0, 2);
+            Span<byte> b = stackalloc byte[2]; BitConverter.TryWriteBytes(b, v); s.Write(b);
         }
         public static char ReadChar(this Stream s) {
             byte[] b = new byte[2];
@@ -153,7 +155,7 @@ namespace Relatude.DB.Common {
         }
 
         public static void WriteULong(this Stream s, ulong v) {
-            s.Write(BitConverter.GetBytes(v), 0, 8);
+            Span<byte> b = stackalloc byte[8]; BitConverter.TryWriteBytes(b, v); s.Write(b);
         }
         public static ulong ReadULong(this Stream s) {
             byte[] b = new byte[8];
@@ -189,7 +191,7 @@ namespace Relatude.DB.Common {
         }
 
         public static void WriteGuid(this Stream s, Guid v) {
-            s.Write(v.ToByteArray(), 0, 16);
+            Span<byte> b = stackalloc byte[16]; v.TryWriteBytes(b); s.Write(b);
         }
         public static Guid ReadGuid(this Stream s) {
             byte[] b = new byte[16];
@@ -222,9 +224,7 @@ namespace Relatude.DB.Common {
         public static void WriteFloatArray(this Stream s, float[] v) {
             s.WriteInt(v.Length);
             var buffer = new byte[v.Length * 4];
-            for (var n = 0; n < v.Length; n++) {
-                BitConverter.GetBytes(v[n]).CopyTo(buffer, n * 4);
-            }
+            MemoryMarshal.AsBytes(v.AsSpan()).CopyTo(buffer);
             s.Write(buffer, 0, buffer.Length);
         }
         public static float[] ReadFloatArray(this Stream s) {
@@ -268,7 +268,7 @@ namespace Relatude.DB.Common {
             s.WriteInt(v.Length);
             var buffer = new byte[v.Length * 16];
             for (var n = 0; n < v.Length; n++) {
-                v[n].ToByteArray().CopyTo(buffer, n * 16);
+                v[n].TryWriteBytes(buffer.AsSpan(n * 16, 16));
             }
             s.Write(buffer, 0, buffer.Length);
         }
@@ -286,9 +286,7 @@ namespace Relatude.DB.Common {
         public static void WriteCharArray(this Stream s, char[] v) {
             s.WriteInt(v.Length);
             var buffer = new byte[v.Length * 2];
-            for (var n = 0; n < v.Length; n++) {
-                BitConverter.GetBytes(v[n]).CopyTo(buffer, n * 2);
-            }
+            MemoryMarshal.AsBytes(v.AsSpan()).CopyTo(buffer);
             s.Write(buffer, 0, buffer.Length);
         }
         public static char[] ReadCharArray(this Stream s) {

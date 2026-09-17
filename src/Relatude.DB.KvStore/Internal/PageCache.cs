@@ -22,7 +22,7 @@ internal sealed class PageCache
     }
 
     private volatile Table _table = new(new byte[]?[MinSlots], new byte[MinSlots]);
-    private readonly object _mutateLock = new();
+    private readonly System.Threading.Lock _mutateLock = new();
     private int _count;
 
     private const int MinSlots = 4096;
