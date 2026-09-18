@@ -41,6 +41,7 @@ public sealed class UIServer {
         new UIMemory(server).Register(Commands);
         new UITasks(server).Register(Commands);
         new UIDemo(server).Register(Commands);
+        new UIWikiImport(server).Register(Commands);
         new UIRevert(server).Register(Commands);
         new UIDatamodel(server).Register(Commands);
         new UIDatabases(server).Register(Commands);

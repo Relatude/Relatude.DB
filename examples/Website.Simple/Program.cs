@@ -19,6 +19,9 @@ builder.AddRelatudeDB(options => {
     options.FileConverters.Add(new FFMpegVideoConverter());
     options.OnDatamodelInit = (dm, container) => {
         dm.Add<DemoArticle>();
+        // the Wikipedia demo model, so the corpus import in the admin UI's storage page has
+        // somewhere to put a real corpus (interfaces, so the whole namespace comes in one call)
+        dm.AddNamespace<IWikiArticle>();
         dm.Add<Color>();
         dm.Add<Product>();
         dm.Add<Brand>();
