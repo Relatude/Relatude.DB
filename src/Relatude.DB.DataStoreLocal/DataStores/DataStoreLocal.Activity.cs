@@ -4,13 +4,14 @@ namespace Relatude.DB.DataStores;
 public sealed partial class DataStoreLocal : IDataStore {
     long _activityIdCounter = 0; // used to generate unique activity IDs
     readonly Dictionary<long, DataStoreActivity> _currentActiveties = [];
+    readonly System.Threading.Lock _activityLock = new(); // taken by every Get, query and transaction, so it must stay on the fast path
     DataStoreOpeningStatus _simpleStatus = new(0, 0, 0);
     DateTime _startedOpeningUtc = DateTime.UtcNow;
     public DataStoreOpeningStatus GetOpeningStatus() => _simpleStatus;
     void setStartupProgressEstimate(int progressInPercentage, int remainingMs = 0) => _simpleStatus = new(progressInPercentage, remainingMs, (int)(DateTime.UtcNow - _startedOpeningUtc).TotalMilliseconds);
     public DataStoreStatus GetStatus() {
         DataStoreActivity[] activities;
-        lock (_currentActiveties) {
+        lock (_activityLock) {
             if (State == DataStoreState.Closed || State == DataStoreState.Error) return new(State, []);
             activities = [.. _currentActiveties.Values.Select(c => c.Copy())];
         }
@@ -24,7 +25,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     public long RegisterActvity(DataStoreActivityCategory category, string? description = null, int? percentageProgress = null) {
-        lock (_currentActiveties) {
+        lock (_activityLock) {
             _activityIdCounter++;
             var id = _activityIdCounter;
             var activity = DataStoreActivity.Create(id, category, description, percentageProgress);
@@ -33,7 +34,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     public long RegisterChildActvity(long parentId, DataStoreActivityCategory category, string? description = null, int? percentageProgress = null) {
-        lock (_currentActiveties) {
+        lock (_activityLock) {
             _activityIdCounter++;
             var id = _activityIdCounter;
             var activity = DataStoreActivity.CreateChild(id, parentId, category, description, percentageProgress);
@@ -42,7 +43,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     public void UpdateActivity(long activityId, string? description = null, int? percentageProgress = null) {
-        lock (_currentActiveties) {
+        lock (_activityLock) {
             if (_currentActiveties.TryGetValue(activityId, out var activity)) {
                 activity.Description = description;
                 activity.PercentageProgress = percentageProgress;
@@ -50,14 +51,14 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     public void UpdateActivityProgress(long activityId, int? percentageProgress = null) {
-        lock (_currentActiveties) {
+        lock (_activityLock) {
             if (_currentActiveties.TryGetValue(activityId, out var activity)) {
                 activity.PercentageProgress = percentageProgress;
             }
         }
     }
     public void DeRegisterActivity(long activityId) {
-        lock (_currentActiveties) {
+        lock (_activityLock) {
             _currentActiveties.Remove(activityId);
         }
     }

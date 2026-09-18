@@ -22,14 +22,24 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = RegisterActvity(parentActivityId, DataStoreActivityCategory.Flushing, "Flushing to disk");
         validateDatabaseState();
         try {
-            _wal.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(deepFlush, (txt, prg) => {
-                UpdateActivity(activityId, txt, prg);
-            }, out transactionCount, out actionCount, out bytesWritten);
+            Action<string, int> progress = (txt, prg) => UpdateActivity(activityId, txt, prg);
+            // Everything queued is written without the store lock, so readers and writers keep going.
+            // A writer that keeps committing meanwhile refills the queue; a few more passes drain
+            // that too, so the pass that must run under the write lock below only covers what was
+            // committed during the last, short pass instead of a whole bulk transaction.
+            _wal.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(deepFlush, progress, out transactionCount, out actionCount, out bytesWritten);
+            for (var pass = 1; pass < 4 && _wal.HasQueuedWrites; pass++) {
+                _wal.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(deepFlush, progress, out var t, out var a, out var b);
+                transactionCount += t; actionCount += a; bytesWritten += b;
+            }
             TaskQueuePersisted?.FlushDisk();
             if (Engines.Any) {
                 _lock.EnterWriteLock();
                 try {
-                    _wal.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(deepFlush);
+                    // the engines may only be made durable up to a point the log file has reached, and no
+                    // transaction commits while the write lock is held, so the remainder is written first
+                    _wal.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(deepFlush, null, out var t, out var a, out var b);
+                    transactionCount += t; actionCount += a; bytesWritten += b;
                     if (_stateStore.Engine is { } stateEngine && _nodes.HasPendingSegments) { // the positions the flush confirmed, written by the single writer
                         stateEngine.BeginTransaction();
                         _nodes.DrainPendingSegments();

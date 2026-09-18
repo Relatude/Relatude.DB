@@ -8,7 +8,7 @@ namespace Relatude.DB.DataStores.Indexes;
 public class AddRemoveOptimization(IIndex index) {
     int _lastRemovedNodeId = 0;
     object _lastRemovedValue = default!;
-    readonly object _lock = new();
+    readonly System.Threading.Lock _lock = new();
     readonly IIndex _index = index;
     public void Add(int id, object value) {
         if (_lastRemovedNodeId == id && value.Equals(_lastRemovedValue)) {

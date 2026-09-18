@@ -4,7 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.4.0.190</Version>
+    <Version>0.4.0.192</Version>
     <UserSecretsId>632dd380-1f0a-4c10-9ba8-613a16d4b33f</UserSecretsId>
     <!-- .NET 9+ enables DATAS by default with Server GC; the engine holds large resident indexes, so keep the pre-.NET 9 behaviour -->
     <ServerGarbageCollection>true</ServerGarbageCollection>

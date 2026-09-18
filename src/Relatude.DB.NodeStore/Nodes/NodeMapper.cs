@@ -16,6 +16,8 @@ namespace Relatude.DB.Nodes;
 public class NodeMapper {
     readonly Dictionary<Guid, IValueMapper> _nodeValueMapperByTypeId;
     readonly Dictionary<Type, KeyValuePair<IValueMapper, Guid>> _mapperByType;
+    readonly System.Threading.Lock _mapperLock = new(); // on the path of every insert, update and typed query
+    readonly System.Threading.Lock _nameCacheLock = new();
     readonly NodeStore _store;
     public NodeMapper(Dictionary<Guid, Type> mapperTypesById, NodeStore store) {
         _nodeValueMapperByTypeId = mapperTypesById.ToDictionary(kv => kv.Key, kv => {
@@ -46,7 +48,7 @@ public class NodeMapper {
         return prop;
     }
     public Guid GetNodeTypeId(Type nodeType) {
-        lock (_mapperByType) {
+        lock (_mapperLock) {
             if (_mapperByType.TryGetValue(nodeType, out var kv)) return kv.Value;
         }
         getNodeValueMapper(nodeType, out var typeId);
@@ -58,7 +60,7 @@ public class NodeMapper {
         throw new Exception("Unable to find node type for: " + nameShortOrFull);
     }
     public bool TryGetNodeType(string nameShortOrFull, [MaybeNullWhen(false)] out Type type) {
-        lock (_nodeTypeByNameCache) {
+        lock (_nameCacheLock) {
             if (_nodeTypeByNameCache.TryGetValue(nameShortOrFull, out type)) return type != null;
             Guid typeId;
             if (_store.Datamodel.NodeTypesByShortName.TryGetValue(nameShortOrFull, out var typeDefs)) {
@@ -82,7 +84,7 @@ public class NodeMapper {
     }
     IValueMapper getNodeValueMapper(Type objectType, out Guid typeId) {
         IValueMapper? mapper;
-        lock (_mapperByType) {
+        lock (_mapperLock) {
             if (_mapperByType.TryGetValue(objectType, out var kv)) {
                 typeId = kv.Value;
                 mapper = kv.Key;

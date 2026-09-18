@@ -23,7 +23,7 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>0.4.0.190</Version>
+    <Version>0.4.0.192</Version>
   </PropertyGroup>
 
 </Project>

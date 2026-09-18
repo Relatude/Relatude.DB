@@ -16,7 +16,7 @@ namespace Relatude.DB.DataStores.Stores {
     internal class GuidStore : IDisposable {
         readonly IGuidMap _map;
         public GuidStore(IGuidMap map) { _map = map; }
-        object _lock = new object();
+        readonly System.Threading.Lock _lock = new();
         List<IdPair>? _newIds = null;
         int _lastIdOnStartOfRecording;
         int newId() {
@@ -149,6 +149,13 @@ namespace Relatude.DB.DataStores.Stores {
                     throw new InvalidOperationException("Unknown node: " + guid + ". ");
                 }
                 return id;
+            }
+        }
+        /// <summary>Both ends of a relation under one lock.</summary>
+        public void GetIds(Guid guid1, Guid guid2, out int id1, out int id2) {
+            lock (_lock) {
+                if (!_map.TryGetId(guid1, out id1)) throw new InvalidOperationException("Unknown node: " + guid1 + ". ");
+                if (!_map.TryGetId(guid2, out id2)) throw new InvalidOperationException("Unknown node: " + guid2 + ". ");
             }
         }
         public bool TryGetId(Guid guid, out int id) {

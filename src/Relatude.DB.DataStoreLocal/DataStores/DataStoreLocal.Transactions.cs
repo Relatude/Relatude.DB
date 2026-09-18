@@ -149,9 +149,13 @@ public sealed partial class DataStoreLocal : IDataStore {
             bool anyLocks = _nodeWriteLocks.AnyLocks();
             var i = 0;
             var count = transaction.Actions.Count;
+            var lastProgress = -1;
             foreach (var action in transaction.Actions) {
-
-                UpdateActivityProgress(activityId, 100 * i++ / count);
+                var progress = (int)(100L * i++ / count);
+                if (progress != lastProgress) { // at most 100 updates per transaction, not one lock per action
+                    UpdateActivityProgress(activityId, progress);
+                    lastProgress = progress;
+                }
                 var enumerator = _converter.Convert(this, action, transformValues, newTasks, ctx).GetEnumerator();
                 // not using foreach here to be able to catch exceptions from MoveNext() and know which action caused it, for better error messages.
                 while (true) {

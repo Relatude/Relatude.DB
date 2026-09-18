@@ -5,9 +5,10 @@ internal delegate long BatchCallback(ExecutedPrimitiveTransaction[] batch, Actio
 internal class LogQueue : IDisposable {
     readonly BatchCallback _workCallback;
     List<ExecutedPrimitiveTransaction> _queue;
-    object _workLock = new();
-    object _queueLock = new();
+    readonly System.Threading.Lock _workLock = new();
+    readonly System.Threading.Lock _queueLock = new();
     int _estimatedTransactionCount;
+    int _estimatedActionCount; // kept with Interlocked so the per transaction check in the store never has to sum the queue
     public LogQueue(BatchCallback workCallback) {
         _workCallback = workCallback;
         _queue = [];
@@ -16,7 +17,8 @@ internal class LogQueue : IDisposable {
         lock (_queueLock) {
             _queue.Add(work);
         }
-        System.Threading.Interlocked.Increment(ref _estimatedTransactionCount);
+        Interlocked.Increment(ref _estimatedTransactionCount);
+        Interlocked.Add(ref _estimatedActionCount, work.ExecutedActions.Count);
     }
     public void DequeAllWorkThreadSafe(Action<string, int>? progress, out int transactionCount, out int actionCount, out long bytesWritten) {
         lock (_workLock) {
@@ -27,7 +29,8 @@ internal class LogQueue : IDisposable {
             // always matches the order transactions were queued (snapshot order == write order)
             ExecutedPrimitiveTransaction[] batch;
             lock (_queueLock) {
-                actionCount = _queue.Sum(x => x.ExecutedActions.Count);
+                actionCount = 0;
+                foreach (var t in _queue) actionCount += t.ExecutedActions.Count;
                 batch = _queue.ToArray();
                 transactionCount = _queue.Count;
                 _queue = [];
@@ -35,21 +38,19 @@ internal class LogQueue : IDisposable {
             bytesWritten = 0;
             if (transactionCount > 0) bytesWritten = _workCallback(batch, progress, actionCount, transactionCount);
         }
-        System.Threading.Interlocked.Add(ref _estimatedTransactionCount, -transactionCount);
+        Interlocked.Add(ref _estimatedTransactionCount, -transactionCount);
+        Interlocked.Add(ref _estimatedActionCount, -actionCount);
     }
     public void Dispose() {
         DequeAllWorkThreadSafe(null, out _, out _, out _);
     }
 
-    internal int GetQueueActionCount() {
-        lock(_queueLock) {
-            return _queue.Sum(x => x.ExecutedActions.Count);
-        }
-    }
+    /// <summary>Actions queued and not yet written. An estimate in the same sense as <see cref="EstimateTransactionCount"/>: no lock.</summary>
+    internal int GetQueueActionCount() => Volatile.Read(ref _estimatedActionCount);
 
     public int EstimateTransactionCount { // no lock
         get {
-            return System.Threading.Interlocked.CompareExchange(ref _estimatedTransactionCount, 0, 0);
+            return Volatile.Read(ref _estimatedTransactionCount);
         }
     }
 }

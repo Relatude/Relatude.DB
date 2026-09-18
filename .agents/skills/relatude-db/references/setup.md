@@ -139,19 +139,21 @@ For what the model builder validates at this point — and the errors you will s
 
 `UseRelatudeDB` installs the engine's own startup-progress and auth middleware, so **call it after** your own `UseCors` / `UseHttpsRedirection` / `UseAuthentication`. Getting this wrong produces confusing auth behaviour on the admin UI rather than an obvious error.
 
-If you also serve media from the store, that is a middleware **you** write — nothing maps a file endpoint for you. It goes after the static-file middleware, because the default URL root for nodes and files is `/`, so it sees every request:
+If you also serve media from the store, that is a middleware **you** write — nothing maps a file endpoint for you. It goes before the static-file middleware, so content addressed by a database URL wins over a file of the same name in `wwwroot`, and the default URL root for nodes and files is `/`, so it sees every request:
 
 ```csharp
+app.UseMiddleware<RelatudeDBMiddleware>();   // your own — see files-and-media.md
+
 app.UseDefaultFiles();
 app.UseStaticFiles();
-
-app.UseMiddleware<RelatudeDBMiddleware>();   // your own — see files-and-media.md
 
 app.StartRelatudeDB();                       // or app.UseRelatudeDB()
 app.MapRelatudeDBAdmin();
 ```
 
 `StartRelatudeDB()` + `MapRelatudeDBAdmin()` is what `UseRelatudeDB()` does in one call; splitting them lets you place your own middleware in between.
+
+**Call `UseRouting()` yourself, after `UseStaticFiles()`, whenever the app also maps a catch-all route** such as `MapFallbackToFile` for a single page client. `MapRelatudeDBAdmin` registers endpoints, so `WebApplication` inserts `UseRouting` at the very start of the pipeline unless the application calls it. The catch-all then matches every request before the static files are reached, and `UseStaticFiles` skips itself whenever an endpoint is already selected. The symptom is the client's own js and css coming back as `index.html` with `Content-Type: text/html`, and a blank page in the browser.
 
 ## File converters
 

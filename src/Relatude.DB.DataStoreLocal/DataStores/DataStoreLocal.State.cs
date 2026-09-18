@@ -14,9 +14,9 @@ namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
     byte[][] readSegments(NodeSegment[] segments, out int diskReads) => _wal.ReadNodeSegments(segments, out diskReads);
-    void updateNodeDataPositionInLogFile(int id, NodeSegment seg) {
-        // this happens when a node is updated, and the new data is written to the log file
-        _nodes.UpdateNodeDataPositionInLogFile(id, seg);
+    void updateNodeDataPositionInLogFile(ReadOnlySpan<(int id, NodeSegment segment)> segments) {
+        // this happens when nodes are added or updated, and the new data is written to the log file
+        _nodes.UpdateNodeDataPositionsInLogFile(segments);
     }
     int _stateFileVersion = 1000;
     Guid getCheckSumForStateFileAndIndexes() {
