@@ -153,6 +153,7 @@ export interface FacetSelection {
  * A word somebody marks themselves - "cork*", "cork~" - is left alone whatever this says.
  */
 export type SearchMatch = "wildcard" | "fuzzy" | "exact";
+export type PropertyScope = "type" | "subtypes";
 
 /**
  * What every view of a query searches for, and how: the text with its two options, the semantic
@@ -186,6 +187,8 @@ export interface SearchRequest extends SearchTerms {
    * whether anyone is going to read them. A selection still filters when this is false.
    */
   facets: boolean;
+  /** Which properties the query sees: the selected type's own, or (the default) its subtypes' too. */
+  propertyScope?: PropertyScope;
   /** The property id of the column the table is sorted by, or null for the store's own order. */
   sortBy: string | null;
   sortDescending: boolean;
@@ -1081,8 +1084,8 @@ export function bytesOf(base64: string): Uint8Array {
   return bytes;
 }
 
-export function fetchPivotModel(storeId: string, typeId: string | null): Promise<PivotModel> {
-  return send<PivotModel>("query-pivot-model", { storeId, typeId });
+export function fetchPivotModel(storeId: string, typeId: string | null, propertyScope?: PropertyScope): Promise<PivotModel> {
+  return send<PivotModel>("query-pivot-model", { storeId, typeId, propertyScope });
 }
 
 export function runPivot(request: PivotRequest): Promise<PivotResult> {

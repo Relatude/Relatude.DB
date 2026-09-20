@@ -232,7 +232,7 @@ public class ArrayContainsTests {
     [TestMethod]
     public void Contains_OnUnknownPropertyPath_Throws() {
         var store = OpenStore(out _);
-        var ex = Assert.ThrowsException<Exception>(
+        var ex = Assert.ThrowsExactly<Exception>(
             () => store.Query<TaggedItem>().Where("x => x.NoSuchProperty.Contains(\"red\")").Count());
         StringAssert.Contains(ex.Message, "NoSuchProperty");
         store.Dispose();

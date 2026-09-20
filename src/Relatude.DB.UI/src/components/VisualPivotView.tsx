@@ -249,13 +249,13 @@ export function VisualPivotView({
     let cancelled = false;
     setModel(null);
     setModelError(null);
-    fetchPivotModel(base.storeId, base.typeId)
+    fetchPivotModel(base.storeId, base.typeId, base.propertyScope)
       .then((m) => !cancelled && setModel(m))
       .catch((e) => !cancelled && setModelError(e instanceof Error ? e.message : String(e)));
     return () => {
       cancelled = true;
     };
-  }, [base.storeId, base.typeId]);
+  }, [base.storeId, base.typeId, base.propertyScope]);
 
   const groupable = useMemo(() => model?.properties.filter((p) => p.groupable) ?? [], [model]);
 

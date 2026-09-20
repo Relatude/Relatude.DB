@@ -1,4 +1,4 @@
-using Relatude.DB.AI;
+﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
@@ -39,8 +39,8 @@ internal class RelationProperty : Property {
     Relation relation => Definition.Relations[RelModel.RelationId];
 
     public override bool CanBeFacet() => RelModel.Facet;
-    public override bool CanBeAutomaticFacet(QueryContext ctx) // one bucket per related node, no ranges
-        => CanBeFacet() && !tooManyValuesForAutomaticFacet(relation.DistinctIds(!RelModel.FromTargetToSource));
+    public override bool CanBeAutomaticFacet(QueryContext ctx, int maxValues) // one bucket per related node, no ranges
+        => CanBeFacet() && !tooManyValuesForAutomaticFacet(relation.DistinctIds(!RelModel.FromTargetToSource), maxValues);
     public override long EstimateFilterFacetsMaxCount(Facets facets, IdSet source, QueryContext ctx) {
         var rel = relation;
         var dir = !RelModel.FromTargetToSource;

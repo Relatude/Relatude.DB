@@ -145,7 +145,7 @@ public class RevertTests {
         Assert.AreEqual(NodeCount / 4 + 1, store.Query<RevArticle>().Where(a => a.Category == "outdoor").Count());
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Memory", "Memory")]
     [DataRow("Native", "Memory")]
     [DataRow("Native", "Lucene")]
@@ -256,18 +256,18 @@ public class RevertTests {
         insertBaseNodes(store);
 
         // rollback and commit need an active window
-        Assert.ThrowsException<Exception>(() => store.RollbackRevertWindow());
-        Assert.ThrowsException<Exception>(() => store.CommitRevertWindow());
+        Assert.ThrowsExactly<Exception>(() => store.RollbackRevertWindow());
+        Assert.ThrowsExactly<Exception>(() => store.CommitRevertWindow());
 
         // reverting to before the first transaction (deleting everything) is refused
-        Assert.ThrowsException<Exception>(() => store.DeleteTransactionsAfter(1));
+        Assert.ThrowsExactly<Exception>(() => store.DeleteTransactionsAfter(1));
 
         store.BeginRevertWindow();
         // no nested windows
-        Assert.ThrowsException<Exception>(() => store.BeginRevertWindow());
+        Assert.ThrowsExactly<Exception>(() => store.BeginRevertWindow());
         // the general form defers to the window while one is active
         store.Insert(new RevArticle { Id = Guid.NewGuid(), Body = "x", Category = "extra", Number = 1 });
-        Assert.ThrowsException<Exception>(() => store.DeleteTransactionsAfter(store.Timestamp - 1));
+        Assert.ThrowsExactly<Exception>(() => store.DeleteTransactionsAfter(store.Timestamp - 1));
         store.RollbackRevertWindow(); // discards the insert above
         Assert.IsNull(store.RevertWindow);
         Assert.AreEqual(NodeCount, store.Query<RevArticle>().Count());

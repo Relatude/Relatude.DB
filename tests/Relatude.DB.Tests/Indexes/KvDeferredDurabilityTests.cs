@@ -170,7 +170,7 @@ public class KvDeferredDurabilityTests {
         using var engine = new BPlusTreeStorageEngine(null); // memory-only is enough for the guard
         engine.OpenOrCreateSortedIntIndex<string>("idx");
         engine.BeginTransaction();
-        Assert.ThrowsException<InvalidOperationException>(() => engine.MakeDurable(true));
+        Assert.ThrowsExactly<InvalidOperationException>(() => engine.MakeDurable(true));
         engine.RollbackTransaction();
     }
 

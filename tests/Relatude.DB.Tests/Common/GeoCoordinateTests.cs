@@ -35,7 +35,7 @@ public class GeoCoordinateTests {
             Assert.AreEqual(g.Longitude, back.Longitude);
         }
         Assert.AreEqual(GeoCoordinate.Empty, GeoCoordinate.FromStorageValue(0));
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => GeoCoordinate.FromStorageValue(ulong.MaxValue));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => GeoCoordinate.FromStorageValue(ulong.MaxValue));
     }
 
     [TestMethod]
@@ -46,8 +46,8 @@ public class GeoCoordinateTests {
         Assert.AreEqual(new GeoCoordinate(0, -180), new GeoCoordinate(0, 180));
         Assert.AreEqual(new GeoCoordinate(0, -170), new GeoCoordinate(0, 190));
         Assert.AreEqual(new GeoCoordinate(0, 170), new GeoCoordinate(0, -190));
-        Assert.ThrowsException<ArgumentException>(() => new GeoCoordinate(double.NaN, 0));
-        Assert.ThrowsException<ArgumentException>(() => new GeoCoordinate(0, double.PositiveInfinity));
+        Assert.ThrowsExactly<ArgumentException>(() => new GeoCoordinate(double.NaN, 0));
+        Assert.ThrowsExactly<ArgumentException>(() => new GeoCoordinate(0, double.PositiveInfinity));
         // extreme but finite values must not throw or corrupt
         var g = new GeoCoordinate(1e300, -1e300);
         Assert.IsTrue(g.Latitude is >= -90 and <= 90);

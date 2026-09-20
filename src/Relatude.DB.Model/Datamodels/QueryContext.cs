@@ -20,7 +20,7 @@ public class QueryContext {
     public bool IncludeUnpublished { get; private set; } = false;
     public bool EditView { get; private set; } = false;
     public bool IncludeHidden { get; private set; } = false;
-    public bool ExcludeDecendants { get; private set; } = false;
+    public bool ExcludeDescendants { get; private set; } = false;
     public DateTime? NowUtc { get; private set; }
     Guid[]? _collectionIds;
     public Guid[]? CollectionIds {
@@ -37,7 +37,7 @@ public class QueryContext {
         IncludeCultureFallback = false,
         IncludeUnpublished = false,
         IncludeHidden = false,
-        ExcludeDecendants = false,
+        ExcludeDescendants = false,
         CollectionIds = null,
         NowUtc = null,
         SelectedRevisions = null
@@ -51,7 +51,7 @@ public class QueryContext {
         IncludeCultureFallback = false,
         IncludeUnpublished = false,
         IncludeHidden = false,
-        ExcludeDecendants = false,
+        ExcludeDescendants = false,
         CollectionIds = null,
         NowUtc = null,
         SelectedRevisions = null
@@ -65,7 +65,7 @@ public class QueryContext {
         IncludeCultureFallback = true,
         IncludeUnpublished = true,
         IncludeHidden = true,
-        ExcludeDecendants = true,
+        ExcludeDescendants = true,
         CollectionIds = null,
         NowUtc = null,
         SelectedRevisions = null
@@ -79,7 +79,7 @@ public class QueryContext {
         IncludeCultureFallback = true,
         IncludeUnpublished = true,
         IncludeHidden = true,
-        ExcludeDecendants = false,
+        ExcludeDescendants = false,
         CollectionIds = null,
         NowUtc = null
     };
@@ -112,7 +112,7 @@ public class QueryContext {
             && IncludeUnpublished == other.IncludeUnpublished
             && EditView == other.EditView
             && IncludeHidden == other.IncludeHidden
-            && ExcludeDecendants == other.ExcludeDecendants
+            && ExcludeDescendants == other.ExcludeDescendants
             && equalCollectionIds(CollectionIds, other.CollectionIds)
             && NowUtc == other.NowUtc
             && equalSelectedRevisions(SelectedRevisions, other.SelectedRevisions);
@@ -126,7 +126,7 @@ public class QueryContext {
         //hash.Add(IncludeCultureFallback);
         //hash.Add(IncludeUnpublished);
         //hash.Add(IncludeHidden);
-        //hash.Add(ExcludeDecendants);
+        //hash.Add(ExcludeDescendants);
         //if (CollectionIds != null) {
         //    foreach (var id in CollectionIds) {
         //        hash.Add(id);
@@ -148,7 +148,7 @@ public class QueryContext {
         hash = (hash * 397) ^ IncludeUnpublished.GetHashCode();
         hash = (hash * 397) ^ EditView.GetHashCode();
         hash = (hash * 397) ^ IncludeHidden.GetHashCode();
-        hash = (hash * 397) ^ ExcludeDecendants.GetHashCode();
+        hash = (hash * 397) ^ ExcludeDescendants.GetHashCode();
         if (CollectionIds != null) {
             foreach (var id in CollectionIds) {
                 hash = (hash * 397) ^ id.GetHashCode();
@@ -177,7 +177,7 @@ public class QueryContext {
             IncludeUnpublished = this.IncludeUnpublished,
             EditView = this.EditView,
             IncludeHidden = this.IncludeHidden,
-            ExcludeDecendants = this.ExcludeDecendants,
+            ExcludeDescendants = this.ExcludeDescendants,
             CollectionIds = this.CollectionIds,
             NowUtc = this.NowUtc,
             SelectedRevisions = this.SelectedRevisions
@@ -250,10 +250,10 @@ public class QueryContext {
         copy.IncludeDeleted = includeDeleted;
         return copy;        
     }
-    public QueryContext Descendants(bool excludeDecendants = false) {
-        if (this.ExcludeDecendants == excludeDecendants) return this;
+    public QueryContext Descendants(bool excludeDescendants = false) {
+        if (this.ExcludeDescendants == excludeDescendants) return this;
         var copy = this.copy();
-        copy.ExcludeDecendants = excludeDecendants;
+        copy.ExcludeDescendants = excludeDescendants;
         return copy;
     }
     public QueryContext CultureFallbacks(bool includeCultureFallback = true) {
@@ -277,7 +277,7 @@ public class QueryContext {
         if (IncludeUnpublished) s += "Unpublished ";
         if (EditView) s += "EditView ";
         if (IncludeHidden) s += "Hidden ";
-        if (ExcludeDecendants) s += "NoDescendants ";
+        if (ExcludeDescendants) s += "NoDescendants ";
         if (CollectionIds != null) s += $"Collections:[{string.Join(",", CollectionIds)}] ";
         if (NowUtc != null) s += $"Now:{NowUtc} ";
         if (SelectedRevisions != null) s += $"SelectedRevisions:[{string.Join(",", SelectedRevisions.Select(r => $"{r.NodeId}:{r.RevisionId}"))}] ";
@@ -295,7 +295,7 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
     public readonly bool IncludeUnpublished;  // requires evaluating multiple versions
     public readonly bool EditView;
     public readonly bool IncludeHidden;
-    public readonly bool ExcludeDecendants;
+    public readonly bool ExcludeDescendants;
     public readonly Guid CultureId;
     public readonly Guid[]? CollectionIds;
     public readonly Guid[]? MembershipIds;
@@ -311,7 +311,7 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         bool includeUnpublished,
         bool editView,
         bool includeHidden,
-        bool excludeDecendants,
+        bool excludeDescendants,
         SystemUserType userType,
         NodeIdAndRevisionId[]? selectedRevisions
         ) {
@@ -324,7 +324,7 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         IncludeUnpublished = includeUnpublished;
         EditView = editView;
         IncludeHidden = includeHidden;
-        ExcludeDecendants = excludeDecendants;
+        ExcludeDescendants = excludeDescendants;
         UserType = userType;
         SelectedRevisions = selectedRevisions;
     }
@@ -340,7 +340,7 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         //hash.Add(IncludeUnpublished);
         //hash.Add(EditView);
         //hash.Add(IncludeHidden);
-        //hash.Add(ExcludeDecendants);
+        //hash.Add(ExcludeDescendants);
         //hach.Add(UserType);
         //if (CollectionIds != null) {
         //    foreach (var id in CollectionIds) {
@@ -366,7 +366,7 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         hash = (hash * 397) ^ IncludeUnpublished.GetHashCode();
         hash = (hash * 397) ^ EditView.GetHashCode();
         hash = (hash * 397) ^ IncludeHidden.GetHashCode();
-        hash = (hash * 397) ^ ExcludeDecendants.GetHashCode();
+        hash = (hash * 397) ^ ExcludeDescendants.GetHashCode();
         hash = (hash * 397) ^ UserType.GetHashCode();
         if (CollectionIds != null) {
             foreach (var id in CollectionIds) {
@@ -404,7 +404,7 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
             && IncludeUnpublished == other.IncludeUnpublished
             && EditView == other.EditView
             && IncludeHidden == other.IncludeHidden
-            && ExcludeDecendants == other.ExcludeDecendants
+            && ExcludeDescendants == other.ExcludeDescendants
             && UserType == other.UserType
             && equalIds(CollectionIds, other.CollectionIds)
             && equalIds(MembershipIds, other.MembershipIds);
@@ -425,7 +425,7 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         if (IncludeUnpublished) s += "Unpublished ";
         if (EditView) s += "EditView ";
         if (IncludeHidden) s += "Hidden ";
-        if (ExcludeDecendants) s += "NoDescendants ";
+        if (ExcludeDescendants) s += "NoDescendants ";
         s += $"Culture:{CultureId} ";
         if (IncludeUnpublished) s += $"UserType:{UserType} ";
         return s;

@@ -81,7 +81,7 @@ public class StateStoreTests {
         if (expectVersions) Assert.AreEqual(1, store.FindOlderVersions(store.Datastore.GetGuid(5)).Length, when + ": version chain");
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(StateStoreEngine.Memory, null)]
     [DataRow(StateStoreEngine.Native, null)]
     [DataRow(StateStoreEngine.Native, "Native")]
@@ -135,7 +135,7 @@ public class StateStoreTests {
         }
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(StateStoreEngine.Memory)]
     [DataRow(StateStoreEngine.Native)]
     public void RewriteWithHotSwap_KeepsEveryNodeReadable(StateStoreEngine engine) {
@@ -163,7 +163,7 @@ public class StateStoreTests {
         }
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(StateStoreEngine.Memory)]
     [DataRow(StateStoreEngine.Native)]
     public void DeleteTransactionsAfter_RevertsTheStateStore(StateStoreEngine engine) {
@@ -190,7 +190,7 @@ public class StateStoreTests {
         }
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(StateStoreEngine.Memory)]
     [DataRow(StateStoreEngine.Native)]
     public void VersionChains_FollowUpdatesWrittenBeforeAndAfterOpen(StateStoreEngine engine) {

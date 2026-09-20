@@ -177,7 +177,7 @@ public class MatchesSearchTests {
         var store = OpenStore(out _);
         // Sku is value indexed but not word indexed: there is no row evaluation of a search, so this
         // must explain the fix rather than quietly matching nothing
-        var ex = Assert.ThrowsException<NotSupportedException>(
+        var ex = Assert.ThrowsExactly<NotSupportedException>(
             () => store.Query<Listing>().Where(x => x.Sku.MatchesSearch("SKU")).Count());
         StringAssert.Contains(ex.Message, "IndexedByWords");
         // Contains still works there, and is what the message points at
@@ -188,7 +188,7 @@ public class MatchesSearchTests {
     [TestMethod]
     public void MatchesSearch_OnNonStringProperty_Throws() {
         var store = OpenStore(out _);
-        var ex = Assert.ThrowsException<NotSupportedException>(
+        var ex = Assert.ThrowsExactly<NotSupportedException>(
             () => store.Query<Listing>().Where("x => x.Price.MatchesSearch(\"100\")").Count());
         StringAssert.Contains(ex.Message, "string");
         store.Dispose();

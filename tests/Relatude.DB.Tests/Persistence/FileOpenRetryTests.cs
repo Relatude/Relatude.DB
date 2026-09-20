@@ -36,7 +36,7 @@ public class FileOpenRetryTests {
     [TestMethod]
     public void IsSharingViolation_RecognisesARealLock() {
         using var holder = lockExclusively();
-        var err = Assert.ThrowsException<IOException>(() => openExclusively());
+        var err = Assert.ThrowsExactly<IOException>(() => openExclusively());
         Assert.IsTrue(FileOpenRetry.IsSharingViolation(err),
             "the exception a genuinely locked file throws must be recognised, or none of the retries fire: " + err.Message);
     }
@@ -84,7 +84,7 @@ public class FileOpenRetryTests {
     public void Open_GivesUpWithARecognisableExceptionWhenTheLockNeverClears() {
         using var holder = lockExclusively();
         var sw = Stopwatch.StartNew();
-        var err = Assert.ThrowsException<FileLockedException>(
+        var err = Assert.ThrowsExactly<FileLockedException>(
             () => FileOpenRetry.Open(_file, openExclusively, TimeSpan.FromMilliseconds(600)));
         Assert.IsTrue(sw.Elapsed >= TimeSpan.FromMilliseconds(500), "it should have used its budget");
         Assert.IsTrue(sw.Elapsed < TimeSpan.FromSeconds(10), "and then stopped: " + sw.Elapsed);
@@ -98,7 +98,7 @@ public class FileOpenRetryTests {
     public void Open_DoesNotWaitForAFailureWaitingCannotFix() {
         var missing = Path.Combine(_root, "not-here.wal");
         var sw = Stopwatch.StartNew();
-        Assert.ThrowsException<FileNotFoundException>(() => FileOpenRetry.Open(missing,
+        Assert.ThrowsExactly<FileNotFoundException>(() => FileOpenRetry.Open(missing,
             () => new FileStream(missing, FileMode.Open, FileAccess.Read, FileShare.Read),
             TimeSpan.FromSeconds(30)));
         Assert.IsTrue(sw.Elapsed < TimeSpan.FromSeconds(2),
@@ -108,7 +108,7 @@ public class FileOpenRetryTests {
     [TestMethod]
     public void Open_PassesAnUnrelatedExceptionStraightOut() {
         var sw = Stopwatch.StartNew();
-        Assert.ThrowsException<InvalidDataException>(() => FileOpenRetry.Open(_file,
+        Assert.ThrowsExactly<InvalidDataException>(() => FileOpenRetry.Open(_file,
             () => throw new InvalidDataException("bad header"), TimeSpan.FromSeconds(30)));
         Assert.IsTrue(sw.Elapsed < TimeSpan.FromSeconds(2), "corrupt data is not a lock: " + sw.Elapsed);
     }
@@ -122,7 +122,7 @@ public class FileOpenRetryTests {
         try {
             FileOpenRetry.DefaultLog = logged.Add;
             using var holder = lockExclusively();
-            Assert.ThrowsException<FileLockedException>(
+            Assert.ThrowsExactly<FileLockedException>(
                 () => FileOpenRetry.Open(_file, openExclusively, TimeSpan.FromMilliseconds(300)));
         } finally {
             FileOpenRetry.DefaultLog = original;

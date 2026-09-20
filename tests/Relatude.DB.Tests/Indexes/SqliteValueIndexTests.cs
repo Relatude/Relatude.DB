@@ -251,7 +251,7 @@ public class SqliteValueIndexTests {
         var dir = tempDir();
         try {
             using var store = new SqliteIndexStore(dir);
-            var ex = Assert.ThrowsException<NotSupportedException>(() =>
+            var ex = Assert.ThrowsExactly<NotSupportedException>(() =>
                 store.OpenValueIndex<byte[]>(new SetRegister(100), Guid.NewGuid().ToString(), "bytes", PropertyType.ByteArray));
             StringAssert.Contains(ex.Message, "ByteArray");
         } finally {

@@ -40,21 +40,21 @@ public class SingleRowHelperTests {
     public void SingleThrowsOnMultipleMatches() {
         using var store = openStore();
         var q = store.Query<ImmProduct>().Where(p => p.Category == "Toys"); // 10 matches
-        Assert.ThrowsException<InvalidOperationException>(() => q.Single());
+        Assert.ThrowsExactly<InvalidOperationException>(() => q.Single());
     }
 
     [TestMethod]
     public void SingleThrowsOnNoMatch() {
         using var store = openStore();
         var q = store.Query<ImmProduct>().Where(p => p.Price == -1);
-        Assert.ThrowsException<InvalidOperationException>(() => q.Single());
+        Assert.ThrowsExactly<InvalidOperationException>(() => q.Single());
     }
 
     [TestMethod]
     public void SingleOnProjectionThrowsOnMultipleMatches() {
         using var store = openStore();
         var many = store.Query<ImmProduct>().Where(p => p.Category == "Toys").Select(p => p.Price);
-        Assert.ThrowsException<InvalidOperationException>(() => many.Single());
+        Assert.ThrowsExactly<InvalidOperationException>(() => many.Single());
         var one = store.Query<ImmProduct>().Where(p => p.Price == 10).Select(p => p.Price);
         Assert.AreEqual(10, one.Single());
     }

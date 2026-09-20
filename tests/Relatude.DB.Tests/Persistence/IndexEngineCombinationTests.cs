@@ -81,7 +81,7 @@ public class IndexEngineCombinationTests {
         Assert.AreEqual(0, store.Query<CombiDoc>().WhereSearch("nosuchword").Count(), "empty search " + because);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Memory", "Memory")]
     [DataRow("Memory", "Lucene")]
     [DataRow("Memory", "Sqlite")]

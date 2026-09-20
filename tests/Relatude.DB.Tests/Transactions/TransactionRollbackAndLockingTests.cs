@@ -38,7 +38,7 @@ public class TransactionRollbackAndLockingTests {
         t.Delete(a4.Id);
         t.AddRelation<Article>(a3.Id, a => a.Parent!, a4.Id); // will fail because a4 is deleted
 
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => t.Execute());
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => t.Execute());
 
         // testing that the transaction was rolled back and node was not deleted
         var id = a4.Id; // query language does not implement indirect references ( yet )
@@ -65,7 +65,7 @@ public class TransactionRollbackAndLockingTests {
             t.NoRetriesIfLocked = true;
             a1.Body = Guid.NewGuid().ToString();
             t.ForceUpdate(a1);
-            Assert.ThrowsException<NodeLockedException>(() => t.Execute());
+            Assert.ThrowsExactly<NodeLockedException>(() => t.Execute());
         }
         store.ReleaseLock(lockId);
         {
@@ -80,7 +80,7 @@ public class TransactionRollbackAndLockingTests {
         var t2 = new Transaction(store, lockId2);
         t2.NoRetriesIfLocked = true;
         t2.ForceUpdate(a1);
-        Assert.ThrowsException<NodeLockedException>(() => store.ForceUpdate(a1));
+        Assert.ThrowsExactly<NodeLockedException>(() => store.ForceUpdate(a1));
         t2.Execute();
         store.ReleaseLock(lockId2);
 

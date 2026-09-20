@@ -13,10 +13,10 @@
 //        _noMetas = new(definition);
 //    }
 //    public IdSet GetAllNodeIdsForTypeFilteredByContext(Guid typeId, QueryContext ctx) {
-//        return _noMetas.GetAllNodeIdsForType(typeId, ctx.ExcludeDecendants);
+//        return _noMetas.GetAllNodeIdsForType(typeId, ctx.ExcludeDescendants);
 //    }
-//    public IdSet GetAllNodeIdsForTypeNoFilter(Guid typeId, bool excludeDecendants) {
-//        return _noMetas.GetAllNodeIdsForType(typeId, excludeDecendants);
+//    public IdSet GetAllNodeIdsForTypeNoFilter(Guid typeId, bool excludeDescendants) {
+//        return _noMetas.GetAllNodeIdsForType(typeId, excludeDescendants);
 //    }
 //    public int GetCountForTypeForStatusInfo(Guid typeId) {
 //        return GetAllNodeIdsForTypeNoFilter(typeId, true).Count;

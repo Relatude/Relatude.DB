@@ -206,12 +206,12 @@ public class KvUlongGuidIndexTests {
                 commit(engine, () => index.Set(1, "a")); // persists the definition to the catalog
 
                 // same session, already open with a different id type
-                Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateSortedUlongIndex<string>("idx"));
-                Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateSortedGuidIndex<string>("idx"));
+                Assert.ThrowsExactly<InvalidOperationException>(() => engine.OpenOrCreateSortedUlongIndex<string>("idx"));
+                Assert.ThrowsExactly<InvalidOperationException>(() => engine.OpenOrCreateSortedGuidIndex<string>("idx"));
             }
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
                 // reopen from disk with a different id type must fail even though the value type matches
-                Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateSortedUlongIndex<string>("idx"));
+                Assert.ThrowsExactly<InvalidOperationException>(() => engine.OpenOrCreateSortedUlongIndex<string>("idx"));
                 // matching id and value type still opens
                 Assert.AreEqual("a", engine.OpenOrCreateSortedIntIndex<string>("idx").GetValue(1));
             }

@@ -31,8 +31,8 @@ public class KvHashIndexTests {
 
         Assert.AreEqual(0, index.Count);
         Assert.IsFalse(index.TryGetValue(1, out _));
-        Assert.ThrowsException<KeyNotFoundException>(() => index.GetValue(1));
-        Assert.ThrowsException<InvalidOperationException>(() => index.Set(1, "no transaction"));
+        Assert.ThrowsExactly<KeyNotFoundException>(() => index.GetValue(1));
+        Assert.ThrowsExactly<InvalidOperationException>(() => index.Set(1, "no transaction"));
 
         commit(engine, () => {
             index.Set(int.MinValue, "min");
@@ -317,15 +317,15 @@ public class KvHashIndexTests {
                 var hash = engine.OpenOrCreateIntHashIndex<string>("hash");
                 commit(engine, () => { sorted.Set(1, "a"); hash.Set(1, "a"); });
 
-                Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateIntHashIndex<string>("sorted"));
-                Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateSortedIntIndex<string>("hash"));
-                Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateUlongHashIndex<string>("hash"));
-                Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateIntHashIndex<int>("hash"));
+                Assert.ThrowsExactly<InvalidOperationException>(() => engine.OpenOrCreateIntHashIndex<string>("sorted"));
+                Assert.ThrowsExactly<InvalidOperationException>(() => engine.OpenOrCreateSortedIntIndex<string>("hash"));
+                Assert.ThrowsExactly<InvalidOperationException>(() => engine.OpenOrCreateUlongHashIndex<string>("hash"));
+                Assert.ThrowsExactly<InvalidOperationException>(() => engine.OpenOrCreateIntHashIndex<int>("hash"));
             }
             using (var engine = new BPlusTreeStorageEngine(filePath)) {
                 // the layout is persisted, so the same mismatches are caught on a fresh open too
-                Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateIntHashIndex<string>("sorted"));
-                Assert.ThrowsException<InvalidOperationException>(() => engine.OpenOrCreateSortedIntIndex<string>("hash"));
+                Assert.ThrowsExactly<InvalidOperationException>(() => engine.OpenOrCreateIntHashIndex<string>("sorted"));
+                Assert.ThrowsExactly<InvalidOperationException>(() => engine.OpenOrCreateSortedIntIndex<string>("hash"));
                 Assert.AreEqual("a", engine.OpenOrCreateIntHashIndex<string>("hash").GetValue(1));
                 Assert.AreEqual("a", engine.OpenOrCreateSortedIntIndex<string>("sorted").GetValue(1));
             }

@@ -1,4 +1,4 @@
-using Relatude.DB.AI;
+﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
@@ -43,8 +43,8 @@ internal class GuidArrayProperty : Property, IPropertyContainsValue, IArrayPrope
     public int MaxCountContainsElement(object? value, QueryContext ctx)
         => ArrayElementMatch.TryCoerce<Guid>(value, out var v) ? GetIndex(ctx).MaxCount(IndexOperator.Equal, v) : 0;
     public override bool CanBeFacet() => Indexed && !Model.NotFacet;
-    public override bool CanBeAutomaticFacet(QueryContext ctx) // one bucket per unique element, no ranges
-        => CanBeFacet() && !tooManyValuesForAutomaticFacet(GetIndex(ctx).GetUniqueValues());
+    public override bool CanBeAutomaticFacet(QueryContext ctx, int maxValues) // one bucket per unique element, no ranges
+        => CanBeFacet() && !tooManyValuesForAutomaticFacet(GetIndex(ctx).GetUniqueValues(), maxValues);
     public override long EstimateFilterFacetsMaxCount(Facets facets, IdSet source, QueryContext ctx) {
         var index = GetIndex(ctx);
         long total = 0; // selected values combine with OR: sum of the maintained per-value counts (unresolvable selections match nothing)

@@ -77,7 +77,7 @@ export function GroupByView({
     let cancelled = false;
     setModel(null);
     setModelError(null);
-    fetchPivotModel(base.storeId, base.typeId)
+    fetchPivotModel(base.storeId, base.typeId, base.propertyScope)
       .then((m) => {
         if (cancelled) return;
         setModel(m);
@@ -93,7 +93,7 @@ export function GroupByView({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the default is decided once per type
-  }, [base.storeId, base.typeId]);
+  }, [base.storeId, base.typeId, base.propertyScope]);
 
   const request = useMemo<GroupByRequest | null>(
     () =>
@@ -184,7 +184,7 @@ export function GroupByView({
                   {!property && <option value="">choose…</option>}
                   {groupable.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name}
+                      {p.name}{p.declaredBy ? " · " + p.declaredBy : ""}
                     </option>
                   ))}
                 </select>
@@ -257,7 +257,7 @@ export function GroupByView({
                   {m.propertyId === null && candidates.length > 0 && <option value="">choose…</option>}
                   {candidates.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name}
+                      {p.name}{p.declaredBy ? " · " + p.declaredBy : ""}
                     </option>
                   ))}
                 </select>

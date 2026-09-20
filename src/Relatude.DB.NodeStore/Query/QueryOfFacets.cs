@@ -18,17 +18,20 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
     readonly QueryOfNodes<T, TInclude> _query;
     readonly Dictionary<Guid, Facets> _given;
     readonly Dictionary<Guid, Facets> _set;
+    readonly FacetDiscovery _discovery;
     int _pageIndex = 0;
     int _pageSize = 0;
     internal QueryOfFacets(QueryOfNodes<T, TInclude> query) {
         _query = query;
         _given = new();
         _set = new();
+        _discovery = new();
     }
     QueryOfFacets(QueryOfFacets<T, TInclude> source) { // copy for the immutable operators
         _query = source._query; // node queries are immutable, so sharing is safe
         _given = source._given.ToDictionary(kv => kv.Key, kv => kv.Value.Clone());
         _set = source._set.ToDictionary(kv => kv.Key, kv => kv.Value.Clone());
+        _discovery = source._discovery.Clone();
         _pageIndex = source._pageIndex;
         _pageSize = source._pageSize;
     }
@@ -51,6 +54,48 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
     Guid getPropertyId<TChild>(string propertyName) where TChild : T {
         return _query.Store.Mapper.GetProperty<TChild>(propertyName).Id;
     }
+    // Where the facets not named below come from. With nothing named and nothing said it is the result;
+    // naming a facet turns that off. maxDistinctValues bounds the buckets a found property may have: 0 = 100, -1 = no limit.
+    /// <summary>Every facetable property of the query type - its own and the inherited ones - or of the type and all its descendants.</summary>
+    [Pure]
+    public QueryOfFacets<T, TInclude> AddFacetsOfType(bool includeDescendants = false, int maxDistinctValues = 0) => AddFacetsOfType(typeIdOf<T>(), includeDescendants, maxDistinctValues);
+    [Pure]
+    public QueryOfFacets<T, TInclude> AddFacetsOfType<TType>(bool includeDescendants = false, int maxDistinctValues = 0) where TType : T => AddFacetsOfType(typeIdOf<TType>(), includeDescendants, maxDistinctValues);
+    [Pure]
+    public QueryOfFacets<T, TInclude> AddFacetsOfType(Guid typeId, bool includeDescendants = false, int maxDistinctValues = 0) => discover(new(typeId, includeDescendants, maxDistinctValues));
+    /// <summary>Every facetable property of every node type present in the result.</summary>
+    [Pure]
+    public QueryOfFacets<T, TInclude> AddFacetsOfResult(int maxDistinctValues = 0) => discover(new(null, false, maxDistinctValues));
+    /// <summary>Only the named facets, even when none is: the selection still filters, no buckets are counted.</summary>
+    [Pure]
+    public QueryOfFacets<T, TInclude> OnlyNamedFacets() {
+        var c = new QueryOfFacets<T, TInclude>(this);
+        c._discovery.Scopes.Clear();
+        c._discovery.OnlyNamed = true;
+        return c;
+    }
+    /// <summary>Leaves the property out however it was added. A selection on it still filters.</summary>
+    [Pure]
+    public QueryOfFacets<T, TInclude> ExcludeFacet(Expression<Func<T, object?>> expression) => ExcludeFacet(getPropertyId(expression));
+    [Pure]
+    public QueryOfFacets<T, TInclude> ExcludeFacet<TChild>(Expression<Func<TChild, object?>> expression) where TChild : T => ExcludeFacet(getPropertyId(expression));
+    [Pure]
+    public QueryOfFacets<T, TInclude> ExcludeFacet(string propertyName) => ExcludeFacet(getPropertyId<T>(propertyName));
+    [Pure]
+    public QueryOfFacets<T, TInclude> ExcludeFacet<TChild>(string propertyName) where TChild : T => ExcludeFacet(getPropertyId<TChild>(propertyName));
+    [Pure]
+    public QueryOfFacets<T, TInclude> ExcludeFacet(Guid propertyId) {
+        var c = new QueryOfFacets<T, TInclude>(this);
+        c._discovery.Excluded.Add(propertyId);
+        return c;
+    }
+    QueryOfFacets<T, TInclude> discover(FacetScope scope) {
+        var c = new QueryOfFacets<T, TInclude>(this);
+        c._discovery.Scopes.Add(scope);
+        return c;
+    }
+    Guid typeIdOf<TType>() => _query.Store.Mapper.GetNodeTypeId(typeof(TType));
+
     [Pure]
     public QueryOfFacets<T, TInclude> AddFacet(Expression<Func<T, object?>> expression) => AddFacet(getPropertyId(expression));
     [Pure]
@@ -218,6 +263,13 @@ public sealed class QueryOfFacets<T, TInclude> : IQueryExecutable<ResultSetFacet
         var sb = new StringBuilder();
         sb.Append(_query.ToString());
         sb.Append("." + nameof(_query.Facets) + "()");
+        foreach (var scope in _discovery.Scopes) {
+            sb.Append(scope.TypeId is Guid typeId
+                ? "." + nameof(this.AddFacetsOfType) + "(\"" + typeId + "\", " + (scope.IncludeDescendants ? "true" : "false") + ", " + scope.MaxDistinctValues + ")"
+                : "." + nameof(this.AddFacetsOfResult) + "(" + scope.MaxDistinctValues + ")");
+        }
+        if (_discovery.OnlyNamed) sb.Append("." + nameof(this.OnlyNamedFacets) + "()");
+        foreach (var propertyId in _discovery.Excluded) sb.Append("." + nameof(this.ExcludeFacet) + "(" + pn(propertyId) + ")");
         foreach (var facet in _given.Values) {
             if (facet.IsRangeFacet == null) {
                 sb.Append("." + nameof(this.AddFacet) + "(");

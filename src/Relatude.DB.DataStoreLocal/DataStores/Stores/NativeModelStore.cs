@@ -396,7 +396,7 @@ public class NativeModelStore(DataStoreLocal store) {
             includeUnpublished: ctx.IncludeUnpublished,
             editView: ctx.EditView,
             includeHidden: ctx.IncludeHidden,
-            excludeDecendants: ctx.ExcludeDecendants,
+            excludeDescendants: ctx.ExcludeDescendants,
             userType: userType,
             selectedRevisions: ctx.SelectedRevisions
         );

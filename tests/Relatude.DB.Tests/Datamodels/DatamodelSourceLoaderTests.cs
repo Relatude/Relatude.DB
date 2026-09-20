@@ -126,7 +126,7 @@ namespace Relatude.Datamodels {
             DatamodelSourceLoader.Load(dm, jsonSource("models/library.json"), _root);
             var second = jsonSource("models/library.json");
             second.Id = new Guid("11111111-0000-0000-0000-000000000002");
-            var ex = Assert.ThrowsException<Exception>(() => DatamodelSourceLoader.Load(dm, second, _root));
+            var ex = Assert.ThrowsExactly<Exception>(() => DatamodelSourceLoader.Load(dm, second, _root));
             StringAssert.Contains(ex.Message, "same id");
         }
 
@@ -135,14 +135,14 @@ namespace Relatude.Datamodels {
             var dm = new Datamodel();
             var noId = jsonSource("x.json");
             noId.Id = Guid.Empty;
-            StringAssert.Contains(Assert.ThrowsException<Exception>(() => DatamodelSourceLoader.Load(dm, noId, _root)).Message, "no Id");
+            StringAssert.Contains(Assert.ThrowsExactly<Exception>(() => DatamodelSourceLoader.Load(dm, noId, _root)).Message, "no Id");
             var codeType = new DatamodelSource() { Id = Guid.NewGuid(), Type = DatamodelSourceType.Code };
-            StringAssert.Contains(Assert.ThrowsException<Exception>(() => DatamodelSourceLoader.Load(dm, codeType, _root)).Message, "reserved");
+            StringAssert.Contains(Assert.ThrowsExactly<Exception>(() => DatamodelSourceLoader.Load(dm, codeType, _root)).Message, "reserved");
             var folder = Path.Combine(_root, "models");
             Directory.CreateDirectory(folder);
             File.WriteAllText(Path.Combine(folder, "library.json"), buildJsonModel());
             DatamodelSourceLoader.Load(dm, jsonSource("models/library.json"), _root);
-            StringAssert.Contains(Assert.ThrowsException<Exception>(() => DatamodelSourceLoader.Load(dm, jsonSource("models/library.json"), _root)).Message, "unique id");
+            StringAssert.Contains(Assert.ThrowsExactly<Exception>(() => DatamodelSourceLoader.Load(dm, jsonSource("models/library.json"), _root)).Message, "unique id");
         }
 
         [TestMethod]
@@ -244,7 +244,7 @@ namespace Relatude.Datamodels {
             Directory.CreateDirectory(folder);
             File.WriteAllText(Path.Combine(folder, "Broken.cs"), "namespace X;\npublic class Broken { this does not compile }\n");
             var dm = new Datamodel();
-            var ex = Assert.ThrowsException<Exception>(() => DatamodelSourceLoader.LoadCSharpFiles(dm, csharpSource(null), _root));
+            var ex = Assert.ThrowsExactly<Exception>(() => DatamodelSourceLoader.LoadCSharpFiles(dm, csharpSource(null), _root));
             StringAssert.Contains(ex.Message, "Broken.cs");
             StringAssert.Contains(ex.Message, "(2)");
         }

@@ -52,27 +52,27 @@ public class IndexEngineSettingsTests {
     public void ValidationNamesTheBrokenSetting() {
         var id = Guid.NewGuid();
         var s = new SettingsLocal { ValueIndexes = [new() { Id = id, TypeName = "Native" }], DefaultValueIndex = Guid.NewGuid() };
-        var error = Assert.ThrowsException<Exception>(s.ValidateIndexEngines);
+        var error = Assert.ThrowsExactly<Exception>(s.ValidateIndexEngines);
         StringAssert.Contains(error.Message, "DefaultValueIndex");
         StringAssert.Contains(error.Message, id.ToString());
 
         s = new SettingsLocal { ValueIndexes = [new() { Id = id, TypeName = "Native" }], TextIndexes = [new() { Id = id, TypeName = "Native" }] };
-        StringAssert.Contains(Assert.ThrowsException<Exception>(s.ValidateIndexEngines).Message, "more than once");
+        StringAssert.Contains(Assert.ThrowsExactly<Exception>(s.ValidateIndexEngines).Message, "more than once");
 
         s = new SettingsLocal { TextIndexes = [new() { Id = Guid.Empty, TypeName = "Native" }] };
-        StringAssert.Contains(Assert.ThrowsException<Exception>(s.ValidateIndexEngines).Message, "without an Id");
+        StringAssert.Contains(Assert.ThrowsExactly<Exception>(s.ValidateIndexEngines).Message, "without an Id");
 
         s = new SettingsLocal { VectorIndexes = [new() { Id = id, TypeName = "HNSW", MaxMemoryUsageInMb = -1 }] };
-        StringAssert.Contains(Assert.ThrowsException<Exception>(s.ValidateIndexEngines).Message, "MaxMemoryUsageInMb");
+        StringAssert.Contains(Assert.ThrowsExactly<Exception>(s.ValidateIndexEngines).Message, "MaxMemoryUsageInMb");
 
         s = new SettingsLocal { VectorIndexes = [new() { Id = id }] };
-        StringAssert.Contains(Assert.ThrowsException<Exception>(s.ValidateIndexEngines).Message, "TypeName");
+        StringAssert.Contains(Assert.ThrowsExactly<Exception>(s.ValidateIndexEngines).Message, "TypeName");
 
         // an engine nothing points at is fine: it is configuration waiting to be chosen
         new SettingsLocal { ValueIndexes = [new() { Id = id, TypeName = "Native" }] }.ValidateIndexEngines();
         // and a data store refuses broken settings up front, before any index is created
         var broken = new SettingsLocal { DefaultTextIndex = Guid.NewGuid() };
-        StringAssert.Contains(Assert.ThrowsException<Exception>(() => DataStoreLocal.Open(new Relatude.DB.Datamodels.Datamodel(), broken)).Message, "DefaultTextIndex");
+        StringAssert.Contains(Assert.ThrowsExactly<Exception>(() => DataStoreLocal.Open(new Relatude.DB.Datamodels.Datamodel(), broken)).Message, "DefaultTextIndex");
     }
 
     [TestMethod]
@@ -87,12 +87,12 @@ public class IndexEngineSettingsTests {
         Assert.AreSame(other, engines.ValueEngine(otherId));
         Assert.IsNull(engines.ValueEngine(Guid.Empty), "Guid.Empty is the memory index");
         Assert.IsNull(engines.TextEngine(Guid.Empty));
-        StringAssert.Contains(Assert.ThrowsException<Exception>(() => engines.ValueEngine(Guid.NewGuid())).Message, "not created");
+        StringAssert.Contains(Assert.ThrowsExactly<Exception>(() => engines.ValueEngine(Guid.NewGuid())).Message, "not created");
         Assert.AreEqual(2, engines.TransactionalEngines.Count());
         Assert.IsFalse(IndexEngines.Empty.Any);
         // registering under the memory id is a programming error, not a way to replace the memory index
-        Assert.ThrowsException<ArgumentException>(() => new IndexEngines([(Guid.Empty, value)]));
-        Assert.ThrowsException<ArgumentException>(() => new IndexEngines([(valueId, value), (valueId, other)]));
+        Assert.ThrowsExactly<ArgumentException>(() => new IndexEngines([(Guid.Empty, value)]));
+        Assert.ThrowsExactly<ArgumentException>(() => new IndexEngines([(valueId, value), (valueId, other)]));
     }
 
     [TestMethod]
@@ -129,7 +129,7 @@ public class IndexEngineSettingsTests {
                 Assert.IsNotNull(value);
                 Assert.IsNotNull(text);
                 // the engine nothing points at was not created, and asking for it says so
-                StringAssert.Contains(Assert.ThrowsException<Exception>(() => engines.ValueEngine(settings.ValueIndexes[0].Id)).Message, "not created");
+                StringAssert.Contains(Assert.ThrowsExactly<Exception>(() => engines.ValueEngine(settings.ValueIndexes[0].Id)).Message, "not created");
             }
             var valueFolder = NodeStoreContainer.EngineFolderPath(indexPath, settings.DefaultValueEngine!);
             var textFolder = NodeStoreContainer.EngineFolderPath(indexPath, settings.DefaultTextEngine!);
@@ -154,7 +154,7 @@ public class IndexEngineSettingsTests {
             settings.DefaultTextIndex = settings.TextIndexes[0].Id;
             var log = new List<string>();
             using var engines = NodeStoreContainer.CreateIndexEngineFactory(settings, Path.Combine(dir, "indexes"), false, null, log)!();
-            Assert.AreSame(engines.ValueEngine(settings.DefaultValueIndex), engines.TextEngine(settings.DefaultTextIndex), "one database, one connection, one transaction");
+            Assert.AreSame<IIndexEngine>(engines.ValueEngine(settings.DefaultValueIndex)!, engines.TextEngine(settings.DefaultTextIndex)!, "one database, one connection, one transaction");
             Assert.AreEqual(1, engines.TransactionalEngines.Count(), "the shared instance is driven once");
             Assert.IsTrue(log.Any(l => l.Contains("share one SQLite database")), "the budget that is not used should be mentioned: " + string.Join(" | ", log));
             // the text engine's folder is not claimed: the data lives with the value engine

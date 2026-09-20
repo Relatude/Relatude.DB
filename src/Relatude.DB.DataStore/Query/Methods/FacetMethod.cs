@@ -18,6 +18,12 @@ public class FacetMethod : IExpression {
             AddFacet(idString);
         }
     }
+    readonly FacetDiscovery _discovery = new();
+    public void AddFacetsOfType(Guid typeId, bool includeDescendants = false, int maxDistinctValues = 0) => _discovery.Scopes.Add(new(typeId, includeDescendants, maxDistinctValues));
+    public void AddFacetsOfResult(int maxDistinctValues = 0) => _discovery.Scopes.Add(new(null, false, maxDistinctValues));
+    public void OnlyNamedFacets() { _discovery.Scopes.Clear(); _discovery.OnlyNamed = true; }
+    public void ExcludeFacet(Guid propertyId) => _discovery.Excluded.Add(propertyId);
+    public void ExcludeFacet(string idString) => ExcludeFacet(_dm.GetPropertyGuid(idString));
     public void AddFacet(string idString) {
         AddFacet(_dm.GetPropertyGuid(idString));
     }
@@ -109,7 +115,7 @@ public class FacetMethod : IExpression {
         if (set is not IFacetSource facetSource) throw new Exception("Collection does not implement " + nameof(IFacetSource));
         // selection marking happens inside EvaluateFacetsAndFilter (before counting); re-applying it
         // here would re-run matching on the counted result and must not be done
-        var facets = facetSource.EvaluateFacetsAndFilter(_given, _selected, out var newSource, _pageIndex, _pageSize, vars.Context);
+        var facets = facetSource.EvaluateFacetsAndFilter(_given, _selected, _discovery, out var newSource, _pageIndex, _pageSize, vars.Context);
         return new FacetQueryResultData(facets, facetSource.TotalCount, newSource, _dm);
     }
     /// <summary>

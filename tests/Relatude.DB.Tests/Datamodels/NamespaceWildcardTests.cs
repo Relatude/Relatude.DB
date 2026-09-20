@@ -94,7 +94,7 @@ public class NamespaceWildcardTests {
         Assert.AreSame(entry, DatamodelSourceLoader.ResolveAssembly(null));
         Assert.AreSame(entry, DatamodelSourceLoader.ResolveAssembly(""));
         Assert.AreSame(typeof(SlAuthor).Assembly, DatamodelSourceLoader.ResolveAssembly(typeof(SlAuthor).Assembly.GetName().Name));
-        var error = Assert.ThrowsException<Exception>(() => DatamodelSourceLoader.ResolveAssembly("No.Such.Assembly.Here"));
+        var error = Assert.ThrowsExactly<Exception>(() => DatamodelSourceLoader.ResolveAssembly("No.Such.Assembly.Here"));
         StringAssert.Contains(error.Message, "No.Such.Assembly.Here");
     }
 }

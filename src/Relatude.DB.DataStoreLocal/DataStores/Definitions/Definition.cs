@@ -217,6 +217,11 @@ internal sealed class Definition {
         return result;
     }
 
+    internal IEnumerable<Property> GetFacetPropertiesForType(Guid typeId, bool includeDescendants) {
+        var types = Datamodel.NodeTypes.Values.Where(t => includeDescendants ? t.ThisAndAllInheritedTypes.ContainsKey(typeId) : t.Id == typeId);
+        return types.SelectMany(t => t.AllProperties.Keys).Distinct().Select(id => Properties[id]).Where(p => p.CanBeFacet());
+    }
+
     internal object GetCulturePriority(Guid cultureId, Guid collectionId) {
         throw new NotImplementedException();
     }

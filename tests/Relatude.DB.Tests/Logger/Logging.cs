@@ -1,4 +1,4 @@
-using Relatude.DB.IO;
+﻿using Relatude.DB.IO;
 using Relatude.DB.Logging;
 using Relatude.DB.Logging.Statistics;
 
@@ -9,7 +9,7 @@ public class Logging {
     public void DateInterVals() {
         var dt = new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         Assert.AreEqual(IntervalUtils.Floor(dt, IntervalType.Month, DayOfWeek.Monday), dt);
-        Assert.AreEqual(IntervalUtils.AddOne(dt, IntervalType.Month).Subtract(dt).TotalDays, 31d);
+        Assert.AreEqual(31d, IntervalUtils.AddOne(dt, IntervalType.Month).Subtract(dt).TotalDays);
     }
     [TestMethod]
     public void HyperLogLog() {
@@ -123,7 +123,7 @@ public class Logging {
         long chk2 = 0;
         foreach (var e in d) {
             chk2 += e.Timestamp.Ticks;
-            Assert.AreEqual(e.Values["p1"], 1);
+            Assert.AreEqual(1, e.Values["p1"]);
         }
         Assert.AreEqual(chk, chk2);
         store2.Dispose();

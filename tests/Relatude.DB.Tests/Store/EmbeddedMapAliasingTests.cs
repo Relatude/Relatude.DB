@@ -100,8 +100,8 @@ public class EmbeddedMapAliasingTests {
         var map = (InnerNodeDataMap<string>)value;
 
         Assert.IsTrue(map.IsReadOnly);
-        Assert.ThrowsException<InvalidOperationException>(() => map.Remove("p1"));
-        Assert.ThrowsException<InvalidOperationException>(() => map.Clear());
+        Assert.ThrowsExactly<InvalidOperationException>(() => map.Remove("p1"));
+        Assert.ThrowsExactly<InvalidOperationException>(() => map.Clear());
 
         // reads must still work on a frozen map:
         Assert.AreEqual(2, map.Count);

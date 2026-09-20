@@ -55,7 +55,7 @@ public class LogFileScanTests {
     /// the first ten, and the database opened on it must answer as it did then - even though the
     /// state snapshot and the indexes on disk were written when there were fifteen.
     /// </summary>
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Memory")]
     [DataRow("Native")]
     public void CopyUntil_OpensTheDatabaseAsItWasAtThatMoment(string value) {
@@ -177,10 +177,10 @@ public class LogFileScanTests {
     public void ReadHeader_RefusesWhatIsNotALogFile() {
         var io = new IOProviderMemory();
         io.WriteAllBytes(["not-a-log.bin"], new byte[200]);
-        Assert.ThrowsException<IOException>(() => LogFileScan.ReadHeader(io, ["not-a-log.bin"]));
+        Assert.ThrowsExactly<IOException>(() => LogFileScan.ReadHeader(io, ["not-a-log.bin"]));
         io.WriteAllBytes(["tiny.bin"], new byte[8]);
-        Assert.ThrowsException<IOException>(() => LogFileScan.ReadHeader(io, ["tiny.bin"]));
-        Assert.ThrowsException<IOException>(() => LogFileScan.ReadHeader(io, ["missing.bin"]));
+        Assert.ThrowsExactly<IOException>(() => LogFileScan.ReadHeader(io, ["tiny.bin"]));
+        Assert.ThrowsExactly<IOException>(() => LogFileScan.ReadHeader(io, ["missing.bin"]));
     }
 
     /// <summary>A log whose last transaction was torn by a crash: the copy ends where the file last

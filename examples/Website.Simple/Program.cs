@@ -53,6 +53,7 @@ app.UseCors("AllowALL"); // FOR VS CODE DEVELOPMENT ONLY - NEVER ALLOW ALL CORS
 
 app.MapGet("/", (RelatudeDBContext ctx) => {
     var count = ctx.Database.Count(); //.Query<DemoArticle>().Count();
+    
     var html = "<html><body>"
     + $@"<h1>Welcome to Relatude.DB</h1><p>Database has {count} objects.</p>"
     + $@"<p><a href='{ctx.Server.ApiUrlRoot}'>Admin UI</a></p>"

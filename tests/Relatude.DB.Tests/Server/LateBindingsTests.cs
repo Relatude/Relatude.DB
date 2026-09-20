@@ -113,7 +113,7 @@ public class LateBindingsTests {
             using var lower = LateBindings.CreateValueIndexEngine(new IndexEngineSettings { Id = Guid.NewGuid(), TypeName = "native" }, Path.Combine(folder, "lower"));
             // and an unknown name fails with the name in the message, not with a reflection error
             var bogus = new IndexEngineSettings { Id = Guid.NewGuid(), TypeName = "No.Such.Engine" };
-            var error = Assert.ThrowsException<Exception>(() => LateBindings.CreateValueIndexEngine(bogus, Path.Combine(folder, "bogus")));
+            var error = Assert.ThrowsExactly<Exception>(() => LateBindings.CreateValueIndexEngine(bogus, Path.Combine(folder, "bogus")));
             StringAssert.Contains(error.Message, "No.Such.Engine");
             StringAssert.Contains(error.Message, IndexEngineTypes.Sqlite);
         } finally {

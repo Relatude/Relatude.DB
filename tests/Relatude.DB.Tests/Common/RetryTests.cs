@@ -72,7 +72,7 @@ public class RetryTests {
     [TestMethod]
     public void Run_PassesThroughWhatIsNotWorthRetrying() {
         var calls = 0;
-        Assert.ThrowsException<InvalidDataException>(() => Retry.Run<bool>(() => {
+        Assert.ThrowsExactly<InvalidDataException>(() => Retry.Run<bool>(() => {
             calls++;
             throw new InvalidDataException("corrupt");
         }, err => err is not InvalidDataException, TimeSpan.FromSeconds(30)));
@@ -82,7 +82,7 @@ public class RetryTests {
     [TestMethod]
     public void Run_RethrowsTheLastFailureWhenTheBudgetRunsOut() {
         var sw = Stopwatch.StartNew();
-        var err = Assert.ThrowsException<InvalidOperationException>(() => Retry.Run<bool>(
+        var err = Assert.ThrowsExactly<InvalidOperationException>(() => Retry.Run<bool>(
             () => throw new InvalidOperationException("still busy"),
             _ => true, TimeSpan.FromMilliseconds(400)));
         Assert.AreEqual("still busy", err.Message, "the caller's own error survives by default");
@@ -93,7 +93,7 @@ public class RetryTests {
     [TestMethod]
     public void Run_LetsTheCallerReplaceTheGiveUpException() {
         // this is how FileOpenRetry reports a lock as a FileLockedException rather than a raw IOException
-        var err = Assert.ThrowsException<TimeoutException>(() => Retry.Run<bool>(
+        var err = Assert.ThrowsExactly<TimeoutException>(() => Retry.Run<bool>(
             () => throw new InvalidOperationException("still busy"),
             _ => true, TimeSpan.FromMilliseconds(200),
             onExhausted: (last, attempts, elapsed) => new TimeoutException("gave up after " + attempts, last)));
@@ -106,7 +106,7 @@ public class RetryTests {
         // the server's auto-open uses this shape: a shutdown starting mid-wait ends the wait
         var calls = 0;
         var stopping = false;
-        Assert.ThrowsException<InvalidOperationException>(() => Retry.Run<bool>(
+        Assert.ThrowsExactly<InvalidOperationException>(() => Retry.Run<bool>(
             () => {
                 calls++;
                 if (calls >= 3) stopping = true;
@@ -119,7 +119,7 @@ public class RetryTests {
     [TestMethod]
     public void Run_NeverSleepsPastItsBudget() {
         var sw = Stopwatch.StartNew();
-        Assert.ThrowsException<InvalidOperationException>(() => Retry.Run<bool>(
+        Assert.ThrowsExactly<InvalidOperationException>(() => Retry.Run<bool>(
             () => throw new InvalidOperationException("busy"), _ => true, TimeSpan.FromMilliseconds(2500)));
         // without clamping the final sleep, the 2 s step would overshoot well past the budget
         Assert.IsTrue(sw.Elapsed < TimeSpan.FromSeconds(4), "overshot the budget: " + sw.Elapsed);

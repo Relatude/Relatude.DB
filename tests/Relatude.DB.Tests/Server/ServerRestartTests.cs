@@ -126,7 +126,7 @@ public class ServerRestartTests {
         var host = TestServerHost.Start(_root);
         try {
             host.Server.Options!.AllowedRestarts = RestartOptions.StopHost;
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => host.Server.SoftRestartAsync());
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => host.Server.SoftRestartAsync());
             Assert.IsFalse(host.Server.GetRestartCapabilities().CanSoftRestart);
         } finally {
             await host.DisposeAsync();
@@ -163,7 +163,7 @@ public class ServerRestartTests {
         var host = TestServerHost.Start(_root);
         try {
             host.Server.Options!.AllowedRestarts = RestartOptions.Soft;
-            Assert.ThrowsException<InvalidOperationException>(() => host.Server.StopHost());
+            Assert.ThrowsExactly<InvalidOperationException>(() => host.Server.StopHost());
             Assert.IsFalse(host.Server.GetRestartCapabilities().CanStopHost);
             Assert.IsFalse(host.Server.IsShuttingDown);
         } finally {

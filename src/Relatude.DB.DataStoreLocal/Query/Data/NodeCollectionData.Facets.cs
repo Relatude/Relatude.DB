@@ -6,9 +6,12 @@ using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.Query.Data {
     internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSource {
         public Datamodel Datamodel { get => _def.Datamodel; }
-        public Dictionary<Guid, Facets> EvaluateFacetsAndFilter(Dictionary<Guid, Facets> givenById, Dictionary<Guid, Facets> selection, out IFacetSource filteredSource, int pageIndex, int? pageSize, QueryContext ctx) {
+        public Dictionary<Guid, Facets> EvaluateFacetsAndFilter(Dictionary<Guid, Facets> givenById, Dictionary<Guid, Facets> selection, FacetDiscovery discovery, out IFacetSource filteredSource, int pageIndex, int? pageSize, QueryContext ctx) {
             var ids = _ids;
-            var relevantProps = findRelevantProperties(givenById, true, _def, ids, ctx).ToList();
+            var counted = facetProperties(givenById, discovery, ids, ctx).ToList();
+            var relevantProps = counted.ToList();
+            foreach (var id in selection.Keys) // a selection filters whether or not its property is counted
+                if (!relevantProps.Any(p => p.Id == id) && _def.Properties.TryGetValue(id, out var added) && added.CanBeFacet()) relevantProps.Add(added);
             var result = new Dictionary<Guid, Facets>();
             var innerSet = ids;
             var specialSetsForSelectedFacets = new Dictionary<Guid, IdSet>();
@@ -65,7 +68,7 @@ namespace Relatude.DB.Query.Data {
             // materializing and intersecting id sets. This is what makes the first facet query on a
             // large persisted store instant instead of walking the whole value tree per bucket:
             var sourceIsFullTypeSet = false;
-            if (!ctx.ExcludeDecendants) {
+            if (!ctx.ExcludeDescendants) {
                 var ctxSet = _def.GetAllIdsForType(_nodeType.Id, ctx);
                 if (ids.StateId == ctxSet.StateId) {
                     // the context set is a subset of the unfiltered set, so equal counts means equal sets
@@ -79,8 +82,9 @@ namespace Relatude.DB.Query.Data {
                 prop.CountFacets(set, facets, ctx, covered);
                 facets.ApplyOptions(); // MinCount/MaxValues/SortByCount need the counts, so this must run after counting
             }
-            if (parallel && relevantProps.Count > 1) Parallel.ForEach(relevantProps, countFacets);
-            else foreach (var prop in relevantProps) countFacets(prop);
+            if (parallel && counted.Count > 1) Parallel.ForEach(counted, countFacets);
+            else foreach (var prop in counted) countFacets(prop);
+            foreach (var prop in relevantProps.Skip(counted.Count)) result.Remove(prop.Id);
             filteredSource = new NodeCollectionData(_db, _ctx, _metrics, innerSet, this._nodeType, _includeBranches);
             if (pageSize.HasValue) {
                 filteredSource = (NodeCollectionData)filteredSource.Page(pageIndex, pageSize.Value);
@@ -102,18 +106,17 @@ namespace Relatude.DB.Query.Data {
             }
             return new NodeCollectionData(_db, _ctx, _metrics, innerSet, _nodeType, _includeBranches);
         }
-        IEnumerable<Property> findRelevantProperties(Dictionary<Guid, Facets> givenById, bool addAllFacets, Definition def, IdSet nodeIds, QueryContext ctx) {
-            if (givenById.Count > 0 || !addAllFacets) { // if any given, only look at these:
-                return givenById.Keys.Where(def.Properties.ContainsKey).Select(pId => def.Properties[pId]).Where(p => p.CanBeFacet());
-            } else if (addAllFacets) {
-                // nothing was asked for by name, so high cardinality value facets are dropped here
-                // rather than returned with thousands of buckets (see Property.CanBeAutomaticFacet).
-                // The cardinality depends on index state, not on the set, so this cannot be part of
-                // the set-keyed cache inside GetFacetPropertiesForSet:
-                return def.GetFacetPropertiesForSet(nodeIds).Where(p => p.CanBeAutomaticFacet(ctx));
-            } else {
-                return [];
+        // named first, then what the scopes add - the result's own types unless told otherwise - minus the excluded
+        IEnumerable<Property> facetProperties(Dictionary<Guid, Facets> givenById, FacetDiscovery discovery, IdSet ids, QueryContext ctx) {
+            var scopes = discovery.Scopes;
+            if (givenById.Count == 0 && scopes.Count == 0 && !discovery.OnlyNamed) scopes = [new FacetScope(null, false, 0)];
+            var props = givenById.Keys.Where(_def.Properties.ContainsKey).Select(id => _def.Properties[id]);
+            foreach (var scope in scopes) {
+                var max = scope.MaxDistinctValues == 0 ? Property.MaxAutomaticFacetValues : scope.MaxDistinctValues < 0 ? int.MaxValue : scope.MaxDistinctValues;
+                var found = scope.TypeId is Guid typeId ? _def.GetFacetPropertiesForType(typeId, scope.IncludeDescendants) : _def.GetFacetPropertiesForSet(ids);
+                props = props.Concat(found.Where(p => p.CanBeAutomaticFacet(ctx, max)));
             }
+            return props.Where(p => p.CanBeFacet() && !discovery.Excluded.Contains(p.Id)).DistinctBy(p => p.Id);
         }
     }
 }

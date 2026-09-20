@@ -1,4 +1,4 @@
-using Relatude.DB.DataStores.Indexes.Trie.CharArraySearch;
+﻿using Relatude.DB.DataStores.Indexes.Trie.CharArraySearch;
 using Relatude.DB.Common;
 using Relatude.DB.IO;
 
@@ -362,7 +362,7 @@ public class CharArrayTrieTests
         var result = trie.Search(Exact("zorbak"), out int total, sorted: true,
             skip: 0, take: 100, maxHitsEval: 10000, maxWordsEval: 10000, orSearch: false).ToList();
 
-        Assert.AreEqual(result.Count, 100, "take:100 should return exactly 100 results.");
+        Assert.AreEqual(100, result.Count, "take:100 should return exactly 100 results.");
         Assert.IsTrue(total >= result.Count, "total should be >= returned result count.");
         foreach (var kv in result)
             Assert.IsTrue(kv.Value >= 0, $"Score for node {kv.Key} should be non-negative.");

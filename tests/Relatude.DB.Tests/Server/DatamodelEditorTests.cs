@@ -513,7 +513,7 @@ public class DatamodelEditorTests {
         Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(roundTrip, DatamodelJson.Options), System.Text.Json.JsonSerializer.Serialize(back, DatamodelJson.Options), "every property survives the converter");
         Assert.AreEqual("#2f7fd6", back.Color, "the colour of a source is one of them");
         Assert.IsNull(System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"CompiledTypes\"}")!.Color, "a source written before there was a colour has none, and takes the palette's");
-        var error = Assert.ThrowsException<System.Text.Json.JsonException>(() => System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"TypeNameReference\"}"));
+        var error = Assert.ThrowsExactly<System.Text.Json.JsonException>(() => System.Text.Json.JsonSerializer.Deserialize<DatamodelSource>("{\"Type\":\"TypeNameReference\"}"));
         StringAssert.Contains(error.Message, "CompiledTypes", "the message says what to use instead");
         StringAssert.Contains(System.Text.Json.JsonSerializer.Serialize(new DatamodelSource { Type = DatamodelSourceType.CompiledTypes }), "\"CompiledTypes\"");
         StringAssert.Contains(DatamodelJson.Serialize(libraryModel(DatamodelSourceType.CompiledTypes)), "\"CompiledTypes\"");

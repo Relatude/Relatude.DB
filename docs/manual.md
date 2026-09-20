@@ -3453,6 +3453,7 @@ you get the page of results and the updated bucket counts in one round trip.
 | Method | Purpose |
 |---|---|
 | `AddFacet(expr \| name \| propertyId)` | Add a facet, engine chooses value vs range |
+| `AddFacetsOfType(…)` / `AddFacetsOfResult(…)` / `OnlyNamedFacets()` / `ExcludeFacet(…)` | Where the facets you did not name come from (see below) |
 | `AddValueFacet(…)` | Force discrete value buckets |
 | `AddRangeFacet(…)` | Auto-bucketed numeric/date ranges |
 | `AddRangeFacet(…, from, to)` | Add one explicit range bucket |
@@ -3468,6 +3469,38 @@ subtypes.
 **Faceting requires `Indexed = true`.** `NotFacet = true` excludes an indexed property from
 faceting. Relation properties need `[RelationProperty(Facet = true)]` to opt in. Numeric range
 bucketing is tuned by `FacetRangePowerBase` and `FacetRangeCount` on the property attribute.
+
+### Where the un-named facets come from
+
+A facet query counts the facets it names, plus whatever its *discovery* adds. With nothing named
+and nothing said, that is every facetable property of every node type present in the result — a
+subtype's own property is there as soon as one node of that subtype is — and naming a single facet
+turns it off. These say so explicitly, and combine with named facets:
+
+| Method | Adds |
+|---|---|
+| `AddFacetsOfType()` / `AddFacetsOfType<TType>()` / `AddFacetsOfType(typeId)` | The properties of the query type (or the named one): its own and the inherited ones. `includeDescendants: true` takes its subtypes' properties too, whether or not any of their nodes are in the result |
+| `AddFacetsOfResult()` | The properties of every type present in the result — the default when nothing is named |
+| `OnlyNamedFacets()` | Nothing. A selection still filters, but no buckets are built: cheap paging within a filter |
+| `ExcludeFacet(…)` | Leaves a property out, however it got in. A selection on it still filters |
+
+```csharp
+var result = db.Query<IEvent>()
+               .Facets()
+               .AddFacetsOfResult()                          // everything facetable in the result
+               .AddRangeFacet(e => e.Price)                  // …but Price as ranges
+               .ExcludeFacet(e => e.Title)
+               .SetFacetValue("Stage", "Main")               // a property only some of the types have
+               .Execute();
+```
+
+A property found this way is dropped when it would come back with one bucket per unique value and
+there are more than a hundred of them. Both `AddFacetsOf…` methods take a `maxDistinctValues` that
+raises the limit (`-1` for none); range bucketed properties and named facets are never subject to it.
+
+`AddFacetsOfType(includeDescendants: true)` gives a filter sidebar that keeps its shape — a search
+that matches nothing still returns every facet, with zero counts — where `AddFacetsOfResult()` only
+counts what is there.
 
 ---
 

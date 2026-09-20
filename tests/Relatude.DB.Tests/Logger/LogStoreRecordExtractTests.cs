@@ -103,8 +103,8 @@ public class LogStoreRecordExtractTests {
         store.Record("test", H.Entry(H.T0, ("n", 1)));
         var local = DateTime.SpecifyKind(H.T0, DateTimeKind.Local);
         var unspecified = DateTime.SpecifyKind(H.T0.AddDays(1), DateTimeKind.Unspecified);
-        Assert.ThrowsException<Exception>(() => store.ExtractLog("test", local, H.T0.AddDays(1), 0, 1, false, out _));
-        Assert.ThrowsException<Exception>(() => store.ExtractLog("test", H.T0, unspecified, 0, 1, false, out _));
+        Assert.ThrowsExactly<Exception>(() => store.ExtractLog("test", local, H.T0.AddDays(1), 0, 1, false, out _));
+        Assert.ThrowsExactly<Exception>(() => store.ExtractLog("test", H.T0, unspecified, 0, 1, false, out _));
         store.Dispose();
     }
     [TestMethod]

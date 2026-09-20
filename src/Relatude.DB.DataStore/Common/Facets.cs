@@ -8,20 +8,30 @@ using System.Threading.Tasks;
 
 namespace Relatude.DB.Common;
 
+/// <summary>Where a facet query finds the facets it did not name: the types or the result its scopes point at, minus the excluded ones.</summary>
+public sealed class FacetDiscovery {
+    public List<FacetScope> Scopes { get; private init; } = [];
+    public HashSet<Guid> Excluded { get; private init; } = [];
+    public bool OnlyNamed { get; set; } // no default discovery when nothing is named
+    public FacetDiscovery Clone() => new() { Scopes = [.. Scopes], Excluded = [.. Excluded], OnlyNamed = OnlyNamed };
+}
+/// <summary>A node type (its own properties, or its descendants' too), or every type present in the result when TypeId is null. MaxDistinctValues: 0 = the default limit, -1 = none.</summary>
+public readonly record struct FacetScope(Guid? TypeId, bool IncludeDescendants, int MaxDistinctValues);
+
 public class Facets {
 
-    public Facets(PropertyModel propery, bool? rangeFacet = null, List<FacetValue>? values = null) {
-        PropertyId = propery.Id;
-        ValueType = propery.PropertyType;
-        CodeName = propery.CodeName;
+    public Facets(PropertyModel property, bool? rangeFacet = null, List<FacetValue>? values = null) {
+        PropertyId = property.Id;
+        ValueType = property.PropertyType;
+        CodeName = property.CodeName;
         IsRangeFacet = rangeFacet;
 
         // dates default to uniform calendar buckets: the general 1.8 power curve would give the
         // OLDEST dates the finest buckets (the curve is anchored at the minimum), which is backwards
         // for typical date facets. An explicit FacetRangePowerBase on the property still wins below.
-        if (propery.PropertyType is PropertyType.DateTime or PropertyType.DateTimeOffset) RangePowerBase = 1;
+        if (property.PropertyType is PropertyType.DateTime or PropertyType.DateTimeOffset) RangePowerBase = 1;
 
-        if (propery is IScalarProperty scalar) {
+        if (property is IScalarProperty scalar) {
             if (scalar.FacetRangePowerBase > 0) RangePowerBase = scalar.FacetRangePowerBase;
             if (scalar.FacetRangeCount > 0) RangeCount = scalar.FacetRangeCount;
         }

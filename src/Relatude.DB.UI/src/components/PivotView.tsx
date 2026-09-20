@@ -15,6 +15,7 @@ import {
   type PivotLevelSpec,
   type PivotMeasureSpec,
   type PivotModel,
+  type PropertyScope,
   type PivotProperty,
   type PivotRequest,
   type PivotResult,
@@ -29,6 +30,7 @@ import { BarChart, maxSeries, type BarSeries } from "./BarChart";
 export interface PivotBase extends SearchTerms {
   storeId: string;
   typeId: string;
+  propertyScope?: PropertyScope;
 }
 
 const rowPageSize = 200;
@@ -143,7 +145,7 @@ export function PivotView({
     let cancelled = false;
     setModel(null);
     setModelError(null);
-    fetchPivotModel(base.storeId, base.typeId)
+    fetchPivotModel(base.storeId, base.typeId, base.propertyScope)
       .then((m) => {
         if (cancelled) return;
         setModel(m);
@@ -159,7 +161,7 @@ export function PivotView({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the default is decided once per type
-  }, [base.storeId, base.typeId]);
+  }, [base.storeId, base.typeId, base.propertyScope]);
 
   const names = useMemo(() => (model ? measureNames(measures, model.properties) : []), [measures, model]);
 
@@ -280,7 +282,7 @@ export function PivotView({
                     {m.propertyId === null && candidates.length > 0 && <option value="">choose…</option>}
                     {candidates.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name}
+                        {p.name}{p.declaredBy ? " · " + p.declaredBy : ""}
                       </option>
                     ))}
                   </select>
@@ -405,7 +407,7 @@ function AxisEditor({
               {!property && <option value="">choose…</option>}
               {properties.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name}
+                  {p.name}{p.declaredBy ? " · " + p.declaredBy : ""}
                 </option>
               ))}
             </select>

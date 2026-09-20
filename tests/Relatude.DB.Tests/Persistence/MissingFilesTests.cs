@@ -148,7 +148,7 @@ public class MissingFilesTests {
             await addDocWithFile(store, "one", 500);
             using var cancellation = new CancellationTokenSource();
             cancellation.Cancel();
-            await Assert.ThrowsExceptionAsync<OperationCanceledException>(
+            await Assert.ThrowsExactlyAsync<OperationCanceledException>(
                 () => data.FindMissingFilesAsync(null, cancellation.Token));
         }
     }

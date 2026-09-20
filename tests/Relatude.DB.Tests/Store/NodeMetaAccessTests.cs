@@ -297,10 +297,10 @@ public class NodeMetaAccessTests {
         var id = Page(db, "page");
         // the transaction wraps the ArgumentException, the point here is that the write is refused
         // rather than silently applied:
-        var culture = Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => db.UpdateMeta(id, nameof(IInnerNodeMeta.CultureId), Guid.NewGuid()));
+        var culture = Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => db.UpdateMeta(id, nameof(IInnerNodeMeta.CultureId), Guid.NewGuid()));
         StringAssert.Contains(culture.Message, "Cannot update CultureId",
             "the culture of a revision is changed with the revision operations, not through meta");
-        var revision = Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => db.UpdateMeta(id, nameof(IInnerNodeMeta.RevisionKey), 1));
+        var revision = Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => db.UpdateMeta(id, nameof(IInnerNodeMeta.RevisionKey), 1));
         StringAssert.Contains(revision.Message, "Cannot update RevisionKey",
             "the revision key is owned by the revision operations");
     }

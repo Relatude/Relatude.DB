@@ -65,7 +65,7 @@ public class TransactionOperationTests {
         var t = store.CreateTransaction();
         t.InsertOrFail(duplicate);
 
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => t.Execute());
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => t.Execute());
 
         // Original should still be intact
         var existing = store.Get<Article>(99);
@@ -177,7 +177,7 @@ public class TransactionOperationTests {
         var t = store.CreateTransaction();
         t.UpdateOrFail(new Article { Id = 999, Name = "Ghost" });
 
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => t.Execute());
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => t.Execute());
     }
 
     [TestMethod]
@@ -220,7 +220,7 @@ public class TransactionOperationTests {
         var t = store.CreateTransaction();
         t.UpdateIfExists(new Article { Id = 404, Name = "Missing" });
 
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => t.Execute());
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => t.Execute());
     }
 
     // -----------------------------------------------------------------------
@@ -331,7 +331,7 @@ public class TransactionOperationTests {
         var t = store.CreateTransaction();
         t.DeleteOrFail(999);
 
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => t.Execute());
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => t.Execute());
     }
 
     [TestMethod]
@@ -497,7 +497,7 @@ public class TransactionOperationTests {
         t.ValidateProperty<Article, int>(1, a => a.IntegerNum, 999); // wrong expected value
         t.Update(new Article { Id = 1, IntegerNum = 10 });
 
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => t.Execute());
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => t.Execute());
 
         // Value must remain unchanged
         Assert.AreEqual(5, store.Get<Article>(1).IntegerNum);
@@ -572,7 +572,7 @@ public class TransactionOperationTests {
         t.Delete(2);
         t.AddRelation<Article>(1, a => a.Children, 2); // target does not exist after delete
 
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => t.Execute());
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => t.Execute());
 
         // Ensure the delete was rolled back
         Assert.IsNotNull(store.Get<Article>(2));
@@ -592,7 +592,7 @@ public class TransactionOperationTests {
         t.Update(new Article { Id = 1, Name = "ChangedButShouldRollBack" });
         t.DeleteOrFail(999); // does not exist → forces failure
 
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => t.Execute());
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => t.Execute());
 
         // Article 1 name must be unchanged
         Assert.AreEqual("Stable", store.Get<Article>(1).Name);
@@ -685,7 +685,7 @@ public class TransactionOperationTests {
         t.Insert(new Article { Id = 1, Name = "ShouldNotPersist" });
         t.SetCommitCallback(_ => throw new InvalidOperationException("Callback veto"));
 
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => t.Execute());
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => t.Execute());
 
         Assert.AreEqual(0, store.Query<Article>().Count());
     }

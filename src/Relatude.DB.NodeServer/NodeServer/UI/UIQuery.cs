@@ -275,6 +275,7 @@ sealed class UIQuery {
         var order = selections.Length == 0 ? orderClause(dm, p.SortBy, p.SortDescending) : "";
         if (!p.Facets && selections.Length == 0) return paged(q, pageIndex, pageSize, order);
         var fq = q.Facets();
+        if (p.PropertyScope == "type") fq = fq.AddFacetsOfType(typeId);
         foreach (var selection in selections) {
             foreach (var value in selection.Values!) {
                 if (value.Value == null) fq = fq.SetFacetMissingValue(selection.PropertyId);
@@ -1960,7 +1961,8 @@ sealed class UIQuery {
         var dm = s.Datastore.Datamodel;
         var typeId = queriedType(dm, p.TypeId);
         var type = dm.NodeTypes[typeId];
-        var properties = type.AllProperties.Values
+        IEnumerable<NodeTypeModel> types = p.PropertyScope == "type" ? [type] : dm.NodeTypes.Values.Where(t => t.ThisAndAllInheritedTypes.ContainsKey(typeId));
+        var properties = types.SelectMany(t => t.AllProperties.Values).DistinctBy(property => property.Id)
             // The one internal property worth offering: the combined free-text index, which is where
             // the words of a node actually are whenever the model indexes its text per node type
             // rather than per property (Node(TextIndex = true), which is the usual way round). It is
@@ -3069,7 +3071,7 @@ sealed class UIQuery {
     /// the id the store addresses them with - as int32 little-endian bytes. Whichever is given.
     /// </summary>
     sealed record NodesPayload(Guid StoreId, Guid[]? Ids, byte[]? IntIds = null);
-    internal sealed record PivotModelPayload(Guid StoreId, Guid? TypeId);
+    internal sealed record PivotModelPayload(Guid StoreId, Guid? TypeId, string? PropertyScope = null);
     internal sealed record CloudPayload(Guid StoreId, Guid? TypeId, string? Text, double? SemanticRatio, double? MinimumSimilarity, FacetSelection[]? Selections,
         Guid PropertyId, int MaxWords, int MinDocuments, int MinWordLength, string[]? Ignore, bool ExcludeNumbers,
         string? Match = null, bool AnyWord = false);
@@ -3120,7 +3122,9 @@ sealed class UIQuery {
         // How the words of Text are matched (see applyMatch): wildcard - the default and what an
         // older page asking without the field means - fuzzy, or exact. AnyWord true finds the nodes
         // holding ANY of the words rather than all of them (the engine's orSearch).
-        string? Match = null, bool AnyWord = false);
+        string? Match = null, bool AnyWord = false,
+        // "type": the selected type's own properties; anything else: its subtypes' too
+        string? PropertyScope = null);
     internal sealed record ColumnsPayload(Guid StoreId, Guid? TypeId);
     sealed record SavePayload(Guid StoreId, Guid Id, Dictionary<string, JsonElement>? Values, Dictionary<string, Guid[]>? Relations);
     sealed record SaveManyPayload(Guid StoreId, Guid[]? Ids, Dictionary<string, JsonElement>? Values, Dictionary<string, Guid[]>? Relations, byte[]? IntIds = null);

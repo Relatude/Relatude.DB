@@ -171,7 +171,7 @@ public class GraphTraversalTests {
     [TestMethod]
     public void TestTraverseBudget() {
         var store = openTreeStore(out _, out _, out _, out _, out _, out _);
-        Assert.ThrowsException<Exception>(() => {
+        Assert.ThrowsExactly<Exception>(() => {
             store.Query<Article>().Where(a => a.Id == 1).Traverse(a => a.Children, maxLevel: 10, minLevel: 1, GraphDirection.Default, maxVisited: 2).Count();
         });
         store.Dispose();

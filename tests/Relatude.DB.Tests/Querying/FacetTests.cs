@@ -880,6 +880,111 @@ public class FacetTests {
         Assert.AreEqual(all.Count(p => p.Category == "Food"), FacetOf(res, "Category").Values.First(v => Equals(v.Value, "Food")).Count);
         store.Dispose();
     }
+    // discovery: AddFacetsOfType / AddFacetsOfResult / OnlyNamedFacets / ExcludeFacet
+    [TestMethod]
+    public void AddFacetsOfResult_AddsThePropertiesOfEveryTypeInTheResult() {
+        var store = OpenProductStore(out var all, out _);
+        Assert.AreEqual(1, store.Query<Product>().Facets().AddValueFacet("Category").Execute().Facets.Count(), "Naming a facet means that facet and no other");
+        var res = store.Query<Product>().Facets().AddValueFacet("Category").AddFacetsOfResult().Execute();
+        var names = res.Facets.Select(f => f.CodeName).ToList();
+        Assert.AreEqual("Category", names[0], "Named facets come first");
+        Assert.IsTrue(names.Contains("Pages"), "Pages is declared on Book, and books are in the result");
+        Assert.AreEqual(names.Count, names.Distinct().Count());
+        CollectionAssert.AreEquivalent(store.Query<Product>().Facets().Execute().Facets.Select(f => f.CodeName).ToList(), names, "The same set the default discovery finds");
+        foreach (var g in all.OfType<Book>().GroupBy(b => b.Pages))
+            Assert.AreEqual(g.Count(), FacetOf(res, "Pages").Values.First(v => Equals(v.Value, g.Key)).Count);
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void AddFacetsOfType_TakesTheTypesOwnProperties_OrItsDescendantsToo() {
+        var store = OpenProductStore(out var all, out _);
+        var own = store.Query<Product>().Facets().AddFacetsOfType().Execute().Facets.Select(f => f.CodeName).ToList();
+        Assert.IsTrue(own.Contains("Category") && !own.Contains("Pages"), "Product's own properties, not Book's");
+        Assert.IsTrue(store.Query<Product>().Facets().AddFacetsOfType(includeDescendants: true).Execute().Facets.Any(f => f.CodeName == "Pages"));
+        var book = store.Query<Product>().Facets().AddFacetsOfType<Book>().Execute().Facets.Select(f => f.CodeName).ToList();
+        Assert.IsTrue(book.Contains("Pages") && book.Contains("Category"), "A subtype's properties include the inherited ones");
+        // a result without books: the type scope keeps the rail's shape, the result scope only counts what is there
+        var toys = store.Query<Product>().Where(p => p.Category == "Toys");
+        Assert.IsFalse(toys.Facets().AddFacetsOfResult().Execute().Facets.Any(f => f.CodeName == "Pages"));
+        var stable = toys.Facets().AddFacetsOfType(includeDescendants: true).Execute();
+        Assert.AreEqual(0, FacetOf(stable, "Pages").Values.Sum(v => v.Count), "Present, with nothing counted");
+        Assert.AreEqual(all.Count(p => p.Category == "Toys"), FacetOf(stable, "Category").Values.Sum(v => v.Count));
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void AddFacetsOfResult_KeepsTheOptionsOfTheNamedFacets() {
+        var store = OpenProductStore(out var all, out _);
+        var res = store.Query<Product>().Facets()
+            .AddValueFacet("Price") // would be range bucketed on its own
+            .SetFacetOptions("Category", maxValues: 2, sortByCount: true)
+            .AddFacetsOfResult()
+            .Execute();
+        Assert.IsFalse(FacetOf(res, "Price").IsRangeFacet == true, "The named facet keeps the bucketing it was given");
+        Assert.AreEqual(all.Select(p => p.Price).Distinct().Count(), FacetOf(res, "Price").Values.Count);
+        var category = FacetOf(res, "Category");
+        Assert.AreEqual(2, category.Values.Count, "The options of a named facet still apply");
+        Assert.IsTrue(category.Values[0].Count >= category.Values[1].Count);
+        Assert.IsTrue(res.Facets.Any(f => f.CodeName == "Pages"), "...and the rest of the result is still faceted");
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void AddFacetsOfResult_SelectionOnASubtypePropertyFiltersAndCountsSideways() {
+        var store = OpenProductStore(out var all, out _);
+        var res = store.Query<Product>().Facets().AddFacetsOfResult().SetFacetValue<Book>("Pages", 101).Execute();
+        var expected = all.OfType<Book>().Count(b => b.Pages == 101);
+        Assert.AreEqual(expected, res.Count(), "The selection filters the result");
+        Assert.AreEqual(all.Count, res.SourceCount, "SourceCount is the set before the selection");
+        Assert.IsTrue(FacetOf(res, "Pages").Values.First(v => Equals(v.Value, 101)).Selected);
+        foreach (var g in all.OfType<Book>().GroupBy(b => b.Pages)) // drill sideways: its own buckets keep the unfiltered counts
+            Assert.AreEqual(g.Count(), FacetOf(res, "Pages").Values.First(v => Equals(v.Value, g.Key)).Count);
+        Assert.AreEqual(expected, FacetOf(res, "Category").Values.Sum(v => v.Count), "...the others count the selection");
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void ExcludeFacet_WinsWhateverTheOrder_AndASelectionOnItStillFilters() {
+        var store = OpenProductStore(out var all, out _);
+        var res = store.Query<Product>().Facets().AddValueFacet("Category").AddFacetsOfResult().ExcludeFacet("Category").Execute();
+        Assert.IsFalse(res.Facets.Any(f => f.CodeName == "Category"));
+        Assert.IsTrue(res.Facets.Any(f => f.CodeName == "Pages"));
+        Assert.IsFalse(store.Query<Product>().Facets().ExcludeFacet(p => p.Category).AddValueFacet("Category").Execute().Facets.Any(), "Excluded before it was added: still excluded");
+        var toys = all.Count(p => p.Category == "Toys");
+        var filtered = store.Query<Product>().Facets().AddFacetsOfResult().ExcludeFacet("Category").SetFacetValue("Category", "Toys").Execute();
+        Assert.AreEqual(toys, filtered.Count(), "The selection filters");
+        Assert.IsFalse(filtered.Facets.Any(f => f.CodeName == "Category"), "...and the facet is still not returned");
+        Assert.AreEqual(toys, FacetOf(filtered, "Active").Values.Sum(v => v.Count), "The others are counted against the selection");
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void OnlyNamedFacets_FiltersBySelectionWithoutCountingAnything() {
+        var store = OpenProductStore(out var all, out _);
+        var res = store.Query<Product>().Facets().OnlyNamedFacets().SetFacetValue("Category", "Toys").Page(0, 5).Execute();
+        Assert.AreEqual(0, res.Facets.Count());
+        Assert.AreEqual(5, res.Count());
+        Assert.AreEqual(all.Count(p => p.Category == "Toys"), res.TotalCount);
+        Assert.AreEqual(1, store.Query<Product>().Facets().OnlyNamedFacets().AddValueFacet("Active").Execute().Facets.Count());
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void FacetDiscovery_SurvivesTheQueryStringRoundTrip() {
+        var store = OpenProductStore(out _, out _);
+        string shape(ResultSetFacets<Product> r) => string.Join(",", r.Facets.Select(f => f.CodeName + ":" + f.Values.Count));
+        var q = store.Query<Product>().Facets().AddValueFacet("Category").AddFacetsOfType<Book>(includeDescendants: true, maxDistinctValues: 250).ExcludeFacet("Active");
+        Assert.IsTrue(q.ToString().Contains(".AddFacetsOfType(\"") && q.ToString().Contains(".ExcludeFacet(\""), q.ToString());
+        Assert.AreEqual(shape(q.Execute()), shape(q.Execute(q.ToString())));
+        var only = store.Query<Product>().Facets().OnlyNamedFacets().SetFacetValue("Category", "Toys");
+        Assert.IsTrue(only.ToString().Contains(".OnlyNamedFacets()"), only.ToString());
+        var parsed = only.Execute(only.ToString());
+        Assert.AreEqual(only.Execute().Count(), parsed.Count());
+        Assert.AreEqual(0, parsed.Facets.Count());
+        store.Dispose();
+    }
+
 }
 
 #region facet attribute settings test datamodel
@@ -1119,6 +1224,36 @@ public class AutomaticFacetCardinalityTests {
             .SetFacetValue("Code", "C7")
             .Execute();
         Assert.AreEqual(1, filtered.Count());
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void Discovery_TakesTheCardinalityLimitAsAnArgument() {
+        var store = openTicketStore(_limit + 50);
+        var names = store.Query<Ticket>().Facets().AddFacetsOfResult().Execute().Facets.Select(f => f.CodeName).ToList();
+        Assert.IsFalse(names.Contains("Code"), "Without a limit given, the default applies as before");
+
+        var raised = store.Query<Ticket>().Facets().AddFacetsOfResult(_limit + 50).Execute();
+        Assert.AreEqual(_limit + 50, FacetOf(raised, "Code").Values.Count, "A raised limit brings the property back, with a bucket per value");
+        Assert.IsTrue(raised.Facets.Any(f => f.CodeName == "Labels") && raised.Facets.Any(f => f.CodeName == "LabelIds"));
+
+        var unlimited = store.Query<Ticket>().Facets().AddFacetsOfResult(-1).Execute();
+        Assert.AreEqual(_limit + 50, FacetOf(unlimited, "Code").Values.Count, "-1 is no limit at all");
+
+        Assert.AreEqual(_limit + 50, FacetOf(store.Query<Ticket>().Facets().AddFacetsOfType(maxDistinctValues: -1).Execute(), "Code").Values.Count, "The type scope takes the same limit");
+        var lowered = store.Query<Ticket>().Facets().AddFacetsOfResult(2).Execute();
+        var loweredNames = lowered.Facets.Select(f => f.CodeName).ToList();
+        Assert.IsFalse(loweredNames.Contains("Status"), "Three distinct values is over a limit of two");
+        Assert.IsTrue(loweredNames.Contains("Number"), "A range bucketed property is never subject to the limit");
+        store.Dispose();
+    }
+
+    [TestMethod]
+    public void Discovery_NamedFacetsIgnoreTheCardinalityLimit() {
+        var store = openTicketStore(_limit + 50);
+        var res = store.Query<Ticket>().Facets().AddValueFacet("Code").AddFacetsOfResult(2).Execute();
+        Assert.AreEqual(_limit + 50, FacetOf(res, "Code").Values.Count, "A named facet is never dropped for cardinality");
+        Assert.IsFalse(res.Facets.Any(f => f.CodeName == "Status"), "...but the limit still applies to the ones found automatically");
         store.Dispose();
     }
 }

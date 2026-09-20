@@ -92,7 +92,7 @@ public class ServerShutdownTests {
             host.Server.Shutdown();
             // an open landing after the shutdown would leave a database open, and unflushed, for the
             // rest of the process
-            Assert.ThrowsException<InvalidOperationException>(() => container.Open());
+            Assert.ThrowsExactly<InvalidOperationException>(() => container.Open());
             Assert.IsNull(container.Store);
         } finally {
             await host.DisposeAsync();

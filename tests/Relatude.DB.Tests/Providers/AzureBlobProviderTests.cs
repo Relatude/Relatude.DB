@@ -156,9 +156,9 @@ public class AzureBlobProviderTests {
         client.CreateAppendBlobIfNotExists(key);
 
         var leaseId = client.AcquireLease(key);
-        var conflict = Assert.ThrowsException<AzureBlobRequestException>(() => client.AcquireLease(key));
+        var conflict = Assert.ThrowsExactly<AzureBlobRequestException>(() => client.AcquireLease(key));
         Assert.AreEqual("LeaseAlreadyPresent", conflict.ErrorCode);
-        Assert.ThrowsException<AzureBlobRequestException>(() => client.AppendBlock(key, bytes("x"), 1, null, 0));
+        Assert.ThrowsExactly<AzureBlobRequestException>(() => client.AppendBlock(key, bytes("x"), 1, null, 0));
         client.AppendBlock(key, bytes("x"), 1, leaseId, 0);
         client.ReleaseLease(key, leaseId);
         client.AppendBlock(key, bytes("y"), 1, null, 1);
@@ -185,7 +185,7 @@ public class AzureBlobProviderTests {
         client.AppendBlock(key, bytes("12345"), 5, null, 0);
         Assert.AreEqual(5, client.GetProperties(key)!.ContentLength);
         // ...and must throw when they do not
-        var mismatch = Assert.ThrowsException<AzureBlobRequestException>(() => client.AppendBlock(key, bytes("123"), 3, null, 0));
+        var mismatch = Assert.ThrowsExactly<AzureBlobRequestException>(() => client.AppendBlock(key, bytes("123"), 3, null, 0));
         Assert.AreEqual("AppendPositionConditionNotMet", mismatch.ErrorCode);
     }
 }

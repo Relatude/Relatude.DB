@@ -36,16 +36,16 @@
 //    internal NodeTypesByIdsNoMeta(Definition definition) {
 //        _definition = definition;
 //    }
-//    public IdSet GetAllNodeIdsForType(Guid typeId, bool excludeDecendants) {
-//        if (excludeDecendants) {
+//    public IdSet GetAllNodeIdsForType(Guid typeId, bool excludeDescendants) {
+//        if (excludeDescendants) {
 //            if (_idsByTypeNoMetaAndWithoutDescendants.TryGetValue(typeId, out var ids)) return ids.AsUnmutableIdSet();
 //        } else {
 //            if (_idsByTypeNoMetaIncludingDescendants.TryGetValue(typeId, out var ids)) return ids.AsUnmutableIdSet();
 //        }
 //        return IdSet.Empty;
 //    }
-//    public int GetCountForType(Guid typeId, bool excludeDecendants) {
-//        if (excludeDecendants) {
+//    public int GetCountForType(Guid typeId, bool excludeDescendants) {
+//        if (excludeDescendants) {
 //            if (_idsByTypeNoMetaAndWithoutDescendants.TryGetValue(typeId, out var ids)) return ids.Count;
 //        } else {
 //            if (_idsByTypeNoMetaIncludingDescendants.TryGetValue(typeId, out var ids)) return ids.Count;

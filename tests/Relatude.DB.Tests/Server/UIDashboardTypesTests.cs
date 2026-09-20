@@ -204,7 +204,7 @@ namespace Relatude.Server {
                 Assert.IsFalse(Directory.Exists(folder), "creating one touches no disk: that waits for the first open");
 
                 // a name already taken is refused rather than quietly making a second "Second"
-                await Assert.ThrowsExceptionAsync<AssertFailedException>(async () => await command(host, "database-create", new { name = "second", autoOpen = false }));
+                await Assert.ThrowsExactlyAsync<AssertFailedException>(async () => await command(host, "database-create", new { name = "second", autoOpen = false }));
 
                 var after = await command(host, "database-set-default", new { storeId = newId });
                 var rows = prop(after, "databases").EnumerateArray().ToArray();

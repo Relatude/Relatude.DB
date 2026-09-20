@@ -59,11 +59,11 @@ namespace Relatude.DB.DataStores.Definitions {
             return GetValueIndex(ctx).ContainsValue((T)value);
         }
         public override bool CanBeFacet() => Indexed && !Model.NotFacet;
-        public override bool CanBeAutomaticFacet(QueryContext ctx) {
+        public override bool CanBeAutomaticFacet(QueryContext ctx, int maxValues) {
             if (!CanBeFacet()) return false;
             if (!TryValueGetIndex(ctx, out var index)) return true; // no index to ask: unchanged behaviour, GetDefaultFacets decides
             if (useRangeBuckets(null, index)) return true; // range buckets: count bounded by RangeCount
-            return index.ValueCount <= MaxAutomaticFacetValues; // one bucket per unique value
+            return index.ValueCount <= maxValues; // one bucket per unique value
         }
         // selected buckets combine with OR, so the estimate is the sum of whole-index bucket
         // counts (maintained counts / O(log n) tree probes, never id enumeration - see
@@ -553,17 +553,18 @@ namespace Relatude.DB.DataStores.Definitions {
         public abstract void ValidateValue(object value, INodeData node);
         public abstract object ForceValueType(object value, out bool changed);
         public virtual bool CanBeFacet() => false;
-        // Facets evaluated automatically (the query asked for facets without naming any property)
-        // skip properties that would produce one bucket per unique value when there are too many of
-        // them: hundreds of string/guid/relation buckets are useless in a facet UI and expensive to
-        // build and count. Properties bucketed into ranges are unaffected, their bucket count is
-        // bounded by the range count. Explicitly requested facets are never skipped, no matter the
-        // cardinality. TODO: make the limit configurable (per store and/or per query).
+        // Facets the query did not name (it asked for none, or asked for all of them with
+        // AddAllFacets) skip properties that would produce one bucket per unique value when there are
+        // too many of them: hundreds of string/guid/relation buckets are useless in a facet UI and
+        // expensive to build and count. Properties bucketed into ranges are unaffected, their bucket
+        // count is bounded by the range count. Explicitly requested facets are never skipped, no
+        // matter the cardinality. maxValues is the limit for this query - AddAllFacets can raise or
+        // remove it (FacetDiscovery.MaxDistinctValues); this is the default when it does not.
         public const int MaxAutomaticFacetValues = 100;
-        public virtual bool CanBeAutomaticFacet(QueryContext ctx) => CanBeFacet();
+        public virtual bool CanBeAutomaticFacet(QueryContext ctx, int maxValues) => CanBeFacet();
         // Bounded count: never enumerates more than the limit allows, whatever the cardinality.
-        protected static bool tooManyValuesForAutomaticFacet<T>(IEnumerable<T> uniqueValues)
-            => uniqueValues.Take(MaxAutomaticFacetValues + 1).Count() > MaxAutomaticFacetValues;
+        protected static bool tooManyValuesForAutomaticFacet<T>(IEnumerable<T> uniqueValues, int maxValues)
+            => maxValues != int.MaxValue && uniqueValues.Take(maxValues + 1).Count() > maxValues;
         // Cheap worst-case estimate of how many ids FilterFacets can return for the current
         // selection, used to run the most selective selection filters first. Same contract as
         // IBooleanNativeExpression.MaxCount: must be fast and is only an estimation.

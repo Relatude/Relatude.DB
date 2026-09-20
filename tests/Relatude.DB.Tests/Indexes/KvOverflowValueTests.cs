@@ -229,7 +229,7 @@ public class KvOverflowValueTests {
         using var engine = new BPlusTreeStorageEngine(null);
         var sorted = engine.OpenOrCreateSortedIntIndex<byte[]>("sorted");
         engine.BeginTransaction();
-        Assert.ThrowsException<ArgumentException>(() => sorted.Set(1, zeros));
+        Assert.ThrowsExactly<ArgumentException>(() => sorted.Set(1, zeros));
         engine.RollbackTransaction();
 
         var hash = engine.OpenOrCreateIntHashIndex<byte[]>("hash");

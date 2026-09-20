@@ -6631,6 +6631,83 @@ body.pg-resizing {
   color: var(--text-muted);
 }
 
+/* the property scope: an icon for the state, the choice in a menu under it */
+.query-scope {
+  position: relative;
+}
+
+.query-scope-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+}
+
+.query-scope-menu {
+  position: absolute;
+  left: 0;
+  top: 34px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  width: 320px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+}
+
+.query-scope-menu.right {
+  left: auto;
+  right: 0;
+}
+
+.query-scope-head {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.query-scope-menu button {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  text-align: left;
+  color: var(--text);
+}
+
+.query-scope-menu button:hover {
+  background: var(--hover);
+}
+
+.query-scope-menu button.active {
+  color: var(--section-tone);
+  background: var(--section-tone-soft);
+}
+
+.query-scope-menu button svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.query-scope-menu b {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.query-scope-menu small {
+  display: block;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
 .query-facet + .query-facet {
   margin-top: 14px;
 }

@@ -52,7 +52,7 @@ public class FolderLayoutTests {
         FileKeyUtility.ValidateFileKeyPath(["db.00000001.bin"]);
         FileKeyUtility.ValidateFileKeyPath(["data", "db.00000001.bin"]);
         foreach (var bad in new string[][] { [""], ["data", ""], [".."], ["data", "..", "x"], ["data", "."], ["data/x"] }) {
-            Assert.ThrowsException<ArgumentException>(() => FileKeyUtility.ValidateFileKeyPath(bad), "must reject: " + bad.AsKeyString());
+            Assert.ThrowsExactly<ArgumentException>(() => FileKeyUtility.ValidateFileKeyPath(bad), "must reject: " + bad.AsKeyString());
         }
     }
 

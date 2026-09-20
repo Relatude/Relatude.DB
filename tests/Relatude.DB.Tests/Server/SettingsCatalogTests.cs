@@ -203,7 +203,7 @@ public class SettingsCatalogTests {
     [TestMethod]
     public void ReadOnlySettingsAreRefused() {
         var server = new RelatudeDBServerSettings();
-        Assert.ThrowsException<Exception>(() => SettingsAccessor.Write(server, "NotASetting", json("1")));
+        Assert.ThrowsExactly<Exception>(() => SettingsAccessor.Write(server, "NotASetting", json("1")));
     }
 
     /// <summary>
@@ -365,8 +365,8 @@ public class SettingsCatalogTests {
 
         // a path into an element that is gone is a stale request, not an empty value
         container.IOSettings = [other];
-        Assert.ThrowsException<Exception>(() => SettingsAccessor.Read(container, path));
-        Assert.ThrowsException<Exception>(() => SettingsAccessor.Write(container, path, json("\"x\"")));
+        Assert.ThrowsExactly<Exception>(() => SettingsAccessor.Read(container, path));
+        Assert.ThrowsExactly<Exception>(() => SettingsAccessor.Write(container, path, json("\"x\"")));
     }
 
     /// <summary>Configuration reaches into an element the same way, so a provider whose folder comes

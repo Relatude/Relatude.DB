@@ -38,7 +38,7 @@ public class LogStoreManagementTests {
         var io = new IOProviderMemory();
         var store = H.Store(io, H.Settings("a"), H.Settings("b"));
         Assert.AreEqual("a", store.GetSetting("a").Key);
-        Assert.ThrowsException<Exception>(() => store.GetSetting("nope"));
+        Assert.ThrowsExactly<Exception>(() => store.GetSetting("nope"));
         CollectionAssert.AreEquivalent(new[] { "a", "b" }, store.GetSettings().Select(s => s.Key).ToArray());
         store.Dispose();
     }
@@ -52,7 +52,7 @@ public class LogStoreManagementTests {
         Assert.IsTrue(store.Record("b", H.Entry(H.T0, ("n", 1))));
         store.ExtractLog("b", H.T0, H.T0.AddDays(1), 0, 10, false, out var total);
         Assert.AreEqual(1, total);
-        Assert.ThrowsException<ArgumentException>(() => store.AddLog(H.Settings("B"))); // duplicate, keys are case insensitive
+        Assert.ThrowsExactly<ArgumentException>(() => store.AddLog(H.Settings("B"))); // duplicate, keys are case insensitive
         store.Dispose();
     }
     [TestMethod]

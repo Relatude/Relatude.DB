@@ -76,7 +76,7 @@ public class HnswVectorIndexTests {
         Assert.AreEqual(2, index.Count);
         index.Add(2, Array.Empty<float>()); // an empty embedding means nothing searchable and removes the entry
         Assert.AreEqual(1, index.Count);
-        Assert.ThrowsException<ArgumentException>(() => index.Search(randomUnit(r, 16), 0, 10, 0)); // a wrong-length query still throws
+        Assert.ThrowsExactly<ArgumentException>(() => index.Search(randomUnit(r, 16), 0, 10, 0)); // a wrong-length query still throws
         Assert.AreEqual(1, index.Count);
     }
 

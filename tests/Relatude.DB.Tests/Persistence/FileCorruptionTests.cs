@@ -23,7 +23,7 @@ namespace Relatude.Persistence {
             io.AddCorruption(FileKeyUtility.WAL_GetFileKey(1), 10000, 1); // corrupting one transaction somewhere in the log file
 
             // validate that the store cannot be opened:
-            Assert.ThrowsException<LogReadException>(() => {
+            Assert.ThrowsExactly<LogReadException>(() => {
                 DataStoreLocal.Open(datamodel, null, io, null, null, null, null, null, true, true);
             });
 
@@ -59,7 +59,7 @@ namespace Relatude.Persistence {
             } catch (Exception err){
                 Assert.IsTrue(err.InnerException is StateFileReadException);
             }
-            //Assert.ThrowsException<StateFileReadException>(() => storeData = DataStoreLocal.Open(datamodel, null, io, null, null, null, null, null, true, false));
+            //Assert.ThrowsExactly<StateFileReadException>(() => storeData = DataStoreLocal.Open(datamodel, null, io, null, null, null, null, null, true, false));
 
             // will not throw exception, will delete the statefile and reload from the log file
             storeData = DataStoreLocal.Open(datamodel, null, io, null, null, null, null, null, false, false);

@@ -1,4 +1,4 @@
-import type { FacetSelection, PivotAxisOptions, PivotLevelSpec, PivotMeasureSpec, SearchMatch } from "./server/query";
+import type { FacetSelection, PivotAxisOptions, PivotLevelSpec, PivotMeasureSpec, SearchMatch, PropertyScope } from "./server/query";
 
 /**
  * The queries open on the query page, one tab each, kept per database in localStorage.
@@ -248,6 +248,7 @@ export interface SavedQuery {
   minimumSimilarity: number | null;
   selections: FacetSelection[];
   showFacets: boolean;
+  propertyScope?: PropertyScope;
   /**
    * The semantic ratio / minimum similarity panel: true or false is a choice someone made on this
    * query, null is no choice at all - the panel then follows the database, open wherever there is an
@@ -305,6 +306,7 @@ export function newQuery(): SavedQuery {
     minimumSimilarity: null,
     selections: [],
     showFacets: false,
+    propertyScope: "subtypes",
     showSemantic: null, // no choice made: the panel follows the database
     mode: "search",
     hitsView: "list",

@@ -290,7 +290,7 @@ public class NativeWordCountTests {
     public void AWrappedIndexThatCannotCountSaysSo() {
         var wrapped = new OptimizedWordIndex(new IndexWithoutWordCounting());
         Assert.IsFalse(((IWordCountIndex)wrapped).CanCountWords);
-        Assert.ThrowsException<NotSupportedException>(() => ((IWordCountIndex)wrapped).CountWords(Subset([1]), new WordCountOptions()));
+        Assert.ThrowsExactly<NotSupportedException>(() => ((IWordCountIndex)wrapped).CountWords(Subset([1]), new WordCountOptions()));
     }
 
     /// <summary>An engine's index that does not implement <see cref="IWordCountIndex"/>.</summary>

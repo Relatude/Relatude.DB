@@ -206,6 +206,9 @@ public class QueryImmutabilityTests {
         // ...the options fork trims values without touching the others
         Assert.AreEqual(1, options.Execute().Facets.Single().Values.Count);
         Assert.AreEqual(3, fq.Execute().Facets.Single().Values.Count); // base still untrimmed and unselected
+        // ...and the fork that asks for every facetable property leaves the base with its one facet
+        Assert.IsTrue(fq.AddFacetsOfResult().Execute().Facets.Count() > 1);
+        Assert.AreEqual(1, fq.Execute().Facets.Count());
     }
 
     [TestMethod]

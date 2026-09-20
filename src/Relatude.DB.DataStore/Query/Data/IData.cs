@@ -55,7 +55,7 @@ public interface IGraphPathResultData : IIncludeBranches, ICollectionBase {
     List<INodeDataExternal> Nodes { get; } // node data along the path, from -> to, inclusive
 }
 public interface IFacetSource : IStoreNodeDataCollection {
-    Dictionary<Guid, Facets> EvaluateFacetsAndFilter(Dictionary<Guid, Facets> given, Dictionary<Guid, Facets> set, out IFacetSource filteredSource, int pageIndex, int? pageSize, QueryContext ctx);
+    Dictionary<Guid, Facets> EvaluateFacetsAndFilter(Dictionary<Guid, Facets> given, Dictionary<Guid, Facets> set, FacetDiscovery discovery, out IFacetSource filteredSource, int pageIndex, int? pageSize, QueryContext ctx);
     /// <summary>Applies the facet selection as a filter and nothing else: no buckets are built or counted.</summary>
     IFacetSource FilterBySelection(Dictionary<Guid, Facets> given, Dictionary<Guid, Facets> set, QueryContext ctx);
     Datamodel Datamodel { get; }

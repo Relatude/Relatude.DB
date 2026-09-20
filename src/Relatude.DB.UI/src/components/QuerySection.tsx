@@ -10,6 +10,8 @@ import {
   IconCode,
   IconDownload,
   IconFilter,
+  IconHierarchy2,
+  IconHierarchyOff,
   IconLayoutList,
   IconMap2,
   IconMarquee2,
@@ -45,6 +47,7 @@ import {
   runSearch,
   fetchQueryModel,
   type Facet,
+  type PropertyScope,
   type FacetSelection,
   type FacetValue,
   type QueryModel,
@@ -205,6 +208,12 @@ function carryGrouping(q: SavedQuery, from: QueryMode, to: QueryMode): Partial<S
  * the query itself is a component keyed by the tab, so switching is a remount and nothing of one
  * query leaks into another.
  */
+/** Which properties the facets and the summaries draw on: the selected type's own, or its subtypes' as well. */
+const propertyScopes: { id: PropertyScope; label: string; icon: typeof IconSearch; hint: string }[] = [
+  { id: "type", label: "Type only", icon: IconHierarchyOff, hint: "The properties of the selected type: its own and the ones it inherits." },
+  { id: "subtypes", label: "With subtypes", icon: IconHierarchy2, hint: "The properties of the selected type and of every subtype. The facets then cover every type the result holds." },
+];
+
 export function QuerySection({ db }: { db: DatabaseInfo }) {
   const [model, setModel] = useState<QueryModel | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
@@ -416,6 +425,14 @@ function QueryTab({
   // a type the model no longer has - or never named - falls back to the base type
   const typeId = q.typeId !== null && model.types.some((t) => t.id === q.typeId) ? q.typeId : model.baseTypeId;
   const { text, semanticRatio, minimumSimilarity: minSimilarity, selections, showFacets, mode, hitsView, sort, pageSize } = q;
+  const propertyScope: PropertyScope = q.propertyScope ?? "subtypes";
+  const scopeRef = useRef<HTMLDivElement>(null);
+  // the open menu hangs from the edge of its icon that keeps it inside the window; null = closed
+  const [scopeMenu, setScopeMenu] = useState<"left" | "right" | null>(null);
+  function openScope() {
+    const r = scopeRef.current?.getBoundingClientRect();
+    setScopeMenu(r && r.left + 330 > window.innerWidth ? "right" : "left");
+  }
   // absent in a query saved before the options existed: the search the box has always run
   const match = q.match ?? "wildcard";
   const anyWord = q.anyWord ?? false;
@@ -517,13 +534,14 @@ function QueryTab({
             // null asks for the type's own columns, which is what the table opens with
             columns: table ? q.columns : null,
             facets: showFacets,
+            propertyScope,
             sortBy: sort?.key ?? null,
             sortDescending: sort?.descending ?? false,
             // the summary views draw their own picture of the result; this search is here for the
             // total and the facets, and the hits of it would be read and thrown away
             summary,
     }),
-    [db.id, typeId, text, match, anyWord, semanticRatio, minSimilarity, selectionList, expanded, page, pageRows, table, editCells, q.columns, showFacets, sort, summary],
+    [db.id, typeId, text, match, anyWord, semanticRatio, minSimilarity, selectionList, expanded, page, pageRows, table, editCells, q.columns, showFacets, propertyScope, sort, summary],
   );
 
   const { result, loading, error, refresh } = useLiveResult(query, runSearch);
@@ -570,8 +588,8 @@ function QueryTab({
 
   // the summaries' source: the search as this page has it, without the paging and the view switches
   const pivotBase = useMemo<PivotBase>(
-    () => ({ storeId: db.id, typeId, text, match, anyWord, semanticRatio, minimumSimilarity: minSimilarity, selections: selectionList }),
-    [db.id, typeId, text, match, anyWord, semanticRatio, minSimilarity, selectionList],
+    () => ({ storeId: db.id, typeId, text, match, anyWord, semanticRatio, minimumSimilarity: minSimilarity, selections: selectionList, propertyScope }),
+    [db.id, typeId, text, match, anyWord, semanticRatio, minSimilarity, selectionList, propertyScope],
   );
 
   // a pivot cell clicked: its groups become the facet selection, and the list shows the nodes behind
@@ -1043,6 +1061,38 @@ function QueryTab({
               {m.label}
             </button>
           ))}
+        </div>
+        {/* which properties the facets and the summaries can use: an icon for the state, the choice in a menu */}
+        <div className="query-scope" ref={scopeRef}>
+          <button className="icon-button" title={"Properties: " + propertyScopes.find((s) => s.id === propertyScope)!.label} onClick={() => (scopeMenu ? setScopeMenu(null) : openScope())}>
+            {propertyScope === "type" ? <IconHierarchyOff size={16} stroke={1.8} /> : <IconHierarchy2 size={16} stroke={1.8} />}
+          </button>
+          {scopeMenu && (
+            <>
+              <div className="query-scope-backdrop" onClick={() => setScopeMenu(null)} />
+              <div className={"query-scope-menu " + scopeMenu} role="menu">
+                <div className="query-scope-head">Properties for facets and summaries</div>
+                {propertyScopes.map((s) => (
+                  <button
+                    key={s.id}
+                    role="menuitemradio"
+                    aria-checked={propertyScope === s.id}
+                    className={propertyScope === s.id ? "active" : ""}
+                    onClick={() => {
+                      onChange({ propertyScope: s.id });
+                      setScopeMenu(null);
+                    }}
+                  >
+                    <s.icon size={16} stroke={1.8} />
+                    <span>
+                      <b>{s.label}</b>
+                      <small>{s.hint}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
         {/* The semantic knobs, folded away and back. A value set while they were open keeps the
             button lit with them closed: a search running at a ratio nobody can see is the one thing

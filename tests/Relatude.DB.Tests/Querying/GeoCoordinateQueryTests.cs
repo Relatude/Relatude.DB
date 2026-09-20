@@ -128,7 +128,7 @@ public class GeoCoordinateQueryTests {
     [TestMethod]
     public void OrderByLocation_Throws_WithGuidance() {
         var store = OpenPlaceStore(out _);
-        var ex = Assert.ThrowsException<Exception>(() => store.Query<Place>().OrderBy(p => p.Location).Execute());
+        var ex = Assert.ThrowsExactly<Exception>(() => store.Query<Place>().OrderBy(p => p.Location).Execute());
         StringAssert.Contains(ex.Message, "DistanceTo");
         store.Dispose();
     }

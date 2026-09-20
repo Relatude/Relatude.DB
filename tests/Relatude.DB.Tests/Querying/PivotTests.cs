@@ -281,7 +281,7 @@ public class PivotTests {
         Assert.AreEqual(weeks.Count, byWeek.Rows.Groups.Length);
         Assert.IsTrue(byWeek.Rows.Groups.All(g => ((DateTime)g.Values[0]!).DayOfWeek == DayOfWeek.Monday), "ISO weeks start on Monday");
 
-        Assert.ThrowsException<ArgumentException>(() => store.Query<PivotOrder>().Pivot().AddRow(o => o.Region, DateInterval.Month));
+        Assert.ThrowsExactly<ArgumentException>(() => store.Query<PivotOrder>().Pivot().AddRow(o => o.Region, DateInterval.Month));
     }
 
     [TestMethod]
@@ -369,8 +369,8 @@ public class PivotTests {
         Assert.AreEqual(bigEnough, minCount.Rows.Groups.Length);
         Assert.IsTrue(minCount.Rows.Groups.All(g => g.Count >= 13));
 
-        Assert.ThrowsException<Exception>(() => store.Query<PivotOrder>().Pivot().AddRow(o => o.Region).AddCount().SetRowOptions(o => o.Region, sortByMeasure: "nope").Execute());
-        Assert.ThrowsException<ArgumentException>(() => store.Query<PivotOrder>().Pivot().SetRowOptions(o => o.Region, maxGroups: 2), "options before the group");
+        Assert.ThrowsExactly<Exception>(() => store.Query<PivotOrder>().Pivot().AddRow(o => o.Region).AddCount().SetRowOptions(o => o.Region, sortByMeasure: "nope").Execute());
+        Assert.ThrowsExactly<ArgumentException>(() => store.Query<PivotOrder>().Pivot().SetRowOptions(o => o.Region, maxGroups: 2), "options before the group");
     }
 
     [TestMethod]
@@ -532,7 +532,7 @@ public class PivotTests {
         Assert.IsTrue(capped.Capped);
         Assert.IsTrue(capped.Rows.Groups.Length * capped.Columns.Groups.Length <= 6);
         Assert.IsTrue(capped.Rows.Groups.Length >= 1);
-        Assert.ThrowsException<Exception>(() => store.Query<PivotOrder>().Pivot().AddRow(o => o.Region).AddColumn(o => o.Channel).AddCount().SetLimits(6, throwWhenExceeded: true).Execute());
+        Assert.ThrowsExactly<Exception>(() => store.Query<PivotOrder>().Pivot().AddRow(o => o.Region).AddColumn(o => o.Channel).AddCount().SetLimits(6, throwWhenExceeded: true).Execute());
         var roomy = store.Query<PivotOrder>().Pivot().AddRow(o => o.Region).AddColumn(o => o.Channel).AddCount().SetLimits(12).Execute();
         Assert.IsFalse(roomy.Capped);
     }
@@ -558,14 +558,14 @@ public class PivotTests {
     [TestMethod]
     public void Validation_ClearErrors() {
         var store = OpenStore(out _, out _, out _);
-        var ex = Assert.ThrowsException<Exception>(() => store.Query<PivotOrder>().Pivot().AddRow(o => o.Region).AddSum(o => o.Note).Execute());
+        var ex = Assert.ThrowsExactly<Exception>(() => store.Query<PivotOrder>().Pivot().AddRow(o => o.Region).AddSum(o => o.Note).Execute());
         StringAssert.Contains(ex.Message, "numeric");
         StringAssert.Contains(ex.Message, "Note");
         // CountDistinct works on any indexed scalar property
         var distinctNotes = store.Query<PivotOrder>().Pivot().AddCountDistinct(o => o.Note, "notes").Execute();
         Assert.AreEqual(90, distinctNotes.GrandTotal.Get("notes"));
         // duplicate measure names
-        var dup = Assert.ThrowsException<Exception>(() => store.Query<PivotOrder>().Pivot().AddSum(o => o.Amount, "x").AddMin(o => o.Amount, "x").Execute());
+        var dup = Assert.ThrowsExactly<Exception>(() => store.Query<PivotOrder>().Pivot().AddSum(o => o.Amount, "x").AddMin(o => o.Amount, "x").Execute());
         StringAssert.Contains(dup.Message, "\"x\"");
         // a pivot with no groups and no measures is still a valid (one cell) result
         var bare = store.Query<PivotOrder>().Pivot().Execute();

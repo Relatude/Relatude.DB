@@ -243,7 +243,7 @@ internal class NodeTypesByIds {
 
         // Filter based on node type
         var typeId = mt.TypeId;
-        if (ctx.ExcludeDecendants) {
+        if (ctx.ExcludeDescendants) {
             if (typeId != ctxTypeId) return false;
         } else {
             var ctxTypeDef = _definition.NodeTypes[ctxTypeId].Model;
@@ -346,8 +346,8 @@ internal class NodeTypesByIds {
         _cachedNodeIdsByCtx.Set(ctxAndTypeKey, ids, 1);
         return ids.AsUnmutableIdSet();
     }
-    public IdSet GetAllNodeIdsForTypeNoFilter(Guid typeId, bool includeDecendants) {
-        return GetAllNodeIdsForTypeFilteredByContext(typeId, includeDecendants ? QueryContext.AllIncludingDescendants : QueryContext.AllExcludingDescendants);
+    public IdSet GetAllNodeIdsForTypeNoFilter(Guid typeId, bool includeDescendants) {
+        return GetAllNodeIdsForTypeFilteredByContext(typeId, includeDescendants ? QueryContext.AllIncludingDescendants : QueryContext.AllExcludingDescendants);
     }
     public int GetCountForTypeForStatusInfo(Guid typeId) {
         if (_countByType.TryGetValue(typeId, out var count)) return count;

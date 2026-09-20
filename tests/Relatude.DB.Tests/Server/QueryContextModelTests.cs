@@ -27,7 +27,7 @@ public class QueryContextModelTests {
         Assert.IsFalse(ctx.EditView);
         Assert.IsFalse(ctx.IncludeCultureFallback);
         Assert.IsFalse(ctx.OnlyWithCulture);
-        Assert.IsFalse(ctx.ExcludeDecendants);
+        Assert.IsFalse(ctx.ExcludeDescendants);
         Assert.IsNull(ctx.CollectionIds);
         Assert.IsNull(ctx.NowUtc);
         Assert.IsNull(ctx.CultureCode);
@@ -60,7 +60,7 @@ public class QueryContextModelTests {
         Assert.IsTrue(ctx.OnlyWithCulture);
         Assert.IsTrue(ctx.EditView);
         Assert.IsTrue(ctx.IncludeHidden);
-        Assert.IsTrue(ctx.ExcludeDecendants);
+        Assert.IsTrue(ctx.ExcludeDescendants);
         CollectionAssert.AreEqual(new[] { collection }, ctx.CollectionIds);
         Assert.AreEqual(now, ctx.NowUtc);
     }
@@ -77,7 +77,7 @@ public class QueryContextModelTests {
     public void CultureCodeAndCultureId_TogetherAreRejected() {
         // the store throws on this combination when it resolves the context, but by then the request is
         // half executed and the message says nothing about the request body:
-        Assert.ThrowsException<InvalidOperationException>(() => QueryContextModel.Convert(new QueryContextModel {
+        Assert.ThrowsExactly<InvalidOperationException>(() => QueryContextModel.Convert(new QueryContextModel {
             CultureCode = "nb-NO",
             CultureId = Guid.NewGuid(),
         }));

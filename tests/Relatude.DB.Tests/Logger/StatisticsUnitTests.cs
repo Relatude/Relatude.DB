@@ -42,7 +42,7 @@ public class StatisticsUnitTests {
         Assert.AreEqual(to, mapped.To);
         var empty = new Interval<int>(from, to);
         Assert.IsFalse(empty.HasValue);
-        Assert.ThrowsException<Exception>(() => empty.Value = 3);
+        Assert.ThrowsExactly<Exception>(() => empty.Value = 3);
         Assert.IsFalse(empty.Map(v => v + 1).HasValue);
     }
     [TestMethod]
@@ -143,7 +143,7 @@ public class StatisticsUnitTests {
         Assert.AreEqual(50, agg.UniqueCount()); // only the top 50 groups survive
         Assert.IsTrue(agg.Values.ContainsKey("g59"));
         Assert.IsFalse(agg.Values.ContainsKey("g0"));
-        Assert.ThrowsException<Exception>(() => agg.Record("x"));
+        Assert.ThrowsExactly<Exception>(() => agg.Record("x"));
     }
     [TestMethod]
     public void SmallUniqueCountAggregatorCountsDistinctValues() {
@@ -153,7 +153,7 @@ public class StatisticsUnitTests {
         Assert.AreEqual(100, agg.HashCount());
         agg.Condense();
         Assert.AreEqual(100, agg.HashCount()); // count survives condensing
-        Assert.ThrowsException<Exception>(() => agg.Record("x"));
+        Assert.ThrowsExactly<Exception>(() => agg.Record("x"));
     }
     [TestMethod]
     public void ProbabilisticCountAggregatorEstimatesCardinality() {
@@ -163,14 +163,14 @@ public class StatisticsUnitTests {
         Assert.IsTrue(Math.Abs(estimate - 1000) < 50, $"estimate {estimate} is off by more than 5%");
         agg.Condense();
         Assert.AreEqual(estimate, agg.EstimateCount());
-        Assert.ThrowsException<Exception>(() => agg.Record("x"));
+        Assert.ThrowsExactly<Exception>(() => agg.Record("x"));
     }
     [TestMethod]
     public void UniqueCountStatisticsCannotCombine() {
         var s = new StatisticsUniqueCount(new StatisticsInfo(StatisticsType.UniqueCountHashedValues), DayOfWeek.Monday, "k");
         Assert.IsFalse(s.CanCombine);
         Assert.IsFalse(s.GetCombinedValue(IntervalType.Hour, H.T0, H.T0.AddHours(1)).HasValue);
-        Assert.ThrowsException<NotSupportedException>(() => s.Combine(new(), H.T0, H.T0.AddHours(1), IntervalType.Hour));
+        Assert.ThrowsExactly<NotSupportedException>(() => s.Combine(new(), H.T0, H.T0.AddHours(1), IntervalType.Hour));
         var e = new StatisticsEstimatedUniqueCount(new StatisticsInfo(StatisticsType.UniqueCountEstimate), DayOfWeek.Monday, "k");
         Assert.IsFalse(e.CanCombine);
     }

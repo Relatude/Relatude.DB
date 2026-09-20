@@ -153,7 +153,7 @@ public class WordIndexLoaderTests {
         }
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(1)]
     [DataRow(3)]
     public void BulkLoad_EqualsIncrementalIndexing(int workers) {
@@ -168,7 +168,7 @@ public class WordIndexLoaderTests {
 
     // removes and re-adds are the operations whose order matters: with several workers they are
     // gathered out of order and put back in order by their sequence numbers when merged
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(1)]
     [DataRow(3)]
     [DataRow(8)]
@@ -191,7 +191,7 @@ public class WordIndexLoaderTests {
     }
 
     // every operation of one node in one worker, or spread over several: both must come out the same
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(1)]
     [DataRow(4)]
     public void BulkLoad_NodeAddedRemovedAndReAdded_EndsWithItsLastText(int workers) {
@@ -246,13 +246,13 @@ public class WordIndexLoaderTests {
     public void BulkLoad_RequiresAnEmptyIndex_AndOneLoadPerLoader() {
         var trie = MakeTrie();
         trie.IndexText("alpha", 1);
-        Assert.ThrowsException<InvalidOperationException>(() => new WordIndexLoader(trie));
+        Assert.ThrowsExactly<InvalidOperationException>(() => new WordIndexLoader(trie));
         var empty = MakeTrie();
         var loader = new WordIndexLoader(empty, 2);
         loader.Add(1, "alpha");
         loader.Complete();
-        Assert.ThrowsException<InvalidOperationException>(() => loader.Add(2, "beta"));
-        Assert.ThrowsException<InvalidOperationException>(loader.Complete);
+        Assert.ThrowsExactly<InvalidOperationException>(() => loader.Add(2, "beta"));
+        Assert.ThrowsExactly<InvalidOperationException>(loader.Complete);
     }
 
     [TestMethod]
@@ -262,7 +262,7 @@ public class WordIndexLoaderTests {
         for (var i = 1; i <= 500; i++) loader.Add(i, "alpha beta gamma " + i);
         loader.Dispose();
         Assert.IsTrue(trie.IsEmpty);
-        Assert.ThrowsException<InvalidOperationException>(() => loader.Add(1, "alpha"));
+        Assert.ThrowsExactly<InvalidOperationException>(() => loader.Add(1, "alpha"));
     }
 
     [TestMethod]

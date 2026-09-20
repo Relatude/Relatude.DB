@@ -1,4 +1,4 @@
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 using Relatude.DB.Nodes;
@@ -301,14 +301,14 @@ public class GroupByTests {
             Assert.AreEqual(e.Qty, g["quantity.average"]!.Value, 1e-9); // names are case-insensitive
             CollectionAssert.AreEqual(new[] { "Amount.Sum", "Quantity.Average" }, g.MeasureNames);
         }
-        Assert.ThrowsException<ArgumentException>(() => groups.First()["Nope"]);
+        Assert.ThrowsExactly<ArgumentException>(() => groups.First()["Nope"]);
 
         // one runtime key: the engine sorts and pages
         var top = store.Query<PivotOrder>().GroupBy(GroupKey.Values(region)).Aggregate(PivotFunction.Sum, amount).OrderByDescending(g => g["Amount.Sum"]).Take(1);
         StringAssert.Contains(top.ToString(), ".SetRowOptions(");
         StringAssert.Contains(top.ToString(), ".SetRowPaging(0, 1)");
         Assert.AreEqual(all.GroupBy(o => o.Region).OrderByDescending(g => g.Sum(o => o.Amount)).First().Key, top.Execute().Single().Key[0]);
-        Assert.AreEqual(dm.Properties[region].CodeName, "Region");
+        Assert.AreEqual("Region", dm.Properties[region].CodeName);
     }
 
     [TestMethod]
@@ -376,19 +376,19 @@ public class GroupByTests {
     public void Validation_ClearErrors() {
         var store = OpenStore(out _, out _, out _);
         var q = store.Query<PivotOrder>();
-        var computed = Assert.ThrowsException<NotSupportedException>(() => q.GroupBy(o => o.Quantity * 2));
+        var computed = Assert.ThrowsExactly<NotSupportedException>(() => q.GroupBy(o => o.Quantity * 2));
         StringAssert.Contains(computed.Message, "cannot be translated");
-        var enumerated = Assert.ThrowsException<NotSupportedException>(() => q.GroupBy(o => o.Region).Select(g => g.First().Note));
+        var enumerated = Assert.ThrowsExactly<NotSupportedException>(() => q.GroupBy(o => o.Region).Select(g => g.First().Note));
         StringAssert.Contains(enumerated.Message, "cannot be enumerated");
-        var filteredCount = Assert.ThrowsException<NotSupportedException>(() => q.GroupBy(o => o.Region).Select(g => g.Count(o => o.Express)));
+        var filteredCount = Assert.ThrowsExactly<NotSupportedException>(() => q.GroupBy(o => o.Region).Select(g => g.Count(o => o.Express)));
         StringAssert.Contains(filteredCount.Message, "filtered count");
-        var notAProperty = Assert.ThrowsException<NotSupportedException>(() => q.GroupBy(o => o.Region).Select(g => g.Sum(o => o.Note.Length)));
+        var notAProperty = Assert.ThrowsExactly<NotSupportedException>(() => q.GroupBy(o => o.Region).Select(g => g.Sum(o => o.Note.Length)));
         StringAssert.Contains(notAProperty.Message, "must be a property of the node");
         // a non-numeric measure is refused by the engine with the property named
-        var notNumeric = Assert.ThrowsException<Exception>(() => q.GroupBy(o => o.Region).Select(g => new { Max = g.Max(o => o.Note) }).Execute());
+        var notNumeric = Assert.ThrowsExactly<Exception>(() => q.GroupBy(o => o.Region).Select(g => new { Max = g.Max(o => o.Note) }).Execute());
         StringAssert.Contains(notNumeric.Message, "Note");
         StringAssert.Contains(notNumeric.Message, "numeric");
-        Assert.ThrowsException<NotSupportedException>(() => Bucket.Ranges(1m, 5));
-        Assert.ThrowsException<ArgumentException>(() => q.GroupBy());
+        Assert.ThrowsExactly<NotSupportedException>(() => Bucket.Ranges(1m, 5));
+        Assert.ThrowsExactly<ArgumentException>(() => q.GroupBy());
     }
 }

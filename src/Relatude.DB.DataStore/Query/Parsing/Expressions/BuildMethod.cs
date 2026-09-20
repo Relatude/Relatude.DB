@@ -141,6 +141,56 @@ sealed class FacetsMethodDef : MethodDef {
     }
 }
 
+sealed class AddFacetsOfTypeMethodDef : MethodDef { // addfacetsoftype(type[, includeDescendants[, maxDistinctValues]])
+    public override string[] Names => ["addfacetsoftype"];
+    public override int MinArgs => 1;
+    public override int MaxArgs => 3;
+    public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant), MethodParamDef.Optional(MethodParamKind.Constant), MethodParamDef.Optional(MethodParamKind.Constant)];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        if (BuildSource(e, dm) is not FacetMethod fc) throw new Exception("Expected facet expression.");
+        var args = e.Arguments.Cast<ValueConstantToken>().ToArray();
+        var name = args[0].GetStringValue();
+        var typeId = Guid.TryParse(name, out var id) ? id
+            : dm.NodeTypesByShortName.TryGetValue(name, out var types) && types.Length == 1 ? types[0].Id
+            : throw new Exception("Unknown node type: " + name);
+        fc.AddFacetsOfType(typeId, args.Length > 1 && args[1].GetBoolValue(), args.Length > 2 ? args[2].GetIntValue() : 0);
+        return fc;
+    }
+}
+
+sealed class AddFacetsOfResultMethodDef : MethodDef {
+    public override string[] Names => ["addfacetsofresult"];
+    public override int MinArgs => 0;
+    public override int MaxArgs => 1;
+    public override MethodParamDef[] Params => [MethodParamDef.Optional(MethodParamKind.Constant)];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        if (BuildSource(e, dm) is not FacetMethod fc) throw new Exception("Expected facet expression.");
+        fc.AddFacetsOfResult(e.Arguments.Count > 0 ? ((ValueConstantToken)e.Arguments[0]).GetIntValue() : 0);
+        return fc;
+    }
+}
+
+sealed class OnlyNamedFacetsMethodDef : MethodDef {
+    public override string[] Names => ["onlynamedfacets"];
+    public override int MinArgs => 0;
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        if (BuildSource(e, dm) is not FacetMethod fc) throw new Exception("Expected facet expression.");
+        fc.OnlyNamedFacets();
+        return fc;
+    }
+}
+
+sealed class ExcludeFacetMethodDef : MethodDef {
+    public override string[] Names => ["excludefacet"];
+    public override int MinArgs => 1;
+    public override MethodParamDef[] Params => [MethodParamDef.Required(MethodParamKind.Constant)];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        if (BuildSource(e, dm) is not FacetMethod fc) throw new Exception("Expected facet expression.");
+        fc.ExcludeFacet(((ValueConstantToken)e.Arguments[0]).GetStringValue());
+        return fc;
+    }
+}
+
 sealed class AddFacetMethodDef : MethodDef {
     public override string[] Names => ["addfacet"];
     public override int MinArgs => 1;
@@ -804,7 +854,7 @@ internal class BuildMethod {
 
     private static readonly Dictionary<string, MethodDef> _registry = BuildRegistry(
         new SelectMethodDef(), new SelectIdMethodDef(), new WhereMethodDef(), new WhereTypesMethodDef(),
-        new OrderByMethodDef(), new FacetsMethodDef(), new AddFacetMethodDef(), new AddValueFacetMethodDef(),
+        new OrderByMethodDef(), new FacetsMethodDef(), new AddFacetsOfTypeMethodDef(), new AddFacetsOfResultMethodDef(), new OnlyNamedFacetsMethodDef(), new ExcludeFacetMethodDef(), new AddFacetMethodDef(), new AddValueFacetMethodDef(),
         new AddRangeFacetMethodDef(), new SetFacetValueMethodDef(), new SetFacetRangeValueMethodDef(),
         new SetFacetMissingValueMethodDef(), new SetFacetOptionsMethodDef(),
         new SearchMethodDef(), new PageMethodDef(), new TakeMethodDef(), new SkipMethodDef(),

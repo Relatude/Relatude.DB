@@ -207,10 +207,10 @@ public class StringMatchTests {
     public void StringMatching_WithNonOrdinalComparison_Throws() {
         var store = OpenStore(out _);
         // matching is always ordinal, so an explicit comparison must be rejected rather than ignored
-        var ex = Assert.ThrowsException<NotSupportedException>(
+        var ex = Assert.ThrowsExactly<NotSupportedException>(
             () => store.Query<Doc>().Where(x => x.Title.StartsWith("alpha", StringComparison.OrdinalIgnoreCase)).Count());
         StringAssert.Contains(ex.Message, "Ordinal");
-        Assert.ThrowsException<NotSupportedException>(
+        Assert.ThrowsExactly<NotSupportedException>(
             () => store.Query<Doc>().Where(x => x.Title.Contains("ALPHA", StringComparison.OrdinalIgnoreCase)).Count());
         // the redundant but honest form is accepted
         Assert.AreEqual(store.Query<Doc>().Where(x => x.Title.StartsWith("Alpha")).Count(),
@@ -222,10 +222,10 @@ public class StringMatchTests {
     public void StringMatching_OnUnsupportedPropertyType_Throws() {
         var store = OpenStore(out _);
         // Rank is an int: neither a string nor an array, so this must fail loudly
-        var ex = Assert.ThrowsException<NotSupportedException>(
+        var ex = Assert.ThrowsExactly<NotSupportedException>(
             () => store.Query<Doc>().Where("x => x.Rank.Contains(\"1\")").Count());
         StringAssert.Contains(ex.Message, "string");
-        Assert.ThrowsException<NotSupportedException>(
+        Assert.ThrowsExactly<NotSupportedException>(
             () => store.Query<Doc>().Where("x => x.Rank.StartsWith(\"1\")").Count());
         store.Dispose();
     }

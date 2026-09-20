@@ -98,7 +98,7 @@ public class AiProviderWireTests {
         var request = stub.Single();
         Assert.AreEqual("gpt-4o-mini", request.Json.GetProperty("model").GetString());
         Assert.AreEqual(123, request.Json.GetProperty("max_tokens").GetInt32());
-        await Assert.ThrowsExceptionAsync<ArgumentException>(() => provider.GetCompletionAsync("hi", "no-such-key"));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.GetCompletionAsync("hi", "no-such-key"));
     }
 
     [TestMethod]
@@ -137,7 +137,7 @@ public class AiProviderWireTests {
         Assert.AreEqual(2, stub.Requests.Count, "the 429 should have been retried once");
 
         stub.Enqueue(400, """{"error":{"message":"bad model"}}""");
-        var error = await Assert.ThrowsExceptionAsync<Exception>(() => provider.GetCompletionAsync("hi"));
+        var error = await Assert.ThrowsExactlyAsync<Exception>(() => provider.GetCompletionAsync("hi"));
         StringAssert.Contains(error.Message, "400");
         StringAssert.Contains(error.Message, "bad model");
     }
@@ -196,7 +196,7 @@ public class AiProviderWireTests {
             ApiKey = "sk-ant-test",
         });
         stub.Enqueue(200, """{"content":[],"stop_reason":"refusal","stop_details":{"type":"refusal","explanation":"declined"}}""");
-        var error = await Assert.ThrowsExceptionAsync<Exception>(() => provider.GetCompletionAsync("hi"));
+        var error = await Assert.ThrowsExactlyAsync<Exception>(() => provider.GetCompletionAsync("hi"));
         StringAssert.Contains(error.Message, "refusal");
         StringAssert.Contains(error.Message, "declined");
     }
@@ -205,7 +205,7 @@ public class AiProviderWireTests {
     public async Task AnthropicEmbeddingsRequireAndUseTheSeparateEmbeddingEndpoint() {
         await using var stub = await AiServiceStub.StartAsync();
         using var withoutEndpoint = new NativeAnthropicAIProvider(new AIProviderSettings { ApiKey = "sk-ant-test" });
-        await Assert.ThrowsExceptionAsync<NotSupportedException>(() => withoutEndpoint.GetEmbeddingsAsync(["text"]));
+        await Assert.ThrowsExactlyAsync<NotSupportedException>(() => withoutEndpoint.GetEmbeddingsAsync(["text"]));
 
         using var provider = new NativeAnthropicAIProvider(new AIProviderSettings {
             ServiceUrl = stub.BaseUrl,

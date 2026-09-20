@@ -51,7 +51,7 @@ public class RelationOrderingTests {
         CollectionAssert.AreEqual(new[] { 4, 2, 3, 1, 5 }, list.ToIdSet().Enumerate().ToArray());
         list.MoveTo(3, 2); // already there, no change
         CollectionAssert.AreEqual(new[] { 4, 2, 3, 1, 5 }, list.ToIdSet().Enumerate().ToArray());
-        Assert.ThrowsException<ItemNotInRelationException>(() => list.MoveTo(99, 0));
+        Assert.ThrowsExactly<ItemNotInRelationException>(() => list.MoveTo(99, 0));
     }
     [TestMethod]
     public void DiffToMovesTransformsAndIsMinimal() {
@@ -73,8 +73,8 @@ public class RelationOrderingTests {
             }
             CollectionAssert.AreEqual(desired, working);
         }
-        Assert.ThrowsException<ArgumentException>(() => RelationOrderUtils.DiffToMoves([1, 2], [1, 3]));
-        Assert.ThrowsException<ArgumentException>(() => RelationOrderUtils.DiffToMoves([1, 2], [1]));
+        Assert.ThrowsExactly<ArgumentException>(() => RelationOrderUtils.DiffToMoves([1, 2], [1, 3]));
+        Assert.ThrowsExactly<ArgumentException>(() => RelationOrderUtils.DiffToMoves([1, 2], [1]));
     }
     [TestMethod]
     public void MoveByOffsetMultiSelectSemantics() {
@@ -110,8 +110,8 @@ public class RelationOrderingTests {
         r.Move(10, 2, true, 0); // reorder source list of target 10
         CollectionAssert.AreEqual(new[] { 2, 1 }, r.Get(10, true).Enumerate().ToArray());
         CollectionAssert.AreEqual(new[] { 30, 10, 20 }, r.Get(1, false).Enumerate().ToArray()); // and back
-        Assert.ThrowsException<ItemNotInRelationException>(() => r.Move(1, 99, false, 0));
-        Assert.ThrowsException<ItemNotInRelationException>(() => r.Move(99, 1, false, 0));
+        Assert.ThrowsExactly<ItemNotInRelationException>(() => r.Move(1, 99, false, 0));
+        Assert.ThrowsExactly<ItemNotInRelationException>(() => r.Move(99, 1, false, 0));
     }
     [TestMethod]
     public void IndexMoveOneToManyAndSymmetric() {
@@ -122,7 +122,7 @@ public class RelationOrderingTests {
         oneToMany.Move(1, 20, false, 0);
         CollectionAssert.AreEqual(new[] { 20, 10, 30 }, oneToMany.Get(1, false).Enumerate().ToArray());
         oneToMany.Move(10, 1, true, 5); // single valued side, validated no-op
-        Assert.ThrowsException<ItemNotInRelationException>(() => oneToMany.Move(10, 2, true, 0));
+        Assert.ThrowsExactly<ItemNotInRelationException>(() => oneToMany.Move(10, 2, true, 0));
 
         var symmetric = new ManyManyIndex();
         symmetric.Add(1, 2, DateTime.UtcNow);
@@ -136,13 +136,13 @@ public class RelationOrderingTests {
         oneOne.Add(1, 2, DateTime.UtcNow);
         oneOne.Move(1, 2, false, 3); // validated no-op
         oneOne.Move(2, 1, false, 0); // symmetric, both directions valid
-        Assert.ThrowsException<ItemNotInRelationException>(() => oneOne.Move(1, 3, false, 0));
+        Assert.ThrowsExactly<ItemNotInRelationException>(() => oneOne.Move(1, 3, false, 0));
 
         var oneToOne = new OneToOneIndex();
         oneToOne.Add(1, 2, DateTime.UtcNow);
         oneToOne.Move(1, 2, false, 3); // validated no-op
         oneToOne.Move(2, 1, true, 0);
-        Assert.ThrowsException<ItemNotInRelationException>(() => oneToOne.Move(2, 1, false, 0));
+        Assert.ThrowsExactly<ItemNotInRelationException>(() => oneToOne.Move(2, 1, false, 0));
     }
     #endregion
 
@@ -203,15 +203,15 @@ public class RelationOrderingTests {
         var unrelated = new Article { Id = 99, Name = "Unrelated" };
         store.Insert(unrelated);
         // moving an unrelated node throws:
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => store.MoveRelationToTop(parent, a => a.Children, unrelated));
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => store.MoveRelationToTop(parent, a => a.Children, unrelated));
         // anchor must be related:
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => store.MoveRelationBefore(parent, a => a.Children, c[0], unrelated));
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => store.MoveRelationBefore(parent, a => a.Children, c[0], unrelated));
         // anchor cannot be part of the moved selection:
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => store.MoveRelationAfter(parent, a => a.Children, new object[] { c[0], c[1] }, c[1]));
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => store.MoveRelationAfter(parent, a => a.Children, new object[] { c[0], c[1] }, c[1]));
         // duplicate items throw:
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => store.MoveRelationToTop(parent, a => a.Children, new object[] { c[0], c[0] }));
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => store.MoveRelationToTop(parent, a => a.Children, new object[] { c[0], c[0] }));
         // SetRelationOrder requires exactly the related set:
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => store.SetRelationOrder(parent, a => a.Children, new object[] { c[0], c[1] }));
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => store.SetRelationOrder(parent, a => a.Children, new object[] { c[0], c[1] }));
         // and nothing changed along the way:
         CollectionAssert.AreEqual(new[] { 10, 11, 12, 13, 14 }, childOrder(store, 1));
         store.Dispose();
@@ -222,7 +222,7 @@ public class RelationOrderingTests {
         var t = new Transaction(store);
         t.MoveRelationToTop(parent, a => a.Children, c[4]);
         t.AddRelation(c[0], a => a.Parent, parent); // already related, forces the transaction to fail after the move
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => store.Execute(t));
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => store.Execute(t));
         CollectionAssert.AreEqual(new[] { 10, 11, 12, 13, 14 }, childOrder(store, 1)); // order restored by rollback
         store.Dispose();
     }
@@ -238,7 +238,7 @@ public class RelationOrderingTests {
         t.SetRelationOrder(parent, a => a.Children, new object[] { c[4], c[3], c[2], c[1], c[0] }); // full reversal
         t.MoveRelation(parent, a => a.Children, new object[] { c[0], c[2] }, -10); // then a multi item move
         t.SetCommitCallback(_ => throw new Exception("failing on purpose"));
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => store.Execute(t));
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => store.Execute(t));
         CollectionAssert.AreEqual(new[] { 10, 11, 12, 13, 14 }, childOrder(store, 1));
         // and the store is still fully usable after the rollback:
         store.MoveRelationToTop(parent, a => a.Children, c[2]);
@@ -255,7 +255,7 @@ public class RelationOrderingTests {
         var t = new Transaction(store);
         t.MoveRelationToTop(parent, a => a.Children, c[3]);
         t.MoveRelationToTop(parent, a => a.Children, unrelated);
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => store.Execute(t));
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => store.Execute(t));
         CollectionAssert.AreEqual(new[] { 10, 11, 12, 13, 14 }, childOrder(store, 1));
         store.Dispose();
     }
@@ -267,7 +267,7 @@ public class RelationOrderingTests {
         var t = new Transaction(store);
         t.RemoveRelation<Article>(parent, a => a.Children, c[1]);
         t.AddRelation(c[0], a => a.Parent, parent); // already related, fails after the remove executed
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => store.Execute(t));
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => store.Execute(t));
         CollectionAssert.AreEqual(new[] { 10, 11, 12, 13, 14 }, childOrder(store, 1));
         store.Dispose();
     }
@@ -288,7 +288,7 @@ public class RelationOrderingTests {
         t.MoveRelation(red, x => x.Members, chris, -2); // reorder the other direction
         t.RemoveRelation<OrdPerson>(anna, p => p.Teams, blue); // remove an edge from the middle of anna's list
         t.SetCommitCallback(_ => throw new Exception("failing on purpose"));
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => store.Execute(t));
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => store.Execute(t));
 
         CollectionAssert.AreEqual(new[] { red.Id, blue.Id, green.Id }, relatedIds(store, anna.Id, false)); // incl. blue back at index 1
         CollectionAssert.AreEqual(new[] { anna.Id, bo.Id, chris.Id }, relatedIds(store, red.Id, true));
@@ -308,7 +308,7 @@ public class RelationOrderingTests {
         t.RemoveRelation<Article>(parent, a => a.Children, c[2]);
         t.MoveRelationToBottom(parent, a => a.Children, c[0]);
         t.SetCommitCallback(_ => throw new Exception("failing on purpose"));
-        Assert.ThrowsException<ExceptionWithoutIntegrityLoss>(() => store.Execute(t));
+        Assert.ThrowsExactly<ExceptionWithoutIntegrityLoss>(() => store.Execute(t));
 
         CollectionAssert.AreEqual(new[] { 10, 11, 12, 13, 14 }, childOrder(store, 1)); // order and membership restored, 12 back at index 2
         Assert.AreEqual(0, store.Query<Article>().Where(a => a.Id == 15).Execute().Count()); // inserted node rolled back

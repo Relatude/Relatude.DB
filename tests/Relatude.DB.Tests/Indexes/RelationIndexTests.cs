@@ -10,8 +10,8 @@ namespace Relatude.Indexes {
             r.Add(1, 2, DateTime.UtcNow);
             r.Add(1, 3, DateTime.UtcNow);
             r.Add(1, 1, DateTime.UtcNow);
-            Assert.ThrowsException<ItemAlreadyInRelationException>(() => r.Add(1, 2, DateTime.UtcNow));
-            Assert.ThrowsException<ItemAlreadyInRelationException>(() => r.Add(2, 1, DateTime.UtcNow));
+            Assert.ThrowsExactly<ItemAlreadyInRelationException>(() => r.Add(1, 2, DateTime.UtcNow));
+            Assert.ThrowsExactly<ItemAlreadyInRelationException>(() => r.Add(2, 1, DateTime.UtcNow));
             Assert.IsTrue(r.Contains(1, 2));
             Assert.IsTrue(r.Contains(2, 1));
             Assert.IsTrue(r.Contains(1, 1));
@@ -24,7 +24,7 @@ namespace Relatude.Indexes {
             r.Remove(2, 1);
             Assert.IsFalse(r.Contains(1, 2));
             Assert.IsFalse(r.Contains(2, 1));
-            Assert.ThrowsException<ItemNotInRelationException>(() => r.Remove(2, 1));
+            Assert.ThrowsExactly<ItemNotInRelationException>(() => r.Remove(2, 1));
             r.Remove(1, 1);
             Assert.IsFalse(r.Contains(1, 1));
         }
@@ -34,7 +34,7 @@ namespace Relatude.Indexes {
             r.Add(1, 2, DateTime.UtcNow);
             r.Add(1, 3, DateTime.UtcNow);
             r.Add(1, 1, DateTime.UtcNow);
-            Assert.ThrowsException<ItemAlreadyInRelationException>(() => r.Add(1, 2, DateTime.UtcNow));
+            Assert.ThrowsExactly<ItemAlreadyInRelationException>(() => r.Add(1, 2, DateTime.UtcNow));
             Assert.IsTrue(r.Contains(1, 2));
             Assert.IsFalse(r.Contains(2, 1));
             Assert.IsTrue(r.Contains(1, 1));
@@ -47,7 +47,7 @@ namespace Relatude.Indexes {
             r.Add(1, 2, DateTime.UtcNow);
             Assert.IsTrue(r.Contains(1, 2));
             Assert.IsFalse(r.Contains(2, 1));
-            Assert.ThrowsException<ItemNotInRelationException>(() => r.Remove(2, 1));
+            Assert.ThrowsExactly<ItemNotInRelationException>(() => r.Remove(2, 1));
             Assert.IsFalse(r.Contains(2, 1));            
             r.Remove(1, 1);
             Assert.IsFalse(r.Contains(1, 1));
@@ -65,7 +65,7 @@ namespace Relatude.Indexes {
             r.Remove(3, 1);
             r.Add(1, 2, DateTime.UtcNow);            
             Assert.IsTrue(r.Contains(1, 2));
-            Assert.ThrowsException<ItemAlreadyInRelationException>(() => r.Add(1, 2, DateTime.UtcNow));            
+            Assert.ThrowsExactly<ItemAlreadyInRelationException>(() => r.Add(1, 2, DateTime.UtcNow));            
         }
         [TestMethod]
         public void TestOneToOne() {
@@ -80,7 +80,7 @@ namespace Relatude.Indexes {
             Assert.IsFalse(r.Contains(2, 1)); // due to one relation, 2 now has a new parent
             r.Add(1, 2, DateTime.UtcNow);
             Assert.IsTrue(r.Contains(1, 2));
-            Assert.ThrowsException<ItemAlreadyInRelationException>(() => r.Add(1, 2, DateTime.UtcNow));
+            Assert.ThrowsExactly<ItemAlreadyInRelationException>(() => r.Add(1, 2, DateTime.UtcNow));
         }
         [TestMethod]
         public void TestOneOne() {
@@ -96,7 +96,7 @@ namespace Relatude.Indexes {
             Assert.IsFalse(r.Contains(2, 1)); // due to one relation, 2 now has a new parent
             r.Add(1, 2, DateTime.UtcNow);
             Assert.IsTrue(r.Contains(1, 2));
-            Assert.ThrowsException<ItemAlreadyInRelationException>(() => r.Add(1, 2, DateTime.UtcNow));
+            Assert.ThrowsExactly<ItemAlreadyInRelationException>(() => r.Add(1, 2, DateTime.UtcNow));
         }
     }
 }
