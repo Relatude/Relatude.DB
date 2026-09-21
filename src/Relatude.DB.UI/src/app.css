@@ -10677,3 +10677,32 @@ body.pg-resizing {
     width: 96px;
   }
 }
+
+/* "Sign in with Relatude.License": a link styled as the primary button, full width so it reads as
+   the main way in when it is offered; the master form below is the fallback. */
+.login-license {
+  align-self: stretch;
+  text-align: center;
+  text-decoration: none;
+  padding: 9px 18px;
+}
+
+.login-license:hover {
+  text-decoration: none;
+}
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}

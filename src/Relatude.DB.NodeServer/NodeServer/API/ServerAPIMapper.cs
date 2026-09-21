@@ -158,6 +158,11 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         app.MapPost(path("is-logged-in"), (HttpContext context) => server.Authentication.IsLoggedIn(context));
         app.MapPost(path("version"), () => { return new { Version = "1.0.0" }; });
         app.MapPost(path("logout"), (HttpContext context) => server.Authentication.LogOut(context));
+        // Sign in with Relatude.License, see LicenseLogin: whether the login page should offer it, the
+        // redirect that starts it, and where the license server sends the browser back to.
+        app.MapPost(path("license-login-options"), () => server.LicenseLogin.DescribeOptions());
+        app.MapGet(path("license-login/start"), (HttpContext context) => server.LicenseLogin.StartAsync(context));
+        app.MapGet(path("license-login/callback"), (HttpContext context, string? code, string? state) => server.LicenseLogin.CallbackAsync(context, code, state));
     }
 
     // PRIVATE API, requires authentication (controlled by path in middleware):

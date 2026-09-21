@@ -109,6 +109,14 @@ public partial class RelatudeDBServer {
             return _authentication;
         }
     }
+    LicenseLogin? _licenseLogin;
+    /// <summary>This installation's side of Relatude.License: sign-in with a Relatude.License account, and the heartbeat.</summary>
+    public LicenseLogin LicenseLogin {
+        get {
+            if (_licenseLogin == null) throw new Exception("LicenseLogin not initialized. Make sure to call RelatudeDBServer.StartAsync() before using the server.");
+            return _licenseLogin;
+        }
+    }
     internal string RootDataFolderPath => _rootDataFolderPath;
     internal string DefaultSubDataFolderPath => Path.Combine(_rootDataFolderPath, Defaults.DataFolderPath);
     public string ApiUrlRoot { get; private set; } = string.Empty;
@@ -176,6 +184,8 @@ public partial class RelatudeDBServer {
         prepareAutoOpen();
         runAutoOpen();
         _authentication = new(this);
+        _licenseLogin = new(this);
+        _licenseLogin.StartHeartbeat(); // reports in only once the license and API keys are set; harmless without them
         // Stopping the databases is a two step affair, because the host stops in two steps:
         // ApplicationStopping fires *before* the web server drains the requests that are still
         // running, and ApplicationStopped fires after the last one has completed. So the first
@@ -303,6 +313,7 @@ public partial class RelatudeDBServer {
     /// </summary>
     public void BeginShutdown() {
         if (Interlocked.CompareExchange(ref _shutdownPhase, 1, 0) != 0) return; // already stopping or stopped
+        _licenseLogin?.Dispose(); // no heartbeat on databases that are closing
         logShutdown("Server stopping, flushing databases.");
         foreach (var container in GetContainers()) {
             if (!container.IsOpen()) continue;

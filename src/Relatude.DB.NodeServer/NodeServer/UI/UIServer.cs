@@ -783,10 +783,11 @@ public sealed class UIServer {
         // what "log out" would mean: a token is a session that can be ended, the localhost bypass is
         // not one, so the UI must not offer to end it
         Commands.Register("whoami", ctx => {
-            var (userName, viaLocalhost) = _server.Authentication.Describe(ctx.Http);
+            var (userName, viaLocalhost, via) = _server.Authentication.Describe(ctx.Http);
             return new {
                 UserName = userName,
                 ViaLocalhost = viaLocalhost,
+                Via = via, // "master" or "license", null under the bypass
                 CanLogOut = userName != null,
                 Machine = Environment.MachineName,
             };

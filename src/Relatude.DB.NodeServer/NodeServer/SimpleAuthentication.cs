@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Caching.Memory;
 using Relatude.DB.NodeServer.API;
 using Relatude.DB.NodeServer.Settings;
 using System.Collections.Concurrent;
@@ -7,12 +7,17 @@ using System.Net;
 using System.Text.Json;
 namespace Relatude.DB.NodeServer;
 /// <summary>
-/// A temporary simple authentication system, for a single master user.
-/// Based on encrypted tokens stored in cookies.
-/// Will be replaced by a more complete authentication system in the future.
+/// A temporary simple authentication system, for a single master user, plus the sessions that a
+/// sign-in through Relatude.License opens (see <see cref="LicenseLogin"/>). Based on encrypted
+/// tokens stored in cookies. Will be replaced by a more complete authentication system in the future.
 /// </summary>
 /// <param name="server"></param>
 public class SimpleAuthentication(RelatudeDBServer server) {
+    /// <summary>Who a token stands for. Via is <see cref="ViaMaster"/> for the master user and
+    /// <see cref="ViaLicense"/> for a user the license server vouched for.</summary>
+    public sealed record TokenSession(string UserName, Guid UserTokenId, string Via, string DisplayName, DateTime? ExpiresUtc);
+    public const string ViaMaster = "master";
+    public const string ViaLicense = "license";
 
     // block IPs against brute force attacks. max 30 attempts per minute:
     FailedIpTracker _ipWall = new(TimeSpan.FromMinutes(1), 30);
@@ -45,40 +50,53 @@ public class SimpleAuthentication(RelatudeDBServer server) {
         }
         if (settings.TokenCookieName == null) return false;
         var requestIP = context.Connection.RemoteIpAddress + "";
+        var token = context.Request.Cookies[settings.TokenCookieName];
+        if (token == null) {
+            // no session and, unless one of the two remote ways in is open, no way to ever get one
+            if (!settings.AllowMasterLoginOutsideLocalhost && !settings.AllowLicenseeAdminLogin && !isLocal) warnOnceIfLockedOut();
+            return false;
+        }
+        if (!isTokenValid(token, requestIP, out var session)) return false;
+        //Console.WriteLine($"Token validated for in {sw.ElapsedMilliseconds} ms");
+        return sessionIsAllowed(session, isLocal);
+    }
+    /// <summary>
+    /// Whether a token that decrypts and has not expired is still honoured under the settings as
+    /// they are now. Checked on every request on purpose: turning AllowLicenseeAdminLogin off ends
+    /// every license session at once, and the master session is local unless remote login is allowed.
+    /// </summary>
+    bool sessionIsAllowed(TokenSession session, bool isLocal) {
+        if (session.Via == ViaLicense) return settings.AllowLicenseeAdminLogin;
+        if (session.UserTokenId != Guid.Empty) return false; // user token ID not implemented, only one master user
+        if (session.UserName != settings.MasterUserName) return false; // only the master user is supported
         if (!settings.AllowMasterLoginOutsideLocalhost && !isLocal) {
             warnOnceIfLockedOut();
-            return false; // block login attempts from outside localhost
+            return false; // the master session is not honoured from outside localhost
         }
-        var token = context.Request.Cookies[settings.TokenCookieName];
-        if (token == null) return false;
-
-        if (isTokenValid(token, requestIP, out var userName, out var userTokenId)) {
-            // user Token ID is used to reset all users saved logins by changing the token ID stored on the server
-            if (userTokenId != Guid.Empty) return false; // user token ID not implemented, only one master user
-            if (userName != settings.MasterUserName) return false; // only the master user is supported
-            //Console.WriteLine($"Token validated for in {sw.ElapsedMilliseconds} ms");
-            return true;
-        }
-        return false;
+        return true;
     }
-    string createToken(string userId, Guid userTokenId, string userIP) {
+    string createToken(string userId, Guid userTokenId, string userIP, string via, string displayName, DateTime? expiresUtc) {
         var values = new Dictionary<string, string> {
                 { "CreatedUtcTicks", DateTime.UtcNow.Ticks.ToString() },
                 { "UserId", userId.ToString() },
                 { "UserTokenId", userTokenId.ToString() },
-                { "UserIP", userIP }
+                { "UserIP", userIP },
+                { "Via", via },
+                { "DisplayName", displayName },
             };
+        if (expiresUtc.HasValue) values["ExpiresUtcTicks"] = expiresUtc.Value.Ticks.ToString();
         var json = JsonSerializer.Serialize(values);
         var encryptionKey = string.IsNullOrWhiteSpace(settings.TokenEncryptionSecret) ? _transientEncryptionFallbackKey : settings.TokenEncryptionSecret;
         return StringEncryption.Encrypt(json, encryptionKey);
     }
     static string _transientEncryptionFallbackKey = SecureGuid.New().ToString();
-    bool isTokenValid(string? token, string requestIP, [MaybeNullWhen(false)] out string userName, [MaybeNullWhen(false)] out Guid? userTokenId) {
-        userName = null;
-        userTokenId = null;
+    bool isTokenValid(string? token, string requestIP, [MaybeNullWhen(false)] out TokenSession session) {
+        session = null;
         if (token == null || token.Length < 30) return false; // token cannot be valid
-        if (_tokenValidationCache.TryGet(token, out var isValid, out userName, out userTokenId)) {
-            if (!isValid) return false; // cached result is invalid
+        if (_tokenValidationCache.TryGet(token, out var cached)) {
+            // a cached session can still run out while it is cached
+            if (cached.ExpiresUtc is { } cachedExpiry && DateTime.UtcNow > cachedExpiry) return false;
+            session = cached;
             return true;
         }
         try {
@@ -98,8 +116,16 @@ public class SimpleAuthentication(RelatudeDBServer server) {
             var age = DateTime.UtcNow.Subtract(createdUtc);
             if (age > TimeSpan.FromSeconds(settings.TokenCookieMaxAgeInSec)) return false; // token expired
 
+            // a session that carries its own end (a license sign-in does) ends there, even before the max age
+            DateTime? expiresUtc = null;
+            if (values.TryGetValue("ExpiresUtcTicks", out var expiresUtcTicksString)) {
+                if (!long.TryParse(expiresUtcTicksString, out var expiresUtcTicks)) return false; // invalid expiresUtcTicks
+                expiresUtc = new DateTime(expiresUtcTicks, DateTimeKind.Utc);
+                if (DateTime.UtcNow > expiresUtc) return false; // session over
+            }
+
             // getting the user Id, but store it in a temporary variable
-            if (!values.TryGetValue("UserId", out var tempUserName)) return false; // no userId            
+            if (!values.TryGetValue("UserId", out var tempUserName)) return false; // no userId
 
             // user tokenId
             if (!values.TryGetValue("UserTokenId", out var userTokenIdString)) return false; // no userTokenId
@@ -111,24 +137,25 @@ public class SimpleAuthentication(RelatudeDBServer server) {
                 if (userIP != requestIP) return false; // IP mismatch
             }
 
-            // all ok!
-            userTokenId = tokenId; // userTokenId can be used to reset all saved logins
+            // who the token stands for; a token minted before these fields existed is a master token
+            var via = values.TryGetValue("Via", out var viaValue) && !string.IsNullOrEmpty(viaValue) ? viaValue : ViaMaster;
+            var displayName = values.TryGetValue("DisplayName", out var displayNameValue) && !string.IsNullOrEmpty(displayNameValue) ? displayNameValue : tempUserName;
 
-            userName = tempUserName;
-            _tokenValidationCache.Add(token, true, userName, userTokenId);
+            // all ok!
+            session = new TokenSession(tempUserName, tokenId, via, displayName, expiresUtc);
+            _tokenValidationCache.Add(token, session);
             return true;
 
         } catch (Exception err) {
             RelatudeDBServer.Trace("Token validation error: " + err?.Message);
         }
         // any other outcome is a failure
-        userName = null;
-        userTokenId = null;
+        session = null;
         return false;
     }
 
     public async Task<bool> AreCredentialsValid(string username, string password, string requestIP, bool isLocal) {
-        await Task.Delay(new Random().Next(300, 400)); // time delay to slow down brute force attacks and random to not hint valid usernames by response time        
+        await Task.Delay(new Random().Next(300, 400)); // time delay to slow down brute force attacks and random to not hint valid usernames by response time
         if (!settings.AllowMasterLoginOutsideLocalhost && !isLocal) {
             warnOnceIfLockedOut();
             return false; // block login attempts from outside localhost
@@ -159,36 +186,52 @@ public class SimpleAuthentication(RelatudeDBServer server) {
         RelatudeDBServer.Trace("Admin access refused: the request did not come from this machine, and"
             + " AllowMasterLoginOutsideLocalhost is false, so no one can log in. If this server is behind a"
             + " reverse proxy, set \"AllowMasterLoginOutsideLocalhost\": true and a master user name and"
-            + " password in " + Defaults.SettingsFileName + ". ");
+            + " password in " + Defaults.SettingsFileName + ", or set \"AllowLicenseeAdminLogin\": true with the"
+            + " license and API keys from Relatude.License to sign in with a Relatude.License account instead. ");
     }
     public bool IsLoggedIn(HttpContext context) {
         return authenticationIsValid(context);
     }
 
     /// <summary>
-    /// Who this request is, for the admin UI to say so: the master user where a token proves it, and
-    /// nobody at all where the localhost bypass is what let the request through. The difference is
-    /// not cosmetic - with the bypass there is no session to end, so logging out would delete a
-    /// cookie nothing is reading and leave the caller exactly as signed in as before.
+    /// Who this request is, for the admin UI to say so: the user a token proves (the master user, or
+    /// a Relatude.License user by display name, with Via telling which), and nobody at all where the
+    /// localhost bypass is what let the request through. The difference is not cosmetic - with the
+    /// bypass there is no session to end, so logging out would delete a cookie nothing is reading
+    /// and leave the caller exactly as signed in as before.
     /// </summary>
-    public (string? UserName, bool ViaLocalhost) Describe(HttpContext context) {
+    public (string? UserName, bool ViaLocalhost, string? Via) Describe(HttpContext context) {
         var isLocal = LocalRequest.IsLocalhost(context);
         var token = settings.TokenCookieName == null ? null : context.Request.Cookies[settings.TokenCookieName];
         if (token != null
-            && isTokenValid(token, context.Connection.RemoteIpAddress + "", out var userName, out var userTokenId)
-            && userTokenId == Guid.Empty
-            && userName == settings.MasterUserName) {
-            return (userName, false);
+            && isTokenValid(token, context.Connection.RemoteIpAddress + "", out var session)
+            && sessionIsAllowed(session, isLocal)) {
+            return (session.DisplayName, false, session.Via);
         }
-        return (null, settings.NoLoginRequiredForLocalhost && isLocal);
+        return (null, settings.NoLoginRequiredForLocalhost && isLocal, null);
     }
     public void LogIn(HttpContext context, bool remember) {
         var requestIP = context.Connection.RemoteIpAddress + "";
         if (settings.MasterUserName == null) throw new Exception("No master user configured on the server.");
         var userId = Guid.Empty; // user ID not implemented, only one master user
-        var token = createToken(settings.MasterUserName, userId, requestIP);
+        var token = createToken(settings.MasterUserName, userId, requestIP, ViaMaster, settings.MasterUserName, null);
         TimeSpan? maxAge = remember ? TimeSpan.FromSeconds(settings.TokenCookieMaxAgeInSec) : null;
         context.Response.Cookies.Append(settings.TokenCookieName, token, getTokenCookieOptions(maxAge));
+    }
+    /// <summary>
+    /// Opens a session for a user the Relatude.License server vouched for (see <see cref="LicenseLogin"/>).
+    /// The session ends when the license server said it should, or after TokenCookieMaxAgeInSec,
+    /// whichever comes first, and it is honoured only while AllowLicenseeAdminLogin stays on.
+    /// </summary>
+    public void LogInLicensee(HttpContext context, string subject, string displayName, DateTime expiresUtc) {
+        var requestIP = context.Connection.RemoteIpAddress + "";
+        var now = DateTime.UtcNow;
+        var max = TimeSpan.FromSeconds(settings.TokenCookieMaxAgeInSec);
+        if (expiresUtc - now > max) expiresUtc = now + max;
+        var lifetime = expiresUtc - now;
+        if (lifetime <= TimeSpan.Zero) throw new Exception("The sign-in has already expired.");
+        var token = createToken(ViaLicense + ":" + subject, Guid.Empty, requestIP, ViaLicense, displayName, expiresUtc);
+        context.Response.Cookies.Append(settings.TokenCookieName, token, getTokenCookieOptions(lifetime));
     }
     public void LogOut(HttpContext context) {
         context.Response.Cookies.Delete(settings.TokenCookieName, getTokenCookieOptions(null));
@@ -330,22 +373,16 @@ sealed class FailedIpTracker(TimeSpan window, int maxAttemptsPerIp) {
 public sealed class TokenValidationCache(TimeSpan cacheDuration) : IDisposable {
     private readonly MemoryCache _cache = new(new MemoryCacheOptions());
 
-    // Internal record to group the results cleanly
-    private record CacheEntry(bool IsValid, string UserName, Guid? UserTokenId);
-
-    public void Add(string token, bool isValid, string userName, Guid? userTokenId) {
-        _cache.Set(token, new CacheEntry(isValid, userName, userTokenId), cacheDuration);
+    public void Add(string token, SimpleAuthentication.TokenSession session) {
+        _cache.Set(token, session, cacheDuration);
     }
 
-    public bool TryGet(string token, out bool isValid, [MaybeNullWhen(false)] out string userName, [MaybeNullWhen(false)] out Guid? userTokenId) {
-        if (_cache.TryGetValue(token, out CacheEntry? entry) && entry is not null) {
-            isValid = entry.IsValid;
-            userName = entry.UserName;
-            userTokenId = entry.UserTokenId;
+    public bool TryGet(string token, [MaybeNullWhen(false)] out SimpleAuthentication.TokenSession session) {
+        if (_cache.TryGetValue(token, out SimpleAuthentication.TokenSession? entry) && entry is not null) {
+            session = entry;
             return true;
         }
-
-        (isValid, userName, userTokenId) = (false, null, null);
+        session = null;
         return false;
     }
 

@@ -256,6 +256,29 @@ public static class SettingsCatalog {
                     ],
                 },
                 new() {
+                    Id = "relatude-license",
+                    Title = "Relatude.License",
+                    Help = "The license this installation runs under, from the Relatude.License portal. With both keys set the installation reports in and can use the Relatude services; with the sign-in switch on, the owner of the license and the users they grant can sign in here with their Relatude.License account instead of the master password.",
+                    Settings = [
+                        new() {
+                            Path = "LicenseKey", Label = "License key", Applies = SettingApplies.Live,
+                            Help = "The license's key, shown on its page in the portal.",
+                        },
+                        new() {
+                            Path = "ApiKey", Label = "API key", Secret = true, Applies = SettingApplies.Live,
+                            Help = "One of the license's API keys, from the same page. It identifies this installation to the license server, so keep it in configuration or user secrets rather than in the settings file.",
+                        },
+                        new() {
+                            Path = "AllowLicenseeAdminLogin", Label = "Allow sign-in with Relatude.License", Applies = SettingApplies.Live,
+                            Help = "Shows \"Sign in with Relatude.License\" on the login page. Who gets in is decided by the license server: the owner of the license, and anyone the owner has granted this installation to in the portal. Turning it off ends those sessions at once; the master login is unaffected either way.",
+                        },
+                        new() {
+                            Path = "LicenseServerUrl", Label = "License server", Applies = SettingApplies.Live, Placeholder = Defaults.LicenseServerUrl,
+                            Help = "Only for a self-hosted or test license server.",
+                        },
+                    ],
+                },
+                new() {
                     Id = "tokens",
                     Title = "Session cookie",
                     Help = "How an admin session is carried between requests once someone has logged in.",

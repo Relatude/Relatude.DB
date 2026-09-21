@@ -88,7 +88,7 @@ function SignedIn({ collapsed, onLogout }: { collapsed: boolean; onLogout: () =>
   if (!who) return <div className="sidebar-footer" />;
   const local = who.userName == null && who.viaLocalhost;
   const name = who.userName ?? (local ? "Local access" : "Not signed in");
-  const hint = local ? `no login required on ${who.machine}` : who.userName ? "signed in" : "";
+  const hint = local ? `no login required on ${who.machine}` : who.userName ? (who.via === "license" ? "via Relatude.License" : "signed in") : "";
   return (
     <div className="sidebar-footer" title={collapsed ? name + (hint ? " \u2014 " + hint : "") : undefined}>
       <span className="sidebar-user-icon">{local ? <IconDeviceDesktop size={16} stroke={1.7} /> : <IconUser size={16} stroke={1.7} />}</span>

@@ -9,7 +9,7 @@ namespace Relatude.DB.Common;
 /// Provides a stable identifier for the current installation/environment.
 ///
 /// The identifier is deliberately NOT persisted. It is calculated from
-/// characteristics of the machine/VM and the volume containing the data folder.
+/// characteristics of the machine/VM and the volume plus the data folder.
 ///
 /// Properties:
 /// - Stable across application restarts.

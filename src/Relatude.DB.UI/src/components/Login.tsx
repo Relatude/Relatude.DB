@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { IconMoon, IconSun } from "@tabler/icons-react";
 import { AnimatedLogo } from "./AnimatedLogo";
-import { haveUsers, login } from "../server/auth";
+import { haveUsers, licenseLoginOptions, licenseLoginStartUrl, login } from "../server/auth";
 import type { Theme } from "../theme";
 
 interface LoginProps {
@@ -10,17 +10,33 @@ interface LoginProps {
   onToggleTheme: () => void;
 }
 
+// The license sign-in comes back to the UI root with ?login-error=… when it fails on the way
+// (the license server unreachable, access refused, the browser not the one that left). Read once
+// and taken out of the url, so a reload does not show a stale error.
+function takeLoginError(): string | null {
+  const url = new URL(window.location.href);
+  const error = url.searchParams.get("login-error");
+  if (error === null) return null;
+  url.searchParams.delete("login-error");
+  window.history.replaceState(null, "", url.pathname + (url.search || "") + url.hash);
+  return error;
+}
+
 export function Login({ onLoggedIn, theme, onToggleTheme }: LoginProps) {
   const [userName, setUserName] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(takeLoginError);
   const [hasUsers, setHasUsers] = useState(true);
+  const [licenseLogin, setLicenseLogin] = useState(false);
   useEffect(() => {
     haveUsers()
       .then(setHasUsers)
       .catch(() => {}); // server unreachable: the login attempt itself will surface the error
+    licenseLoginOptions()
+      .then((o) => setLicenseLogin(o.available))
+      .catch(() => {}); // an older server without the endpoint: no button
   }, []);
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -54,9 +70,19 @@ export function Login({ onLoggedIn, theme, onToggleTheme }: LoginProps) {
         <div className="login-logo">
           <AnimatedLogo height="72px" color="var(--text)" />
         </div>
+        {error && <div className="login-error">{error}</div>}
+        {licenseLogin && (
+          <>
+            {/* a link, not a button: the server answers with a redirect to the license server */}
+            <a className="login-submit login-license" href={licenseLoginStartUrl}>
+              Sign in with Relatude.License
+            </a>
+            <div className="login-divider">or with the master account</div>
+          </>
+        )}
         <label className="login-field">
           Username
-          <input autoFocus autoComplete="username" value={userName} onChange={(e) => setUserName(e.target.value)} />
+          <input autoFocus={!licenseLogin} autoComplete="username" value={userName} onChange={(e) => setUserName(e.target.value)} />
         </label>
         <label className="login-field">
           Password
@@ -67,9 +93,12 @@ export function Login({ onLoggedIn, theme, onToggleTheme }: LoginProps) {
           Remember me
         </label>
         {!hasUsers && (
-          <div className="login-error">No master user is configured on this server, so logging in is not possible.</div>
+          <div className="login-error">
+            {licenseLogin
+              ? "No master user is configured on this server; sign in with Relatude.License above."
+              : "No master user is configured on this server, so logging in is not possible."}
+          </div>
         )}
-        {error && <div className="login-error">{error}</div>}
         <button className="login-submit" disabled={busy || !hasUsers}>
           {busy ? "Signing in…" : "Sign in"}
         </button>

@@ -35,6 +35,8 @@ export function fetchServerInfo(): Promise<ServerInfo> {
 export interface WhoAmI {
   userName: string | null;
   viaLocalhost: boolean;
+  /** How the session was opened: "master" or "license" (a Relatude.License account); null under the bypass. */
+  via: "master" | "license" | null;
   canLogOut: boolean;
   machine: string;
 }

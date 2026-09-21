@@ -36,3 +36,18 @@ export async function login(userName: string, password: string, remember: boolea
 export async function logout(): Promise<void> {
   await postRaw("logout"); // empty response body
 }
+
+// Sign in with Relatude.License (see LicenseLogin.cs on the server). Whether the login page should
+// offer it: the server has the license and API keys and AllowLicenseeAdminLogin is on.
+export interface LicenseLoginOptions {
+  available: boolean;
+  serverUrl: string | null;
+}
+
+export function licenseLoginOptions(): Promise<LicenseLoginOptions> {
+  return post<LicenseLoginOptions>("license-login-options");
+}
+
+// A navigation, not a fetch: the server registers the sign-in with the license server and sends
+// the browser there; it comes back to the callback next to this url, and from there to the UI root.
+export const licenseLoginStartUrl = `${base}/license-login/start/`;

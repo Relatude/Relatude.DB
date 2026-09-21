@@ -20,6 +20,20 @@ public class RelatudeDBServerSettings {
     public bool NoLoginRequiredForLocalhost { get; set; } = true;
     public int TokenCookieMaxAgeInSec { get; set; } = 60 * 60 * 24 * 10; // 10 days
 
+    // Relatude.License: the license this installation runs under, and whether its users may sign in here with it.
+    /// <summary>The license key from the Relatude.License portal: the license's id. With <see cref="ApiKey"/> it
+    /// lets this installation report in and use the Relatude services.</summary>
+    public string? LicenseKey { get; set; }
+    /// <summary>An API key issued for that license in the portal. It lets whoever holds it act as this
+    /// installation towards the license server, so keep it in configuration or user secrets rather than here.</summary>
+    public string? ApiKey { get; set; }
+    /// <summary>Offers "Sign in with Relatude.License" on the login page. Who gets in is the license
+    /// server's decision: the owner of the license, and the users the owner has granted this installation
+    /// to. The master login stays as the fallback. See <see cref="LicenseLogin"/>.</summary>
+    public bool AllowLicenseeAdminLogin { get; set; } = false;
+    /// <summary>Where the Relatude.License server is. Only a self-hosted or test server needs this changed.</summary>
+    public string LicenseServerUrl { get; set; } = Defaults.LicenseServerUrl;
+
     public string? DBAdminUIUrlPath { get; set; }
     public string? DBSettingsFilePath { get; set; }
 
