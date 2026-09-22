@@ -31,6 +31,15 @@ public class RelatudeDBServerSettings {
     /// server's decision: the owner of the license, and the users the owner has granted this installation
     /// to. The master login stays as the fallback. See <see cref="LicenseLogin"/>.</summary>
     public bool AllowLicenseeAdminLogin { get; set; } = false;
+    /// <summary>
+    /// Stops this installation reporting in to the license server. Written as the exception rather
+    /// than the rule so that the reporting an installation has always done is what an absent
+    /// setting means: false, the default, keeps it. What one report carries, and what is lost by
+    /// turning it off, is on the setting in the admin UI (<c>SettingsCatalog</c>) and in
+    /// <see cref="LicenseLogin.StartHeartbeat"/>.
+    /// <para>Read at each beat, so switching it on stops the next one without a restart.</para>
+    /// </summary>
+    public bool DisableHeartbeat { get; set; }
     /// <summary>Where the Relatude.License server is. Only a self-hosted or test server needs this changed.</summary>
     public string LicenseServerUrl { get; set; } = Defaults.LicenseServerUrl;
 

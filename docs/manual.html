@@ -1969,6 +1969,12 @@ to install: <code>AzureAIProvider</code> (Azure OpenAI, the default) with
 <code>https://api.openai.com/v1</code> — point it at Mistral, Groq, Ollama or similar); and
 <code>AnthropicAIProvider</code> for Claude completions, which pairs with an OpenAI-compatible
 <code>EmbeddingServiceUrl</code>/<code>EmbeddingApiKey</code>/<code>EmbeddingModel</code> since Anthropic has no embeddings API.
+There is also <code>RelatudeServices</code>, which needs no account with an AI vendor at all: it calls the
+hosted Relatude AI service, which holds the vendor credentials and meters every call against your
+Relatude license. <code>ApiKey</code> is then the API key issued with that license, and <code>EmbeddingModel</code> /
+<code>CompletionModel</code> are model keys the service publishes rather than vendor model names. The license
+has to carry the AI feature and a credit account with a balance; a refusal (no feature, no credits,
+too many calls) comes back as an error naming the reason.
 The vector index engine itself is not an AI setting: it is chosen in <code>LocalSettings</code> like the
 other index kinds (<code>VectorIndexes</code> and <code>DefaultVectorIndex</code>, see below), and only exists on a
 container that has <code>AISettings</code>.</p>
@@ -2309,7 +2315,7 @@ store, one file per upload.</p>
 <tr>
 <td><code>TypeName</code></td>
 <td><code>AzureAIProvider</code></td>
-<td><code>AzureAIProvider</code> (Azure OpenAI), <code>OpenAIProvider</code> / <code>OpenAI</code>, <code>AnthropicAIProvider</code> / <code>Anthropic</code>, <code>DummyAIProvider</code> (placeholder vectors — useful in tests, and for opening a database whose real provider is unavailable), or the full name of your own <code>IAIProvider</code>. All the built-ins ship inside <code>Relatude.DB.Server</code>.</td>
+<td><code>AzureAIProvider</code> (Azure OpenAI), <code>OpenAIProvider</code> / <code>OpenAI</code>, <code>AnthropicAIProvider</code> / <code>Anthropic</code>, <code>RelatudeServices</code> (the hosted Relatude AI service, billed to your Relatude license instead of a vendor account), <code>DummyAIProvider</code> (placeholder vectors — useful in tests, and for opening a database whose real provider is unavailable), or the full name of your own <code>IAIProvider</code>. All the built-ins ship inside <code>Relatude.DB.Server</code>.</td>
 </tr>
 <tr>
 <td><code>Name</code></td>
@@ -2324,7 +2330,7 @@ store, one file per upload.</p>
 <tr>
 <td><code>ApiKey</code></td>
 <td>null</td>
-<td>Belongs in the <code>RelatudeDB</code> configuration section, not in this file.</td>
+<td>Belongs in the <code>RelatudeDB</code> configuration section, not in this file. For <code>RelatudeServices</code> it is the API key issued with your Relatude license.</td>
 </tr>
 <tr>
 <td><code>ApiVersion</code></td>

@@ -19,6 +19,7 @@ import {
   IconFolders,
   IconGauge,
   IconLock,
+  IconMessage,
   IconPlus,
   IconRefresh,
   IconReload,
@@ -40,11 +41,13 @@ import { peekSearchTarget, peekSettingsTarget, takeSearchTarget, takeSettingsTar
 import { closeStore, openStore } from "../server/storage";
 import {
   addListItem,
+  fetchAiModels,
   fetchDatabaseSettings,
   fetchServerSettings,
   removeListItem,
   saveDatabaseSettings,
   saveServerSettings,
+  type AiModelChoices,
   type SettingChoice,
   type SettingList,
   type SettingListItem,
@@ -60,6 +63,10 @@ import {
 // highlight.
 const scrollOffset = 12;
 const spyLine = scrollOffset + 2;
+
+// what the AI model fields offer before anything has been fetched, and for a provider that
+// publishes no list: the same shape, so those fields are never a special case below
+const noAiModels: AiModelChoices = { embeddings: [], completions: [] };
 
 /**
  * The settings pages, server scope and database scope alike. The server sends the whole page -
@@ -123,6 +130,44 @@ export function SettingsSection({
     [page],
   );
   const byPath = useMemo(() => new Map(all.map((s) => [s.path, s])), [all]);
+
+  // The two model fields in the AI group offer what the configured AI service publishes. Only one
+  // kind of provider publishes anything, so the list is fetched on its own rather than built into
+  // the page, and it follows the provider type and service url as they are edited rather than as
+  // they were saved: choosing the Relatude service fills both drop-downs without saving first.
+  // A provider that publishes nothing answers with two empty lists, which leaves those fields the
+  // plain text boxes a vendor's own model name needs.
+  const [aiModels, setAiModels] = useState<AiModelChoices>(noAiModels);
+  const aiProviderType = asText(edits["AISettings.TypeName"] ?? byPath.get("AISettings.TypeName")?.value);
+  const aiServiceUrl = asText(edits["AISettings.ServiceUrl"] ?? byPath.get("AISettings.ServiceUrl")?.value);
+  useEffect(() => {
+    if (!aiProviderType) {
+      setAiModels(noAiModels);
+      return;
+    }
+    let cancelled = false;
+    // both fields are free text, so this waits for a pause rather than asking on every keystroke
+    const timer = window.setTimeout(() => {
+      fetchAiModels(aiProviderType, aiServiceUrl)
+        .then((models) => !cancelled && setAiModels(models))
+        // the fields work without the list, and the failure is the service's rather than the page's
+        .catch(() => !cancelled && setAiModels(noAiModels));
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [aiProviderType, aiServiceUrl]);
+
+  const pickers = useMemo(
+    () => ({
+      ...(page?.pickers ?? {}),
+      aiEmbeddingModels: aiModels.embeddings,
+      aiCompletionModels: aiModels.completions,
+    }),
+    [page, aiModels],
+  );
+
   const editedPaths = Object.keys(edits);
   // a number field left blank has no value to post, and a required one would silently become zero
   const invalid = editedPaths.filter((path) => {
@@ -449,7 +494,7 @@ export function SettingsSection({
                     {group.list && storeId && (
                       <ListEditor
                         list={group.list}
-                        pickers={page.pickers}
+                        pickers={pickers}
                         edits={edits}
                         onChange={setValue}
                         onRevert={revert}
@@ -463,7 +508,7 @@ export function SettingsSection({
                         <SettingRow
                           key={setting.path}
                           setting={setting}
-                          pickers={page.pickers}
+                          pickers={pickers}
                           edit={edits[setting.path]}
                           edited={edits[setting.path] !== undefined}
                           showComment={showComments}
@@ -516,6 +561,7 @@ const sectionIcons: Record<string, ComponentType<{ size?: number; stroke?: numbe
   content: IconFileText,
   performance: IconGauge,
   search: IconSparkles,
+  messaging: IconMessage,
   maintenance: IconArchive,
   diagnostics: IconStethoscope,
 };
@@ -817,12 +863,18 @@ function Editor({
       </label>
     );
   }
-  const options = setting.choices ?? (setting.picker ? pickers[setting.picker] : undefined);
-  // suggestions rather than choices: the known values are one click away, but the field is still
-  // free text, so a value the server has never heard of can be typed in
-  if (options && setting.allowCustom) {
-    return <Combo setting={setting} options={options} value={value} disabled={disabled} onChange={onChange} />;
+  const listed = setting.choices ?? (setting.picker ? pickers[setting.picker] : undefined);
+  // Suggestions rather than choices: the known values are one click away, but the field is still
+  // free text, so a value the server has never heard of can be typed in. A runtime list that came
+  // back empty - an AI provider that publishes no model names - is no list at all, and falls
+  // through to the plain text field the value needs anyway rather than to an empty combo box.
+  if (listed && setting.allowCustom) {
+    if (listed.length > 0) {
+      return <Combo setting={setting} options={listed} value={value} disabled={disabled} onChange={onChange} />;
+    }
   }
+  // a closed list: the value has to be one of these, so an empty one still shows as such
+  const options = setting.allowCustom ? undefined : listed;
   // a long list (cultures) is a type-ahead field, a short one a plain drop-down
   if (options && options.length > 40) {
     return (

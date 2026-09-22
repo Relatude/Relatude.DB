@@ -9,6 +9,7 @@ using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer.Settings;
+using Relatude.DB.SMS;
 using Relatude.DB.Tasks;
 using Relatude.DB.Web;
 using System.Diagnostics;
@@ -238,6 +239,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     }
     void initializeCore() {
         AIEngine? ai = null;
+        ISMSProvider? sms = null;
         try {
             // before anything reads the log files: the store opens its own logger on them
             if (_logger != null) { _logger.Dispose(); _logger = null; }
@@ -282,6 +284,11 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 if (!Directory.Exists(aiFolder)) Directory.CreateDirectory(aiFolder);
                 ai = AIProviderFactory.Create(settings.AISettings, aiFolder);
             }
+            // Nothing in the database sends a message, so this is built for application code alone
+            // (NodeStore.SMS) and has no folder, cache or engine around it. It is resolved here all
+            // the same, so a provider that cannot be built says so when the database opens rather
+            // than the first time someone tries to send something.
+            if (settings.SMSSettings != null) sms = LateBindings.CreateSmsProvider(settings.SMSSettings);
 
             List<string> toLog = new();
             var indexFolderPath = resolveIndexFolderPath(local, localDiskFolder);
@@ -342,11 +349,15 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             // yet - but it is also what a mistyped namespace or path looks like, and a model that
             // quietly lost its types would leave the stored nodes without them. So it is a warning.
             foreach (var notice in Datamodel.SourceNotices) datastore.LogWarning(notice);
-            Store = new NodeStore(datastore);
+            Store = new NodeStore(datastore, sms);
             server?.RaiseEventStoreInit(this, Store);
         } catch {
             if (Store == null && ai != null) {
                 try { ai.Dispose(); } catch { }
+            }
+            // the store never took ownership, so nothing else will close its http client
+            if (Store == null && sms != null) {
+                try { sms.Dispose(); } catch { }
             }
             Interlocked.Increment(ref _hasFailedCounter);
             throw;

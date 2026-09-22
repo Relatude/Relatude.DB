@@ -34,6 +34,7 @@ public sealed class UIServer {
         Commands = new UICommands(server);
         registerBuiltInCommands();
         new UISettings(server).Register(Commands);
+        new UILicense(server).Register(Commands);
         _logs = new UILogs(server);
         _logs.Register(Commands);
         _transfer = new UIFileTransfer(server);

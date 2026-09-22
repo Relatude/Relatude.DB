@@ -141,6 +141,25 @@ export function fetchDatabaseSettings(storeId: string): Promise<SettingsPage> {
   return send<SettingsPage>("settings-db-get", { storeId });
 }
 
+/**
+ * The models the configured AI service publishes, for the two model fields in the AI group. Asked
+ * for on its own rather than with the page: it follows the provider type as it is edited rather
+ * than as it was saved, and a service that cannot be reached must not hold up the settings page.
+ *
+ * A provider type that publishes no list answers with two empty lists rather than an error, which
+ * is what leaves those fields as the plain text boxes a vendor's own model name needs. `error` is
+ * set when the service was asked and could not answer; the fields still work.
+ */
+export interface AiModelChoices {
+  embeddings: SettingChoice[];
+  completions: SettingChoice[];
+  error?: string | null;
+}
+
+export function fetchAiModels(typeName: string, serviceUrl: string): Promise<AiModelChoices> {
+  return send<AiModelChoices>("settings-ai-models", { typeName, serviceUrl });
+}
+
 export function saveDatabaseSettings(storeId: string, values: SettingValues, reopen: boolean): Promise<SettingsSaveResult> {
   return send<SettingsSaveResult>("settings-db-save", { storeId, values, reopen });
 }

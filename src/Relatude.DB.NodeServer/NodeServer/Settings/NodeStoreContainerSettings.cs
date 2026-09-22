@@ -1,6 +1,7 @@
 using Relatude.DB.AI;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
+using Relatude.DB.SMS;
 
 namespace Relatude.DB.NodeServer.Settings;
 
@@ -26,6 +27,8 @@ public class NodeStoreContainerSettings : NodeStoreContainerSettingsBase {
     public Guid? IoBackup { get; set; }
     public Guid? IoLog { get; set; }
     public AIProviderSettings? AISettings { get; set; }
+    /// <summary>How this database sends text messages, reached from code as <c>NodeStore.SMS</c>. Null on a database that sends none.</summary>
+    public SMSProviderSettings? SMSSettings { get; set; }
     public DatamodelSource[]? DatamodelSources { get; set; }
     public SettingsLocal? LocalSettings { get; set; }
 }

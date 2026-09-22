@@ -389,6 +389,31 @@ public class SettingsCatalogTests {
         Assert.IsFalse(overlay.IsOverridden(SettingsOverlay.OverridePath(container.Id, "IOSettings[" + ioId + "].Name"), out _));
     }
 
+    /// <summary>
+    /// Reporting in sends data to somebody else's server, so it has to be switchable from where a
+    /// sceptical administrator would look for it, take effect without a restart, and say in its own
+    /// help what a report carries and what stopping it costs. The switch is the exception rather
+    /// than the rule - it disables - so that an absent setting keeps the reporting every
+    /// installation did before it existed, and nobody's behaviour changes by upgrading.
+    /// </summary>
+    [TestMethod]
+    public void ReportingInCanBeTurnedOffAndSaysWhatItSends() {
+        var setting = SettingsCatalog.Server.SelectMany(s => s.Groups)
+            .Single(g => g.Id == "relatude-license").Settings
+            .Single(s => s.Path == nameof(RelatudeDBServerSettings.DisableHeartbeat));
+
+        Assert.AreEqual(SettingApplies.Live, setting.Applies, "stopping the reporting must take effect without waiting for a restart.");
+        Assert.IsFalse(setting.ReadOnly, "it is the administrator's choice to make.");
+        Assert.IsFalse(new RelatudeDBServerSettings().DisableHeartbeat, "reporting in is what an installation does unless it is switched off.");
+        Assert.AreEqual(SettingEditor.Toggle, SettingsAccessor.Describe(typeof(RelatudeDBServerSettings), setting.Path).Editor);
+
+        // short, but it still has to answer "what leaves my server" and "what do I lose"
+        foreach (var owed in new[] { "API key", "machine", "version", "node", "portal" }) {
+            StringAssert.Contains(setting.Help, owed,
+                "the help for reporting in should mention \"" + owed + "\": it is what someone deciding whether to allow it needs to know.");
+        }
+    }
+
     /// <summary>A generated value only makes sense in a free text field that holds a random key or
     /// secret: a choice, a picker or a number has nothing random to offer.</summary>
     [TestMethod]

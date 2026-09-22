@@ -1,4 +1,6 @@
+using Relatude.DB.AI;
 using Relatude.DB.DataStores;
+using Relatude.DB.SMS;
 
 namespace Relatude.DB.NodeServer.Settings;
 
@@ -32,6 +34,13 @@ public sealed class SettingDefinition {
     /// <summary>Fills the field from a runtime list instead of free text: "databases",
     /// "ioProviders", "fileStores" or "cultures". See <c>UISettings.buildPickers</c>.</summary>
     public string? Picker { get; init; }
+    /// <summary>Only with <see cref="Picker"/>: the list is what is on offer rather than what is
+    /// legal, so the field stays free text with the list one click away - the editor a
+    /// <see cref="Suggestions"/> setting gets, but filled at runtime. For a setting whose known
+    /// values depend on what is configured (the models an AI service publishes) while any other
+    /// value still saves. A picker without this is a closed drop-down, and an empty one leaves an
+    /// ordinary text field, which is what a provider with no published list should look like.</summary>
+    public bool AllowCustom { get; init; }
     /// <summary>Enum members not offered as choices, for values the settings file may not hold - the
     /// datamodel source type <c>Code</c>, which only model types added from code carry. A value already
     /// stored is still shown, so an excluded one is visible rather than silently replaced.</summary>
@@ -74,6 +83,21 @@ public sealed class SettingLink {
 public static class SettingGenerators {
     /// <summary>A new random guid, written in its usual dashed form.</summary>
     public const string Guid = "guid";
+}
+
+/// <summary>
+/// The runtime lists a <see cref="SettingDefinition.Picker"/> can name that are not built with the
+/// page. The lists that are - the databases, the storage providers, the file stores, the cultures,
+/// the index engines - are named where they are filled, in <c>UISettings</c>, and read straight off
+/// the settings object beside them. These two are fetched from an AI service instead, on their own
+/// command and only when a provider that publishes them is chosen, so the name is written in two
+/// places and is a constant rather than a literal in each.
+/// </summary>
+public static class SettingPickers {
+    /// <summary>Embedding model names, from the configured AI service. Empty for a provider that publishes none.</summary>
+    public const string AiEmbeddingModels = "aiEmbeddingModels";
+    /// <summary>Completion model names, from the configured AI service. Empty for a provider that publishes none.</summary>
+    public const string AiCompletionModels = "aiCompletionModels";
 }
 
 /// <summary>One of the values a free text setting offers. <see cref="Hint"/> is a few words shown
@@ -258,7 +282,7 @@ public static class SettingsCatalog {
                 new() {
                     Id = "relatude-license",
                     Title = "Relatude.License",
-                    Help = "The license this installation runs under, from the Relatude.License portal. With both keys set the installation reports in and can use the Relatude services; with the sign-in switch on, the owner of the license and the users they grant can sign in here with their Relatude.License account instead of the master password.",
+                    Help = "The license this installation runs under, from the Relatude.License portal. Both keys set is what lets it use the Relatude services and report in, and reporting in can be turned off on its own below. With the sign-in switch on, the owner of the license and the users they grant can sign in here with their Relatude.License account instead of the master password.",
                     Settings = [
                         new() {
                             Path = "LicenseKey", Label = "License key", Applies = SettingApplies.Live,
@@ -273,8 +297,19 @@ public static class SettingsCatalog {
                             Help = "Shows \"Sign in with Relatude.License\" on the login page. Who gets in is decided by the license server: the owner of the license, and anyone the owner has granted this installation to in the portal. Turning it off ends those sessions at once; the master login is unaffected either way.",
                         },
                         new() {
+                            // Someone reading this switch is deciding whether to let their server
+                            // talk to somebody else's on a schedule. Short, but it still has to name
+                            // what goes out and what is lost by stopping it: anything vaguer is
+                            // asking them to take it on trust.
+                            Path = "DisableHeartbeat", Label = "Disable reporting in", Applies = SettingApplies.Live,
+                            Help = "Off, this installation reports in every ten minutes: the API key, an installation key (this server's id and a "
+                                + "fingerprint of the machine), the server and machine name, version and node count. No content, no queries, nothing "
+                                + "about your users. On, nothing is sent and the database runs the same - reporting counts the license, it does not "
+                                + "enforce it - but the portal stops showing this installation.",
+                        },
+                        new() {
                             Path = "LicenseServerUrl", Label = "License server", Applies = SettingApplies.Live, Placeholder = Defaults.LicenseServerUrl,
-                            Help = "Only for a self-hosted or test license server.",
+                            Help = "Only for a self-hosted or test license server. Everything the sign-in and the reporting send goes there instead.",
                         },
                     ],
                 },
@@ -902,6 +937,9 @@ public static class SettingsCatalog {
                                 new() { Value = "AzureAI", Hint = "the default" },
                                 new() { Value = "OpenAI", Hint = "api.openai.com" },
                                 new() { Value = "Anthropic", Hint = "needs a separate embedding endpoint" },
+                                // the constant, so the name offered here, the one CreateAiProvider
+                                // answers to and the one the model lists are fetched for are one string
+                                new() { Value = RelatudeServicesAIProvider.ShortName, Hint = "billed to your Relatude license, no vendor account" },
                                 new() { Value = "Dummy", Hint = "fixed vectors, for tests" },
                             ],
                         },
@@ -919,19 +957,27 @@ public static class SettingsCatalog {
                             Help = "Overrides the api-version query parameter for providers that take one, such as Azure OpenAI.",
                         },
                         new() {
+                            // the Relatude service publishes the names it takes, so they are offered
+                            // as a list; every other provider takes the vendor's own model name and
+                            // gets an empty list, which leaves the plain text field
                             Path = "AISettings.EmbeddingModel", Label = "Embedding model",
-                            Help = "The model used to turn text into vectors. Changing it changes the vector space, so an existing semantic index has to be rebuilt to stay comparable.",
+                            Picker = SettingPickers.AiEmbeddingModels, AllowCustom = true,
+                            Help = "The model used to turn text into vectors. Changing it changes the vector space, so an existing semantic index has to be rebuilt to stay comparable. With the Relatude service the models it offers are listed here; with any other provider this is the vendor's own model name.",
                         },
                         new() {
                             Path = "AISettings.ModelDimensions", Label = "Embedding dimensions",
-                            Help = "The vector length the model returns. Set it when the model or endpoint does not report one - a wrong value makes every vector a placeholder, and search quietly returns nothing useful.",
+                            Help = "The vector length the model returns. Leave it empty and the first vector settles it, which is what the model decides anyway - so choosing the embedding model is normally the whole of the choice. Set it only to pin the length up front; a value that disagrees with the model is then an error rather than a silent mismatch.",
                         },
                         new() {
                             Path = "AISettings.EmbeddingServiceUrl", Label = "Embedding endpoint",
                             Help = "Only when embeddings come from a different endpoint than completions. Required for providers without an embeddings API, where it must point at an OpenAI-compatible one.",
                         },
                         new() { Path = "AISettings.EmbeddingApiKey", Label = "Embedding API key", Secret = true, Help = "The key for that separate embedding endpoint. Falls back to the main API key when empty." },
-                        new() { Path = "AISettings.CompletionModel", Label = "Completion model", Help = "The model used for text generation, for code that asks the store for completions." },
+                        new() {
+                            Path = "AISettings.CompletionModel", Label = "Completion model",
+                            Picker = SettingPickers.AiCompletionModels, AllowCustom = true,
+                            Help = "The model used for text generation, for code that asks the store for completions. With the Relatude service the models it offers are listed here; with any other provider this is the vendor's own model name.",
+                        },
                         new() {
                             Path = "AISettings.MaxOutputTokens", Label = "Max output tokens",
                             Help = "Upper bound on a completion's length. Sent only when set; providers that require it default to 4096.",
@@ -955,6 +1001,39 @@ public static class SettingsCatalog {
                         new() { Path = "AISettings.MaxCharsInBatch", Label = "Max characters per batch", Help = "Caps how much text is sent in one embedding request. Lower it when the provider rejects large batches. Defaults to 50 000." },
                         new() { Path = "AISettings.MaxCountInBatch", Label = "Max items per batch", Help = "Caps how many texts go in one embedding request. Defaults to 500." },
                         new() { Path = "AISettings.MaxCharsOfEach", Label = "Max characters per item", Help = "Longer values are truncated before embedding. This bounds the cost of one very long document. Defaults to 20 000." },
+                    ],
+                },
+            ],
+        },
+        new() {
+            Id = "messaging", Title = "Messaging", Icon = "messaging",
+            Groups = [
+                new() {
+                    Id = "sms",
+                    Title = "SMS provider",
+                    Help = "How this database sends text messages. Nothing in the database sends one by itself: this is for your own code, which reaches it as NodeStore.SMS. Leave it empty on a database that sends none.",
+                    Settings = [
+                        new() {
+                            Path = "SMSSettings.TypeName", Label = "Provider type", Placeholder = RelatudeServicesSMSProvider.ShortName,
+                            // the names LateBindings.CreateSmsProvider knows; LateBindingsTests checks they stay in step
+                            Help = "Selects the provider implementation. The Relatude service is the only one built in, and what an empty value means; anything else is taken as the full type name of a custom provider and resolved when the database opens, so a typo shows up as a start-up error.",
+                            Suggestions = [
+                                new() { Value = RelatudeServicesSMSProvider.ShortName, Hint = "billed to your Relatude license, no gateway account" },
+                            ],
+                        },
+                        new() { Path = "SMSSettings.Name", Label = "Display name", Help = "A label for this configuration in the admin UI. Not sent anywhere." },
+                        new() {
+                            Path = "SMSSettings.ServiceUrl", Label = "Service URL",
+                            Help = "The endpoint the provider calls. Leave it empty for the hosted Relatude SMS service; set it for a self-hosted deployment.",
+                        },
+                        new() {
+                            Path = "SMSSettings.ApiKey", Label = "API key", Secret = true,
+                            Help = "The key issued with your Relatude license, which is what the service charges each message to. Keep it in appsettings, an environment variable or user secrets rather than the settings file - configuration values are never written back to disk.",
+                        },
+                        new() {
+                            Path = "SMSSettings.From", Label = "Sender", Placeholder = "the service's own",
+                            Help = "What the message appears to come from. Gateways only allow senders registered with them, so the service may refuse or replace it; leave it empty to use the service's own.",
+                        },
                     ],
                 },
             ],

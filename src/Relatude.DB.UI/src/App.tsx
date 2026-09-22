@@ -5,6 +5,7 @@ import { DatamodelSection } from "./components/DatamodelSection";
 import { DialogHost } from "./components/DialogHost";
 import { FilesStorageSection, type FilesStorageView } from "./components/FilesStorageSection";
 import { Header } from "./components/Header";
+import { LicenseSection } from "./components/LicenseSection";
 import { Login } from "./components/Login";
 import { LogsSection } from "./components/LogsSection";
 import { Overview } from "./components/Overview";
@@ -16,6 +17,7 @@ import { sections } from "./navigation";
 import { peekDatamodelTarget, peekQueryTarget, peekSearchTarget, peekSettingsTarget, useNavigationRequest } from "./navigate";
 import { isLoggedIn, logout } from "./server/auth";
 import { disconnect, subscribe, subscribeResync, subscribeUnauthorized } from "./server/channel";
+import { fetchLicenseStatus, type LicenseStatus } from "./server/license";
 import { fetchServerInfo, type DatabaseInfo, type ServerInfo } from "./server/serverInfo";
 import { applyTheme, getInitialTheme } from "./theme";
 
@@ -35,6 +37,10 @@ export function App() {
   const [activeDbId, setActiveDbId] = useState<string | null>(null);
   const [activeSectionId, setActiveSectionId] = useState("dashboard");
   const [navOpen, setNavOpen] = useState(true);
+  // The rail marks the License entry when there is no license or the keys are refused, so the one
+  // place that says so is not a page nobody has opened. Asked once: it changes when someone changes
+  // it, and the page hands the fresh answer back rather than making the rail poll for it.
+  const [license, setLicense] = useState<LicenseStatus | null>(null);
   useEffect(() => applyTheme(theme), [theme]);
   useEffect(() => {
     if (forceLogin) {
@@ -54,6 +60,16 @@ export function App() {
       }),
     [],
   );
+  useEffect(() => {
+    if (auth !== "ready") return;
+    let cancelled = false;
+    fetchLicenseStatus()
+      .then((s) => !cancelled && setLicense(s))
+      .catch(() => {}); // the rail simply carries no mark when the question cannot be answered
+    return () => {
+      cancelled = true;
+    };
+  }, [auth]);
   function applyContainers(containers: DatabaseInfo[]) {
     setActiveDbId((prev) => (prev && containers.some((c) => c.id === prev) ? prev : (containers[0]?.id ?? null)));
   }
@@ -146,6 +162,7 @@ export function App() {
           onToggleCollapsed={() => setNavOpen(!navOpen)}
           databases={databases}
           activeDb={activeDb}
+          license={license}
           activeSectionId={activeSectionId}
           onSelectSection={setActiveSectionId}
           onLogout={handleLogout}
@@ -167,6 +184,9 @@ export function App() {
             />
           ) : activeSectionId === "server-overview" ? (
             <Overview />
+          ) : activeSectionId === "server-license" ? (
+            // the page hands its answer back, so the mark in the rail follows a key being fixed here
+            <LicenseSection onChanged={setLicense} />
           ) : section.scope === "server" && (activeSectionId === "server-settings" || section.settingsSection) ? (
             // an entry that names part of the settings renders the settings page opened there
             <SettingsSection key={activeSectionId} focusSection={section.settingsSection} />

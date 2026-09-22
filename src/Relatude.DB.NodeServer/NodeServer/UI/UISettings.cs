@@ -1,5 +1,7 @@
+using Relatude.DB.AI;
 using Relatude.DB.DataStores;
 using Relatude.DB.NodeServer.Settings;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
@@ -36,6 +38,52 @@ sealed class UISettings {
         commands.Register("settings-db-save", ctx => saveDatabase(ctx.Payload<SaveDatabaseSettingsPayload>()));
         commands.Register("settings-db-list-add", ctx => listAdd(ctx.Payload<ListAddPayload>()));
         commands.Register("settings-db-list-remove", ctx => listRemove(ctx.Payload<ListItemPayload>()));
+        commands.Register("settings-ai-models", ctx => aiModels(ctx.Payload<AiModelsPayload>()));
+    }
+
+    // ---- the models an AI service publishes ----
+
+    /// <summary>
+    /// What the two model fields in the AI group offer, asked for on its own rather than built with
+    /// the page: only one kind of provider publishes a list, the page has to follow the provider
+    /// type as it is edited rather than as it was saved, and an unreachable service must cost the
+    /// settings page nothing. An unknown provider type answers with two empty lists, which is what
+    /// leaves the fields as the plain text boxes every vendor's own model name needs.
+    ///
+    /// <para>A failure is reported in <c>Error</c> rather than thrown: the fields still work, and
+    /// "the list could not be fetched" is something to say beside them, not instead of them.</para>
+    /// </summary>
+    static async Task<object?> aiModels(AiModelsPayload payload) {
+        if (!RelatudeServicesAIProvider.IsProviderName(payload.TypeName)) return new { Embeddings = Array.Empty<object>(), Completions = Array.Empty<object>(), Error = (string?)null };
+        try {
+            var models = await _aiModelCache.GetAsync(payload.ServiceUrl);
+            return new { Embeddings = modelChoices(models.EmbeddingModels), Completions = modelChoices(models.CompletionModels), Error = (string?)null };
+        } catch (Exception ex) {
+            return new { Embeddings = Array.Empty<object>(), Completions = Array.Empty<object>(), Error = ex.Message };
+        }
+    }
+
+    static object[] modelChoices(string[] models) => [.. models.Select(m => new { Value = m, Label = m })];
+
+    /// <summary>
+    /// The published model lists, per service url, for a few minutes. The settings page asks every
+    /// time the provider type or the service url changes, which is on every keystroke in a free text
+    /// field; the list itself changes about as often as the service is deployed.
+    /// </summary>
+    static readonly AiModelCache _aiModelCache = new(TimeSpan.FromMinutes(5));
+
+    sealed class AiModelCache(TimeSpan lifetime) {
+        readonly ConcurrentDictionary<string, (DateTime Fetched, RelatudeServicesModels Models)> _entries = new(StringComparer.OrdinalIgnoreCase);
+
+        public async Task<RelatudeServicesModels> GetAsync(string? serviceUrl) {
+            var key = (serviceUrl ?? string.Empty).Trim().TrimEnd('/');
+            if (_entries.TryGetValue(key, out var entry) && DateTime.UtcNow - entry.Fetched < lifetime) return entry.Models;
+            // Two pages asking at once would fetch twice, which is a wasted request and nothing
+            // worse: the answer is the same either way and the second one replaces the first.
+            var models = await RelatudeServicesAIProvider.GetAvailableModelsAsync(serviceUrl);
+            _entries[key] = (DateTime.UtcNow, models);
+            return models;
+        }
     }
 
     // ---- reading ----
@@ -173,8 +221,9 @@ sealed class UISettings {
             description.Optional,
             Choices = choices(description, definition, value),
             // the choices of a suggested-values setting are a starting point, not the set of legal
-            // values, so the field stays a text field with the list beside it
-            AllowCustom = description.EnumNames == null && definition.Suggestions != null,
+            // values, so the field stays a text field with the list beside it; a picker says the
+            // same about itself with AllowCustom, for a list that is only known at runtime
+            AllowCustom = description.EnumNames == null && (definition.Suggestions != null || definition.AllowCustom),
             // a secret is never handed back to the browser: the field shows whether one is set, and
             // a save only carries it when someone actually typed a new one
             Value = isSecret ? null : value,
@@ -550,6 +599,7 @@ sealed record VisibilityView(string Path, string[] Values, VisibilityView? And) 
     public static VisibilityView? From(Settings.SettingVisibility? rule, string prefix)
         => rule == null ? null : new(prefix + rule.Path, rule.Values, From(rule.And, prefix));
 }
+sealed record AiModelsPayload(string? TypeName, string? ServiceUrl);
 sealed record DatabaseSettingsPayload(Guid StoreId);
 sealed record SaveServerSettingsPayload(Dictionary<string, JsonElement>? Values);
 sealed record SaveDatabaseSettingsPayload(Guid StoreId, Dictionary<string, JsonElement>? Values, bool Reopen);

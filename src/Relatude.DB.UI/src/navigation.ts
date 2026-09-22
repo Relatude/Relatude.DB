@@ -15,6 +15,7 @@ import {
   IconAdjustments,
   IconLock,
   IconTransform,
+  IconCertificate,
 } from "@tabler/icons-react";
 
 export type SectionScope = "database" | "server";
@@ -25,7 +26,7 @@ export type SectionScope = "database" | "server";
  * and the `.nav-tone-*` classes in app.css). "plain" is the page's own text colour, which reads as
  * white in the dark theme and as near-black in the light one - the same "no colour of its own".
  */
-export type SectionTone = "plain" | "purple" | "blue-light" | "blue" | "blue-dark" | "orange" | "green" | "yellow" | "pink" | "gray";
+export type SectionTone = "plain" | "purple" | "blue-light" | "blue" | "blue-dark" | "red" | "orange" | "green" | "yellow" | "pink" | "gray";
 
 export interface Section {
   id: string;
@@ -66,6 +67,9 @@ export const sections: Section[] = [
   { id: "server-overview", label: "Overview", scope: "server", icon: IconGauge, tone: "plain" },
   { id: "server-databases", label: "Databases", scope: "server", icon: IconDatabase, tone: "blue" },
   { id: "server-events", label: "Events & exceptions", scope: "server", icon: IconAlertTriangle, hidden: true },
-  { id: "server-settings", label: "Settings", scope: "server", icon: IconAdjustments, tone: "blue-dark" },
+  // its own page rather than part of the settings: the keys are a small part of it, and most of the
+  // page is explaining what a license is for to someone who has just found out it exists
+  { id: "server-license", label: "License", scope: "server", icon: IconCertificate, tone: "green" },
+  { id: "server-settings", label: "Server settings", scope: "server", icon: IconAdjustments, tone: "red" },
   { id: "server-access", label: "Access", scope: "server", icon: IconLock, settingsSection: "security", hidden: true },
 ];

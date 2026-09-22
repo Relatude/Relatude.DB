@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { IconBook, IconChevronLeft, IconChevronRight, IconDeviceDesktop, IconExternalLink, IconLogout, IconUser } from "@tabler/icons-react";
 import { sections, type Section } from "../navigation";
+import { licenseAttention, type LicenseStatus } from "../server/license";
 import { fetchWhoAmI, type DatabaseInfo, type WhoAmI } from "../server/serverInfo";
 
 /** The Relatude.DB site, where the manual is: the one link in the rail that leaves the UI. */
@@ -11,12 +12,14 @@ interface SidebarProps {
   onToggleCollapsed: () => void;
   databases: DatabaseInfo[];
   activeDb: DatabaseInfo | null;
+  /** null until the first answer, and whenever the question could not be asked */
+  license: LicenseStatus | null;
   activeSectionId: string;
   onSelectSection: (id: string) => void;
   onLogout: () => void;
 }
 
-export function Sidebar({ collapsed, onToggleCollapsed, databases, activeDb, activeSectionId, onSelectSection, onLogout }: SidebarProps) {
+export function Sidebar({ collapsed, onToggleCollapsed, databases, activeDb, license, activeSectionId, onSelectSection, onLogout }: SidebarProps) {
   const errors = databases.filter((db) => db.state === "Error").length;
   const conversions = activeDb?.conversionCount ?? 0;
   const tasks = activeDb?.taskCount ?? 0;
@@ -26,6 +29,9 @@ export function Sidebar({ collapsed, onToggleCollapsed, databases, activeDb, act
     if (s.id === "server-databases" && errors > 0) return { text: errors === 1 ? "1 error" : `${errors} errors`, danger: true };
     if (s.id === "storage" && conversions > 0) return { text: String(conversions), danger: false };
     if (s.id === "tasks" && tasks > 0) return { text: tasks > 9999 ? Math.round(tasks / 1000) + "k" : String(tasks), danger: false };
+    // No license is not an error - the database runs without one - so it is marked without the
+    // danger colour; a license the server refuses or will not honour gets it.
+    if (s.id === "server-license") return licenseAttention(license);
     return null;
   };
   return (

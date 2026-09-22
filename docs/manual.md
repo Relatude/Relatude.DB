@@ -1501,6 +1501,12 @@ to install: `AzureAIProvider` (Azure OpenAI, the default) with
 `https://api.openai.com/v1` — point it at Mistral, Groq, Ollama or similar); and
 `AnthropicAIProvider` for Claude completions, which pairs with an OpenAI-compatible
 `EmbeddingServiceUrl`/`EmbeddingApiKey`/`EmbeddingModel` since Anthropic has no embeddings API.
+There is also `RelatudeServices`, which needs no account with an AI vendor at all: it calls the
+hosted Relatude AI service, which holds the vendor credentials and meters every call against your
+Relatude license. `ApiKey` is then the API key issued with that license, and `EmbeddingModel` /
+`CompletionModel` are model keys the service publishes rather than vendor model names. The license
+has to carry the AI feature and a credit account with a balance; a refusal (no feature, no credits,
+too many calls) comes back as an error naming the reason.
 The vector index engine itself is not an AI setting: it is chosen in `LocalSettings` like the
 other index kinds (`VectorIndexes` and `DefaultVectorIndex`, see below), and only exists on a
 container that has `AISettings`.
@@ -1644,10 +1650,10 @@ store, one file per upload.
 
 | Key | Default | What it does |
 |---|---|---|
-| `TypeName` | `AzureAIProvider` | `AzureAIProvider` (Azure OpenAI), `OpenAIProvider` / `OpenAI`, `AnthropicAIProvider` / `Anthropic`, `DummyAIProvider` (placeholder vectors — useful in tests, and for opening a database whose real provider is unavailable), or the full name of your own `IAIProvider`. All the built-ins ship inside `Relatude.DB.Server`. |
+| `TypeName` | `AzureAIProvider` | `AzureAIProvider` (Azure OpenAI), `OpenAIProvider` / `OpenAI`, `AnthropicAIProvider` / `Anthropic`, `RelatudeServices` (the hosted Relatude AI service, billed to your Relatude license instead of a vendor account), `DummyAIProvider` (placeholder vectors — useful in tests, and for opening a database whose real provider is unavailable), or the full name of your own `IAIProvider`. All the built-ins ship inside `Relatude.DB.Server`. |
 | `Name` | null | Label. |
 | `ServiceUrl` | provider default | Azure: the resource endpoint. OpenAI: defaults to `https://api.openai.com/v1`, so point it at Mistral, Groq, Ollama or any other OpenAI-compatible endpoint. |
-| `ApiKey` | null | Belongs in the `RelatudeDB` configuration section, not in this file. |
+| `ApiKey` | null | Belongs in the `RelatudeDB` configuration section, not in this file. For `RelatudeServices` it is the API key issued with your Relatude license. |
 | `ApiVersion` | provider default | Overrides the `api-version` query parameter, for Azure OpenAI. |
 | `EmbeddingModel` | provider default | Model (Azure: deployment) name used for embeddings. |
 | `EmbeddingServiceUrl`, `EmbeddingApiKey` | fall back to `ServiceUrl` / `ApiKey` | A separate embeddings endpoint. **Required for Anthropic**, which has no embeddings API — point them at an OpenAI-compatible endpoint. |

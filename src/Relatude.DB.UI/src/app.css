@@ -67,15 +67,16 @@
   /**
    * The menu's colours: one per rail entry, so a page is recognised by its colour before its name is
    * read. They are their own tokens rather than the semantic ones (--ok, --data, --accent) because
-   * they mean nothing - they are labels, not states - and because a set of eight has to be told
+   * they mean nothing - they are labels, not states - and because a set of nine has to be told
    * apart as a set: the three blues in particular are chosen against each other (cyan-leaning,
-   * true, indigo) rather than each on its own. Every one is a shade that reads on a light panel;
-   * the dark theme lightens all eight below.
+   * true, indigo) rather than each on its own, and the red is held clear of the orange. Every one
+   * is a shade that reads on a light panel; the dark theme lightens all nine below.
    */
   --nav-purple: #6b3fb5;
   --nav-blue-light: #1a86c4;
   --nav-blue: #1f6fd0;
   --nav-blue-dark: #35399b;
+  --nav-red: #c4302a;
   --nav-orange: #cc5a11;
   --nav-green: #2f7a44;
   --nav-yellow: #9a7b00;
@@ -118,12 +119,13 @@
   --term-ok: #6fbf85;
   --term-warn: #e0a45c;
   --term-bad: #f2887f;
-  /* the same eight, lifted to read on a dark panel and kept as far apart from each other as they
+  /* the same nine, lifted to read on a dark panel and kept as far apart from each other as they
      are in the light theme */
   --nav-purple: #b79cf0;
   --nav-blue-light: #6ecbf5;
   --nav-blue: #5c9fe8;
   --nav-blue-dark: #7a86e0;
+  --nav-red: #f2867c;
   --nav-orange: #f5945a;
   --nav-green: #6fbf85;
   --nav-yellow: #e5cd4f;
@@ -1022,6 +1024,10 @@ a {
 
 .nav-tone-blue-dark {
   --nav-tone: var(--nav-blue-dark);
+}
+
+.nav-tone-red {
+  --nav-tone: var(--nav-red);
 }
 
 .nav-tone-orange {
@@ -10705,4 +10711,251 @@ body.pg-resizing {
   flex: 1;
   height: 1px;
   background: var(--border);
+}
+
+/* ---- the License page ----
+   Mostly prose: someone opening it is usually asking "do I need this?", and the answer is a few
+   paragraphs before it is any number of fields. Everything below reads down that order. */
+
+.license-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 900px;
+}
+
+.license-intro p {
+  margin: 0 0 8px;
+  max-width: 78ch;
+  line-height: 1.55;
+}
+
+.license-intro p:last-child {
+  margin-bottom: 0;
+}
+
+.license-muted {
+  color: var(--text-muted);
+}
+
+.license-sub {
+  margin: 16px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* the one line that says where this installation stands, in the colour of that answer */
+.license-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--hover);
+}
+
+.license-status-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.license-status-ok {
+  border-color: color-mix(in srgb, var(--ok) 40%, var(--border));
+}
+
+.license-status-ok .license-status-icon {
+  color: var(--ok);
+}
+
+.license-status-bad {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+
+.license-status-bad .license-status-icon {
+  color: var(--danger);
+}
+
+.license-status-info .license-status-icon {
+  color: var(--text-muted);
+}
+
+.license-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.license-facts {
+  margin-top: 14px;
+}
+
+.license-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 4px;
+  max-width: 620px;
+}
+
+.license-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.license-field-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+.license-field-hint {
+  font-size: 12px;
+}
+
+/* a field configuration decides: shown, explained, and not editable here */
+.license-lock {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.license-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.license-error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.license-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.license-chip {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.license-table {
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 280px;
+}
+
+.license-table td {
+  padding: 4px 12px 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.license-table tr:last-child td {
+  border-bottom: none;
+}
+
+.license-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.license-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.license-account-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+/* what is left of the month, which is the number someone came to this page for */
+.license-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--badge-bg);
+  overflow: hidden;
+}
+
+.license-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+}
+
+.license-bar-fill.full {
+  background: var(--danger);
+}
+
+.license-rates {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* waiting for the portal to answer a pairing: what is being waited for, and the way out of it */
+.license-waiting {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: var(--accent-soft);
+}
+
+.license-waiting .license-status-text {
+  flex: 1;
+}
+
+.license-spinner {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  animation: license-spin 0.8s linear infinite;
+}
+
+@keyframes license-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

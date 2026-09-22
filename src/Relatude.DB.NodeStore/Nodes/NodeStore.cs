@@ -8,6 +8,7 @@ using Relatude.DB.FileConversion;
 using Relatude.DB.IO;
 using Relatude.DB.Native.Models;
 using Relatude.DB.Query;
+using Relatude.DB.SMS;
 using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
 using Relatude.DB.Web;
@@ -93,6 +94,22 @@ public class NodeStore : IDisposable {
     public readonly NodeMapper Mapper;
     /// <summary>The AI engine used for vector embeddings and semantic search, as configured for this database.</summary>
     public AIEngine AI => Datastore.AI;
+    readonly ISMSProvider? _sms;
+    // a store made by Context shares the provider with the one it came from, and must not dispose
+    // what it did not make: there is one provider per database, and it outlives any reading context
+    readonly bool _ownsSms;
+    /// <summary>
+    /// Sends text messages, as configured for this database. Unlike <see cref="AI"/> nothing inside
+    /// the database uses it: it is here so application code can send a message - a confirmation, a
+    /// one-time code - through the account the database is already configured with, rather than
+    /// holding a gateway account of its own.
+    /// <para>Throws when no SMS provider is configured, so check <see cref="HasSMSProvider"/> first
+    /// on a path that has to work either way. The provider is owned by the store and disposed with
+    /// it, so it is not something to dispose after a message.</para>
+    /// </summary>
+    public ISMSProvider SMS => _sms ?? throw new Exception("No SMS provider is configured for this database. Set one under Messaging in the admin UI, or as SMSSettings in relatude.db.json. ");
+    /// <summary>Whether an SMS provider is configured, and <see cref="SMS"/> can therefore be used.</summary>
+    public bool HasSMSProvider => _sms != null;
     internal List<INodeTransactionPlugin>? _transactionPlugins = null;
     internal List<INodeTransactionPlugin> TransactionPlugins {
         get {
@@ -123,13 +140,16 @@ public class NodeStore : IDisposable {
     public void SetQueryContext(QueryContext qx) => Datastore.SetDefaultQueryContext(qx);
 
     internal NodeStore NewStoreWithDifferentContext(QueryContext ctx) {
-        return new NodeStore(new DataStoreSession(ctx, Datastore), Mapper, TransactionPlugins);
+        return new NodeStore(new DataStoreSession(ctx, Datastore), Mapper, TransactionPlugins, _sms);
     }
 
-    private NodeStore(DataStoreSession datastore, NodeMapper mapper, List<INodeTransactionPlugin> plugins) {
+    // the reading context is all that differs, so the new store shares the SMS provider rather than
+    // taking one of its own: it is the database's, and there is only ever one of it to dispose
+    private NodeStore(DataStoreSession datastore, NodeMapper mapper, List<INodeTransactionPlugin> plugins, ISMSProvider? sms) {
         Datastore = datastore;
         Mapper = mapper;
         _transactionPlugins = plugins;
+        _sms = sms;
     }
     /// <summary>
     /// Wraps a data store and builds the object mapping layer for it. On the first run the mapper implementations for
@@ -137,8 +157,12 @@ public class NodeStore : IDisposable {
     /// construction is cheap unless the data model changed. Normally you do not call this yourself: the server
     /// setup (<c>AddRelatudeDB</c>) creates the store for you.
     /// </summary>
-    public NodeStore(IDataStore datastore) {
+    /// <param name="datastore">The store this one wraps.</param>
+    /// <param name="sms">How this database sends text messages, for <see cref="SMS"/>. Null on a database that sends none; disposed with this store.</param>
+    public NodeStore(IDataStore datastore, ISMSProvider? sms = null) {
         Datastore = datastore;
+        _sms = sms;
+        _ownsSms = sms != null;
         var sw = Stopwatch.StartNew();
         datastore.Datamodel.EnsureInitalization();
         if (_transactionPlugins != null) foreach (var plugin in _transactionPlugins) plugin.Database = this;
@@ -1437,7 +1461,11 @@ public class NodeStore : IDisposable {
     public Datamodel Datamodel => Datastore.Datamodel;
 
     /// <summary>Closes the underlying data store. Only dispose the store when the application is shutting down.</summary>
-    public virtual void Dispose() => Datastore.Dispose();
+    public virtual void Dispose() {
+        Datastore.Dispose();
+        // only the database's own store disposes the SMS provider; a store from Context shares it
+        if (_ownsSms) _sms?.Dispose();
+    }
 
     /// <summary>
     /// Makes sure the given cultures exist as culture nodes, creating the missing ones and correcting codes that

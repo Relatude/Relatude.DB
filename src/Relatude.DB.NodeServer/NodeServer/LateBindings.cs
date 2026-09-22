@@ -4,6 +4,7 @@ using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.IO;
+using Relatude.DB.SMS;
 using Relatude.DB.Tasks;
 using System.Reflection;
 
@@ -98,10 +99,30 @@ public static class LateBindings {
                 return new NativeOpenAIProvider(aiSettings);
             case nameof(NativeAnthropicAIProvider) or "Anthropic":
                 return new NativeAnthropicAIProvider(aiSettings);
+            // the literal is what LateBindingsTests reads to check the settings page only suggests
+            // names this switch answers to; RelatudeServicesAIProvider.ShortName is the same string
+            case nameof(RelatudeServicesAIProvider) or "RelatudeServices":
+                return new RelatudeServicesAIProvider(aiSettings);
             case nameof(DummyAIProvider) or "Dummy":
                 return new DummyAIProvider();
             default:
                 return create<IAIProvider>(aiSettings.TypeName, null, null, [aiSettings]);
+        }
+    }
+    /// <summary>
+    /// The SMS provider a database sends messages through. One implementation so far, the hosted
+    /// Relatude service, which is also what an empty type name means: it is the only one that needs
+    /// no account of its own, so it is the only sensible default. Anything else is taken as the full
+    /// type name of a custom provider and resolved the same way a custom AI provider is.
+    /// </summary>
+    internal static ISMSProvider CreateSmsProvider(SMSProviderSettings smsSettings) {
+        switch (smsSettings.TypeName) {
+            // the literal is what LateBindingsTests reads to check the settings page only suggests
+            // names this switch answers to; RelatudeServicesSMSProvider.ShortName is the same string
+            case null or "" or nameof(RelatudeServicesSMSProvider) or "RelatudeServices":
+                return new RelatudeServicesSMSProvider(smsSettings);
+            default:
+                return create<ISMSProvider>(smsSettings.TypeName, null, null, [smsSettings]);
         }
     }
     internal static IIOProvider CreateAzureBlobIOProvider(IOSettings ioSettings) {
