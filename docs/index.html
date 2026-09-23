@@ -556,7 +556,7 @@ const THEMES = {
     dust :[0.850,0.850,0.850], edge:[0.500,0.500,0.500], node:[0.960,0.960,0.960],
     pulse:[1.000,1.000,1.000],
     star:1, sub:0, sunI:1.00, shine:1.00, cloud:1.00, cov:0.52, mist:1.0, scan:1.0,
-    bloom:0.40, thresh:1.00, rays:0.45, rthr:0.50, knee:0.70, halo:1.00
+    bloom:0.30, thresh:1.00, rays:0.36, rthr:0.50, knee:0.70, halo:1.00
   },
   light: {
     // terrain sits darker than the sky so the ridges read as silhouettes,
@@ -569,7 +569,7 @@ const THEMES = {
     dust :[0.560,0.570,0.585], edge:[0.300,0.315,0.330], node:[0.120,0.128,0.136],
     pulse:[0.080,0.085,0.090],
     star:0, sub:1, sunI:0.55, shine:0.20, cloud:0.80, cov:0.55, mist:0.8, scan:0.7,
-    bloom:0.10, thresh:1.30, rays:0.20, rthr:1.00, knee:0.96, halo:0.35
+    bloom:0.08, thresh:1.30, rays:0.16, rthr:1.00, knee:0.96, halo:0.35
   }
 };
 const K3 = Object.keys(THEMES.dark).filter(k => Array.isArray(THEMES.dark[k]));
@@ -855,7 +855,7 @@ void main(){
   // Only the disc and the inner halo clear the bloom threshold, which is what
   // gives it a glow without washing out the sky around it.
   float disc = smoothstep(0.99989, 0.99995, mu);
-  float halo = pow(mu, 1400.0) * 1.6 + pow(mu, 120.0) * 0.32 + pow(mu, 16.0) * 0.05;
+  float halo = pow(mu, 1400.0) * 1.25 + pow(mu, 120.0) * 0.24 + pow(mu, 16.0) * 0.04;
   vec3  sun  = C_SUNC * (C_SUNI * uSunAmt) * (disc * 10.0 + halo);
 
   // Cloud deck: a noise field on a layer high above the flight, bent down
@@ -2231,7 +2231,7 @@ function frame(now) {
       gl.uniform2f(upP.u.uTexel, 1 / bloomT[i].w, 1 / bloomT[i].h);
       // the widest levels are what turn a glow into a wash, so each step
       // up carries a little less of what is below it
-      gl.uniform1f(upP.u.uGain, 0.72);
+      gl.uniform1f(upP.u.uGain, 0.66);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
     gl.disable(gl.BLEND);
