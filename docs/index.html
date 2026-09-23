@@ -33,12 +33,15 @@
    and under an explicit data-theme="dark". The two dark blocks are identical.
    The dark greys are neutral — no blue tint in any ground, scrim or glass.
 
-   Behind all of it is the WebGL scene from NodeAnimation.html: a slow flight
-   over ridged terrain with a graph rewiring itself across the peaks. It is a
-   background here, so it never gets the animation's own blue theme — the scene
-   palette follows this page's light/dark switch and nothing else. The stack:
+   Behind all of it is a WebGL scene grown out of NodeAnimation.html: a slow
+   flight over ridged terrain toward a low sun, under a broken cloud deck it
+   breaks through in shafts, with a graph rewiring itself across the peaks and
+   pulses of light running along its edges. It is drawn in HDR and finished
+   with bloom, but it is still a background: it never gets the animation's own
+   blue theme, every tone in it is grey, and its palette follows this page's
+   light/dark switch and nothing else. The stack:
 
-     0  #fallback / #scene   the gradient shown when WebGL is missing, or the canvas
+     0  #fallback / #scene   a still dawn when WebGL2 is missing, or the canvas
      1  .vig                 two cross-faded vignettes closing in the frame edges
      2  .scrim               the page ground, concentrated where the column sits
      3  .grain               a whisper of static over the whole frame
@@ -74,7 +77,10 @@
   --logo-edge: rgba(255,255,255,.75);
   --vig-dark: 0;
   --vig-light: 1;
-  --fallback: radial-gradient(140% 100% at 50% 100%, #ffffff 0%, #f5f6f8 45%, #e9ecef 100%);
+  /* the scene in one still: a white sun low on the right, over a pale horizon */
+  --fallback:
+    radial-gradient(22% 30% at 84% 28%, #ffffff 0%, rgba(255,255,255,0) 100%),
+    linear-gradient(to bottom, #d2d6db 0%, #eceef1 42%, #f7f8f9 50%, #dfe2e6 58%, #f3f4f6 100%);
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
@@ -103,7 +109,9 @@
     --logo-edge: rgba(6,6,6,.60);
     --vig-dark: 1;
     --vig-light: 0;
-    --fallback: radial-gradient(140% 100% at 50% 100%, #262626 0%, #171717 45%, #111111 100%);
+    --fallback:
+      radial-gradient(20% 28% at 84% 28%, rgba(255,255,255,.16) 0%, rgba(255,255,255,0) 100%),
+      linear-gradient(to bottom, #050505 0%, #0f0f0f 40%, #202020 50%, #0c0c0c 58%, #111111 100%);
   }
 }
 :root[data-theme="dark"] {
@@ -130,7 +138,9 @@
   --logo-edge: rgba(6,6,6,.60);
   --vig-dark: 1;
   --vig-light: 0;
-  --fallback: radial-gradient(140% 100% at 50% 100%, #262626 0%, #171717 45%, #111111 100%);
+  --fallback:
+    radial-gradient(20% 28% at 84% 28%, rgba(255,255,255,.16) 0%, rgba(255,255,255,0) 100%),
+    linear-gradient(to bottom, #050505 0%, #0f0f0f 40%, #202020 50%, #0c0c0c 58%, #111111 100%);
 }
 
 * { box-sizing: border-box; }
@@ -171,18 +181,20 @@ body {
 .vig-light {
   opacity: var(--vig-light);
   background:
-    radial-gradient(125% 95% at 50% 42%, transparent 34%, rgba(255,255,255,.32) 74%, rgba(255,255,255,.60) 100%),
-    linear-gradient(to bottom, rgba(255,255,255,.40) 0%, transparent 24%, transparent 74%, rgba(255,255,255,.48) 100%);
+    radial-gradient(125% 95% at 50% 42%, transparent 40%, rgba(255,255,255,.16) 76%, rgba(255,255,255,.34) 100%),
+    linear-gradient(to bottom, rgba(255,255,255,.22) 0%, transparent 20%, transparent 76%, rgba(255,255,255,.40) 100%);
 }
 
 /* The page ground laid over the scene as an ellipse about the size of the text
    column: nearly opaque through the middle so the copy keeps its contrast, and
-   gone by the edges so the terrain stays in the clear on either side. */
+   gone by the edges so the terrain stays in the clear on either side. Capped in
+   pixels, because the column stops growing at 880px and the sun sits just
+   beside it: a width in vw alone would lay the ground over the light. */
 .scrim {
   position: fixed; inset: 0; z-index: 2; pointer-events: none;
   transition: background .55s ease;
-  background: radial-gradient(ellipse 66% 62% at 50% 44%,
-    var(--scrim-a) 0%, var(--scrim-b) 46%, var(--scrim-c) 76%, transparent 100%);
+  background: radial-gradient(ellipse min(66vw, 640px) 62% at 50% 44%,
+    var(--scrim-a) 0%, var(--scrim-b) 50%, var(--scrim-c) 78%, transparent 100%);
 }
 
 /* Static on purpose. A stepped grain animation re-composites the whole
@@ -495,10 +507,15 @@ footer a:hover { color: var(--fg); }
 </script>
 
 <!-- ===========================================================================
-     The background scene, from src/Relatude.DB.UI/src/components/NodeAnimation.html.
-     Everything below the palette block is that file verbatim; only the theme
-     wiring differs, because here the scene follows the page switcher above
-     instead of carrying a switcher of its own.
+     The background scene. It grew out of
+     src/Relatude.DB.UI/src/components/NodeAnimation.html, and the terrain
+     field, the flight and the way the graph picks its anchors are still that
+     file's. The light is this page's own: a low sun behind a broken cloud
+     deck, the whole scene drawn in HDR and finished with bloom and light
+     shafts, pulses running along the graph's edges, and a short opening in
+     which the camera lifts its eyes to the horizon as the light comes up.
+     The palette follows the page switcher above instead of carrying a
+     switcher of its own.
      ======================================================================== -->
 <script>
 (() => {
@@ -506,38 +523,57 @@ footer a:hover { color: var(--fg); }
 
 /* ============================================================
    0. THEMES
-   Every colour the scene uses, per theme. `star` kills the
-   starfield on the light theme; `sub` flips the dust and graph
-   from additive to normal compositing, because adding light to
-   a near-white sky renders nothing at all.
+   Every colour and every tuning value that differs between the
+   two themes. The dark theme is pure greyscale — every channel of
+   every entry is equal — so nothing in it ever picks up a tint;
+   the light one keeps the faint cool cast the animation always
+   had. `fog` and `top`, the horizon and the zenith, are the
+   colours that read as the ground of the frame, so they sit on
+   the docs grounds (#111111 and #ffffff).
 
-   Two entries only, matching this page: the animation's blue
-   theme is left out, and `fog` and `top` — the horizon and the
-   zenith, i.e. the colours that actually read as the ground of
-   the frame — are pulled onto the docs grounds (#111111 and
-   #ffffff) so the scene and the page are the same black and
-   white. The dark theme is pure greyscale: every channel of
-   every entry is equal, so the terrain never picks up a tint.
+   Colours may run past 1.0. The scene is drawn into a float
+   target and only the last pass eases it into the display range,
+   so the sun, the nodes and the pulses can be genuinely brighter
+   than white — which is what makes them bloom and nothing else.
+
+     star   starfield (none on a near-white sky)
+     sub    0: the overlays add light;  1: they are laid over like
+            ink, because adding light to a near-white sky shows nothing
+     sunI   sun disc and halo           shine  ridge rims and glints
+     cloud  cloud deck opacity          cov    noise level where cloud begins
+     mist   drifting valley mist        scan   contours the survey reveals
+     bloom  bloom strength              thresh where bloom begins
+     rays   light-shaft strength        rthr   sky brightness that feeds them
+     knee   where highlights start to ease into white
+     halo   the soft glow round graph lines and nodes
    ============================================================ */
 const THEMES = {
   dark: {
-    deep:[0.033,0.033,0.033], mid:[0.157,0.157,0.157], lit:[0.612,0.612,0.612],
-    hot :[0.936,0.936,0.936], fog:[0.067,0.067,0.067], sun:[0.338,0.338,0.338],
-    top :[0.024,0.024,0.024], dust:[0.83,0.83,0.83],
-    edge:[0.46,0.46,0.46],    node:[0.957,0.957,0.957], star:1, sub:0
+    deep :[0.030,0.030,0.030], mid :[0.150,0.150,0.150], lit :[0.600,0.600,0.600],
+    hot  :[0.940,0.940,0.940], fog :[0.067,0.067,0.067], top :[0.016,0.016,0.016],
+    sun  :[0.280,0.280,0.280], sunC:[1.000,1.000,1.000],
+    cloLo:[0.022,0.022,0.022], cloHi:[0.200,0.200,0.200],
+    dust :[0.850,0.850,0.850], edge:[0.500,0.500,0.500], node:[0.960,0.960,0.960],
+    pulse:[1.000,1.000,1.000],
+    star:1, sub:0, sunI:1.00, shine:1.00, cloud:1.00, cov:0.52, mist:1.0, scan:1.0,
+    bloom:0.40, thresh:1.00, rays:0.45, rthr:0.50, knee:0.70, halo:1.00
   },
   light: {
     // terrain sits darker than the sky so the ridges read as silhouettes,
-    // and the overlay tints go dark since they now composite over white
-    deep:[0.255,0.265,0.278], mid:[0.480,0.492,0.508], lit:[0.760,0.770,0.782],
-    hot :[0.900,0.906,0.912], fog:[0.982,0.986,0.992], sun:[0.120,0.124,0.130],
+    // and the overlay tints go dark since they composite over white
+    deep :[0.255,0.265,0.278], mid :[0.480,0.492,0.508], lit :[0.760,0.770,0.782],
+    hot  :[0.900,0.906,0.912], fog :[0.955,0.960,0.968], top :[0.720,0.730,0.745],
+    sun  :[0.130,0.132,0.136], sunC:[1.000,1.000,1.000],
+    cloLo:[0.700,0.708,0.722], cloHi:[0.990,0.992,0.995],
     // mid-grey, not near-black: dark specks on white read as sensor dirt
-    top :[0.800,0.808,0.820], dust:[0.56,0.57,0.585],
-    edge:[0.38,0.40,0.42],    node:[0.15,0.16,0.17], star:0, sub:1
+    dust :[0.560,0.570,0.585], edge:[0.300,0.315,0.330], node:[0.120,0.128,0.136],
+    pulse:[0.080,0.085,0.090],
+    star:0, sub:1, sunI:0.55, shine:0.20, cloud:0.80, cov:0.55, mist:0.8, scan:0.7,
+    bloom:0.10, thresh:1.30, rays:0.20, rthr:1.00, knee:0.96, halo:0.35
   }
 };
-const K3 = ['deep','mid','lit','hot','fog','sun','top','dust','edge','node'];
-const K1 = ['star','sub'];
+const K3 = Object.keys(THEMES.dark).filter(k => Array.isArray(THEMES.dark[k]));
+const K1 = Object.keys(THEMES.dark).filter(k => !Array.isArray(THEMES.dark[k]));
 
 // The page resolves light/dark; the scene only ever mirrors that answer.
 const resolve = () => {
@@ -570,23 +606,35 @@ window.relatudeScene = {
 };
 
 const canvas = document.getElementById('scene');
+function fallback() {
+  canvas.classList.remove('ready');
+  document.getElementById('fallback').style.display = 'block';
+}
+
+// Everything is drawn into offscreen targets and composited in a last pass,
+// so the canvas itself needs no depth, alpha or antialiasing: the scene
+// target is the one that is multisampled.
 // No `desynchronized` here: it decouples the canvas from the compositor and
 // tears/flashes when composited under the other layers.
 const gl = canvas.getContext('webgl2', {
-  antialias: true, alpha: false, depth: true,
+  antialias: false, alpha: false, depth: false, stencil: false,
   powerPreference: 'high-performance'
 });
 
-if (!gl) { document.getElementById('fallback').style.display = 'block'; return; }
+if (!gl) { fallback(); return; }
 
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+// Phones and tablets get fewer pixels, fewer samples and a shorter bloom chain.
+const COARSE  = matchMedia('(pointer: coarse)').matches;
 
 /* ============================================================
    1. TERRAIN FIELD  — periodic ridged value-noise.
    Linear (not smooth) interpolation on the big octaves is what
    makes the mountains read as hard angular facets rather than
    soft dunes. The field repeats exactly every DEPTH units in z,
-   so the flight can loop forever with a seamless join.
+   so the flight can loop forever with a seamless join — and
+   anything else laid on the ground (the lattice, the mist, the
+   dust) repeats on a divisor of DEPTH, so it joins seamlessly too.
    ============================================================ */
 
 const CELL  = 3.2;                 // world units per mesh quad — the facet size
@@ -667,7 +715,7 @@ for (let j = 0, k = 0; j < NZ; j++) {
 
 /* ---- graph anchors: local height maxima, i.e. peaks and ridge crests ----
    Found once from the finished mesh. Lifted clear of the surface so the
-   1px edges and their node sprites don't z-fight the facet they sit on. */
+   edges and their node sprites don't z-fight the facet they sit on. */
 const ANCH = [];
 {
   const R = 3;                                  // half-width of the test window
@@ -688,31 +736,108 @@ const ANCH = [];
 }
 const ANCH_N = ANCH.length / 3;
 
+/* ---- one tileable noise texture for the sky and the mist ---------------
+   Four channels of periodic gradient noise, each on its own lattice, so
+   the clouds and the valley mist can draw unrelated patterns from the one
+   texture. Baked from a fixed seed: the sky is the same on every visit,
+   the way the terrain is. */
+function mulberry32(a) {
+  return () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function bakeNoise(N) {
+  const rnd = mulberry32(0x2f6b1d);
+  const out = new Uint8Array(N * N * 4);
+  const CELLS = [8, 8, 16, 32];
+  for (let ch = 0; ch < 4; ch++) {
+    const C = CELLS[ch];
+    const gx = new Float32Array(C * C), gy = new Float32Array(C * C);
+    for (let i = 0; i < C * C; i++) {
+      const a = rnd() * 6.283185307;
+      gx[i] = Math.cos(a); gy[i] = Math.sin(a);
+    }
+    for (let y = 0; y < N; y++) {
+      const fy = y / N * C, iy = Math.floor(fy), ty = fy - iy;
+      const uy = ty * ty * ty * (ty * (ty * 6 - 15) + 10);
+      const y0 = (iy % C) * C, y1 = ((iy + 1) % C) * C;
+      for (let x = 0; x < N; x++) {
+        const fx = x / N * C, ix = Math.floor(fx), tx = fx - ix;
+        const ux = tx * tx * tx * (tx * (tx * 6 - 15) + 10);
+        const x0 = ix % C, x1 = (ix + 1) % C;
+        const n00 = gx[y0 + x0] * tx       + gy[y0 + x0] * ty;
+        const n10 = gx[y0 + x1] * (tx - 1) + gy[y0 + x1] * ty;
+        const n01 = gx[y1 + x0] * tx       + gy[y1 + x0] * (ty - 1);
+        const n11 = gx[y1 + x1] * (tx - 1) + gy[y1 + x1] * (ty - 1);
+        const a = n00 + (n10 - n00) * ux, b = n01 + (n11 - n01) * ux;
+        const v = a + (b - a) * uy;                        // about -0.7 .. 0.7
+        out[(y * N + x) * 4 + ch] = Math.max(0, Math.min(255, Math.round((0.5 + v * 0.72) * 255)));
+      }
+    }
+  }
+  return out;
+}
+
 /* ============================================================
    2. SHADERS
    ============================================================ */
 
 // The palette is uniform state, not compile-time constants, so a theme can
 // cross-fade at runtime without relinking any program.
-const PAL_SKY = `uniform vec3 C_FOG, C_TOP, C_SUN, C_HOT; uniform float C_STAR;`;
-const PAL_TER = `uniform vec3 C_DEEP, C_MID, C_LIT, C_HOT, C_FOG, C_SUN;`;
+const PAL_SKY = `uniform vec3 C_FOG, C_TOP, C_SUN, C_SUNC, C_CLO, C_CHI, C_HOT;
+                 uniform float C_STAR, C_SUNI, C_CLOUD, C_COV;`;
+const PAL_TER = `uniform vec3 C_DEEP, C_MID, C_LIT, C_HOT, C_FOG, C_SUN, C_SUNC;
+                 uniform float C_SHINE, C_MIST, C_SCAN;`;
+
+// The colour of the air along a direction: the horizon ground, brightened on
+// the sun's side. The sky uses it at the horizon and the terrain fades into
+// it with distance, so a far ridge dissolves into the sky with no seam — and
+// because it is one function, the two can never drift apart.
+const HAZE = `
+vec3 haze(vec3 d){
+  float a = max(dot(d, uSunH), 0.0);
+  float m = max(dot(d, uLight), 0.0);
+  float b = pow(a, 6.0) * exp(-abs(d.y) * 6.0) * 1.35 + pow(m, 24.0) * 0.55;
+  return C_FOG + C_SUN * (b * uSunAmt);
+}`;
+
+// Four octaves from one noise channel, each turned off the last so the
+// lattice never lines up into visible rows. Four, not more: the finer ones
+// only add grain, which the perspective of the deck turns into streaks.
+const FBM = `
+float fbm(vec2 p){
+  const mat2 R = mat2(0.80, -0.60, 0.60, 0.80);
+  float s = 0.0, a = 0.5;
+  for (int i = 0; i < 4; i++){
+    s += a * texture(uNoise, p).r;
+    p = R * p * 2.07 + 0.131;
+    a *= 0.5;
+  }
+  return s * 1.0666667;          // over 0.5 + 0.25 + 0.125 + 0.0625
+}`;
 
 const SKY_VS = `#version 300 es
 out vec2 vNdc;
 void main(){
   vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2)) * 2.0 - 1.0;
   vNdc = p;
-  gl_Position = vec4(p, 1.0, 1.0);
+  gl_Position = vec4(p, 1.0, 1.0);     // on the far plane: drawn only where no terrain is
 }`;
 
 const SKY_FS = `#version 300 es
 precision highp float;
 in vec2 vNdc;
 uniform mat4  uInvVP;
-uniform vec3  uCam, uLight;
-uniform float uTime;
+uniform vec3  uCam, uLight, uSunH;
+uniform float uTime, uTravel, uSunAmt;
+uniform sampler2D uNoise;
 out vec4 frag;
 ${PAL_SKY}
+${HAZE}
+${FBM}
 float hash13(vec3 p){
   p = fract(p * 0.1031);
   p += dot(p, p.yzx + 33.33);
@@ -721,18 +846,47 @@ float hash13(vec3 p){
 void main(){
   vec4 w = uInvVP * vec4(vNdc, 1.0, 1.0);
   vec3 dir = normalize(w.xyz / w.w - uCam);
+  float up = dir.y;
+  float mu = max(dot(dir, uLight), 0.0);
 
-  float up = clamp(dir.y, -1.0, 1.0);
-  vec3 col = mix(C_FOG, C_TOP, pow(clamp(up, 0.0, 1.0), 0.55));
-  col = mix(col, C_FOG * 0.82, smoothstep(0.0, -0.25, up));
+  vec3 col = mix(haze(dir), C_TOP, pow(clamp(up, 0.0, 1.0), 0.55));
 
-  // low sun haze, ahead-left. The terrain fog uses the same term,
-  // so distant ridges dissolve into the sky with no visible seam.
-  float sun = pow(max(dot(dir, normalize(vec3(uLight.x, 0.0, uLight.z))), 0.0), 3.0);
-  col += C_SUN * sun * exp(-abs(up) * 4.5) * 0.85;
-  col += C_SUN * pow(max(dot(dir, uLight), 0.0), 34.0) * 0.55;
+  // The sun: a small disc far hotter than white, inside three nested halos.
+  // Only the disc and the inner halo clear the bloom threshold, which is what
+  // gives it a glow without washing out the sky around it.
+  float disc = smoothstep(0.99989, 0.99995, mu);
+  float halo = pow(mu, 1400.0) * 1.6 + pow(mu, 120.0) * 0.32 + pow(mu, 16.0) * 0.05;
+  vec3  sun  = C_SUNC * (C_SUNI * uSunAmt) * (disc * 10.0 + halo);
 
-  // sparse starfield, fading out into the haze band
+  // Cloud deck: a noise field on a layer high above the flight, bent down
+  // toward the horizon the way a real sky curves away, so at grazing angles
+  // it recedes into the haze instead of squeezing into streaks. It is fixed
+  // to the ground, so it slides overhead with the travel, and drifts on a
+  // slow wind of its own besides. A much coarser noise opens and closes
+  // the deck in banks, so there is always clear sky somewhere.
+  float t   = 520.0 / (max(up, 0.0) + 0.09);
+  vec2  cp  = (vec2(uCam.x, uTravel) + dir.xz * t) * 0.00042 + uTime * vec2(0.0009, 0.0004);
+  float big = texture(uNoise, cp * 0.31 + 0.27).g;
+  float dn  = fbm(cp);
+  float cov = C_COV + (0.5 - big) * 0.30;
+  float cv  = smoothstep(cov, cov + 0.16, dn);
+  // Denser toward the sun means this side of the cloud is in its shade.
+  float dl  = fbm(cp + normalize(uLight.xz) * 0.02);
+  float lit = clamp(0.5 + (dn - dl) * 4.5, 0.0, 1.0);
+  // Thin fringes are where light gets through: the silver lining.
+  float fringe = 4.0 * cv * (1.0 - cv);
+  // The light is what reveals the deck: far from the sun a cloud is only a
+  // faint shade on the sky, so the frame stays clean and dark, and the eye
+  // goes to where the sun catches the cloud's lit side and its edges.
+  float nearSun = pow(mu, 3.0);
+  float ca = cv * C_CLOUD * smoothstep(0.02, 0.20, up) * (0.08 + 0.92 * smoothstep(0.35, 0.95, mu));
+  vec3  cc = mix(C_CLO, C_CHI, lit * (0.15 + 0.85 * nearSun));
+  cc += C_SUNC * (C_SUNI * uSunAmt) * (pow(mu, 12.0) * (0.05 + 0.80 * fringe) + pow(mu, 90.0) * 2.4 * fringe);
+
+  col += sun * (1.0 - 0.92 * ca);
+  col  = mix(col, cc, ca);
+
+  // sparse starfield, in the gaps of the deck and away from the sun
   vec3 g  = dir * 190.0;
   vec3 id = floor(g), f = fract(g);
   float r = hash13(id);
@@ -740,8 +894,10 @@ void main(){
     vec3 c = vec3(hash13(id + 11.0), hash13(id + 23.0), hash13(id + 37.0));
     float s = smoothstep(0.30, 0.0, length(f - c));
     float tw = 0.55 + 0.45 * sin(uTime * 0.8 + r * 340.0);
-    col += C_HOT * s * tw * 0.55 * C_STAR * smoothstep(0.02, 0.42, up);
+    col += C_HOT * s * tw * 0.55 * C_STAR * smoothstep(0.02, 0.42, up)
+         * (1.0 - ca) * (1.0 - smoothstep(0.80, 0.97, mu));
   }
+  // alpha 1 marks open sky: the light shafts are fed from it
   frag = vec4(col, 1.0);
 }`;
 
@@ -759,74 +915,116 @@ void main(){
 const TER_FS = `#version 300 es
 precision highp float;
 in vec3 vW;
-uniform vec3  uCam, uLight;
-uniform float uTime, uPulse;
+uniform vec3  uCam, uLight, uSunH;
+uniform float uTime, uPulse, uSunAmt;
+uniform sampler2D uNoise;
 out vec4 frag;
 ${PAL_TER}
+${HAZE}
 void main(){
   // Exact per-facet normal: vW is planar across each triangle, so its
   // screen-space derivative IS that triangle's normal. Flat shading,
-  // no normal attribute, no split vertices.
-  vec3 n = normalize(cross(dFdx(vW), dFdy(vW)));
+  // no normal attribute, no split vertices. A triangle seen exactly
+  // edge-on has no derivative to cross, and a single NaN pixel would be
+  // smeared across the frame by the bloom, so that one falls back to up.
+  vec3  cr = cross(dFdx(vW), dFdy(vW));
+  float c2 = dot(cr, cr);
+  vec3  n  = c2 > 1e-24 ? cr * inversesqrt(c2) : vec3(0.0, 1.0, 0.0);
   if (n.y < 0.0) n = -n;
 
   vec3  toCam = uCam - vW;
-  float dist  = length(toCam);
+  float dist  = max(length(toCam), 1e-3);
   vec3  V     = toCam / dist;
+  vec3  rd    = -V;
 
-  float lam   = max(dot(n, uLight), 0.0);
+  float ndl   = dot(n, uLight);
+  float lam   = max(ndl, 0.0);
   float skyf  = 0.5 + 0.5 * n.y;
-  float rim   = pow(1.0 - max(dot(n, V), 0.0), 3.0);
+  float fres  = pow(1.0 - max(dot(n, V), 0.0), 3.0);
   float peak  = smoothstep(38.0, 118.0, vW.y);
 
-  float shade = 0.060
-              + 0.78 * lam
-              + 0.23 * skyf * skyf
-              + 0.30 * rim
+  float shade = 0.055
+              + 0.76 * lam
+              + 0.22 * skyf * skyf
+              + 0.26 * fres
               + 0.40 * peak * (0.25 + 0.75 * lam);
 
   vec3 col = mix(C_DEEP, C_MID, clamp(shade * 1.55, 0.0, 1.0));
   col = mix(col, C_LIT,  clamp((shade - 0.42) * 1.35, 0.0, 1.0));
   col = mix(col, C_HOT,  clamp((shade - 0.98) * 1.10, 0.0, 1.0));
 
-  // --- ground lattice: only on near-flat low terrain, like a substrate
-  vec2 gp = vW.xz * 0.08333;
+  // --- the flight looks into a low sun, so the ridges are backlit: facets
+  // seen edge-on catch a silver rim, and the odd one turned just right
+  // flashes the sun back. Both run past white, so they bloom.
+  float into = pow(max(dot(rd, uLight), 0.0), 3.0);
+  float rim  = pow(fres, 1.4) * into * clamp((ndl + 0.35) / 1.35, 0.0, 1.0);
+  float spec = pow(max(dot(n, normalize(uLight + V)), 0.0), 90.0) * lam;
+  col += C_SUNC * (C_SHINE * uSunAmt) * (rim * 0.60 + spec * 0.85);
+
+  // --- ground lattice: only on near-flat low terrain, like a substrate.
+  // Every 12.8 units — four facets — which also divides the loop period.
+  vec2 gp = vW.xz * 0.078125;
   vec2 gw = fwidth(gp);
   vec2 gg = abs(fract(gp - 0.5) - 0.5) / max(gw, vec2(1e-5));
   float grid = 1.0 - min(min(gg.x, gg.y), 1.0);
   grid *= smoothstep(3.0, -10.0, vW.y) * pow(max(n.y, 0.0), 5.0);
   grid *= 1.0 - smoothstep(45.0, 195.0, dist);
 
-  // --- survey sweep: a slow band of light travelling toward the viewer
+  // --- contour lines every 5 units of height, as on a survey map. Each is
+  // straight across a facet and continuous across the next, so the slopes
+  // carry a faceted topographic chart that only the sweep brings out.
+  float hc = vW.y * 0.2;
+  float hw = fwidth(hc);
+  float cl = 1.0 - min(abs(fract(hc - 0.5) - 0.5) / max(hw, 1e-5), 1.0);
+  cl *= 1.0 - smoothstep(0.18, 0.50, hw);   // gone before they crowd into moire
+  cl *= smoothstep(-8.0, 4.0, vW.y);        // the valley floors belong to the lattice
+
+  // --- survey sweep: a slow band of light travelling toward the viewer,
+  // leaving the contours glowing behind it for a moment. The band is
+  // squared by hand because pow() of a negative base is undefined; the wake
+  // is clamped because between sweeps the band is parked 1e5 away, where
+  // the unclamped exp() overflows and 0 * inf turns the terrain into NaN.
   float dz   = vW.z - uCam.z;
-  float band = exp(-pow((dz - uPulse) / 11.0, 2.0));
+  float q    = (dz - uPulse) / 9.0;
+  float band = exp(-q * q);
+  float wake = step(uPulse, dz) * exp(-max(dz - uPulse, 0.0) / 60.0);
 
-  col += C_LIT * grid * (0.180 + 0.70 * band);
-  col += C_HOT * band * 0.085 * (0.25 + 0.75 * lam);
+  col += C_LIT * grid * (0.170 + 0.70 * band);
+  col += C_HOT * cl * (0.90 * band + 0.30 * wake) * C_SCAN;
+  col += C_HOT * band * 0.080 * (0.25 + 0.75 * lam);
 
-  // --- atmosphere: thicker down low, so the valleys pool with haze
+  // --- atmosphere: thicker down low, so the valleys pool with haze, and
+  // patchy there — a slow drift of mist sampled at the ground point. The
+  // mist repeats three times per loop period, so the join stays invisible.
   float low  = exp(-max(vW.y + 8.0, 0.0) * 0.048);
-  float fd   = dist * (0.0050 + 0.0062 * low);
-  float fog  = 1.0 - exp(-fd * fd);
-  vec3  rd   = -V;
-  float sun  = pow(max(dot(rd, normalize(vec3(uLight.x, 0.0, uLight.z))), 0.0), 3.0);
-  vec3  fogC = C_FOG * (0.92 + 0.42 * low) + C_SUN * sun * 0.65;
+  vec2  mp   = vW.xz * 0.0046875 + uTime * vec2(0.0040, 0.0095);
+  float mist = texture(uNoise, mp).g * 0.62 + texture(uNoise, mp * 2.0 + 0.37).b * 0.38;
+  mist = smoothstep(0.34, 0.70, mist) * C_MIST;
+  float lowM = low * (0.55 + 0.95 * mist);
+  float fd   = dist * (0.0048 + 0.0064 * lowM);
+  float fog  = 1.0 - exp(-fd * fd * 0.85 - fd * 0.18);
+  // melt the sides of the tile into the air rather than letting them end
+  fog = max(fog, smoothstep(292.0, 380.0, abs(vW.x)));
+  vec3 fogC = haze(rd) * (0.93 + 0.46 * lowM);
 
-  frag = vec4(mix(col, fogC, fog), 1.0);
+  // alpha 0 marks terrain: it blocks the light shafts
+  frag = vec4(mix(col, fogC, fog), 0.0);
 }`;
 
 // Side of the camera-relative box the motes wrap inside. Tighter than the
 // fog range on purpose: it packs the whole field into the near volume where
 // motes are actually big and bright enough to see, instead of scattering
-// most of them out at 200+ units where they fog down to nothing.
-const DUST_SPAN = 300;
+// most of them out at 200+ units where they fog down to nothing. Half the
+// loop period, so the box lands on itself when the flight wraps.
+const DUST_SPAN = 320;
 
 const DUST_VS = `#version 300 es
 in vec4 aSeed;                 // xyz = home position, w = per-mote variation
 uniform mat4  uVP;
-uniform vec3  uCam;
-uniform float uTime, uPx;
+uniform vec3  uCam, uLight;
+uniform float uTime, uPx, uFwd;
 out float vA;
+out float vB;
 void main(){
   const float SPAN = ${DUST_SPAN}.0;
   float r = aSeed.w;
@@ -845,66 +1043,327 @@ void main(){
   float near = smoothstep(2.5, 14.0, d);                       // keep the close ones
   float far  = 1.0 - smoothstep(SPAN * 0.32, SPAN * 0.46, d);   // gone before it wraps
   vA = exp(-pow(d * 0.0068, 2.0)) * near * far * (0.20 + 0.45 * r);
+
+  // Motes between the eye and the sun catch the light — dust in a sunbeam —
+  // and each one glints now and then as it turns.
+  float fwd = pow(max(dot((p - uCam) / d, uLight), 0.0), 10.0);
+  float tw  = 0.70 + 0.30 * sin(uTime * (0.9 + 2.3 * r) + r * 97.0);
+  vB = tw * (1.0 + fwd * 2.5 * uFwd);
 }`;
 
 const DUST_FS = `#version 300 es
 precision mediump float;
 in float vA;
+in float vB;
 uniform vec3 uTint;
 out vec4 frag;
 void main(){
   float d = length(gl_PointCoord - 0.5);
   float a = smoothstep(0.5, 0.06, d) * vA;
-  frag = vec4(uTint * a, a);          // premultiplied: works additively or over
+  frag = vec4(uTint * (a * vB), a);   // premultiplied: works additively or over
 }`;
 
-/* One buffer serves both passes: drawn as LINES it is the edges, drawn as
-   POINTS the very same vertices are the nodes at each end. */
-const GRAPH_VS = `#version 300 es
-in vec4 aNode;                 // xyz = world position, w = fade envelope
+/* Graph edges are instanced screen-space quads rather than GL lines: a line
+   is one pixel with no falloff, and these need an anti-aliased core, a soft
+   glow either side and a pulse running along them. Each end is pulled in to
+   the rim of its node ring, the way the line meets the ring in the wordmark's
+   glyph instead of running through it. */
+const EDGE_VS = `#version 300 es
+in vec2 aCorner;               // x: 0 at end A, 1 at end B;  y: -1 / +1 across
+in vec4 iA;                    // end A: xyz, envelope
+in vec4 iB;                    // end B, or the tip while the edge still reaches: xyz, envelope
+in vec4 iP;                    // pulse: position along A->B (< -1 for none), direction, length, strength
+in vec4 iQ;                    // x / y: 1 where a node ring sits at A / B
 uniform mat4  uVP;
 uniform vec3  uCam;
-uniform float uPx, uPoint;
-out float vA;
-out float vSize;               // sprite size in device px, for ring stroke + AA
+uniform vec2  uRes;
+uniform float uPx, uHalo;
+out float vS, vA, vHw, vDw, vW;
+out vec4  vP;
+float haze(float d){ return exp(-pow(d * 0.0034, 2.0)) * smoothstep(10.0, 38.0, d); }
+float ring(float d){ return mix(10.0, 6.0, smoothstep(60.0, 400.0, d)) * uPx; }
 void main(){
-  gl_Position = uVP * vec4(aNode.xyz, 1.0);
-  float d = distance(aNode.xyz, uCam);
-  // same haze the terrain uses, plus a near fade so nothing pops in your face
-  vA = aNode.w * exp(-pow(d * 0.0038, 2.0)) * smoothstep(10.0, 38.0, d);
-  // taper node sprites with depth, or the far ones read as stars rather
-  // than as a network receding into the haze. Bigger than a plain dot needs
-  // to be, because these are drawn as hollow rings.
-  // Extending the graph to ~430 units made most nodes distant, and at the old
-  // far size of 3.4 they all fell back to plain dots. Bigger at both ends.
-  float ns = mix(10.0, 6.0, smoothstep(60.0, 400.0, d));
-  vSize = ns * uPx;
-  gl_PointSize = (uPoint > 0.5 ? vSize : uPx);
+  vec4 ca = uVP * vec4(iA.xyz, 1.0);
+  vec4 cb = uVP * vec4(iB.xyz, 1.0);
+  // An end behind the camera is slid along the edge onto the near plane
+  // first, or its projection flips and the quad smears across the frame.
+  // With both ends behind there is nothing to draw: park it outside the
+  // clip volume (an edge ages past the camera just as it fades out).
+  const float NW = 0.6;
+  float sa = 0.0, sb = 1.0;
+  if (ca.w < NW && cb.w < NW) {
+    gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
+    vS = vA = vHw = vDw = 0.0; vW = 1.0; vP = vec4(-9.0);
+    return;
+  }
+  if (ca.w < NW) { float k = (NW - ca.w) / (cb.w - ca.w); ca = mix(ca, cb, k); sa = k; }
+  if (cb.w < NW) { float k = (NW - cb.w) / (ca.w - cb.w); cb = mix(cb, ca, k); sb = 1.0 - k; }
+
+  vec2 hr = uRes * 0.5;
+  vec2 pa = ca.xy / ca.w * hr, pb = cb.xy / cb.w * hr;
+  vec2 dv = pb - pa;
+  float L = length(dv);
+  vec2 t = L > 1e-3 ? dv / L : vec2(1.0, 0.0);
+  vec2 n = vec2(-t.y, t.x);
+
+  float da = distance(iA.xyz, uCam), db = distance(iB.xyz, uCam);
+  float ra = iQ.x * 0.40 * ring(da), rb = iQ.y * 0.40 * ring(db);
+  float cut = ra + rb > 0.0 ? min(1.0, max(L - 1.0, 0.0) / (ra + rb)) : 0.0;
+
+  bool  atB  = aCorner.x > 0.5;
+  vec4  c    = atB ? cb : ca;
+  float core = mix(0.95, 0.55, smoothstep(40.0, 420.0, atB ? db : da)) * uPx;
+  float hw   = core + 3.2 * uPx * uHalo + 1.0;    // room for the glow and the anti-alias
+  vec2  off  = (atB ? -t * rb : t * ra) * cut + n * aCorner.y * hw;
+  c.xy += off / hr * c.w;
+  gl_Position = c;
+
+  // GLSL ES has no noperspective, so the across-line offset travels as
+  // (offset * w, w) and is divided back in the fragment stage: that
+  // interpolates it linearly in screen space, which is what a width is.
+  vDw = aCorner.y * hw * c.w;
+  vW  = c.w;
+  vHw = core;
+  vS  = atB ? sb : sa;
+  vA  = atB ? iB.w * haze(db) : iA.w * haze(da);
+  vP  = iP;
 }`;
 
-const GRAPH_FS = `#version 300 es
-precision mediump float;
-in float vA;
-in float vSize;
-uniform highp float uPoint;      // highp: must match the vertex stage or linking fails
-uniform vec3  uTint;
+const EDGE_FS = `#version 300 es
+precision highp float;
+in float vS, vA, vHw, vDw, vW;
+in vec4  vP;
+uniform vec3  uTint, uHot;
+uniform float uSub, uHalo, uPx;
 out vec4 frag;
 void main(){
-  float a = vA;
-  if (uPoint > 0.5) {
-    // A hollow ring echoing the node glyph in the wordmark. Measured in
-    // device pixels rather than fractions of the sprite: a purely
-    // proportional stroke ends up thinner than the anti-alias feather once
-    // the sprite is small, which is what turned distant rings into blobs.
-    float S  = max(vSize, 2.0);
-    float pr = length(gl_PointCoord - 0.5) * S;    // px from sprite centre
-    float R  = 0.33 * S;                           // ring radius
-    float hw = max(0.70, 0.13 * S);                // half stroke, with px floor
-    float ring = smoothstep(hw + 0.55, hw - 0.55, abs(pr - R));
-    float disc = smoothstep(S * 0.50, S * 0.16, pr);
-    a *= mix(ring, disc, smoothstep(4.8, 3.0, S)); // too small to hole -> dot
+  float d    = abs(vDw / vW);                          // px from the centre line
+  float core = smoothstep(vHw + 0.65, vHw - 0.65, d);
+  float sg   = 2.6 * uPx;
+  float glow = exp(-d * d / (2.0 * sg * sg)) * 0.30 * uHalo;
+
+  // A pulse is a hot spot on the line with a short tail behind it. ds is
+  // in world units, so it keeps its length at any distance.
+  float p = 0.0;
+  if (vP.x > -1.0) {
+    float ds = (vS - vP.x) * vP.z * vP.y;
+    p = (exp(-ds * ds * 0.35) + (ds < 0.0 ? exp(ds / 12.0) * 0.45 : 0.0)) * vP.w;
   }
-  frag = vec4(uTint * a, a);
+  float a = (core * 0.80 + glow) * (1.0 + p * 2.5) * vA;
+  if (uSub > 0.5) { a = min(a, 1.0); frag = vec4(uTint * a, a); }
+  else frag = vec4((uTint + uHot * (p * 1.5)) * a, a);
+}`;
+
+/* Nodes, sparks and ripples share one point pass. A node is the hollow
+   ring of the wordmark's glyph with a soft halo, and flares when a pulse
+   lands on it; a spark is a pulse in flight, or the tip of an edge that is
+   still reaching; a ripple spreads from a node that has just been reached. */
+const PT_VS = `#version 300 es
+in vec4 aP;                    // xyz, envelope
+in vec4 aK;                    // kind (0 node, 1 spark, 2 ripple), parameter
+uniform mat4  uVP;
+uniform vec3  uCam;
+uniform float uPx, uMaxPt, uHalo;
+out float vA, vSize, vKind, vPar, vRing;
+void main(){
+  gl_Position = uVP * vec4(aP.xyz, 1.0);
+  float d = distance(aP.xyz, uCam);
+  // same haze the terrain uses, plus a near fade so nothing pops in your face
+  vA = aP.w * exp(-pow(d * 0.0034, 2.0)) * smoothstep(10.0, 38.0, d);
+  // Taper with depth, or the far rings read as stars rather than as a
+  // network receding into the haze.
+  float ring = mix(10.0, 6.0, smoothstep(60.0, 400.0, d)) * uPx;
+  float s, r = ring;
+  if (aK.x < 0.5)      s = ring * (1.0 + 1.6 * uHalo);
+  else if (aK.x < 1.5) s = ring * 2.4;
+  else { r = ring * (0.6 + 2.8 * aK.y); s = 2.0 * r + 4.0 * uPx; }
+  vSize = min(s, uMaxPt);
+  vRing = aK.x > 1.5 ? min(r, vSize * 0.5 - 2.0) : r;
+  vKind = aK.x;
+  vPar  = aK.y;
+  gl_PointSize = vSize;
+}`;
+
+const PT_FS = `#version 300 es
+precision highp float;
+in float vA, vSize, vKind, vPar, vRing;
+uniform vec3  uTint, uHot;
+uniform float uSub, uHalo;
+out vec4 frag;
+void main(){
+  float S  = max(vSize, 2.0);
+  float pr = length(gl_PointCoord - 0.5) * S;          // px from the sprite centre
+  float a, hot = 0.0;
+  if (vKind < 0.5) {
+    // Measured in device pixels rather than fractions of the sprite: a
+    // purely proportional stroke ends up thinner than the anti-alias
+    // feather once the sprite is small, which turns distant rings to blobs.
+    float D  = max(vRing, 2.0);
+    float R  = 0.33 * D;
+    float hw = max(0.70, 0.13 * D);
+    float ring = smoothstep(hw + 0.55, hw - 0.55, abs(pr - R));
+    float disc = smoothstep(D * 0.50, D * 0.16, pr);
+    a  = mix(ring, disc, smoothstep(4.8, 3.0, D));      // too small to hole -> dot
+    a += exp(-pr * pr / (D * D * 0.30)) * 0.22 * uHalo;
+    a *= 1.0 + vPar * 1.6;
+    hot = vPar;
+  } else if (vKind < 1.5) {
+    float D = max(vRing, 2.0);
+    a   = exp(-pr * pr / (D * D * 0.045)) + exp(-pr * pr / (D * D * 0.30)) * 0.35 * uHalo;
+    hot = 1.0;
+  } else {
+    float f = 1.0 - vPar;
+    a = smoothstep(1.4, 0.2, abs(pr - vRing)) * f * f * 0.85;
+  }
+  a *= vA;
+  if (uSub > 0.5) { a = min(a, 1.0); frag = vec4(uTint * a, a); }
+  else frag = vec4((uTint + uHot * (hot * 2.0)) * a, a);
+}`;
+
+/* ---- post chain -------------------------------------------------------
+   One full-screen triangle drives every pass below. */
+const POST_VS = `#version 300 es
+out vec2 vUv;
+void main(){
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  vUv = p;
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+// Bloom, down: the 13-tap filter from Call of Duty: Advanced Warfare. The
+// first pass also thresholds, and takes a Karis average of each 2x2 group,
+// so a single hot pixel — a far spark, a glint — cannot flicker the bloom.
+const DOWN_FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uSrc;
+uniform vec2  uTexel;
+uniform float uFirst, uThresh;
+out vec4 frag;
+float luma(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+// clamped, which also turns any stray NaN into a number on hardware whose
+// min/max return the non-NaN operand, before it can spread down the chain
+vec3 S(float x, float y){ return clamp(texture(uSrc, vUv + vec2(x, y) * uTexel).rgb, 0.0, 64.0); }
+void main(){
+  vec3 a = S(-2.0, 2.0), b = S(0.0, 2.0), c = S(2.0, 2.0);
+  vec3 d = S(-2.0, 0.0), e = S(0.0, 0.0), f = S(2.0, 0.0);
+  vec3 g = S(-2.0,-2.0), h = S(0.0,-2.0), i = S(2.0,-2.0);
+  vec3 j = S(-1.0, 1.0), k = S(1.0, 1.0), l = S(-1.0,-1.0), m = S(1.0,-1.0);
+  vec3 o;
+  if (uFirst > 0.5) {
+    vec3 g0 = (j + k + l + m) * 0.25;
+    vec3 g1 = (a + b + d + e) * 0.25, g2 = (b + c + e + f) * 0.25;
+    vec3 g3 = (d + e + g + h) * 0.25, g4 = (e + f + h + i) * 0.25;
+    float w0 = 0.500 / (1.0 + luma(g0));
+    float w1 = 0.125 / (1.0 + luma(g1)), w2 = 0.125 / (1.0 + luma(g2));
+    float w3 = 0.125 / (1.0 + luma(g3)), w4 = 0.125 / (1.0 + luma(g4));
+    o = (g0 * w0 + g1 * w1 + g2 * w2 + g3 * w3 + g4 * w4) / (w0 + w1 + w2 + w3 + w4);
+    // soft knee, so things ease into the bloom rather than switching on
+    float br = max(o.r, max(o.g, o.b));
+    float kn = uThresh * 0.5;
+    float rq = clamp(br - uThresh + kn, 0.0, 2.0 * kn);
+    rq = rq * rq / (4.0 * kn + 1e-4);
+    o *= max(rq, br - uThresh) / max(br, 1e-4);
+  } else {
+    o = e * 0.125 + (a + c + g + i) * 0.03125 + (b + d + f + h) * 0.0625 + (j + k + l + m) * 0.125;
+  }
+  frag = vec4(o, 1.0);
+}`;
+
+// Bloom, up: a 3x3 tent, added into the next level up.
+const UP_FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uSrc;
+uniform vec2  uTexel;
+uniform float uGain;
+out vec4 frag;
+void main(){
+  vec2 o = uTexel;
+  vec3 c = texture(uSrc, vUv).rgb * 4.0;
+  c += (texture(uSrc, vUv + vec2(-o.x, 0.0)).rgb + texture(uSrc, vUv + vec2(o.x, 0.0)).rgb
+      + texture(uSrc, vUv + vec2(0.0, -o.y)).rgb + texture(uSrc, vUv + vec2(0.0, o.y)).rgb) * 2.0;
+  c +=  texture(uSrc, vUv + vec2(-o.x, -o.y)).rgb + texture(uSrc, vUv + vec2(o.x, -o.y)).rgb
+      + texture(uSrc, vUv + vec2(-o.x,  o.y)).rgb + texture(uSrc, vUv + vec2(o.x,  o.y)).rgb;
+  frag = vec4(c * (0.0625 * uGain), 1.0);
+}`;
+
+// Light shafts, source: the open sky round the sun, at quarter size. Alpha
+// tells sky from terrain; the angular term keeps only the sun's own
+// neighbourhood, so cloud and ridge edges cut it into beams.
+const RSRC_FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uScene;
+uniform vec2  uTexel;
+uniform mat4  uInvVP;
+uniform vec3  uCam, uLight;
+uniform float uThr;
+out vec4 frag;
+void main(){
+  // four bilinear taps: a quarter-size target must not miss a small bright gap
+  vec4 s = texture(uScene, vUv + uTexel * vec2(-1.0, -1.0))
+         + texture(uScene, vUv + uTexel * vec2( 1.0, -1.0))
+         + texture(uScene, vUv + uTexel * vec2(-1.0,  1.0))
+         + texture(uScene, vUv + uTexel * vec2( 1.0,  1.0));
+  s *= 0.25;
+  vec4 w = uInvVP * vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
+  vec3 dir = normalize(w.xyz / w.w - uCam);
+  float near = pow(max(dot(dir, uLight), 0.0), 20.0);
+  frag = vec4(min(max(s.rgb - uThr, 0.0) * s.a * near, vec3(8.0)), 1.0);
+}`;
+
+// Light shafts, blur: radial toward the sun. Run three times, each pass
+// covering a twelfth of the one before, which smears 12 taps into the
+// equivalent of 1728 and leaves no visible steps along the beams.
+const RBLUR_FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uSrc;
+uniform vec2  uSun;
+uniform float uSpan, uDecay, uFall, uAspect;
+out vec4 frag;
+const int N = 12;
+void main(){
+  vec2 st = (vUv - uSun) * (uSpan / float(N));
+  // No per-pixel jitter: blurred along the rays, any dither pattern turns
+  // into combed stripes, and the three nested passes leave no steps anyway.
+  vec2 uv = vUv;
+  vec3 acc = vec3(0.0);
+  float w = 1.0, ws = 0.0;
+  for (int i = 0; i < N; i++){
+    acc += texture(uSrc, uv).rgb * w;
+    ws  += w;
+    w   *= uDecay;
+    uv  -= st;
+  }
+  // Beams belong near their source: without a falloff every pixel averages
+  // a path that ends in the sun, and the whole frame goes grey.
+  vec2 dv = (vUv - uSun) * vec2(uAspect, 1.0);
+  frag = vec4(acc / ws * exp(-dot(dv, dv) * uFall), 1.0);
+}`;
+
+const COMP_FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uScene, uBloom, uRays;
+uniform float uBloomI, uRaysI, uKnee;
+out vec4 frag;
+void main(){
+  vec3 c = texture(uScene, vUv).rgb;
+  c += texture(uBloom, vUv).rgb * uBloomI;
+  c += texture(uRays,  vUv).rgb * uRaysI;
+  // A shoulder, not a clip: unchanged up to the knee, then eased into white,
+  // so the sun and the flares roll off instead of flattening. Per channel,
+  // so a grey stays exactly grey.
+  float r = 1.0 - uKnee;
+  vec3  o = max(c - uKnee, 0.0);
+  c = min(c, vec3(uKnee)) + r * o / (o + r);
+  // triangular dither, or the long dark gradients band on an 8-bit screen
+  vec2 p = gl_FragCoord.xy;
+  float n = fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))))
+          + fract(52.9829189 * fract(dot(p + 71.0, vec2(0.00583715, 0.06711056)))) - 1.0;
+  frag = vec4(c + n / 255.0, 1.0);
 }`;
 
 /* ============================================================
@@ -931,27 +1390,78 @@ function program(vs, fs) {
   }
   return { p, u };
 }
+function attrib(prog, name, size, stride, offset, divisor) {
+  const loc = gl.getAttribLocation(prog.p, name);
+  if (loc < 0) return;
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, size, gl.FLOAT, false, stride, offset);
+  if (divisor) gl.vertexAttribDivisor(loc, divisor);
+}
 
-const skyP   = program(SKY_VS,   SKY_FS);
-const terP   = program(TER_VS,   TER_FS);
-const dustP  = program(DUST_VS,  DUST_FS);
-const graphP = program(GRAPH_VS, GRAPH_FS);
+// A driver that refuses a shader or a format leaves the page on its static
+// fallback rather than on a blank canvas.
+let skyP, terP, dustP, edgeP, ptP, downP, upP, rsrcP, rblurP, compP;
+try {
+  skyP   = program(SKY_VS,  SKY_FS);
+  terP   = program(TER_VS,  TER_FS);
+  dustP  = program(DUST_VS, DUST_FS);
+  edgeP  = program(EDGE_VS, EDGE_FS);
+  ptP    = program(PT_VS,   PT_FS);
+  downP  = program(POST_VS, DOWN_FS);
+  upP    = program(POST_VS, UP_FS);
+  rsrcP  = program(POST_VS, RSRC_FS);
+  rblurP = program(POST_VS, RBLUR_FS);
+  compP  = program(POST_VS, COMP_FS);
+} catch (err) {
+  console.warn('Relatude scene disabled:', err);
+  fallback();
+  return;
+}
 
-const skyVao = gl.createVertexArray();
+/* ---- render formats ----
+   Half-float targets give the headroom HDR needs; multisampling keeps the
+   facet silhouettes from crawling. If a device can do only one of the two,
+   clean edges win: the page reads worse with jaggies than with a softer
+   sun. */
+function renderable(internal, format, type) {
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, internal, 4, 4, 0, format, type, null);
+  const f = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.deleteFramebuffer(f);
+  gl.deleteTexture(t);
+  return ok;
+}
+function samplesFor(internal) {
+  try {
+    const s = gl.getInternalformatParameter(gl.RENDERBUFFER, internal, gl.SAMPLES);
+    return s && s.length ? s[0] : 0;
+  } catch (e) { return 0; }
+}
+let HDR = !!gl.getExtension('EXT_color_buffer_float') && renderable(gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT);
+let SAMPLES = HDR ? samplesFor(gl.RGBA16F) : 0;
+if (HDR && SAMPLES < 2 && samplesFor(gl.RGBA8) >= 2) HDR = false;
+if (!HDR) SAMPLES = samplesFor(gl.RGBA8);
+SAMPLES = SAMPLES >= 2 ? Math.min(SAMPLES, COARSE ? 2 : 4) : 0;
+const TEXF = HDR ? [gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT] : [gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE];
+const PT_MAX = (gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE) || [1, 64])[1];
+
+/* ---- geometry ---- */
+const fsVao = gl.createVertexArray();          // attribute-less: the post passes and the sky
 
 const terVao = gl.createVertexArray();
 gl.bindVertexArray(terVao);
-const pbo = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, pbo);
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
 gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
-const aPos = gl.getAttribLocation(terP.p, 'aPos');
-gl.enableVertexAttribArray(aPos);
-gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
-const ibo = gl.createBuffer();
-gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+attrib(terP, 'aPos', 3, 0, 0);
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer());
 gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
 
-const DUST_N = 14000;
+const DUST_N = COARSE ? 9000 : 14000;
 const seeds = new Float32Array(DUST_N * 4);
 for (let i = 0; i < DUST_N; i++) {
   seeds[i * 4]     = (Math.random() - 0.5) * DUST_SPAN;
@@ -964,24 +1474,138 @@ for (let i = 0; i < DUST_N; i++) {
 }
 const dustVao = gl.createVertexArray();
 gl.bindVertexArray(dustVao);
-const dbo = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, dbo);
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
 gl.bufferData(gl.ARRAY_BUFFER, seeds, gl.STATIC_DRAW);
-const aSeed = gl.getAttribLocation(dustP.p, 'aSeed');
-gl.enableVertexAttribArray(aSeed);
-gl.vertexAttribPointer(aSeed, 4, gl.FLOAT, false, 0, 0);
+attrib(dustP, 'aSeed', 4, 0, 0);
 
-const LINK_MAX = 60;
-const linkBuf  = new Float32Array(LINK_MAX * 2 * 4);   // 2 verts per edge, xyz + alpha
-const gVao = gl.createVertexArray();
-gl.bindVertexArray(gVao);
-const gbo = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, gbo);
-gl.bufferData(gl.ARRAY_BUFFER, linkBuf.byteLength, gl.DYNAMIC_DRAW);
-const aNode = gl.getAttribLocation(graphP.p, 'aNode');
-gl.enableVertexAttribArray(aNode);
-gl.vertexAttribPointer(aNode, 4, gl.FLOAT, false, 0, 0);
+const LINK_MAX = 64;
+const EDGE_F = 16, PT_F = 8;                   // floats per edge instance / per point
+const edgeBuf = new Float32Array(LINK_MAX * EDGE_F);
+const ptBuf   = new Float32Array(LINK_MAX * 6 * PT_F);
+
+const edgeVao = gl.createVertexArray();
+gl.bindVertexArray(edgeVao);
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
+attrib(edgeP, 'aCorner', 2, 0, 0);
+const edgeVbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, edgeVbo);
+gl.bufferData(gl.ARRAY_BUFFER, edgeBuf.byteLength, gl.DYNAMIC_DRAW);
+attrib(edgeP, 'iA', 4, EDGE_F * 4,  0, 1);
+attrib(edgeP, 'iB', 4, EDGE_F * 4, 16, 1);
+attrib(edgeP, 'iP', 4, EDGE_F * 4, 32, 1);
+attrib(edgeP, 'iQ', 4, EDGE_F * 4, 48, 1);
+
+const ptVao = gl.createVertexArray();
+gl.bindVertexArray(ptVao);
+const ptVbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, ptVbo);
+gl.bufferData(gl.ARRAY_BUFFER, ptBuf.byteLength, gl.DYNAMIC_DRAW);
+attrib(ptP, 'aP', 4, PT_F * 4,  0);
+attrib(ptP, 'aK', 4, PT_F * 4, 16);
 gl.bindVertexArray(null);
+
+// The noise lives on unit 7 for the life of the page; the post passes only
+// ever touch units 0-2, so nothing needs to rebind it per frame.
+const NOISE_UNIT = 7;
+gl.activeTexture(gl.TEXTURE0 + NOISE_UNIT);
+gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 256, 256, 0, gl.RGBA, gl.UNSIGNED_BYTE, bakeNoise(256));
+gl.generateMipmap(gl.TEXTURE_2D);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+gl.activeTexture(gl.TEXTURE0);
+
+/* ---- render targets ----
+   scene    full size: multisampled renderbuffers resolved into a texture
+   bloom[]  half size and down, one level per halving
+   rays[]   quarter size, ping-ponged by the radial blur */
+const BLOOM_LEVELS = COARSE ? 5 : 6;
+let sceneT = null, sceneDepth = null, msFbo = null, msColor = null, msDepth = null;
+let bloomT = [], raysT = [];
+
+function target(w, h) {
+  const tex = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, TEXF[0], w, h, 0, TEXF[1], TEXF[2], null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const fbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  return { tex, fbo, w, h };
+}
+function drop(t) { if (t) { gl.deleteTexture(t.tex); gl.deleteFramebuffer(t.fbo); } }
+
+function buildTargets() {
+  drop(sceneT); bloomT.forEach(drop); raysT.forEach(drop);
+  for (const rb of [sceneDepth, msColor, msDepth]) if (rb) gl.deleteRenderbuffer(rb);
+  if (msFbo) gl.deleteFramebuffer(msFbo);
+  sceneDepth = msColor = msDepth = msFbo = null;
+
+  sceneT = target(W, H);
+  if (SAMPLES) {
+    msFbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, msFbo);
+    msColor = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, msColor);
+    gl.renderbufferStorageMultisample(gl.RENDERBUFFER, SAMPLES, TEXF[0], W, H);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, msColor);
+    msDepth = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, msDepth);
+    gl.renderbufferStorageMultisample(gl.RENDERBUFFER, SAMPLES, gl.DEPTH_COMPONENT24, W, H);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, msDepth);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+      gl.deleteFramebuffer(msFbo); gl.deleteRenderbuffer(msColor); gl.deleteRenderbuffer(msDepth);
+      msFbo = msColor = msDepth = null;
+      SAMPLES = 0;                               // and stay off: it will not start working
+    }
+  }
+  if (!msFbo) {
+    sceneDepth = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, sceneDepth);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, W, H);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, sceneT.fbo);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, sceneDepth);
+  }
+  bloomT = [];
+  for (let i = 0, w = W, h = H; i < BLOOM_LEVELS; i++) {
+    w = Math.max(1, w >> 1); h = Math.max(1, h >> 1);
+    bloomT.push(target(w, h));
+  }
+  const rw = Math.max(1, W >> 2), rh = Math.max(1, H >> 2);
+  raysT = [target(rw, rh), target(rw, rh)];
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+}
+
+function bindTarget(t) {
+  gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo);
+  gl.viewport(0, 0, t.w, t.h);
+}
+function bindTex(unit, tex) {
+  gl.activeTexture(gl.TEXTURE0 + unit);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+}
+
+const TER_PAL = [['C_DEEP','deep'], ['C_MID','mid'], ['C_LIT','lit'], ['C_HOT','hot'],
+                 ['C_FOG','fog'], ['C_SUN','sun'], ['C_SUNC','sunC'],
+                 ['C_SHINE','shine'], ['C_MIST','mist'], ['C_SCAN','scan']];
+const SKY_PAL = [['C_FOG','fog'], ['C_TOP','top'], ['C_SUN','sun'], ['C_SUNC','sunC'],
+                 ['C_CLO','cloLo'], ['C_CHI','cloHi'], ['C_HOT','hot'],
+                 ['C_STAR','star'], ['C_SUNI','sunI'], ['C_CLOUD','cloud'], ['C_COV','cov']];
+function setPalette(prog, list) {
+  for (let i = 0; i < list.length; i++) {
+    const loc = prog.u[list[i][0]], v = P[list[i][1]];
+    if (loc === undefined) continue;
+    if (typeof v === 'number') gl.uniform1f(loc, v); else gl.uniform3fv(loc, v);
+  }
+}
 
 /* ---- minimal mat4 ---- */
 const M = () => new Float32Array(16);
@@ -1044,11 +1668,14 @@ const proj = M(), view = M(), vp = M(), invVP = M();
    ============================================================ */
 
 const SPEED = REDUCED ? 0.8 : 3.2;            // world units / second
-const LIGHT = (() => {
-  const v = [-0.42, 0.30, 0.85];              // low sun, ahead and to the left
-  const l = Math.hypot(v[0], v[1], v[2]);
-  return [v[0] / l, v[1] / l, v[2] / l];
-})();
+
+// The sun sits low and ahead, a little to the right of the flight line — in
+// the frame, clear of the text column, and low enough that the ranges on
+// that side pass in front of it now and then and break it into shafts.
+// (The camera's right is world -x.)
+const SUN_EL = 8 * Math.PI / 180, SUN_AZ = 33 * Math.PI / 180;
+const LIGHT = [-Math.sin(SUN_AZ) * Math.cos(SUN_EL), Math.sin(SUN_EL), Math.cos(SUN_AZ) * Math.cos(SUN_EL)];
+const SUNH  = (() => { const l = Math.hypot(LIGHT[0], LIGHT[2]); return [LIGHT[0] / l, 0, LIGHT[2] / l]; })();
 const EYE = [0, 0, 0], TGT = [0, 0, 0], UP = [0, 1, 0];
 
 // Terrain-following altitude: clear only the ground on the flight line,
@@ -1095,9 +1722,14 @@ const AHEAD   = 72;                 // how far down the track the camera looks
    Edges are picked between anchors that are currently ahead of the camera,
    live for a few seconds, then expire and are replaced somewhere else. New
    edges hang off an existing node about half the time, which is what turns
-   a scatter of separate segments into a graph that rewires itself. */
+   a scatter of separate segments into a graph that rewires itself, and now
+   and then relate two nodes it already has, which closes loops. Once an
+   edge has landed, pulses run along it — a query traversing a relation —
+   and each one lights the node it reaches. */
 const links = [];
-let lastCamZ = 0, graphReady = false;
+const PULSE_V = 44;                 // world units / second
+const FADE    = 0.24;               // share of each life spent fading in / out
+let lastCamZ = 0, graphReady = false, nEdges = 0, nPts = 0;
 
 // An anchor ahead of the camera, in world space, choosing whichever tile
 // copy (0 or +DEPTH) puts it in the useful band.
@@ -1141,45 +1773,98 @@ function pickPartner(ax, ay, az, camX, camZ) {
   return null;
 }
 
+const endOf = l => Math.random() < 0.5 ? [l.ax, l.ay, l.az] : [l.bx, l.by, l.bz];
+const at = (l, p, q) => l.ax === p[0] && l.ay === p[1] && l.az === p[2] &&
+                        l.bx === q[0] && l.by === q[1] && l.bz === q[2];
+function related(p, q) {
+  for (let i = 0; i < links.length; i++) if (at(links[i], p, q) || at(links[i], q, p)) return true;
+  return false;
+}
+
 function newLink(camX, camZ) {
-  let a = null;
-  if (links.length && Math.random() < 0.45) {          // grow off the existing graph
-    const l = links[(Math.random() * links.length) | 0];
-    a = Math.random() < 0.5 ? [l.ax, l.ay, l.az] : [l.bx, l.by, l.bz];
-    const dz = a[2] - camZ;
-    if (dz < 25 || dz > 420) a = null;
+  let a = null, b = null;
+  if (links.length > 6 && Math.random() < 0.2) {      // relate two nodes it already has
+    for (let k = 0; k < 10 && !b; k++) {
+      const p = endOf(links[(Math.random() * links.length) | 0]);
+      const q = endOf(links[(Math.random() * links.length) | 0]);
+      const dp = p[2] - camZ, dq = q[2] - camZ;
+      if (dp < 30 || dq < 30 || Math.abs(p[2] - q[2]) > 85) continue;
+      const d = Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+      if (d > 30 && d < Math.max(34, Math.min(190, Math.min(dp, dq) * 0.55)) && !related(p, q)) { a = p; b = q; }
+    }
   }
-  if (!a) a = pickAhead(camX, camZ, 45, 430);
-  if (!a) return null;
-  const b = pickPartner(a[0], a[1], a[2], camX, camZ);
-  if (!b) return null;
+  if (!b) {
+    a = null;
+    if (links.length && Math.random() < 0.45) {        // grow off the existing graph
+      a = endOf(links[(Math.random() * links.length) | 0]);
+      const dz = a[2] - camZ;
+      if (dz < 25 || dz > 420) a = null;
+    }
+    if (!a) a = pickAhead(camX, camZ, 45, 430);
+    if (!a) return null;
+    b = pickPartner(a[0], a[1], a[2], camX, camZ);
+    if (!b) return null;
+  }
   // Lifetimes are long enough that a slow beam still leaves the edge
   // standing at full length for a while before the fade-out starts.
   const dur = 7.0 + Math.random() * 6.0;
+  // stagger the first batch so they don't all bloom together on load (the
+  // opening grows the graph gradually instead, so it never needs this)
+  const t = graphReady ? 0 : Math.random() * dur;
+  // seconds to reach full length, capped so it always finishes well before
+  // this edge begins to fade out
+  const beam = Math.min(1.9 + Math.random() * 1.3, dur * 0.35);
   return { ax: a[0], ay: a[1], az: a[2], bx: b[0], by: b[1], bz: b[2],
-           // stagger the first batch so they don't all bloom together on load
-           t: graphReady ? 0 : Math.random() * dur, dur,
-           // seconds to reach full length, capped so it always finishes
-           // well before this edge begins to fade out
-           beam: Math.min(1.9 + Math.random() * 1.3, dur * 0.35) };
+           len: Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]),
+           t, dur, beam, landed: t >= beam,
+           p: -9, pd: 1, next: t + Math.random() * 3,  // pulse position, direction, next departure
+           fa: 0, fb: 0, ra: -1, rb: -1 };             // flare and ripple at each end
 }
 
-const FADE = 0.24;                  // share of each life spent fading in / out
-function updateGraph(dt, camX, camZ) {
-  if (camZ < lastCamZ) links.length = 0;   // tile wrapped; baked positions are stale
+function putPoint(x, y, z, a, kind, par) {
+  const o = nPts++ * PT_F;
+  ptBuf[o] = x; ptBuf[o + 1] = y; ptBuf[o + 2] = z; ptBuf[o + 3] = a;
+  ptBuf[o + 4] = kind; ptBuf[o + 5] = par;
+}
+
+function updateGraph(dt, camX, camZ, cap) {
+  // The flight wraps back one tile every DEPTH units. The terrain is
+  // periodic, so the edges can move back with it instead of being dropped,
+  // which used to blink the whole graph out once a lap.
+  if (camZ < lastCamZ) for (const l of links) { l.az -= DEPTH; l.bz -= DEPTH; }
   lastCamZ = camZ;
+
   for (let i = links.length - 1; i >= 0; i--) {
-    links[i].t += dt;
-    if (links[i].t >= links[i].dur) links.splice(i, 1);
+    const l = links[i];
+    l.t += dt;
+    if (l.t >= l.dur) { links.splice(i, 1); continue; }
+    if (!l.landed && l.t >= l.beam) { l.landed = true; l.fb = 1; l.rb = 0; l.next = l.t + 0.4 + Math.random() * 2.6; }
+    if (l.landed && l.p < -1 && l.t >= l.next && l.t < l.dur * (1 - FADE)) {
+      l.pd = Math.random() < 0.5 ? 1 : -1;
+      l.p = l.pd > 0 ? 0 : 1;
+      if (l.pd > 0) l.fa = Math.max(l.fa, 0.45); else l.fb = Math.max(l.fb, 0.45);
+    }
+    if (l.p > -1) {
+      l.p += l.pd * PULSE_V / l.len * dt;
+      if (l.p >= 1 || l.p <= 0) {
+        if (l.pd > 0) { l.fb = 1; l.rb = 0; } else { l.fa = 1; l.ra = 0; }
+        l.p = -9;
+        l.next = l.t + (REDUCED ? 4 : 1.6) + Math.random() * (REDUCED ? 8 : 4.2);
+      }
+    }
+    l.fa = Math.max(0, l.fa - dt * 2.4);
+    l.fb = Math.max(0, l.fb - dt * 2.4);
+    if (l.ra >= 0 && (l.ra += dt / 1.3) >= 1) l.ra = -1;
+    if (l.rb >= 0 && (l.rb += dt / 1.3) >= 1) l.rb = -1;
   }
-  for (let guard = 0; links.length < LINK_MAX && guard < 8; guard++) {
+  for (let guard = 0; links.length < cap && guard < 8; guard++) {
     const l = newLink(camX, camZ);
     if (!l) break;
     links.push(l);
   }
   graphReady = true;
 
-  let n = 0;
+  nEdges = 0; nPts = 0;
   for (let i = 0; i < links.length; i++) {
     const l = links[i], u = l.t / l.dur;
     let e = Math.min(1, Math.min(u, 1 - u) / FADE);
@@ -1190,7 +1875,7 @@ function updateGraph(dt, camX, camZ) {
     // leaves the origin quickly and settles onto the target. This happens
     // once, on appearance — the exit stays a pure alpha fade.
     const x = Math.min(1, l.t / l.beam);
-    const g = x * x * (3 - 2 * x);           // accelerate out, decelerate in
+    const g = x * x * (3 - 2 * x);
     const hx = l.ax + (l.bx - l.ax) * g;
     const hy = l.ay + (l.by - l.ay) * g;
     const hz = l.az + (l.bz - l.az) * g;
@@ -1198,15 +1883,36 @@ function updateGraph(dt, camX, camZ) {
     // match the origin node once the edge is fully drawn
     const head = e * (1.0 + 0.6 * (1.0 - g * g));
 
-    linkBuf[n++] = l.ax; linkBuf[n++] = l.ay; linkBuf[n++] = l.az; linkBuf[n++] = e;
-    linkBuf[n++] = hx;   linkBuf[n++] = hy;   linkBuf[n++] = hz;   linkBuf[n++] = head;
+    const o = nEdges++ * EDGE_F;
+    edgeBuf[o]     = l.ax; edgeBuf[o + 1] = l.ay; edgeBuf[o + 2] = l.az; edgeBuf[o + 3] = e;
+    edgeBuf[o + 4] = hx;   edgeBuf[o + 5] = hy;   edgeBuf[o + 6] = hz;   edgeBuf[o + 7] = l.landed ? e : head;
+    if (l.landed) {
+      edgeBuf[o + 8] = l.p; edgeBuf[o + 9] = l.pd; edgeBuf[o + 10] = l.len; edgeBuf[o + 11] = 1;
+    } else {
+      // while it reaches, the tip glows like a pulse sitting at the drawn end
+      edgeBuf[o + 8] = 1; edgeBuf[o + 9] = 1; edgeBuf[o + 10] = Math.max(1, l.len * g); edgeBuf[o + 11] = 0.2 + 0.8 * (1 - g * g);
+    }
+    edgeBuf[o + 12] = 1; edgeBuf[o + 13] = l.landed ? 1 : 0;
+
+    putPoint(l.ax, l.ay, l.az, e, 0, l.fa);
+    if (l.landed) putPoint(l.bx, l.by, l.bz, e, 0, l.fb);
+    else          putPoint(hx, hy, hz, head, 1, 0);
+    if (l.p > -1) putPoint(l.ax + (l.bx - l.ax) * l.p, l.ay + (l.by - l.ay) * l.p, l.az + (l.bz - l.az) * l.p, e, 1, 0);
+    if (l.ra >= 0) putPoint(l.ax, l.ay, l.az, e, 2, l.ra);
+    if (l.rb >= 0) putPoint(l.bx, l.by, l.bz, e, 2, l.rb);
   }
-  return n;
 }
 
-let time = 100;                     // start on a surveyed stretch of high range
+// The opening: the camera starts low, looking down into the range, and
+// lifts its eyes to the horizon as the sun comes up and the graph spreads
+// across the peaks. It plays once per load, in the first seconds, while
+// the text above it is already readable.
+const T0 = 100;                     // start on a surveyed stretch of high range
+const INTRO = REDUCED ? 0 : 7.5;
+let time = T0;
 let alt = null, flightX = 0, latV = 0, leadS = 0, routeTarget = 0, seeded = false;
 let bank = 0, routeT = 1, px = 0, py = 0, tpx = 0, tpy = 0;
+if (INTRO) graphReady = true;
 
 if (!REDUCED) {
   addEventListener('pointermove', e => {
@@ -1215,40 +1921,71 @@ if (!REDUCED) {
   }, { passive: true });
 }
 
-/* ---- sizing / adaptive resolution ---- */
-let scale = 1, dpr = 1, W = 1, H = 1;
-function resize() {
-  dpr = Math.min(devicePixelRatio || 1, 1.75);
-  W = Math.max(1, Math.round(innerWidth  * dpr * scale));
-  H = Math.max(1, Math.round(innerHeight * dpr * scale));
-  if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+/* ---- sizing / adaptive resolution ----
+   The pixel cap matters more than the dpr cap on big screens: the scene is
+   soft by nature, and a 4K target spends its budget on nothing visible. */
+const MAX_PX = COARSE ? 1.5e6 : 2.8e6;
+let scale = 1, pxK = 1, W = 1, H = 1, sized = '', resizeAt = 0, sizeCheck = 0;
+function measure() {
+  const dpr = Math.min(devicePixelRatio || 1, 1.5);
+  const cap = Math.min(1, Math.sqrt(MAX_PX / Math.max(1, innerWidth * innerHeight * dpr * dpr)));
+  const k = dpr * cap * scale;               // target pixels per CSS pixel
+  return [Math.max(1, Math.round(innerWidth * k)), Math.max(1, Math.round(innerHeight * k)), k];
 }
-addEventListener('resize', resize, { passive: true });
+function resize() {
+  [W, H, pxK] = measure();
+  if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+  if (sized !== W + 'x' + H) { sized = W + 'x' + H; buildTargets(); }
+}
+// Reallocating the targets is not free, so a drag-resize only rebuilds once
+// it pauses; until then the canvas simply stretches.
+addEventListener('resize', () => { resizeAt = performance.now() + 150; }, { passive: true });
 resize();
+
+let lost = false;
+canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); lost = true; fallback(); });
 
 let last = performance.now(), fAcc = 0, fN = 0, warm = 0, badRuns = 0, steps = 0;
 
 function frame(now) {
+  if (lost) return;
   requestAnimationFrame(frame);
+  // Past ~100 Hz, draw every other refresh: a background gains nothing from
+  // 120 or 144 frames a second, and the laptop showing it keeps its battery.
+  if (now - last < 9.5) return;
   let dt = (now - last) / 1000;
   last = now;
   if (dt > 0.05) dt = 0.05;                  // survive tab switches
   time += dt;
   easePalette(dt);
+  // A page that loads with no size at all (a background tab, a hidden
+  // frame) or misses a resize event must not keep a 1x1 canvas stretched
+  // over the screen, so the size is also checked against the window twice
+  // a second.
+  if (resizeAt && now >= resizeAt) { resizeAt = 0; resize(); }
+  else if (!resizeAt && ++sizeCheck >= 30) {
+    sizeCheck = 0;
+    const m = measure();
+    if (m[0] !== W || m[1] !== H) resizeAt = now;
+  }
 
   // Adaptive resolution — shed pixels before shedding frames. Reallocating
-  // the drawing buffer costs a visible hitch, so this ignores the warm-up,
-  // needs two bad windows in a row, and steps down at most twice.
+  // the targets costs a visible hitch, so this ignores the warm-up, needs
+  // two bad windows in a row, and steps down at most three times.
   if (warm < 120) { warm++; }
   else {
     fAcc += dt; fN++;
     if (fN >= 150) {
       if (fAcc / fN > 0.026) {
-        if (++badRuns >= 2 && steps < 2) { steps++; scale *= 0.8; resize(); badRuns = 0; }
+        if (++badRuns >= 2 && steps < 3) { steps++; scale *= 0.8; resize(); badRuns = 0; }
       } else badRuns = 0;
       fAcc = 0; fN = 0;
     }
   }
+
+  const k    = INTRO ? Math.min(1, (time - T0) / INTRO) : 1;
+  const open = k * k * k * (k * (k * 6 - 15) + 10);     // smootherstep: still at both ends
+  const sunAmt = 0.12 + 0.88 * open;
 
   /* ---- camera ---- */
   const camZ = (time * SPEED) % DEPTH;       // wrapped into the tile
@@ -1284,7 +2021,8 @@ function frame(now) {
     const lim  = SPEED * V_CAP * dt;         // bound the climb / descent angle
     alt += Math.max(-lim, Math.min(lim, step));
   }
-  const camY = Math.max(alt, Math.max(heightAt(camX, camZ), clearance(camX, camZ + 18)) + 10);
+  const camY = Math.max(alt - (1 - open) * 8,
+                        Math.max(heightAt(camX, camZ), clearance(camX, camZ + 18)) + 10);
 
   // Very slow follow. This is the only pan the viewer can trigger directly,
   // so a quick response here is what reads as a sudden jolt.
@@ -1294,7 +2032,7 @@ function frame(now) {
   // Aim along the actual velocity vector — look where you are going.
   EYE[0] = camX; EYE[1] = camY; EYE[2] = camZ;
   TGT[0] = camX + latV * (AHEAD / SPEED) + px * 7;
-  TGT[1] = camY - 3.5 + Math.sin(time * 0.038) * 2.0 - py * 5;
+  TGT[1] = camY - 3.5 + Math.sin(time * 0.038) * 2.0 - py * 5 - (1 - open) * 17;
   TGT[2] = camZ + AHEAD;
 
   // bank into the turn, the way an aircraft would
@@ -1307,99 +2045,216 @@ function frame(now) {
   // does not collapse and leave the phone staring at empty haze.
   const asp  = W / H;
   const fovy = Math.min(72, Math.max(55, 2 * Math.atan(Math.tan(27.5 * Math.PI / 180) / Math.min(asp, 1)) * 180 / Math.PI));
-  perspective(proj, fovy * Math.PI / 180, asp, 0.5, 900);
+  perspective(proj, fovy * Math.PI / 180, asp, 0.5, 1400);
   lookAt(view, EYE, TGT, UP);
   mul(vp, proj, view);
   invert(invVP, vp);
+
+  // where the sun lands on screen, for the shafts
+  const sx = EYE[0] + LIGHT[0] * 1000, sy = EYE[1] + LIGHT[1] * 1000, sz = EYE[2] + LIGHT[2] * 1000;
+  const scx = vp[0] * sx + vp[4] * sy + vp[8]  * sz + vp[12];
+  const scy = vp[1] * sx + vp[5] * sy + vp[9]  * sz + vp[13];
+  const scw = vp[3] * sx + vp[7] * sy + vp[11] * sz + vp[15];
 
   // survey sweep: 320 -> -20 over 15s, then a long rest
   const cyc = time % 27;
   const pulse = cyc < 15 ? 320 - (cyc / 15) * 340 : 1e5;
 
-  /* ---- draw ---- */
+  const over = P.sub > 0.5;
+
+  /* ---- scene: terrain, sky, then the light overlays ---- */
+  gl.bindFramebuffer(gl.FRAMEBUFFER, msFbo || sceneT.fbo);
   gl.viewport(0, 0, W, H);
-  gl.disable(gl.DEPTH_TEST);
-  gl.disable(gl.BLEND);
+  gl.colorMask(true, true, true, true);
   gl.depthMask(true);
+  gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  gl.depthMask(false);
-
-  gl.useProgram(skyP.p);
-  gl.bindVertexArray(skyVao);
-  gl.uniformMatrix4fv(skyP.u.uInvVP, false, invVP);
-  gl.uniform3f(skyP.u.uCam, EYE[0], EYE[1], EYE[2]);
-  gl.uniform3f(skyP.u.uLight, LIGHT[0], LIGHT[1], LIGHT[2]);
-  gl.uniform1f(skyP.u.uTime, time);
-  gl.uniform3fv(skyP.u.C_FOG, P.fog);
-  gl.uniform3fv(skyP.u.C_TOP, P.top);
-  gl.uniform3fv(skyP.u.C_SUN, P.sun);
-  gl.uniform3fv(skyP.u.C_HOT, P.hot);
-  gl.uniform1f (skyP.u.C_STAR, P.star);
-  gl.drawArrays(gl.TRIANGLES, 0, 3);
-
+  gl.disable(gl.BLEND);
   gl.enable(gl.DEPTH_TEST);
-  gl.depthMask(true);
+  gl.depthFunc(gl.LESS);
+
   gl.useProgram(terP.p);
   gl.bindVertexArray(terVao);
   gl.uniformMatrix4fv(terP.u.uVP, false, vp);
-  gl.uniform3f(terP.u.uCam, EYE[0], EYE[1], EYE[2]);
-  gl.uniform3f(terP.u.uLight, LIGHT[0], LIGHT[1], LIGHT[2]);
+  gl.uniform3fv(terP.u.uCam, EYE);
+  gl.uniform3fv(terP.u.uLight, LIGHT);
+  gl.uniform3fv(terP.u.uSunH, SUNH);
   gl.uniform1f(terP.u.uTime, time);
   gl.uniform1f(terP.u.uPulse, pulse);
-  gl.uniform3fv(terP.u.C_DEEP, P.deep);
-  gl.uniform3fv(terP.u.C_MID,  P.mid);
-  gl.uniform3fv(terP.u.C_LIT,  P.lit);
-  gl.uniform3fv(terP.u.C_HOT,  P.hot);
-  gl.uniform3fv(terP.u.C_FOG,  P.fog);
-  gl.uniform3fv(terP.u.C_SUN,  P.sun);
+  gl.uniform1f(terP.u.uSunAmt, sunAmt);
+  gl.uniform1i(terP.u.uNoise, NOISE_UNIT);
+  setPalette(terP, TER_PAL);
   // two copies of the tile, one ahead — the field is periodic, so the join is invisible
   gl.uniform1f(terP.u.uZOff, 0);
   gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_INT, 0);
   gl.uniform1f(terP.u.uZOff, DEPTH);
   gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_INT, 0);
 
-  // Light theme composites the overlays over a bright ground; the others add.
-  const over = P.sub > 0.5;
+  // The sky goes second and only where the depth is still clear, so the
+  // cloud noise is never computed under a mountain.
+  gl.depthFunc(gl.LEQUAL);
+  gl.depthMask(false);
+  gl.useProgram(skyP.p);
+  gl.bindVertexArray(fsVao);
+  gl.uniformMatrix4fv(skyP.u.uInvVP, false, invVP);
+  gl.uniform3fv(skyP.u.uCam, EYE);
+  gl.uniform3fv(skyP.u.uLight, LIGHT);
+  gl.uniform3fv(skyP.u.uSunH, SUNH);
+  gl.uniform1f(skyP.u.uTime, time);
+  gl.uniform1f(skyP.u.uTravel, time * SPEED);  // unwrapped, so the deck never jumps at the loop
+  gl.uniform1f(skyP.u.uSunAmt, sunAmt);
+  gl.uniform1i(skyP.u.uNoise, NOISE_UNIT);
+  setPalette(skyP, SKY_PAL);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.depthFunc(gl.LESS);
+
+  // The overlays leave alpha alone: it is the sky mask the shafts read.
+  // Light theme composites them over a bright ground; the dark one adds.
+  gl.colorMask(true, true, true, false);
   gl.enable(gl.BLEND);
   if (over) gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   else      gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-  gl.depthMask(false);
   gl.useProgram(dustP.p);
   gl.bindVertexArray(dustVao);
   gl.uniformMatrix4fv(dustP.u.uVP, false, vp);
-  gl.uniform3f(dustP.u.uCam, EYE[0], EYE[1], EYE[2]);
+  gl.uniform3fv(dustP.u.uCam, EYE);
+  gl.uniform3fv(dustP.u.uLight, LIGHT);
   gl.uniform1f(dustP.u.uTime, time);
-  gl.uniform1f(dustP.u.uPx, dpr * scale);
+  gl.uniform1f(dustP.u.uPx, pxK);
+  gl.uniform1f(dustP.u.uFwd, (1 - P.sub) * sunAmt);
   gl.uniform3fv(dustP.u.uTint, P.dust);
   gl.drawArrays(gl.POINTS, 0, DUST_N);
 
-  // --- node graph: the same vertices drawn as edges, then as nodes
+  // --- node graph: edges as glowing quads, then nodes, sparks and ripples
   if (ANCH_N) {
-    const n = updateGraph(dt, camX, camZ);
-    if (n) {
+    const cap = INTRO ? Math.round(LINK_MAX * smoothstep(0.10, 0.80, k)) : LINK_MAX;
+    updateGraph(dt, camX, camZ, cap);
+    if (nEdges) {
       gl.blendFunc(gl.ONE, over ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
-      gl.useProgram(graphP.p);
-      gl.bindVertexArray(gVao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, gbo);
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, linkBuf, 0, n);
-      gl.uniformMatrix4fv(graphP.u.uVP, false, vp);
-      gl.uniform3f(graphP.u.uCam, EYE[0], EYE[1], EYE[2]);
-      gl.uniform1f(graphP.u.uPx, dpr * scale);
 
-      gl.uniform1f(graphP.u.uPoint, 0.0);
-      gl.uniform3fv(graphP.u.uTint, P.edge);
-      gl.drawArrays(gl.LINES, 0, n / 4);
+      gl.useProgram(edgeP.p);
+      gl.bindVertexArray(edgeVao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, edgeVbo);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, edgeBuf, 0, nEdges * EDGE_F);
+      gl.uniformMatrix4fv(edgeP.u.uVP, false, vp);
+      gl.uniform3fv(edgeP.u.uCam, EYE);
+      gl.uniform2f(edgeP.u.uRes, W, H);
+      gl.uniform1f(edgeP.u.uPx, pxK);
+      gl.uniform1f(edgeP.u.uHalo, P.halo);
+      gl.uniform1f(edgeP.u.uSub, P.sub);
+      gl.uniform3fv(edgeP.u.uTint, P.edge);
+      gl.uniform3fv(edgeP.u.uHot, P.pulse);
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, nEdges);
 
-      gl.uniform1f(graphP.u.uPoint, 1.0);
-      gl.uniform3fv(graphP.u.uTint, P.node);
-      gl.drawArrays(gl.POINTS, 0, n / 4);
+      gl.useProgram(ptP.p);
+      gl.bindVertexArray(ptVao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, ptVbo);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, ptBuf, 0, nPts * PT_F);
+      gl.uniformMatrix4fv(ptP.u.uVP, false, vp);
+      gl.uniform3fv(ptP.u.uCam, EYE);
+      gl.uniform1f(ptP.u.uPx, pxK);
+      gl.uniform1f(ptP.u.uMaxPt, PT_MAX);
+      gl.uniform1f(ptP.u.uHalo, P.halo);
+      gl.uniform1f(ptP.u.uSub, P.sub);
+      gl.uniform3fv(ptP.u.uTint, P.node);
+      gl.uniform3fv(ptP.u.uHot, P.pulse);
+      gl.drawArrays(gl.POINTS, 0, nPts);
     }
   }
   gl.disable(gl.BLEND);
+  gl.colorMask(true, true, true, true);
 
+  if (msFbo) {
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, msFbo);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, sceneT.fbo);
+    gl.blitFramebuffer(0, 0, W, H, 0, 0, W, H, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+  }
+
+  /* ---- post ---- */
+  gl.disable(gl.DEPTH_TEST);
+  gl.depthMask(false);
+  gl.bindVertexArray(fsVao);
+
+  // light shafts
+  const raysI = scw > 0 ? P.rays * sunAmt : 0;
+  if (raysI > 0.001) {
+    bindTarget(raysT[0]);
+    gl.useProgram(rsrcP.p);
+    bindTex(0, sceneT.tex);
+    gl.uniform1i(rsrcP.u.uScene, 0);
+    gl.uniform2f(rsrcP.u.uTexel, 1 / W, 1 / H);
+    gl.uniformMatrix4fv(rsrcP.u.uInvVP, false, invVP);
+    gl.uniform3fv(rsrcP.u.uCam, EYE);
+    gl.uniform3fv(rsrcP.u.uLight, LIGHT);
+    gl.uniform1f(rsrcP.u.uThr, P.rthr);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    gl.useProgram(rblurP.p);
+    gl.uniform1i(rblurP.u.uSrc, 0);
+    gl.uniform2f(rblurP.u.uSun, 0.5 + 0.5 * scx / scw, 0.5 + 0.5 * scy / scw);
+    for (let i = 0; i < 3; i++) {
+      bindTarget(raysT[(i + 1) & 1]);
+      bindTex(0, raysT[i & 1].tex);
+      gl.uniform1f(rblurP.u.uSpan, i === 0 ? 1.0 : i === 1 ? 1 / 12 : 1 / 144);
+      gl.uniform1f(rblurP.u.uDecay, i === 0 ? 0.975 : 1.0);
+      gl.uniform1f(rblurP.u.uFall, i === 0 ? 2.2 : 0.0);
+      gl.uniform1f(rblurP.u.uAspect, W / H);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+  }
+
+  // bloom — on an 8-bit target nothing is brighter than white, so the light
+  // theme's sky would bloom whole; there it is simply left out
+  const bloomI = (HDR ? P.bloom : P.bloom * (1 - P.sub)) * 0.32;
+  if (bloomI > 0.001) {
+    gl.useProgram(downP.p);
+    gl.uniform1i(downP.u.uSrc, 0);
+    gl.uniform1f(downP.u.uThresh, HDR ? P.thresh : P.thresh * 0.72);
+    let src = sceneT;
+    for (let i = 0; i < bloomT.length; i++) {
+      bindTarget(bloomT[i]);
+      bindTex(0, src.tex);
+      gl.uniform2f(downP.u.uTexel, 1 / src.w, 1 / src.h);
+      gl.uniform1f(downP.u.uFirst, i === 0 ? 1 : 0);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      src = bloomT[i];
+    }
+    gl.useProgram(upP.p);
+    gl.uniform1i(upP.u.uSrc, 0);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    for (let i = bloomT.length - 1; i > 0; i--) {
+      bindTarget(bloomT[i - 1]);
+      bindTex(0, bloomT[i].tex);
+      gl.uniform2f(upP.u.uTexel, 1 / bloomT[i].w, 1 / bloomT[i].h);
+      // the widest levels are what turn a glow into a wash, so each step
+      // up carries a little less of what is below it
+      gl.uniform1f(upP.u.uGain, 0.72);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+    gl.disable(gl.BLEND);
+  }
+
+  // composite to the canvas
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, W, H);
+  gl.useProgram(compP.p);
+  bindTex(0, sceneT.tex);
+  bindTex(1, bloomT[0].tex);
+  bindTex(2, raysT[1].tex);
+  gl.uniform1i(compP.u.uScene, 0);
+  gl.uniform1i(compP.u.uBloom, 1);
+  gl.uniform1i(compP.u.uRays, 2);
+  gl.uniform1f(compP.u.uBloomI, bloomI);
+  gl.uniform1f(compP.u.uRaysI, raysI);
+  gl.uniform1f(compP.u.uKnee, P.knee);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.activeTexture(gl.TEXTURE0);
 }
 
-requestAnimationFrame(t => { last = t; canvas.classList.add('ready'); frame(t); });
+requestAnimationFrame(t => { last = t - 16; canvas.classList.add('ready'); frame(t); });
 
 })();
 </script>
