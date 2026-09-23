@@ -23,10 +23,9 @@ import { formatTime } from "../format";
  * Everything about the license this installation runs under: whether it has one, what it carries,
  * and the keys that decide both.
  *
- * The page is written for someone who does not have a license and is trying to work out whether
- * they need one. That question is answered first and in plain words - they almost certainly do not -
- * because the honest answer is the one that earns the rest of the page a reading. Only then come
- * the keys, and only then what the license turns out to entitle them to.
+ * Laid out as a grid rather than a column: where the installation stands and what a license is for
+ * share the top row, the keys run across the full width, and what the license carries sits below in
+ * three columns. Someone asking "do I need this?" gets the answer - no - in the aside beside the status.
  *
  * The keys are ordinary server settings and are saved through the settings command, so a key that
  * configuration decides is locked here exactly as it is on the settings page.
@@ -61,8 +60,8 @@ export function LicenseSection({ onChanged }: { onChanged?: (status: LicenseStat
 
   return (
     <div className="license-page">
-      <WhatALicenseIs status={status} />
       <StatusPanel status={status} busy={busy} onRefresh={load} onPaired={load} />
+      <WhatALicenseIs />
       <KeysPanel status={status} onSaved={load} />
       {status.state === "valid" && status.license && <EntitlementsPanel status={status} />}
     </div>
@@ -160,32 +159,24 @@ function usePairing(onPaired: () => Promise<unknown>, pending: PairingHandle | n
 }
 
 /**
- * The first thing on the page, and the only part that is the same whatever the state. Someone who
- * has just found a section called "License" in a database they are running wants to know whether
- * something is wrong, and the answer is no.
+ * The same whatever the state. Someone who has just found a section called "License" in a database
+ * they are running wants to know whether something is wrong, and the answer is no.
  */
-function WhatALicenseIs({ status }: { status: LicenseStatus }) {
+function WhatALicenseIs() {
   return (
     <section className="panel license-intro">
       <h3>
-        <IconInfoCircle size={15} stroke={1.8} /> What a license is for
+        <IconInfoCircle size={15} stroke={1.8} /> Do I need one?
       </h3>
-      <p>
-        <strong>Relatude.DB does not need a license.</strong> Every part of the database runs without one: the storage, the indexes, the queries, the
-        admin UI, all of it. Nothing here expires and nothing is held back.
-      </p>
-      <p>
-        A license is what lets this installation use <strong>Relatude Services</strong> instead of accounts of your own. Without one you configure your own
-        OpenAI, Azure or Anthropic keys for embeddings and completions, and your own gateway for text messages, and you are billed by those vendors. With
-        one, this installation calls the Relatude services with the API key below and the usage is counted against the license.
-      </p>
-      <p>
-        <strong>A license is free.</strong> It also lets you and the people you choose sign in to this admin UI with a Relatude Cloud account, instead of
-        sharing the master password: you grant access per installation in the portal, and it can be taken away again there.
-      </p>
-      <p className="license-muted">
-        The license server this installation talks to is <code>{status.licenseServerUrl}</code>.
-      </p>
+      <ul>
+        <li>
+          <strong>No.</strong> The database runs fully without a license; nothing expires or is held back.
+        </li>
+        <li>
+          <strong>It is free</strong>, and lets this installation use <strong>Relatude Services</strong> for AI and text messages instead of your own vendor keys.
+        </li>
+        <li>It also lets people you choose sign in with a Relatude Cloud account instead of the master password.</li>
+      </ul>
     </section>
   );
 }
@@ -203,11 +194,13 @@ function StatusPanel({
   onPaired: () => Promise<unknown>;
 }) {
   const server = status.licenseServerUrl.replace(/\/$/, "");
-  const licensePage = status.licenseKey ? `${server}/licenses/${encodeURIComponent(status.licenseKey)}` : server;
+  // a key that is not a guid names no license page, so the portal's front page is the best there is
+  const key = status.licenseKey?.trim() ?? "";
+  const licensePage = /^[0-9a-f]{8}-?([0-9a-f]{4}-?){3}[0-9a-f]{12}$/i.test(key) ? `${server}/licenses/${encodeURIComponent(key)}` : server;
   const tone = toneOf(status);
   const pair = usePairing(onPaired, status.pairing);
   return (
-    <section className="panel">
+    <section className="panel license-status-panel">
       <h3>
         Status
         <span className="panel-sub">
@@ -224,6 +217,30 @@ function StatusPanel({
           <strong>{headline(status)}</strong>
           {status.reason && <span className="license-muted">{status.reason}</span>}
         </div>
+        <div className="license-actions">
+          {status.state === "missing" ? (
+            // No copying: the portal is opened on this pairing, and whatever license is picked there
+            // comes back here by itself. The plain link is kept beside it for anyone who would rather
+            // do it by hand, or whose browser would not open the tab.
+            <>
+              <button className="action-button primary" onClick={pair.start} disabled={pair.starting || pair.pairing !== null}>
+                <IconPlugConnected size={15} stroke={1.8} />
+                {pair.starting ? "Starting…" : pair.pairing ? "Waiting…" : "Create a license"}
+              </button>
+              <a className="action-button" href={server} target="_blank" rel="noreferrer">
+                Open portal
+                <IconExternalLink size={13} stroke={1.8} />
+              </a>
+            </>
+          ) : (
+            // invalid, malformed or unreachable is fixed at the other end too - on the license's own
+            // page when the key is good enough to name one
+            <a className="action-button" href={licensePage} target="_blank" rel="noreferrer">
+              {status.state === "valid" ? "Open in portal" : "Edit in portal"}
+              <IconExternalLink size={13} stroke={1.8} />
+            </a>
+          )}
+        </div>
       </div>
 
       {pair.pairing ? (
@@ -232,38 +249,10 @@ function StatusPanel({
         pair.error && <div className="license-error">{pair.error}</div>
       )}
 
-      <div className="license-actions">
-        {status.state === "missing" ? (
-          // No copying: the portal is opened on this pairing, and whatever license is picked there
-          // comes back here by itself. The plain link is kept beside it for anyone who would rather
-          // do it by hand, or whose browser would not open the tab.
-          <>
-            <button className="action-button primary" onClick={pair.start} disabled={pair.starting || pair.pairing !== null}>
-              <IconPlugConnected size={15} stroke={1.8} />
-              {pair.starting ? "Starting…" : pair.pairing ? "Waiting for the portal…" : "Create a license"}
-            </button>
-            <a className="action-button" href={server} target="_blank" rel="noreferrer">
-              Open the portal instead
-              <IconExternalLink size={13} stroke={1.8} />
-            </a>
-          </>
-        ) : status.state === "valid" ? (
-          <a className="action-button" href={licensePage} target="_blank" rel="noreferrer">
-            Open this license in the portal
-            <IconExternalLink size={13} stroke={1.8} />
-          </a>
-        ) : (
-          // invalid, malformed or unreachable: whatever is wrong, it is fixed at the other end
-          <a className="action-button" href={server} target="_blank" rel="noreferrer">
-            Edit the license in the portal
-            <IconExternalLink size={13} stroke={1.8} />
-          </a>
-        )}
-      </div>
-
-      <div className="facts-grid license-facts">
-        <Fact k="Sign-in with Relatude.License" v={status.signInEnabled ? "On" : "Off"} />
-        <Fact k="Reports in" v={status.heartbeatDisabled ? "Disabled" : "Every ten minutes"} />
+      <div className="license-facts">
+        <Fact k="License server" v={server} />
+        <Fact k="Cloud sign-in" v={status.signInEnabled ? "On" : "Off"} />
+        <Fact k="Reports in" v={status.heartbeatDisabled ? "Disabled" : "Every 10 min"} />
         <Fact k="Last report" v={status.lastContactUtc ? formatTime(status.lastContactUtc) : "Not yet"} />
       </div>
     </section>
@@ -318,14 +307,13 @@ function KeysPanel({ status, onSaved }: { status: LicenseStatus; onSaved: () => 
   }
 
   return (
-    <section className="panel">
-      <h3>Keys</h3>
-      <p className="license-muted">
-        Both come from the license page in the portal. The license key names the license and is not secret; the API key is what this installation proves
-        itself with, so it belongs in configuration or user secrets on a server anyone else can read.
-      </p>
+    <section className="panel license-keys">
+      <h3>
+        Keys
+        <span className="panel-sub"> · from the license's page in the portal. The API key is secret: keep it in configuration or user secrets.</span>
+      </h3>
       <div className="license-fields">
-        <Field label="License key" hint="The license's id, shown on its page in the portal." locked={locked("LicenseKey")}>
+        <Field label="License key" locked={locked("LicenseKey")}>
           <input
             className="text-input"
             value={licenseKey}
@@ -335,11 +323,7 @@ function KeysPanel({ status, onSaved }: { status: LicenseStatus; onSaved: () => 
             onChange={(e) => setLicenseKey(e.target.value)}
           />
         </Field>
-        <Field
-          label="API key"
-          hint={status.hasApiKey ? "One is set. Type a new one to replace it; leaving this empty keeps it." : "One of the license's API keys, from the same page."}
-          locked={locked("ApiKey")}
-        >
+        <Field label="API key" hint={status.hasApiKey ? "Leave empty to keep the current one." : undefined} locked={locked("ApiKey")}>
           <input
             className="text-input"
             type="password"
@@ -350,7 +334,7 @@ function KeysPanel({ status, onSaved }: { status: LicenseStatus; onSaved: () => 
             onChange={(e) => setApiKey(e.target.value)}
           />
         </Field>
-        <Field label="License server" hint="Only for a self-hosted or test license server." locked={locked("LicenseServerUrl")}>
+        <Field label="License server" hint="Only for self-hosted or test servers." locked={locked("LicenseServerUrl")}>
           <input
             className="text-input"
             value={serverUrl}
@@ -359,38 +343,30 @@ function KeysPanel({ status, onSaved }: { status: LicenseStatus; onSaved: () => 
             onChange={(e) => setServerUrl(e.target.value)}
           />
         </Field>
-        <Field
-          label="Allow sign-in with Relatude.License"
-          hint="Shows the button on the login page. Who gets in is the portal's decision; the master login is unaffected."
-          locked={locked("AllowLicenseeAdminLogin")}
-        >
+        <Field label="Cloud sign-in" hint="Adds the button to the login page; the portal decides who gets in." locked={locked("AllowLicenseeAdminLogin")}>
           <label className="license-toggle">
             <input type="checkbox" checked={signIn} disabled={locked("AllowLicenseeAdminLogin")} onChange={(e) => setSignIn(e.target.checked)} />
             <span>{signIn ? "On" : "Off"}</span>
           </label>
         </Field>
-        <Field
-          label="Report in to the license server"
-          hint="Every ten minutes: the keys, the machine and version, and a node count. It counts the license, it does not enforce it."
-          locked={locked("DisableHeartbeat")}
-        >
+        <Field label="Report in" hint="Every 10 min: keys, machine, version and node count. Counts, never enforces." locked={locked("DisableHeartbeat")}>
           <label className="license-toggle">
             <input type="checkbox" checked={reporting} disabled={locked("DisableHeartbeat")} onChange={(e) => setReporting(e.target.checked)} />
             <span>{reporting ? "On" : "Off"}</span>
           </label>
         </Field>
+        <div className="license-save">
+          <button className="action-button primary" onClick={save} disabled={saving || !changed}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+          {status.locked.length > 0 && (
+            <span className="license-muted">
+              {status.locked.length === 1 ? "1 field is" : `${status.locked.length} fields are`} set by configuration.
+            </span>
+          )}
+        </div>
       </div>
       {saveError && <div className="license-error">{saveError}</div>}
-      <div className="license-actions">
-        <button className="action-button primary" onClick={save} disabled={saving || !changed}>
-          {saving ? "Saving…" : "Save"}
-        </button>
-        {status.locked.length > 0 && (
-          <span className="license-muted">
-            {status.locked.length === 1 ? "One field is" : `${status.locked.length} fields are`} decided by configuration and cannot be edited here.
-          </span>
-        )}
-      </div>
     </section>
   );
 }
@@ -399,53 +375,63 @@ function KeysPanel({ status, onSaved }: { status: LicenseStatus; onSaved: () => 
 function EntitlementsPanel({ status }: { status: LicenseStatus }) {
   const license = status.license!;
   return (
-    <section className="panel">
-      <h3>What this license carries</h3>
-      <div className="facts-grid license-facts">
-        <Fact k="License" v={license.name} />
-        <Fact k="State" v={license.disabled ? "Disabled" : license.expired ? "Expired" : "Active"} />
-        <Fact k="Expires" v={license.expiresUtc ? formatTime(license.expiresUtc) : "Never"} />
+    <section className="panel license-entitlements">
+      <h3>
+        {license.name}
+        <span className="panel-sub">
+          {" · "}
+          {license.disabled ? "Disabled" : license.expired ? "Expired" : "Active"}
+          {" · "}
+          {license.expiresUtc ? "expires " + formatTime(license.expiresUtc) : "never expires"}
+        </span>
+      </h3>
+      <div className="license-columns">
+        <div>
+          <h4 className="license-sub">Features</h4>
+          {license.features.length === 0 ? (
+            <p className="license-muted">None</p>
+          ) : (
+            <div className="license-chips">
+              {license.features.map((f) => (
+                <span key={f} className="license-chip">
+                  {f}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <h4 className="license-sub">Limits</h4>
+          {license.limits.length === 0 ? (
+            <p className="license-muted">None</p>
+          ) : (
+            <table className="license-table">
+              <tbody>
+                {license.limits.map((l) => (
+                  <tr key={l.name}>
+                    <td>{l.name}</td>
+                    <td className="num">{l.unlimited ? "Unlimited" : l.maxValue.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div>
+          <h4 className="license-sub">Monthly credits</h4>
+          {license.accounts.length === 0 ? (
+            <p className="license-muted">None, so the Relatude services will refuse calls.</p>
+          ) : (
+            <div className="license-accounts">
+              {license.accounts.map((a) => (
+                <Account key={a.name} account={a} />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
-
-      <h4 className="license-sub">Features</h4>
-      {license.features.length === 0 ? (
-        <p className="license-muted">None. This license turns no optional feature on.</p>
-      ) : (
-        <div className="license-chips">
-          {license.features.map((f) => (
-            <span key={f} className="license-chip">
-              {f}
-            </span>
-          ))}
-        </div>
-      )}
-
-      <h4 className="license-sub">Limits</h4>
-      {license.limits.length === 0 ? (
-        <p className="license-muted">None. Nothing on this license is capped.</p>
-      ) : (
-        <table className="license-table">
-          <tbody>
-            {license.limits.map((l) => (
-              <tr key={l.name}>
-                <td>{l.name}</td>
-                <td className="num">{l.unlimited ? "Unlimited" : l.maxValue.toLocaleString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      <h4 className="license-sub">Monthly credits</h4>
-      {license.accounts.length === 0 ? (
-        <p className="license-muted">None. This license carries no credits, so the Relatude services will refuse a call from it.</p>
-      ) : (
-        <div className="license-accounts">
-          {license.accounts.map((a) => (
-            <Account key={a.name} account={a} />
-          ))}
-        </div>
-      )}
     </section>
   );
 }
@@ -455,16 +441,16 @@ function Account({ account }: { account: LicenseAccount }) {
   const used = Math.min(account.usedThisMonth, account.monthlyLimit);
   const share = account.monthlyLimit > 0 ? Math.round((used / account.monthlyLimit) * 100) : 0;
   const rates = [
-    { label: "per minute", window: account.minute },
-    { label: "per hour", window: account.hour },
-    { label: "per day", window: account.day },
+    { label: "/min", window: account.minute },
+    { label: "/hour", window: account.hour },
+    { label: "/day", window: account.day },
   ].filter((r) => r.window.limit > 0);
   return (
     <div className="license-account">
       <div className="license-account-head">
         <strong>{account.name}</strong>
         <span className="license-muted">
-          {account.balanceLeft.toLocaleString()} of {account.monthlyLimit.toLocaleString()} left this month
+          {account.balanceLeft.toLocaleString()} / {account.monthlyLimit.toLocaleString()} left
         </span>
       </div>
       <div className="license-bar" title={`${used.toLocaleString()} used of ${account.monthlyLimit.toLocaleString()}`}>
@@ -474,7 +460,8 @@ function Account({ account }: { account: LicenseAccount }) {
         <div className="license-muted license-rates">
           {rates.map((r) => (
             <span key={r.label}>
-              {r.window.limit.toLocaleString()} {r.label}
+              {r.window.limit.toLocaleString()}
+              {r.label}
             </span>
           ))}
         </div>
@@ -489,17 +476,12 @@ function Waiting({ pairing, saving, onStop }: { pairing: PairingHandle; saving: 
     <div className="license-waiting">
       <span className="license-spinner" aria-hidden="true" />
       <div className="license-status-text">
-        <strong>{saving ? "Saving the keys…" : "Waiting for a license to be chosen"}</strong>
+        <strong>{saving ? "Saving the keys…" : "Pick a license in the portal tab"}</strong>
         <span className="license-muted">
-          A tab opened at the license server. Sign in there and pick a license for this installation; its keys arrive here by themselves. The pairing
-          expires {formatTime(pairing.expiresUtc)}.
-        </span>
-        <span className="license-muted">
-          If the tab did not open,{" "}
+          The keys arrive here by themselves. Expires {formatTime(pairing.expiresUtc)} ·{" "}
           <a href={pairing.claimUrl} target="_blank" rel="noreferrer">
-            open it here
+            reopen the tab
           </a>
-          .
         </span>
       </div>
       <button className="action-button" onClick={onStop} disabled={saving}>
@@ -520,7 +502,7 @@ function Fact({ k, v }: { k: string; v: string }) {
   );
 }
 
-function Field({ label, hint, locked, children }: { label: string; hint: string; locked: boolean; children: React.ReactNode }) {
+function Field({ label, hint, locked, children }: { label: string; hint?: string; locked: boolean; children: React.ReactNode }) {
   return (
     <label className="license-field">
       <span className="license-field-label">
@@ -528,7 +510,7 @@ function Field({ label, hint, locked, children }: { label: string; hint: string;
         {locked && <span className="license-lock">from configuration</span>}
       </span>
       {children}
-      <span className="license-muted license-field-hint">{hint}</span>
+      {hint && <span className="license-muted license-field-hint">{hint}</span>}
     </label>
   );
 }
@@ -544,14 +526,14 @@ function headline(status: LicenseStatus): string {
     case "valid":
       return status.license?.active
         ? `Licensed — ${status.license.name}`
-        : `The license "${status.license?.name}" is ${status.license?.expired ? "expired" : "disabled"}`;
+        : `"${status.license?.name}" is ${status.license?.expired ? "expired" : "disabled"}`;
     case "invalid":
-      return "The license server does not accept these keys";
+      return "The license server rejects these keys";
     case "malformed":
-      return "The keys are not in the right shape";
+      return "The keys are malformed";
     case "unreachable":
-      return "The license server could not be reached";
+      return "License server unreachable";
     default:
-      return "No license — the database runs without one";
+      return "No license (none needed)";
   }
 }

@@ -73,6 +73,24 @@
       "autoPort": false
     },
     {
+      "name": "website-simple-fresh-nologin",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "examples/Website.Simple",
+        "--no-launch-profile",
+        "-e",
+        "RelatudeDB__ContainerSettings__0__IOSettings__0__Path=relatude.db2",
+        "-e",
+        "RelatudeDB__NoLoginRequiredForLocalhost=true",
+        "--urls",
+        "http://localhost:5062"
+      ],
+      "port": 5062,
+      "autoPort": false
+    },
+    {
       "name": "website-simple-verify",
       "runtimeExecutable": "dotnet",
       "runtimeArgs": [

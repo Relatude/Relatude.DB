@@ -10714,24 +10714,48 @@ body.pg-resizing {
 }
 
 /* ---- the License page ----
-   Mostly prose: someone opening it is usually asking "do I need this?", and the answer is a few
-   paragraphs before it is any number of fields. Everything below reads down that order. */
+   A grid, not a column: the status and the "do I need one?" aside share the top row, the keys run
+   the full width with their fields side by side, and what the license carries sits in three columns
+   below. Narrow screens fold it all back into one column. */
 
 .license-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  gap: 12px;
+  max-width: 1500px;
+  align-items: start;
+}
+
+.license-keys,
+.license-entitlements {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 900px) {
+  .license-page {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.license-status-panel,
+.license-intro {
+  align-self: stretch;
+}
+
+.license-intro h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.license-intro ul {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 13px;
+  line-height: 1.5;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  max-width: 900px;
-}
-
-.license-intro p {
-  margin: 0 0 8px;
-  max-width: 78ch;
-  line-height: 1.55;
-}
-
-.license-intro p:last-child {
-  margin-bottom: 0;
+  gap: 6px;
 }
 
 .license-muted {
@@ -10739,29 +10763,53 @@ body.pg-resizing {
 }
 
 .license-sub {
-  margin: 16px 0 6px;
-  font-size: 12px;
+  margin: 0 0 6px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
 
-/* the one line that says where this installation stands, in the colour of that answer */
+.license-status-panel h3,
+.license-keys h3,
+.license-entitlements h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.license-status-panel h3 .icon-button {
+  width: 22px;
+  height: 22px;
+}
+
+/* the one line that says where this installation stands, in the colour of that answer, with the
+   action it calls for at its right end */
 .license-status {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
-  padding: 12px 14px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--hover);
+}
+
+.license-status-icon {
+  display: flex;
+  flex: none;
 }
 
 .license-status-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  flex: 1 1 220px;
+  min-width: 0;
+  font-size: 13px;
 }
 
 .license-status-ok {
@@ -10787,27 +10835,64 @@ body.pg-resizing {
 .license-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
-  margin-top: 12px;
+}
+
+.license-actions .action-button {
+  min-width: 0;
 }
 
 .license-facts {
-  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px 16px;
+  margin-top: 10px;
+  font-size: 13px;
 }
 
+/* the fields flow into as many columns as fit, and the Save button takes the last cell */
 .license-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  margin-top: 4px;
-  max-width: 620px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px 16px;
+  align-items: start;
 }
 
 .license-field {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
+}
+
+.license-field .text-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.license-save {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-self: end;
+  font-size: 12px;
+}
+
+.license-save .action-button {
+  min-width: 100px;
+}
+
+.license-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 24px;
+}
+
+.license-columns p {
+  margin: 0;
+  font-size: 13px;
 }
 
 .license-field-label {
@@ -10930,10 +11015,10 @@ body.pg-resizing {
 /* waiting for the portal to answer a pairing: what is being waited for, and the way out of it */
 .license-waiting {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
-  margin-top: 12px;
-  padding: 12px 14px;
+  margin-top: 10px;
+  padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
   background: var(--accent-soft);
