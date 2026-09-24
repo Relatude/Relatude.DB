@@ -10884,6 +10884,49 @@ body.pg-resizing {
   min-width: 100px;
 }
 
+/* the SMS test: the two numbers narrow, the message taking what is left, Send at the end */
+.license-sms {
+  grid-column: 1 / -1;
+}
+
+.license-sms h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.license-sms-fields {
+  display: grid;
+  grid-template-columns: minmax(140px, 200px) minmax(160px, 220px) minmax(0, 1fr) auto;
+  gap: 12px 16px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .license-sms-fields {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .license-sms-fields > :nth-child(3) {
+    grid-column: 1 / -1;
+  }
+}
+
+.license-sms-message {
+  resize: vertical;
+  min-height: 34px;
+  font-family: inherit;
+}
+
+.license-sms-fields .license-save {
+  align-self: start;
+  padding-top: 20px;
+}
+
+.license-sms-receipt {
+  margin-top: 10px;
+}
+
 .license-columns {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

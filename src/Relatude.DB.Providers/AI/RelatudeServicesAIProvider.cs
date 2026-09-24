@@ -21,13 +21,13 @@ public sealed record RelatudeServicesModels(string[] EmbeddingModels, string[] C
 /// API key issued with that license, and the license must carry the AI feature and a credit account with a
 /// balance. A refusal comes back as an exception naming the reason (no feature, no credits, rate limited).</para>
 /// <para><see cref="AIProviderSettings.ServiceUrl"/> is the root of the service and defaults to
-/// <c>https://ai.services.relatude.com</c>; point it at your own deployment when the service is self-hosted.
+/// <c>https://ai.relatude.com</c>; point it at your own deployment when the service is self-hosted.
 /// EmbeddingModel and CompletionModel are model keys the service publishes (not vendor deployment names) and
 /// may be left empty, in which case the service picks its own default. CompletionModelsByKey maps a local key
 /// onto one of those published keys, exactly as it does for the other providers.</para>
 /// </summary>
 public class RelatudeServicesAIProvider : IAIProvider {
-    const string _defaultServiceUrl = "https://ai.services.relatude.com";
+    const string _defaultServiceUrl = "https://ai.relatude.com";
 
     /// <summary>The short name this provider is configured under, beside its own type name.
     /// <c>LateBindings.CreateAiProvider</c> resolves both, and the settings page offers this one.</summary>

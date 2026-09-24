@@ -120,7 +120,7 @@ public class SettingsCatalogTests {
             "DisableHeartbeat",
 #if !DEBUG
             // only a debug build offers the license server address, see LicenseServerAddressIsOnlyOfferedInDebugBuilds
-            "LicenseServerUrl",
+            "ServicesServerUrl",
 #endif
         ];
         var covered = SettingsCatalog.Server.Concat(SettingsCatalog.Database)
@@ -416,7 +416,7 @@ public class SettingsCatalogTests {
     /// only a debug build offers the address in the admin UI.</summary>
     [TestMethod]
     public void LicenseServerAddressIsOnlyOfferedInDebugBuilds() {
-        var offered = all().Any(e => e.Setting.Path == nameof(RelatudeDBServerSettings.LicenseServerUrl));
+        var offered = all().Any(e => e.Setting.Path == nameof(RelatudeDBServerSettings.ServicesServerUrl));
 #if DEBUG
         Assert.IsTrue(offered, "a debug build offers the license server address.");
 #else

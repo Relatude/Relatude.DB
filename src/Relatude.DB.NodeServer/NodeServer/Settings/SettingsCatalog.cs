@@ -304,7 +304,7 @@ public static class SettingsCatalog {
                         // an installation at another license server is for developing that server,
                         // not something a production admin UI should invite.
                         new() {
-                            Path = "LicenseServerUrl", Label = "License server", Applies = SettingApplies.Live, Placeholder = Defaults.LicenseServerUrl,
+                            Path = "ServicesServerUrl", Label = "License server", Applies = SettingApplies.Live, Placeholder = Defaults.ServicesServerUrl,
                             Help = "Only for a self-hosted or test license server. Everything the sign-in and the reporting send goes there instead.",
                         },
 #endif

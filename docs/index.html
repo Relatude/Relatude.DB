@@ -61,7 +61,11 @@
    black and white; the colour switch turns the scene black and white too,
    every tone in it grey, to match the rest of the docs. The weather switch
    changes the sky: calm and sunny, a storm with rain, a snow storm — in which
-   Santa crosses now and then.
+   Santa crosses now and then. A double-click anywhere (or the full-screen
+   switch) goes full screen with the page cleared away, the wordmark alone over
+   the scene, and tours the page's looks while it is left there; another
+   double-click brings it all back. The arrow keys, Space and Page Up/Down, or
+   a click on the background, step through those looks by hand.
    The stack:
 
      0  #fallback / #scene   a still dawn when WebGL2 is missing, or the canvas
@@ -69,8 +73,8 @@
      2  .scrim               the page ground, concentrated where the column sits
      3  .grain               a whisper of static over the whole frame
      4  .wrap                the page itself
-    10  #theme #colour       the switches: light/dark, colour, weather
-        #weather
+    10  #theme #colour       the switches: light/dark, colour, weather,
+        #weather #full       full screen
 
    Layers 0 to 3 are all position:fixed and pointer-events:none, so the page
    scrolls over a scene that stays put. */
@@ -195,7 +199,12 @@
 }
 
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; background: var(--bg); }
+html {
+  -webkit-text-size-adjust: 100%; background: var(--bg);
+  /* a double-tap belongs to the page (logo only, below), not to the browser's
+     zoom; pinch-zoom and panning are untouched */
+  touch-action: manipulation;
+}
 body {
   margin: 0;
   /* transparent rather than var(--bg): the scene is the ground now, and <html>
@@ -248,7 +257,7 @@ body {
    beside it: a width in vw alone would lay the ground over the light. */
 .scrim {
   position: fixed; inset: 0; z-index: 2; pointer-events: none;
-  transition: background .55s ease;
+  transition: background .55s ease, opacity .5s ease .35s, visibility 0s linear .35s;
   background: radial-gradient(ellipse min(66vw, 640px) 62% at 50% 44%,
     var(--scrim-a) 0%, var(--scrim-b) 50%, var(--scrim-c) 78%, transparent 100%);
 }
@@ -278,8 +287,8 @@ body {
 }
 header { margin-top: auto; text-align: center; }
 
-/* ------------------------------------------------ theme / colour / weather */
-#theme, #colour, #weather {
+/* ------------------------------ theme / colour / weather / full screen */
+#theme, #colour, #weather, #full {
   position: fixed; top: 18px; z-index: 10;
   width: 32px; height: 32px; padding: 0;
   border: 1px solid var(--border); border-radius: 50%;
@@ -291,11 +300,14 @@ header { margin-top: auto; text-align: center; }
 #theme   { right: 18px; }
 #colour  { right: 58px; }
 #weather { right: 98px; }
-#theme:hover, #colour:hover, #weather:hover { color: var(--fg); border-color: var(--fg-faint); background: var(--glass-hover); }
-#theme:focus-visible, #colour:focus-visible, #weather:focus-visible { outline: 2px solid var(--fg-faint); outline-offset: 2px; }
+#full    { right: 138px; }
+#full[hidden] { display: none; }        /* no full screen here: no button (the id rule would outrank [hidden]) */
+#theme:hover, #colour:hover, #weather:hover, #full:hover { color: var(--fg); border-color: var(--fg-faint); background: var(--glass-hover); }
+#theme:focus-visible, #colour:focus-visible, #weather:focus-visible, #full:focus-visible { outline: 2px solid var(--fg-faint); outline-offset: 2px; }
 /* The weather switch is one button stepping through three skies; its line icon
-   is drawn in the text colour, and turns into the next one as it changes. */
-#weather svg {
+   is drawn in the text colour, and turns into the next one as it changes. The
+   full-screen switch draws its corners the same way. */
+#weather svg, #full svg {
   width: 16px; height: 16px; display: block;
   fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round;
 }
@@ -329,6 +341,7 @@ header { margin-top: auto; text-align: center; }
      wordmark carries its own shadow to stay legible over the terrain */
   filter: drop-shadow(0 2px 26px var(--logo-glow)) drop-shadow(0 0 2px var(--logo-edge));
   animation: rise 1.5s cubic-bezier(.16,.84,.32,1) .2s both;
+  transition: color .8s ease, filter .8s ease;   /* crosses over with the scene when the theme changes */
 }
 .wordmark svg { display: block; width: auto; height: clamp(50px, 9.5vw, 78px); }
 @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
@@ -388,7 +401,8 @@ header { margin-top: auto; text-align: center; }
   text-align: center;
   text-decoration: none;
   white-space: nowrap;
-  transition: border-color .15s ease, background .15s ease;
+  transition: border-color .15s ease, background .15s ease,
+              opacity .5s ease .35s, visibility 0s linear .35s;   /* the last two: logo only */
 }
 .btn:hover { border-color: var(--fg-faint); background: var(--glass-hover); }
 .btn .arrow { font-size: 11px; color: var(--fg-faint); margin-left: 5px; }
@@ -441,6 +455,47 @@ footer { margin-top: auto; }   /* the second auto: settles the rule at the foot
 footer a { color: var(--fg-dim); text-decoration: none; }
 footer a:hover { color: var(--fg); }
 
+/* --------------------------------------------------------------- logo only */
+/* Full screen (a double-click anywhere, or the switch) clears the page away
+   and leaves the wordmark alone in the middle of the frame, with the switches
+   still in their corner; leaving it (another double-click, Escape) brings
+   everything back. Where there is no full screen a double-click does the
+   same on its own. Nothing underneath moves:
+   the rest fades out and stops taking the pointer, and the wordmark glides to
+   the middle by an offset the script measures at the switch (--logo-dy). The
+   glide is on the svg rather than the h1, whose entrance animation holds a
+   transform of its own. The scrim goes with the copy it was there for; the
+   wordmark carries its own shadow. Scrolling is off while it is alone, so it
+   stays in the middle.
+   The buttons and the install line fade one by one rather than as .block: an
+   ancestor below full opacity would cut their glass off from the scene behind
+   it, and the blur would drop out the moment the fade began. */
+.tagline, .lede, .install, footer { transition: opacity .5s ease .35s, visibility 0s linear .35s; }
+.wordmark svg { transition: transform 1s cubic-bezier(.65, 0, .35, 1); }
+:root.logo-only { overflow: hidden; }
+:root.logo-only :is(.scrim, .tagline, .lede, .btn, .install, footer) {
+  opacity: 0; visibility: hidden;
+  transition: opacity .45s ease, visibility 0s linear .45s;
+}
+:root.logo-only .wordmark svg {
+  transform: translateY(var(--logo-dy, 0px));
+  transition-delay: .1s;             /* let the copy it crosses start to go first */
+}
+@media (prefers-reduced-motion: reduce) {
+  .wordmark svg, :root.logo-only .wordmark svg { transition: none; }
+}
+/* The full-screen tour (below) changes looks slowly (html.gradual): what
+   shows over the scene follows the scene's own long cross-fade rather than
+   switching at once and leaving the landscape to catch up. */
+:root.gradual .wordmark {
+  transition: color 5s cubic-bezier(.35, 0, .25, 1), filter 5s cubic-bezier(.35, 0, .25, 1);
+}
+:root.gradual .vig { transition-duration: 5s; }
+:root.gradual :is(#theme, #colour, #weather, #full) {
+  transition: background 5s ease, border-color 5s ease, color 5s ease;
+}
+:root.gradual #colour .wheel { transition-duration: 5s; }
+
 @media (max-width: 640px) {
   .wrap { padding: 54px 20px 24px; }
   .tagline { font-size: 18px; }
@@ -463,6 +518,7 @@ footer a:hover { color: var(--fg); }
 <div class="scrim"></div>
 <div class="grain"></div>
 
+<button id="full" type="button" title="Full screen" aria-label="Full screen" hidden></button>
 <button id="weather" type="button" title="Weather" aria-label="Weather"></button>
 <button id="colour" type="button" aria-pressed="true" title="Colour" aria-label="Colour"><span class="wheel" aria-hidden="true"></span></button>
 <button id="theme" type="button" title="Theme" aria-label="Theme"></button>
@@ -498,15 +554,13 @@ footer a:hover { color: var(--fg); }
     <p class="tagline">Relatude.DB <span class="dash">&mdash;</span> the all-in-one datastore for web applications</p>
     <p class="lede">
       An open-source, object-oriented graph datastore for .NET where
-      <strong>your C# classes are the schema</strong> &mdash; no SQL, no migrations, no ORM layer.
-      Search, facets, files and an admin UI are built in, and it runs in-process or as a standalone server.
-      Media management, video conversion and vector indexing come out of the box.
-      It is fast, light on resources, and built to carry demanding web applications.
+      <strong>your C# classes are the schema</strong>&nbsp;&mdash; no SQL, no migrations, no ORM layer.
+      Search, facets, files, media management, video conversion, vector indexing and an admin UI
+      are built in. Fast and light, in-process or as a server, it is built to carry demanding web applications.
     </p>
     <p class="lede">
-      That makes it <strong>a perfect match for AI agents</strong>. Building the same thing from
-      separate systems is a mess &mdash; these are safe, powerful blocks your AI can use directly,
-      with code that stays small and under your control.
+      That makes it <strong>a perfect match for AI agents</strong>: safe, powerful blocks your AI can
+      use directly, not a mess of separate systems, and code that stays small and under your control.
     </p>
   </header>
 
@@ -573,11 +627,15 @@ footer a:hover { color: var(--fg); }
   if (mq.addEventListener) mq.addEventListener("change", show);
   else if (mq.addListener) mq.addListener(show);           // older Safari
 
-  $btn.addEventListener("click", function () {
-    var next = window.__resolveTheme() === "dark" ? "light" : "dark";
-    document.documentElement.setAttribute("data-theme", next);
-    try { window.localStorage.setItem(KEY, next); } catch (e) {}
+  // The reader's own pick of theme: shown, and stored for the rest of the docs.
+  function pickTheme(t) {
+    document.documentElement.setAttribute("data-theme", t);
+    try { window.localStorage.setItem(KEY, t); } catch (e) {}
     show();
+  }
+  $btn.addEventListener("click", function () {
+    pickTheme(window.__resolveTheme() === "dark" ? "light" : "dark");
+    tourEnds();
   });
 
   // Full colour: a second switch, on or off, that works under either ground.
@@ -601,12 +659,16 @@ footer a:hover { color: var(--fg); }
 
   applyColour(colour);
 
-  $col.addEventListener("click", function () {
-    applyColour(!colour);
+  function pickColour(on) {
+    applyColour(on);
     try {
-      if (colour) window.localStorage.removeItem(CKEY);
+      if (on) window.localStorage.removeItem(CKEY);
       else window.localStorage.setItem(CKEY, "off");
     } catch (e) {}
+  }
+  $col.addEventListener("click", function () {
+    pickColour(!colour);
+    tourEnds();
   });
 
   // Weather: one button stepping through three skies. Scene only, like
@@ -642,16 +704,250 @@ footer a:hover { color: var(--fg); }
 
   applyWeather(WORDER.indexOf(weather) < 0 ? "sunny" : weather);
 
-  $wx.addEventListener("click", function () {
-    applyWeather(WORDER[(WORDER.indexOf(weather) + 1) % WORDER.length]);
+  function turnIcon() {
     $wx.classList.remove("turn");
     void $wx.offsetWidth;                                  // restart the turn
     $wx.classList.add("turn");
+  }
+
+  function pickWeather(w) {
+    applyWeather(w);
+    turnIcon();
     try {
-      if (weather === "sunny") window.localStorage.removeItem(WKEY);
-      else window.localStorage.setItem(WKEY, weather);
+      if (w === "sunny") window.localStorage.removeItem(WKEY);
+      else window.localStorage.setItem(WKEY, w);
     } catch (e) {}
+  }
+  $wx.addEventListener("click", function () {
+    pickWeather(WORDER[(WORDER.indexOf(weather) + 1) % WORDER.length]);
+    tourEnds();
   });
+
+  // Logo only: the page cleared away to leave the wordmark in the middle of
+  // the frame. A double-click anywhere goes full screen, which brings logo
+  // only with it (below), and a second one comes back out of both; where the
+  // page cannot go full screen, or is refused, a double-click is logo only on
+  // its own. Escape leaves either. Anything a double-click already means
+  // something on is left out: the switches, the links, and the install line,
+  // where it selects the command for copying. A view, not a setting, so
+  // nothing is stored.
+  var root = document.documentElement;
+  var $mark = document.querySelector(".wordmark");
+  function spared(t) { return !!(t && t.closest && t.closest("a, button, .install")); }
+  function logoOnly() { return root.classList.contains("logo-only"); }
+
+  // How far the wordmark has to travel to sit in the middle of the frame.
+  // Measured from its place in the layout, by offsets rather than by its box,
+  // so the entrance animation, still running on an early double-click, cannot
+  // throw it off.
+  function placeLogo() {
+    var y = 0;
+    for (var n = $mark; n; n = n.offsetParent) y += n.offsetTop;
+    var dy = window.innerHeight / 2 - (y - window.scrollY + $mark.offsetHeight / 2);
+    root.style.setProperty("--logo-dy", dy.toFixed(1) + "px");
+  }
+
+  function setLogoOnly(on) {
+    if (on === logoOnly()) return;
+    if (on) {
+      // Scrolling stops while the wordmark is alone. If the page has a
+      // scrollbar, its room is kept, so nothing (the switches least of all)
+      // shifts sideways as it goes.
+      root.style.scrollbarGutter = window.innerWidth > root.clientWidth ? "stable" : "";
+      placeLogo();
+    }
+    root.classList.toggle("logo-only", on);
+    if (!on) root.style.scrollbarGutter = "";
+    var sel = window.getSelection && window.getSelection();
+    if (sel && sel.removeAllRanges) sel.removeAllRanges();
+  }
+
+  // Touch gets a tap counter of its own, since not every mobile browser turns
+  // a double-tap into a dblclick. Where one does, the tap counter has already
+  // acted on it, and that dblclick is dropped.
+  function toggleView() {
+    clearTimeout(clickStep);                             // it was a double-click after all
+    if (fsElement()) { leaveFull(); return; }
+    if (logoOnly() || !canFull) { setLogoOnly(!logoOnly()); return; }
+    enterFull(function () { setLogoOnly(true); });       // refused: logo only all the same
+  }
+  var tappedAt = -1e9, lastTap = null;
+  document.addEventListener("dblclick", function (e) {
+    if (spared(e.target) || performance.now() - tappedAt < 600) return;
+    toggleView();
+  });
+  document.addEventListener("pointerup", function (e) {
+    if (e.pointerType !== "touch" || !e.isPrimary || spared(e.target)) return;
+    var now = performance.now();
+    if (lastTap && now - lastTap.t < 350 &&
+        Math.abs(e.clientX - lastTap.x) < 32 && Math.abs(e.clientY - lastTap.y) < 32) {
+      lastTap = null;
+      tappedAt = now;
+      toggleView();
+    } else {
+      lastTap = { t: now, x: e.clientX, y: e.clientY };
+    }
+  });
+  // A click on the background (not on the text, a link, a switch or the
+  // install line) steps to the next look. It waits a moment first, so the
+  // first click of a double-click is not taken for one, and a click that
+  // only finished selecting some text does not count.
+  var clickStep = 0;
+  function background(t) { return !(t && t.closest && t.closest("a, button, .install, .tagline, .lede, footer")); }
+  document.addEventListener("click", function (e) {
+    clearTimeout(clickStep);
+    if (e.button !== 0 || e.detail > 1 || performance.now() - tappedAt < 600 || !background(e.target)) return;
+    if (window.getSelection && String(window.getSelection())) return;
+    clickStep = setTimeout(function () { stepLook(1); }, 350);
+  });
+  // The second press of a double-click would select the word under it first.
+  document.addEventListener("mousedown", function (e) {
+    if (e.detail > 1 && !spared(e.target)) e.preventDefault();
+  });
+  // Keys step through the looks as well: the right arrow, Page Down or Space
+  // to the next, the left arrow or Page Up back. Space and the page keys
+  // still scroll a page taller than the window, and nothing is taken from a
+  // focused link or button, or with a modifier held.
+  document.addEventListener("keydown", function (e) {
+    // (the browser usually takes Escape itself to leave full screen)
+    if (e.key === "Escape") { if (fsElement()) leaveFull(); else setLogoOnly(false); return; }
+    var dir = e.key === "ArrowRight" || e.key === "PageDown" || e.key === " " ? 1
+            : e.key === "ArrowLeft" || e.key === "PageUp" ? -1 : 0;
+    if (!dir || e.repeat || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (e.target && e.target.closest && e.target.closest("a, button, input, textarea, select, [contenteditable]")) return;
+    var arrow = e.key === "ArrowRight" || e.key === "ArrowLeft";
+    if (!arrow && !logoOnly() && root.scrollHeight > root.clientHeight + 1) return;
+    e.preventDefault();
+    stepLook(dir);
+  });
+  window.addEventListener("resize", function () {
+    if (logoOnly()) placeLogo();
+  });
+
+  // Full screen: the scene with nothing in front of it but the wordmark. The
+  // page goes full screen and into logo only, and comes out of both together
+  // however full screen is left (the button, Escape, the browser's own
+  // controls), and while it stays there it tours its looks (below). Where
+  // the page cannot go full screen (an iPhone, a frame that does not allow
+  // it) the button stays hidden; a double-click still gives logo only.
+  var $full = document.getElementById("full");
+  var FS_ICON = {
+    enter: svg("M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"),
+    exit:  svg("M6 2.5V6H2.5M10 2.5V6h3.5M13.5 10H10v3.5M2.5 10H6v3.5")
+  };
+  var canFull = !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+  function fsElement() { return document.fullscreenElement || document.webkitFullscreenElement || null; }
+  function enterFull(refused) {
+    var el = document.documentElement;
+    var r = el.requestFullscreen ? el.requestFullscreen() : el.webkitRequestFullscreen();
+    if (r && r.catch) r.catch(function () { if (refused) refused(); });   // a frame's policy, say
+  }
+  function leaveFull() {
+    var r = document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen();
+    if (r && r.catch) r.catch(function () {});
+  }
+  function showFull() {
+    var on = !!fsElement(), label = on ? "Exit full screen" : "Full screen";
+    $full.innerHTML = on ? FS_ICON.exit : FS_ICON.enter;
+    $full.title = label;
+    $full.setAttribute("aria-label", label);
+    $full.setAttribute("aria-pressed", on ? "true" : "false");
+    return on;
+  }
+  if (canFull) {
+    $full.hidden = false;
+    showFull();
+    $full.addEventListener("click", function () {
+      if (fsElement()) leaveFull(); else enterFull();
+    });
+    var onFullChange = function () {
+      var on = showFull();
+      setLogoOnly(on);
+      if (on) startTour(); else stopTour();
+    };
+    document.addEventListener("fullscreenchange", onFullChange);
+    document.addEventListener("webkitfullscreenchange", onFullChange);
+  }
+
+  // Left in full screen, the page shows itself off: every fifteen seconds it
+  // moves on to the next of its twelve looks (three skies, light or dark,
+  // colour or black and white), one switch at a time and round again, each
+  // change a slow cross-fade of several seconds. None of it is stored, and
+  // leaving full screen puts the reader's own choices back. A switch pressed,
+  // or a step taken by hand, while it runs ends it: the reader has picked a
+  // look, so the page stays as it now is, all of it stored (tourEnds), until
+  // full screen is next entered, which starts a tour afresh.
+  var TOUR = [
+    ["sunny", "dark", true],  ["sunny", "light", true],  ["storm", "light", true],  ["storm", "dark", true],
+    ["snow",  "dark", true],  ["snow",  "light", true],  ["snow",  "light", false], ["snow",  "dark", false],
+    ["storm", "dark", false], ["storm", "light", false], ["sunny", "light", false], ["sunny", "dark", false]
+  ];
+  var tour = null, TOUR_STEP = 15000;
+  // the tour's changes take their time; everything else answers at once
+  function pace(isSlow) {
+    root.classList.toggle("gradual", isSlow);
+    if (window.relatudeScene && window.relatudeScene.setPace) window.relatudeScene.setPace(isSlow);
+  }
+  function tourAt() {
+    var t = window.__resolveTheme();
+    for (var i = 0; i < TOUR.length; i++)
+      if (TOUR[i][0] === weather && TOUR[i][1] === t && TOUR[i][2] === colour) return i;
+    return 0;
+  }
+  function tourNext() {
+    clearTimeout(tour.timer);
+    tour.timer = setTimeout(function () {
+      var s = TOUR[(tourAt() + 1) % TOUR.length];
+      pace(true);
+      if (s[1] !== window.__resolveTheme()) { root.setAttribute("data-theme", s[1]); show(); }
+      if (s[2] !== colour) applyColour(s[2]);
+      if (s[0] !== weather) { applyWeather(s[0]); turnIcon(); }
+      tourNext();
+    }, TOUR_STEP);
+  }
+  function startTour() {
+    if (tour) return;
+    tour = { saved: { theme: root.getAttribute("data-theme"), colour: colour, weather: weather }, timer: 0 };
+    tourNext();
+  }
+  function stopTour() {
+    if (!tour) return;
+    clearTimeout(tour.timer);
+    var s = tour.saved;
+    tour = null;
+    pace(false);                        // the text comes back with it: no slow change under it
+    if (s.theme) root.setAttribute("data-theme", s.theme); else root.removeAttribute("data-theme");
+    show();
+    applyColour(s.colour);
+    applyWeather(s.weather);
+  }
+  // Taking over from a tour makes the look on screen the reader's own, the
+  // parts the tour chose as well: stored, so a reload shows what they left.
+  function tourEnds() {
+    if (!tour) return;
+    clearTimeout(tour.timer);
+    tour = null;
+    pace(false);
+    storeLook();
+  }
+  function storeLook() {
+    try {
+      window.localStorage.setItem(KEY, window.__resolveTheme());
+      if (colour) window.localStorage.removeItem(CKEY); else window.localStorage.setItem(CKEY, "off");
+      if (weather === "sunny") window.localStorage.removeItem(WKEY); else window.localStorage.setItem(WKEY, weather);
+    } catch (e) {}
+  }
+  // Stepping through the looks by hand (the keys and the background click,
+  // above) takes the same round, one switch at a time. Each step picks a
+  // whole look, so all of it is stored, and it ends a tour under way.
+  function stepLook(dir) {
+    var s = TOUR[(tourAt() + dir + TOUR.length) % TOUR.length];
+    tourEnds();
+    if (s[1] !== window.__resolveTheme()) pickTheme(s[1]);
+    if (s[2] !== colour) pickColour(s[2]);
+    if (s[0] !== weather) pickWeather(s[0]);
+    storeLook();
+  }
 })();
 </script>
 
@@ -867,23 +1163,31 @@ function paletteTarget(k) {
 }
 
 // Live palette, eased toward the selected theme so switching cross-fades.
-const P = {};
-for (const k of K3) P[k] = paletteTarget(k).slice();
-for (const k of K1) P[k] = THEMES[themeName][k];
+// In two stages, each chasing the one before (Q, and wq for the weather), so
+// a change sets off gently and settles gently instead of leaping away at
+// full speed. `slow` is the pace the full-screen tour asks for: a switch
+// pressed answers within a second, a change of the tour's takes several.
+const P = {}, Q = {}, wq = {};
+for (const k of K3) { P[k] = paletteTarget(k).slice(); Q[k] = P[k].slice(); }
+for (const k of K1) P[k] = Q[k] = THEMES[themeName][k];
+for (const n of WEATHERS) wq[n] = wmix[n];
+let slow = false;
 
 function easePalette(dt) {
   // weather rolls in more slowly than a theme switches
-  const g = 1 - Math.exp(-dt * 1.1);
-  for (const n of WEATHERS) wmix[n] += ((n === weatherName ? 1 : 0) - wmix[n]) * g;
-  blendWeather();
-  const T = THEMES[themeName], f = 1 - Math.exp(-dt * 3.6);
-  for (const k of K3) {
-    const a = P[k], b = paletteTarget(k);
-    a[0] += (b[0] - a[0]) * f;
-    a[1] += (b[1] - a[1]) * f;
-    a[2] += (b[2] - a[2]) * f;
+  const g = 1 - Math.exp(-dt * (slow ? 0.6 : 2.2));
+  for (const n of WEATHERS) {
+    wq[n] += ((n === weatherName ? 1 : 0) - wq[n]) * g;
+    wmix[n] += (wq[n] - wmix[n]) * g;
   }
-  for (const k of K1) P[k] += (T[k] - P[k]) * f;
+  blendWeather();
+  const T = THEMES[themeName], f = 1 - Math.exp(-dt * (slow ? 0.9 : 7.2));
+  for (const k of K3) {
+    const q = Q[k], a = P[k], b = paletteTarget(k);
+    q[0] += (b[0] - q[0]) * f; q[1] += (b[1] - q[1]) * f; q[2] += (b[2] - q[2]) * f;
+    a[0] += (q[0] - a[0]) * f; a[1] += (q[1] - a[1]) * f; a[2] += (q[2] - a[2]) * f;
+  }
+  for (const k of K1) { Q[k] += (T[k] - Q[k]) * f; P[k] += (Q[k] - P[k]) * f; }
 }
 
 // The switchers call these on every change; easePalette does the cross-fade.
@@ -891,7 +1195,9 @@ function easePalette(dt) {
 // even if it is called with nothing.
 window.relatudeScene = {
   setTheme(name)   { themeName = THEMES[name] ? name : resolve(); },
-  setWeather(name) { weatherName = WEATHER[name] ? name : resolveWeather(); }
+  setWeather(name) { weatherName = WEATHER[name] ? name : resolveWeather(); },
+  // how fast the changes after this cross over (the full-screen tour's are slow)
+  setPace(isSlow)  { slow = !!isSlow; }
 };
 
 const canvas = document.getElementById('scene');
@@ -1354,11 +1660,13 @@ precision mediump float;
 in float vA;
 in float vB;
 uniform vec3 uTint;
+uniform float uSub;
 out vec4 frag;
 void main(){
   float d = length(gl_PointCoord - 0.5);
   float a = smoothstep(0.5, 0.06, d) * vA;
-  frag = vec4(uTint * (a * vB), a);   // premultiplied: works additively or over
+  // added (softened once more by its own alpha) or laid over, as the graph
+  frag = mix(vec4(uTint * (a * vB * a), 0.0), vec4(uTint * (a * vB), a), uSub);
 }`;
 
 /* Graph edges are instanced screen-space quads rather than GL lines: a line
@@ -1376,6 +1684,7 @@ uniform mat4  uVP;
 uniform vec3  uCam;
 uniform vec2  uRes;
 uniform float uPx, uHalo, uFog;
+uniform float uCore;           // line width: thin for the graph, full for the lightning
 out float vS, vA, vHw, vDw, vW;
 out vec4  vP;
 float haze(float d){ return exp(-pow(d * 0.0034 * uFog, 2.0)) * smoothstep(10.0, 38.0, d); }
@@ -1410,7 +1719,7 @@ void main(){
 
   bool  atB  = aCorner.x > 0.5;
   vec4  c    = atB ? cb : ca;
-  float core = mix(0.95, 0.55, smoothstep(40.0, 420.0, atB ? db : da)) * uPx;
+  float core = mix(0.95, 0.55, smoothstep(40.0, 420.0, atB ? db : da)) * uPx * uCore;
   float hw   = core + 3.2 * uPx * uHalo + 1.0;    // room for the glow and the anti-alias
   vec2  off  = (atB ? -t * rb : t * ra) * cut + n * aCorner.y * hw;
   c.xy += off / hr * c.w;
@@ -1432,12 +1741,12 @@ precision highp float;
 in float vS, vA, vHw, vDw, vW;
 in vec4  vP;
 uniform vec3  uTint, uHot;
-uniform float uSub, uHalo, uPx;
+uniform float uSub, uHalo, uPx, uCore;
 out vec4 frag;
 void main(){
   float d    = abs(vDw / vW);                          // px from the centre line
   float core = smoothstep(vHw + 0.65, vHw - 0.65, d);
-  float sg   = 2.6 * uPx;
+  float sg   = (1.2 + 1.4 * uCore) * uPx;              // the glow narrows with the line
   float glow = exp(-d * d / (2.0 * sg * sg)) * 0.30 * uHalo;
 
   // A pulse is a hot spot on the line with a short tail behind it. ds is
@@ -1448,8 +1757,12 @@ void main(){
     p = (exp(-ds * ds * 0.35) + (ds < 0.0 ? exp(ds / 12.0) * 0.45 : 0.0)) * vP.w;
   }
   float a = (core * 0.80 + glow) * (1.0 + p * 2.5) * vA;
-  if (uSub > 0.5) { a = min(a, 1.0); frag = vec4(uTint * a, a); }
-  else frag = vec4((uTint + uHot * (p * 1.5)) * a, a);
+  // Added light on a dark ground, ink laid over a light one, and on the way
+  // from one theme to the other a blend of the two, as far as uSub has come,
+  // so a slow change of theme never flips the overlays on a single frame.
+  // Drawn with ONE, ONE_MINUS_SRC_ALPHA: an alpha of 0 adds, a lays over.
+  float ao = min(a, 1.0);
+  frag = mix(vec4((uTint + uHot * (p * 1.5)) * a, 0.0), vec4(uTint * ao, ao), uSub);
 }`;
 
 /* Nodes, sparks and ripples share one point pass. A node is the hollow
@@ -1500,7 +1813,7 @@ void main(){
     // feather once the sprite is small, which turns distant rings to blobs.
     float D  = max(vRing, 2.0);
     float R  = 0.33 * D;
-    float hw = max(0.70, 0.13 * D);
+    float hw = max(0.55, 0.095 * D);                    // a fine ring, as in the glyph
     float ring = smoothstep(hw + 0.55, hw - 0.55, abs(pr - R));
     float disc = smoothstep(D * 0.50, D * 0.16, pr);
     a  = mix(ring, disc, smoothstep(4.8, 3.0, D));      // too small to hole -> dot
@@ -1520,8 +1833,8 @@ void main(){
     hot = 1.0;
   }
   a *= vA;
-  if (uSub > 0.5) { a = min(a, 1.0); frag = vec4(uTint * a, a); }
-  else frag = vec4((uTint + uHot * (hot * 2.0)) * a, a);
+  float ao = min(a, 1.0);                             // added or laid over, as the edges
+  frag = mix(vec4((uTint + uHot * (hot * 2.0)) * a, 0.0), vec4(uTint * ao, ao), uSub);
 }`;
 
 /* Birds: one small mesh drawn once per bird, flapped in the vertex stage.
@@ -1654,8 +1967,8 @@ out vec4 frag;
 void main(){
   float d = abs(vDw / vW);
   float a = smoothstep(vHw + 0.6, vHw - 0.6, d) * vA * uAmt * (0.25 + 0.75 * vT);
-  if (uSub > 0.5) a = min(a, 1.0);
-  frag = vec4(uTint * a, a);
+  float ao = min(a, 1.0);                             // added or laid over, as the graph
+  frag = mix(vec4(uTint * a, 0.0), vec4(uTint * ao, ao), uSub);
 }`;
 
 // Snow: soft flakes on a slower fall, driven sideways by the wind and eddying
@@ -1692,8 +2005,8 @@ out vec4 frag;
 void main(){
   float d = length(gl_PointCoord - 0.5);
   float a = smoothstep(0.5, 0.15, d) * vA * uAmt;
-  if (uSub > 0.5) a = min(a, 1.0);
-  frag = vec4(uTint * a, a);
+  float ao = min(a, 1.0);                             // added or laid over, as the graph
+  frag = mix(vec4(uTint * a, 0.0), vec4(uTint * ao, ao), uSub);
 }`;
 
 /* Santa: the whole team is one quad in the air, set along the way it flies,
@@ -1859,7 +2172,7 @@ void main(){
   vec3  toCam = uCam - vW;
   float dist  = length(toCam);
   vec3  body  = mix(C_BIRD, haze(-toCam / dist), 1.0 - exp(-dist * 0.0012));
-  float hot   = uSub > 0.5 ? 1.0 : 4.0;          // on a dark ground the nose outshines white
+  float hot   = mix(4.0, 1.0, uSub);             // on a dark ground the nose outshines white
   float a     = max(sil, core) * uEnv;
   if (a < 0.002 && glow * uEnv < 0.002) discard;
   frag = vec4(mix(body, C_NOSE * hot, core) * a + C_NOSE * (hot * 0.5 * glow * uEnv), a);
@@ -3089,8 +3402,6 @@ function frame(now) {
   const cyc = time % 27;
   const pulse = cyc < 15 ? 320 - (cyc / 15) * 340 : 1e5;
 
-  const over = P.sub > 0.5;
-
   /* ---- scene: terrain, sky, then the light overlays ---- */
   gl.bindFramebuffer(gl.FRAMEBUFFER, msFbo || sceneT.fbo);
   gl.viewport(0, 0, W, H);
@@ -3172,8 +3483,7 @@ function frame(now) {
   // Light theme composites them over a bright ground; the dark one adds.
   gl.colorMask(true, true, true, false);
   gl.enable(gl.BLEND);
-  if (over) gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-  else      gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);         // the shaders blend added and laid over
   gl.useProgram(dustP.p);
   gl.bindVertexArray(dustVao);
   gl.uniformMatrix4fv(dustP.u.uVP, false, vp);
@@ -3184,6 +3494,7 @@ function frame(now) {
   gl.uniform1f(dustP.u.uFwd, (1 - P.sub) * sunAmt * wx.sunV);
   gl.uniform1f(dustP.u.uDust, wx.dust);
   gl.uniform3fv(dustP.u.uTint, P.dust);
+  gl.uniform1f(dustP.u.uSub, P.sub);
   if (wx.dust > 0.01) gl.drawArrays(gl.POINTS, 0, DUST_N);
 
   // --- Santa, laid over the sky as a silhouette in any theme, and his trail
@@ -3212,7 +3523,7 @@ function frame(now) {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
   if (nTrail) {
-    gl.blendFunc(gl.ONE, over ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.useProgram(ptP.p);
     gl.bindVertexArray(trailVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, trailVbo);
@@ -3230,7 +3541,7 @@ function frame(now) {
   }
 
   // --- rain and snow, as far as the weather asks for them
-  gl.blendFunc(gl.ONE, over ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   const nRain = Math.round(RAIN_N * Math.min(1, wx.rain * 1.4));
   if (nRain > 0) {
     gl.useProgram(rainP.p);
@@ -3270,7 +3581,7 @@ function frame(now) {
     const cap = INTRO ? Math.round(LINK_MAX * smoothstep(0.10, 0.80, k)) : LINK_MAX;
     updateGraph(dt, camX, camZ, cap);
     if (nEdges) {
-      gl.blendFunc(gl.ONE, over ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
       gl.useProgram(edgeP.p);
       gl.bindVertexArray(edgeVao);
@@ -3281,6 +3592,7 @@ function frame(now) {
       gl.uniform2f(edgeP.u.uRes, W, H);
       gl.uniform1f(edgeP.u.uPx, pxK);
       gl.uniform1f(edgeP.u.uHalo, P.halo);
+      gl.uniform1f(edgeP.u.uCore, 0.68);
       gl.uniform1f(edgeP.u.uFog, wx.fogK);
       gl.uniform1f(edgeP.u.uSub, P.sub);
       gl.uniform3fv(edgeP.u.uTint, P.edge);
@@ -3307,7 +3619,7 @@ function frame(now) {
   // --- the bolt, while it lasts: the graph's line, white-hot and wide
   if (boltA > 0.01 && nBolt) {
     for (let i = 0; i < nBolt; i++) boltBuf[i * EDGE_F + 3] = boltBuf[i * EDGE_F + 7] = boltW[i] * boltA;
-    gl.blendFunc(gl.ONE, over ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.useProgram(edgeP.p);
     gl.bindVertexArray(edgeVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, edgeVbo);
@@ -3317,9 +3629,10 @@ function frame(now) {
     gl.uniform2f(edgeP.u.uRes, W, H);
     gl.uniform1f(edgeP.u.uPx, pxK);
     gl.uniform1f(edgeP.u.uHalo, 1.6);
+    gl.uniform1f(edgeP.u.uCore, 1.0);
     gl.uniform1f(edgeP.u.uFog, 1.0);
     gl.uniform1f(edgeP.u.uSub, P.sub);
-    const hot = over ? 1 : 2.5;
+    const hot = 1 + 1.5 * (1 - P.sub);
     gl.uniform3f(edgeP.u.uTint, P.flashC[0] * hot, P.flashC[1] * hot, P.flashC[2] * hot);
     gl.uniform3fv(edgeP.u.uHot, P.flashC);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, nBolt);

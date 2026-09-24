@@ -54,7 +54,7 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     /// </list>
     /// </summary>
     public sealed record LicenseStatus(
-        string State, string? Reason, string LicenseServerUrl,
+        string State, string? Reason, string ServicesServerUrl,
         bool HasLicenseKey, bool HasApiKey, string? LicenseKey,
         bool SignInEnabled, bool HeartbeatDisabled, DateTime? LastContactUtc,
         LicenseInfo? License,
@@ -104,7 +104,7 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
         apiKey = default;
         return Guid.TryParse(settings.LicenseKey, out licenseKey) && Guid.TryParse(settings.ApiKey, out apiKey);
     }
-    string baseUrl => (string.IsNullOrWhiteSpace(settings.LicenseServerUrl) ? Defaults.LicenseServerUrl : settings.LicenseServerUrl).TrimEnd('/');
+    string baseUrl => (string.IsNullOrWhiteSpace(settings.ServicesServerUrl) ? Defaults.ServicesServerUrl : settings.ServicesServerUrl).TrimEnd('/');
     /// <summary>
     /// What this installation calls itself towards the license server: the persisted server id and the
     /// machine fingerprint, joined. The id alone travels with relatude.db.json, so a settings file copied

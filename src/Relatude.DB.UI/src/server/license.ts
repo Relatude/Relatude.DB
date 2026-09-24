@@ -55,7 +55,7 @@ export interface LicenseStatus {
   /** why, for every state but "valid" */
   reason: string | null;
   /** always sent, since the portal links are built from it, but only shown when showLicenseServer is */
-  licenseServerUrl: string;
+  servicesServerUrl: string;
   /** only a debug build of the server shows and edits the license server address */
   showLicenseServer: boolean;
   hasLicenseKey: boolean;
@@ -120,6 +120,30 @@ export function pollPairing(pairingId: string): Promise<PairingAnswer> {
 
 export function cancelPairing(pairingId: string): Promise<unknown> {
   return send("license-pair-cancel", { pairingId });
+}
+
+/** What the SMS service said about a message it accepted. */
+export interface SmsReceipt {
+  messageId: string;
+  /** the number actually used, after the service's default country code */
+  to: string;
+  parts: number;
+  credits: number;
+  creditsLeft: number;
+  reference: string | null;
+}
+
+/** Whether the license carries the SMS feature, which is what the Relatude SMS service checks. */
+export function licenseCarriesSms(status: LicenseStatus): boolean {
+  return status.state === "valid" && !!status.license?.active && status.license.features.some((f) => f.trim().toLowerCase() === "sms");
+}
+
+/**
+ * Sends one real message through the hosted Relatude SMS service with this installation's API key,
+ * charged to the license. No database's SMS settings are involved.
+ */
+export function sendTestSms(values: { from: string; to: string; message: string }): Promise<SmsReceipt> {
+  return send<SmsReceipt>("license-sms-test", values);
 }
 
 /** Whether the rail should draw attention to the License entry, and in how many words. */

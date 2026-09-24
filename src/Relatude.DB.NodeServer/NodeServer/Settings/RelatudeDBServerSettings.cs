@@ -41,7 +41,7 @@ public class RelatudeDBServerSettings {
     /// </summary>
     public bool DisableHeartbeat { get; set; }
     /// <summary>Where the Relatude.License server is. Only a self-hosted or test server needs this changed.</summary>
-    public string LicenseServerUrl { get; set; } = Defaults.LicenseServerUrl;
+    public string ServicesServerUrl { get; set; } = Defaults.ServicesServerUrl;
 
     public string? DBAdminUIUrlPath { get; set; }
     public string? DBSettingsFilePath { get; set; }

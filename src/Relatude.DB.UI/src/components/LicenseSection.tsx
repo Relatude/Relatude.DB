@@ -5,14 +5,19 @@ import {
   IconExternalLink,
   IconInfoCircle,
   IconPlugConnected,
+  IconMessage,
   IconRefresh,
+  IconSend,
 } from "@tabler/icons-react";
 import {
   cancelPairing,
   fetchLicenseStatus,
+  licenseCarriesSms,
   pollPairing,
   saveLicenseSettings,
+  sendTestSms,
   startPairing,
+  type SmsReceipt,
   type LicenseAccount,
   type LicenseStatus,
   type PairingHandle,
@@ -64,6 +69,7 @@ export function LicenseSection({ onChanged }: { onChanged?: (status: LicenseStat
       <WhatALicenseIs />
       <KeysPanel status={status} onSaved={load} />
       {status.state === "valid" && status.license && <EntitlementsPanel status={status} />}
+      {licenseCarriesSms(status) && <SmsTestPanel />}
     </div>
   );
 }
@@ -193,7 +199,7 @@ function StatusPanel({
   onRefresh: () => void;
   onPaired: () => Promise<unknown>;
 }) {
-  const server = status.licenseServerUrl.replace(/\/$/, "");
+  const server = status.servicesServerUrl.replace(/\/$/, "");
   // a key that is not a guid names no license page, so the portal's front page is the best there is
   const key = status.licenseKey?.trim() ?? "";
   const licensePage = /^[0-9a-f]{8}-?([0-9a-f]{4}-?){3}[0-9a-f]{12}$/i.test(key) ? `${server}/licenses/${encodeURIComponent(key)}` : server;
@@ -261,7 +267,7 @@ function StatusPanel({
 function KeysPanel({ status, onSaved }: { status: LicenseStatus; onSaved: () => Promise<unknown> }) {
   const [licenseKey, setLicenseKey] = useState(status.licenseKey ?? "");
   const [apiKey, setApiKey] = useState("");
-  const [serverUrl, setServerUrl] = useState(status.licenseServerUrl);
+  const [serverUrl, setServerUrl] = useState(status.servicesServerUrl);
   const [signIn, setSignIn] = useState(status.signInEnabled);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -270,7 +276,7 @@ function KeysPanel({ status, onSaved }: { status: LicenseStatus; onSaved: () => 
   useEffect(() => {
     setLicenseKey(status.licenseKey ?? "");
     setApiKey("");
-    setServerUrl(status.licenseServerUrl);
+    setServerUrl(status.servicesServerUrl);
     setSignIn(status.signInEnabled);
   }, [status]);
 
@@ -278,7 +284,7 @@ function KeysPanel({ status, onSaved }: { status: LicenseStatus; onSaved: () => 
   const changed =
     licenseKey.trim() !== (status.licenseKey ?? "")
     || apiKey.trim().length > 0
-    || (status.showLicenseServer && serverUrl.trim() !== status.licenseServerUrl)
+    || (status.showLicenseServer && serverUrl.trim() !== status.servicesServerUrl)
     || signIn !== status.signInEnabled;
 
   async function save() {
@@ -290,7 +296,7 @@ function KeysPanel({ status, onSaved }: { status: LicenseStatus; onSaved: () => 
       // a secret is only sent when a new one was typed; an empty box means "leave it alone"
       if (!locked("ApiKey") && apiKey.trim().length > 0) values.ApiKey = apiKey.trim();
       // only a debug build of the server offers the address, and only then will it accept it
-      if (status.showLicenseServer && !locked("LicenseServerUrl")) values.LicenseServerUrl = serverUrl.trim();
+      if (status.showLicenseServer && !locked("ServicesServerUrl")) values.ServicesServerUrl = serverUrl.trim();
       if (!locked("AllowLicenseeAdminLogin")) values.AllowLicenseeAdminLogin = signIn;
       await saveLicenseSettings(values);
       await onSaved();
@@ -330,12 +336,12 @@ function KeysPanel({ status, onSaved }: { status: LicenseStatus; onSaved: () => 
           />
         </Field>
         {status.showLicenseServer && (
-          <Field label="License server" hint="Only for self-hosted or test servers." locked={locked("LicenseServerUrl")}>
+          <Field label="License server" hint="Only for self-hosted or test servers." locked={locked("ServicesServerUrl")}>
             <input
               className="text-input"
               value={serverUrl}
               spellCheck={false}
-              disabled={locked("LicenseServerUrl")}
+              disabled={locked("ServicesServerUrl")}
               onChange={(e) => setServerUrl(e.target.value)}
             />
           </Field>
@@ -423,6 +429,74 @@ function EntitlementsPanel({ status }: { status: LicenseStatus }) {
           )}
         </div>
       </div>
+    </section>
+  );
+}
+
+/**
+ * A real message through the Relatude SMS service, so whoever set up the license can see it arrive
+ * before any code depends on it. Only offered when the license carries SMS; it is charged like any
+ * other message, which is why the receipt says what it cost and what is left.
+ */
+function SmsTestPanel() {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [message, setMessage] = useState("Test message from Relatude.DB");
+  const [sending, setSending] = useState(false);
+  const [receipt, setReceipt] = useState<SmsReceipt | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function sendIt() {
+    setSending(true);
+    setError(null);
+    setReceipt(null);
+    try {
+      setReceipt(await sendTestSms({ from: from.trim(), to: to.trim(), message }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <section className="panel license-sms">
+      <h3>
+        <IconMessage size={15} stroke={1.8} /> Test SMS
+        <span className="panel-sub"> · sends a real message, charged to the license</span>
+      </h3>
+      <div className="license-sms-fields">
+        <Field label="From" locked={false}>
+          <input className="text-input" value={from} placeholder="the service's own" spellCheck={false} onChange={(e) => setFrom(e.target.value)} />
+        </Field>
+        <Field label="To" locked={false}>
+          <input className="text-input" type="tel" value={to} placeholder="+47 900 00 000" spellCheck={false} onChange={(e) => setTo(e.target.value)} />
+        </Field>
+        <Field label="Message" hint={message.length + " characters"} locked={false}>
+          <textarea className="text-input license-sms-message" rows={2} value={message} onChange={(e) => setMessage(e.target.value)} />
+        </Field>
+        <div className="license-save">
+          <button className="action-button primary" onClick={sendIt} disabled={sending || !to.trim() || !message.trim()}>
+            <IconSend size={15} stroke={1.8} />
+            {sending ? "Sending…" : "Send"}
+          </button>
+        </div>
+      </div>
+      {error && <div className="license-error">{error}</div>}
+      {receipt && (
+        <div className="license-status license-status-ok license-sms-receipt">
+          <span className="license-status-icon">
+            <IconCircleCheck size={20} stroke={1.8} />
+          </span>
+          <div className="license-status-text">
+            <strong>Sent to {receipt.to}</strong>
+            <span className="license-muted">
+              {receipt.parts} {receipt.parts === 1 ? "part" : "parts"} · {receipt.credits} {receipt.credits === 1 ? "credit" : "credits"} ·{" "}
+              {receipt.creditsLeft.toLocaleString()} left{receipt.messageId && " · id " + receipt.messageId}
+            </span>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
