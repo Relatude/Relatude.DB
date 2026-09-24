@@ -154,7 +154,8 @@ public class NodeStore : IDisposable {
     /// <summary>
     /// Wraps a data store and builds the object mapping layer for it. On the first run the mapper implementations for
     /// your model interfaces are generated and compiled to a DLL; later runs load that DLL from the index folder, so
-    /// construction is cheap unless the data model changed. Normally you do not call this yourself: the server
+    /// construction is cheap unless the data model, or the name of an assembly it is declared in, changed. A cached
+    /// DLL that no longer loads is compiled again. Normally you do not call this yourself: the server
     /// setup (<c>AddRelatudeDB</c>) creates the store for you.
     /// </summary>
     /// <param name="datastore">The store this one wraps.</param>
@@ -172,24 +173,57 @@ public class NodeStore : IDisposable {
         var totalCode = string.Join("\n", code.Select(c => c.code));
         ulong codeHash = 0;
         foreach (var c in code) codeHash ^= c.code.XXH64Hash();
+        codeHash ^= modelAssemblyNamesHash(datastore.Datamodel);
         var fileKey = FileKeyUtility.MapperDll_GetFileKey(codeHash);
         foreach (var f in FileKeyUtility.MapperDll_GetAllFileKeys(datastore.IOIndex)) {
             if (!f.IsSameKey(fileKey)) datastore.IOIndex.DeleteFileIfItExists(f);
         }
-        byte[] dll;
+        Dictionary<Guid, Type> mapperTypes;
         if (datastore.IOIndex.DoesNotExistsOrIsEmpty(fileKey)) {
-            Stopwatch sw2 = Stopwatch.StartNew();
-            dll = Compiler.BuildDll(code, datastore.Datamodel);
-            datastore.LogInfo("Recompiled mapper DLL in " + sw2.ElapsedMilliseconds.To1000N() + "ms.");
-            datastore.IOIndex.WriteAllBytes(fileKey, dll);
+            mapperTypes = Compiler.LoadDll(buildMapperDll(datastore, code, fileKey));
         } else {
-            dll = datastore.IOIndex.ReadAllBytes(fileKey);
             datastore.LogInfo("Loading mapper DLL from disk. ");
+            try {
+                mapperTypes = Compiler.LoadDll(datastore.IOIndex.ReadAllBytes(fileKey));
+            } catch (Exception error) when (isUnloadableDll(error)) {
+                // The file only caches what the model compiles to, so one this process cannot load is thrown away
+                // and built again rather than keeping the database from opening. It is deleted before compiling,
+                // so that a compile failing as well does not leave it behind for the next start to trip over.
+                datastore.LogWarning("The cached mapper DLL could not be loaded, so it is compiled again. ", describeLoadFailure(error));
+                datastore.IOIndex.DeleteFileIfItExists(fileKey);
+                mapperTypes = Compiler.LoadDll(buildMapperDll(datastore, code, fileKey));
+            }
         }
-        var mapperTypes = Compiler.LoadDll(dll);
         Mapper = new NodeMapper(mapperTypes, this);
         sw.Stop();
         datastore.LogInfo("Mapper ready with " + code.Count + " model" + (code.Count != 1 ? "s" : "") + " in " + sw.ElapsedMilliseconds.To1000N() + "ms.");
+    }
+    // The mapper DLL binds to the model assemblies by name, and the generated code never mentions those names: a
+    // renamed model project generates the same code, so a key over the code alone leads straight back to a DLL
+    // asking for an assembly that is gone. Names only: an MVID changes with every build and a version often does,
+    // and either would compile the mappers again at every deployment, while a reference to an older version binds
+    // to a newer one anyway. A model assembly that went back a version fails to load and is caught by the fallback.
+    static ulong modelAssemblyNamesHash(Datamodel datamodel)
+        => string.Join("\n", datamodel.Assemblies.Select(a => a.GetName().Name).Order(StringComparer.Ordinal)).XXH64Hash();
+    // what a cached DLL throws when this process cannot load it: bound to an assembly that is missing or older than
+    // the one it was compiled against, or not a valid image at all
+    static bool isUnloadableDll(Exception error) => error is System.Reflection.ReflectionTypeLoadException
+        or FileNotFoundException or FileLoadException or BadImageFormatException or TypeLoadException;
+    // A type load failure carries one loader exception per type it could not load, usually all naming the same
+    // missing assembly: the distinct messages are what tells the reader of the log what happened.
+    static string describeLoadFailure(Exception error) {
+        if (error is System.Reflection.ReflectionTypeLoadException typeLoad) {
+            var reasons = typeLoad.LoaderExceptions.Select(e => e?.Message).OfType<string>().Distinct().ToList();
+            if (reasons.Count > 0) return string.Join(Environment.NewLine, reasons);
+        }
+        return error.Message;
+    }
+    static byte[] buildMapperDll(IDataStore datastore, List<(string className, string code)> code, string[] fileKey) {
+        var sw = Stopwatch.StartNew();
+        var dll = Compiler.BuildDll(code, datastore.Datamodel);
+        datastore.LogInfo("Recompiled mapper DLL in " + sw.ElapsedMilliseconds.To1000N() + "ms.");
+        datastore.IOIndex.WriteAllBytes(fileKey, dll);
+        return dll;
     }
     /// <summary>Whether the database is Closed, Opening, Open, Closing, in Error or Disposed. Reads and writes require Open.</summary>
     public DataStoreState State => Datastore.State;
