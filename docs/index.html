@@ -10,19 +10,27 @@
 // Applied before first paint so a chosen theme does not flash the other one.
 // Same storage key as the manual, so the choice carries across the docs.
 // localStorage access itself can throw on file:// origins, so guard.
+// Full colour is this page's own choice, so it keeps a key of its own.
 (function () {
   try {
     var t = window.localStorage.getItem("relatude-manual-theme-v1");
     if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
+    if (window.localStorage.getItem("relatude-docs-colour-v1") === "on")
+      document.documentElement.setAttribute("data-colour", "on");
   } catch (e) {}
   // The effective light/dark, whether it came from the stored choice or from the
-  // OS. The background scene has no third state of its own: it asks this for a
-  // palette at boot, and the switcher at the end of the body asks again on every
-  // change, so the two can never disagree.
+  // OS, and the palette the background scene should wear: that answer, in full
+  // colour when the colour switch is on. The scene asks for it at boot and the
+  // switchers at the end of the body hand it over on every change, so the two
+  // can never disagree.
   window.__resolveTheme = function () {
     var a = document.documentElement.getAttribute("data-theme");
     if (a === "dark" || a === "light") return a;
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  };
+  window.__resolveScene = function () {
+    return window.__resolveTheme() +
+      (document.documentElement.getAttribute("data-colour") === "on" ? "Colour" : "");
   };
 })();
 </script>
@@ -35,18 +43,20 @@
 
    Behind all of it is a WebGL scene grown out of NodeAnimation.html: a slow
    flight over ridged terrain toward a low sun, under a broken cloud deck it
-   breaks through in shafts, with a graph rewiring itself across the peaks and
-   pulses of light running along its edges. It is drawn in HDR and finished
-   with bloom, but it is still a background: it never gets the animation's own
-   blue theme, every tone in it is grey, and its palette follows this page's
-   light/dark switch and nothing else. The stack:
+   breaks through in shafts, with a graph rewiring itself across the peaks,
+   pulses of light running along its edges, and now and then a flock of birds
+   heading into the light. It is drawn in HDR and finished with bloom, but it is
+   still a background: its palette follows this page's switches and nothing
+   else. By default every tone in it is grey; the colour switch gives it a full
+   colour palette for either ground — a dawn in the dark, a clear morning in the
+   light — while the text and the panels stay black and white. The stack:
 
      0  #fallback / #scene   a still dawn when WebGL2 is missing, or the canvas
      1  .vig                 two cross-faded vignettes closing in the frame edges
      2  .scrim               the page ground, concentrated where the column sits
      3  .grain               a whisper of static over the whole frame
      4  .wrap                the page itself
-    10  #theme               the switcher
+    10  #theme, #colour      the switches
 
    Layers 0 to 3 are all position:fixed and pointer-events:none, so the page
    scrolls over a scene that stays put. */
@@ -142,6 +152,33 @@
     radial-gradient(20% 28% at 84% 28%, rgba(255,255,255,.16) 0%, rgba(255,255,255,0) 100%),
     linear-gradient(to bottom, #050505 0%, #0f0f0f 40%, #202020 50%, #0c0c0c 58%, #111111 100%);
 }
+/* Full colour recolours only what belongs to the scene: the still shown in
+   place of WebGL, and in the dark the scrim, which takes the night-blue of the
+   dawn sky instead of laying a neutral grey patch over it. Same selector
+   pattern as the dark blocks above; one extra attribute on each wins over them. */
+:root[data-colour="on"] {
+  --fallback:
+    radial-gradient(22% 30% at 84% 28%, #fffaf0 0%, rgba(255,250,240,0) 100%),
+    linear-gradient(to bottom, #8fb3e3 0%, #cbdcef 40%, #f4ede4 50%, #b9c3d6 58%, #e9edf3 100%);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-colour="on"]:not([data-theme="light"]) {
+    --scrim-a: rgba(9,12,26,.88);
+    --scrim-b: rgba(9,12,26,.68);
+    --scrim-c: rgba(9,12,26,.22);
+    --fallback:
+      radial-gradient(20% 28% at 84% 28%, rgba(255,200,130,.30) 0%, rgba(255,200,130,0) 100%),
+      linear-gradient(to bottom, #03060f 0%, #0b1026 40%, #3a2a3c 50%, #0c0f24 58%, #080b18 100%);
+  }
+}
+:root[data-colour="on"][data-theme="dark"] {
+  --scrim-a: rgba(9,12,26,.88);
+  --scrim-b: rgba(9,12,26,.68);
+  --scrim-c: rgba(9,12,26,.22);
+  --fallback:
+    radial-gradient(20% 28% at 84% 28%, rgba(255,200,130,.30) 0%, rgba(255,200,130,0) 100%),
+    linear-gradient(to bottom, #03060f 0%, #0b1026 40%, #3a2a3c 50%, #0c0f24 58%, #080b18 100%);
+}
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; background: var(--bg); }
@@ -177,6 +214,11 @@ body {
   background:
     radial-gradient(125% 95% at 50% 42%, transparent 32%, rgba(13,13,13,.42) 72%, rgba(10,10,10,.72) 100%),
     linear-gradient(to bottom, rgba(13,13,13,.45) 0%, transparent 22%, transparent 76%, rgba(10,10,10,.55) 100%);
+}
+:root[data-colour="on"] .vig-dark {
+  background:
+    radial-gradient(125% 95% at 50% 42%, transparent 32%, rgba(6,9,22,.42) 72%, rgba(4,6,16,.72) 100%),
+    linear-gradient(to bottom, rgba(6,9,22,.45) 0%, transparent 22%, transparent 76%, rgba(4,6,16,.55) 100%);
 }
 .vig-light {
   opacity: var(--vig-light);
@@ -222,9 +264,9 @@ body {
 }
 header { margin-top: auto; text-align: center; }
 
-/* ------------------------------------------------------------------- theme */
-#theme {
-  position: fixed; top: 18px; right: 18px; z-index: 10;
+/* --------------------------------------------------------- theme / colour */
+#theme, #colour {
+  position: fixed; top: 18px; z-index: 10;
   width: 32px; height: 32px; padding: 0;
   border: 1px solid var(--border); border-radius: 50%;
   background: var(--glass); color: var(--fg-dim);
@@ -232,8 +274,21 @@ header { margin-top: auto; text-align: center; }
   font-size: 14px; line-height: 1; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
-#theme:hover { color: var(--fg); border-color: var(--fg-faint); background: var(--glass-hover); }
-#theme:focus-visible { outline: 2px solid var(--fg-faint); outline-offset: 2px; }
+#theme  { right: 18px; }
+#colour { right: 58px; }
+#theme:hover, #colour:hover { color: var(--fg); border-color: var(--fg-faint); background: var(--glass-hover); }
+#theme:focus-visible, #colour:focus-visible { outline: 2px solid var(--fg-faint); outline-offset: 2px; }
+/* The colour switch is a small colour wheel: drained to grey while the page is
+   black and white, in full colour once it is on — the one spot of colour a
+   black-and-white page shows, which is what makes it findable. */
+#colour .wheel {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: conic-gradient(#e46c5f, #eba64c, #e3cf5b, #6dbf88, #4ea4d4, #7a72dc, #bf68b4, #e46c5f);
+  filter: grayscale(1); opacity: .7;
+  transition: filter .3s ease, opacity .3s ease;
+}
+#colour:hover .wheel { opacity: 1; }
+#colour[aria-pressed="true"] .wheel { filter: none; opacity: 1; }
 
 /* ---------------------------------------------------------- wordmark (head) */
 /* The wordmark is the page heading, in place of the clip that used to sit here.
@@ -384,6 +439,7 @@ footer a:hover { color: var(--fg); }
 <div class="scrim"></div>
 <div class="grain"></div>
 
+<button id="colour" type="button" aria-pressed="false" title="Colour" aria-label="Colour"><span class="wheel" aria-hidden="true"></span></button>
 <button id="theme" type="button" title="Theme" aria-label="Theme"></button>
 
 <div class="wrap">
@@ -471,11 +527,11 @@ footer a:hover { color: var(--fg); }
   var theme = lsGet(KEY);
   if (theme !== "light" && theme !== "dark") theme = "auto";
 
-  // The CSS follows the attribute on its own; the GL scene cannot, so hand it
+  // The CSS follows the attributes on its own; the GL scene cannot, so hand it
   // the resolved answer. It may not have booted yet — on the first pass it
-  // reads __resolveTheme itself, so a missed call here costs nothing.
+  // reads __resolveScene itself, so a missed call here costs nothing.
   function syncScene() {
-    if (window.relatudeScene) window.relatudeScene.setTheme(window.__resolveTheme());
+    if (window.relatudeScene) window.relatudeScene.setTheme(window.__resolveScene());
   }
 
   function apply(t) {
@@ -503,6 +559,34 @@ footer a:hover { color: var(--fg); }
       else window.localStorage.setItem(KEY, next);
     } catch (e) {}
   });
+
+  // Full colour: a second switch, on or off, that works under either ground.
+  // It only ever recolours the scene, so it keeps its own key rather than
+  // adding a state the manual and the introduction would not understand.
+  var CKEY = "relatude-docs-colour-v1";
+  var $col = document.getElementById("colour");
+  var colour = lsGet(CKEY) === "on";
+
+  function applyColour(on) {
+    colour = on;
+    if (on) document.documentElement.setAttribute("data-colour", "on");
+    else document.documentElement.removeAttribute("data-colour");
+    var label = on ? "Full colour — click for black and white" : "Black and white — click for full colour";
+    $col.setAttribute("aria-pressed", on ? "true" : "false");
+    $col.title = label;
+    $col.setAttribute("aria-label", label);
+    syncScene();
+  }
+
+  applyColour(colour);
+
+  $col.addEventListener("click", function () {
+    applyColour(!colour);
+    try {
+      if (colour) window.localStorage.setItem(CKEY, "on");
+      else window.localStorage.removeItem(CKEY);
+    } catch (e) {}
+  });
 })();
 </script>
 
@@ -524,12 +608,24 @@ footer a:hover { color: var(--fg); }
 /* ============================================================
    0. THEMES
    Every colour and every tuning value that differs between the
-   two themes. The dark theme is pure greyscale — every channel of
-   every entry is equal — so nothing in it ever picks up a tint;
-   the light one keeps the faint cool cast the animation always
-   had. `fog` and `top`, the horizon and the zenith, are the
-   colours that read as the ground of the frame, so they sit on
-   the docs grounds (#111111 and #ffffff).
+   themes. There are four: the page's light and dark, each in
+   black and white or in full colour.
+
+   The black-and-white pair is the page's own look. The dark one
+   is pure greyscale — every channel of every entry is equal — so
+   nothing in it ever picks up a tint; the light one keeps the
+   faint cool cast the animation always had. `fog` and `top`, the
+   horizon and the zenith, are the colours that read as the ground
+   of the frame, so they sit on the docs grounds (#111111, #ffffff).
+
+   The colour pair is the same scene with the colour left in: a
+   dawn over night-blue ranges with gold light and rose-lit cloud,
+   and a clear morning with blue distance and warm light. The
+   shading is untouched, only the ramps change: shadowed faces take
+   the cool end of each and sunlit faces the warm end, which is all
+   a colour grade is. The graph goes cool cyan at dawn and blue ink
+   in the morning, so the product reads apart from the landscape it
+   spans.
 
    Colours may run past 1.0. The scene is drawn into a float
    target and only the last pass eases it into the display range,
@@ -546,6 +642,9 @@ footer a:hover { color: var(--fg); }
      rays   light-shaft strength        rthr   sky brightness that feeds them
      knee   where highlights start to ease into white
      halo   the soft glow round graph lines and nodes
+
+   and among the colours, `starC`, `grid` and `bird` are the stars,
+   the survey lines and the flock.
    ============================================================ */
 const THEMES = {
   dark: {
@@ -554,7 +653,8 @@ const THEMES = {
     sun  :[0.280,0.280,0.280], sunC:[1.000,1.000,1.000],
     cloLo:[0.022,0.022,0.022], cloHi:[0.200,0.200,0.200],
     dust :[0.850,0.850,0.850], edge:[0.500,0.500,0.500], node:[0.960,0.960,0.960],
-    pulse:[1.000,1.000,1.000],
+    pulse:[1.000,1.000,1.000], starC:[0.940,0.940,0.940], grid:[0.940,0.940,0.940],
+    bird :[0.012,0.012,0.012],
     star:1, sub:0, sunI:1.00, shine:1.00, cloud:1.00, cov:0.52, mist:1.0, scan:1.0,
     bloom:0.30, thresh:1.00, rays:0.36, rthr:0.50, knee:0.70, halo:1.00
   },
@@ -567,17 +667,41 @@ const THEMES = {
     cloLo:[0.700,0.708,0.722], cloHi:[0.990,0.992,0.995],
     // mid-grey, not near-black: dark specks on white read as sensor dirt
     dust :[0.560,0.570,0.585], edge:[0.300,0.315,0.330], node:[0.120,0.128,0.136],
-    pulse:[0.080,0.085,0.090],
+    pulse:[0.080,0.085,0.090], starC:[0.900,0.906,0.912], grid:[0.900,0.906,0.912],
+    bird :[0.130,0.136,0.146],
     star:0, sub:1, sunI:0.55, shine:0.20, cloud:0.80, cov:0.55, mist:0.8, scan:0.7,
+    bloom:0.08, thresh:1.30, rays:0.16, rthr:1.00, knee:0.96, halo:0.35
+  },
+  darkColour: {
+    deep :[0.022,0.026,0.062], mid :[0.105,0.100,0.205], lit :[0.760,0.520,0.360],
+    hot  :[1.000,0.880,0.700], fog :[0.085,0.080,0.160], top :[0.010,0.018,0.058],
+    sun  :[0.560,0.270,0.110], sunC:[1.000,0.830,0.580],
+    cloLo:[0.028,0.028,0.072], cloHi:[0.560,0.300,0.270],
+    dust :[1.000,0.800,0.540], edge:[0.300,0.640,0.800], node:[0.620,0.920,1.000],
+    pulse:[0.780,0.970,1.000], starC:[0.820,0.880,1.000], grid:[0.420,0.800,0.950],
+    bird :[0.014,0.016,0.040],
+    star:1, sub:0, sunI:1.00, shine:1.00, cloud:1.00, cov:0.52, mist:1.0, scan:1.0,
+    bloom:0.32, thresh:1.00, rays:0.38, rthr:0.50, knee:0.72, halo:1.00
+  },
+  lightColour: {
+    deep :[0.190,0.230,0.330], mid :[0.410,0.460,0.560], lit :[0.820,0.770,0.700],
+    hot  :[0.970,0.935,0.880], fog :[0.925,0.940,0.965], top :[0.540,0.690,0.900],
+    sun  :[0.120,0.075,0.020], sunC:[1.000,0.950,0.840],
+    cloLo:[0.700,0.745,0.830], cloHi:[1.000,0.985,0.955],
+    dust :[0.540,0.580,0.660], edge:[0.160,0.330,0.560], node:[0.090,0.220,0.450],
+    pulse:[0.060,0.170,0.400], starC:[1.000,1.000,1.000], grid:[0.780,0.890,1.000],
+    bird :[0.110,0.125,0.180],
+    star:0, sub:1, sunI:0.60, shine:0.25, cloud:0.85, cov:0.55, mist:0.8, scan:0.7,
     bloom:0.08, thresh:1.30, rays:0.16, rthr:1.00, knee:0.96, halo:0.35
   }
 };
 const K3 = Object.keys(THEMES.dark).filter(k => Array.isArray(THEMES.dark[k]));
 const K1 = Object.keys(THEMES.dark).filter(k => !Array.isArray(THEMES.dark[k]));
 
-// The page resolves light/dark; the scene only ever mirrors that answer.
+// The page resolves light/dark and colour; the scene only ever mirrors that answer.
 const resolve = () => {
-  const n = window.__resolveTheme ? window.__resolveTheme() : 'dark';
+  const n = window.__resolveScene ? window.__resolveScene()
+          : window.__resolveTheme ? window.__resolveTheme() : 'dark';
   return THEMES[n] ? n : 'dark';
 };
 let themeName = resolve();
@@ -787,9 +911,9 @@ function bakeNoise(N) {
 
 // The palette is uniform state, not compile-time constants, so a theme can
 // cross-fade at runtime without relinking any program.
-const PAL_SKY = `uniform vec3 C_FOG, C_TOP, C_SUN, C_SUNC, C_CLO, C_CHI, C_HOT;
+const PAL_SKY = `uniform vec3 C_FOG, C_TOP, C_SUN, C_SUNC, C_CLO, C_CHI, C_STARC;
                  uniform float C_STAR, C_SUNI, C_CLOUD, C_COV;`;
-const PAL_TER = `uniform vec3 C_DEEP, C_MID, C_LIT, C_HOT, C_FOG, C_SUN, C_SUNC;
+const PAL_TER = `uniform vec3 C_DEEP, C_MID, C_LIT, C_HOT, C_FOG, C_SUN, C_SUNC, C_GRID;
                  uniform float C_SHINE, C_MIST, C_SCAN;`;
 
 // The colour of the air along a direction: the horizon ground, brightened on
@@ -894,7 +1018,7 @@ void main(){
     vec3 c = vec3(hash13(id + 11.0), hash13(id + 23.0), hash13(id + 37.0));
     float s = smoothstep(0.30, 0.0, length(f - c));
     float tw = 0.55 + 0.45 * sin(uTime * 0.8 + r * 340.0);
-    col += C_HOT * s * tw * 0.55 * C_STAR * smoothstep(0.02, 0.42, up)
+    col += C_STARC * s * tw * 0.55 * C_STAR * smoothstep(0.02, 0.42, up)
          * (1.0 - ca) * (1.0 - smoothstep(0.80, 0.97, mu));
   }
   // alpha 1 marks open sky: the light shafts are fed from it
@@ -989,9 +1113,9 @@ void main(){
   float band = exp(-q * q);
   float wake = step(uPulse, dz) * exp(-max(dz - uPulse, 0.0) / 60.0);
 
-  col += C_LIT * grid * (0.170 + 0.70 * band);
-  col += C_HOT * cl * (0.90 * band + 0.30 * wake) * C_SCAN;
-  col += C_HOT * band * 0.080 * (0.25 + 0.75 * lam);
+  col += C_GRID * grid * 0.64 * (0.170 + 0.70 * band);
+  col += C_GRID * cl * (0.90 * band + 0.30 * wake) * C_SCAN;
+  col += C_GRID * band * 0.080 * (0.25 + 0.75 * lam);
 
   // --- atmosphere: thicker down low, so the valleys pool with haze, and
   // patchy there — a slow drift of mist sampled at the ground point. The
@@ -1220,6 +1344,78 @@ void main(){
   else frag = vec4((uTint + uHot * (hot * 2.0)) * a, a);
 }`;
 
+/* Birds: one small mesh drawn once per bird, flapped in the vertex stage.
+   The wing has two joints — the inner part swings about the shoulder and the
+   outer part about the elbow, a beat behind — which is what gives the stroke
+   its whip instead of a hinged-plank flap. Solid like the terrain: they write
+   depth, and alpha 0, so a flock crossing the sun cuts its own small shadows
+   into the light shafts. */
+const BIRD_VS = `#version 300 es
+in vec4 aPos;                  // xyz in half-wingspan units, w = 1 on the wings
+in vec4 iPos;                  // world xyz, half-wingspan
+in vec4 iRot;                  // heading, pitch, roll, envelope
+in vec4 iFlap;                 // phase, amplitude (1 flapping .. ~0 gliding), dihedral
+uniform mat4 uVP;
+out vec3  vW;
+out float vA;
+void main(){
+  vec3 p = aPos.xyz;
+  float ph = iFlap.x, amp = iFlap.y;
+  if (aPos.w > 0.5) {
+    const float X0 = 0.08, XE = 0.50;              // shoulder and elbow, out from the body
+    float sx = sign(p.x), ax = abs(p.x);
+    float t1 = iFlap.z + amp * 0.80 * sin(ph);
+    float t2 = amp * 0.55 * sin(ph - 0.9) - 0.10 * (1.0 - amp);   // tips droop a little in a glide
+    if (ax <= XE + 1e-4) {
+      float r = ax - X0;
+      p.x = sx * (X0 + r * cos(t1));
+      p.y += r * sin(t1);
+    } else {
+      float re = XE - X0, d = ax - XE;
+      p.x = sx * (X0 + re * cos(t1) + d * cos(t1 + t2));
+      p.y += re * sin(t1) + d * sin(t1 + t2);
+    }
+  }
+  p.y -= 0.05 * amp * sin(ph);                     // the body rides each stroke
+  float cr = cos(iRot.z), sr = sin(iRot.z);        // roll, about the body axis
+  p.xy = vec2(p.x * cr - p.y * sr, p.x * sr + p.y * cr);
+  float cp = cos(iRot.y), sp = sin(iRot.y);        // pitch, positive nose-down
+  p.yz = vec2(p.y * cp - p.z * sp, p.y * sp + p.z * cp);
+  float cy = cos(iRot.x), sy = sin(iRot.x);        // heading, 0 along +z
+  p.xz = vec2(p.x * cy + p.z * sy, -p.x * sy + p.z * cy);
+  vW = iPos.xyz + p * iPos.w;
+  vA = iRot.w;
+  gl_Position = uVP * vec4(vW, 1.0);
+}`;
+
+const BIRD_FS = `#version 300 es
+precision highp float;
+in vec3  vW;
+in float vA;
+uniform vec3  uCam, uLight, uSunH;
+uniform float uSunAmt;
+uniform vec3  C_BIRD, C_FOG, C_SUN, C_SUNC;
+out vec4 frag;
+${HAZE}
+void main(){
+  vec3  toCam = uCam - vW;
+  float dist  = max(length(toCam), 1e-3);
+  vec3  rd    = -toCam / dist;
+  // A silhouette first, with a little lift on the sky-lit undersides and a
+  // rim on the edges seen against the sun.
+  vec3  cr = cross(dFdx(vW), dFdy(vW));
+  float c2 = dot(cr, cr);
+  vec3  n  = c2 > 1e-24 ? cr * inversesqrt(c2) : vec3(0.0, 1.0, 0.0);
+  float fres = pow(1.0 - abs(dot(n, rd)), 3.0);
+  float into = pow(max(dot(rd, uLight), 0.0), 6.0);
+  vec3  col  = C_BIRD * (0.85 + 0.30 * abs(n.y)) + C_SUNC * (fres * into * 0.5 * uSunAmt);
+  // Thinner air than the terrain's: they fly above the valley haze. Fading
+  // in and out is a fade into that same air, not transparency.
+  vec3  air  = haze(rd);
+  col = mix(col, air, 1.0 - exp(-dist * 0.0016));
+  frag = vec4(mix(air, col, vA), 0.0);
+}`;
+
 /* ---- post chain -------------------------------------------------------
    One full-screen triangle drives every pass below. */
 const POST_VS = `#version 300 es
@@ -1400,10 +1596,11 @@ function attrib(prog, name, size, stride, offset, divisor) {
 
 // A driver that refuses a shader or a format leaves the page on its static
 // fallback rather than on a blank canvas.
-let skyP, terP, dustP, edgeP, ptP, downP, upP, rsrcP, rblurP, compP;
+let skyP, terP, birdP, dustP, edgeP, ptP, downP, upP, rsrcP, rblurP, compP;
 try {
   skyP   = program(SKY_VS,  SKY_FS);
   terP   = program(TER_VS,  TER_FS);
+  birdP  = program(BIRD_VS, BIRD_FS);
   dustP  = program(DUST_VS, DUST_FS);
   edgeP  = program(EDGE_VS, EDGE_FS);
   ptP    = program(PT_VS,   PT_FS);
@@ -1503,6 +1700,46 @@ gl.bindBuffer(gl.ARRAY_BUFFER, ptVbo);
 gl.bufferData(gl.ARRAY_BUFFER, ptBuf.byteLength, gl.DYNAMIC_DRAW);
 attrib(ptP, 'aP', 4, PT_F * 4,  0);
 attrib(ptP, 'aK', 4, PT_F * 4, 16);
+
+// One bird, in half-wingspan units: x out along the right wing, y up, z
+// forward; w marks the wing vertices the flap moves. The left wing is the
+// right one mirrored (its winding flips, but nothing here is culled).
+const BIRD_MESH = (() => {
+  const body = [
+    [ 0.00, 0.00,  0.44], [-0.08, 0.00,  0.14], [ 0.08, 0.00,  0.14],   // head
+    [-0.08, 0.00,  0.14], [-0.07, 0.00, -0.10], [ 0.08, 0.00,  0.14],   // chest
+    [ 0.08, 0.00,  0.14], [-0.07, 0.00, -0.10], [ 0.07, 0.00, -0.10],
+    [-0.07, 0.00, -0.10], [ 0.00, 0.00, -0.30], [ 0.07, 0.00, -0.10],   // back
+    [ 0.00, 0.00, -0.28], [-0.13, 0.00, -0.52], [ 0.13, 0.00, -0.52],   // tail
+    [ 0.00, 0.00,  0.40], [ 0.00,-0.07,  0.05], [ 0.00, 0.00, -0.30]    // keel, so it reads end-on too
+  ];
+  const wing = [
+    [0.08, 0.00,  0.14], [0.08, 0.00, -0.10], [0.50, 0.00,  0.10],      // inner: shoulder to elbow
+    [0.08, 0.00, -0.10], [0.50, 0.00, -0.17], [0.50, 0.00,  0.10],
+    [0.50, 0.00,  0.10], [0.50, 0.00, -0.17], [1.00, 0.00, -0.26],      // outer: swept to a point
+    [0.50, 0.00, -0.17], [0.84, 0.00, -0.31], [1.00, 0.00, -0.26]
+  ];
+  const out = [];
+  for (const v of body) out.push(v[0], v[1], v[2], 0);
+  for (const v of wing) out.push(v[0], v[1], v[2], 1);
+  for (const v of wing) out.push(-v[0], v[1], v[2], 1);
+  return new Float32Array(out);
+})();
+const BIRD_VERTS = BIRD_MESH.length / 4;
+const BIRD_MAX = 24, BIRD_F = 12;              // birds at once / floats per bird
+const birdBuf = new Float32Array(BIRD_MAX * BIRD_F);
+
+const birdVao = gl.createVertexArray();
+gl.bindVertexArray(birdVao);
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+gl.bufferData(gl.ARRAY_BUFFER, BIRD_MESH, gl.STATIC_DRAW);
+attrib(birdP, 'aPos', 4, 0, 0);
+const birdVbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, birdVbo);
+gl.bufferData(gl.ARRAY_BUFFER, birdBuf.byteLength, gl.DYNAMIC_DRAW);
+attrib(birdP, 'iPos',  4, BIRD_F * 4,  0, 1);
+attrib(birdP, 'iRot',  4, BIRD_F * 4, 16, 1);
+attrib(birdP, 'iFlap', 4, BIRD_F * 4, 32, 1);
 gl.bindVertexArray(null);
 
 // The noise lives on unit 7 for the life of the page; the post passes only
@@ -1594,11 +1831,12 @@ function bindTex(unit, tex) {
 }
 
 const TER_PAL = [['C_DEEP','deep'], ['C_MID','mid'], ['C_LIT','lit'], ['C_HOT','hot'],
-                 ['C_FOG','fog'], ['C_SUN','sun'], ['C_SUNC','sunC'],
+                 ['C_FOG','fog'], ['C_SUN','sun'], ['C_SUNC','sunC'], ['C_GRID','grid'],
                  ['C_SHINE','shine'], ['C_MIST','mist'], ['C_SCAN','scan']];
 const SKY_PAL = [['C_FOG','fog'], ['C_TOP','top'], ['C_SUN','sun'], ['C_SUNC','sunC'],
-                 ['C_CLO','cloLo'], ['C_CHI','cloHi'], ['C_HOT','hot'],
+                 ['C_CLO','cloLo'], ['C_CHI','cloHi'], ['C_STARC','starC'],
                  ['C_STAR','star'], ['C_SUNI','sunI'], ['C_CLOUD','cloud'], ['C_COV','cov']];
+const BIRD_PAL = [['C_BIRD','bird'], ['C_FOG','fog'], ['C_SUN','sun'], ['C_SUNC','sunC']];
 function setPalette(prog, list) {
   for (let i = 0; i < list.length; i++) {
     const loc = prog.u[list[i][0]], v = P[list[i][1]];
@@ -1914,6 +2152,98 @@ let alt = null, flightX = 0, latV = 0, leadS = 0, routeTarget = 0, seeded = fals
 let bank = 0, routeT = 1, px = 0, py = 0, tpx = 0, tpy = 0;
 if (INTRO) graphReady = true;
 
+/* ---- birds -------------------------------------------------------------
+   Now and then a small flock crosses in front of the sun: in from beyond
+   the right edge of the frame, a little above the sun and pulling slowly
+   away, and faded out again before it reaches the text column. The whole
+   passage lies in the bright band round the sun, which is what lets every
+   theme read the birds as silhouettes — up in the open sky a dark bird on
+   a dark sky is simply not there. A loose V, each bird with its own
+   wingbeat and wander, breaking from flapping into short glides the way
+   large birds do. The first one comes just after the opening has settled. */
+const flocks = [];
+let nextFlock = T0 + 9.5, lastBirdZ = 0, nBirds = 0;
+
+function spawnFlock(camX, camY, camZ) {
+  // Placed by bearing from the camera (its right is world -x): off-frame
+  // right on any landscape screen, at about the sun's height and a little
+  // over it. Heading left (+x) and away (+z), faster away than the camera
+  // flies, so the flock recedes while it crosses.
+  const az = (52 + Math.random() * 6) * Math.PI / 180;
+  const el = (8.5 + Math.random() * 3.5) * Math.PI / 180;
+  const d  = 140 + Math.random() * 30;
+  const speed = REDUCED ? 4 : 8 + Math.random() * 1.5;
+  const f = {
+    x: camX - Math.sin(az) * Math.cos(el) * d,
+    y: camY + Math.sin(el) * d,
+    z: camZ + Math.cos(az) * Math.cos(el) * d,
+    yaw: Math.atan2(4, 7) + (Math.random() - 0.5) * 0.2,
+    vy: -0.15 - Math.random() * 0.15,
+    speed, t: 0, seed: Math.random() * 100, birds: []
+  };
+  f.life = 21 * 8.5 / speed;                   // across the glow and out before the column
+  const n = 5 + ((Math.random() * 7) | 0);
+  for (let i = 0; i < n; i++) {
+    const k = (i + 1) >> 1, side = i === 0 ? 0 : (i & 1 ? 1 : -1);
+    f.birds.push({
+      ox: side * k * (2.3 + Math.random() * 0.9),                 // out along the arms of the V
+      oy: (Math.random() - 0.5) * 1.4,
+      oz: -k * (2.5 + Math.random() * 1.0) + (Math.random() - 0.5) * 0.8,
+      s: 1.15 + Math.random() * 0.3,                             // half-wingspan
+      ph: Math.random() * 6.2832, hz: 1.7 + Math.random() * 0.6,
+      amp: 1, glide: Math.random() < 0.3, gt: 0.5 + Math.random() * 3,
+      w0: Math.random() * 6.2832, w1: Math.random() * 6.2832, w2: Math.random() * 6.2832
+    });
+  }
+  flocks.push(f);
+}
+
+function updateBirds(dt, camX, camY, camZ) {
+  if (camZ < lastBirdZ) for (const f of flocks) f.z -= DEPTH;      // back with the loop, like the graph
+  lastBirdZ = camZ;
+  if (time >= nextFlock) {
+    if (flocks.length < 2) spawnFlock(camX, camY, camZ);
+    nextFlock = time + (REDUCED ? 70 : 32) + Math.random() * 28;
+  }
+  nBirds = 0;
+  for (let i = flocks.length - 1; i >= 0; i--) {
+    const f = flocks[i];
+    f.t += dt;
+    if (f.t >= f.life) { flocks.splice(i, 1); continue; }
+    // a slow meander, so the line of flight is never ruler-straight
+    const yaw  = f.yaw + Math.sin(f.t * 0.11 + f.seed) * 0.10;
+    const turn = Math.cos(f.t * 0.11 + f.seed) * 0.011;            // its rate, for the bank
+    const fx = Math.sin(yaw), fz = Math.cos(yaw);
+    f.x += fx * f.speed * dt; f.y += f.vy * dt; f.z += fz * f.speed * dt;
+    // in over a second and a half; out by dissolving into the air
+    const env = Math.min(1, f.t / 1.5, (f.life - f.t) / 4);
+    for (const b of f.birds) {
+      if (nBirds >= BIRD_MAX) break;
+      if ((b.gt -= dt) <= 0) {
+        b.glide = !b.glide;
+        b.gt = b.glide ? 1.2 + Math.random() * 2.6 : 1.6 + Math.random() * 3.4;
+      }
+      b.amp += ((b.glide ? 0.08 : 1) - b.amp) * (1 - Math.exp(-dt * 2.5));
+      b.ph  += 6.2832 * b.hz * dt * (0.55 + 0.45 * b.amp);         // the beat slows as it winds down
+      const ox = b.ox + Math.sin(f.t * 0.41 + b.w0) * 0.7;
+      const oy = b.oy + Math.sin(f.t * 0.53 + b.w1) * 0.45;
+      const oz = b.oz + Math.sin(f.t * 0.37 + b.w2) * 0.8;
+      const o = nBirds++ * BIRD_F;
+      birdBuf[o]      = f.x + fz * ox + fx * oz;                   // across is (fz, -fx)
+      birdBuf[o + 1]  = f.y + oy;
+      birdBuf[o + 2]  = f.z - fx * ox + fz * oz;
+      birdBuf[o + 3]  = b.s;
+      birdBuf[o + 4]  = yaw + Math.cos(f.t * 0.41 + b.w0) * 0.06;
+      birdBuf[o + 5]  = -0.8 * f.vy / f.speed;                     // nose a touch down on the descent
+      birdBuf[o + 6]  = -9 * turn + Math.sin(f.t * 0.7 + b.w1) * 0.07;
+      birdBuf[o + 7]  = env;
+      birdBuf[o + 8]  = b.ph;
+      birdBuf[o + 9]  = b.amp;
+      birdBuf[o + 10] = 0.12 * (1 - b.amp);                        // wings held a little raised in a glide
+    }
+  }
+}
+
 if (!REDUCED) {
   addEventListener('pointermove', e => {
     tpx = (e.clientX / innerWidth  - 0.5) * 2;
@@ -2089,6 +2419,21 @@ function frame(now) {
   gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_INT, 0);
   gl.uniform1f(terP.u.uZOff, DEPTH);
   gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_INT, 0);
+
+  updateBirds(dt, camX, camY, camZ);
+  if (nBirds) {
+    gl.useProgram(birdP.p);
+    gl.bindVertexArray(birdVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, birdVbo);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, birdBuf, 0, nBirds * BIRD_F);
+    gl.uniformMatrix4fv(birdP.u.uVP, false, vp);
+    gl.uniform3fv(birdP.u.uCam, EYE);
+    gl.uniform3fv(birdP.u.uLight, LIGHT);
+    gl.uniform3fv(birdP.u.uSunH, SUNH);
+    gl.uniform1f(birdP.u.uSunAmt, sunAmt);
+    setPalette(birdP, BIRD_PAL);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, BIRD_VERTS, nBirds);
+  }
 
   // The sky goes second and only where the depth is still clear, so the
   // cloud noise is never computed under a mountain.

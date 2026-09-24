@@ -15,11 +15,11 @@ namespace Relatude.DB.SMS;
 /// an exception repeating the service's own reason - out of credits, not licensed, rate limited -
 /// so what the database logs is what the person configuring it needs to read.</para>
 /// <para><see cref="SMSProviderSettings.ServiceUrl"/> is the root of the service and defaults to
-/// <c>https://sms.relatude.com</c>; point it at your own deployment when the service is
+/// <c>https://sms.services.relatude.com</c>; point it at your own deployment when the service is
 /// self-hosted.</para>
 /// </summary>
 public class RelatudeServicesSMSProvider : ISMSProvider {
-    const string _defaultServiceUrl = "https://sms.relatude.com";
+    const string _defaultServiceUrl = "https://sms.services.relatude.com";
 
     /// <summary>The short name this provider is configured under, beside its own type name.
     /// <c>LateBindings.CreateSmsProvider</c> resolves both, and the settings page offers this one.</summary>

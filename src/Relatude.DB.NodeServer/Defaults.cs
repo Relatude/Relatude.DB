@@ -5,6 +5,6 @@
         public const string TempFolderPath = "relatude.db.temp";
         public const string DataFolderPath = "relatude.db";
         /// <summary>The Relatude.License server an installation reports in to and signs in through, unless its settings name another.</summary>
-        public const string LicenseServerUrl = "https://license.relatude.com";
+        public const string LicenseServerUrl = "https://services.relatude.com";
     }
 }
