@@ -116,6 +116,12 @@ public class SettingsCatalogTests {
             // what each log records and the query threshold: switched in the Logs section, which
             // writes them here with "Save and remember changes"
             "LocalSettings.LogRecording", "LocalSettings.MinQueryDurationMsBeforeLogging",
+            // reporting in is a json-file setting only, see ReportingInIsAJsonFileSettingOnly
+            "DisableHeartbeat",
+#if !DEBUG
+            // only a debug build offers the license server address, see LicenseServerAddressIsOnlyOfferedInDebugBuilds
+            "LicenseServerUrl",
+#endif
         ];
         var covered = SettingsCatalog.Server.Concat(SettingsCatalog.Database)
             .SelectMany(section => section.Groups).SelectMany(g => g.Settings).Select(s => s.Path)
@@ -390,28 +396,32 @@ public class SettingsCatalogTests {
     }
 
     /// <summary>
-    /// Reporting in sends data to somebody else's server, so it has to be switchable from where a
-    /// sceptical administrator would look for it, take effect without a restart, and say in its own
-    /// help what a report carries and what stopping it costs. The switch is the exception rather
-    /// than the rule - it disables - so that an absent setting keeps the reporting every
-    /// installation did before it existed, and nobody's behaviour changes by upgrading.
+    /// Reporting in is a json-file setting only: the admin UI does not offer the switch, so it is not
+    /// in the catalog - which also means the settings command refuses it - but it is still a property
+    /// of the settings file. It disables rather than enables, so an absent setting keeps the reporting
+    /// every installation did before it existed, and nobody's behaviour changes by upgrading.
     /// </summary>
     [TestMethod]
-    public void ReportingInCanBeTurnedOffAndSaysWhatItSends() {
-        var setting = SettingsCatalog.Server.SelectMany(s => s.Groups)
-            .Single(g => g.Id == "relatude-license").Settings
-            .Single(s => s.Path == nameof(RelatudeDBServerSettings.DisableHeartbeat));
-
-        Assert.AreEqual(SettingApplies.Live, setting.Applies, "stopping the reporting must take effect without waiting for a restart.");
-        Assert.IsFalse(setting.ReadOnly, "it is the administrator's choice to make.");
+    public void ReportingInIsAJsonFileSettingOnly() {
+        var path = nameof(RelatudeDBServerSettings.DisableHeartbeat);
+        Assert.IsFalse(all().Any(e => e.Setting.Path == path), "reporting in is not offered in the admin UI.");
         Assert.IsFalse(new RelatudeDBServerSettings().DisableHeartbeat, "reporting in is what an installation does unless it is switched off.");
-        Assert.AreEqual(SettingEditor.Toggle, SettingsAccessor.Describe(typeof(RelatudeDBServerSettings), setting.Path).Editor);
 
-        // short, but it still has to answer "what leaves my server" and "what do I lose"
-        foreach (var owed in new[] { "API key", "machine", "version", "node", "portal" }) {
-            StringAssert.Contains(setting.Help, owed,
-                "the help for reporting in should mention \"" + owed + "\": it is what someone deciding whether to allow it needs to know.");
-        }
+        var json = JsonSerializer.Serialize(new RelatudeDBServerSettings { DisableHeartbeat = true });
+        StringAssert.Contains(json, "\"" + path + "\"", "the switch must still be written to the settings file.");
+        Assert.IsTrue(JsonSerializer.Deserialize<RelatudeDBServerSettings>(json)!.DisableHeartbeat, "and read back from it.");
+    }
+
+    /// <summary>Pointing an installation at another license server is for developing that server, so
+    /// only a debug build offers the address in the admin UI.</summary>
+    [TestMethod]
+    public void LicenseServerAddressIsOnlyOfferedInDebugBuilds() {
+        var offered = all().Any(e => e.Setting.Path == nameof(RelatudeDBServerSettings.LicenseServerUrl));
+#if DEBUG
+        Assert.IsTrue(offered, "a debug build offers the license server address.");
+#else
+        Assert.IsFalse(offered, "a release build does not offer the license server address.");
+#endif
     }
 
     /// <summary>A generated value only makes sense in a free text field that holds a random key or

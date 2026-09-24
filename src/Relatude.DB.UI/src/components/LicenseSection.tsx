@@ -250,22 +250,19 @@ function StatusPanel({
       )}
 
       <div className="license-facts">
-        <Fact k="License server" v={server} />
+        {status.showLicenseServer && <Fact k="License server" v={server} />}
         <Fact k="Cloud sign-in" v={status.signInEnabled ? "On" : "Off"} />
-        <Fact k="Reports in" v={status.heartbeatDisabled ? "Disabled" : "Every 10 min"} />
-        <Fact k="Last report" v={status.lastContactUtc ? formatTime(status.lastContactUtc) : "Not yet"} />
       </div>
     </section>
   );
 }
 
-/** The keys, and the two switches that decide what they are used for. */
+/** The keys, and the switch that decides whether they sign people in. */
 function KeysPanel({ status, onSaved }: { status: LicenseStatus; onSaved: () => Promise<unknown> }) {
   const [licenseKey, setLicenseKey] = useState(status.licenseKey ?? "");
   const [apiKey, setApiKey] = useState("");
   const [serverUrl, setServerUrl] = useState(status.licenseServerUrl);
   const [signIn, setSignIn] = useState(status.signInEnabled);
-  const [reporting, setReporting] = useState(!status.heartbeatDisabled);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -275,16 +272,14 @@ function KeysPanel({ status, onSaved }: { status: LicenseStatus; onSaved: () => 
     setApiKey("");
     setServerUrl(status.licenseServerUrl);
     setSignIn(status.signInEnabled);
-    setReporting(!status.heartbeatDisabled);
   }, [status]);
 
   const locked = (path: string) => status.locked.includes(path);
   const changed =
     licenseKey.trim() !== (status.licenseKey ?? "")
     || apiKey.trim().length > 0
-    || serverUrl.trim() !== status.licenseServerUrl
-    || signIn !== status.signInEnabled
-    || reporting === status.heartbeatDisabled;
+    || (status.showLicenseServer && serverUrl.trim() !== status.licenseServerUrl)
+    || signIn !== status.signInEnabled;
 
   async function save() {
     setSaving(true);
@@ -294,9 +289,9 @@ function KeysPanel({ status, onSaved }: { status: LicenseStatus; onSaved: () => 
       if (!locked("LicenseKey")) values.LicenseKey = licenseKey.trim();
       // a secret is only sent when a new one was typed; an empty box means "leave it alone"
       if (!locked("ApiKey") && apiKey.trim().length > 0) values.ApiKey = apiKey.trim();
-      if (!locked("LicenseServerUrl")) values.LicenseServerUrl = serverUrl.trim();
+      // only a debug build of the server offers the address, and only then will it accept it
+      if (status.showLicenseServer && !locked("LicenseServerUrl")) values.LicenseServerUrl = serverUrl.trim();
       if (!locked("AllowLicenseeAdminLogin")) values.AllowLicenseeAdminLogin = signIn;
-      if (!locked("DisableHeartbeat")) values.DisableHeartbeat = !reporting;
       await saveLicenseSettings(values);
       await onSaved();
     } catch (e) {
@@ -334,25 +329,21 @@ function KeysPanel({ status, onSaved }: { status: LicenseStatus; onSaved: () => 
             onChange={(e) => setApiKey(e.target.value)}
           />
         </Field>
-        <Field label="License server" hint="Only for self-hosted or test servers." locked={locked("LicenseServerUrl")}>
-          <input
-            className="text-input"
-            value={serverUrl}
-            spellCheck={false}
-            disabled={locked("LicenseServerUrl")}
-            onChange={(e) => setServerUrl(e.target.value)}
-          />
-        </Field>
+        {status.showLicenseServer && (
+          <Field label="License server" hint="Only for self-hosted or test servers." locked={locked("LicenseServerUrl")}>
+            <input
+              className="text-input"
+              value={serverUrl}
+              spellCheck={false}
+              disabled={locked("LicenseServerUrl")}
+              onChange={(e) => setServerUrl(e.target.value)}
+            />
+          </Field>
+        )}
         <Field label="Cloud sign-in" hint="Adds the button to the login page; the portal decides who gets in." locked={locked("AllowLicenseeAdminLogin")}>
           <label className="license-toggle">
             <input type="checkbox" checked={signIn} disabled={locked("AllowLicenseeAdminLogin")} onChange={(e) => setSignIn(e.target.checked)} />
             <span>{signIn ? "On" : "Off"}</span>
-          </label>
-        </Field>
-        <Field label="Report in" hint="Every 10 min: keys, machine, version and node count. Counts, never enforces." locked={locked("DisableHeartbeat")}>
-          <label className="license-toggle">
-            <input type="checkbox" checked={reporting} disabled={locked("DisableHeartbeat")} onChange={(e) => setReporting(e.target.checked)} />
-            <span>{reporting ? "On" : "Off"}</span>
           </label>
         </Field>
         <div className="license-save">

@@ -54,13 +54,15 @@ export interface LicenseStatus {
   state: LicenseState;
   /** why, for every state but "valid" */
   reason: string | null;
+  /** always sent, since the portal links are built from it, but only shown when showLicenseServer is */
   licenseServerUrl: string;
+  /** only a debug build of the server shows and edits the license server address */
+  showLicenseServer: boolean;
   hasLicenseKey: boolean;
   hasApiKey: boolean;
   /** the license key itself, which is not a secret; the API key is never sent back */
   licenseKey: string | null;
   signInEnabled: boolean;
-  heartbeatDisabled: boolean;
   lastContactUtc: string | null;
   license: LicenseInfo | null;
   /**

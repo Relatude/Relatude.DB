@@ -17,9 +17,21 @@ sealed class UILicense(RelatudeDBServer server) {
         nameof(RelatudeDBServerSettings.LicenseKey),
         nameof(RelatudeDBServerSettings.ApiKey),
         nameof(RelatudeDBServerSettings.AllowLicenseeAdminLogin),
-        nameof(RelatudeDBServerSettings.DisableHeartbeat),
+#if DEBUG
         nameof(RelatudeDBServerSettings.LicenseServerUrl),
+#endif
     ];
+
+    /// <summary>
+    /// Whether the page shows and edits the license server address. Only a debug build of the server
+    /// does, matching the settings catalog: the address is still sent, since the page builds its
+    /// portal links from it, but a release build does not put it on screen.
+    /// </summary>
+#if DEBUG
+    const bool _showLicenseServer = true;
+#else
+    const bool _showLicenseServer = false;
+#endif
 
     internal void Register(UICommands commands) {
         commands.Register("license-status", async ctx => await describe());
@@ -42,11 +54,12 @@ sealed class UILicense(RelatudeDBServer server) {
             status.State,
             status.Reason,
             status.LicenseServerUrl,
+            ShowLicenseServer = _showLicenseServer,
             status.HasLicenseKey,
             status.HasApiKey,
             status.LicenseKey,
             status.SignInEnabled,
-            status.HeartbeatDisabled,
+            // reporting in (DisableHeartbeat) is left out on purpose: it is a json-file setting only
             status.LastContactUtc,
             status.License,
             status.Pairing,

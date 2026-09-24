@@ -282,7 +282,7 @@ public static class SettingsCatalog {
                 new() {
                     Id = "relatude-license",
                     Title = "Relatude.License",
-                    Help = "The license this installation runs under, from the Relatude.License portal. Both keys set is what lets it use the Relatude services and report in, and reporting in can be turned off on its own below. With the sign-in switch on, the owner of the license and the users they grant can sign in here with their Relatude.License account instead of the master password.",
+                    Help = "The license this installation runs under, from the Relatude.License portal. Both keys set is what lets it use the Relatude services. With the sign-in switch on, the owner of the license and the users they grant can sign in here with their Relatude.License account instead of the master password.",
                     Settings = [
                         new() {
                             Path = "LicenseKey", Label = "License key", Applies = SettingApplies.Live,
@@ -296,21 +296,18 @@ public static class SettingsCatalog {
                             Path = "AllowLicenseeAdminLogin", Label = "Allow sign-in with Relatude.License", Applies = SettingApplies.Live,
                             Help = "Shows \"Sign in with Relatude.License\" on the login page. Who gets in is decided by the license server: the owner of the license, and anyone the owner has granted this installation to in the portal. Turning it off ends those sessions at once; the master login is unaffected either way.",
                         },
-                        new() {
-                            // Someone reading this switch is deciding whether to let their server
-                            // talk to somebody else's on a schedule. Short, but it still has to name
-                            // what goes out and what is lost by stopping it: anything vaguer is
-                            // asking them to take it on trust.
-                            Path = "DisableHeartbeat", Label = "Disable reporting in", Applies = SettingApplies.Live,
-                            Help = "Off, this installation reports in every ten minutes: the API key, an installation key (this server's id and a "
-                                + "fingerprint of the machine), the server and machine name, version and node count. No content, no queries, nothing "
-                                + "about your users. On, nothing is sent and the database runs the same - reporting counts the license, it does not "
-                                + "enforce it - but the portal stops showing this installation.",
-                        },
+                        // Reporting in (DisableHeartbeat) is deliberately not offered here: it stays a
+                        // setting in the json file for whoever has a reason to turn it off, but it is
+                        // not a switch the admin UI puts in front of everyone.
+#if DEBUG
+                        // Only a debug build of the server offers the license server address: pointing
+                        // an installation at another license server is for developing that server,
+                        // not something a production admin UI should invite.
                         new() {
                             Path = "LicenseServerUrl", Label = "License server", Applies = SettingApplies.Live, Placeholder = Defaults.LicenseServerUrl,
                             Help = "Only for a self-hosted or test license server. Everything the sign-in and the reporting send goes there instead.",
                         },
+#endif
                     ],
                 },
                 new() {

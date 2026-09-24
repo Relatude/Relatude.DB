@@ -10,14 +10,16 @@
 // Applied before first paint so a chosen theme does not flash the other one.
 // Same storage key as the manual, so the choice carries across the docs.
 // localStorage access itself can throw on file:// origins, so guard.
-// Full colour is this page's own choice, so it keeps a key of its own.
+// Full colour is on unless the reader has turned it off. That choice is this
+// page's own, so it keeps a key of its own, and only "off" is ever stored.
 (function () {
+  var colour = true;
   try {
     var t = window.localStorage.getItem("relatude-manual-theme-v1");
     if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
-    if (window.localStorage.getItem("relatude-docs-colour-v1") === "on")
-      document.documentElement.setAttribute("data-colour", "on");
+    colour = window.localStorage.getItem("relatude-docs-colour-v1") !== "off";
   } catch (e) {}
+  if (colour) document.documentElement.setAttribute("data-colour", "on");
   // The effective light/dark, whether it came from the stored choice or from the
   // OS, and the palette the background scene should wear: that answer, in full
   // colour when the colour switch is on. The scene asks for it at boot and the
@@ -47,9 +49,10 @@
    pulses of light running along its edges, and now and then a flock of birds
    heading into the light. It is drawn in HDR and finished with bloom, but it is
    still a background: its palette follows this page's switches and nothing
-   else. By default every tone in it is grey; the colour switch gives it a full
-   colour palette for either ground — a dawn in the dark, a clear morning in the
-   light — while the text and the panels stay black and white. The stack:
+   else. By default it is in full colour, for either ground — a dawn in the
+   dark, a clear morning in the light — while the text and the panels stay
+   black and white; the colour switch turns the scene black and white too,
+   every tone in it grey, to match the rest of the docs. The stack:
 
      0  #fallback / #scene   a still dawn when WebGL2 is missing, or the canvas
      1  .vig                 two cross-faded vignettes closing in the frame edges
@@ -278,9 +281,9 @@ header { margin-top: auto; text-align: center; }
 #colour { right: 58px; }
 #theme:hover, #colour:hover { color: var(--fg); border-color: var(--fg-faint); background: var(--glass-hover); }
 #theme:focus-visible, #colour:focus-visible { outline: 2px solid var(--fg-faint); outline-offset: 2px; }
-/* The colour switch is a small colour wheel: drained to grey while the page is
-   black and white, in full colour once it is on — the one spot of colour a
-   black-and-white page shows, which is what makes it findable. */
+/* The colour switch is a small colour wheel: in full colour while the scene is,
+   drained to grey once it is black and white — and then the one spot of colour
+   the page shows, which is what keeps the way back findable. */
 #colour .wheel {
   width: 14px; height: 14px; border-radius: 50%;
   background: conic-gradient(#e46c5f, #eba64c, #e3cf5b, #6dbf88, #4ea4d4, #7a72dc, #bf68b4, #e46c5f);
@@ -439,7 +442,7 @@ footer a:hover { color: var(--fg); }
 <div class="scrim"></div>
 <div class="grain"></div>
 
-<button id="colour" type="button" aria-pressed="false" title="Colour" aria-label="Colour"><span class="wheel" aria-hidden="true"></span></button>
+<button id="colour" type="button" aria-pressed="true" title="Colour" aria-label="Colour"><span class="wheel" aria-hidden="true"></span></button>
 <button id="theme" type="button" title="Theme" aria-label="Theme"></button>
 
 <div class="wrap">
@@ -511,21 +514,18 @@ footer a:hover { color: var(--fg); }
 <script>
 (function () {
   "use strict";
-  // Three states, cycled by the button: auto (follow the OS) → light → dark.
-  // "auto" removes the attribute so the prefers-color-scheme rule takes over.
+  // Two states, light and dark. With nothing stored the page follows the
+  // system: the prefers-color-scheme rule does that on its own, so the button
+  // only has to show which one it is. A click stores an explicit choice, which
+  // from then on outranks the system. Same key as the manual.
   var KEY = "relatude-manual-theme-v1";
   var THEMES = {
-    auto:  { icon: "◐", label: "Theme: auto (follows your system) — click for light" },
     light: { icon: "☀", label: "Theme: light — click for dark" },
-    dark:  { icon: "☾", label: "Theme: dark — click to follow your system" }
+    dark:  { icon: "☾", label: "Theme: dark — click for light" }
   };
-  var ORDER = ["auto", "light", "dark"];
   var $btn = document.getElementById("theme");
 
   function lsGet(k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } }
-
-  var theme = lsGet(KEY);
-  if (theme !== "light" && theme !== "dark") theme = "auto";
 
   // The CSS follows the attributes on its own; the GL scene cannot, so hand it
   // the resolved answer. It may not have booted yet — on the first pass it
@@ -534,38 +534,37 @@ footer a:hover { color: var(--fg); }
     if (window.relatudeScene) window.relatudeScene.setTheme(window.__resolveScene());
   }
 
-  function apply(t) {
-    theme = t;
-    if (t === "auto") document.documentElement.removeAttribute("data-theme");
-    else document.documentElement.setAttribute("data-theme", t);
+  function show() {
+    var t = window.__resolveTheme();
     $btn.textContent = THEMES[t].icon;
     $btn.title = THEMES[t].label;
     $btn.setAttribute("aria-label", THEMES[t].label);
     syncScene();
   }
 
-  apply(theme);
+  show();
 
-  // In "auto" the CSS switches itself when the OS does; the scene needs telling.
+  // Until a choice is stored the system decides, and it can change its mind
+  // while the page is open (a scheduled dark mode, say). The CSS follows by
+  // itself; the button and the scene need telling.
   var mq = window.matchMedia("(prefers-color-scheme: dark)");
-  if (mq.addEventListener) mq.addEventListener("change", syncScene);
-  else if (mq.addListener) mq.addListener(syncScene);      // older Safari
+  if (mq.addEventListener) mq.addEventListener("change", show);
+  else if (mq.addListener) mq.addListener(show);           // older Safari
 
   $btn.addEventListener("click", function () {
-    var next = ORDER[(ORDER.indexOf(theme) + 1) % ORDER.length];
-    apply(next);
-    try {
-      if (next === "auto") window.localStorage.removeItem(KEY);
-      else window.localStorage.setItem(KEY, next);
-    } catch (e) {}
+    var next = window.__resolveTheme() === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try { window.localStorage.setItem(KEY, next); } catch (e) {}
+    show();
   });
 
   // Full colour: a second switch, on or off, that works under either ground.
   // It only ever recolours the scene, so it keeps its own key rather than
-  // adding a state the manual and the introduction would not understand.
+  // adding a state the manual and the introduction would not understand. On
+  // by default, so what is stored is the choice of black and white.
   var CKEY = "relatude-docs-colour-v1";
   var $col = document.getElementById("colour");
-  var colour = lsGet(CKEY) === "on";
+  var colour = lsGet(CKEY) !== "off";
 
   function applyColour(on) {
     colour = on;
@@ -583,8 +582,8 @@ footer a:hover { color: var(--fg); }
   $col.addEventListener("click", function () {
     applyColour(!colour);
     try {
-      if (colour) window.localStorage.setItem(CKEY, "on");
-      else window.localStorage.removeItem(CKEY);
+      if (colour) window.localStorage.removeItem(CKEY);
+      else window.localStorage.setItem(CKEY, "off");
     } catch (e) {}
   });
 })();
@@ -611,21 +610,21 @@ footer a:hover { color: var(--fg); }
    themes. There are four: the page's light and dark, each in
    black and white or in full colour.
 
-   The black-and-white pair is the page's own look. The dark one
-   is pure greyscale — every channel of every entry is equal — so
-   nothing in it ever picks up a tint; the light one keeps the
+   The black-and-white pair matches the rest of the docs. The dark
+   one is pure greyscale — every channel of every entry is equal —
+   so nothing in it ever picks up a tint; the light one keeps the
    faint cool cast the animation always had. `fog` and `top`, the
    horizon and the zenith, are the colours that read as the ground
    of the frame, so they sit on the docs grounds (#111111, #ffffff).
 
-   The colour pair is the same scene with the colour left in: a
-   dawn over night-blue ranges with gold light and rose-lit cloud,
-   and a clear morning with blue distance and warm light. The
-   shading is untouched, only the ramps change: shadowed faces take
-   the cool end of each and sunlit faces the warm end, which is all
-   a colour grade is. The graph goes cool cyan at dawn and blue ink
-   in the morning, so the product reads apart from the landscape it
-   spans.
+   The colour pair, the default, is the same scene with the colour
+   left in: a dawn over night-blue ranges with gold light and
+   rose-lit cloud, and a clear morning with blue distance and warm
+   light. The shading is untouched, only the ramps change: shadowed
+   faces take the cool end of each and sunlit faces the warm end,
+   which is all a colour grade is. The graph goes cool cyan at dawn
+   and blue ink in the morning, so the product reads apart from the
+   landscape it spans.
 
    Colours may run past 1.0. The scene is drawn into a float
    target and only the last pass eases it into the display range,
@@ -637,7 +636,7 @@ footer a:hover { color: var(--fg); }
             ink, because adding light to a near-white sky shows nothing
      sunI   sun disc and halo           shine  ridge rims and glints
      cloud  cloud deck opacity          cov    noise level where cloud begins
-     mist   drifting valley mist        scan   contours the survey reveals
+     mist   drifting valley mist
      bloom  bloom strength              thresh where bloom begins
      rays   light-shaft strength        rthr   sky brightness that feeds them
      knee   where highlights start to ease into white
@@ -655,7 +654,7 @@ const THEMES = {
     dust :[0.850,0.850,0.850], edge:[0.500,0.500,0.500], node:[0.960,0.960,0.960],
     pulse:[1.000,1.000,1.000], starC:[0.940,0.940,0.940], grid:[0.940,0.940,0.940],
     bird :[0.012,0.012,0.012],
-    star:1, sub:0, sunI:1.00, shine:1.00, cloud:1.00, cov:0.52, mist:1.0, scan:1.0,
+    star:1, sub:0, sunI:1.00, shine:1.00, cloud:1.00, cov:0.52, mist:1.0,
     bloom:0.30, thresh:1.00, rays:0.36, rthr:0.50, knee:0.70, halo:1.00
   },
   light: {
@@ -669,7 +668,7 @@ const THEMES = {
     dust :[0.560,0.570,0.585], edge:[0.300,0.315,0.330], node:[0.120,0.128,0.136],
     pulse:[0.080,0.085,0.090], starC:[0.900,0.906,0.912], grid:[0.900,0.906,0.912],
     bird :[0.130,0.136,0.146],
-    star:0, sub:1, sunI:0.55, shine:0.20, cloud:0.80, cov:0.55, mist:0.8, scan:0.7,
+    star:0, sub:1, sunI:0.55, shine:0.20, cloud:0.80, cov:0.55, mist:0.8,
     bloom:0.08, thresh:1.30, rays:0.16, rthr:1.00, knee:0.96, halo:0.35
   },
   darkColour: {
@@ -680,7 +679,7 @@ const THEMES = {
     dust :[1.000,0.800,0.540], edge:[0.300,0.640,0.800], node:[0.620,0.920,1.000],
     pulse:[0.780,0.970,1.000], starC:[0.820,0.880,1.000], grid:[0.420,0.800,0.950],
     bird :[0.014,0.016,0.040],
-    star:1, sub:0, sunI:1.00, shine:1.00, cloud:1.00, cov:0.52, mist:1.0, scan:1.0,
+    star:1, sub:0, sunI:1.00, shine:1.00, cloud:1.00, cov:0.52, mist:1.0,
     bloom:0.32, thresh:1.00, rays:0.38, rthr:0.50, knee:0.72, halo:1.00
   },
   lightColour: {
@@ -691,7 +690,7 @@ const THEMES = {
     dust :[0.540,0.580,0.660], edge:[0.160,0.330,0.560], node:[0.090,0.220,0.450],
     pulse:[0.060,0.170,0.400], starC:[1.000,1.000,1.000], grid:[0.780,0.890,1.000],
     bird :[0.110,0.125,0.180],
-    star:0, sub:1, sunI:0.60, shine:0.25, cloud:0.85, cov:0.55, mist:0.8, scan:0.7,
+    star:0, sub:1, sunI:0.60, shine:0.25, cloud:0.85, cov:0.55, mist:0.8,
     bloom:0.08, thresh:1.30, rays:0.16, rthr:1.00, knee:0.96, halo:0.35
   }
 };
@@ -914,7 +913,7 @@ function bakeNoise(N) {
 const PAL_SKY = `uniform vec3 C_FOG, C_TOP, C_SUN, C_SUNC, C_CLO, C_CHI, C_STARC;
                  uniform float C_STAR, C_SUNI, C_CLOUD, C_COV;`;
 const PAL_TER = `uniform vec3 C_DEEP, C_MID, C_LIT, C_HOT, C_FOG, C_SUN, C_SUNC, C_GRID;
-                 uniform float C_SHINE, C_MIST, C_SCAN;`;
+                 uniform float C_SHINE, C_MIST;`;
 
 // The colour of the air along a direction: the horizon ground, brightened on
 // the sun's side. The sky uses it at the horizon and the terrain fades into
@@ -1094,27 +1093,14 @@ void main(){
   grid *= smoothstep(3.0, -10.0, vW.y) * pow(max(n.y, 0.0), 5.0);
   grid *= 1.0 - smoothstep(45.0, 195.0, dist);
 
-  // --- contour lines every 5 units of height, as on a survey map. Each is
-  // straight across a facet and continuous across the next, so the slopes
-  // carry a faceted topographic chart that only the sweep brings out.
-  float hc = vW.y * 0.2;
-  float hw = fwidth(hc);
-  float cl = 1.0 - min(abs(fract(hc - 0.5) - 0.5) / max(hw, 1e-5), 1.0);
-  cl *= 1.0 - smoothstep(0.18, 0.50, hw);   // gone before they crowd into moire
-  cl *= smoothstep(-8.0, 4.0, vW.y);        // the valley floors belong to the lattice
-
-  // --- survey sweep: a slow band of light travelling toward the viewer,
-  // leaving the contours glowing behind it for a moment. The band is
-  // squared by hand because pow() of a negative base is undefined; the wake
-  // is clamped because between sweeps the band is parked 1e5 away, where
-  // the unclamped exp() overflows and 0 * inf turns the terrain into NaN.
+  // --- survey sweep: a slow band of light travelling toward the viewer.
+  // Squared by hand, because pow() of a negative base is undefined and one
+  // NaN pixel would be smeared across the frame by the bloom.
   float dz   = vW.z - uCam.z;
   float q    = (dz - uPulse) / 9.0;
   float band = exp(-q * q);
-  float wake = step(uPulse, dz) * exp(-max(dz - uPulse, 0.0) / 60.0);
 
   col += C_GRID * grid * 0.64 * (0.170 + 0.70 * band);
-  col += C_GRID * cl * (0.90 * band + 0.30 * wake) * C_SCAN;
   col += C_GRID * band * 0.080 * (0.25 + 0.75 * lam);
 
   // --- atmosphere: thicker down low, so the valleys pool with haze, and
@@ -1658,7 +1644,7 @@ attrib(terP, 'aPos', 3, 0, 0);
 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer());
 gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
 
-const DUST_N = COARSE ? 9000 : 14000;
+const DUST_N = COARSE ? 13000 : 20000;
 const seeds = new Float32Array(DUST_N * 4);
 for (let i = 0; i < DUST_N; i++) {
   seeds[i * 4]     = (Math.random() - 0.5) * DUST_SPAN;
@@ -1832,7 +1818,7 @@ function bindTex(unit, tex) {
 
 const TER_PAL = [['C_DEEP','deep'], ['C_MID','mid'], ['C_LIT','lit'], ['C_HOT','hot'],
                  ['C_FOG','fog'], ['C_SUN','sun'], ['C_SUNC','sunC'], ['C_GRID','grid'],
-                 ['C_SHINE','shine'], ['C_MIST','mist'], ['C_SCAN','scan']];
+                 ['C_SHINE','shine'], ['C_MIST','mist']];
 const SKY_PAL = [['C_FOG','fog'], ['C_TOP','top'], ['C_SUN','sun'], ['C_SUNC','sunC'],
                  ['C_CLO','cloLo'], ['C_CHI','cloHi'], ['C_STARC','starC'],
                  ['C_STAR','star'], ['C_SUNI','sunI'], ['C_CLOUD','cloud'], ['C_COV','cov']];
