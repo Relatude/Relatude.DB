@@ -10,15 +10,17 @@
 // Applied before first paint so a chosen theme does not flash the other one.
 // Same storage key as the manual, so the choice carries across the docs.
 // localStorage access itself can throw on file:// origins, so guard.
-// Full colour is on unless the reader has turned it off. That choice is this
-// page's own, so it keeps a key of its own, and only "off" is ever stored.
+// Black and white, like the rest of the docs, unless the reader has turned
+// full colour on. That choice is this page's own, so it keeps a key of its
+// own, and only "on" is ever stored. Light or dark follows the system until
+// the reader picks one; the weather is sunny until they pick another.
 // The weather is kept the same way: only a sky other than the sunny default.
 (function () {
-  var colour = true, weather = "sunny";
+  var colour = false, weather = "sunny";
   try {
     var t = window.localStorage.getItem("relatude-manual-theme-v1");
     if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
-    colour = window.localStorage.getItem("relatude-docs-colour-v1") !== "off";
+    colour = window.localStorage.getItem("relatude-docs-colour-v1") === "on";
     var w = window.localStorage.getItem("relatude-docs-weather-v1");
     if (w === "storm" || w === "snow") weather = w;
   } catch (e) {}
@@ -56,10 +58,10 @@
    pulses of light running along its edges, and now and then a flock of birds
    heading into the light. It is drawn in HDR and finished with bloom, but it is
    still a background: its palette follows this page's switches and nothing
-   else. By default it is in full colour, for either ground — a dawn in the
-   dark, a clear morning in the light — while the text and the panels stay
-   black and white; the colour switch turns the scene black and white too,
-   every tone in it grey, to match the rest of the docs. The weather switch
+   else. By default it is black and white, every tone in it grey, to match
+   the rest of the docs; the colour switch brings it into full colour for
+   either ground — a dawn in the dark, a clear morning in the light — while
+   the text and the panels stay black and white. The weather switch
    changes the sky: calm and sunny, a storm with rain, a snow storm — in which
    Santa crosses now and then. A double-click anywhere (or the full-screen
    switch) goes full screen with the page cleared away, the wordmark alone over
@@ -520,7 +522,7 @@ footer a:hover { color: var(--fg); }
 
 <button id="full" type="button" title="Full screen" aria-label="Full screen" hidden></button>
 <button id="weather" type="button" title="Weather" aria-label="Weather"></button>
-<button id="colour" type="button" aria-pressed="true" title="Colour" aria-label="Colour"><span class="wheel" aria-hidden="true"></span></button>
+<button id="colour" type="button" aria-pressed="false" title="Colour" aria-label="Colour"><span class="wheel" aria-hidden="true"></span></button>
 <button id="theme" type="button" title="Theme" aria-label="Theme"></button>
 
 <div class="wrap">
@@ -640,11 +642,11 @@ footer a:hover { color: var(--fg); }
 
   // Full colour: a second switch, on or off, that works under either ground.
   // It only ever recolours the scene, so it keeps its own key rather than
-  // adding a state the manual and the introduction would not understand. On
-  // by default, so what is stored is the choice of black and white.
+  // adding a state the manual and the introduction would not understand. Off
+  // by default (black and white), so what is stored is the choice of colour.
   var CKEY = "relatude-docs-colour-v1";
   var $col = document.getElementById("colour");
-  var colour = lsGet(CKEY) !== "off";
+  var colour = lsGet(CKEY) === "on";
 
   function applyColour(on) {
     colour = on;
@@ -662,8 +664,8 @@ footer a:hover { color: var(--fg); }
   function pickColour(on) {
     applyColour(on);
     try {
-      if (on) window.localStorage.removeItem(CKEY);
-      else window.localStorage.setItem(CKEY, "off");
+      if (on) window.localStorage.setItem(CKEY, "on");
+      else window.localStorage.removeItem(CKEY);
     } catch (e) {}
   }
   $col.addEventListener("click", function () {
@@ -791,7 +793,10 @@ footer a:hover { color: var(--fg); }
   // A click on the background (not on the text, a link, a switch or the
   // install line) steps to the next look. It waits a moment first, so the
   // first click of a double-click is not taken for one, and a click that
-  // only finished selecting some text does not count.
+  // only finished selecting some text does not count. Judged on the way
+  // down (capture), before any switch has handled the click: the weather
+  // switch swaps its icon as it does, and the icon clicked would then be
+  // out of the page, belonging to no button, and pass for background.
   var clickStep = 0;
   function background(t) { return !(t && t.closest && t.closest("a, button, .install, .tagline, .lede, footer")); }
   document.addEventListener("click", function (e) {
@@ -799,7 +804,7 @@ footer a:hover { color: var(--fg); }
     if (e.button !== 0 || e.detail > 1 || performance.now() - tappedAt < 600 || !background(e.target)) return;
     if (window.getSelection && String(window.getSelection())) return;
     clickStep = setTimeout(function () { stepLook(1); }, 350);
-  });
+  }, true);
   // The second press of a double-click would select the word under it first.
   document.addEventListener("mousedown", function (e) {
     if (e.detail > 1 && !spared(e.target)) e.preventDefault();
@@ -933,7 +938,7 @@ footer a:hover { color: var(--fg); }
   function storeLook() {
     try {
       window.localStorage.setItem(KEY, window.__resolveTheme());
-      if (colour) window.localStorage.removeItem(CKEY); else window.localStorage.setItem(CKEY, "off");
+      if (colour) window.localStorage.setItem(CKEY, "on"); else window.localStorage.removeItem(CKEY);
       if (weather === "sunny") window.localStorage.removeItem(WKEY); else window.localStorage.setItem(WKEY, weather);
     } catch (e) {}
   }
@@ -979,8 +984,7 @@ footer a:hover { color: var(--fg); }
    horizon and the zenith, are the colours that read as the ground
    of the frame, so they sit on the docs grounds (#111111, #ffffff).
 
-   The colour pair, the default, is the same scene with the colour
-   left in: a dawn over night-blue ranges with gold light and
+   The colour pair is the same scene with the colour left in: a dawn over night-blue ranges with gold light and
    rose-lit cloud, and a clear morning with blue distance and warm
    light. The shading is untouched, only the ramps change: shadowed
    faces take the cool end of each and sunlit faces the warm end,
@@ -1015,15 +1019,17 @@ const THEMES = {
   dark: {
     deep :[0.030,0.030,0.030], mid :[0.150,0.150,0.150], lit :[0.600,0.600,0.600],
     hot  :[0.940,0.940,0.940], fog :[0.067,0.067,0.067], top :[0.016,0.016,0.016],
-    sun  :[0.280,0.280,0.280], sunC:[1.000,1.000,1.000],
-    cloLo:[0.022,0.022,0.022], cloHi:[0.200,0.200,0.200],
+    sun  :[0.200,0.200,0.200], sunC:[1.000,1.000,1.000],
+    cloLo:[0.022,0.022,0.022], cloHi:[0.110,0.110,0.110],
     dust :[0.850,0.850,0.850], edge:[0.500,0.500,0.500], node:[0.960,0.960,0.960],
     pulse:[1.000,1.000,1.000], starC:[0.940,0.940,0.940], grid:[0.940,0.940,0.940],
     bird :[0.012,0.012,0.012], snowC:[0.720,0.720,0.720], rainC:[0.600,0.600,0.600],
     flakeC:[0.920,0.920,0.920], flashC:[1.000,1.000,1.000],
     noseC:[1.000,1.000,1.000], trailC:[0.950,0.950,0.950],
-    star:1, sub:0, sunI:1.00, shine:1.00, cloud:1.00, cov:0.52, mist:1.0,
-    bloom:0.30, thresh:1.00, rays:0.36, rthr:0.50, knee:0.70, halo:1.00, noseG:1.0
+    // the sky kept quiet next to the colour pair: a dimmer sun and halo,
+    // thinner cloud with less of a lit edge, weaker shafts
+    star:1, sub:0, sunI:0.62, shine:1.00, cloud:0.45, cov:0.52, mist:1.0,
+    bloom:0.30, thresh:1.00, rays:0.22, rthr:0.50, knee:0.70, halo:1.00, noseG:1.0
   },
   light: {
     // terrain sits darker than the sky so the ridges read as silhouettes,
@@ -1038,8 +1044,8 @@ const THEMES = {
     bird :[0.130,0.136,0.146], snowC:[0.970,0.972,0.975], rainC:[0.380,0.390,0.405],
     flakeC:[0.990,0.990,0.992], flashC:[1.000,1.000,1.000],
     noseC:[0.200,0.200,0.200], trailC:[0.540,0.548,0.560],
-    star:0, sub:1, sunI:0.55, shine:0.20, cloud:0.80, cov:0.55, mist:0.8,
-    bloom:0.08, thresh:1.30, rays:0.16, rthr:1.00, knee:0.96, halo:0.35, noseG:0.0
+    star:0, sub:1, sunI:0.40, shine:0.20, cloud:0.45, cov:0.55, mist:0.8,   // a quiet sky, as the dark
+    bloom:0.08, thresh:1.30, rays:0.10, rthr:1.00, knee:0.96, halo:0.35, noseG:0.0
   },
   darkColour: {
     deep :[0.022,0.026,0.062], mid :[0.105,0.100,0.205], lit :[0.760,0.520,0.360],
