@@ -12,14 +12,18 @@
 // localStorage access itself can throw on file:// origins, so guard.
 // Full colour is on unless the reader has turned it off. That choice is this
 // page's own, so it keeps a key of its own, and only "off" is ever stored.
+// The weather is kept the same way: only a sky other than the sunny default.
 (function () {
-  var colour = true;
+  var colour = true, weather = "sunny";
   try {
     var t = window.localStorage.getItem("relatude-manual-theme-v1");
     if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
     colour = window.localStorage.getItem("relatude-docs-colour-v1") !== "off";
+    var w = window.localStorage.getItem("relatude-docs-weather-v1");
+    if (w === "storm" || w === "snow") weather = w;
   } catch (e) {}
   if (colour) document.documentElement.setAttribute("data-colour", "on");
+  document.documentElement.setAttribute("data-weather", weather);
   // The effective light/dark, whether it came from the stored choice or from the
   // OS, and the palette the background scene should wear: that answer, in full
   // colour when the colour switch is on. The scene asks for it at boot and the
@@ -33,6 +37,9 @@
   window.__resolveScene = function () {
     return window.__resolveTheme() +
       (document.documentElement.getAttribute("data-colour") === "on" ? "Colour" : "");
+  };
+  window.__resolveWeather = function () {
+    return document.documentElement.getAttribute("data-weather") || "sunny";
   };
 })();
 </script>
@@ -52,14 +59,18 @@
    else. By default it is in full colour, for either ground — a dawn in the
    dark, a clear morning in the light — while the text and the panels stay
    black and white; the colour switch turns the scene black and white too,
-   every tone in it grey, to match the rest of the docs. The stack:
+   every tone in it grey, to match the rest of the docs. The weather switch
+   changes the sky: calm and sunny, a storm with rain, a snow storm — in which
+   Santa crosses now and then.
+   The stack:
 
      0  #fallback / #scene   a still dawn when WebGL2 is missing, or the canvas
      1  .vig                 two cross-faded vignettes closing in the frame edges
      2  .scrim               the page ground, concentrated where the column sits
      3  .grain               a whisper of static over the whole frame
      4  .wrap                the page itself
-    10  #theme, #colour      the switches
+    10  #theme #colour       the switches: light/dark, colour, weather
+        #weather
 
    Layers 0 to 3 are all position:fixed and pointer-events:none, so the page
    scrolls over a scene that stays put. */
@@ -267,8 +278,8 @@ body {
 }
 header { margin-top: auto; text-align: center; }
 
-/* --------------------------------------------------------- theme / colour */
-#theme, #colour {
+/* ------------------------------------------------ theme / colour / weather */
+#theme, #colour, #weather {
   position: fixed; top: 18px; z-index: 10;
   width: 32px; height: 32px; padding: 0;
   border: 1px solid var(--border); border-radius: 50%;
@@ -277,10 +288,20 @@ header { margin-top: auto; text-align: center; }
   font-size: 14px; line-height: 1; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
-#theme  { right: 18px; }
-#colour { right: 58px; }
-#theme:hover, #colour:hover { color: var(--fg); border-color: var(--fg-faint); background: var(--glass-hover); }
-#theme:focus-visible, #colour:focus-visible { outline: 2px solid var(--fg-faint); outline-offset: 2px; }
+#theme   { right: 18px; }
+#colour  { right: 58px; }
+#weather { right: 98px; }
+#theme:hover, #colour:hover, #weather:hover { color: var(--fg); border-color: var(--fg-faint); background: var(--glass-hover); }
+#theme:focus-visible, #colour:focus-visible, #weather:focus-visible { outline: 2px solid var(--fg-faint); outline-offset: 2px; }
+/* The weather switch is one button stepping through three skies; its line icon
+   is drawn in the text colour, and turns into the next one as it changes. */
+#weather svg {
+  width: 16px; height: 16px; display: block;
+  fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round;
+}
+#weather.turn svg { animation: wx-turn .5s cubic-bezier(.2, .8, .2, 1); }
+@keyframes wx-turn { from { transform: rotate(-120deg) scale(.5); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { #weather.turn svg { animation: none; } }
 /* The colour switch is a small colour wheel: in full colour while the scene is,
    drained to grey once it is black and white — and then the one spot of colour
    the page shows, which is what keeps the way back findable. */
@@ -442,6 +463,7 @@ footer a:hover { color: var(--fg); }
 <div class="scrim"></div>
 <div class="grain"></div>
 
+<button id="weather" type="button" title="Weather" aria-label="Weather"></button>
 <button id="colour" type="button" aria-pressed="true" title="Colour" aria-label="Colour"><span class="wheel" aria-hidden="true"></span></button>
 <button id="theme" type="button" title="Theme" aria-label="Theme"></button>
 
@@ -586,6 +608,50 @@ footer a:hover { color: var(--fg); }
       else window.localStorage.setItem(CKEY, "off");
     } catch (e) {}
   });
+
+  // Weather: one button stepping through three skies. Scene only, like
+  // colour, and kept the same way — only a sky other than sunny is stored.
+  var WKEY = "relatude-docs-weather-v1";
+  var WORDER = ["sunny", "storm", "snow"];
+  var WNAME = { sunny: "calm and sunny", storm: "heavy storm and rain", snow: "snow storm" };
+  var svg = function (d) { return '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="' + d + '"/></svg>'; };
+  var WICON = {
+    // a low sun on the horizon
+    sunny: svg("M2 11.5h12M4.8 11.5a3.2 3.2 0 0 1 6.4 0M8 4.3v1.6M3.6 6.1l1.1 1.1M12.4 6.1l-1.1 1.1M1.8 9.2h1.5M12.7 9.2h1.5"),
+    // a cloud with a bolt and rain under it
+    storm: svg("M4.2 9.8h7.1a2.6 2.6 0 0 0-.2-5.2 3.6 3.6 0 0 0-6.8 1.1 2.1 2.1 0 0 0-.1 4.1zM8.7 10.4l-1.5 2.3h1.8l-1.3 2.3M4.6 11.4l-.6 1.4M11.6 11.4l-.6 1.4"),
+    // a six-armed flake
+    snow:  svg("M8 13.4V2.6M12.68 10.7L3.32 5.3M12.68 5.3L3.32 10.7" +
+               "M8 4.6l-1.07-1.19M8 4.6l1.07-1.19M5.06 6.3l-1.57.33M5.06 6.3l-.49-1.52" +
+               "M5.06 9.7l-.49 1.52M5.06 9.7l-1.57-.33M8 11.4l1.07 1.19M8 11.4l-1.07 1.19" +
+               "M10.94 9.7l1.57-.33M10.94 9.7l.49 1.52M10.94 6.3l.49-1.52M10.94 6.3l1.57.33")
+  };
+  var $wx = document.getElementById("weather");
+  var weather = window.__resolveWeather();
+
+  function applyWeather(w) {
+    weather = w;
+    document.documentElement.setAttribute("data-weather", w);
+    var next = WORDER[(WORDER.indexOf(w) + 1) % WORDER.length];
+    var label = "Weather: " + WNAME[w] + " — click for " + WNAME[next];
+    $wx.innerHTML = WICON[w];
+    $wx.title = label;
+    $wx.setAttribute("aria-label", label);
+    if (window.relatudeScene && window.relatudeScene.setWeather) window.relatudeScene.setWeather(w);
+  }
+
+  applyWeather(WORDER.indexOf(weather) < 0 ? "sunny" : weather);
+
+  $wx.addEventListener("click", function () {
+    applyWeather(WORDER[(WORDER.indexOf(weather) + 1) % WORDER.length]);
+    $wx.classList.remove("turn");
+    void $wx.offsetWidth;                                  // restart the turn
+    $wx.classList.add("turn");
+    try {
+      if (weather === "sunny") window.localStorage.removeItem(WKEY);
+      else window.localStorage.setItem(WKEY, weather);
+    } catch (e) {}
+  });
 })();
 </script>
 
@@ -641,9 +707,13 @@ footer a:hover { color: var(--fg); }
      rays   light-shaft strength        rthr   sky brightness that feeds them
      knee   where highlights start to ease into white
      halo   the soft glow round graph lines and nodes
+     noseG  how much Rudolph's nose glows (not at all on white)
 
    and among the colours, `starC`, `grid` and `bird` are the stars,
-   the survey lines and the flock.
+   the survey lines and the flock; `snowC`, `rainC`, `flakeC` and
+   `flashC` are what the weather brings — snow lying on the ground,
+   rain, snowflakes and lightning — and `noseC` and `trailC` are
+   Rudolph's nose and the sparkles the sleigh leaves behind.
    ============================================================ */
 const THEMES = {
   dark: {
@@ -653,9 +723,11 @@ const THEMES = {
     cloLo:[0.022,0.022,0.022], cloHi:[0.200,0.200,0.200],
     dust :[0.850,0.850,0.850], edge:[0.500,0.500,0.500], node:[0.960,0.960,0.960],
     pulse:[1.000,1.000,1.000], starC:[0.940,0.940,0.940], grid:[0.940,0.940,0.940],
-    bird :[0.012,0.012,0.012],
+    bird :[0.012,0.012,0.012], snowC:[0.720,0.720,0.720], rainC:[0.600,0.600,0.600],
+    flakeC:[0.920,0.920,0.920], flashC:[1.000,1.000,1.000],
+    noseC:[1.000,1.000,1.000], trailC:[0.950,0.950,0.950],
     star:1, sub:0, sunI:1.00, shine:1.00, cloud:1.00, cov:0.52, mist:1.0,
-    bloom:0.30, thresh:1.00, rays:0.36, rthr:0.50, knee:0.70, halo:1.00
+    bloom:0.30, thresh:1.00, rays:0.36, rthr:0.50, knee:0.70, halo:1.00, noseG:1.0
   },
   light: {
     // terrain sits darker than the sky so the ridges read as silhouettes,
@@ -667,9 +739,11 @@ const THEMES = {
     // mid-grey, not near-black: dark specks on white read as sensor dirt
     dust :[0.560,0.570,0.585], edge:[0.300,0.315,0.330], node:[0.120,0.128,0.136],
     pulse:[0.080,0.085,0.090], starC:[0.900,0.906,0.912], grid:[0.900,0.906,0.912],
-    bird :[0.130,0.136,0.146],
+    bird :[0.130,0.136,0.146], snowC:[0.970,0.972,0.975], rainC:[0.380,0.390,0.405],
+    flakeC:[0.990,0.990,0.992], flashC:[1.000,1.000,1.000],
+    noseC:[0.200,0.200,0.200], trailC:[0.540,0.548,0.560],
     star:0, sub:1, sunI:0.55, shine:0.20, cloud:0.80, cov:0.55, mist:0.8,
-    bloom:0.08, thresh:1.30, rays:0.16, rthr:1.00, knee:0.96, halo:0.35
+    bloom:0.08, thresh:1.30, rays:0.16, rthr:1.00, knee:0.96, halo:0.35, noseG:0.0
   },
   darkColour: {
     deep :[0.022,0.026,0.062], mid :[0.105,0.100,0.205], lit :[0.760,0.520,0.360],
@@ -678,9 +752,11 @@ const THEMES = {
     cloLo:[0.028,0.028,0.072], cloHi:[0.560,0.300,0.270],
     dust :[1.000,0.800,0.540], edge:[0.300,0.640,0.800], node:[0.620,0.920,1.000],
     pulse:[0.780,0.970,1.000], starC:[0.820,0.880,1.000], grid:[0.420,0.800,0.950],
-    bird :[0.014,0.016,0.040],
+    bird :[0.014,0.016,0.040], snowC:[0.660,0.720,0.840], rainC:[0.560,0.640,0.780],
+    flakeC:[0.880,0.920,1.000], flashC:[0.860,0.890,1.000],
+    noseC:[1.000,0.200,0.110], trailC:[1.000,0.860,0.580],
     star:1, sub:0, sunI:1.00, shine:1.00, cloud:1.00, cov:0.52, mist:1.0,
-    bloom:0.32, thresh:1.00, rays:0.38, rthr:0.50, knee:0.72, halo:1.00
+    bloom:0.32, thresh:1.00, rays:0.38, rthr:0.50, knee:0.72, halo:1.00, noseG:1.0
   },
   lightColour: {
     deep :[0.190,0.230,0.330], mid :[0.410,0.460,0.560], lit :[0.820,0.770,0.700],
@@ -689,13 +765,69 @@ const THEMES = {
     cloLo:[0.700,0.745,0.830], cloHi:[1.000,0.985,0.955],
     dust :[0.540,0.580,0.660], edge:[0.160,0.330,0.560], node:[0.090,0.220,0.450],
     pulse:[0.060,0.170,0.400], starC:[1.000,1.000,1.000], grid:[0.780,0.890,1.000],
-    bird :[0.110,0.125,0.180],
+    bird :[0.110,0.125,0.180], snowC:[0.960,0.970,1.000], rainC:[0.300,0.360,0.460],
+    flakeC:[0.985,0.990,1.000], flashC:[0.920,0.940,1.000],
+    noseC:[0.900,0.140,0.100], trailC:[0.940,0.700,0.320],
     star:0, sub:1, sunI:0.60, shine:0.25, cloud:0.85, cov:0.55, mist:0.8,
-    bloom:0.08, thresh:1.30, rays:0.16, rthr:1.00, knee:0.96, halo:0.35
+    bloom:0.08, thresh:1.30, rays:0.16, rthr:1.00, knee:0.96, halo:0.35, noseG:0.6
   }
 };
 const K3 = Object.keys(THEMES.dark).filter(k => Array.isArray(THEMES.dark[k]));
 const K1 = Object.keys(THEMES.dark).filter(k => !Array.isArray(THEMES.dark[k]));
+
+/* ---- weather -------------------------------------------------------------
+   Three skies, stepped through by the weather switch: calm and sunny (the
+   scene as it always was), a heavy storm with rain, a snow storm.
+   Each is a handful of numbers the shaders read, plus the sky colours it
+   changes per theme; whatever it does not name comes from the theme as it
+   is. A change of weather rolls in over a few seconds, both at once.
+
+     sunV   how much of the sun gets through     rays   light shafts
+     clouds cloud deck                           cov    shift of the level where cloud begins
+     over   overcast: an even ceiling, and the land lit by the whole sky
+     mist   the sky dissolved into the haze      stars  starfield
+     wind   cloud drift, rain slant, snow drive  fogK   distance haze, as a multiple
+     dim    light on the land                    cover  snow lying on the flatter faces
+     dust   motes                 rain  rain     snow   snowfall    flash  lightning
+     birds  whether flocks fly */
+const WEATHER = {
+  sunny: { sunV: 1.00, rays: 1, clouds: 1, cov:  0.00, over: 0, mist: 0.0, stars: 1, wind: 1.0,
+           fogK: 1.0, dim: 1.00, cover: 0, dust: 1.0, rain: 0, snow: 0, flash: 0, birds: 1 },
+  storm: { sunV: 0.00, rays: 0, clouds: 1, cov: -0.34, over: 1, mist: 0.0, stars: 0, wind: 4.5,
+           fogK: 2.1, dim: 0.55, cover: 0, dust: 0.0, rain: 1, snow: 0, flash: 1, birds: 0 },
+  snow:  { sunV: 0.08, rays: 0, clouds: 1, cov: -0.30, over: 1, mist: 0.4, stars: 0, wind: 3.2,
+           fogK: 1.7, dim: 0.90, cover: 1, dust: 0.0, rain: 0, snow: 1, flash: 0, birds: 0 }
+};
+const WEATHERS = Object.keys(WEATHER), WK = Object.keys(WEATHER.sunny);
+// The sky colours each weather changes, per theme: `top` and `fog` are the
+// zenith and the horizon, `sun` the glow on the sun's side of the horizon,
+// `cloLo` / `cloHi` the dark and light of the deck.
+const WEATHER_SKY = {
+  dark: {
+    storm: { top:[0.050,0.050,0.050], fog:[0.110,0.110,0.110], sun:[0.020,0.020,0.020],
+             cloLo:[0.035,0.035,0.035], cloHi:[0.200,0.200,0.200] },
+    snow:  { top:[0.120,0.120,0.120], fog:[0.240,0.240,0.240], sun:[0.030,0.030,0.030],
+             cloLo:[0.075,0.075,0.075], cloHi:[0.160,0.160,0.160] }
+  },
+  light: {
+    storm: { top:[0.460,0.465,0.475], fog:[0.620,0.625,0.635], sun:[0.020,0.020,0.020],
+             cloLo:[0.330,0.335,0.345], cloHi:[0.600,0.605,0.615] },
+    snow:  { top:[0.800,0.805,0.812], fog:[0.900,0.903,0.908], sun:[0.030,0.030,0.030],
+             cloLo:[0.700,0.705,0.712], cloHi:[0.880,0.883,0.888] }
+  },
+  darkColour: {
+    storm: { top:[0.030,0.036,0.058], fog:[0.095,0.105,0.140], sun:[0.030,0.030,0.040],
+             cloLo:[0.030,0.034,0.055], cloHi:[0.170,0.190,0.250] },
+    snow:  { top:[0.110,0.125,0.160], fog:[0.220,0.250,0.310], sun:[0.040,0.040,0.050],
+             cloLo:[0.070,0.080,0.110], cloHi:[0.150,0.170,0.215] }
+  },
+  lightColour: {
+    storm: { top:[0.420,0.460,0.530], fog:[0.600,0.640,0.700], sun:[0.020,0.020,0.020],
+             cloLo:[0.300,0.340,0.410], cloHi:[0.580,0.620,0.680] },
+    snow:  { top:[0.780,0.810,0.860], fog:[0.880,0.900,0.935], sun:[0.030,0.030,0.030],
+             cloLo:[0.690,0.720,0.780], cloHi:[0.870,0.890,0.920] }
+  }
+};
 
 // The page resolves light/dark and colour; the scene only ever mirrors that answer.
 const resolve = () => {
@@ -704,16 +836,49 @@ const resolve = () => {
   return THEMES[n] ? n : 'dark';
 };
 let themeName = resolve();
+const resolveWeather = () => {
+  const w = window.__resolveWeather ? window.__resolveWeather() : 'sunny';
+  return WEATHER[w] ? w : 'sunny';
+};
+let weatherName = resolveWeather();
+
+// How much of each weather is in the air: eased toward the chosen one, so
+// every number and colour a weather sets rolls in together. `wx` holds the
+// blended numbers the frame reads.
+const wmix = {};
+for (const n of WEATHERS) wmix[n] = n === weatherName ? 1 : 0;
+const wx = {};
+function blendWeather() {
+  for (const k of WK) { let v = 0; for (const n of WEATHERS) v += wmix[n] * WEATHER[n][k]; wx[k] = v; }
+}
+blendWeather();
+
+// A theme colour as the current mix of weathers would have it.
+const TMP = [0, 0, 0];
+function paletteTarget(k) {
+  TMP[0] = TMP[1] = TMP[2] = 0;
+  for (const n of WEATHERS) {
+    const w = wmix[n];
+    if (w < 1e-4) continue;
+    const o = WEATHER_SKY[themeName][n], c = (o && o[k]) || THEMES[themeName][k];
+    TMP[0] += c[0] * w; TMP[1] += c[1] * w; TMP[2] += c[2] * w;
+  }
+  return TMP;
+}
 
 // Live palette, eased toward the selected theme so switching cross-fades.
 const P = {};
-for (const k of K3) P[k] = THEMES[themeName][k].slice();
+for (const k of K3) P[k] = paletteTarget(k).slice();
 for (const k of K1) P[k] = THEMES[themeName][k];
 
 function easePalette(dt) {
+  // weather rolls in more slowly than a theme switches
+  const g = 1 - Math.exp(-dt * 1.1);
+  for (const n of WEATHERS) wmix[n] += ((n === weatherName ? 1 : 0) - wmix[n]) * g;
+  blendWeather();
   const T = THEMES[themeName], f = 1 - Math.exp(-dt * 3.6);
   for (const k of K3) {
-    const a = P[k], b = T[k];
+    const a = P[k], b = paletteTarget(k);
     a[0] += (b[0] - a[0]) * f;
     a[1] += (b[1] - a[1]) * f;
     a[2] += (b[2] - a[2]) * f;
@@ -721,11 +886,12 @@ function easePalette(dt) {
   for (const k of K1) P[k] += (T[k] - P[k]) * f;
 }
 
-// The switcher calls this on every change; easePalette does the cross-fade.
+// The switchers call these on every change; easePalette does the cross-fade.
 // Re-resolving here rather than trusting the argument keeps the scene right
 // even if it is called with nothing.
 window.relatudeScene = {
-  setTheme(name) { themeName = THEMES[name] ? name : resolve(); }
+  setTheme(name)   { themeName = THEMES[name] ? name : resolve(); },
+  setWeather(name) { weatherName = WEATHER[name] ? name : resolveWeather(); }
 };
 
 const canvas = document.getElementById('scene');
@@ -910,9 +1076,9 @@ function bakeNoise(N) {
 
 // The palette is uniform state, not compile-time constants, so a theme can
 // cross-fade at runtime without relinking any program.
-const PAL_SKY = `uniform vec3 C_FOG, C_TOP, C_SUN, C_SUNC, C_CLO, C_CHI, C_STARC;
+const PAL_SKY = `uniform vec3 C_FOG, C_TOP, C_SUN, C_SUNC, C_CLO, C_CHI, C_STARC, C_FLASHC;
                  uniform float C_STAR, C_SUNI, C_CLOUD, C_COV;`;
-const PAL_TER = `uniform vec3 C_DEEP, C_MID, C_LIT, C_HOT, C_FOG, C_SUN, C_SUNC, C_GRID;
+const PAL_TER = `uniform vec3 C_DEEP, C_MID, C_LIT, C_HOT, C_FOG, C_SUN, C_SUNC, C_GRID, C_SNOWC, C_FLASHC;
                  uniform float C_SHINE, C_MIST;`;
 
 // The colour of the air along a direction: the horizon ground, brightened on
@@ -924,7 +1090,7 @@ vec3 haze(vec3 d){
   float a = max(dot(d, uSunH), 0.0);
   float m = max(dot(d, uLight), 0.0);
   float b = pow(a, 6.0) * exp(-abs(d.y) * 6.0) * 1.35 + pow(m, 24.0) * 0.55;
-  return C_FOG + C_SUN * (b * uSunAmt);
+  return C_FOG + C_SUN * (b * uSunAmt * uSunV);
 }`;
 
 // Four octaves from one noise channel, each turned off the last so the
@@ -954,8 +1120,9 @@ const SKY_FS = `#version 300 es
 precision highp float;
 in vec2 vNdc;
 uniform mat4  uInvVP;
-uniform vec3  uCam, uLight, uSunH;
-uniform float uTime, uTravel, uSunAmt;
+uniform vec3  uCam, uLight, uSunH, uFlashDir;
+uniform float uTime, uTravel, uSunAmt, uSunV, uCloudT;
+uniform float uOver, uClouds, uCovShift, uMist, uStars, uFlash;
 uniform sampler2D uNoise;
 out vec4 frag;
 ${PAL_SKY}
@@ -979,19 +1146,21 @@ void main(){
   // gives it a glow without washing out the sky around it.
   float disc = smoothstep(0.99989, 0.99995, mu);
   float halo = pow(mu, 1400.0) * 1.25 + pow(mu, 120.0) * 0.24 + pow(mu, 16.0) * 0.04;
-  vec3  sun  = C_SUNC * (C_SUNI * uSunAmt) * (disc * 10.0 + halo);
+  vec3  sun  = C_SUNC * (C_SUNI * uSunAmt * uSunV) * (disc * 10.0 + halo);
 
   // Cloud deck: a noise field on a layer high above the flight, bent down
   // toward the horizon the way a real sky curves away, so at grazing angles
   // it recedes into the haze instead of squeezing into streaks. It is fixed
   // to the ground, so it slides overhead with the travel, and drifts on a
-  // slow wind of its own besides. A much coarser noise opens and closes
-  // the deck in banks, so there is always clear sky somewhere.
+  // wind of its own besides (integrated, so a change of weather changes its
+  // speed and never jumps it). A much coarser noise opens and closes the
+  // deck in banks, so there is always clear sky somewhere — unless the
+  // weather closes it over.
   float t   = 520.0 / (max(up, 0.0) + 0.09);
-  vec2  cp  = (vec2(uCam.x, uTravel) + dir.xz * t) * 0.00042 + uTime * vec2(0.0009, 0.0004);
+  vec2  cp  = (vec2(uCam.x, uTravel) + dir.xz * t) * 0.00042 + uCloudT * vec2(0.0009, 0.0004);
   float big = texture(uNoise, cp * 0.31 + 0.27).g;
   float dn  = fbm(cp);
-  float cov = C_COV + (0.5 - big) * 0.30;
+  float cov = C_COV + (0.5 - big) * 0.30 + uCovShift;
   float cv  = smoothstep(cov, cov + 0.16, dn);
   // Denser toward the sun means this side of the cloud is in its shade.
   float dl  = fbm(cp + normalize(uLight.xz) * 0.02);
@@ -1001,13 +1170,20 @@ void main(){
   // The light is what reveals the deck: far from the sun a cloud is only a
   // faint shade on the sky, so the frame stays clean and dark, and the eye
   // goes to where the sun catches the cloud's lit side and its edges.
+  // Overcast, the deck is everywhere and there is no lit side: its thin
+  // parts are the light ones and its thick parts the dark.
   float nearSun = pow(mu, 3.0);
-  float ca = cv * C_CLOUD * smoothstep(0.02, 0.20, up) * (0.08 + 0.92 * smoothstep(0.35, 0.95, mu));
-  vec3  cc = mix(C_CLO, C_CHI, lit * (0.15 + 0.85 * nearSun));
-  cc += C_SUNC * (C_SUNI * uSunAmt) * (pow(mu, 12.0) * (0.05 + 0.80 * fringe) + pow(mu, 90.0) * 2.4 * fringe);
+  float side = mix(0.08 + 0.92 * smoothstep(0.35, 0.95, mu), 1.0, uOver);
+  float ca = cv * C_CLOUD * uClouds * smoothstep(0.02, 0.20, up) * side;
+  float thick = smoothstep(0.30, 0.78, dn + (0.5 - big) * 0.3);
+  vec3  cc = mix(C_CLO, C_CHI, mix(lit * (0.15 + 0.85 * nearSun), 1.0 - thick, uOver));
+  cc += C_SUNC * (C_SUNI * uSunAmt * uSunV) * (pow(mu, 12.0) * (0.05 + 0.80 * fringe) + pow(mu, 90.0) * 2.4 * fringe);
 
   col += sun * (1.0 - 0.92 * ca);
   col  = mix(col, cc, ca);
+
+  // lightning lights the deck round the strike, and the whole sky a little
+  col += C_FLASHC * uFlash * (0.2 + 1.4 * ca) * (0.3 + 1.5 * pow(max(dot(dir, uFlashDir), 0.0), 6.0));
 
   // sparse starfield, in the gaps of the deck and away from the sun
   vec3 g  = dir * 190.0;
@@ -1017,9 +1193,11 @@ void main(){
     vec3 c = vec3(hash13(id + 11.0), hash13(id + 23.0), hash13(id + 37.0));
     float s = smoothstep(0.30, 0.0, length(f - c));
     float tw = 0.55 + 0.45 * sin(uTime * 0.8 + r * 340.0);
-    col += C_STARC * s * tw * 0.55 * C_STAR * smoothstep(0.02, 0.42, up)
+    col += C_STARC * s * tw * 0.55 * C_STAR * uStars * smoothstep(0.02, 0.42, up)
          * (1.0 - ca) * (1.0 - smoothstep(0.80, 0.97, mu));
   }
+  // in a snow storm the sky half dissolves into the whiteout
+  col  = mix(col, mix(C_FOG, C_TOP, pow(clamp(up, 0.0, 1.0), 0.8) * 0.35), uMist);
   // alpha 1 marks open sky: the light shafts are fed from it
   frag = vec4(col, 1.0);
 }`;
@@ -1039,7 +1217,8 @@ const TER_FS = `#version 300 es
 precision highp float;
 in vec3 vW;
 uniform vec3  uCam, uLight, uSunH;
-uniform float uTime, uPulse, uSunAmt;
+uniform float uPulse, uSunAmt, uSunV, uMistT;
+uniform float uOver, uDim, uCover, uFogK, uFlash;
 uniform sampler2D uNoise;
 out vec4 frag;
 ${PAL_TER}
@@ -1060,21 +1239,23 @@ void main(){
   vec3  V     = toCam / dist;
   vec3  rd    = -V;
 
+  // Under an overcast the sun gives way to the even light of the whole sky.
   float ndl   = dot(n, uLight);
-  float lam   = max(ndl, 0.0);
+  float lam   = max(ndl, 0.0) * (1.0 - 0.8 * uOver);
   float skyf  = 0.5 + 0.5 * n.y;
   float fres  = pow(1.0 - max(dot(n, V), 0.0), 3.0);
   float peak  = smoothstep(38.0, 118.0, vW.y);
 
   float shade = 0.055
               + 0.76 * lam
-              + 0.22 * skyf * skyf
+              + (0.22 + 0.30 * uOver) * skyf * skyf
               + 0.26 * fres
               + 0.40 * peak * (0.25 + 0.75 * lam);
 
   vec3 col = mix(C_DEEP, C_MID, clamp(shade * 1.55, 0.0, 1.0));
   col = mix(col, C_LIT,  clamp((shade - 0.42) * 1.35, 0.0, 1.0));
   col = mix(col, C_HOT,  clamp((shade - 0.98) * 1.10, 0.0, 1.0));
+  col *= uDim;
 
   // --- the flight looks into a low sun, so the ridges are backlit: facets
   // seen edge-on catch a silver rim, and the odd one turned just right
@@ -1082,7 +1263,14 @@ void main(){
   float into = pow(max(dot(rd, uLight), 0.0), 3.0);
   float rim  = pow(fres, 1.4) * into * clamp((ndl + 0.35) / 1.35, 0.0, 1.0);
   float spec = pow(max(dot(n, normalize(uLight + V)), 0.0), 90.0) * lam;
-  col += C_SUNC * (C_SHINE * uSunAmt) * (rim * 0.60 + spec * 0.85);
+  col += C_SUNC * (C_SHINE * uSunAmt * uSunV) * (rim * 0.60 + spec * 0.85);
+
+  // --- snow lies on the flatter faces, and more of it higher up
+  float snow = uCover * smoothstep(0.35, 0.70, n.y) * smoothstep(-10.0, 25.0, vW.y);
+  col = mix(col, C_SNOWC * (0.70 + 0.30 * skyf) * (0.90 + 0.30 * lam), snow);
+
+  // --- lightning, from above
+  col += C_FLASHC * uFlash * (0.10 + 0.35 * max(n.y, 0.0));
 
   // --- ground lattice: only on near-flat low terrain, like a substrate.
   // Every 12.8 units — four facets — which also divides the loop period.
@@ -1107,11 +1295,11 @@ void main(){
   // patchy there — a slow drift of mist sampled at the ground point. The
   // mist repeats three times per loop period, so the join stays invisible.
   float low  = exp(-max(vW.y + 8.0, 0.0) * 0.048);
-  vec2  mp   = vW.xz * 0.0046875 + uTime * vec2(0.0040, 0.0095);
+  vec2  mp   = vW.xz * 0.0046875 + uMistT * vec2(0.0040, 0.0095);
   float mist = texture(uNoise, mp).g * 0.62 + texture(uNoise, mp * 2.0 + 0.37).b * 0.38;
   mist = smoothstep(0.34, 0.70, mist) * C_MIST;
   float lowM = low * (0.55 + 0.95 * mist);
-  float fd   = dist * (0.0048 + 0.0064 * lowM);
+  float fd   = dist * (0.0048 + 0.0064 * lowM) * uFogK;
   float fog  = 1.0 - exp(-fd * fd * 0.85 - fd * 0.18);
   // melt the sides of the tile into the air rather than letting them end
   fog = max(fog, smoothstep(292.0, 380.0, abs(vW.x)));
@@ -1132,7 +1320,7 @@ const DUST_VS = `#version 300 es
 in vec4 aSeed;                 // xyz = home position, w = per-mote variation
 uniform mat4  uVP;
 uniform vec3  uCam, uLight;
-uniform float uTime, uPx, uFwd;
+uniform float uTime, uPx, uFwd, uDust;
 out float vA;
 out float vB;
 void main(){
@@ -1152,7 +1340,7 @@ void main(){
 
   float near = smoothstep(2.5, 14.0, d);                       // keep the close ones
   float far  = 1.0 - smoothstep(SPAN * 0.32, SPAN * 0.46, d);   // gone before it wraps
-  vA = exp(-pow(d * 0.0068, 2.0)) * near * far * (0.20 + 0.45 * r);
+  vA = exp(-pow(d * 0.0068, 2.0)) * near * far * (0.20 + 0.45 * r) * uDust;
 
   // Motes between the eye and the sun catch the light — dust in a sunbeam —
   // and each one glints now and then as it turns.
@@ -1187,10 +1375,10 @@ in vec4 iQ;                    // x / y: 1 where a node ring sits at A / B
 uniform mat4  uVP;
 uniform vec3  uCam;
 uniform vec2  uRes;
-uniform float uPx, uHalo;
+uniform float uPx, uHalo, uFog;
 out float vS, vA, vHw, vDw, vW;
 out vec4  vP;
-float haze(float d){ return exp(-pow(d * 0.0034, 2.0)) * smoothstep(10.0, 38.0, d); }
+float haze(float d){ return exp(-pow(d * 0.0034 * uFog, 2.0)) * smoothstep(10.0, 38.0, d); }
 float ring(float d){ return mix(10.0, 6.0, smoothstep(60.0, 400.0, d)) * uPx; }
 void main(){
   vec4 ca = uVP * vec4(iA.xyz, 1.0);
@@ -1267,28 +1455,30 @@ void main(){
 /* Nodes, sparks and ripples share one point pass. A node is the hollow
    ring of the wordmark's glyph with a soft halo, and flares when a pulse
    lands on it; a spark is a pulse in flight, or the tip of an edge that is
-   still reaching; a ripple spreads from a node that has just been reached. */
+   still reaching; a ripple spreads from a node that has just been reached;
+   a sparkle is one of the specks the sleigh leaves behind. */
 const PT_VS = `#version 300 es
 in vec4 aP;                    // xyz, envelope
-in vec4 aK;                    // kind (0 node, 1 spark, 2 ripple), parameter
+in vec4 aK;                    // kind (0 node, 1 spark, 2 ripple, 3 sparkle), parameter
 uniform mat4  uVP;
 uniform vec3  uCam;
-uniform float uPx, uMaxPt, uHalo;
+uniform float uPx, uMaxPt, uHalo, uFog;
 out float vA, vSize, vKind, vPar, vRing;
 void main(){
   gl_Position = uVP * vec4(aP.xyz, 1.0);
   float d = distance(aP.xyz, uCam);
   // same haze the terrain uses, plus a near fade so nothing pops in your face
-  vA = aP.w * exp(-pow(d * 0.0034, 2.0)) * smoothstep(10.0, 38.0, d);
+  vA = aP.w * exp(-pow(d * 0.0034 * uFog, 2.0)) * smoothstep(10.0, 38.0, d);
   // Taper with depth, or the far rings read as stars rather than as a
   // network receding into the haze.
   float ring = mix(10.0, 6.0, smoothstep(60.0, 400.0, d)) * uPx;
   float s, r = ring;
   if (aK.x < 0.5)      s = ring * (1.0 + 1.6 * uHalo);
   else if (aK.x < 1.5) s = ring * 2.4;
-  else { r = ring * (0.6 + 2.8 * aK.y); s = 2.0 * r + 4.0 * uPx; }
+  else if (aK.x < 2.5) { r = ring * (0.6 + 2.8 * aK.y); s = 2.0 * r + 4.0 * uPx; }
+  else s = ring * 1.2;
   vSize = min(s, uMaxPt);
-  vRing = aK.x > 1.5 ? min(r, vSize * 0.5 - 2.0) : r;
+  vRing = aK.x > 1.5 && aK.x < 2.5 ? min(r, vSize * 0.5 - 2.0) : r;
   vKind = aK.x;
   vPar  = aK.y;
   gl_PointSize = vSize;
@@ -1321,9 +1511,13 @@ void main(){
     float D = max(vRing, 2.0);
     a   = exp(-pr * pr / (D * D * 0.045)) + exp(-pr * pr / (D * D * 0.30)) * 0.35 * uHalo;
     hot = 1.0;
-  } else {
+  } else if (vKind < 2.5) {
     float f = 1.0 - vPar;
     a = smoothstep(1.4, 0.2, abs(pr - vRing)) * f * f * 0.85;
+  } else {
+    float D = max(vRing, 2.0);
+    a   = exp(-pr * pr / (D * D * 0.012)) + exp(-pr * pr / (D * D * 0.08)) * 0.25;
+    hot = 1.0;
   }
   a *= vA;
   if (uSub > 0.5) { a = min(a, 1.0); frag = vec4(uTint * a, a); }
@@ -1379,7 +1573,7 @@ precision highp float;
 in vec3  vW;
 in float vA;
 uniform vec3  uCam, uLight, uSunH;
-uniform float uSunAmt;
+uniform float uSunAmt, uSunV;
 uniform vec3  C_BIRD, C_FOG, C_SUN, C_SUNC;
 out vec4 frag;
 ${HAZE}
@@ -1394,12 +1588,281 @@ void main(){
   vec3  n  = c2 > 1e-24 ? cr * inversesqrt(c2) : vec3(0.0, 1.0, 0.0);
   float fres = pow(1.0 - abs(dot(n, rd)), 3.0);
   float into = pow(max(dot(rd, uLight), 0.0), 6.0);
-  vec3  col  = C_BIRD * (0.85 + 0.30 * abs(n.y)) + C_SUNC * (fres * into * 0.5 * uSunAmt);
+  vec3  col  = C_BIRD * (0.85 + 0.30 * abs(n.y)) + C_SUNC * (fres * into * 0.5 * uSunAmt * uSunV);
   // Thinner air than the terrain's: they fly above the valley haze. Fading
   // in and out is a fade into that same air, not transparency.
   vec3  air  = haze(rd);
   col = mix(col, air, 1.0 - exp(-dist * 0.0016));
   frag = vec4(mix(air, col, vA), 0.0);
+}`;
+
+/* Rain: streaks, not points — a drop is only ever seen as the line it draws
+   in the moment the eye takes it in. Each falls through a slab of air round
+   the camera and wraps in it, like the motes, so the camera flies through
+   the downpour instead of towing it along. The slab divides the loop period,
+   so it lands on itself when the flight wraps. */
+const RAIN_SPAN = 128;
+const RAIN_VS = `#version 300 es
+in vec2 aCorner;               // x: 0 at the tail, 1 at the head;  y: -1 / +1 across
+in vec4 iSeed;                 // xyz = home in the slab, w = variation
+uniform mat4  uVP;
+uniform vec3  uCam;
+uniform vec2  uRes;
+uniform float uTime, uPx, uWind, uFall, uFog;
+out float vA, vT, vDw, vW, vHw;
+void main(){
+  const float SPAN = ${RAIN_SPAN}.0, HGT = 96.0;
+  float r    = iSeed.w;
+  float fall = uFall * (0.75 + 0.5 * r);
+  vec3  v    = vec3(uWind, -fall, 0.0);
+  vec3  p;
+  p.y = mod(iSeed.y - uTime * fall, HGT) - HGT * 0.5 + uCam.y;
+  p.x = mod(iSeed.x + uTime * uWind - uCam.x + SPAN * 0.5, SPAN) - SPAN * 0.5 + uCam.x;
+  p.z = mod(iSeed.z - uCam.z + SPAN * 0.5, SPAN) - SPAN * 0.5 + uCam.z;
+  vec3  tail = p - v * 0.034;                        // the streak one glance draws
+  vec4  ch = uVP * vec4(p, 1.0), ct = uVP * vec4(tail, 1.0);
+  if (ch.w < 0.6 || ct.w < 0.6) {                    // at or behind the eye: nothing to draw
+    gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
+    vA = vT = vDw = vHw = 0.0; vW = 1.0;
+    return;
+  }
+  vec2  hr = uRes * 0.5;
+  vec2  dv = ch.xy / ch.w * hr - ct.xy / ct.w * hr;
+  float L  = length(dv);
+  vec2  n  = L > 1e-3 ? vec2(-dv.y, dv.x) / L : vec2(1.0, 0.0);
+  float d  = distance(p, uCam);
+  bool  atHead = aCorner.x > 0.5;
+  vec4  c  = atHead ? ch : ct;
+  float core = mix(0.80, 0.50, smoothstep(10.0, 60.0, d)) * uPx;
+  float hw   = core + 1.0;
+  c.xy += n * (aCorner.y * hw) / hr * c.w;
+  gl_Position = c;
+  vDw = aCorner.y * hw * c.w;                        // screen-linear, as for the graph's lines
+  vW  = c.w;
+  vHw = core;
+  vT  = aCorner.x;
+  vA  = smoothstep(3.0, 9.0, d) * (1.0 - smoothstep(SPAN * 0.30, SPAN * 0.48, d))
+      * exp(-pow(d * 0.009 * uFog, 2.0)) * (0.55 + 0.60 * r);
+}`;
+
+const RAIN_FS = `#version 300 es
+precision highp float;
+in float vA, vT, vDw, vW, vHw;
+uniform vec3  uTint;
+uniform float uAmt, uSub;
+out vec4 frag;
+void main(){
+  float d = abs(vDw / vW);
+  float a = smoothstep(vHw + 0.6, vHw - 0.6, d) * vA * uAmt * (0.25 + 0.75 * vT);
+  if (uSub > 0.5) a = min(a, 1.0);
+  frag = vec4(uTint * a, a);
+}`;
+
+// Snow: soft flakes on a slower fall, driven sideways by the wind and eddying
+// as they go. Same slab trick as the rain, a little deeper.
+const SNOW_SPAN = 160;
+const SNOW_VS = `#version 300 es
+in vec4 aSeed;
+uniform mat4  uVP;
+uniform vec3  uCam;
+uniform float uTime, uPx, uWind, uFall, uFog;
+out float vA;
+void main(){
+  const float SPAN = ${SNOW_SPAN}.0, HGT = 110.0;
+  float r    = aSeed.w;
+  float fall = uFall * (0.6 + 0.8 * r);
+  float sway = sin(uTime * (0.7 + 0.9 * r) + aSeed.z * 0.21) * 3.0;
+  vec3 p;
+  p.y = mod(aSeed.y - uTime * fall, HGT) - HGT * 0.5 + uCam.y;
+  p.x = mod(aSeed.x + uTime * uWind * (0.7 + 0.6 * r) + sway - uCam.x + SPAN * 0.5, SPAN) - SPAN * 0.5 + uCam.x;
+  p.z = mod(aSeed.z + cos(uTime * 0.6 + aSeed.x * 0.17) * 2.4 - uCam.z + SPAN * 0.5, SPAN) - SPAN * 0.5 + uCam.z;
+  gl_Position  = uVP * vec4(p, 1.0);
+  float d      = distance(p, uCam);
+  gl_PointSize = clamp(300.0 / d, 1.4, 10.0) * uPx * (0.6 + 0.6 * r);
+  vA = smoothstep(1.5, 6.0, d) * (1.0 - smoothstep(SPAN * 0.30, SPAN * 0.47, d))
+     * exp(-pow(d * 0.008 * uFog, 2.0)) * (0.45 + 0.55 * r);
+}`;
+
+const SNOW_FS = `#version 300 es
+precision mediump float;
+in float vA;
+uniform vec3  uTint;
+uniform float uAmt, uSub;
+out vec4 frag;
+void main(){
+  float d = length(gl_PointCoord - 0.5);
+  float a = smoothstep(0.5, 0.15, d) * vA * uAmt;
+  if (uSub > 0.5) a = min(a, 1.0);
+  frag = vec4(uTint * a, a);
+}`;
+
+/* Santa: the whole team is one quad in the air, set along the way it flies,
+   and the fragment stage draws it as distance fields — five reindeer at the
+   gallop, their harness, the sleigh with Santa and his sack — so it stays
+   crisp and anti-aliased at any size. Each reindeer has jointed legs posed
+   every frame from the keyed stride below. Rudolph leads, his nose lit.
+   Drawn over the sky like the graph, as a silhouette in the bird colour,
+   and fading into the air with distance. */
+const SANTA_VS = `#version 300 es
+in vec2 aCorner;               // 0..1 over the quad
+uniform mat4  uVP;
+uniform vec3  uPos, uFwd;      // the sleigh, and the way the team flies (horizontal, unit)
+uniform float uScale;
+out vec2 vL;                   // team coordinates: x forward, y up, the sleigh at the origin
+out vec3 vW;
+void main(){
+  vL = vec2(mix(-0.30, 6.50, aCorner.x), mix(-0.55, 1.00, aCorner.y));
+  vW = uPos + (uFwd * vL.x + vec3(0.0, vL.y, 0.0)) * uScale;
+  gl_Position = uVP * vec4(vW, 1.0);
+}`;
+
+const SANTA_FS = `#version 300 es
+precision highp float;
+in vec2 vL;
+in vec3 vW;
+uniform vec3  uCam, uLight, uSunH;
+uniform float uSunAmt, uSunV, uEnv, uNoseG, uSub;
+uniform vec3  C_BIRD, C_FOG, C_SUN, C_NOSE;
+uniform vec4  uDeer[5];         // per reindeer: x, y, pitch, neck swing
+uniform vec4  uLegF[5];         // forelegs: near forearm, near cannon, far forearm, far cannon
+uniform vec4  uLegH[5];         // hind legs: near shank, near cannon, far shank, far cannon
+out vec4 frag;
+${HAZE}
+float cap(vec2 p, vec2 a, vec2 b, float r){
+  vec2 pa = p - a, ba = b - a;
+  return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0)) - r;
+}
+float ell(vec2 p, vec2 r){ return (length(p / r) - 1.0) * min(r.x, r.y); }
+float box(vec2 p, vec2 h, float rr){ vec2 d = abs(p) - h + rr; return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - rr; }
+float tri(vec2 p, vec2 p0, vec2 p1, vec2 p2){
+  vec2 e0 = p1 - p0, e1 = p2 - p1, e2 = p0 - p2;
+  vec2 v0 = p - p0,  v1 = p - p1,  v2 = p - p2;
+  vec2 q0 = v0 - e0 * clamp(dot(v0, e0) / dot(e0, e0), 0.0, 1.0);
+  vec2 q1 = v1 - e1 * clamp(dot(v1, e1) / dot(e1, e1), 0.0, 1.0);
+  vec2 q2 = v2 - e2 * clamp(dot(v2, e2) / dot(e2, e2), 0.0, 1.0);
+  float sg = sign(e0.x * e2.y - e0.y * e2.x);
+  vec2 d = min(min(vec2(dot(q0, q0), sg * (v0.x * e0.y - v0.y * e0.x)),
+                   vec2(dot(q1, q1), sg * (v1.x * e1.y - v1.y * e1.x))),
+                   vec2(dot(q2, q2), sg * (v2.x * e2.y - v2.y * e2.x)));
+  return -sqrt(d.x) * sign(d.y);
+}
+float smin(float a, float b, float k){ float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0); return mix(b, a, h) - k * h * (1.0 - h); }
+float tcap(vec2 p, vec2 a, vec2 b, float ra, float rb){
+  vec2 pa = p - a, ba = b - a;
+  float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+  return length(pa - ba * h) - mix(ra, rb, h);
+}
+vec2 down(float a){ return vec2(sin(a), -cos(a)); }     // an angle from straight down, + forward
+// Neck base, poll and muzzle for a given swing of the neck.
+void headPts(float nk, out vec2 nb, out vec2 poll, out vec2 muz){
+  nb   = vec2(0.19, 0.05);
+  poll = nb + vec2(cos(0.95 + nk), sin(0.95 + nk)) * 0.17;
+  muz  = poll + vec2(cos(-0.40 + nk * 0.6), sin(-0.40 + nk * 0.6)) * 0.14;
+}
+// Foreleg: forearm to the knee, which folds backward, then cannon to the
+// hoof. w thins the far-side leg a little, so all four read in silhouette.
+float fore(vec2 p, vec2 top, float a1, float a2, float w){
+  vec2 knee = top + down(a1) * 0.150;
+  vec2 hoof = knee + down(a2) * 0.145;
+  float d = tcap(p, top, knee, 0.034 * w, 0.016 * w);           // muscled at the elbow
+  d = min(d, length(p - knee) - 0.018 * w);                      // the knee
+  d = min(d, tcap(p, knee, hoof, 0.014 * w, 0.010 * w));
+  return min(d, length(p - hoof - down(a2) * 0.006) - 0.016 * w);
+}
+// Hind leg: from the stifle back to the hock, then down and forward to the hoof.
+float hind(vec2 p, vec2 top, float g, float k, float w){
+  vec2 hock = top + down(g) * 0.155;
+  vec2 hoof = hock + down(k) * 0.165;
+  float d = tcap(p, top, hock, 0.040 * w, 0.015 * w);
+  d = min(d, length(p - hock) - 0.017 * w);                      // the hock
+  d = min(d, tcap(p, hock, hoof, 0.013 * w, 0.010 * w));
+  return min(d, length(p - hoof - down(k) * 0.006) - 0.016 * w);
+}
+// One reindeer, p relative to the middle of its back; bd = pitch, -, neck;
+// lf / lh = the two forelegs' and the two hind legs' joint angles.
+float deer(vec2 p, vec4 bd, vec4 lf, vec4 lh){
+  float pc = cos(bd.x), ps = sin(bd.x);
+  p = vec2(pc * p.x + ps * p.y, -ps * p.x + pc * p.y);
+  float d = ell(p - vec2(-0.01, 0.0), vec2(0.25, 0.092));        // barrel
+  d = smin(d, length(p - vec2(0.15, -0.005)) - 0.105, 0.05);     // deep chest
+  d = smin(d, length(p - vec2(-0.18, 0.018)) - 0.090, 0.05);     // rump
+  vec2 nb, poll, muz;
+  headPts(bd.z, nb, poll, muz);
+  d = smin(d, tcap(p, nb, poll, 0.062, 0.036), 0.03);            // neck
+  d = smin(d, tcap(p, poll, muz, 0.045, 0.024), 0.02);           // head
+  d = min(d, tcap(p, poll + vec2(-0.01, 0.02), poll + vec2(-0.07, 0.05), 0.013, 0.006));   // ear
+  // antlers: each beam sweeps back off the head, rises, and hooks forward at
+  // the top; tines point forward, and a brow tine reaches out over the face
+  vec2 a0 = poll + vec2(0.00, 0.025);
+  d = min(d, tcap(p, a0, a0 + vec2(-0.10, 0.08), 0.013, 0.011));
+  d = min(d, tcap(p, a0 + vec2(-0.10, 0.08), a0 + vec2(-0.10, 0.17), 0.011, 0.008));
+  d = min(d, tcap(p, a0 + vec2(-0.10, 0.17), a0 + vec2(-0.06, 0.21), 0.008, 0.006));
+  d = min(d, tcap(p, a0 + vec2(-0.07, 0.06), a0 + vec2(-0.03, 0.11), 0.008, 0.005));
+  d = min(d, tcap(p, a0 + vec2(-0.10, 0.13), a0 + vec2(-0.05, 0.15), 0.007, 0.005));
+  d = min(d, tcap(p, a0 + vec2(-0.10, 0.17), a0 + vec2(-0.13, 0.20), 0.007, 0.005));
+  d = min(d, tcap(p, a0 + vec2(0.00, 0.01), a0 + vec2(0.055, 0.035), 0.009, 0.005));
+  vec2 b0 = poll + vec2(0.03, 0.025);                             // the far antler
+  d = min(d, tcap(p, b0, b0 + vec2(-0.08, 0.075), 0.011, 0.009));
+  d = min(d, tcap(p, b0 + vec2(-0.08, 0.075), b0 + vec2(-0.075, 0.16), 0.009, 0.007));
+  d = min(d, tcap(p, b0 + vec2(-0.075, 0.16), b0 + vec2(-0.035, 0.19), 0.007, 0.005));
+  d = min(d, tcap(p, b0 + vec2(-0.06, 0.06), b0 + vec2(-0.02, 0.10), 0.007, 0.005));
+  d = min(d, fore(p, vec2( 0.165, -0.07), lf.x, lf.y, 1.00));
+  d = min(d, fore(p, vec2( 0.135, -0.07), lf.z, lf.w, 0.85));
+  d = min(d, hind(p, vec2(-0.150, -0.05), lh.x, lh.y, 1.00));
+  d = min(d, hind(p, vec2(-0.180, -0.05), lh.z, lh.w, 0.85));
+  d = min(d, tcap(p, vec2(-0.25, 0.05), vec2(-0.30, 0.09), 0.020, 0.012));   // tail
+  return d;
+}
+float sleigh(vec2 p){
+  float d = box(p - vec2(0.56, 0.15), vec2(0.44, 0.14), 0.06);                   // the tub
+  d = min(d, box(p - vec2(0.13, 0.30), vec2(0.10, 0.29), 0.05));                 // its high back
+  d = min(d, length(p - vec2(1.00, 0.19)) - 0.12);                               // round front
+  d = min(d, cap(p, vec2(0.06, -0.12), vec2(1.12, -0.12), 0.020));               // runner
+  d = min(d, max(abs(length(p - vec2(1.13, -0.02)) - 0.10) - 0.018, 1.12 - p.x)); // and its curl
+  d = min(d, cap(p, vec2(0.30, 0.02), vec2(0.30, -0.12), 0.018));                // struts
+  d = min(d, cap(p, vec2(0.84, 0.02), vec2(0.84, -0.12), 0.018));
+  d = min(d, length(p - vec2(0.55, 0.40)) - 0.15);                               // Santa
+  d = min(d, length(p - vec2(0.61, 0.60)) - 0.08);
+  d = min(d, tri(p, vec2(0.53, 0.64), vec2(0.70, 0.66), vec2(0.45, 0.83)));      // his hat
+  d = min(d, length(p - vec2(0.44, 0.84)) - 0.032);
+  d = min(d, cap(p, vec2(0.62, 0.45), vec2(0.86, 0.51), 0.035));                 // arm, reins in hand
+  d = min(d, length(p - vec2(0.22, 0.48)) - 0.16);                               // the sack
+  d = min(d, length(p - vec2(0.20, 0.66)) - 0.035);
+  return d;
+}
+void main(){
+  vec2  p = vL;
+  float d = sleigh(p);
+  vec2  prev = vec2(0.86, 0.51);                 // the reins leave Santa's hand
+  for (int i = 0; i < 5; i++){
+    vec4 u = uDeer[i];
+    // each reindeer is only worked out near itself, in a band wide enough
+    // that skipping it outside never changes the nearest edge
+    if (abs(p.x - u.x) < 0.9) d = min(d, deer(p - u.xy, vec4(u.z, 0.0, u.w, 0.0), uLegF[i], uLegH[i]));
+    d = min(d, cap(p, prev, u.xy + vec2(-0.25, 0.02), 0.009));   // harness
+    prev = u.xy + vec2(0.16, 0.03);
+  }
+  // Rudolph leads. His nose is placed outright rather than taken from inside
+  // the band test: a distance that jumps at the band's edge sends fwidth()
+  // wild there and paints a lit column down the sky.
+  vec4  ru = uDeer[4];
+  vec2  nb, poll, muz;
+  headPts(ru.w, nb, poll, muz);
+  vec2  tip = muz + normalize(muz - poll) * 0.02;
+  float pc = cos(ru.z), ps = sin(ru.z);
+  float nose = length(p - ru.xy - vec2(pc * tip.x - ps * tip.y, ps * tip.x + pc * tip.y));
+  // capped, for the same reason: no edge is ever wider than a few pixels
+  float aa   = clamp(fwidth(d), 1e-4, 0.03);
+  float sil  = smoothstep(aa, -aa, d);
+  float core = smoothstep(0.036 + aa, 0.036 - aa, nose) * uNoseG;
+  float glow = exp(-nose * nose / 0.012) * uNoseG * (1.0 - uSub);
+  vec3  toCam = uCam - vW;
+  float dist  = length(toCam);
+  vec3  body  = mix(C_BIRD, haze(-toCam / dist), 1.0 - exp(-dist * 0.0012));
+  float hot   = uSub > 0.5 ? 1.0 : 4.0;          // on a dark ground the nose outshines white
+  float a     = max(sil, core) * uEnv;
+  if (a < 0.002 && glow * uEnv < 0.002) discard;
+  frag = vec4(mix(body, C_NOSE * hot, core) * a + C_NOSE * (hot * 0.5 * glow * uEnv), a);
 }`;
 
 /* ---- post chain -------------------------------------------------------
@@ -1582,11 +2045,14 @@ function attrib(prog, name, size, stride, offset, divisor) {
 
 // A driver that refuses a shader or a format leaves the page on its static
 // fallback rather than on a blank canvas.
-let skyP, terP, birdP, dustP, edgeP, ptP, downP, upP, rsrcP, rblurP, compP;
+let skyP, terP, birdP, dustP, edgeP, ptP, rainP, snowP, santaP, downP, upP, rsrcP, rblurP, compP;
 try {
   skyP   = program(SKY_VS,  SKY_FS);
   terP   = program(TER_VS,  TER_FS);
   birdP  = program(BIRD_VS, BIRD_FS);
+  rainP  = program(RAIN_VS, RAIN_FS);
+  snowP  = program(SNOW_VS, SNOW_FS);
+  santaP = program(SANTA_VS, SANTA_FS);
   dustP  = program(DUST_VS, DUST_FS);
   edgeP  = program(EDGE_VS, EDGE_FS);
   ptP    = program(PT_VS,   PT_FS);
@@ -1661,6 +2127,32 @@ gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
 gl.bufferData(gl.ARRAY_BUFFER, seeds, gl.STATIC_DRAW);
 attrib(dustP, 'aSeed', 4, 0, 0);
 
+// rain and snow: seeds in their slabs, drawn only as far as the weather asks
+const RAIN_N = COARSE ? 11000 : 22000, SNOW_N = COARSE ? 8000 : 16000;
+function slabSeeds(n, span, hgt) {
+  const a = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    a[i * 4]     = (Math.random() - 0.5) * span;
+    a[i * 4 + 1] = Math.random() * hgt;
+    a[i * 4 + 2] = (Math.random() - 0.5) * span;
+    a[i * 4 + 3] = Math.random();
+  }
+  return a;
+}
+const rainVao = gl.createVertexArray();
+gl.bindVertexArray(rainVao);
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
+attrib(rainP, 'aCorner', 2, 0, 0);
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+gl.bufferData(gl.ARRAY_BUFFER, slabSeeds(RAIN_N, RAIN_SPAN, 96), gl.STATIC_DRAW);
+attrib(rainP, 'iSeed', 4, 0, 0, 1);
+const snowVao = gl.createVertexArray();
+gl.bindVertexArray(snowVao);
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+gl.bufferData(gl.ARRAY_BUFFER, slabSeeds(SNOW_N, SNOW_SPAN, 110), gl.STATIC_DRAW);
+attrib(snowP, 'aSeed', 4, 0, 0);
+
 const LINK_MAX = 64;
 const EDGE_F = 16, PT_F = 8;                   // floats per edge instance / per point
 const edgeBuf = new Float32Array(LINK_MAX * EDGE_F);
@@ -1712,6 +2204,22 @@ const BIRD_MESH = (() => {
   return new Float32Array(out);
 })();
 const BIRD_VERTS = BIRD_MESH.length / 4;
+
+// Santa's quad, and the sparkles behind the sleigh (drawn by the point pass)
+const santaVao = gl.createVertexArray();
+gl.bindVertexArray(santaVao);
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+attrib(santaP, 'aCorner', 2, 0, 0);
+const TRAIL_MAX = 140;
+const trailBuf = new Float32Array(TRAIL_MAX * PT_F);
+const trailVao = gl.createVertexArray();
+gl.bindVertexArray(trailVao);
+const trailVbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, trailVbo);
+gl.bufferData(gl.ARRAY_BUFFER, trailBuf.byteLength, gl.DYNAMIC_DRAW);
+attrib(ptP, 'aP', 4, PT_F * 4,  0);
+attrib(ptP, 'aK', 4, PT_F * 4, 16);
 const BIRD_MAX = 24, BIRD_F = 12;              // birds at once / floats per bird
 const birdBuf = new Float32Array(BIRD_MAX * BIRD_F);
 
@@ -1818,11 +2326,13 @@ function bindTex(unit, tex) {
 
 const TER_PAL = [['C_DEEP','deep'], ['C_MID','mid'], ['C_LIT','lit'], ['C_HOT','hot'],
                  ['C_FOG','fog'], ['C_SUN','sun'], ['C_SUNC','sunC'], ['C_GRID','grid'],
+                 ['C_SNOWC','snowC'], ['C_FLASHC','flashC'],
                  ['C_SHINE','shine'], ['C_MIST','mist']];
 const SKY_PAL = [['C_FOG','fog'], ['C_TOP','top'], ['C_SUN','sun'], ['C_SUNC','sunC'],
-                 ['C_CLO','cloLo'], ['C_CHI','cloHi'], ['C_STARC','starC'],
+                 ['C_CLO','cloLo'], ['C_CHI','cloHi'], ['C_STARC','starC'], ['C_FLASHC','flashC'],
                  ['C_STAR','star'], ['C_SUNI','sunI'], ['C_CLOUD','cloud'], ['C_COV','cov']];
 const BIRD_PAL = [['C_BIRD','bird'], ['C_FOG','fog'], ['C_SUN','sun'], ['C_SUNC','sunC']];
+const SANTA_PAL = [['C_BIRD','bird'], ['C_FOG','fog'], ['C_SUN','sun'], ['C_NOSE','noseC']];
 function setPalette(prog, list) {
   for (let i = 0; i < list.length; i++) {
     const loc = prog.u[list[i][0]], v = P[list[i][1]];
@@ -2187,7 +2697,7 @@ function spawnFlock(camX, camY, camZ) {
 function updateBirds(dt, camX, camY, camZ) {
   if (camZ < lastBirdZ) for (const f of flocks) f.z -= DEPTH;      // back with the loop, like the graph
   lastBirdZ = camZ;
-  if (time >= nextFlock) {
+  if (time >= nextFlock && WEATHER[weatherName].birds) {
     if (flocks.length < 2) spawnFlock(camX, camY, camZ);
     nextFlock = time + (REDUCED ? 70 : 32) + Math.random() * 28;
   }
@@ -2201,8 +2711,9 @@ function updateBirds(dt, camX, camY, camZ) {
     const turn = Math.cos(f.t * 0.11 + f.seed) * 0.011;            // its rate, for the bank
     const fx = Math.sin(yaw), fz = Math.cos(yaw);
     f.x += fx * f.speed * dt; f.y += f.vy * dt; f.z += fz * f.speed * dt;
-    // in over a second and a half; out by dissolving into the air
-    const env = Math.min(1, f.t / 1.5, (f.life - f.t) / 4);
+    // in over a second and a half; out by dissolving into the air — and
+    // gone, the same way, when the weather turns
+    const env = Math.min(1, f.t / 1.5, (f.life - f.t) / 4) * wx.birds;
     for (const b of f.birds) {
       if (nBirds >= BIRD_MAX) break;
       if ((b.gt -= dt) <= 0) {
@@ -2229,6 +2740,202 @@ function updateBirds(dt, camX, camY, camZ) {
     }
   }
 }
+
+/* ---- lightning -----------------------------------------------------------
+   Only in the storm, and never for a reader who has asked for less motion.
+   A strike is one flash, sometimes a second a moment later — never more —
+   and strikes are at least two seconds apart, so no second ever holds more
+   than two flashes: inside the three-flashes-a-second limit for flashing
+   content. Most strikes also show the bolt, off in the rain, drawn with the
+   graph's own glowing line. */
+const BOLT_MAX = 40;
+const boltBuf = new Float32Array(BOLT_MAX * EDGE_F), boltW = new Float32Array(BOLT_MAX);
+const FLASH_DIR = [0, 0.5, 0.866];
+let nextStrike = 0, strikeT = -99, strike2 = -99, showBolt = false, flash = 0, boltA = 0, nBolt = 0;
+
+function buildBolt(camX, camY, camZ) {
+  // from the base of the deck down to the ground, far enough off to be softened by the rain
+  const az = (Math.random() - 0.5) * 1.2, d = 160 + Math.random() * 110;
+  const gx = camX - Math.sin(az) * d, gz = camZ + Math.cos(az) * d;
+  const top = [gx + (Math.random() - 0.5) * 40, camY + 150 + Math.random() * 60, gz + (Math.random() - 0.5) * 30];
+  let pts = [top, [gx, heightAt(gx, gz), gz]];
+  for (let pass = 0; pass < 4; pass++) {               // midpoint displacement: 16 jagged segments
+    const next = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i], len = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+      next.push([(a[0] + b[0]) / 2 + (Math.random() - 0.5) * len * 0.35,
+                 (a[1] + b[1]) / 2 + (Math.random() - 0.5) * len * 0.12,
+                 (a[2] + b[2]) / 2 + (Math.random() - 0.5) * len * 0.35], b);
+    }
+    pts = next;
+  }
+  nBolt = 0;
+  const seg = (a, b, w) => {
+    if (nBolt >= BOLT_MAX) return;
+    boltBuf.set([a[0], a[1], a[2], 0, b[0], b[1], b[2], 0, -9, 1, 1, 0, 0, 0, 0, 0], nBolt * EDGE_F);
+    boltW[nBolt++] = w;
+  };
+  for (let i = 1; i < pts.length; i++) seg(pts[i - 1], pts[i], 1);
+  for (let br = 0; br < 2; br++) {                      // a branch or two off the upper half
+    let a = pts[2 + ((Math.random() * (pts.length / 2)) | 0)];
+    for (let k = 0; k < 4; k++) {
+      const b = [a[0] + (Math.random() - 0.5) * 30, a[1] - 8 - Math.random() * 14, a[2] + (Math.random() - 0.5) * 30];
+      seg(a, b, 0.6 - k * 0.12);
+      a = b;
+    }
+  }
+  // the flash lights the deck round the top of the bolt
+  const fx = top[0] - camX, fy = top[1] - camY, fz = top[2] - camZ, fl = Math.hypot(fx, fy, fz);
+  FLASH_DIR[0] = fx / fl; FLASH_DIR[1] = fy / fl; FLASH_DIR[2] = fz / fl;
+}
+
+function updateLightning(camX, camY, camZ) {
+  if (REDUCED || wx.flash < 0.02) { flash = 0; boltA = 0; return; }
+  if (wx.flash < 0.3) nextStrike = Math.max(nextStrike, time + 2.5);   // let the storm build first
+  if (time >= nextStrike) {
+    buildBolt(camX, camY, camZ);
+    strikeT = time;
+    strike2 = Math.random() < 0.55 ? time + 0.14 + Math.random() * 0.14 : -99;
+    showBolt = Math.random() < 0.8;
+    nextStrike = time + 2.2 + Math.random() * 3.3;
+  }
+  const e1 = Math.exp(-Math.max(0, time - strikeT) * 10);
+  const e2 = time >= strike2 ? Math.exp(-(time - strike2) * 12) * 0.75 : 0;
+  flash = (e1 + e2) * wx.flash;
+  boltA = showBolt ? Math.min(1, e1 * 1.6 + e2 * 1.4) * wx.flash : 0;
+}
+
+/* ---- the reindeer's gallop ------------------------------------------------
+   Joint angles of a galloping deer, keyed over one stride (u in 0..1), in
+   radians from straight down, positive = forward: stance first (the leg
+   straight, sweeping back), then the swing (folding up, and reaching
+   forward). The foreleg's knee folds backward, tucking the hoof up under
+   the chest; the hind leg runs back from the stifle to the hock, then down
+   and forward to the hoof, and flexes hard at the hock in the swing. */
+const GAIT = {
+  foreUpper: [[0.00, 0.35], [0.20, -0.12], [0.38, -0.60], [0.55, -0.18], [0.72, 0.62], [0.88, 0.58]],
+  foreBend:  [[0.00, 0.00], [0.30, -0.02], [0.40, -0.35], [0.52, -1.95], [0.66, -1.55], [0.82, -0.45], [0.93, -0.04]],
+  hindShank: [[0.00, 0.10], [0.20, -0.38], [0.40, -0.85], [0.58, -0.45], [0.78, 0.20], [0.92, 0.22]],
+  hindCannon:[[0.00, 0.60], [0.20, 0.20], [0.40, -0.35], [0.58, 1.05], [0.78, 0.95], [0.92, 0.70]]
+};
+// Rotary gallop: hind, hind, fore, fore, then everything gathered in the air.
+const LEG_PHASE = { hindA: 0.00, hindB: 0.07, foreA: 0.30, foreB: 0.38 };
+
+// Periodic cubic (Catmull-Rom on uneven keys) sampled into a table once.
+function gaitTable(keys) {
+  const n = keys.length;
+  const ext = [[keys[n - 2][0] - 1, keys[n - 2][1]], [keys[n - 1][0] - 1, keys[n - 1][1]],
+               ...keys, [keys[0][0] + 1, keys[0][1]], [keys[1][0] + 1, keys[1][1]]];
+  const N = 128, out = new Float32Array(N + 1);
+  for (let s = 0; s < N; s++) {
+    const u = s / N;
+    let i = 1;
+    while (ext[i + 1][0] <= u) i++;
+    const [u0, p0] = ext[i - 1], [u1, p1] = ext[i], [u2, p2] = ext[i + 1], [u3, p3] = ext[i + 2];
+    const t = (u - u1) / (u2 - u1), h = u2 - u1;
+    const m1 = (p2 - p0) / (u2 - u0) * h, m2 = (p3 - p1) / (u3 - u1) * h;
+    const t2 = t * t, t3 = t2 * t;
+    out[s] = (2 * t3 - 3 * t2 + 1) * p1 + (t3 - 2 * t2 + t) * m1 + (-2 * t3 + 3 * t2) * p2 + (t3 - t2) * m2;
+  }
+  out[N] = out[0];                                   // the stride closes on itself
+  return out;
+}
+const GT = {};
+for (const k in GAIT) GT[k] = gaitTable(GAIT[k]);
+function gaitAt(tab, u) {
+  u -= Math.floor(u);
+  const x = u * 128, i = Math.floor(x), f = x - i;
+  return tab[i] + (tab[i + 1] - tab[i]) * f;
+}
+// Everything one reindeer needs at stride position u: legs, and the body's
+// pitch, rise and neck swing, which follow the same stride.
+function deerPose(u, outF, outH, outB, o) {
+  const fa = u + LEG_PHASE.foreA, fb = u + LEG_PHASE.foreB, ha = u + LEG_PHASE.hindA, hb = u + LEG_PHASE.hindB;
+  outF[o] = gaitAt(GT.foreUpper, fa); outF[o + 1] = outF[o] + gaitAt(GT.foreBend, fa);
+  outF[o + 2] = gaitAt(GT.foreUpper, fb); outF[o + 3] = outF[o + 2] + gaitAt(GT.foreBend, fb);
+  outH[o] = gaitAt(GT.hindShank, ha); outH[o + 1] = gaitAt(GT.hindCannon, ha);
+  outH[o + 2] = gaitAt(GT.hindShank, hb); outH[o + 3] = gaitAt(GT.hindCannon, hb);
+  const w = 6.2831853 * u;
+  outB[o]     = 0.08 * Math.sin(w - 0.31);         // pitch: nose up off the hind push, down over the forelegs
+  outB[o + 1] = 0.030 * Math.cos(w - 5.34);        // rise: highest while gathered in the air
+  outB[o + 2] = -0.10 * Math.cos(w - 3.14);        // neck: reaches down as the forelegs take the weight
+}
+// The team: each reindeer strides on its own offset, so they gallop together
+// without marching in step, and rides a slow wave along the line.
+const DEER_OFF = [0.00, 0.37, 0.71, 0.19, 0.56];
+const deerU = new Float32Array(20), legF = new Float32Array(20), legH = new Float32Array(20), deerB = new Float32Array(20);
+function poseTeam(t) {
+  const hz = REDUCED ? 0.85 : 1.7;                      // strides a second
+  for (let i = 0; i < 5; i++) {
+    const o = i * 4;
+    deerPose(t * hz + DEER_OFF[i], legF, legH, deerB, o);
+    deerU[o]     = 1.75 + i * 0.95;
+    deerU[o + 1] = 0.14 + 0.05 * Math.sin(t * 1.3 - i * 0.6) + deerB[o + 1];
+    deerU[o + 2] = deerB[o];
+    deerU[o + 3] = deerB[o + 2];
+  }
+}
+
+/* ---- Santa ----------------------------------------------------------------
+   In the snow storm, now and then, the sleigh crosses the sky: in from beyond
+   one edge and out past the other, keeping pace with the flight so it holds
+   its distance, above the ranges and clear of the wordmark, from alternate
+   sides. A trail of sparkles falls from the runners. Gone, like the birds,
+   dissolving into the air, when the weather turns. */
+const SANTA_SCALE = 8;
+const santa = { on: false, x: 0, y: 0, z: 0, vx: 0, t: 0, life: 1, dir: -1, next: 0, env: 0 };
+const trail = [];
+let lastSantaZ = 0, nTrail = 0;
+
+function updateSanta(dt, camX, camY, camZ) {
+  if (camZ < lastSantaZ) { santa.z -= DEPTH; for (const q of trail) q[2] -= DEPTH; }  // back with the loop
+  lastSantaZ = camZ;
+  const snowing = weatherName === 'snow' && wmix.snow > 0.8;
+  if (!snowing) santa.next = Math.max(santa.next, time + 3);          // the first one waits for the snow
+  if (!santa.on && snowing && time >= santa.next) {
+    santa.dir = -santa.dir;                                           // +1 flies left to right
+    const d = 200, az = 58 * Math.PI / 180, el = (15 + Math.random() * 3) * Math.PI / 180;
+    santa.x = camX + santa.dir * Math.tan(az) * d;                    // (the camera's right is world -x)
+    santa.y = camY + Math.tan(el) * d;
+    santa.z = camZ + d;
+    santa.vx = -santa.dir * (REDUCED ? 8 : 16);
+    santa.t = 0;
+    santa.life = 2 * Math.tan(az) * d / Math.abs(santa.vx);
+    santa.on = true;
+  }
+  const fl = Math.hypot(santa.vx, SPEED);
+  const fx = santa.vx / fl, fz = SPEED / fl;
+  if (santa.on) {
+    santa.t += dt;
+    santa.x += santa.vx * dt;
+    santa.z += SPEED * dt;                                            // keeps pace with the flight
+    santa.y += Math.sin(santa.t * 0.5) * 0.9 * dt;                    // a slow swell in its line
+    if (santa.t >= santa.life) { santa.on = false; santa.next = time + 40 + Math.random() * 30; }
+    // sparkles from the back of the runners, drifting down and behind
+    if (trail.length < TRAIL_MAX && Math.random() < dt * 34) {
+      const S = SANTA_SCALE;
+      trail.push([santa.x + fx * 0.1 * S, santa.y - 0.1 * S, santa.z + fz * 0.1 * S, 0, 1.6 + Math.random() * 0.8,
+                  -fx * 1.2 + (Math.random() - 0.5) * 1.6, -1.2 - Math.random() * 1.2, (Math.random() - 0.5) * 1.6,
+                  Math.random() * 6.2832]);
+    }
+  }
+  santa.env = santa.on ? Math.min(1, santa.t / 1.5, (santa.life - santa.t) / 1.5) * wx.snow : 0;
+  nTrail = 0;
+  for (let i = trail.length - 1; i >= 0; i--) {
+    const q = trail[i];
+    q[3] += dt;
+    if (q[3] >= q[4]) { trail.splice(i, 1); continue; }
+    q[0] += q[5] * dt; q[1] += q[6] * dt; q[2] += q[7] * dt;
+    const k = 1 - q[3] / q[4];
+    const o = nTrail++ * PT_F;
+    trailBuf[o] = q[0]; trailBuf[o + 1] = q[1]; trailBuf[o + 2] = q[2];
+    trailBuf[o + 3] = k * Math.sqrt(k) * (0.6 + 0.4 * Math.sin(time * 14 + q[8])) * wx.snow;
+    trailBuf[o + 4] = 3; trailBuf[o + 5] = 0;
+  }
+}
+
+// the deck's drift and the valley mist's, integrated so the wind can change speed
+let cloudT = T0, mistT = T0;
 
 if (!REDUCED) {
   addEventListener('pointermove', e => {
@@ -2372,6 +3079,12 @@ function frame(now) {
   const scy = vp[1] * sx + vp[5] * sy + vp[9]  * sz + vp[13];
   const scw = vp[3] * sx + vp[7] * sy + vp[11] * sz + vp[15];
 
+  // the weather's own clocks, and its lightning
+  cloudT += dt * wx.wind;
+  mistT  += dt * (0.5 + 0.5 * wx.wind);
+  updateLightning(camX, camY, camZ);
+  updateSanta(dt, camX, camY, camZ);
+
   // survey sweep: 320 -> -20 over 15s, then a long rest
   const cyc = time % 27;
   const pulse = cyc < 15 ? 320 - (cyc / 15) * 340 : 1e5;
@@ -2395,9 +3108,15 @@ function frame(now) {
   gl.uniform3fv(terP.u.uCam, EYE);
   gl.uniform3fv(terP.u.uLight, LIGHT);
   gl.uniform3fv(terP.u.uSunH, SUNH);
-  gl.uniform1f(terP.u.uTime, time);
   gl.uniform1f(terP.u.uPulse, pulse);
   gl.uniform1f(terP.u.uSunAmt, sunAmt);
+  gl.uniform1f(terP.u.uSunV, wx.sunV);
+  gl.uniform1f(terP.u.uMistT, mistT);
+  gl.uniform1f(terP.u.uOver, wx.over);
+  gl.uniform1f(terP.u.uDim, wx.dim);
+  gl.uniform1f(terP.u.uCover, wx.cover);
+  gl.uniform1f(terP.u.uFogK, wx.fogK);
+  gl.uniform1f(terP.u.uFlash, flash);
   gl.uniform1i(terP.u.uNoise, NOISE_UNIT);
   setPalette(terP, TER_PAL);
   // two copies of the tile, one ahead — the field is periodic, so the join is invisible
@@ -2417,6 +3136,7 @@ function frame(now) {
     gl.uniform3fv(birdP.u.uLight, LIGHT);
     gl.uniform3fv(birdP.u.uSunH, SUNH);
     gl.uniform1f(birdP.u.uSunAmt, sunAmt);
+    gl.uniform1f(birdP.u.uSunV, wx.sunV);
     setPalette(birdP, BIRD_PAL);
     gl.drawArraysInstanced(gl.TRIANGLES, 0, BIRD_VERTS, nBirds);
   }
@@ -2434,6 +3154,15 @@ function frame(now) {
   gl.uniform1f(skyP.u.uTime, time);
   gl.uniform1f(skyP.u.uTravel, time * SPEED);  // unwrapped, so the deck never jumps at the loop
   gl.uniform1f(skyP.u.uSunAmt, sunAmt);
+  gl.uniform1f(skyP.u.uSunV, wx.sunV);
+  gl.uniform1f(skyP.u.uCloudT, cloudT);
+  gl.uniform1f(skyP.u.uOver, wx.over);
+  gl.uniform1f(skyP.u.uClouds, wx.clouds);
+  gl.uniform1f(skyP.u.uCovShift, wx.cov);
+  gl.uniform1f(skyP.u.uMist, wx.mist);
+  gl.uniform1f(skyP.u.uStars, wx.stars);
+  gl.uniform1f(skyP.u.uFlash, flash);
+  gl.uniform3fv(skyP.u.uFlashDir, FLASH_DIR);
   gl.uniform1i(skyP.u.uNoise, NOISE_UNIT);
   setPalette(skyP, SKY_PAL);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -2452,9 +3181,89 @@ function frame(now) {
   gl.uniform3fv(dustP.u.uLight, LIGHT);
   gl.uniform1f(dustP.u.uTime, time);
   gl.uniform1f(dustP.u.uPx, pxK);
-  gl.uniform1f(dustP.u.uFwd, (1 - P.sub) * sunAmt);
+  gl.uniform1f(dustP.u.uFwd, (1 - P.sub) * sunAmt * wx.sunV);
+  gl.uniform1f(dustP.u.uDust, wx.dust);
   gl.uniform3fv(dustP.u.uTint, P.dust);
-  gl.drawArrays(gl.POINTS, 0, DUST_N);
+  if (wx.dust > 0.01) gl.drawArrays(gl.POINTS, 0, DUST_N);
+
+  // --- Santa, laid over the sky as a silhouette in any theme, and his trail
+  if (santa.env > 0.002) {
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(santaP.p);
+    gl.bindVertexArray(santaVao);
+    const fl = Math.hypot(santa.vx, SPEED);
+    gl.uniformMatrix4fv(santaP.u.uVP, false, vp);
+    gl.uniform3f(santaP.u.uPos, santa.x, santa.y, santa.z);
+    gl.uniform3f(santaP.u.uFwd, santa.vx / fl, 0, SPEED / fl);
+    gl.uniform1f(santaP.u.uScale, SANTA_SCALE);
+    gl.uniform3fv(santaP.u.uCam, EYE);
+    gl.uniform3fv(santaP.u.uLight, LIGHT);
+    gl.uniform3fv(santaP.u.uSunH, SUNH);
+    poseTeam(time);
+    gl.uniform4fv(santaP.u['uDeer[0]'], deerU);
+    gl.uniform4fv(santaP.u['uLegF[0]'], legF);
+    gl.uniform4fv(santaP.u['uLegH[0]'], legH);
+    gl.uniform1f(santaP.u.uSunAmt, sunAmt);
+    gl.uniform1f(santaP.u.uSunV, wx.sunV);
+    gl.uniform1f(santaP.u.uEnv, santa.env);
+    gl.uniform1f(santaP.u.uNoseG, P.noseG);
+    gl.uniform1f(santaP.u.uSub, P.sub);
+    setPalette(santaP, SANTA_PAL);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+  if (nTrail) {
+    gl.blendFunc(gl.ONE, over ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
+    gl.useProgram(ptP.p);
+    gl.bindVertexArray(trailVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, trailVbo);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, trailBuf, 0, nTrail * PT_F);
+    gl.uniformMatrix4fv(ptP.u.uVP, false, vp);
+    gl.uniform3fv(ptP.u.uCam, EYE);
+    gl.uniform1f(ptP.u.uPx, pxK);
+    gl.uniform1f(ptP.u.uMaxPt, PT_MAX);
+    gl.uniform1f(ptP.u.uHalo, 1.0);
+    gl.uniform1f(ptP.u.uFog, 1.0);
+    gl.uniform1f(ptP.u.uSub, P.sub);
+    gl.uniform3fv(ptP.u.uTint, P.trailC);
+    gl.uniform3fv(ptP.u.uHot, P.trailC);
+    gl.drawArrays(gl.POINTS, 0, nTrail);
+  }
+
+  // --- rain and snow, as far as the weather asks for them
+  gl.blendFunc(gl.ONE, over ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
+  const nRain = Math.round(RAIN_N * Math.min(1, wx.rain * 1.4));
+  if (nRain > 0) {
+    gl.useProgram(rainP.p);
+    gl.bindVertexArray(rainVao);
+    gl.uniformMatrix4fv(rainP.u.uVP, false, vp);
+    gl.uniform3fv(rainP.u.uCam, EYE);
+    gl.uniform2f(rainP.u.uRes, W, H);
+    gl.uniform1f(rainP.u.uTime, time);
+    gl.uniform1f(rainP.u.uPx, pxK);
+    gl.uniform1f(rainP.u.uWind, wx.wind * 3.0);
+    gl.uniform1f(rainP.u.uFall, REDUCED ? 30 : 70);
+    gl.uniform1f(rainP.u.uFog, wx.fogK);
+    gl.uniform1f(rainP.u.uAmt, wx.rain);
+    gl.uniform1f(rainP.u.uSub, P.sub);
+    gl.uniform3fv(rainP.u.uTint, P.rainC);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, nRain);
+  }
+  const nSnow = Math.round(SNOW_N * Math.min(1, wx.snow * 1.4));
+  if (nSnow > 0) {
+    gl.useProgram(snowP.p);
+    gl.bindVertexArray(snowVao);
+    gl.uniformMatrix4fv(snowP.u.uVP, false, vp);
+    gl.uniform3fv(snowP.u.uCam, EYE);
+    gl.uniform1f(snowP.u.uTime, time);
+    gl.uniform1f(snowP.u.uPx, pxK);
+    gl.uniform1f(snowP.u.uWind, wx.wind * (REDUCED ? 1.2 : 3.0));
+    gl.uniform1f(snowP.u.uFall, REDUCED ? 4 : 9);
+    gl.uniform1f(snowP.u.uFog, wx.fogK);
+    gl.uniform1f(snowP.u.uAmt, wx.snow);
+    gl.uniform1f(snowP.u.uSub, P.sub);
+    gl.uniform3fv(snowP.u.uTint, P.flakeC);
+    gl.drawArrays(gl.POINTS, 0, nSnow);
+  }
 
   // --- node graph: edges as glowing quads, then nodes, sparks and ripples
   if (ANCH_N) {
@@ -2472,6 +3281,7 @@ function frame(now) {
       gl.uniform2f(edgeP.u.uRes, W, H);
       gl.uniform1f(edgeP.u.uPx, pxK);
       gl.uniform1f(edgeP.u.uHalo, P.halo);
+      gl.uniform1f(edgeP.u.uFog, wx.fogK);
       gl.uniform1f(edgeP.u.uSub, P.sub);
       gl.uniform3fv(edgeP.u.uTint, P.edge);
       gl.uniform3fv(edgeP.u.uHot, P.pulse);
@@ -2486,11 +3296,33 @@ function frame(now) {
       gl.uniform1f(ptP.u.uPx, pxK);
       gl.uniform1f(ptP.u.uMaxPt, PT_MAX);
       gl.uniform1f(ptP.u.uHalo, P.halo);
+      gl.uniform1f(ptP.u.uFog, wx.fogK);
       gl.uniform1f(ptP.u.uSub, P.sub);
       gl.uniform3fv(ptP.u.uTint, P.node);
       gl.uniform3fv(ptP.u.uHot, P.pulse);
       gl.drawArrays(gl.POINTS, 0, nPts);
     }
+  }
+
+  // --- the bolt, while it lasts: the graph's line, white-hot and wide
+  if (boltA > 0.01 && nBolt) {
+    for (let i = 0; i < nBolt; i++) boltBuf[i * EDGE_F + 3] = boltBuf[i * EDGE_F + 7] = boltW[i] * boltA;
+    gl.blendFunc(gl.ONE, over ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
+    gl.useProgram(edgeP.p);
+    gl.bindVertexArray(edgeVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, edgeVbo);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, boltBuf, 0, nBolt * EDGE_F);
+    gl.uniformMatrix4fv(edgeP.u.uVP, false, vp);
+    gl.uniform3fv(edgeP.u.uCam, EYE);
+    gl.uniform2f(edgeP.u.uRes, W, H);
+    gl.uniform1f(edgeP.u.uPx, pxK);
+    gl.uniform1f(edgeP.u.uHalo, 1.6);
+    gl.uniform1f(edgeP.u.uFog, 1.0);
+    gl.uniform1f(edgeP.u.uSub, P.sub);
+    const hot = over ? 1 : 2.5;
+    gl.uniform3f(edgeP.u.uTint, P.flashC[0] * hot, P.flashC[1] * hot, P.flashC[2] * hot);
+    gl.uniform3fv(edgeP.u.uHot, P.flashC);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, nBolt);
   }
   gl.disable(gl.BLEND);
   gl.colorMask(true, true, true, true);
@@ -2509,7 +3341,7 @@ function frame(now) {
   gl.bindVertexArray(fsVao);
 
   // light shafts
-  const raysI = scw > 0 ? P.rays * sunAmt : 0;
+  const raysI = scw > 0 ? P.rays * sunAmt * wx.rays : 0;
   if (raysI > 0.001) {
     bindTarget(raysT[0]);
     gl.useProgram(rsrcP.p);
