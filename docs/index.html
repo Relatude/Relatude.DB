@@ -1019,17 +1019,17 @@ const THEMES = {
   dark: {
     deep :[0.030,0.030,0.030], mid :[0.150,0.150,0.150], lit :[0.600,0.600,0.600],
     hot  :[0.940,0.940,0.940], fog :[0.067,0.067,0.067], top :[0.016,0.016,0.016],
-    sun  :[0.200,0.200,0.200], sunC:[1.000,1.000,1.000],
-    cloLo:[0.022,0.022,0.022], cloHi:[0.110,0.110,0.110],
+    sun  :[0.140,0.140,0.140], sunC:[1.000,1.000,1.000],
+    cloLo:[0.022,0.022,0.022], cloHi:[0.080,0.080,0.080],
     dust :[0.850,0.850,0.850], edge:[0.500,0.500,0.500], node:[0.960,0.960,0.960],
     pulse:[1.000,1.000,1.000], starC:[0.940,0.940,0.940], grid:[0.940,0.940,0.940],
     bird :[0.012,0.012,0.012], snowC:[0.720,0.720,0.720], rainC:[0.600,0.600,0.600],
     flakeC:[0.920,0.920,0.920], flashC:[1.000,1.000,1.000],
     noseC:[1.000,1.000,1.000], trailC:[0.950,0.950,0.950],
-    // the sky kept quiet next to the colour pair: a dimmer sun and halo,
-    // thinner cloud with less of a lit edge, weaker shafts
-    star:1, sub:0, sunI:0.62, shine:1.00, cloud:0.45, cov:0.52, mist:1.0,
-    bloom:0.30, thresh:1.00, rays:0.22, rthr:0.50, knee:0.70, halo:1.00, noseG:1.0
+    // the sky kept well back, behind the page: a dim sun and halo, faint
+    // cloud with little lit edge, weak shafts
+    star:1, sub:0, sunI:0.45, shine:1.00, cloud:0.25, cov:0.52, mist:1.0,
+    bloom:0.30, thresh:1.00, rays:0.14, rthr:0.50, knee:0.70, halo:1.00, noseG:1.0
   },
   light: {
     // terrain sits darker than the sky so the ridges read as silhouettes,
@@ -1044,8 +1044,8 @@ const THEMES = {
     bird :[0.130,0.136,0.146], snowC:[0.970,0.972,0.975], rainC:[0.380,0.390,0.405],
     flakeC:[0.990,0.990,0.992], flashC:[1.000,1.000,1.000],
     noseC:[0.200,0.200,0.200], trailC:[0.540,0.548,0.560],
-    star:0, sub:1, sunI:0.40, shine:0.20, cloud:0.45, cov:0.55, mist:0.8,   // a quiet sky, as the dark
-    bloom:0.08, thresh:1.30, rays:0.10, rthr:1.00, knee:0.96, halo:0.35, noseG:0.0
+    star:0, sub:1, sunI:0.30, shine:0.20, cloud:0.25, cov:0.55, mist:0.8,   // a quiet sky, as the dark
+    bloom:0.08, thresh:1.30, rays:0.06, rthr:1.00, knee:0.96, halo:0.35, noseG:0.0
   },
   darkColour: {
     deep :[0.022,0.026,0.062], mid :[0.105,0.100,0.205], lit :[0.760,0.520,0.360],
@@ -1762,13 +1762,13 @@ void main(){
     float ds = (vS - vP.x) * vP.z * vP.y;
     p = (exp(-ds * ds * 0.35) + (ds < 0.0 ? exp(ds / 12.0) * 0.45 : 0.0)) * vP.w;
   }
-  float a = (core * 0.80 + glow) * (1.0 + p * 2.5) * vA;
+  float a = (core * 0.80 + glow) * (1.0 + p * 1.6) * vA;
   // Added light on a dark ground, ink laid over a light one, and on the way
   // from one theme to the other a blend of the two, as far as uSub has come,
   // so a slow change of theme never flips the overlays on a single frame.
   // Drawn with ONE, ONE_MINUS_SRC_ALPHA: an alpha of 0 adds, a lays over.
   float ao = min(a, 1.0);
-  frag = mix(vec4((uTint + uHot * (p * 1.5)) * a, 0.0), vec4(uTint * ao, ao), uSub);
+  frag = mix(vec4((uTint + uHot * (p * 1.1)) * a, 0.0), vec4(uTint * ao, ao), uSub);
 }`;
 
 /* Nodes, sparks and ripples share one point pass. A node is the hollow
@@ -1793,7 +1793,7 @@ void main(){
   float ring = mix(10.0, 6.0, smoothstep(60.0, 400.0, d)) * uPx;
   float s, r = ring;
   if (aK.x < 0.5)      s = ring * (1.0 + 1.6 * uHalo);
-  else if (aK.x < 1.5) s = ring * 2.4;
+  else if (aK.x < 1.5) s = ring * 2.0;
   else if (aK.x < 2.5) { r = ring * (0.6 + 2.8 * aK.y); s = 2.0 * r + 4.0 * uPx; }
   else s = ring * 1.2;
   vSize = min(s, uMaxPt);
@@ -1819,20 +1819,20 @@ void main(){
     // feather once the sprite is small, which turns distant rings to blobs.
     float D  = max(vRing, 2.0);
     float R  = 0.33 * D;
-    float hw = max(0.55, 0.095 * D);                    // a fine ring, as in the glyph
+    float hw = max(0.45, 0.07 * D);                     // a fine ring, as in the glyph
     float ring = smoothstep(hw + 0.55, hw - 0.55, abs(pr - R));
     float disc = smoothstep(D * 0.50, D * 0.16, pr);
     a  = mix(ring, disc, smoothstep(4.8, 3.0, D));      // too small to hole -> dot
-    a += exp(-pr * pr / (D * D * 0.30)) * 0.22 * uHalo;
-    a *= 1.0 + vPar * 1.6;
+    a += exp(-pr * pr / (D * D * 0.30)) * 0.14 * uHalo;
+    a *= 1.0 + vPar * 1.0;                              // a gentle flare when a pulse arrives
     hot = vPar;
   } else if (vKind < 1.5) {
     float D = max(vRing, 2.0);
-    a   = exp(-pr * pr / (D * D * 0.045)) + exp(-pr * pr / (D * D * 0.30)) * 0.35 * uHalo;
+    a   = exp(-pr * pr / (D * D * 0.035)) + exp(-pr * pr / (D * D * 0.30)) * 0.25 * uHalo;
     hot = 1.0;
   } else if (vKind < 2.5) {
     float f = 1.0 - vPar;
-    a = smoothstep(1.4, 0.2, abs(pr - vRing)) * f * f * 0.85;
+    a = smoothstep(1.1, 0.2, abs(pr - vRing)) * f * f * 0.55;
   } else {
     float D = max(vRing, 2.0);
     a   = exp(-pr * pr / (D * D * 0.012)) + exp(-pr * pr / (D * D * 0.08)) * 0.25;
@@ -2472,7 +2472,7 @@ gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
 gl.bufferData(gl.ARRAY_BUFFER, slabSeeds(SNOW_N, SNOW_SPAN, 110), gl.STATIC_DRAW);
 attrib(snowP, 'aSeed', 4, 0, 0);
 
-const LINK_MAX = 64;
+const LINK_MAX = 52;
 const EDGE_F = 16, PT_F = 8;                   // floats per edge instance / per point
 const edgeBuf = new Float32Array(LINK_MAX * EDGE_F);
 const ptBuf   = new Float32Array(LINK_MAX * 6 * PT_F);
@@ -2780,7 +2780,7 @@ const AHEAD   = 72;                 // how far down the track the camera looks
    edge has landed, pulses run along it — a query traversing a relation —
    and each one lights the node it reaches. */
 const links = [];
-const PULSE_V = 44;                 // world units / second
+const PULSE_V = 22;                 // world units / second: an unhurried traversal
 const FADE    = 0.24;               // share of each life spent fading in / out
 let lastCamZ = 0, graphReady = false, nEdges = 0, nPts = 0;
 
@@ -2860,13 +2860,13 @@ function newLink(camX, camZ) {
   }
   // Lifetimes are long enough that a slow beam still leaves the edge
   // standing at full length for a while before the fade-out starts.
-  const dur = 7.0 + Math.random() * 6.0;
+  const dur = 11.0 + Math.random() * 8.0;          // long lives: a graph that changes slowly
   // stagger the first batch so they don't all bloom together on load (the
   // opening grows the graph gradually instead, so it never needs this)
   const t = graphReady ? 0 : Math.random() * dur;
   // seconds to reach full length, capped so it always finishes well before
   // this edge begins to fade out
-  const beam = Math.min(1.9 + Math.random() * 1.3, dur * 0.35);
+  const beam = Math.min(3.2 + Math.random() * 2.0, dur * 0.35);
   return { ax: a[0], ay: a[1], az: a[2], bx: b[0], by: b[1], bz: b[2],
            len: Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]),
            t, dur, beam, landed: t >= beam,
@@ -2891,7 +2891,7 @@ function updateGraph(dt, camX, camZ, cap) {
     const l = links[i];
     l.t += dt;
     if (l.t >= l.dur) { links.splice(i, 1); continue; }
-    if (!l.landed && l.t >= l.beam) { l.landed = true; l.fb = 1; l.rb = 0; l.next = l.t + 0.4 + Math.random() * 2.6; }
+    if (!l.landed && l.t >= l.beam) { l.landed = true; l.fb = 1; l.rb = 0; l.next = l.t + 1.2 + Math.random() * 4.0; }
     if (l.landed && l.p < -1 && l.t >= l.next && l.t < l.dur * (1 - FADE)) {
       l.pd = Math.random() < 0.5 ? 1 : -1;
       l.p = l.pd > 0 ? 0 : 1;
@@ -2902,13 +2902,14 @@ function updateGraph(dt, camX, camZ, cap) {
       if (l.p >= 1 || l.p <= 0) {
         if (l.pd > 0) { l.fb = 1; l.rb = 0; } else { l.fa = 1; l.ra = 0; }
         l.p = -9;
-        l.next = l.t + (REDUCED ? 4 : 1.6) + Math.random() * (REDUCED ? 8 : 4.2);
+        l.next = l.t + (REDUCED ? 6 : 4.0) + Math.random() * (REDUCED ? 10 : 7.0);
       }
     }
-    l.fa = Math.max(0, l.fa - dt * 2.4);
-    l.fb = Math.max(0, l.fb - dt * 2.4);
-    if (l.ra >= 0 && (l.ra += dt / 1.3) >= 1) l.ra = -1;
-    if (l.rb >= 0 && (l.rb += dt / 1.3) >= 1) l.rb = -1;
+    // flares and ripples ease away slowly rather than blinking
+    l.fa = Math.max(0, l.fa - dt * 1.2);
+    l.fb = Math.max(0, l.fb - dt * 1.2);
+    if (l.ra >= 0 && (l.ra += dt / 2.2) >= 1) l.ra = -1;
+    if (l.rb >= 0 && (l.rb += dt / 2.2) >= 1) l.rb = -1;
   }
   for (let guard = 0; links.length < cap && guard < 8; guard++) {
     const l = newLink(camX, camZ);
@@ -3598,7 +3599,7 @@ function frame(now) {
       gl.uniform2f(edgeP.u.uRes, W, H);
       gl.uniform1f(edgeP.u.uPx, pxK);
       gl.uniform1f(edgeP.u.uHalo, P.halo);
-      gl.uniform1f(edgeP.u.uCore, 0.68);
+      gl.uniform1f(edgeP.u.uCore, 0.5);
       gl.uniform1f(edgeP.u.uFog, wx.fogK);
       gl.uniform1f(edgeP.u.uSub, P.sub);
       gl.uniform3fv(edgeP.u.uTint, P.edge);
