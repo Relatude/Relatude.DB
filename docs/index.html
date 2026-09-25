@@ -1019,24 +1019,25 @@ const THEMES = {
   dark: {
     deep :[0.030,0.030,0.030], mid :[0.150,0.150,0.150], lit :[0.600,0.600,0.600],
     hot  :[0.940,0.940,0.940], fog :[0.067,0.067,0.067], top :[0.016,0.016,0.016],
-    sun  :[0.140,0.140,0.140], sunC:[1.000,1.000,1.000],
+    sun  :[0.070,0.070,0.070], sunC:[1.000,1.000,1.000],
     cloLo:[0.022,0.022,0.022], cloHi:[0.080,0.080,0.080],
     dust :[0.850,0.850,0.850], edge:[0.500,0.500,0.500], node:[0.960,0.960,0.960],
     pulse:[1.000,1.000,1.000], starC:[0.940,0.940,0.940], grid:[0.940,0.940,0.940],
     bird :[0.012,0.012,0.012], snowC:[0.720,0.720,0.720], rainC:[0.600,0.600,0.600],
     flakeC:[0.920,0.920,0.920], flashC:[1.000,1.000,1.000],
     noseC:[1.000,1.000,1.000], trailC:[0.950,0.950,0.950],
-    // the sky kept well back, behind the page: a dim sun and halo, faint
-    // cloud with little lit edge, weak shafts
-    star:1, sub:0, sunI:0.45, shine:1.00, cloud:0.25, cov:0.52, mist:1.0,
-    bloom:0.30, thresh:1.00, rays:0.14, rthr:0.50, knee:0.70, halo:1.00, noseG:1.0
+    // the sky kept well back, behind the page: the sun (or the moon it
+    // reads as) only a faint trace, faint cloud with little lit edge, and
+    // hardly any shafts
+    star:1, sub:0, sunI:0.06, shine:1.00, cloud:0.25, cov:0.52, mist:1.0,
+    bloom:0.30, thresh:1.00, rays:0.06, rthr:0.50, knee:0.70, halo:1.00, noseG:1.0
   },
   light: {
     // terrain sits darker than the sky so the ridges read as silhouettes,
     // and the overlay tints go dark since they composite over white
     deep :[0.255,0.265,0.278], mid :[0.480,0.492,0.508], lit :[0.760,0.770,0.782],
     hot  :[0.900,0.906,0.912], fog :[0.955,0.960,0.968], top :[0.720,0.730,0.745],
-    sun  :[0.130,0.132,0.136], sunC:[1.000,1.000,1.000],
+    sun  :[0.060,0.061,0.063], sunC:[1.000,1.000,1.000],
     cloLo:[0.700,0.708,0.722], cloHi:[0.990,0.992,0.995],
     // mid-grey, not near-black: dark specks on white read as sensor dirt
     dust :[0.560,0.570,0.585], edge:[0.300,0.315,0.330], node:[0.120,0.128,0.136],
@@ -1044,8 +1045,8 @@ const THEMES = {
     bird :[0.130,0.136,0.146], snowC:[0.970,0.972,0.975], rainC:[0.380,0.390,0.405],
     flakeC:[0.990,0.990,0.992], flashC:[1.000,1.000,1.000],
     noseC:[0.200,0.200,0.200], trailC:[0.540,0.548,0.560],
-    star:0, sub:1, sunI:0.30, shine:0.20, cloud:0.25, cov:0.55, mist:0.8,   // a quiet sky, as the dark
-    bloom:0.08, thresh:1.30, rays:0.06, rthr:1.00, knee:0.96, halo:0.35, noseG:0.0
+    star:0, sub:1, sunI:0.07, shine:0.20, cloud:0.25, cov:0.55, mist:0.8,   // a quiet sky, as the dark
+    bloom:0.08, thresh:1.30, rays:0.03, rthr:1.00, knee:0.96, halo:0.35, noseG:0.0
   },
   darkColour: {
     deep :[0.022,0.026,0.062], mid :[0.105,0.100,0.205], lit :[0.760,0.520,0.360],
@@ -1938,7 +1939,7 @@ void main(){
   p.y = mod(iSeed.y - uTime * fall, HGT) - HGT * 0.5 + uCam.y;
   p.x = mod(iSeed.x + uTime * uWind - uCam.x + SPAN * 0.5, SPAN) - SPAN * 0.5 + uCam.x;
   p.z = mod(iSeed.z - uCam.z + SPAN * 0.5, SPAN) - SPAN * 0.5 + uCam.z;
-  vec3  tail = p - v * 0.034;                        // the streak one glance draws
+  vec3  tail = p - v * 0.028;                        // the streak one glance draws
   vec4  ch = uVP * vec4(p, 1.0), ct = uVP * vec4(tail, 1.0);
   if (ch.w < 0.6 || ct.w < 0.6) {                    // at or behind the eye: nothing to draw
     gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
@@ -1961,7 +1962,7 @@ void main(){
   vHw = core;
   vT  = aCorner.x;
   vA  = smoothstep(3.0, 9.0, d) * (1.0 - smoothstep(SPAN * 0.30, SPAN * 0.48, d))
-      * exp(-pow(d * 0.009 * uFog, 2.0)) * (0.55 + 0.60 * r);
+      * exp(-pow(d * 0.009 * uFog, 2.0)) * (0.40 + 0.45 * r);
 }`;
 
 const RAIN_FS = `#version 300 es
@@ -1997,9 +1998,9 @@ void main(){
   p.z = mod(aSeed.z + cos(uTime * 0.6 + aSeed.x * 0.17) * 2.4 - uCam.z + SPAN * 0.5, SPAN) - SPAN * 0.5 + uCam.z;
   gl_Position  = uVP * vec4(p, 1.0);
   float d      = distance(p, uCam);
-  gl_PointSize = clamp(300.0 / d, 1.4, 10.0) * uPx * (0.6 + 0.6 * r);
+  gl_PointSize = clamp(240.0 / d, 1.2, 7.5) * uPx * (0.6 + 0.6 * r);
   vA = smoothstep(1.5, 6.0, d) * (1.0 - smoothstep(SPAN * 0.30, SPAN * 0.47, d))
-     * exp(-pow(d * 0.008 * uFog, 2.0)) * (0.45 + 0.55 * r);
+     * exp(-pow(d * 0.008 * uFog, 2.0)) * (0.32 + 0.40 * r);
 }`;
 
 const SNOW_FS = `#version 300 es
@@ -2447,7 +2448,7 @@ gl.bufferData(gl.ARRAY_BUFFER, seeds, gl.STATIC_DRAW);
 attrib(dustP, 'aSeed', 4, 0, 0);
 
 // rain and snow: seeds in their slabs, drawn only as far as the weather asks
-const RAIN_N = COARSE ? 11000 : 22000, SNOW_N = COARSE ? 8000 : 16000;
+const RAIN_N = COARSE ? 6000 : 12000, SNOW_N = COARSE ? 4500 : 9000;
 function slabSeeds(n, span, hgt) {
   const a = new Float32Array(n * 4);
   for (let i = 0; i < n; i++) {
@@ -3559,7 +3560,7 @@ function frame(now) {
     gl.uniform1f(rainP.u.uTime, time);
     gl.uniform1f(rainP.u.uPx, pxK);
     gl.uniform1f(rainP.u.uWind, wx.wind * 3.0);
-    gl.uniform1f(rainP.u.uFall, REDUCED ? 30 : 70);
+    gl.uniform1f(rainP.u.uFall, REDUCED ? 30 : 60);
     gl.uniform1f(rainP.u.uFog, wx.fogK);
     gl.uniform1f(rainP.u.uAmt, wx.rain);
     gl.uniform1f(rainP.u.uSub, P.sub);
@@ -3574,8 +3575,8 @@ function frame(now) {
     gl.uniform3fv(snowP.u.uCam, EYE);
     gl.uniform1f(snowP.u.uTime, time);
     gl.uniform1f(snowP.u.uPx, pxK);
-    gl.uniform1f(snowP.u.uWind, wx.wind * (REDUCED ? 1.2 : 3.0));
-    gl.uniform1f(snowP.u.uFall, REDUCED ? 4 : 9);
+    gl.uniform1f(snowP.u.uWind, wx.wind * (REDUCED ? 0.8 : 1.6));   // a drift at an angle, not a blizzard
+    gl.uniform1f(snowP.u.uFall, REDUCED ? 4 : 8);
     gl.uniform1f(snowP.u.uFog, wx.fogK);
     gl.uniform1f(snowP.u.uAmt, wx.snow);
     gl.uniform1f(snowP.u.uSub, P.sub);
