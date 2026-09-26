@@ -1008,6 +1008,8 @@ footer a:hover { color: var(--fg); }
      knee   where highlights start to ease into white
      halo   the soft glow round graph lines and nodes
      noseG  how much Rudolph's nose glows (not at all on white)
+     flashI how strong the lightning is: its flash across sky and land,
+            and how solid the bolt (kept soft in black and white)
 
    and among the colours, `starC`, `grid` and `bird` are the stars,
    the survey lines and the flock; `snowC`, `rainC`, `flakeC` and
@@ -1030,7 +1032,7 @@ const THEMES = {
     // reads as) only a faint trace, faint cloud with little lit edge, and
     // hardly any shafts
     star:1, sub:0, sunI:0.06, shine:1.00, cloud:0.25, cov:0.52, mist:1.0,
-    bloom:0.30, thresh:1.00, rays:0.06, rthr:0.50, knee:0.70, halo:1.00, noseG:1.0
+    bloom:0.30, thresh:1.00, rays:0.06, rthr:0.50, knee:0.70, halo:1.00, noseG:1.0, flashI:0.45
   },
   light: {
     // terrain sits darker than the sky so the ridges read as silhouettes,
@@ -1046,7 +1048,7 @@ const THEMES = {
     flakeC:[0.990,0.990,0.992], flashC:[1.000,1.000,1.000],
     noseC:[0.200,0.200,0.200], trailC:[0.540,0.548,0.560],
     star:0, sub:1, sunI:0.07, shine:0.20, cloud:0.25, cov:0.55, mist:0.8,   // a quiet sky, as the dark
-    bloom:0.08, thresh:1.30, rays:0.03, rthr:1.00, knee:0.96, halo:0.35, noseG:0.0
+    bloom:0.08, thresh:1.30, rays:0.03, rthr:1.00, knee:0.96, halo:0.35, noseG:0.0, flashI:0.5
   },
   darkColour: {
     deep :[0.022,0.026,0.062], mid :[0.105,0.100,0.205], lit :[0.760,0.520,0.360],
@@ -1059,7 +1061,7 @@ const THEMES = {
     flakeC:[0.880,0.920,1.000], flashC:[0.860,0.890,1.000],
     noseC:[1.000,0.200,0.110], trailC:[1.000,0.860,0.580],
     star:1, sub:0, sunI:1.00, shine:1.00, cloud:1.00, cov:0.52, mist:1.0,
-    bloom:0.32, thresh:1.00, rays:0.38, rthr:0.50, knee:0.72, halo:1.00, noseG:1.0
+    bloom:0.32, thresh:1.00, rays:0.38, rthr:0.50, knee:0.72, halo:1.00, noseG:1.0, flashI:1.0
   },
   lightColour: {
     deep :[0.190,0.230,0.330], mid :[0.410,0.460,0.560], lit :[0.820,0.770,0.700],
@@ -1072,7 +1074,7 @@ const THEMES = {
     flakeC:[0.985,0.990,1.000], flashC:[0.920,0.940,1.000],
     noseC:[0.900,0.140,0.100], trailC:[0.940,0.700,0.320],
     star:0, sub:1, sunI:0.60, shine:0.25, cloud:0.85, cov:0.55, mist:0.8,
-    bloom:0.08, thresh:1.30, rays:0.16, rthr:1.00, knee:0.96, halo:0.35, noseG:0.6
+    bloom:0.08, thresh:1.30, rays:0.16, rthr:1.00, knee:0.96, halo:0.35, noseG:0.6, flashI:1.0
   }
 };
 const K3 = Object.keys(THEMES.dark).filter(k => Array.isArray(THEMES.dark[k]));
@@ -3435,7 +3437,7 @@ function frame(now) {
   gl.uniform1f(terP.u.uDim, wx.dim);
   gl.uniform1f(terP.u.uCover, wx.cover);
   gl.uniform1f(terP.u.uFogK, wx.fogK);
-  gl.uniform1f(terP.u.uFlash, flash);
+  gl.uniform1f(terP.u.uFlash, flash * P.flashI);
   gl.uniform1i(terP.u.uNoise, NOISE_UNIT);
   setPalette(terP, TER_PAL);
   // two copies of the tile, one ahead — the field is periodic, so the join is invisible
@@ -3480,7 +3482,7 @@ function frame(now) {
   gl.uniform1f(skyP.u.uCovShift, wx.cov);
   gl.uniform1f(skyP.u.uMist, wx.mist);
   gl.uniform1f(skyP.u.uStars, wx.stars);
-  gl.uniform1f(skyP.u.uFlash, flash);
+  gl.uniform1f(skyP.u.uFlash, flash * P.flashI);
   gl.uniform3fv(skyP.u.uFlashDir, FLASH_DIR);
   gl.uniform1i(skyP.u.uNoise, NOISE_UNIT);
   setPalette(skyP, SKY_PAL);
@@ -3626,7 +3628,7 @@ function frame(now) {
 
   // --- the bolt, while it lasts: the graph's line, white-hot and wide
   if (boltA > 0.01 && nBolt) {
-    for (let i = 0; i < nBolt; i++) boltBuf[i * EDGE_F + 3] = boltBuf[i * EDGE_F + 7] = boltW[i] * boltA;
+    for (let i = 0; i < nBolt; i++) boltBuf[i * EDGE_F + 3] = boltBuf[i * EDGE_F + 7] = boltW[i] * boltA * P.flashI;
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.useProgram(edgeP.p);
     gl.bindVertexArray(edgeVao);
