@@ -153,25 +153,24 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue, I
             return [];
         }
 
-        IEnumerable<RawSearchHit> wordHits;
-        IEnumerable<RawSearchHit> semanticHits;
+        List<RawSearchHit> wordHits;
+        List<RawSearchHit> semanticHits;
         var sw = Stopwatch.StartNew();
-        int top;
-        if (useSemantic && useWords) top = maxHitsEvaluated;
-        else top = (pageIndex + 1) * pageSize;
-
-        var totalHitsWords = 0;
-        var totalHitsSemantic = 0;
-
+        // The word and vector indexes are shared by every node type in the store, and hold nodes the
+        // query's own filters exclude, so the top hits of an index are not the top hits of the query.
+        // Each index is asked for the whole evaluated window, and the hits outside the base set are
+        // removed before anything is paged or counted. Asking an index for one page and filtering it
+        // afterwards returns short or empty pages, and a total counted over nodes the query can never
+        // return, whenever such nodes rank higher.
         if (useWords) {
-            wordHits = wordIndex!.SearchForRankedHitData(textSearches, 0, top, maxHitsEvaluated, maxWordsEvaluated, orSearch, out totalHitsWords)
-                .Where(h => baseSet.Has(h.NodeId));
+            wordHits = [.. wordIndex!.SearchForRankedHitData(textSearches, 0, maxHitsEvaluated, maxHitsEvaluated, maxWordsEvaluated, orSearch, out _)
+                .Where(h => baseSet.Has(h.NodeId))];
         } else {
             wordHits = [];
         }
         if (useSemantic) {
-            semanticHits = semanticIndex!.SearchForHitData(semanticText, top, maxHitsEvaluated, minimumVectorSimilarity, out totalHitsSemantic)
-                .Where(h => baseSet.Has(h.NodeId));
+            semanticHits = [.. semanticIndex!.SearchForHitData(semanticText, maxHitsEvaluated, maxHitsEvaluated, minimumVectorSimilarity, out _)
+                .Where(h => baseSet.Has(h.NodeId))];
         } else {
             semanticHits = [];
         }
@@ -181,11 +180,11 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue, I
             return [];
         }
         if (useWords && !useSemantic) { // only words
-            totalHits = totalHitsWords;
+            totalHits = wordHits.Count;
             return wordHits.Skip(pageIndex * pageSize).Take(pageSize);
         }
         if (!useWords && useSemantic) { // only semantic
-            totalHits = totalHitsSemantic;
+            totalHits = semanticHits.Count;
             return semanticHits.Skip(pageIndex * pageSize).Take(pageSize);
         }
 
