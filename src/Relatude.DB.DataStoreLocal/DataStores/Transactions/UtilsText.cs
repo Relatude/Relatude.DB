@@ -61,7 +61,8 @@ public static class UtilsText {
                 if (node.TryGetValue(prop.Id, out var value)) {
                     var str = prop.GetSemanticIndex(value);
                     if (string.IsNullOrEmpty(str)) continue;
-                    sb.Append(prop.DisplayName + ": ");
+                    // labelled by name: DisplayName is the flag marking the display name property
+                    sb.Append(prop.CodeName + ": ");
                     sb.AppendLine(str);
                     sb.AppendLine();
                 }
@@ -73,7 +74,7 @@ public static class UtilsText {
                     var relatedIds = db._definition.Relations[rm.RelationId].GetRelated(node.__Id, rm.FromTargetToSource).ToArray();
                     var relatedNodes = db._nodes.Get(relatedIds);
                     if (relatedNodes.Length == 0) continue;
-                    sb.AppendLine(rm.DisplayName + ":");
+                    sb.AppendLine(rm.CodeName + ":");
                     foreach (var relatedNode in relatedNodes) {
                         var relatedNodeType = dm.NodeTypes[relatedNode.NodeType]; // use the related node's own type, not the parent's
                         sb.AppendLine(getSemanticExtract(db, relatedNodeType, relatedNode, dm, recursiveLevelLimit - 1, --callCountLimit));
@@ -88,7 +89,7 @@ public static class UtilsText {
                     var relatedIds = db._definition.Relations[rm.RelationId].GetRelated(node.__Id, rm.FromTargetToSource).ToArray();
                     var relatedNodes = db._nodes.Get(relatedIds);
                     if (relatedNodes.Length == 0) continue;
-                    sb.AppendLine(rm.DisplayName + ":");
+                    sb.AppendLine(rm.CodeName + ":");
                     foreach (var relatedNode in relatedNodes) {
                         dm.NodeTypes[relatedNode.NodeType].BuildDisplayName(relatedNode, sb); // use the related node's own type, not the parent's
                         sb.AppendLine();
