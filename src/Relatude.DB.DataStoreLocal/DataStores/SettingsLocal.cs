@@ -19,7 +19,7 @@ public class SettingsLocal {
     /// <summary>
     /// Which activity logs record, and which of them aggregate statistics. The logger starts with
     /// every log off, so this is what carries a log turned on in the admin UI across a restart.
-    /// Written by the Logs section ("Save and remember changes"); a log not listed stays off.
+    /// Written by the admin UI's Activity page ("Save and remember changes"); a log not listed stays off.
     /// </summary>
     public LogRecordingSettings[]? LogRecording { get; set; }
     /// <summary>Queries faster than this are left out of the query log. 0 records every query.</summary>

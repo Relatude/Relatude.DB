@@ -155,7 +155,7 @@ public enum StatisticsType {
     CountSumAvgMinMax = 3,
     UniqueCountWithValues = 4, // Exact but only small data sets, recommended <100
     UniqueCountHashedValues = 5, // Accurate, but medium size data set, recommended <10000
-    UniqueCountEstimate = 6, // 99% accurate but infinite data set size
+    UniqueCountEstimate = 6, // HyperLogLog: about 99% accurate, in fixed memory however many values there are
 }
 public class StatisticsInfo {
     [JsonConstructor] // a resolution left out of the json gets the default below

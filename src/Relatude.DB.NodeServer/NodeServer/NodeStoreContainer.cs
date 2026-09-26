@@ -287,8 +287,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             // Nothing in the database sends a message, so this is built for application code alone
             // (NodeStore.SMS) and has no folder, cache or engine around it. It is resolved here all
             // the same, so a provider that cannot be built says so when the database opens rather
-            // than the first time someone tries to send something.
-            if (settings.SMSSettings != null) sms = LateBindings.CreateSmsProvider(settings.SMSSettings);
+            // than the first time someone tries to send something. The Relatude service charges this
+            // installation's license, read at every send so a new license key applies at once.
+            if (settings.SMSSettings != null) sms = LateBindings.CreateSmsProvider(settings.SMSSettings, () => server.Settings.ApiKey);
 
             List<string> toLog = new();
             var indexFolderPath = resolveIndexFolderPath(local, localDiskFolder);

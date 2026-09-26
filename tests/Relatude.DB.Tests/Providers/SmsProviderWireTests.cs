@@ -83,10 +83,42 @@ public class SmsProviderWireTests {
         Assert.AreEqual(1, stub.Requests.Count, "a licensing refusal must not be retried");
     }
 
+    /// <summary>
+    /// The settings need no key: on a server the provider sends with the installation's license. A
+    /// provider with no key anywhere is still built - the database opens - and the first send says
+    /// what is missing, before anything goes on the wire.
+    /// </summary>
     [TestMethod]
-    public void TheLicenseApiKeyIsRequired() {
-        var error = Assert.ThrowsExactly<ArgumentException>(() => new RelatudeServicesSMSProvider(new SMSProviderSettings()));
-        StringAssert.Contains(error.Message, "ApiKey");
+    public async Task WithoutAnyKeyTheProviderIsBuiltAndASendSaysWhatIsMissing() {
+        await using var stub = await AiServiceStub.StartAsync();
+        using var provider = new RelatudeServicesSMSProvider(new SMSProviderSettings { ServiceUrl = stub.BaseUrl }, () => null);
+
+        var send = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.SendAsync("+4791234567", "hi"));
+        StringAssert.Contains(send.Message, "API key");
+        StringAssert.Contains(send.Message, "License");
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.QuoteAsync("+4791234567", "hi"));
+        Assert.AreEqual(0, stub.Requests.Count, "nothing is sent without a key");
+    }
+
+    /// <summary>
+    /// The license's key is read at every call, so a new license applies without the database
+    /// reopening, and it comes before a key in the settings: that one is a copy the settings used to
+    /// require, which would otherwise go stale unnoticed. Only without a license key is it used.
+    /// </summary>
+    [TestMethod]
+    public async Task TheLicenseKeyIsReadAtEveryCallAndComesBeforeTheSettingsKey() {
+        await using var stub = await AiServiceStub.StartAsync();
+        string? licenseKey = "license-1";
+        using var provider = new RelatudeServicesSMSProvider(new SMSProviderSettings { ServiceUrl = stub.BaseUrl, ApiKey = "from-settings" }, () => licenseKey);
+        var sentWith = new List<string>();
+        foreach (var key in new[] { "license-1", "license-2", null }) {
+            licenseKey = key;
+            stub.Requests.Clear();
+            stub.Enqueue(200, """{"messageId":"a","to":"+4791234567","parts":1,"credits":1,"creditsLeft":9}""");
+            await provider.SendAsync("+4791234567", "hi");
+            sentWith.Add(stub.Single().Headers["Authorization"]);
+        }
+        CollectionAssert.AreEqual(new[] { "Bearer license-1", "Bearer license-2", "Bearer from-settings" }, sentWith);
     }
 
     [TestMethod]

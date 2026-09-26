@@ -28,9 +28,14 @@ public sealed class SettingDefinition {
     /// choosing the other value costs - not a restatement of the label.</summary>
     public required string Help { get; init; }
     public SettingApplies Applies { get; init; } = SettingApplies.Reopen;
-    /// <summary>Only meaningful inside a <see cref="SettingListDefinition"/>: hides the field unless a
-    /// sibling holds one of the given values.</summary>
+    /// <summary>Hides the field unless a sibling holds one of the given values. Inside a
+    /// <see cref="SettingListDefinition"/> the sibling is another field of the same element, by its
+    /// relative path; in a group it is another setting of the group, by its full path.</summary>
     public SettingVisibility? VisibleWhen { get; init; }
+    /// <summary>The other way round: hides the field while a sibling holds one of the given values, for
+    /// a field every kind uses but one - a service URL the built-in provider does not need. Siblings
+    /// are named as for <see cref="VisibleWhen"/>, and a field with both shows only when both allow it.</summary>
+    public SettingVisibility? HiddenWhen { get; init; }
     /// <summary>Fills the field from a runtime list instead of free text: "databases",
     /// "ioProviders", "fileStores" or "cultures". See <c>UISettings.buildPickers</c>.</summary>
     public string? Picker { get; init; }
@@ -107,12 +112,15 @@ public sealed class SettingSuggestion {
     public string? Hint { get; init; }
 }
 
-/// <summary>Hides a field until a sibling field holds one of these values, so an element only shows
-/// the settings its own type actually uses.</summary>
+/// <summary>A condition on a sibling field, which holds while the sibling has one of these values:
+/// <see cref="SettingDefinition.VisibleWhen"/> shows a field only then, <see cref="SettingDefinition.HiddenWhen"/>
+/// hides it then. So an element, or a group, only shows the settings its own type actually uses.</summary>
 public sealed class SettingVisibility {
-    /// <summary>The sibling field, by the same relative path the fields use.</summary>
+    /// <summary>The sibling field, by the same path the fields use: relative inside a list, full in a group.</summary>
     public required string Path { get; init; }
-    /// <summary>The sibling's values that show the field: enum member names, or "true"/"false" for a boolean sibling.</summary>
+    /// <summary>The sibling's values the condition holds for: enum member names, "true"/"false" for a
+    /// boolean sibling, or the names a text sibling may hold, where "" also stands for no value. They
+    /// are compared without regard to case or surrounding spaces.</summary>
     public required string[] Values { get; init; }
     /// <summary>A further condition that must hold as well, for a field that depends on two siblings (a text file source's format only matters for text files).</summary>
     public SettingVisibility? And { get; init; }
@@ -208,6 +216,18 @@ public static class SettingsCatalog {
             },
         };
     }
+
+    /// <summary>
+    /// What the SMS provider type holds when it means the hosted Relatude service: nothing, or one of
+    /// the service's two names. The fields only a custom provider uses are hidden for exactly these,
+    /// the names <c>LateBindings.CreateSmsProvider</c> builds the service for - SettingsCatalogTests
+    /// checks the two stay in step. A method rather than a field, so the order the static members
+    /// are initialized in does not matter.
+    /// </summary>
+    static SettingVisibility relatudeSmsService() => new() {
+        Path = "SMSSettings.TypeName",
+        Values = ["", RelatudeServicesSMSProvider.ShortName, nameof(RelatudeServicesSMSProvider)],
+    };
 
     public static SettingSectionDefinition[] Server { get; } = [
         new() {
@@ -1012,20 +1032,19 @@ public static class SettingsCatalog {
                     Settings = [
                         new() {
                             Path = "SMSSettings.TypeName", Label = "Provider type", Placeholder = RelatudeServicesSMSProvider.ShortName,
-                            // the names LateBindings.CreateSmsProvider knows; LateBindingsTests checks they stay in step
-                            Help = "Selects the provider implementation. The Relatude service is the only one built in, and what an empty value means; anything else is taken as the full type name of a custom provider and resolved when the database opens, so a typo shows up as a start-up error.",
+                            // the names LateBindings.CreateSmsProvider knows; SettingsCatalogTests checks they stay in step
+                            Help = "Selects the provider implementation. The Relatude service is the only one built in, and what an empty value means: it sends through the hosted Relatude SMS service and charges each message to this installation's license, so it needs no service URL or API key here. Anything else is taken as the full type name of a custom provider and resolved when the database opens, so a typo shows up as a start-up error.",
                             Suggestions = [
                                 new() { Value = RelatudeServicesSMSProvider.ShortName, Hint = "billed to your Relatude license, no gateway account" },
                             ],
                         },
-                        new() { Path = "SMSSettings.Name", Label = "Display name", Help = "A label for this configuration in the admin UI. Not sent anywhere." },
                         new() {
-                            Path = "SMSSettings.ServiceUrl", Label = "Service URL",
-                            Help = "The endpoint the provider calls. Leave it empty for the hosted Relatude SMS service; set it for a self-hosted deployment.",
+                            Path = "SMSSettings.ServiceUrl", Label = "Service URL", HiddenWhen = relatudeSmsService(),
+                            Help = "The endpoint the custom provider calls.",
                         },
                         new() {
-                            Path = "SMSSettings.ApiKey", Label = "API key", Secret = true,
-                            Help = "The key issued with your Relatude license, which is what the service charges each message to. Keep it in appsettings, an environment variable or user secrets rather than the settings file - configuration values are never written back to disk.",
+                            Path = "SMSSettings.ApiKey", Label = "API key", Secret = true, HiddenWhen = relatudeSmsService(),
+                            Help = "The key the custom provider sends with. Keep it in appsettings, an environment variable or user secrets rather than the settings file - configuration values are never written back to disk.",
                         },
                         new() {
                             Path = "SMSSettings.From", Label = "Sender", Placeholder = "the service's own",

@@ -60,6 +60,7 @@ concept builds on the last.
 **Part IV — Tooling**
 
 31. [The command line tool](#31-the-command-line-tool)
+32. [Logs — recording what the application does](#32-logs--recording-what-the-application-does) · [32.4 HyperLogLog](#324-estimated-unique-counts-hyperloglog)
 
 ---
 ---
@@ -1591,7 +1592,7 @@ own users.
 | `IoDatabaseSecondary` | null | A second log, on other storage. With `LocalSettings.SecondaryBackupLog` it keeps the history a log rewrite would otherwise compact away — which is what `FindOlderVersions` ([§16](#16-older-versions-of-a-node)) reads. |
 | `IoIndexes` | falls back to `IoDatabase` | Where the persisted index engines write. Point it at fast local disk when the log lives on blob storage. |
 | `IoBackup` | same entry | Where backups are written. |
-| `IoLog` | falls back to `IoDatabase` | Where the system/activity log is written. |
+| `IoLog` | falls back to `IoDatabase` | Where the activity logs, and the logs defined for the database ([§32](#32-logs--recording-what-the-application-does)), are written. |
 | `FileStoreSettings` | `[]` | The file stores holding `FileValue` bytes. See below. |
 | `AISettings` | null | The container's AI provider and semantic index. Required for semantic/vector search. See below. |
 | `DatamodelSources` | the bundled demo model | Where the model comes from — the previous section. |
@@ -1781,6 +1782,8 @@ from the beginning; without one, opening is a full replay.
 | `PersistedQueueStoreEngine` | `Native` | Where the task queue is persisted: `Native`, `Sqlite` or `Memory`. `Memory` loses queued work on restart. |
 | `PersistedQueueStoreFolderPath` | beside the index folder | Where the persisted queue writes. |
 | `WriteSystemLogConsole` | `true` | Echo the engine's system log to the console. |
+| `LogRecording` | null | Which activity logs record entries and statistics after a restart — written by *Save and remember changes* on the Activity page. A log not listed starts off. The logs you define keep their own switches in their settings files ([§32](#32-logs--recording-what-the-application-does)). |
+| `MinQueryDurationMsBeforeLogging` | 0 | Leave queries faster than this out of the query log. 0 records every one. |
 | `DoNotCacheMapperFile` | `false` | Present in the settings object; not read by the current build. |
 
 ### Overriding settings from configuration
@@ -2029,6 +2032,8 @@ What you do in it:
 | **IO** | Where the append-only transaction log and backups are written. |
 | **Storage** | Backups — one click to take one, one to go back to it. Take one before upgrading, the project is pre-1.0. The database file itself lives here too: download it, upload one, or copy it up to a moment in time and open the database on that copy. Any file the Files page lists can be made the database file, which is the way back from all three: whatever is replaced is kept beside the new file, never deleted. |
 | **Status** | Store state, running file conversions, activity and timings. |
+| **Activity** | What the database records about itself — queries, transactions, actions, tasks, metrics, the system trace — each log switched on or off, with its entries, search and graphs. |
+| **Logs** | Logs of your own: define one, and read what the application recorded into it as graphs, entries and the spread of a column's values. See [§32](#32-logs--recording-what-the-application-does). |
 | **Memory** (on the dashboard) | Every memory budget of one database on one line - the node and result set caches, each index engine, the state store - each showing what it is actually holding against what it is allowed. Dragging a budget takes effect at once where the part can be re-sized while it runs; saving writes them back to `relatude.db.json` for the next start. |
 
 Two habits worth forming:
@@ -4038,6 +4043,334 @@ files belong in code, where the compiler checks what is being related to what.
 
 ---
 
+## 32. Logs — recording what the application does
+
+A database keeps logs about itself: every query, transaction, action and task, and a record of its
+metrics every second, each switched on or off on the admin UI's **Activity** page. Next to it, the **Logs**
+page is for logs of your own — what the *application* does: the requests a site answers, the orders
+placed, the jobs run, the errors met. You define a log as a list of columns, the application records
+entries into it by its key, and the page reads them back as graphs over time, as the entries
+themselves and as the spread of a column's values.
+
+```csharp
+db.CustomLogs.Record("orders", ("amount", 249.90), ("customer", "acme"), ("items", 3));
+```
+
+That is the whole recording API in one line; the rest of this chapter is about what a log is, what
+it keeps, and how it is read. Logs are part of the database, kept in its log folder next to the
+activity logs, and they work without a node type, a transaction or an index: a log is an
+append-only record of what happened and when, optimised to be written a million times a day and
+graphed.
+
+### 32.1 Defining a log
+
+A log is defined on the Logs page — **New log** starts one from a blank definition or from a
+template (web requests, business events, errors and warnings, background jobs) — or by a settings
+file in the log folder, or from code. All three end up as the same thing:
+
+| Part | What it is |
+|---|---|
+| **Key** | What the application records by and what the files are named after: letters, digits, `-` and `_`, starting with a letter or a digit, at most 64 characters. It cannot be changed afterwards (duplicate the log instead), and the activity logs' own keys — `system`, `query`, `transaction`, `action`, `task`, `taskbatch`, `metrics` — are taken. |
+| **Name**, **description** | What the page shows. |
+| **Columns** | What an entry holds besides its timestamp: a key, a name, a type — text, whole number, decimal number, date and time, duration or bytes — and the statistics kept about it ([§32.3](#323-statistics)). |
+| **Record entries** / **Keep statistics** | The two switches. Entries are the records themselves; statistics are the aggregates the graphs are drawn from. Either can be off: a log that only counts, or one that only records. |
+| **One file per** | Minute, hour, day or month: how the entries are cut into files. A file is what the age and size limits delete, whole. |
+| **Keep entries for** / **At most** | The age limit in days and the size limit in MB; 0 is no limit. |
+| **Level of statistical detail** | How far back every statistic reaches ([§32.3](#323-statistics)). |
+| **Weeks start on** | What a week is, for the weekly statistics. |
+| **Also write a text copy**, **Compress** | A tab separated `.txt` beside every entries file, readable without the database; smaller entries files. |
+
+The definition is saved as `log/log.<key>.settings.json` in the database's log folder (the
+`IoLog` provider, or `IoDatabase` when there is none — [§12.1](#121-every-setting-in-relatudedbjson)).
+The file is what the log *is*: a definition written there by hand, or copied from another database,
+is picked up when the database opens (or with **Reload from disk** on the Logs page). The Definition
+view of a log shows the same file as JSON and edits it as text as well as through the form:
+
+```json
+{
+  "Key": "requests",
+  "Name": "Web requests",
+  "Description": "The requests the site answers.",
+  "Properties": {
+    "path":     { "Name": "Path", "DataType": "String", "Statistics": [ { "StatisticsType": "UniqueCountEstimate", "Resolution": 3 } ] },
+    "status":   { "Name": "Status", "DataType": "Integer", "Statistics": [ { "StatisticsType": "UniqueCountWithValues", "Resolution": 3 } ] },
+    "duration": { "Name": "Duration (ms)", "DataType": "Double", "Statistics": [ { "StatisticsType": "CountSumAvgMinMax", "Resolution": 3 } ] },
+    "user":     { "Name": "User", "DataType": "String", "Statistics": [ { "StatisticsType": "UniqueCountEstimate", "Resolution": 3 } ] }
+  },
+  "FileInterval": "Hour",
+  "EnableLog": true,
+  "EnableStatistics": true,
+  "EnableLogTextFormat": false,
+  "ResolutionRowStats": 3,
+  "FirstDayOfWeek": "Monday",
+  "MaxAgeOfLogFilesInDays": 14,
+  "MaxTotalSizeOfLogFilesInMb": 100,
+  "Compressed": false
+}
+```
+
+A file is read forgivingly — comments and trailing commas are allowed, names in any case, enums by
+name or by number — and strictly in what it means: a key that cannot name a file, a column defined
+twice, an unknown type. A file that does not read as a log is left alone and listed on the Logs page
+with what is wrong with it, to be fixed there in an editor or deleted.
+
+From code, the same definition is a `LogSettings`:
+
+```csharp
+using Relatude.DB.IO;        // FileInterval
+using Relatude.DB.Logging;   // LogSettings, LogProperty, StatisticsType
+
+if (!db.CustomLogs.HasLog("requests")) {
+    var requests = new LogSettings {
+        Key = "requests",
+        Name = "Web requests",
+        FileInterval = FileInterval.Hour,
+        MaxAgeOfLogFilesInDays = 14,
+        ResolutionRowStats = 3,
+    };
+    requests.Properties.Add("path", new LogProperty {
+        Name = "Path", DataType = LogDataType.String,
+        Statistics = [new(StatisticsType.UniqueCountEstimate)],
+    });
+    requests.Properties.Add("duration", new LogProperty {
+        Name = "Duration (ms)", DataType = LogDataType.Double,
+        Statistics = [new(StatisticsType.CountSumAvgMinMax)],
+    });
+    db.CustomLogs.Create(requests);   // saves log.requests.settings.json and starts the log
+}
+```
+
+`Create` throws for a key that is taken or unusable, `CheckNewKey` says why first, and
+`GetDefinitions()` hands out copies — changing one changes nothing until it goes through `Update`
+([§32.6](#326-changing-a-definition)). `LogSettings` also reads and writes the JSON directly
+(`ToJson`, `FromJson`, `SaveToFile`, `LoadFromFile`), which is how a definition is kept in source
+control and deployed with the application.
+
+### 32.2 Recording from the application
+
+`db.CustomLogs` is the store's `ICustomLogs`. Four ways to record, all of them one entry per call:
+
+```csharp
+// property-value pairs, timestamped now
+db.CustomLogs.Record("requests", ("path", ctx.Request.Path.Value), ("status", 200), ("duration", sw.Elapsed.TotalMilliseconds));
+
+// an object: its public properties are matched to the columns without regard to case
+db.CustomLogs.RecordObject("requests", new { Path = "/products", Status = 200, Duration = 12.5 });
+
+// a dictionary, with a time of its own
+db.CustomLogs.Record("requests", new Dictionary<string, object?> { ["path"] = "/cart" }, timestampUtc: startedUtc);
+
+// an entry, when the timestamp and the values are built elsewhere
+db.CustomLogs.Record("requests", new LogEntry { Timestamp = startedUtc, Values = { ["status"] = 404 } });
+```
+
+Recording is cheap by design. A log that does not exist, or that is switched off, costs a dictionary
+lookup: `Record` returns `false` when there is no log with the key, and nothing else happens. A log
+that is on encodes the entry into a buffer; entries reach disk in batches — when a megabyte is
+buffered, and every half minute while the database is open — so a burst of a thousand requests is a
+thousand appends to memory, not a thousand writes. `Record(key, entry, flushToDisk: true)` writes one
+straight through, and `db.CustomLogs.FlushToDiskNow()` writes everything that is waiting.
+
+**Values are converted to their column's type** when they are recorded, because the code that
+records rarely has exactly the type a log stores:
+
+| Column type | What converts into it |
+|---|---|
+| Text | anything: numbers and dates are written the same on every server (`1.5`, ISO 8601 in UTC), bytes as base64 |
+| Whole number | `int`, `long` (clamped to the `int` range rather than wrapped), `short`, `byte`, enums, `bool` as 1/0, `double` and `decimal` rounded, numeric text |
+| Decimal number | any number, `bool`, `TimeSpan` as milliseconds, numeric text — `NaN` and infinity are left out |
+| Date and time | `DateTime` (local times moved to UTC, unspecified ones taken as UTC), `DateTimeOffset`, `DateOnly`, ISO text |
+| Duration | `TimeSpan`, `TimeOnly`, a number as milliseconds, text like `00:01:30` |
+| Bytes | `byte[]`, `Memory<byte>`, `ArraySegment<byte>`, text as UTF-8 |
+
+A value that is null, or has no reading as its column's type, is **left out of the entry** rather
+than recorded as a zero the statistics would count as a measurement nobody made. Values for keys
+the log does not declare are kept in the entry as they are (or as their text), which is what lets a
+log's definition change without losing what older entries carried. The entry's timestamp is stored
+in UTC whatever kind of `DateTime` it was.
+
+### 32.3 Statistics
+
+Entries are the record; **statistics** are what the graphs are drawn from. They are aggregated as
+entries arrive — not when a graph asks — and kept per interval: per second, minute, hour, day, week
+and month at once, so a graph of the last five minutes and one of the last year are both instant,
+whatever the log holds. Every log counts its entries; each column adds the statistics it declares:
+
+| Statistic | What it answers | Column types | What it costs |
+|---|---|---|---|
+| **Count** | how many entries had a value in the column | all | a number per interval |
+| **Total** (`Sum`) | the values added up | numbers | a number per interval |
+| **Average, min, max** (`AvgMinMax`) | the average, lowest and highest, drawn as a line in a band | numbers | a few numbers per interval |
+| **Count, total, average, min, max** (`CountSumAvgMinMax`) | all of the above in one statistic | numbers | a few numbers per interval |
+| **Count per value** (`UniqueCountWithValues`) | how often each value occurred — a status code, a level, a country — drawn as stacked bars | all but bytes | every value and its count: meant for columns with few distinct values (under a hundred or so); up to 5,000 values per interval, and older intervals keep their 50 most common |
+| **Unique count** (`UniqueCountHashedValues`) | how many different values there were — exact | all but bytes | a 64-bit hash per distinct value per interval, up to 50,000 of them |
+| **Unique count, estimated** (`UniqueCountEstimate`) | how many different values there were, within about one percent, however many — users, sessions, paths | all but bytes | a fixed amount of memory per interval, whatever the number: the HyperLogLog algorithm, [§32.4](#324-estimated-unique-counts-hyperloglog) |
+
+**The level of statistical detail** is how far back the statistics reach. A statistic keeps a fixed
+number of intervals of each size, and the level multiplies them: level 1 keeps 60 seconds, 60
+minutes, 48 hours, 60 days, 52 weeks and 60 months; level 3 — the default for a new log — three
+times that: per second for 3 minutes, per minute for 3 hours, per hour for 6 days, per day for 6
+months, per week for 3 years and per month for 15 years. A graph asking further back at a fine
+bucket gets what is kept and says so, which is why a long range is drawn in a coarser bucket rather
+than the same one zoomed out. More detail costs memory (the current intervals are held while the
+log is open) and disk (the statistics file is saved about once a minute).
+
+Three things follow from statistics being aggregated as entries arrive:
+
+- **A statistic added to a log covers what is recorded from then on.** The entries recorded before
+  can be counted into it by rebuilding the statistics from them — offered when the definition is
+  saved, and on the log's Data page (*Rebuild the statistics*). A rebuild reads every entry once:
+  about a second per hundred thousand entries.
+- **Entries may arrive out of order.** One recorded with an older timestamp — several threads
+  recording at once, or a time of its own — is counted in its own interval, as long as the statistic
+  still keeps that interval. Older than that, it is in the entries but in no graph; and a unique
+  count of an interval that has already been closed (see below) cannot take one more value, so it is
+  skipped there until a rebuild.
+- **Statistics off means nothing is aggregated,** and what was kept is not read until they are
+  switched back on — at which point they continue from where they stopped, with a gap.
+
+### 32.4 Estimated unique counts: HyperLogLog
+
+Counting how many *different* values there were — distinct users in an hour, distinct paths in a
+day — is the one question a log cannot answer from a running total. An exact answer has to remember
+every value it has seen, to know whether the next one is new, so it grows with the data: a busy site
+has millions of sessions a month. The estimated unique count answers it from a summary of a fixed
+size instead, using the **HyperLogLog** algorithm (Flajolet, Fusy, Gandouet and Meunier, 2007).
+
+The idea is that a good hash makes every value look like a random number, and the random numbers
+say something about how many values produced them. Of all hashes, half end in a 1 bit, a quarter in
+`10`, an eighth in `100`: a run of *k* zero bits turns up about once in 2<sup>k</sup> values. So the
+longest run seen is a rough measure of how many distinct values went by — and a value seen twice
+has the same hash both times, so repeats change nothing, which is exactly what makes it count
+*distinct* values rather than entries. One such measure is far too noisy on its own (one lucky hash
+and the guess doubles), so HyperLogLog keeps many:
+
+1. Each value is hashed to 32 bits.
+2. The first 14 bits pick one of 2<sup>14</sup> = **16,384 registers**; the value only ever touches
+   that one register.
+3. The rest of the hash is looked at for its run of zero bits, and the register keeps the longest
+   run it has been shown.
+4. The estimate combines all the registers — a harmonic mean of 2<sup>run</sup> over them, which
+   keeps a few lucky registers from dominating, times a constant that corrects the method's known
+   bias. While most registers are still empty (few values so far) it uses *linear counting*
+   instead: the share of registers still untouched says how many values it took to touch the rest.
+
+The standard error is 1.04/√*m* for *m* registers — about 0.8 % with 16,384 of them, which is where
+"within about one percent" comes from — and it holds for a hundred values and for a hundred million alike. The
+memory does not grow at all: 16,384 small registers, 64 KB per interval, however many values went
+into it. Two refinements keep that cheap in practice, because a log keeps an estimate for every
+second, minute and hour it keeps, and most of those see a handful of values:
+
+- **An interval with few values keeps their hashes instead**, and makes the registers only when it
+  has seen more than 1,024 different values. The estimate it gives is the one the registers would
+  give (the linear counting above needs only how many registers are touched), so the switch changes
+  no number.
+- **An interval that is over keeps only its number.** Once the next interval has begun, the
+  registers of the last one are condensed into the estimate they give — which is also why an entry
+  arriving late for a closed interval cannot be added to it.
+
+What it cannot do is **add up**. The number of different users in a day is not the sum of the
+numbers per hour — the same user in two hours is one user for the day — so an estimated (or exact)
+unique count has no total over a range, and the graph shows one value per interval. Ask the question
+at the size it is meant: *distinct users per day* is a graph drawn with one point per day. Which
+unique count to declare:
+
+- **Count per value** for a column with a few distinct values you want to see by name.
+- **Unique count** when the number must be exact and stays in the thousands per interval.
+- **Unique count, estimated** for anything that can grow — users, sessions, paths, search terms.
+
+### 32.5 Reading a log
+
+Each log has a page of its own under Logs, with the *Record* and *Statistics* switches at the top and
+five views of the same log. The graphs, the entries and the analysis share one time range: one of
+the ranges that end now (5 minutes to 12 months, following the clock while *Live* is on), two
+moments typed in, or an interval picked on a graph.
+
+| View | What it shows |
+|---|---|
+| **Graphs** | Tiles that sum the range up (entries, the busiest interval, averages, the most common values), then a graph per statistic: bars or a line for counts and totals; the average with its min–max band, or any one of count, total, min and max; a breakdown per value as stacked bars, or as shares of each interval. The bucket size follows the range or is chosen. Clicking an interval opens its entries. Each graph downloads as CSV. |
+| **Entries** | The entries of the range, newest (or oldest) first. The search box reads the whole range on the server — `timeout`, `get*nodes`, `"could not open"`, `-shutdown`, `status:500`; terms must all hold, `*` and `?` are wildcards, `column:term` searches one column — and the fields under the headings filter what the browser holds. Columns can be hidden and dragged wider. *Live* marks new entries as they arrive. An entry opens to all of it, with ways to filter or search by any of its values or show what else was recorded around it. *Download* writes the range or the whole log as tab separated, comma separated or JSON lines. |
+| **Analyse** | How one column's values are spread, read from the entries themselves — what statistics cannot say. Numbers and durations get percentiles (median, 90th, 99th…) and a histogram, text its most common values (click one to list its entries). It reads the newest entries of the range up to a limit (200,000 by default) and says when it stopped. |
+| **Definition** | The form, the JSON of the settings file, and the application code that records into the log, written for its columns. |
+| **Data** | *Try it out* — record a test entry, or up to a million made-up ones, spread over a stretch of time with plausible values for every column, to see the graphs before the application records anything. *Clean up* — delete older entries, every entry, the statistics; rebuild the statistics; write to disk now. The definition file, and the log's files on disk with a download each. |
+
+From code, `db.CustomLogs.LogStore` is the `ILogStore` behind the page, with the same reads:
+
+```csharp
+using Relatude.DB.Logging.Statistics;   // IntervalType
+
+var store = db.CustomLogs.LogStore;
+var to = DateTime.UtcNow;
+var from = to.AddDays(-1);
+var newest = store.ExtractLog("requests", from, to, skip: 0, take: 100, orderByDescendingDates: true, out var inRange);
+var failed = store.SearchLog("requests", "status:5??", from, to, 0, 100, true, out var failures);
+var perHour = store.AnalyseRows("requests", IntervalType.Hour, from, to, estimateNowInterval: false, fillInBlanks: true);
+var users = store.AnalyseEstimatedUniqueCounts("requests", "user", IntervalType.Day, from.AddDays(-29), to, false, true);
+```
+
+A search, like a page of entries, reads the records of the range it is given — nothing is indexed,
+so it can ask anything, and the range is what bounds its cost. Only the page asked for is held in
+memory while that happens: the newest hundred of a million entries are a hundred entries in memory.
+
+### 32.6 Changing a definition
+
+A log's definition can change while it has entries. Saving a change asks the server first what it
+does to what is recorded, and the confirmation lists it; nothing is lost that the list does not name.
+
+| Change | What happens to what is recorded |
+|---|---|
+| Name, description, text copy, compression | Nothing: compression and the text copy apply to what is written from then on. |
+| A column added | The entries recorded so far have no value for it. |
+| A column removed | Its values stay in the entries they were recorded with (the entry view shows them); its statistics are dropped. |
+| A column's type | Old values are read as the new type where they convert, and shown as they were stored where they do not. A column with statistics has them rebuilt from the entries — what they held was aggregated as the old type. |
+| A statistic added | It starts empty; the confirmation offers to rebuild the statistics from the entries. |
+| A statistic removed | What it held is dropped. |
+| The level of detail, the first day of the week | Every statistic starts over at the new setting; a rebuild is offered. |
+| The file interval | Every entry is moved into files of the new size — read and written once, which takes a while on a large log. |
+| A tighter age or size limit | The files past it are deleted at the next cleanup, within a minute. |
+
+In code this is `PlanUpdate(settings)` — the same consequences as sentences, without doing anything
+— and `Update(settings, rebuildStatistics)`. `SetEnabled(key, log, statistics)` flips the switches
+and saves them.
+
+### 32.7 Files, limits and cleaning up
+
+A log lives in the log folder as a handful of files, all named after its key:
+
+| File | Holds |
+|---|---|
+| `log.<key>.settings.json` | The definition. |
+| `log.<key>.<interval>.<time>.bin` | The entries, one file per minute, hour, day or month: `log.requests.hour.2026-09-26-14.bin`. |
+| `log.<key>.<interval>.<time>.txt` | The text copies, when they are on. |
+| `log.<key>.statistics.bin` (and `.bkup`) | The statistics, saved about once a minute, with the previous save kept beside them. |
+
+While the database is open, a cleanup runs about once a minute: the statistics are saved, the files
+older than the age limit are deleted, and the oldest files go when the entries grow past the size
+limit — whole files each time, never the one being written. *Delete older entries* on the Data page
+works the same way, by whole files older than the moment chosen.
+
+Deleting a log asks what should go with it: **the definition only** leaves the entries and
+statistics on disk, and a log created again with the same key picks them up; **everything** deletes
+them too. The Logs page works while the database is closed — definitions can be made and changed,
+entries read and test entries recorded — but the application records only through an open store.
+
+A few things to know:
+
+- **A value that does not convert is left out silently.** A column that stays empty on the Entries
+  page is usually a value of the wrong kind — text that is not a number in a number column.
+- **The key is forever.** It names the files; renaming would orphan them. Duplicate the log instead.
+- **Unique counts have no totals.** Pick the bucket size the question needs (see [§32.4](#324-estimated-unique-counts-hyperloglog)).
+- **Made-up entries mix with real ones.** They are for trying a definition out; they go only with
+  the entries of their time.
+- **Search costs the range.** A search of the last hour is instant, of a busy month a wait.
+
+The activity logs on the Activity page work the same way, with two differences: they are defined by
+the database itself, and a switch flipped there is live at once but kept across a restart only when
+*Save and remember changes* writes it to `relatude.db.json` (`LogRecording`,
+[§12.1](#121-every-setting-in-relatudedbjson)).
+
+---
+
 ## Where to look when this manual runs out
 
 The public documentation is still thin and the API is pre-1.0. When something here does not match
@@ -4059,6 +4392,7 @@ your build, read the source — it is small and well commented:
 | `FileValue` | `src/Relatude.DB.Common/Common/FileValue.cs` |
 | A working model | `src/Relatude.DB.NodeStore/Demo/Models/DemoArticle.cs` |
 | The command line tool | `src/Relatude.DB.Console/` — `relatude help all` for its reference |
+| Logs, statistics and HyperLogLog | `src/Relatude.DB.Logger/Logging/` — `ICustomLogs.cs`, `LogSettings.cs`, `LogValues.cs`, `Statistics/HyperLogLog.cs` |
 
 For measured numbers rather than API surface, see the
 [vector index benchmarks](vector-matrix.html) — a matrix sweep of the three vector engines over

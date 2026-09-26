@@ -2176,7 +2176,7 @@ own users.</p>
 <tr>
 <td><code>IoLog</code></td>
 <td>falls back to <code>IoDatabase</code></td>
-<td>Where the system/activity log is written.</td>
+<td>Where the activity logs, and the logs defined for the database (<a href="#32-logs-recording-what-the-application-does">§32</a>), are written.</td>
 </tr>
 <tr>
 <td><code>FileStoreSettings</code></td>
@@ -2785,6 +2785,16 @@ from the beginning; without one, opening is a full replay.</p>
 <td>Echo the engine's system log to the console.</td>
 </tr>
 <tr>
+<td><code>LogRecording</code></td>
+<td>null</td>
+<td>Which activity logs record entries and statistics after a restart — written by <em>Save and remember changes</em> on the Activity page. A log not listed starts off. The logs you define keep their own switches in their settings files (<a href="#32-logs-recording-what-the-application-does">§32</a>).</td>
+</tr>
+<tr>
+<td><code>MinQueryDurationMsBeforeLogging</code></td>
+<td>0</td>
+<td>Leave queries faster than this out of the query log. 0 records every one.</td>
+</tr>
+<tr>
 <td><code>DoNotCacheMapperFile</code></td>
 <td><code>false</code></td>
 <td>Present in the settings object; not read by the current build.</td>
@@ -3085,6 +3095,14 @@ indistinguishable by timing.</p>
 <tr>
 <td><strong>Status</strong></td>
 <td>Store state, running file conversions, activity and timings.</td>
+</tr>
+<tr>
+<td><strong>Activity</strong></td>
+<td>What the database records about itself — queries, transactions, actions, tasks, metrics, the system trace — each log switched on or off, with its entries, search and graphs.</td>
+</tr>
+<tr>
+<td><strong>Logs</strong></td>
+<td>Logs of your own: define one, and read what the application recorded into it as graphs, entries and the spread of a column's values. See <a href="#32-logs-recording-what-the-application-does">§32</a>.</td>
 </tr>
 <tr>
 <td><strong>Memory</strong> (on the dashboard)</td>
@@ -5185,6 +5203,475 @@ files belong in code, where the compiler checks what is being related to what.</
   <a href="#30-pitfalls-and-gotchas">section 30</a>).</li>
 </ul>
 <hr />
+<h2 id="32-logs-recording-what-the-application-does">32. Logs — recording what the application does<a class="anchor" href="#32-logs-recording-what-the-application-does" aria-label="Link to this section">#</a></h2>
+<p>A database keeps logs about itself: every query, transaction, action and task, and a record of its
+metrics every second, each switched on or off on the admin UI's <strong>Activity</strong> page. Next to it, the <strong>Logs</strong>
+page is for logs of your own — what the <em>application</em> does: the requests a site answers, the orders
+placed, the jobs run, the errors met. You define a log as a list of columns, the application records
+entries into it by its key, and the page reads them back as graphs over time, as the entries
+themselves and as the spread of a column's values.</p>
+<div class="codehilite"><pre><span></span><code><span class="n">db</span><span class="p">.</span><span class="n">CustomLogs</span><span class="p">.</span><span class="n">Record</span><span class="p">(</span><span class="s">&quot;orders&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="s">&quot;amount&quot;</span><span class="p">,</span><span class="w"> </span><span class="mf">249.90</span><span class="p">),</span><span class="w"> </span><span class="p">(</span><span class="s">&quot;customer&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;acme&quot;</span><span class="p">),</span><span class="w"> </span><span class="p">(</span><span class="s">&quot;items&quot;</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">));</span>
+</code></pre></div>
+
+<p>That is the whole recording API in one line; the rest of this chapter is about what a log is, what
+it keeps, and how it is read. Logs are part of the database, kept in its log folder next to the
+activity logs, and they work without a node type, a transaction or an index: a log is an
+append-only record of what happened and when, optimised to be written a million times a day and
+graphed.</p>
+<h3 id="321-defining-a-log">32.1 Defining a log<a class="anchor" href="#321-defining-a-log" aria-label="Link to this section">#</a></h3>
+<p>A log is defined on the Logs page — <strong>New log</strong> starts one from a blank definition or from a
+template (web requests, business events, errors and warnings, background jobs) — or by a settings
+file in the log folder, or from code. All three end up as the same thing:</p>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Key</strong></td>
+<td>What the application records by and what the files are named after: letters, digits, <code>-</code> and <code>_</code>, starting with a letter or a digit, at most 64 characters. It cannot be changed afterwards (duplicate the log instead), and the activity logs' own keys — <code>system</code>, <code>query</code>, <code>transaction</code>, <code>action</code>, <code>task</code>, <code>taskbatch</code>, <code>metrics</code> — are taken.</td>
+</tr>
+<tr>
+<td><strong>Name</strong>, <strong>description</strong></td>
+<td>What the page shows.</td>
+</tr>
+<tr>
+<td><strong>Columns</strong></td>
+<td>What an entry holds besides its timestamp: a key, a name, a type — text, whole number, decimal number, date and time, duration or bytes — and the statistics kept about it (<a href="#323-statistics">§32.3</a>).</td>
+</tr>
+<tr>
+<td><strong>Record entries</strong> / <strong>Keep statistics</strong></td>
+<td>The two switches. Entries are the records themselves; statistics are the aggregates the graphs are drawn from. Either can be off: a log that only counts, or one that only records.</td>
+</tr>
+<tr>
+<td><strong>One file per</strong></td>
+<td>Minute, hour, day or month: how the entries are cut into files. A file is what the age and size limits delete, whole.</td>
+</tr>
+<tr>
+<td><strong>Keep entries for</strong> / <strong>At most</strong></td>
+<td>The age limit in days and the size limit in MB; 0 is no limit.</td>
+</tr>
+<tr>
+<td><strong>Level of statistical detail</strong></td>
+<td>How far back every statistic reaches (<a href="#323-statistics">§32.3</a>).</td>
+</tr>
+<tr>
+<td><strong>Weeks start on</strong></td>
+<td>What a week is, for the weekly statistics.</td>
+</tr>
+<tr>
+<td><strong>Also write a text copy</strong>, <strong>Compress</strong></td>
+<td>A tab separated <code>.txt</code> beside every entries file, readable without the database; smaller entries files.</td>
+</tr>
+</tbody>
+</table>
+<p>The definition is saved as <code>log/log.&lt;key&gt;.settings.json</code> in the database's log folder (the
+<code>IoLog</code> provider, or <code>IoDatabase</code> when there is none — <a href="#121-every-setting-in-relatudedbjson">§12.1</a>).
+The file is what the log <em>is</em>: a definition written there by hand, or copied from another database,
+is picked up when the database opens (or with <strong>Reload from disk</strong> on the Logs page). The Definition
+view of a log shows the same file as JSON and edits it as text as well as through the form:</p>
+<div class="codehilite"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;Key&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;requests&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Web requests&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;Description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;The requests the site answers.&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;Properties&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;path&quot;</span><span class="p">:</span><span class="w">     </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Path&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;DataType&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;String&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Statistics&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;StatisticsType&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;UniqueCountEstimate&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Resolution&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w"> </span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w">   </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Status&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;DataType&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Integer&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Statistics&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;StatisticsType&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;UniqueCountWithValues&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Resolution&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w"> </span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;duration&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Duration (ms)&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;DataType&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Double&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Statistics&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;StatisticsType&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;CountSumAvgMinMax&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Resolution&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w"> </span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;user&quot;</span><span class="p">:</span><span class="w">     </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;User&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;DataType&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;String&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Statistics&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;StatisticsType&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;UniqueCountEstimate&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Resolution&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;FileInterval&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Hour&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;EnableLog&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;EnableStatistics&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;EnableLogTextFormat&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;ResolutionRowStats&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;FirstDayOfWeek&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Monday&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;MaxAgeOfLogFilesInDays&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;MaxTotalSizeOfLogFilesInMb&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;Compressed&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>A file is read forgivingly — comments and trailing commas are allowed, names in any case, enums by
+name or by number — and strictly in what it means: a key that cannot name a file, a column defined
+twice, an unknown type. A file that does not read as a log is left alone and listed on the Logs page
+with what is wrong with it, to be fixed there in an editor or deleted.</p>
+<p>From code, the same definition is a <code>LogSettings</code>:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.IO</span><span class="p">;</span><span class="w">        </span><span class="c1">// FileInterval</span>
+<span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Logging</span><span class="p">;</span><span class="w">   </span><span class="c1">// LogSettings, LogProperty, StatisticsType</span>
+
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">db</span><span class="p">.</span><span class="n">CustomLogs</span><span class="p">.</span><span class="n">HasLog</span><span class="p">(</span><span class="s">&quot;requests&quot;</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kt">var</span><span class="w"> </span><span class="n">requests</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">LogSettings</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">Key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;requests&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="n">Name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;Web requests&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="n">FileInterval</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">FileInterval</span><span class="p">.</span><span class="n">Hour</span><span class="p">,</span>
+<span class="w">        </span><span class="n">MaxAgeOfLogFilesInDays</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span>
+<span class="w">        </span><span class="n">ResolutionRowStats</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span>
+<span class="w">    </span><span class="p">};</span>
+<span class="w">    </span><span class="n">requests</span><span class="p">.</span><span class="n">Properties</span><span class="p">.</span><span class="n">Add</span><span class="p">(</span><span class="s">&quot;path&quot;</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">LogProperty</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">Name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;Path&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">DataType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">LogDataType</span><span class="p">.</span><span class="n">String</span><span class="p">,</span>
+<span class="w">        </span><span class="n">Statistics</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="k">new</span><span class="p">(</span><span class="n">StatisticsType</span><span class="p">.</span><span class="n">UniqueCountEstimate</span><span class="p">)],</span>
+<span class="w">    </span><span class="p">});</span>
+<span class="w">    </span><span class="n">requests</span><span class="p">.</span><span class="n">Properties</span><span class="p">.</span><span class="n">Add</span><span class="p">(</span><span class="s">&quot;duration&quot;</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">LogProperty</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">Name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;Duration (ms)&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">DataType</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">LogDataType</span><span class="p">.</span><span class="n">Double</span><span class="p">,</span>
+<span class="w">        </span><span class="n">Statistics</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="k">new</span><span class="p">(</span><span class="n">StatisticsType</span><span class="p">.</span><span class="n">CountSumAvgMinMax</span><span class="p">)],</span>
+<span class="w">    </span><span class="p">});</span>
+<span class="w">    </span><span class="n">db</span><span class="p">.</span><span class="n">CustomLogs</span><span class="p">.</span><span class="n">Create</span><span class="p">(</span><span class="n">requests</span><span class="p">);</span><span class="w">   </span><span class="c1">// saves log.requests.settings.json and starts the log</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><code>Create</code> throws for a key that is taken or unusable, <code>CheckNewKey</code> says why first, and
+<code>GetDefinitions()</code> hands out copies — changing one changes nothing until it goes through <code>Update</code>
+(<a href="#326-changing-a-definition">§32.6</a>). <code>LogSettings</code> also reads and writes the JSON directly
+(<code>ToJson</code>, <code>FromJson</code>, <code>SaveToFile</code>, <code>LoadFromFile</code>), which is how a definition is kept in source
+control and deployed with the application.</p>
+<h3 id="322-recording-from-the-application">32.2 Recording from the application<a class="anchor" href="#322-recording-from-the-application" aria-label="Link to this section">#</a></h3>
+<p><code>db.CustomLogs</code> is the store's <code>ICustomLogs</code>. Four ways to record, all of them one entry per call:</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">// property-value pairs, timestamped now</span>
+<span class="n">db</span><span class="p">.</span><span class="n">CustomLogs</span><span class="p">.</span><span class="n">Record</span><span class="p">(</span><span class="s">&quot;requests&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="s">&quot;path&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="n">Request</span><span class="p">.</span><span class="n">Path</span><span class="p">.</span><span class="n">Value</span><span class="p">),</span><span class="w"> </span><span class="p">(</span><span class="s">&quot;status&quot;</span><span class="p">,</span><span class="w"> </span><span class="mi">200</span><span class="p">),</span><span class="w"> </span><span class="p">(</span><span class="s">&quot;duration&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">sw</span><span class="p">.</span><span class="n">Elapsed</span><span class="p">.</span><span class="n">TotalMilliseconds</span><span class="p">));</span>
+
+<span class="c1">// an object: its public properties are matched to the columns without regard to case</span>
+<span class="n">db</span><span class="p">.</span><span class="n">CustomLogs</span><span class="p">.</span><span class="n">RecordObject</span><span class="p">(</span><span class="s">&quot;requests&quot;</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">Path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;/products&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">Status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">200</span><span class="p">,</span><span class="w"> </span><span class="n">Duration</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">12.5</span><span class="w"> </span><span class="p">});</span>
+
+<span class="c1">// a dictionary, with a time of its own</span>
+<span class="n">db</span><span class="p">.</span><span class="n">CustomLogs</span><span class="p">.</span><span class="n">Record</span><span class="p">(</span><span class="s">&quot;requests&quot;</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Dictionary</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="kt">object?</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">[</span><span class="s">&quot;path&quot;</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;/cart&quot;</span><span class="w"> </span><span class="p">},</span><span class="w"> </span><span class="n">timestampUtc</span><span class="p">:</span><span class="w"> </span><span class="n">startedUtc</span><span class="p">);</span>
+
+<span class="c1">// an entry, when the timestamp and the values are built elsewhere</span>
+<span class="n">db</span><span class="p">.</span><span class="n">CustomLogs</span><span class="p">.</span><span class="n">Record</span><span class="p">(</span><span class="s">&quot;requests&quot;</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">LogEntry</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">Timestamp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">startedUtc</span><span class="p">,</span><span class="w"> </span><span class="n">Values</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">[</span><span class="s">&quot;status&quot;</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">404</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">});</span>
+</code></pre></div>
+
+<p>Recording is cheap by design. A log that does not exist, or that is switched off, costs a dictionary
+lookup: <code>Record</code> returns <code>false</code> when there is no log with the key, and nothing else happens. A log
+that is on encodes the entry into a buffer; entries reach disk in batches — when a megabyte is
+buffered, and every half minute while the database is open — so a burst of a thousand requests is a
+thousand appends to memory, not a thousand writes. <code>Record(key, entry, flushToDisk: true)</code> writes one
+straight through, and <code>db.CustomLogs.FlushToDiskNow()</code> writes everything that is waiting.</p>
+<p><strong>Values are converted to their column's type</strong> when they are recorded, because the code that
+records rarely has exactly the type a log stores:</p>
+<table>
+<thead>
+<tr>
+<th>Column type</th>
+<th>What converts into it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Text</td>
+<td>anything: numbers and dates are written the same on every server (<code>1.5</code>, ISO 8601 in UTC), bytes as base64</td>
+</tr>
+<tr>
+<td>Whole number</td>
+<td><code>int</code>, <code>long</code> (clamped to the <code>int</code> range rather than wrapped), <code>short</code>, <code>byte</code>, enums, <code>bool</code> as 1/0, <code>double</code> and <code>decimal</code> rounded, numeric text</td>
+</tr>
+<tr>
+<td>Decimal number</td>
+<td>any number, <code>bool</code>, <code>TimeSpan</code> as milliseconds, numeric text — <code>NaN</code> and infinity are left out</td>
+</tr>
+<tr>
+<td>Date and time</td>
+<td><code>DateTime</code> (local times moved to UTC, unspecified ones taken as UTC), <code>DateTimeOffset</code>, <code>DateOnly</code>, ISO text</td>
+</tr>
+<tr>
+<td>Duration</td>
+<td><code>TimeSpan</code>, <code>TimeOnly</code>, a number as milliseconds, text like <code>00:01:30</code></td>
+</tr>
+<tr>
+<td>Bytes</td>
+<td><code>byte[]</code>, <code>Memory&lt;byte&gt;</code>, <code>ArraySegment&lt;byte&gt;</code>, text as UTF-8</td>
+</tr>
+</tbody>
+</table>
+<p>A value that is null, or has no reading as its column's type, is <strong>left out of the entry</strong> rather
+than recorded as a zero the statistics would count as a measurement nobody made. Values for keys
+the log does not declare are kept in the entry as they are (or as their text), which is what lets a
+log's definition change without losing what older entries carried. The entry's timestamp is stored
+in UTC whatever kind of <code>DateTime</code> it was.</p>
+<h3 id="323-statistics">32.3 Statistics<a class="anchor" href="#323-statistics" aria-label="Link to this section">#</a></h3>
+<p>Entries are the record; <strong>statistics</strong> are what the graphs are drawn from. They are aggregated as
+entries arrive — not when a graph asks — and kept per interval: per second, minute, hour, day, week
+and month at once, so a graph of the last five minutes and one of the last year are both instant,
+whatever the log holds. Every log counts its entries; each column adds the statistics it declares:</p>
+<table>
+<thead>
+<tr>
+<th>Statistic</th>
+<th>What it answers</th>
+<th>Column types</th>
+<th>What it costs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Count</strong></td>
+<td>how many entries had a value in the column</td>
+<td>all</td>
+<td>a number per interval</td>
+</tr>
+<tr>
+<td><strong>Total</strong> (<code>Sum</code>)</td>
+<td>the values added up</td>
+<td>numbers</td>
+<td>a number per interval</td>
+</tr>
+<tr>
+<td><strong>Average, min, max</strong> (<code>AvgMinMax</code>)</td>
+<td>the average, lowest and highest, drawn as a line in a band</td>
+<td>numbers</td>
+<td>a few numbers per interval</td>
+</tr>
+<tr>
+<td><strong>Count, total, average, min, max</strong> (<code>CountSumAvgMinMax</code>)</td>
+<td>all of the above in one statistic</td>
+<td>numbers</td>
+<td>a few numbers per interval</td>
+</tr>
+<tr>
+<td><strong>Count per value</strong> (<code>UniqueCountWithValues</code>)</td>
+<td>how often each value occurred — a status code, a level, a country — drawn as stacked bars</td>
+<td>all but bytes</td>
+<td>every value and its count: meant for columns with few distinct values (under a hundred or so); up to 5,000 values per interval, and older intervals keep their 50 most common</td>
+</tr>
+<tr>
+<td><strong>Unique count</strong> (<code>UniqueCountHashedValues</code>)</td>
+<td>how many different values there were — exact</td>
+<td>all but bytes</td>
+<td>a 64-bit hash per distinct value per interval, up to 50,000 of them</td>
+</tr>
+<tr>
+<td><strong>Unique count, estimated</strong> (<code>UniqueCountEstimate</code>)</td>
+<td>how many different values there were, within about one percent, however many — users, sessions, paths</td>
+<td>all but bytes</td>
+<td>a fixed amount of memory per interval, whatever the number: the HyperLogLog algorithm, <a href="#324-estimated-unique-counts-hyperloglog">§32.4</a></td>
+</tr>
+</tbody>
+</table>
+<p><strong>The level of statistical detail</strong> is how far back the statistics reach. A statistic keeps a fixed
+number of intervals of each size, and the level multiplies them: level 1 keeps 60 seconds, 60
+minutes, 48 hours, 60 days, 52 weeks and 60 months; level 3 — the default for a new log — three
+times that: per second for 3 minutes, per minute for 3 hours, per hour for 6 days, per day for 6
+months, per week for 3 years and per month for 15 years. A graph asking further back at a fine
+bucket gets what is kept and says so, which is why a long range is drawn in a coarser bucket rather
+than the same one zoomed out. More detail costs memory (the current intervals are held while the
+log is open) and disk (the statistics file is saved about once a minute).</p>
+<p>Three things follow from statistics being aggregated as entries arrive:</p>
+<ul>
+<li><strong>A statistic added to a log covers what is recorded from then on.</strong> The entries recorded before
+  can be counted into it by rebuilding the statistics from them — offered when the definition is
+  saved, and on the log's Data page (<em>Rebuild the statistics</em>). A rebuild reads every entry once:
+  about a second per hundred thousand entries.</li>
+<li><strong>Entries may arrive out of order.</strong> One recorded with an older timestamp — several threads
+  recording at once, or a time of its own — is counted in its own interval, as long as the statistic
+  still keeps that interval. Older than that, it is in the entries but in no graph; and a unique
+  count of an interval that has already been closed (see below) cannot take one more value, so it is
+  skipped there until a rebuild.</li>
+<li><strong>Statistics off means nothing is aggregated,</strong> and what was kept is not read until they are
+  switched back on — at which point they continue from where they stopped, with a gap.</li>
+</ul>
+<h3 id="324-estimated-unique-counts-hyperloglog">32.4 Estimated unique counts: HyperLogLog<a class="anchor" href="#324-estimated-unique-counts-hyperloglog" aria-label="Link to this section">#</a></h3>
+<p>Counting how many <em>different</em> values there were — distinct users in an hour, distinct paths in a
+day — is the one question a log cannot answer from a running total. An exact answer has to remember
+every value it has seen, to know whether the next one is new, so it grows with the data: a busy site
+has millions of sessions a month. The estimated unique count answers it from a summary of a fixed
+size instead, using the <strong>HyperLogLog</strong> algorithm (Flajolet, Fusy, Gandouet and Meunier, 2007).</p>
+<p>The idea is that a good hash makes every value look like a random number, and the random numbers
+say something about how many values produced them. Of all hashes, half end in a 1 bit, a quarter in
+<code>10</code>, an eighth in <code>100</code>: a run of <em>k</em> zero bits turns up about once in 2<sup>k</sup> values. So the
+longest run seen is a rough measure of how many distinct values went by — and a value seen twice
+has the same hash both times, so repeats change nothing, which is exactly what makes it count
+<em>distinct</em> values rather than entries. One such measure is far too noisy on its own (one lucky hash
+and the guess doubles), so HyperLogLog keeps many:</p>
+<ol>
+<li>Each value is hashed to 32 bits.</li>
+<li>The first 14 bits pick one of 2<sup>14</sup> = <strong>16,384 registers</strong>; the value only ever touches
+   that one register.</li>
+<li>The rest of the hash is looked at for its run of zero bits, and the register keeps the longest
+   run it has been shown.</li>
+<li>The estimate combines all the registers — a harmonic mean of 2<sup>run</sup> over them, which
+   keeps a few lucky registers from dominating, times a constant that corrects the method's known
+   bias. While most registers are still empty (few values so far) it uses <em>linear counting</em>
+   instead: the share of registers still untouched says how many values it took to touch the rest.</li>
+</ol>
+<p>The standard error is 1.04/√<em>m</em> for <em>m</em> registers — about 0.8 % with 16,384 of them, which is where
+"within about one percent" comes from — and it holds for a hundred values and for a hundred million alike. The
+memory does not grow at all: 16,384 small registers, 64 KB per interval, however many values went
+into it. Two refinements keep that cheap in practice, because a log keeps an estimate for every
+second, minute and hour it keeps, and most of those see a handful of values:</p>
+<ul>
+<li><strong>An interval with few values keeps their hashes instead</strong>, and makes the registers only when it
+  has seen more than 1,024 different values. The estimate it gives is the one the registers would
+  give (the linear counting above needs only how many registers are touched), so the switch changes
+  no number.</li>
+<li><strong>An interval that is over keeps only its number.</strong> Once the next interval has begun, the
+  registers of the last one are condensed into the estimate they give — which is also why an entry
+  arriving late for a closed interval cannot be added to it.</li>
+</ul>
+<p>What it cannot do is <strong>add up</strong>. The number of different users in a day is not the sum of the
+numbers per hour — the same user in two hours is one user for the day — so an estimated (or exact)
+unique count has no total over a range, and the graph shows one value per interval. Ask the question
+at the size it is meant: <em>distinct users per day</em> is a graph drawn with one point per day. Which
+unique count to declare:</p>
+<ul>
+<li><strong>Count per value</strong> for a column with a few distinct values you want to see by name.</li>
+<li><strong>Unique count</strong> when the number must be exact and stays in the thousands per interval.</li>
+<li><strong>Unique count, estimated</strong> for anything that can grow — users, sessions, paths, search terms.</li>
+</ul>
+<h3 id="325-reading-a-log">32.5 Reading a log<a class="anchor" href="#325-reading-a-log" aria-label="Link to this section">#</a></h3>
+<p>Each log has a page of its own under Logs, with the <em>Record</em> and <em>Statistics</em> switches at the top and
+five views of the same log. The graphs, the entries and the analysis share one time range: one of
+the ranges that end now (5 minutes to 12 months, following the clock while <em>Live</em> is on), two
+moments typed in, or an interval picked on a graph.</p>
+<table>
+<thead>
+<tr>
+<th>View</th>
+<th>What it shows</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Graphs</strong></td>
+<td>Tiles that sum the range up (entries, the busiest interval, averages, the most common values), then a graph per statistic: bars or a line for counts and totals; the average with its min–max band, or any one of count, total, min and max; a breakdown per value as stacked bars, or as shares of each interval. The bucket size follows the range or is chosen. Clicking an interval opens its entries. Each graph downloads as CSV.</td>
+</tr>
+<tr>
+<td><strong>Entries</strong></td>
+<td>The entries of the range, newest (or oldest) first. The search box reads the whole range on the server — <code>timeout</code>, <code>get*nodes</code>, <code>"could not open"</code>, <code>-shutdown</code>, <code>status:500</code>; terms must all hold, <code>*</code> and <code>?</code> are wildcards, <code>column:term</code> searches one column — and the fields under the headings filter what the browser holds. Columns can be hidden and dragged wider. <em>Live</em> marks new entries as they arrive. An entry opens to all of it, with ways to filter or search by any of its values or show what else was recorded around it. <em>Download</em> writes the range or the whole log as tab separated, comma separated or JSON lines.</td>
+</tr>
+<tr>
+<td><strong>Analyse</strong></td>
+<td>How one column's values are spread, read from the entries themselves — what statistics cannot say. Numbers and durations get percentiles (median, 90th, 99th…) and a histogram, text its most common values (click one to list its entries). It reads the newest entries of the range up to a limit (200,000 by default) and says when it stopped.</td>
+</tr>
+<tr>
+<td><strong>Definition</strong></td>
+<td>The form, the JSON of the settings file, and the application code that records into the log, written for its columns.</td>
+</tr>
+<tr>
+<td><strong>Data</strong></td>
+<td><em>Try it out</em> — record a test entry, or up to a million made-up ones, spread over a stretch of time with plausible values for every column, to see the graphs before the application records anything. <em>Clean up</em> — delete older entries, every entry, the statistics; rebuild the statistics; write to disk now. The definition file, and the log's files on disk with a download each.</td>
+</tr>
+</tbody>
+</table>
+<p>From code, <code>db.CustomLogs.LogStore</code> is the <code>ILogStore</code> behind the page, with the same reads:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Logging.Statistics</span><span class="p">;</span><span class="w">   </span><span class="c1">// IntervalType</span>
+
+<span class="kt">var</span><span class="w"> </span><span class="n">store</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">CustomLogs</span><span class="p">.</span><span class="n">LogStore</span><span class="p">;</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">to</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">DateTime</span><span class="p">.</span><span class="n">UtcNow</span><span class="p">;</span>
+<span class="kt">var</span><span class="w"> </span><span class="k">from</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">to</span><span class="p">.</span><span class="n">AddDays</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">);</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">newest</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">store</span><span class="p">.</span><span class="n">ExtractLog</span><span class="p">(</span><span class="s">&quot;requests&quot;</span><span class="p">,</span><span class="w"> </span><span class="k">from</span><span class="p">,</span><span class="w"> </span><span class="n">to</span><span class="p">,</span><span class="w"> </span><span class="n">skip</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="n">take</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span><span class="w"> </span><span class="n">orderByDescendingDates</span><span class="p">:</span><span class="w"> </span><span class="k">true</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">inRange</span><span class="p">);</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">failed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">store</span><span class="p">.</span><span class="n">SearchLog</span><span class="p">(</span><span class="s">&quot;requests&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;status:5??&quot;</span><span class="p">,</span><span class="w"> </span><span class="k">from</span><span class="p">,</span><span class="w"> </span><span class="n">to</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span><span class="w"> </span><span class="k">true</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">failures</span><span class="p">);</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">perHour</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">store</span><span class="p">.</span><span class="n">AnalyseRows</span><span class="p">(</span><span class="s">&quot;requests&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">IntervalType</span><span class="p">.</span><span class="n">Hour</span><span class="p">,</span><span class="w"> </span><span class="k">from</span><span class="p">,</span><span class="w"> </span><span class="n">to</span><span class="p">,</span><span class="w"> </span><span class="n">estimateNowInterval</span><span class="p">:</span><span class="w"> </span><span class="k">false</span><span class="p">,</span><span class="w"> </span><span class="n">fillInBlanks</span><span class="p">:</span><span class="w"> </span><span class="k">true</span><span class="p">);</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">users</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">store</span><span class="p">.</span><span class="n">AnalyseEstimatedUniqueCounts</span><span class="p">(</span><span class="s">&quot;requests&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;user&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">IntervalType</span><span class="p">.</span><span class="n">Day</span><span class="p">,</span><span class="w"> </span><span class="k">from</span><span class="p">.</span><span class="n">AddDays</span><span class="p">(</span><span class="o">-</span><span class="mi">29</span><span class="p">),</span><span class="w"> </span><span class="n">to</span><span class="p">,</span><span class="w"> </span><span class="k">false</span><span class="p">,</span><span class="w"> </span><span class="k">true</span><span class="p">);</span>
+</code></pre></div>
+
+<p>A search, like a page of entries, reads the records of the range it is given — nothing is indexed,
+so it can ask anything, and the range is what bounds its cost. Only the page asked for is held in
+memory while that happens: the newest hundred of a million entries are a hundred entries in memory.</p>
+<h3 id="326-changing-a-definition">32.6 Changing a definition<a class="anchor" href="#326-changing-a-definition" aria-label="Link to this section">#</a></h3>
+<p>A log's definition can change while it has entries. Saving a change asks the server first what it
+does to what is recorded, and the confirmation lists it; nothing is lost that the list does not name.</p>
+<table>
+<thead>
+<tr>
+<th>Change</th>
+<th>What happens to what is recorded</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Name, description, text copy, compression</td>
+<td>Nothing: compression and the text copy apply to what is written from then on.</td>
+</tr>
+<tr>
+<td>A column added</td>
+<td>The entries recorded so far have no value for it.</td>
+</tr>
+<tr>
+<td>A column removed</td>
+<td>Its values stay in the entries they were recorded with (the entry view shows them); its statistics are dropped.</td>
+</tr>
+<tr>
+<td>A column's type</td>
+<td>Old values are read as the new type where they convert, and shown as they were stored where they do not. A column with statistics has them rebuilt from the entries — what they held was aggregated as the old type.</td>
+</tr>
+<tr>
+<td>A statistic added</td>
+<td>It starts empty; the confirmation offers to rebuild the statistics from the entries.</td>
+</tr>
+<tr>
+<td>A statistic removed</td>
+<td>What it held is dropped.</td>
+</tr>
+<tr>
+<td>The level of detail, the first day of the week</td>
+<td>Every statistic starts over at the new setting; a rebuild is offered.</td>
+</tr>
+<tr>
+<td>The file interval</td>
+<td>Every entry is moved into files of the new size — read and written once, which takes a while on a large log.</td>
+</tr>
+<tr>
+<td>A tighter age or size limit</td>
+<td>The files past it are deleted at the next cleanup, within a minute.</td>
+</tr>
+</tbody>
+</table>
+<p>In code this is <code>PlanUpdate(settings)</code> — the same consequences as sentences, without doing anything
+— and <code>Update(settings, rebuildStatistics)</code>. <code>SetEnabled(key, log, statistics)</code> flips the switches
+and saves them.</p>
+<h3 id="327-files-limits-and-cleaning-up">32.7 Files, limits and cleaning up<a class="anchor" href="#327-files-limits-and-cleaning-up" aria-label="Link to this section">#</a></h3>
+<p>A log lives in the log folder as a handful of files, all named after its key:</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>log.&lt;key&gt;.settings.json</code></td>
+<td>The definition.</td>
+</tr>
+<tr>
+<td><code>log.&lt;key&gt;.&lt;interval&gt;.&lt;time&gt;.bin</code></td>
+<td>The entries, one file per minute, hour, day or month: <code>log.requests.hour.2026-09-26-14.bin</code>.</td>
+</tr>
+<tr>
+<td><code>log.&lt;key&gt;.&lt;interval&gt;.&lt;time&gt;.txt</code></td>
+<td>The text copies, when they are on.</td>
+</tr>
+<tr>
+<td><code>log.&lt;key&gt;.statistics.bin</code> (and <code>.bkup</code>)</td>
+<td>The statistics, saved about once a minute, with the previous save kept beside them.</td>
+</tr>
+</tbody>
+</table>
+<p>While the database is open, a cleanup runs about once a minute: the statistics are saved, the files
+older than the age limit are deleted, and the oldest files go when the entries grow past the size
+limit — whole files each time, never the one being written. <em>Delete older entries</em> on the Data page
+works the same way, by whole files older than the moment chosen.</p>
+<p>Deleting a log asks what should go with it: <strong>the definition only</strong> leaves the entries and
+statistics on disk, and a log created again with the same key picks them up; <strong>everything</strong> deletes
+them too. The Logs page works while the database is closed — definitions can be made and changed,
+entries read and test entries recorded — but the application records only through an open store.</p>
+<p>A few things to know:</p>
+<ul>
+<li><strong>A value that does not convert is left out silently.</strong> A column that stays empty on the Entries
+  page is usually a value of the wrong kind — text that is not a number in a number column.</li>
+<li><strong>The key is forever.</strong> It names the files; renaming would orphan them. Duplicate the log instead.</li>
+<li><strong>Unique counts have no totals.</strong> Pick the bucket size the question needs (see <a href="#324-estimated-unique-counts-hyperloglog">§32.4</a>).</li>
+<li><strong>Made-up entries mix with real ones.</strong> They are for trying a definition out; they go only with
+  the entries of their time.</li>
+<li><strong>Search costs the range.</strong> A search of the last hour is instant, of a busy month a wait.</li>
+</ul>
+<p>The activity logs on the Activity page work the same way, with two differences: they are defined by
+the database itself, and a switch flipped there is live at once but kept across a restart only when
+<em>Save and remember changes</em> writes it to <code>relatude.db.json</code> (<code>LogRecording</code>,
+<a href="#121-every-setting-in-relatudedbjson">§12.1</a>).</p>
+<hr />
 <h2 id="where-to-look-when-this-manual-runs-out">Where to look when this manual runs out<a class="anchor" href="#where-to-look-when-this-manual-runs-out" aria-label="Link to this section">#</a></h2>
 <p>The public documentation is still thin and the API is pre-1.0. When something here does not match
 your build, read the source — it is small and well commented:</p>
@@ -5252,6 +5739,10 @@ your build, read the source — it is small and well commented:</p>
 <td>The command line tool</td>
 <td><code>src/Relatude.DB.Console/</code> — <code>relatude help all</code> for its reference</td>
 </tr>
+<tr>
+<td>Logs, statistics and HyperLogLog</td>
+<td><code>src/Relatude.DB.Logger/Logging/</code> — <code>ICustomLogs.cs</code>, <code>LogSettings.cs</code>, <code>LogValues.cs</code>, <code>Statistics/HyperLogLog.cs</code></td>
+</tr>
 </tbody>
 </table>
 <p>For measured numbers rather than API surface, see the
@@ -5266,7 +5757,7 @@ corpus size and cache budget, with throughput, recall, restart cost and memory f
 (function () {
   "use strict";
 
-  var NAV = [{"level": 1, "text": "Data Modelling & Querying with Relatude.DB", "id": "data-modelling-querying-with-relatudedb", "children": []}, {"level": 1, "text": "Part I — Data modelling", "id": "part-i-data-modelling", "children": [{"level": 2, "text": "1. The mental model", "id": "1-the-mental-model", "children": [{"level": 3, "text": "Interfaces are the model", "id": "interfaces-are-the-model", "children": []}]}, {"level": 2, "text": "2. Your first node type", "id": "2-your-first-node-type", "children": [{"level": 3, "text": "Why interfaces are the better default", "id": "why-interfaces-are-the-better-default", "children": []}, {"level": 3, "text": "Multiple inheritance with interfaces", "id": "multiple-inheritance-with-interfaces", "children": []}, {"level": 3, "text": "Querying across the hierarchy", "id": "querying-across-the-hierarchy", "children": []}, {"level": 3, "text": "Two constraints to design around", "id": "two-constraints-to-design-around", "children": []}, {"level": 3, "text": "When you do want a class", "id": "when-you-do-want-a-class", "children": []}, {"level": 3, "text": "Optional: stable type ids", "id": "optional-stable-type-ids", "children": []}]}, {"level": 2, "text": "3. Scalar properties and their attributes", "id": "3-scalar-properties-and-their-attributes", "children": [{"level": 3, "text": "The attribute catalogue", "id": "the-attribute-catalogue", "children": []}, {"level": 3, "text": "Strings", "id": "strings", "children": []}, {"level": 3, "text": "Numbers", "id": "numbers", "children": []}, {"level": 3, "text": "Enums", "id": "enums", "children": []}, {"level": 3, "text": "Validation happens on write", "id": "validation-happens-on-write", "children": []}]}, {"level": 2, "text": "4. Marker properties", "id": "4-marker-properties", "children": [{"level": 3, "text": "What lives in NodeMeta", "id": "what-lives-in-nodemeta", "children": []}]}, {"level": 2, "text": "5. Geo coordinates", "id": "5-geo-coordinates", "children": [{"level": 3, "text": "Constructing and reading", "id": "constructing-and-reading", "children": []}, {"level": 3, "text": "The empty value", "id": "the-empty-value", "children": []}, {"level": 3, "text": "Distance and radius tests", "id": "distance-and-radius-tests", "children": []}, {"level": 3, "text": "How it is stored (and what that implies)", "id": "how-it-is-stored-and-what-that-implies", "children": []}, {"level": 3, "text": "JSON shape", "id": "json-shape", "children": []}, {"level": 3, "text": "Seeing them", "id": "seeing-them", "children": []}]}, {"level": 2, "text": "6. Files", "id": "6-files", "children": []}, {"level": 2, "text": "7. Embedded data", "id": "7-embedded-data", "children": [{"level": 3, "text": "Embedded<T> — a collection keyed by the embedded object's own Guid Id", "id": "embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id", "children": []}, {"level": 3, "text": "EmbeddedMap<TKey, TValue> — a collection keyed by a property of the value", "id": "embeddedmap-a-collection-keyed-by-a-property-of-the-value", "children": []}, {"level": 3, "text": "Working with an embedded map", "id": "working-with-an-embedded-map", "children": []}]}, {"level": 2, "text": "8. References — lightweight pointers", "id": "8-references-lightweight-pointers", "children": [{"level": 3, "text": "Reading and writing a Reference<T>", "id": "reading-and-writing-a-reference", "children": []}, {"level": 3, "text": "Reading and writing a References<T>", "id": "reading-and-writing-a-references", "children": []}]}, {"level": 2, "text": "9. Relations — the graph edges", "id": "9-relations-the-graph-edges", "children": [{"level": 3, "text": "The five shapes", "id": "the-five-shapes", "children": []}, {"level": 3, "text": "Using them on node types", "id": "using-them-on-node-types", "children": []}, {"level": 3, "text": "The \"one\" side API", "id": "the-one-side-api", "children": []}, {"level": 3, "text": "The \"many\" side API", "id": "the-many-side-api", "children": []}, {"level": 3, "text": "9.1 Relation lists are ordered", "id": "91-relation-lists-are-ordered", "children": []}, {"level": 3, "text": "Relation options", "id": "relation-options", "children": []}]}, {"level": 2, "text": "10. Choosing between relation, reference and embedded", "id": "10-choosing-between-relation-reference-and-embedded", "children": []}, {"level": 2, "text": "11. The complete example model", "id": "11-the-complete-example-model", "children": [{"level": 3, "text": "11.1 The same model with facet interfaces", "id": "111-the-same-model-with-facet-interfaces", "children": []}]}, {"level": 2, "text": "12. Registering the model & the admin UI", "id": "12-registering-the-model-the-admin-ui", "children": [{"level": 3, "text": "Server-hosted (the usual case)", "id": "server-hosted-the-usual-case", "children": []}, {"level": 3, "text": "relatude.db.json", "id": "relatudedbjson", "children": []}, {"level": 3, "text": "12.1 Every setting in relatude.db.json", "id": "121-every-setting-in-relatudedbjson", "children": []}, {"level": 3, "text": "Overriding settings from configuration", "id": "overriding-settings-from-configuration", "children": []}, {"level": 3, "text": "Options and events in Program.cs", "id": "options-and-events-in-programcs", "children": []}, {"level": 3, "text": "Two ways to register a datamodel", "id": "two-ways-to-register-a-datamodel", "children": []}, {"level": 3, "text": "The admin UI", "id": "the-admin-ui", "children": []}, {"level": 3, "text": "Programmatic / embedded", "id": "programmatic-embedded", "children": []}, {"level": 3, "text": "What the model builder validates", "id": "what-the-model-builder-validates", "children": []}, {"level": 3, "text": "Do not redefine the native types", "id": "do-not-redefine-the-native-types", "children": []}]}]}, {"level": 1, "text": "Part II — Writing data", "id": "part-ii-writing-data", "children": [{"level": 2, "text": "13. Create, insert, update, delete", "id": "13-create-insert-update-delete", "children": [{"level": 3, "text": "Read", "id": "read", "children": []}, {"level": 3, "text": "Update, upsert, delete", "id": "update-upsert-delete", "children": []}]}, {"level": 2, "text": "14. Relating nodes", "id": "14-relating-nodes", "children": [{"level": 3, "text": "Which verb", "id": "which-verb", "children": []}]}, {"level": 2, "text": "15. Transactions", "id": "15-transactions", "children": [{"level": 3, "text": "Transaction plugins", "id": "transaction-plugins", "children": []}]}, {"level": 2, "text": "16. Older versions of a node", "id": "16-older-versions-of-a-node", "children": [{"level": 3, "text": "16.1 Reverting the database to an earlier point", "id": "161-reverting-the-database-to-an-earlier-point", "children": []}]}, {"level": 2, "text": "17. Uploading files", "id": "17-uploading-files", "children": [{"level": 3, "text": "Very large files", "id": "very-large-files", "children": []}, {"level": 3, "text": "Serving and converting", "id": "serving-and-converting", "children": []}, {"level": 3, "text": "Light and dark mode", "id": "light-and-dark-mode", "children": []}, {"level": 3, "text": "Serving it", "id": "serving-it", "children": []}]}, {"level": 2, "text": "18. URLs and the URL manager", "id": "18-urls-and-the-url-manager", "children": [{"level": 3, "text": "Configuring it", "id": "configuring-it", "children": []}, {"level": 3, "text": "Where the path comes from", "id": "where-the-path-comes-from", "children": []}, {"level": 3, "text": "Address uniqueness", "id": "address-uniqueness", "children": []}, {"level": 3, "text": "Page URL formats", "id": "page-url-formats", "children": []}, {"level": 3, "text": "Prefixes", "id": "prefixes", "children": []}, {"level": 3, "text": "18.1 Asset URLs: files, variants and deeplinks", "id": "181-asset-urls-files-variants-and-deeplinks", "children": []}, {"level": 3, "text": "18.2 Links inside HTML and Markdown", "id": "182-links-inside-html-and-markdown", "children": []}, {"level": 3, "text": "Writing your own manager", "id": "writing-your-own-manager", "children": []}, {"level": 3, "text": "The middleware that serves it", "id": "the-middleware-that-serves-it", "children": []}]}]}, {"level": 1, "text": "Part III — Querying", "id": "part-iii-querying", "children": [{"level": 2, "text": "19. Query anatomy", "id": "19-query-anatomy", "children": [{"level": 3, "text": "Queries are immutable", "id": "queries-are-immutable", "children": []}, {"level": 3, "text": "Entry points", "id": "entry-points", "children": []}, {"level": 3, "text": "Executing", "id": "executing", "children": []}]}, {"level": 2, "text": "20. Filtering with Where", "id": "20-filtering-with-where", "children": []}, {"level": 2, "text": "21. Text and semantic search", "id": "21-text-and-semantic-search", "children": [{"level": 3, "text": "WhereSearch — search as a filter", "id": "wheresearch-search-as-a-filter", "children": []}, {"level": 3, "text": "Search — search as ranking", "id": "search-search-as-ranking", "children": []}, {"level": 3, "text": "What actually gets searched", "id": "what-actually-gets-searched", "children": []}]}, {"level": 2, "text": "22. Geo queries", "id": "22-geo-queries", "children": [{"level": 3, "text": "Sorting by distance", "id": "sorting-by-distance", "children": []}, {"level": 3, "text": "A widening search", "id": "a-widening-search", "children": []}, {"level": 3, "text": "Things to remember about geo filters", "id": "things-to-remember-about-geo-filters", "children": []}]}, {"level": 2, "text": "23. Relation filters", "id": "23-relation-filters", "children": []}, {"level": 2, "text": "24. Eager loading: Include and Preload", "id": "24-eager-loading-include-and-preload", "children": [{"level": 3, "text": "Going deeper: ThenInclude / ThenPreload", "id": "going-deeper-theninclude-thenpreload", "children": []}, {"level": 3, "text": "Filtering what gets included", "id": "filtering-what-gets-included", "children": []}, {"level": 3, "text": "When you only need ids", "id": "when-you-only-need-ids", "children": []}]}, {"level": 2, "text": "25. Graph traversal and shortest path", "id": "25-graph-traversal-and-shortest-path", "children": [{"level": 3, "text": "Traverse", "id": "traverse", "children": []}, {"level": 3, "text": "ShortestPath", "id": "shortestpath", "children": []}]}, {"level": 2, "text": "26. Sorting, paging and result sets", "id": "26-sorting-paging-and-result-sets", "children": [{"level": 3, "text": "Paging", "id": "paging", "children": []}, {"level": 3, "text": "ResultSet<T>", "id": "resultset", "children": []}]}, {"level": 2, "text": "27. Aggregates", "id": "27-aggregates", "children": []}, {"level": 2, "text": "28. Faceted search", "id": "28-faceted-search", "children": [{"level": 3, "text": "Applying the user's selection", "id": "applying-the-users-selection", "children": []}, {"level": 3, "text": "Facet declaration methods", "id": "facet-declaration-methods", "children": []}, {"level": 3, "text": "Where the un-named facets come from", "id": "where-the-un-named-facets-come-from", "children": []}, {"level": 3, "text": "28.1 Pivot tables", "id": "281-pivot-tables", "children": []}, {"level": 3, "text": "28.2 GroupBy", "id": "282-groupby", "children": []}]}, {"level": 2, "text": "29. Cultures, visibility and scoped stores", "id": "29-cultures-visibility-and-scoped-stores", "children": []}, {"level": 2, "text": "30. Pitfalls and gotchas", "id": "30-pitfalls-and-gotchas", "children": []}]}, {"level": 1, "text": "Part IV — Tooling", "id": "part-iv-tooling", "children": [{"level": 2, "text": "31. The command line tool", "id": "31-the-command-line-tool", "children": [{"level": 3, "text": "Two things every command needs to know", "id": "two-things-every-command-needs-to-know", "children": []}, {"level": 3, "text": "The commands", "id": "the-commands", "children": []}, {"level": 3, "text": "What it does not do", "id": "what-it-does-not-do", "children": []}, {"level": 3, "text": "Things worth knowing", "id": "things-worth-knowing", "children": []}]}, {"level": 2, "text": "Where to look when this manual runs out", "id": "where-to-look-when-this-manual-runs-out", "children": []}]}];
+  var NAV = [{"level": 1, "text": "Data Modelling & Querying with Relatude.DB", "id": "data-modelling-querying-with-relatudedb", "children": []}, {"level": 1, "text": "Part I — Data modelling", "id": "part-i-data-modelling", "children": [{"level": 2, "text": "1. The mental model", "id": "1-the-mental-model", "children": [{"level": 3, "text": "Interfaces are the model", "id": "interfaces-are-the-model", "children": []}]}, {"level": 2, "text": "2. Your first node type", "id": "2-your-first-node-type", "children": [{"level": 3, "text": "Why interfaces are the better default", "id": "why-interfaces-are-the-better-default", "children": []}, {"level": 3, "text": "Multiple inheritance with interfaces", "id": "multiple-inheritance-with-interfaces", "children": []}, {"level": 3, "text": "Querying across the hierarchy", "id": "querying-across-the-hierarchy", "children": []}, {"level": 3, "text": "Two constraints to design around", "id": "two-constraints-to-design-around", "children": []}, {"level": 3, "text": "When you do want a class", "id": "when-you-do-want-a-class", "children": []}, {"level": 3, "text": "Optional: stable type ids", "id": "optional-stable-type-ids", "children": []}]}, {"level": 2, "text": "3. Scalar properties and their attributes", "id": "3-scalar-properties-and-their-attributes", "children": [{"level": 3, "text": "The attribute catalogue", "id": "the-attribute-catalogue", "children": []}, {"level": 3, "text": "Strings", "id": "strings", "children": []}, {"level": 3, "text": "Numbers", "id": "numbers", "children": []}, {"level": 3, "text": "Enums", "id": "enums", "children": []}, {"level": 3, "text": "Validation happens on write", "id": "validation-happens-on-write", "children": []}]}, {"level": 2, "text": "4. Marker properties", "id": "4-marker-properties", "children": [{"level": 3, "text": "What lives in NodeMeta", "id": "what-lives-in-nodemeta", "children": []}]}, {"level": 2, "text": "5. Geo coordinates", "id": "5-geo-coordinates", "children": [{"level": 3, "text": "Constructing and reading", "id": "constructing-and-reading", "children": []}, {"level": 3, "text": "The empty value", "id": "the-empty-value", "children": []}, {"level": 3, "text": "Distance and radius tests", "id": "distance-and-radius-tests", "children": []}, {"level": 3, "text": "How it is stored (and what that implies)", "id": "how-it-is-stored-and-what-that-implies", "children": []}, {"level": 3, "text": "JSON shape", "id": "json-shape", "children": []}, {"level": 3, "text": "Seeing them", "id": "seeing-them", "children": []}]}, {"level": 2, "text": "6. Files", "id": "6-files", "children": []}, {"level": 2, "text": "7. Embedded data", "id": "7-embedded-data", "children": [{"level": 3, "text": "Embedded<T> — a collection keyed by the embedded object's own Guid Id", "id": "embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id", "children": []}, {"level": 3, "text": "EmbeddedMap<TKey, TValue> — a collection keyed by a property of the value", "id": "embeddedmap-a-collection-keyed-by-a-property-of-the-value", "children": []}, {"level": 3, "text": "Working with an embedded map", "id": "working-with-an-embedded-map", "children": []}]}, {"level": 2, "text": "8. References — lightweight pointers", "id": "8-references-lightweight-pointers", "children": [{"level": 3, "text": "Reading and writing a Reference<T>", "id": "reading-and-writing-a-reference", "children": []}, {"level": 3, "text": "Reading and writing a References<T>", "id": "reading-and-writing-a-references", "children": []}]}, {"level": 2, "text": "9. Relations — the graph edges", "id": "9-relations-the-graph-edges", "children": [{"level": 3, "text": "The five shapes", "id": "the-five-shapes", "children": []}, {"level": 3, "text": "Using them on node types", "id": "using-them-on-node-types", "children": []}, {"level": 3, "text": "The \"one\" side API", "id": "the-one-side-api", "children": []}, {"level": 3, "text": "The \"many\" side API", "id": "the-many-side-api", "children": []}, {"level": 3, "text": "9.1 Relation lists are ordered", "id": "91-relation-lists-are-ordered", "children": []}, {"level": 3, "text": "Relation options", "id": "relation-options", "children": []}]}, {"level": 2, "text": "10. Choosing between relation, reference and embedded", "id": "10-choosing-between-relation-reference-and-embedded", "children": []}, {"level": 2, "text": "11. The complete example model", "id": "11-the-complete-example-model", "children": [{"level": 3, "text": "11.1 The same model with facet interfaces", "id": "111-the-same-model-with-facet-interfaces", "children": []}]}, {"level": 2, "text": "12. Registering the model & the admin UI", "id": "12-registering-the-model-the-admin-ui", "children": [{"level": 3, "text": "Server-hosted (the usual case)", "id": "server-hosted-the-usual-case", "children": []}, {"level": 3, "text": "relatude.db.json", "id": "relatudedbjson", "children": []}, {"level": 3, "text": "12.1 Every setting in relatude.db.json", "id": "121-every-setting-in-relatudedbjson", "children": []}, {"level": 3, "text": "Overriding settings from configuration", "id": "overriding-settings-from-configuration", "children": []}, {"level": 3, "text": "Options and events in Program.cs", "id": "options-and-events-in-programcs", "children": []}, {"level": 3, "text": "Two ways to register a datamodel", "id": "two-ways-to-register-a-datamodel", "children": []}, {"level": 3, "text": "The admin UI", "id": "the-admin-ui", "children": []}, {"level": 3, "text": "Programmatic / embedded", "id": "programmatic-embedded", "children": []}, {"level": 3, "text": "What the model builder validates", "id": "what-the-model-builder-validates", "children": []}, {"level": 3, "text": "Do not redefine the native types", "id": "do-not-redefine-the-native-types", "children": []}]}]}, {"level": 1, "text": "Part II — Writing data", "id": "part-ii-writing-data", "children": [{"level": 2, "text": "13. Create, insert, update, delete", "id": "13-create-insert-update-delete", "children": [{"level": 3, "text": "Read", "id": "read", "children": []}, {"level": 3, "text": "Update, upsert, delete", "id": "update-upsert-delete", "children": []}]}, {"level": 2, "text": "14. Relating nodes", "id": "14-relating-nodes", "children": [{"level": 3, "text": "Which verb", "id": "which-verb", "children": []}]}, {"level": 2, "text": "15. Transactions", "id": "15-transactions", "children": [{"level": 3, "text": "Transaction plugins", "id": "transaction-plugins", "children": []}]}, {"level": 2, "text": "16. Older versions of a node", "id": "16-older-versions-of-a-node", "children": [{"level": 3, "text": "16.1 Reverting the database to an earlier point", "id": "161-reverting-the-database-to-an-earlier-point", "children": []}]}, {"level": 2, "text": "17. Uploading files", "id": "17-uploading-files", "children": [{"level": 3, "text": "Very large files", "id": "very-large-files", "children": []}, {"level": 3, "text": "Serving and converting", "id": "serving-and-converting", "children": []}, {"level": 3, "text": "Light and dark mode", "id": "light-and-dark-mode", "children": []}, {"level": 3, "text": "Serving it", "id": "serving-it", "children": []}]}, {"level": 2, "text": "18. URLs and the URL manager", "id": "18-urls-and-the-url-manager", "children": [{"level": 3, "text": "Configuring it", "id": "configuring-it", "children": []}, {"level": 3, "text": "Where the path comes from", "id": "where-the-path-comes-from", "children": []}, {"level": 3, "text": "Address uniqueness", "id": "address-uniqueness", "children": []}, {"level": 3, "text": "Page URL formats", "id": "page-url-formats", "children": []}, {"level": 3, "text": "Prefixes", "id": "prefixes", "children": []}, {"level": 3, "text": "18.1 Asset URLs: files, variants and deeplinks", "id": "181-asset-urls-files-variants-and-deeplinks", "children": []}, {"level": 3, "text": "18.2 Links inside HTML and Markdown", "id": "182-links-inside-html-and-markdown", "children": []}, {"level": 3, "text": "Writing your own manager", "id": "writing-your-own-manager", "children": []}, {"level": 3, "text": "The middleware that serves it", "id": "the-middleware-that-serves-it", "children": []}]}]}, {"level": 1, "text": "Part III — Querying", "id": "part-iii-querying", "children": [{"level": 2, "text": "19. Query anatomy", "id": "19-query-anatomy", "children": [{"level": 3, "text": "Queries are immutable", "id": "queries-are-immutable", "children": []}, {"level": 3, "text": "Entry points", "id": "entry-points", "children": []}, {"level": 3, "text": "Executing", "id": "executing", "children": []}]}, {"level": 2, "text": "20. Filtering with Where", "id": "20-filtering-with-where", "children": []}, {"level": 2, "text": "21. Text and semantic search", "id": "21-text-and-semantic-search", "children": [{"level": 3, "text": "WhereSearch — search as a filter", "id": "wheresearch-search-as-a-filter", "children": []}, {"level": 3, "text": "Search — search as ranking", "id": "search-search-as-ranking", "children": []}, {"level": 3, "text": "What actually gets searched", "id": "what-actually-gets-searched", "children": []}]}, {"level": 2, "text": "22. Geo queries", "id": "22-geo-queries", "children": [{"level": 3, "text": "Sorting by distance", "id": "sorting-by-distance", "children": []}, {"level": 3, "text": "A widening search", "id": "a-widening-search", "children": []}, {"level": 3, "text": "Things to remember about geo filters", "id": "things-to-remember-about-geo-filters", "children": []}]}, {"level": 2, "text": "23. Relation filters", "id": "23-relation-filters", "children": []}, {"level": 2, "text": "24. Eager loading: Include and Preload", "id": "24-eager-loading-include-and-preload", "children": [{"level": 3, "text": "Going deeper: ThenInclude / ThenPreload", "id": "going-deeper-theninclude-thenpreload", "children": []}, {"level": 3, "text": "Filtering what gets included", "id": "filtering-what-gets-included", "children": []}, {"level": 3, "text": "When you only need ids", "id": "when-you-only-need-ids", "children": []}]}, {"level": 2, "text": "25. Graph traversal and shortest path", "id": "25-graph-traversal-and-shortest-path", "children": [{"level": 3, "text": "Traverse", "id": "traverse", "children": []}, {"level": 3, "text": "ShortestPath", "id": "shortestpath", "children": []}]}, {"level": 2, "text": "26. Sorting, paging and result sets", "id": "26-sorting-paging-and-result-sets", "children": [{"level": 3, "text": "Paging", "id": "paging", "children": []}, {"level": 3, "text": "ResultSet<T>", "id": "resultset", "children": []}]}, {"level": 2, "text": "27. Aggregates", "id": "27-aggregates", "children": []}, {"level": 2, "text": "28. Faceted search", "id": "28-faceted-search", "children": [{"level": 3, "text": "Applying the user's selection", "id": "applying-the-users-selection", "children": []}, {"level": 3, "text": "Facet declaration methods", "id": "facet-declaration-methods", "children": []}, {"level": 3, "text": "Where the un-named facets come from", "id": "where-the-un-named-facets-come-from", "children": []}, {"level": 3, "text": "28.1 Pivot tables", "id": "281-pivot-tables", "children": []}, {"level": 3, "text": "28.2 GroupBy", "id": "282-groupby", "children": []}]}, {"level": 2, "text": "29. Cultures, visibility and scoped stores", "id": "29-cultures-visibility-and-scoped-stores", "children": []}, {"level": 2, "text": "30. Pitfalls and gotchas", "id": "30-pitfalls-and-gotchas", "children": []}]}, {"level": 1, "text": "Part IV — Tooling", "id": "part-iv-tooling", "children": [{"level": 2, "text": "31. The command line tool", "id": "31-the-command-line-tool", "children": [{"level": 3, "text": "Two things every command needs to know", "id": "two-things-every-command-needs-to-know", "children": []}, {"level": 3, "text": "The commands", "id": "the-commands", "children": []}, {"level": 3, "text": "What it does not do", "id": "what-it-does-not-do", "children": []}, {"level": 3, "text": "Things worth knowing", "id": "things-worth-knowing", "children": []}]}, {"level": 2, "text": "32. Logs — recording what the application does", "id": "32-logs-recording-what-the-application-does", "children": [{"level": 3, "text": "32.1 Defining a log", "id": "321-defining-a-log", "children": []}, {"level": 3, "text": "32.2 Recording from the application", "id": "322-recording-from-the-application", "children": []}, {"level": 3, "text": "32.3 Statistics", "id": "323-statistics", "children": []}, {"level": 3, "text": "32.4 Estimated unique counts: HyperLogLog", "id": "324-estimated-unique-counts-hyperloglog", "children": []}, {"level": 3, "text": "32.5 Reading a log", "id": "325-reading-a-log", "children": []}, {"level": 3, "text": "32.6 Changing a definition", "id": "326-changing-a-definition", "children": []}, {"level": 3, "text": "32.7 Files, limits and cleaning up", "id": "327-files-limits-and-cleaning-up", "children": []}]}, {"level": 2, "text": "Where to look when this manual runs out", "id": "where-to-look-when-this-manual-runs-out", "children": []}]}];
   // v2: the default collapse state changed, and the key is versioned so readers
   // carrying a v1 payload get the new default rather than their old tree.
   var KEY = "relatude-manual-state-v2";

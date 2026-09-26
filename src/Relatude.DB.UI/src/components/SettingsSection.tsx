@@ -182,6 +182,10 @@ export function SettingsSection({
   const needle = filter.trim().toLowerCase();
   const sections = useMemo(() => {
     if (!page) return [];
+    // a group setting shown or hidden by another one follows that one as edited, not as saved, so
+    // choosing a provider type shows its fields at once; a list element's fields are sorted out by
+    // the list editor, which knows their siblings
+    const valueOf = (path: string): unknown => (edits[path] !== undefined ? edits[path] : byPath.get(path)?.value);
     const keep = (s: SettingView, context: string) => {
       // a read-only setting has no default to differ from, so it is not "changed" either
       if (onlyChanged && (s.readOnly || s.isDefault) && edits[s.path] === undefined) return false;
@@ -194,7 +198,7 @@ export function SettingsSection({
         groups: section.groups
           .map((group) => {
             const context = group.title + " " + section.title;
-            const settings = group.settings.filter((s) => keep(s, context));
+            const settings = group.settings.filter((s) => visible(s, valueOf) && keep(s, context));
             const list = group.list
               ? {
                   ...group.list,
@@ -211,7 +215,7 @@ export function SettingsSection({
           .filter((group) => group.settings.length > 0 || (group.list?.items.length ?? 0) > 0 || (group.list != null && !onlyChanged && !needle)),
       }))
       .filter((section) => section.groups.length > 0);
-  }, [page, needle, onlyChanged, edits]);
+  }, [page, byPath, needle, onlyChanged, edits]);
 
   // the highlight in the contents follows the pane: the active group is the last one whose heading
   // has passed the top of the pane
@@ -710,14 +714,14 @@ function ListEditor({
 }
 
 // a field that only applies to some kinds of element is hidden for the rest, so an Azure container
-// never sits under a local folder
+// never sits under a local folder, and the built-in SMS service shows no URL or key it does not use
 function visible(setting: SettingView, valueOf: (path: string) => unknown): boolean {
-  return holds(setting.visibleWhen, valueOf);
+  return holds(setting.visibleWhen, valueOf) && !(setting.hiddenWhen && holds(setting.hiddenWhen, valueOf));
 }
 function holds(rule: SettingVisibility | null | undefined, valueOf: (path: string) => unknown): boolean {
   if (!rule) return true;
-  const current = valueOf(rule.path);
-  return rule.values.some((v) => String(current ?? "").toLowerCase() === v.toLowerCase()) && holds(rule.and, valueOf);
+  const current = String(valueOf(rule.path) ?? "").trim().toLowerCase();
+  return rule.values.some((v) => current === v.trim().toLowerCase()) && holds(rule.and, valueOf);
 }
 
 // the card header follows the field the catalog nominated, live, so renaming a provider renames its

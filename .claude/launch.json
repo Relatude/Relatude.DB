@@ -171,6 +171,19 @@
       ],
       "port": 5064,
       "autoPort": false
+    },
+    {
+      "name": "docs-static",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8765",
+        "--directory",
+        "docs"
+      ],
+      "port": 8765,
+      "autoPort": false
     }
   ]
 }

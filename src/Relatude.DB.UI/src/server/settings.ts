@@ -12,7 +12,11 @@ export interface SettingChoice {
   hint?: string | null;
 }
 
-/** Hides a field until a sibling holds one of these values. Paths are full, already prefixed. */
+/**
+ * A condition on a sibling field, holding while the sibling has one of these values - compared
+ * without regard to case or surrounding spaces, "" standing for no value. Paths are full, already
+ * prefixed.
+ */
 export interface SettingVisibility {
   path: string;
   values: string[];
@@ -39,8 +43,10 @@ export interface SettingView {
   picker?: string | null;
   /** Offers a button that fills the field with a freshly made value; "guid" is the one kind so far. */
   generate?: string | null;
-  /** Set on the fields of a list element whose relevance depends on another field. */
+  /** Shows the field only while this holds, for one whose relevance depends on another field. */
   visibleWhen?: SettingVisibility | null;
+  /** Hides the field while this holds: a service URL the built-in provider does not need. */
+  hiddenWhen?: SettingVisibility | null;
   secret: boolean;
   readOnly: boolean;
   applies: SettingApplies;

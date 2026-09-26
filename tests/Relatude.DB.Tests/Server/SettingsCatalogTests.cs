@@ -3,6 +3,7 @@ using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 using Relatude.DB.NodeServer;
 using Relatude.DB.NodeServer.Settings;
+using Relatude.DB.SMS;
 using System.Text.Json;
 using System.Reflection;
 
@@ -249,12 +250,18 @@ public class SettingsCatalogTests {
         }
     }
 
+    /// <summary>Every condition of a visibility rule, the And-ed ones included, of both kinds.</summary>
+    static IEnumerable<SettingVisibility> conditions(SettingDefinition field) {
+        foreach (var first in new[] { field.VisibleWhen, field.HiddenWhen }) {
+            for (var rule = first; rule != null; rule = rule.And) yield return rule;
+        }
+    }
+
     [TestMethod]
     public void ListFieldVisibilityNamesASiblingAndRealValues() {
         foreach (var (group, list, elementType) in lists()) {
             foreach (var field in list.Fields) {
-                // every condition in the chain, the And-ed ones included
-                for (var rule = field.VisibleWhen; rule != null; rule = rule.And) {
+                foreach (var rule in conditions(field)) {
                     var sibling = list.Fields.FirstOrDefault(f => string.Equals(f.Path, rule.Path, StringComparison.OrdinalIgnoreCase));
                     Assert.IsNotNull(sibling, group.Id + "/" + field.Path + " depends on \"" + rule.Path + "\", which is not a field.");
                     var type = SettingsAccessor.Describe(elementType, sibling!.Path).ValueType;
@@ -266,6 +273,63 @@ public class SettingsCatalogTests {
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// A setting of a group may be shown or hidden by another setting of the same group, named by its
+    /// full path. The page only looks within the group, so a rule naming anything else never holds -
+    /// and for a sibling with a fixed set of values, a value it cannot have is a rule that never holds
+    /// either. A text sibling's values are the names it may hold, which only its own test can check.
+    /// </summary>
+    [TestMethod]
+    public void GroupSettingVisibilityNamesASettingOfTheSameGroupAndRealValues() {
+        var rules = 0;
+        foreach (var (sections, root) in new (SettingSectionDefinition[], Type)[] {
+            (SettingsCatalog.Server, typeof(RelatudeDBServerSettings)),
+            (SettingsCatalog.Database, typeof(NodeStoreContainerSettings)),
+        }) {
+            foreach (var group in sections.SelectMany(s => s.Groups)) {
+                foreach (var setting in group.Settings) {
+                    foreach (var rule in conditions(setting)) {
+                        rules++;
+                        var sibling = group.Settings.FirstOrDefault(s => s != setting && string.Equals(s.Path, rule.Path, StringComparison.OrdinalIgnoreCase));
+                        Assert.IsNotNull(sibling, group.Id + "/" + setting.Path + " depends on \"" + rule.Path + "\", which is not another setting of the group.");
+                        var type = SettingsAccessor.Describe(root, sibling!.Path).ValueType;
+                        if (!type.IsEnum && type != typeof(bool)) continue;
+                        var known = type == typeof(bool) ? new[] { "true", "false" } : Enum.GetNames(type);
+                        foreach (var value in rule.Values) Assert.IsTrue(known.Contains(value), value + " is not a " + type.Name + ".");
+                    }
+                }
+            }
+        }
+        Assert.IsTrue(rules > 0, "No group setting depends on another any more - the test no longer covers anything.");
+    }
+
+    /// <summary>
+    /// The SMS service URL and API key are only for a custom provider: the built-in Relatude service
+    /// has its own address and sends with the installation's license, so the page hides both while
+    /// the provider type names it. That has to be the same set of names the database builds the
+    /// service for (<c>LateBindings.CreateSmsProvider</c>: empty, or what
+    /// <see cref="RelatudeServicesSMSProvider.IsProviderName"/> accepts) - a name in one and not the
+    /// other would hide the fields of a custom provider, or show them for the service.
+    /// </summary>
+    [TestMethod]
+    public void TheSmsFieldsOnlyACustomProviderUsesAreHiddenForTheRelatudeService() {
+        var sms = SettingsCatalog.Database.SelectMany(s => s.Groups).Single(g => g.Id == "sms");
+        foreach (var path in new[] { "SMSSettings.ServiceUrl", "SMSSettings.ApiKey" }) {
+            var rule = sms.Settings.Single(s => s.Path == path).HiddenWhen;
+            Assert.IsNotNull(rule, path + " is shown for the Relatude service, which does not use it.");
+            Assert.AreEqual("SMSSettings.TypeName", rule!.Path);
+            Assert.IsNull(rule.And);
+            foreach (var value in rule.Values) {
+                Assert.IsTrue(value == "" || RelatudeServicesSMSProvider.IsProviderName(value), "\"" + value + "\" hides the fields, but it names a custom provider.");
+            }
+            CollectionAssert.IsSubsetOf(new[] { "", RelatudeServicesSMSProvider.ShortName, nameof(RelatudeServicesSMSProvider) }, rule.Values,
+                path + " is shown for one of the names the Relatude service is built for.");
+        }
+        // what stays: the provider type and the sender, the only two the service reads
+        CollectionAssert.AreEqual(new[] { "SMSSettings.TypeName", "SMSSettings.From" },
+            sms.Settings.Where(s => s.HiddenWhen == null && s.VisibleWhen == null).Select(s => s.Path).ToArray());
     }
 
     /// <summary>
@@ -283,6 +347,8 @@ public class SettingsCatalogTests {
                 repeated++;
                 foreach (var copy in copies) {
                     Assert.IsNotNull(copy.VisibleWhen, group.Id + "/" + same.Key + " appears more than once but one copy is always visible.");
+                    // a rule that hides is shown for every value it does not name, which no check here can keep apart
+                    Assert.IsNull(copy.HiddenWhen, group.Id + "/" + same.Key + " appears more than once, so its copies may only say when they show.");
                 }
                 for (var i = 0; i < copies.Length; i++) {
                     for (var j = i + 1; j < copies.Length; j++) {

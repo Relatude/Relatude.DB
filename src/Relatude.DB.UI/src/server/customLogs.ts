@@ -76,7 +76,7 @@ export const statisticInfos: StatisticInfo[] = [
     type: "UniqueCountEstimate",
     label: "Unique count, estimated",
     short: "≈ unique",
-    help: "How many different values there were per interval, within about one percent, however many there are.",
+    help: "How many different values there were per interval, estimated with the HyperLogLog algorithm: within about one percent, in the same small amount of memory however many values there are.",
     notBytes: true,
   },
 ];

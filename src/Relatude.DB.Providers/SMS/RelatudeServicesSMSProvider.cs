@@ -10,10 +10,13 @@ namespace Relatude.DB.SMS;
 /// plain HttpClient.
 /// <para>Like <see cref="RelatudeServicesAIProvider"/> it needs no account with a vendor: the
 /// service holds the gateway credentials and charges every message to the license behind the API
-/// key. <see cref="SMSProviderSettings.ApiKey"/> is the key issued with that license, and the
-/// license must carry the SMS feature and a credit account with a balance. A refusal comes back as
-/// an exception repeating the service's own reason - out of credits, not licensed, rate limited -
-/// so what the database logs is what the person configuring it needs to read.</para>
+/// key, and the license must carry the SMS feature and a credit account with a balance. A refusal
+/// comes back as an exception repeating the service's own reason - out of credits, not licensed,
+/// rate limited - so what the database logs is what the person configuring it needs to read.</para>
+/// <para>The key is the one issued with the license. On a server it is the installation's own,
+/// handed in as <c>licenseApiKey</c>, so a database's SMS settings need none; elsewhere it is
+/// <see cref="SMSProviderSettings.ApiKey"/>. A provider without either is still built, and says what
+/// is missing the first time it is asked to send.</para>
 /// <para><see cref="SMSProviderSettings.ServiceUrl"/> is the root of the service and defaults to
 /// <c>https://sms.relatude.com</c>; point it at your own deployment when the service is
 /// self-hosted.</para>
@@ -28,19 +31,36 @@ public class RelatudeServicesSMSProvider : ISMSProvider {
     readonly HttpClient _http;
     readonly string _sendUrl;
     readonly string _quoteUrl;
-    readonly string _apiKey;
     readonly SMSProviderSettings _settings;
+    readonly Func<string?>? _licenseApiKey;
 
-    public RelatudeServicesSMSProvider(SMSProviderSettings settings) {
-        if (string.IsNullOrEmpty(settings.ApiKey)) throw new ArgumentException("ApiKey is required in SMSProviderSettings. It is the API key issued with the Relatude license. ");
+    public RelatudeServicesSMSProvider(SMSProviderSettings settings) : this(settings, null) { }
+
+    /// <param name="settings">Where the service is and who the messages are from.</param>
+    /// <param name="licenseApiKey">The API key of the license the installation runs under, asked for
+    /// at every call, so a new license takes effect without the database reopening. When it has one
+    /// it is used before <see cref="SMSProviderSettings.ApiKey"/>: that one is a copy the settings
+    /// used to require, and it would go stale unnoticed when the license changes.</param>
+    public RelatudeServicesSMSProvider(SMSProviderSettings settings, Func<string?>? licenseApiKey) {
         _settings = settings;
+        _licenseApiKey = licenseApiKey;
         var baseUrl = (string.IsNullOrWhiteSpace(settings.ServiceUrl) ? _defaultServiceUrl : settings.ServiceUrl).TrimEnd('/');
         _sendUrl = baseUrl + "/api/sms/send";
         _quoteUrl = baseUrl + "/api/sms/quote";
-        _apiKey = settings.ApiKey;
         // A message is one short call; a minute is already generous, and a hung gateway must not
         // hold a request thread for the five an embedding batch is allowed.
         _http = new HttpClient() { Timeout = TimeSpan.FromMinutes(1) };
+    }
+
+    /// <summary>The key this call is charged to, or an exception saying where one is set when there is none.</summary>
+    string apiKey() {
+        var key = _licenseApiKey?.Invoke();
+        if (string.IsNullOrWhiteSpace(key)) key = _settings.ApiKey;
+        if (string.IsNullOrWhiteSpace(key)) {
+            throw new InvalidOperationException("There is no API key to send the message with. The Relatude SMS service charges every message to a license: "
+                + "set this installation's license key and API key under License in the admin UI, or give the SMS settings an API key of their own. ");
+        }
+        return key.Trim();
     }
 
     /// <summary>Whether a configured provider type name means this provider, by either of its names.</summary>
@@ -49,7 +69,7 @@ public class RelatudeServicesSMSProvider : ISMSProvider {
         && (typeName.Trim().Equals(nameof(RelatudeServicesSMSProvider), StringComparison.OrdinalIgnoreCase)
             || typeName.Trim().Equals(ShortName, StringComparison.OrdinalIgnoreCase));
 
-    public string Name => string.IsNullOrWhiteSpace(_settings.Name) ? "Relatude SMS service" : _settings.Name!;
+    public string Name => "Relatude SMS service";
 
     public async Task<SmsReceipt> SendAsync(string to, string message, string? from = null, string? reference = null, CancellationToken cancellationToken = default) {
         if (string.IsNullOrWhiteSpace(to)) throw new ArgumentException("A recipient number is required. ", nameof(to));
@@ -113,11 +133,12 @@ public class RelatudeServicesSMSProvider : ISMSProvider {
     /// attempt may already have reached a phone - so a timeout is not retried either, and the caller is told.
     /// </summary>
     async Task<string> postAsync(string url, string jsonBody, CancellationToken cancellationToken) {
+        var key = apiKey(); // once, before anything is sent: every attempt goes with the same key
         using var response = await HttpRetry.SendAsync(_http, () => {
             var request = new HttpRequestMessage(HttpMethod.Post, url) {
                 Content = new StringContent(jsonBody, Encoding.UTF8, "application/json")
             };
-            request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + _apiKey);
+            request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + key);
             return request;
         }, retryOnTimeout: false);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);

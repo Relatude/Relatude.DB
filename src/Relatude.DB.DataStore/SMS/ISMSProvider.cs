@@ -53,19 +53,20 @@ public sealed record SmsQuote(string To, int Parts, int Credits, bool Unicode, i
 /// <summary>
 /// How the database reaches an SMS service. The shape follows
 /// <see cref="Relatude.DB.AI.AIProviderSettings"/>: a type name resolved when the database opens,
-/// an endpoint, and the key that pays for the calls.
+/// an endpoint, and the key that pays for the calls. The hosted Relatude service needs neither of
+/// the last two on a server, which sends with the installation's own license.
 /// </summary>
 public class SMSProviderSettings {
     /// <summary>Which implementation sends. Empty or "RelatudeServices" is the hosted Relatude SMS service; anything else is taken as the full type name of a custom provider.</summary>
     public string? TypeName { get; set; }
 
-    /// <summary>A label for this configuration in the admin UI. Not sent anywhere.</summary>
-    public string? Name { get; set; }
-
-    /// <summary>The root of the service. Empty uses the provider's own default.</summary>
+    /// <summary>The root of the service. Empty uses the provider's own default. The settings page only
+    /// offers it for a custom provider; a self-hosted Relatude service is set in the settings file.</summary>
     public string? ServiceUrl { get; set; }
 
-    /// <summary>The API key issued with the Relatude license, which is what the service charges.</summary>
+    /// <summary>The key a custom provider sends with. The Relatude service charges each message to the
+    /// installation's license and uses the license's API key, falling back to this one only where the
+    /// server has none - or where the provider is built from code, without a server.</summary>
     public string? ApiKey { get; set; }
 
     /// <summary>The sender shown on the phone when a call names none. Most gateways only allow senders registered with them, so the service may ignore it.</summary>

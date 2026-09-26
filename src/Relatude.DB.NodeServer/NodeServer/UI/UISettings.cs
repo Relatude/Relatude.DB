@@ -214,6 +214,7 @@ sealed class UISettings {
             definition.Link,
             // the sibling is named relative to the element, so it needs the same prefix to be found
             VisibleWhen = VisibilityView.From(definition.VisibleWhen, prefix),
+            HiddenWhen = VisibilityView.From(definition.HiddenWhen, prefix),
             Secret = isSecret,
             ReadOnly = definition.ReadOnly || description.Property.SetMethod?.IsPublic != true,
             Applies = definition.Applies.ToString().ToLowerInvariant(),
