@@ -152,6 +152,25 @@
       ],
       "port": 5177,
       "autoPort": false
+    },
+    {
+      "name": "website-simple-verify-nologin",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "examples/Website.Simple",
+        "--no-launch-profile",
+        "-p:BaseOutputPath=bin/ClaudeVerify/",
+        "-e",
+        "RelatudeDB__ContainerSettings__0__IOSettings__0__Path=relatude.db2",
+        "-e",
+        "RelatudeDB__NoLoginRequiredForLocalhost=true",
+        "--urls",
+        "http://localhost:5064"
+      ],
+      "port": 5064,
+      "autoPort": false
     }
   ]
 }

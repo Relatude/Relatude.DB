@@ -132,6 +132,36 @@ public class StatisticsUnitTests {
         Assert.AreEqual(0, b.GetValues(IntervalType.Hour, H.T0, H.T0.AddHours(1), false, false, null).Count());
     }
     [TestMethod]
+    public void AnEntryRecordedOutOfOrderIsCountedInItsOwnInterval() {
+        var stat = new StatisticsCount(new StatisticsInfo(StatisticsType.Count), DayOfWeek.Monday, "k");
+        stat.RecordIfPossible(H.T0.AddHours(2), true);
+        stat.RecordIfPossible(H.T0.AddMinutes(30), true); // older than the newest interval
+        stat.RecordIfPossible(H.T0.AddMinutes(40), true); // and again, into the interval just made
+        stat.RecordIfPossible(H.T0.AddHours(2).AddMinutes(5), true);
+        var hours = stat.GetValues(IntervalType.Hour, H.T0, H.T0.AddHours(3), false, true, null).ToList();
+        CollectionAssert.AreEqual(new[] { 2, 0, 2 }, hours.Select(i => i.HasValue ? i.Value : 0).ToArray());
+        Assert.IsFalse(hours[1].HasValue); // the hour between them was never recorded in
+    }
+    [TestMethod]
+    public void AnEntryOlderThanEverythingKeptIsDropped() {
+        var stat = new StatisticsCount(new StatisticsInfo(StatisticsType.Count, 1), DayOfWeek.Monday, "k"); // 48 hours kept
+        for (var h = 0; h < 48; h++) stat.RecordIfPossible(H.T0.AddHours(h), true);
+        stat.RecordIfPossible(H.T0.AddHours(-5), true); // no room left, and it would be the first to go
+        Assert.IsFalse(stat.GetValues(IntervalType.Hour, H.T0.AddHours(-5), H.T0.AddHours(-4), false, true, null).Single().HasValue);
+        Assert.AreEqual(48, stat.GetValues(IntervalType.Hour, H.T0, H.T0.AddHours(48), false, false, null).Count());
+    }
+    [TestMethod]
+    public void AnEntryForACondensedUniqueCountIsSkipped() {
+        var stat = new StatisticsUniqueCount(new StatisticsInfo(StatisticsType.UniqueCountHashedValues), DayOfWeek.Monday, "k");
+        stat.RecordIfPossible(H.T0, "a");
+        stat.RecordIfPossible(H.T0.AddMinutes(1), "b");
+        stat.RecordIfPossible(H.T0.AddHours(1), "c"); // the hour before is condensed as this one begins
+        stat.RecordIfPossible(H.T0.AddMinutes(2), "d"); // arrives late, for the condensed hour: not an error
+        var hours = stat.GetValues(IntervalType.Hour, H.T0, H.T0.AddHours(2), false, true, null).ToList();
+        Assert.AreEqual(2, hours[0].Value.HashCount());
+        Assert.AreEqual(1, hours[1].Value.HashCount());
+    }
+    [TestMethod]
     public void GroupCountAggregatorCondensesToTopGroups() {
         var agg = new AggregatorGroupCount();
         for (var g = 0; g < 60; g++) {
@@ -143,7 +173,10 @@ public class StatisticsUnitTests {
         Assert.AreEqual(50, agg.UniqueCount()); // only the top 50 groups survive
         Assert.IsTrue(agg.Values.ContainsKey("g59"));
         Assert.IsFalse(agg.Values.ContainsKey("g0"));
-        Assert.ThrowsExactly<Exception>(() => agg.Record("x"));
+        // a condensed breakdown still counts: an entry recorded out of order can arrive for it
+        Assert.IsTrue(agg.AcceptsValues);
+        agg.Record("g59");
+        Assert.AreEqual(61, agg.Values["g59"]);
     }
     [TestMethod]
     public void SmallUniqueCountAggregatorCountsDistinctValues() {
@@ -182,6 +215,18 @@ public class StatisticsUnitTests {
         var all = stat.GetValues(IntervalType.Hour, H.T0, H.T0.AddHours(50), false, false, null).ToList();
         Assert.AreEqual(48, all.Count);
         Assert.AreEqual(H.T0.AddHours(2), all[0].From); // the two oldest hours were evicted
+    }
+    [TestMethod]
+    public void HyperLogLogGivesTheSameEstimateBeforeAndAfterItsRegistersAreMade() {
+        // few values are kept as hashes and many in the registers; a save always writes registers,
+        // so a round trip compares the two forms on both sides of the switch
+        foreach (var n in new[] { 0, 1, 10, 500, 1024, 1025, 1100, 5000 }) {
+            var hll = new HyperLogLog();
+            for (var i = 0; i < n; i++) hll.Add($"value{i}");
+            var estimate = hll.EstimateCount();
+            Assert.AreEqual(estimate, new HyperLogLog(hll.Serialize()).EstimateCount(), $"n = {n}");
+            Assert.IsTrue(Math.Abs(estimate - n) <= Math.Max(2, n * 0.05), $"estimate {estimate} for n = {n}");
+        }
     }
     [TestMethod]
     public void HyperLogLogSerializeRoundTripKeepsEstimate() {

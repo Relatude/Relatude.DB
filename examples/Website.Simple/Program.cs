@@ -12,6 +12,7 @@ using System.Text;
 using Website.Simple;
 using Website.Simple.Data;
 using Website.Simple.Models;
+using static Lucene.Net.Documents.Field;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddRelatudeDB(options => {
@@ -53,7 +54,14 @@ app.UseCors("AllowALL"); // FOR VS CODE DEVELOPMENT ONLY - NEVER ALLOW ALL CORS
 
 app.MapGet("/", (RelatudeDBContext ctx) => {
     var count = ctx.Database.Count(); //.Query<DemoArticle>().Count();
-    
+    ctx.Database.CustomLogs.RecordObject("requests", new {
+        Method = "GET",
+        Path = "/products",
+        Status = 200,
+        Duration = 12.5,
+        Bytes = 2048,
+        User = "user-42",
+    });
     var html = "<html><body>"
     + $@"<h1>Welcome to Relatude.DB</h1><p>Database has {count} objects.</p>"
     + $@"<p><a href='{ctx.Server.ApiUrlRoot}'>Admin UI</a></p>"

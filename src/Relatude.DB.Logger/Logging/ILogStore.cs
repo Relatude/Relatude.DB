@@ -3,6 +3,27 @@
 namespace Relatude.DB.Logging {
     public interface ILogStore {
         void AddLog(LogSettings settings);
+        /// <summary>Takes a log out of the store, closing its files; what it wrote stays on disk.</summary>
+        bool RemoveLog(string logKey);
+        /// <summary>Puts a log back with new settings (or adds it), closing the old one first.</summary>
+        void ReplaceLog(LogSettings settings);
+        /// <summary>Deletes the recorded entries of one log, keeping its statistics.</summary>
+        void DeleteLog(string logKey);
+        void FlushToDiskNow(string logKey);
+        /// <summary>Adds a log from settings json (see <see cref="LogSettings.FromJson"/>) and returns its settings.</summary>
+        LogSettings AddLogFromJson(string json);
+        /// <summary>Adds a log from a settings json file on the local disk and returns its settings.</summary>
+        LogSettings AddLogFromFile(string filePath);
+        /// <summary>Adds a log from the settings saved for it by <see cref="SaveSettings"/>; throws if there are none.</summary>
+        LogSettings AddLogFromSavedSettings(string logKey);
+        string GetSettingJson(string logKey);
+        /// <summary>Saves the log's settings as json in the log folder, where <see cref="AddLogFromSavedSettings"/>
+        /// and <see cref="LogStore.FromSavedSettings"/> find them. Deleting the log's data leaves them in place.</summary>
+        void SaveSettings(string logKey);
+        void SaveSettingsToFile(string logKey, string filePath);
+        void SaveAllSettings();
+        bool HasSavedSettings(string logKey);
+        void DeleteSavedSettings(string logKey);
         IEnumerable<Interval<AvgMinMax<double>>> AnalyseAvgMinMax(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null);
         Interval<AvgMinMax<double>> AnalyseCombinedAvgMinMax(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc);
         Interval<int> AnalyseCombinedCounts(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc);

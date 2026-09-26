@@ -414,7 +414,7 @@ function writeColumnWidths(logKey: string, widths: ColumnWidths) {
  */
 const foldMs = 180;
 
-function useFold(open: boolean) {
+export function useFold(open: boolean) {
   const [mounted, setMounted] = useState(open);
   const [shown, setShown] = useState(open);
   useEffect(() => {
@@ -1023,7 +1023,7 @@ function LogTab({ db, log, onChanged }: { db: DatabaseInfo; log: LogInfo; onChan
  * anything else that belongs on the row (the Entries panel's "Clear filter") stays outside it: a
  * button inside a button is not one.
  */
-function FoldHead({ open, label, onToggle, children }: { open: boolean; label: string; onToggle: () => void; children: ReactNode }) {
+export function FoldHead({ open, label, onToggle, children }: { open: boolean; label: string; onToggle: () => void; children: ReactNode }) {
   return (
     <button className="panel-fold-head" onClick={onToggle} title={(open ? "Fold away " : "Open ") + label} aria-expanded={open}>
       <span className="panel-fold">
@@ -1043,7 +1043,7 @@ function FoldHead({ open, label, onToggle, children }: { open: boolean; label: s
  * sent until then. What may be written in it is otherwise only found by guessing, so the syntax
  * stands under the field while it is in use.
  */
-function SearchBox({
+export function SearchBox({
   value,
   onChange,
   onSearch,
@@ -1053,6 +1053,7 @@ function SearchBox({
   unsearched,
   busy,
   rangeLabel,
+  rangePhrase,
 }: {
   value: string;
   onChange: (text: string) => void;
@@ -1064,15 +1065,18 @@ function SearchBox({
   unsearched: boolean;
   busy: boolean;
   rangeLabel: string;
+  /** The range in words when it is not "the last" something: two moments, a picked interval. */
+  rangePhrase?: string;
 }) {
   const [showHelp, setShowHelp] = useState(false);
+  const range = rangePhrase ?? "the last " + rangeLabel;
   return (
     <div className="logs-search">
       <div className={"logs-search-field" + (value.trim() ? " active" : "")}>
         <IconSearch size={15} stroke={1.8} />
         <input
           value={value}
-          placeholder={`Search the last ${rangeLabel} — timeout, get*nodes, "could not open", -shutdown, type:error`}
+          placeholder={`Search ${range} — timeout, get*nodes, "could not open", -shutdown, type:error`}
           onChange={(e) => onChange(e.currentTarget.value)}
           onFocus={() => setShowHelp(true)}
           onKeyDown={(e) => {
@@ -1095,7 +1099,7 @@ function SearchBox({
         className={"action-button" + (unsearched && value.trim() ? " primary" : "")}
         onClick={onSearch}
         disabled={busy}
-        title={busy ? "Reading the range" : "Search the last " + rangeLabel + " — the whole of it, not only the entries on screen"}
+        title={busy ? "Reading the range" : "Search " + range + " — the whole of it, not only the entries on screen"}
       >
         <IconSearch size={15} stroke={1.8} /> {busy ? "Searching…" : "Search"}
       </button>
@@ -1123,7 +1127,7 @@ function SearchBox({
 }
 
 /** One column's filter: the text that column has to contain for a row to be listed. */
-function FilterCell({
+export function FilterCell({
   columnKey,
   label,
   value,
@@ -1213,8 +1217,11 @@ function showEntry(log: LogInfo, timestampUtc: string, values: Record<string, un
   showInfo(`${log.name} · ${formatTime(timestampUtc)}`, "", lines);
 }
 
-function formatValue(value: unknown, type: LogDataType): string {
+export function formatValue(value: unknown, type: LogDataType): string {
   if (value == null || value === "") return "—";
+  // a value recorded before its column changed type is kept as it was stored when it has no
+  // reading as the new one, so a number column can hold a word: it is shown as the word
+  if ((type === "Integer" || type === "Double") && typeof value !== "number" && !isFinite(Number(value))) return String(value);
   switch (type) {
     case "Integer":
       return formatCount(Number(value));
@@ -1534,7 +1541,7 @@ function OverviewTab({ db, info, onChanged }: { db: DatabaseInfo; info: LogsInfo
  * the checkbox underneath - it is one, and the keyboard and the screen reader want it - and only
  * draws it differently.
  */
-function Switch({
+export function Switch({
   label,
   checked,
   disabled,

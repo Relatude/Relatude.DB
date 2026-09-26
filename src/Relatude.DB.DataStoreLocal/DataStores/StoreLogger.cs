@@ -18,8 +18,12 @@ public class StoreLogger : IDisposable, IStoreLogger {
 
     readonly IIOProvider _io;
     LogStore _logStore;
+    readonly CustomLogs _customLogs;
     readonly Datamodel? _datamodel;
     public ILogStore LogStore => _logStore;
+    public ICustomLogs CustomLogs => _customLogs;
+    // the keys the logs below keep their files under, which the custom logs in the same folder may not take
+    static readonly string[] _systemLogKeys = [_systemLogKey, _queryLogKey, _transactionLogKey, _actionLogKey, _taskLogKey, _taskbatchLogKey, _metricsLogKey];
 
     bool _enableSystemLog = false;
     bool _enableSystemLogStatistics = false;
@@ -199,13 +203,15 @@ public class StoreLogger : IDisposable, IStoreLogger {
     public bool LoggingTask => _enableTaskLog || _enableTaskLogStatistics;
     public bool LoggingTaskBatch => _enableTaskBatchLog || _enableTaskBatchLogStatistics;
     public bool LoggingMetrics => _enableMetricsLog || _enableMetricsLogStatistics;
-    public bool LoggingAny => _enableSystemLog || _enableSystemLogStatistics || _enableSystemQueryLog || _enableSystemQueryLogStatistics || _enableTransactionLog || _enableTransactionLogStatistics || _enableActionLog || _enableActionLogStatistics || _enableTaskLog || _enableTaskLogStatistics || _enableTaskBatchLog || _enableTaskBatchLogStatistics || _enableMetricsLog || _enableMetricsLogStatistics;
+    // the custom logs count: this is what decides whether the scheduler flushes the logs at all
+    public bool LoggingAny => _enableSystemLog || _enableSystemLogStatistics || _enableSystemQueryLog || _enableSystemQueryLogStatistics || _enableTransactionLog || _enableTransactionLogStatistics || _enableActionLog || _enableActionLogStatistics || _enableTaskLog || _enableTaskLogStatistics || _enableTaskBatchLog || _enableTaskBatchLogStatistics || _enableMetricsLog || _enableMetricsLogStatistics || _customLogs.AnyEnabled;
 
     public int MinDurationMsBeforeLogging { get; set; } = 0; // in milliseconds
     public StoreLogger(IIOProvider io, Datamodel? datamodel) {
         _io = io;
         _datamodel = datamodel;
         _logStore = new LogStore(_io, getSettings());
+        _customLogs = new CustomLogs(_io, _systemLogKeys);
     }
     void reloadLogsWithNewSettings() {
         // swap in the new store before disposing the old one, so concurrent Record* calls
@@ -397,12 +403,15 @@ public class StoreLogger : IDisposable, IStoreLogger {
 
     public void FlushToDiskNow() {
         if (_logStore != null) _logStore.FlushToDiskNow();
+        _customLogs.FlushToDiskNow();
     }
     public void SaveStatsAndDeleteExpiredData() {
         if (_logStore != null) _logStore.SaveStatsAndDeleteExpiredData();
+        _customLogs.SaveStatsAndDeleteExpiredData();
     }
     public void Dispose() {
         _logStore?.Dispose();
+        _customLogs.Dispose();
     }
 
     public KeyValuePair<string, string>[] GetLogKeysAndNames() {
@@ -493,6 +502,7 @@ public class StoreLogger : IDisposable, IStoreLogger {
         totalSize += _logStore.GetFileSize(_transactionLogKey);
         totalSize += _logStore.GetFileSize(_actionLogKey);
         totalSize += _logStore.GetFileSize(_metricsLogKey);
+        totalSize += _customLogs.GetTotalFileSize();
         return totalSize;
     }
 

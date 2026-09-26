@@ -15,6 +15,10 @@ internal class Log : IDisposable {
     readonly LogTextStream _logTextStream;
     readonly string[] _statFileKey;
     readonly string[] _backupStatFile;
+    // A declared column is found whatever the case it is named in, and kept under the key it was
+    // declared with: the statistics and every reader look it up by that one spelling, so "Amount"
+    // recorded for a column declared "amount" has to end up as "amount".
+    readonly Dictionary<string, string> _declaredKeys;
     static string getStatisticsFileKey(string property, StatisticsInfo info, LogSettings settings) {
         // a unique that prevents collisions between different statistical settings
         // if a change is made to the stat settings it will simply have a different key and last state will be ignored and not corrupt the new state
@@ -27,6 +31,8 @@ internal class Log : IDisposable {
         _logTextStream = new(io, _setting.Key, _setting.FileInterval);
         _statFileKey = FileKeyUtility.Logger_GetStatistics(_setting.Key);
         _backupStatFile = FileKeyUtility.Logger_GetStatisticsBackUp(_setting.Key);
+        _declaredKeys = new(StringComparer.OrdinalIgnoreCase);
+        foreach (var key in _setting.Properties.Keys) _declaredKeys.TryAdd(key, key);
         loadAllStatistics();
     }
     void loadAllStatistics() {
@@ -75,14 +81,28 @@ internal class Log : IDisposable {
             }
         }
     }
+    /// <summary>
+    /// Records one entry. The two switches override the log's own for this one entry: true writes the
+    /// entry or counts it although the log is off, false leaves it out although the log is on - which
+    /// is how entries that are already counted (moved to a new file layout, say) are written without
+    /// being counted twice.
+    /// </summary>
     public void Record(LogEntry entry, bool flushToDisk, bool? forceLogging = null, bool? forceStatistics = null) {
         lock (_lock) {
-            if (_setting.EnableLog || forceLogging == true) {
+            // a log replaced or removed while a caller still held it: its files belong to the log
+            // that took its place, and writing here would reopen them behind that one's back
+            if (_disposed) return;
+            var logging = forceLogging ?? _setting.EnableLog;
+            var statistics = forceStatistics ?? _setting.EnableStatistics;
+            if (!logging && !statistics) return;
+            // the entry as the log declares it, once, so the file and the statistics see the same values
+            entry = normalize(entry);
+            if (logging) {
                 var record = getRecord(entry);
                 _logStream.Record(record, flushToDisk);
                 if (_setting.EnableLogTextFormat) _logTextStream.Record(entry, flushToDisk);
             }
-            if (_setting.EnableStatistics || forceStatistics == true) {
+            if (statistics) {
                 _rowStat.RecordIfPossible(entry.Timestamp, true);
                 foreach (var value in entry.Values) {
                     if (_statByProp.TryGetValue(value.Key, out var stats)) {
@@ -94,11 +114,74 @@ internal class Log : IDisposable {
             }
         }
     }
+    /// <summary>
+    /// The entry the way the log keeps it: the timestamp in UTC, and every declared value in its
+    /// declared type (see <see cref="LogValues"/>). A value that is null, or that has no reading as
+    /// the declared type, is left out - a zero written in its place would be counted by the
+    /// statistics as a measurement nobody made. Values the log declares nothing for are kept as
+    /// they are and stored as the type they have, or as their text.
+    /// </summary>
+    LogEntry normalize(LogEntry entry) {
+        var timestamp = entry.Timestamp.Kind switch {
+            DateTimeKind.Utc => entry.Timestamp,
+            DateTimeKind.Local => entry.Timestamp.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(entry.Timestamp, DateTimeKind.Utc),
+        };
+        var values = new Dictionary<string, object>(entry.Values.Count);
+        foreach (var kv in entry.Values) {
+            if (kv.Value == null) continue;
+            if (_declaredKeys.TryGetValue(kv.Key, out var declared) && _setting.Properties.TryGetValue(declared, out var property)) {
+                if (LogValues.TryConvert(kv.Value, property.DataType, out var converted)) values[declared] = converted;
+            } else {
+                values[kv.Key] = forceToLegalType(kv.Value);
+            }
+        }
+        return new LogEntry { Timestamp = timestamp, Values = values };
+    }
+    /// <summary>
+    /// A page of a range, and how many entries the range holds.
+    ///
+    /// Every record of the range is read - counting them is reading them - but only a page's worth
+    /// is held while that happens: the rest are counted and let go, the way a search keeps its
+    /// matches. The newest hundred of a million entries is then a hundred records in memory, not a
+    /// million of them sorted to find the hundred, which is what a page of a large log opened (and
+    /// refreshed live) used to cost. Records sharing a timestamp come out in the order they were
+    /// read, as a stable sort of the whole range would give them.
+    /// </summary>
     public IEnumerable<LogEntry> Extract(DateTime from, DateTime to, int skip, int take, bool orderByDescendingDates, out int total) {
         lock (_lock) {
-            var records = _logStream.Extract(from, to, skip, take, orderByDescendingDates, out total);
-            return records.Select(getEntry).ToList(); // materialized inside lock
+            if (skip < 0) skip = 0;
+            if (take < 0) take = 0;
+            var wanted = (long)skip + take;
+            // asked for everything (an export, a rebuild, a move), there is nothing to leave out: all
+            // of it is held and sorted once, a stable sort by timestamp, as it always was
+            if (wanted > int.MaxValue / 4) {
+                var all = _logStream.Enumerate(from, to).ToList();
+                total = all.Count;
+                var ordered = orderByDescendingDates ? all.OrderByDescending(r => r.TimeStamp) : all.OrderBy(r => r.TimeStamp);
+                return ordered.Skip(skip).Take(take).Select(getEntry).ToList(); // materialized inside lock
+            }
+            var keep = (int)wanted;
+            // sorting and trimming costs something, so it is done in batches rather than per record
+            var trimAt = Math.Max(keep * 2, 1024);
+            var kept = new List<(LogRecord Record, int Ordinal)>();
+            var count = 0;
+            foreach (var record in _logStream.Enumerate(from, to)) {
+                kept.Add((record, count));
+                count++;
+                if (kept.Count >= trimAt) sortAndTrim(kept, orderByDescendingDates, keep);
+            }
+            total = count;
+            sortAndTrim(kept, orderByDescendingDates, int.MaxValue);
+            return kept.Skip(skip).Take(take).Select(k => getEntry(k.Record)).ToList(); // materialized inside lock
         }
+    }
+    static void sortAndTrim(List<(LogRecord Record, int Ordinal)> kept, bool orderByDescendingDates, int keep) {
+        kept.Sort((a, b) => {
+            var c = orderByDescendingDates ? b.Record.TimeStamp.CompareTo(a.Record.TimeStamp) : a.Record.TimeStamp.CompareTo(b.Record.TimeStamp);
+            return c != 0 ? c : a.Ordinal.CompareTo(b.Ordinal);
+        });
+        if (keep < kept.Count) kept.RemoveRange(keep, kept.Count - keep);
     }
     /// <summary>
     /// The entries of a range that a search matches, and how many there were of them.
@@ -293,38 +376,7 @@ internal class Log : IDisposable {
         }
         return new LogRecord(entry.Timestamp, ms.ToArray());
     }
-    LogDataType getDataType(object value) {
-        if (value is double) return LogDataType.Double;
-        if (value is int) return LogDataType.Integer;
-        if (value is string) return LogDataType.String;
-        if (value is DateTime) return LogDataType.DateTime;
-        if (value is TimeSpan) return LogDataType.TimeSpan;
-        if (value is byte[]) return LogDataType.Bytes;
-        return LogDataType.String; // defaults to string
-    }
-    object forceValueType(object value, LogDataType dtype) {
-        switch (dtype) {
-            case LogDataType.DateTime:
-                if (value is DateTime) return value;
-                return default(DateTime);
-            case LogDataType.TimeSpan:
-                if (value is TimeSpan) return value;
-                return default(TimeSpan);
-            case LogDataType.String:
-                return value + string.Empty;
-            case LogDataType.Integer:
-                if (value is int) return value;
-                return default(int);
-            case LogDataType.Double:
-                if (value is double) return value;
-                return default(double);
-            case LogDataType.Bytes:
-                if (value is byte[]) return value;
-                return Array.Empty<byte>();
-            default:
-                throw new NotImplementedException();
-        }
-    }
+    static LogDataType getDataType(object value) => LogValues.StoredTypeOf(value);
     object forceToLegalType(object value) {
         if (value is double) return value;
         if (value is int) return value;
@@ -343,10 +395,13 @@ internal class Log : IDisposable {
         for (int i = 0; i < noValues; i++) {
             var key = br.ReadString();
             var value = getNextValue(br);
-            if (_setting.Properties.TryGetValue(key, out var prop)) {
-                entry.Values.Add(key, forceValueType(value, prop.DataType));
+            if (_declaredKeys.TryGetValue(key, out var declared) && _setting.Properties.TryGetValue(declared, out var prop)) {
+                // a value recorded before the column changed type is read as the type it has now,
+                // and kept as it was stored when it has no reading as that type: showing a zero in
+                // its place would show something that was never recorded
+                entry.Values[declared] = LogValues.TryConvert(value, prop.DataType, out var converted) ? converted : value;
             } else {
-                entry.Values.Add(key, forceToLegalType(value));
+                entry.Values[key] = forceToLegalType(value);
             }
         }
         return entry;
@@ -564,11 +619,14 @@ internal class Log : IDisposable {
         }
         SaveStatisticsState();
     }
+    bool _disposed;
     public void Dispose() {
         lock (_lock) {
+            if (_disposed) return;
             SaveStatisticsState();
             _logStream.Dispose();
             _logTextStream.Dispose();
+            _disposed = true;
         }
     }
     internal void EnforceSizeLimit(int maxTotalSizeOfLogFilesInMb) {

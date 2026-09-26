@@ -6,6 +6,7 @@ import {
   IconFolders,
   IconArchive,
   IconFileText,
+  IconFileAnalytics,
   IconChecklist,
   IconApi,
   IconSettings,
@@ -26,7 +27,20 @@ export type SectionScope = "database" | "server";
  * and the `.nav-tone-*` classes in app.css). "plain" is the page's own text colour, which reads as
  * white in the dark theme and as near-black in the light one - the same "no colour of its own".
  */
-export type SectionTone = "plain" | "purple" | "blue-light" | "blue" | "blue-dark" | "red" | "orange" | "green" | "yellow" | "pink" | "gray";
+export type SectionTone =
+  | "plain"
+  | "purple"
+  | "blue-light"
+  | "blue"
+  | "blue-dark"
+  | "red"
+  | "orange"
+  | "green-dark"
+  | "green"
+  | "green-light"
+  | "yellow"
+  | "pink"
+  | "gray";
 
 export interface Section {
   id: string;
@@ -55,12 +69,16 @@ export const sections: Section[] = [
   { id: "dashboard", label: "Dashboard", scope: "database", icon: IconLayoutDashboard, tone: "plain" },
   { id: "datamodel", label: "Models", scope: "database", icon: IconSchema, tone: "purple" },
   { id: "query", label: "Query", scope: "database", icon: IconDatabaseSearch, tone: "blue-light" },
+  // What the database records about itself. It and the logs defined for it (Logs, below) are two
+  // shades of one green, so they read as related wherever they stand. The ids stay what they were
+  // when these were "System logs" and "Custom logs", so every hand-off still finds them
+  { id: "logs", label: "Activity", scope: "database", icon: IconFileText, tone: "green-dark" },
   // one page in three views (FilesStorageSection): everything about what is on disk. The entry is
   // the storage view; the other two are its views and are reached from the switch on the page
   { id: "storage", label: "Storage", scope: "database", icon: IconArchive, tone: "orange" },
   { id: "files", label: "Files", scope: "database", icon: IconFolders, parentId: "storage", tone: "orange" },
   { id: "conversions", label: "Conversions", scope: "database", icon: IconTransform, parentId: "storage", tone: "orange" },
-  { id: "logs", label: "Logs", scope: "database", icon: IconFileText, tone: "green" },
+  { id: "custom-logs", label: "Logs", scope: "database", icon: IconFileAnalytics, tone: "green-light" },
   { id: "tasks", label: "Tasks", scope: "database", icon: IconChecklist, tone: "yellow" },
   { id: "api", label: "API", scope: "database", icon: IconApi, tone: "pink" },
   { id: "db-settings", label: "Settings", scope: "database", icon: IconSettings, tone: "blue-dark" },

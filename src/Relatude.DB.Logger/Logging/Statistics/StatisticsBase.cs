@@ -15,6 +15,12 @@ public enum IntervalType {
 }
 public interface ICondensable {
     void Condense();
+    /// <summary>
+    /// Whether a value can still be added. Condensing may throw away what adding needs - a unique
+    /// count keeps the number and lets go of the values it was counted from - and an entry recorded
+    /// out of order can arrive for an interval that was condensed when the one after it began.
+    /// </summary>
+    bool AcceptsValues { get; }
 }
 public struct AvgMinMax<T> where T : struct {
     public AvgMinMax(double average, T? min, T? max) {
@@ -293,7 +299,39 @@ public abstract class StatisticsIntervalBase<TAggregator, TValue> {
             _intervals.Add(last);
             while (_intervals.Count > MaxNoIntervals) _intervals.RemoveAt(0); // remove expired intervals
         }
-        Record(last, recordValue);
+        if (dtUtc >= last.From) {
+            Record(last, recordValue);
+            return;
+        }
+        // Older than the newest interval, so it belongs to an earlier one. Entries arrive out of order
+        // whenever several threads record at once, and whenever a caller gives an entry a time of its
+        // own - counting them into the newest interval would move them to a time they did not happen.
+        var start = IntervalUtils.Floor(dtUtc, IntervalType, _firstDayOfWeek);
+        var index = firstIndexAtOrAfter(start);
+        Interval<TAggregator> interval;
+        if (index < _intervals.Count && _intervals[index].From == start) {
+            interval = _intervals[index];
+            // condensed when the interval after it began, and what adding needs may be gone
+            if (interval.HasValue && interval.Value is ICondensable condensed && !condensed.AcceptsValues) return;
+        } else {
+            // nothing was recorded in that interval yet; older than all that is kept, with no room
+            // left, it would be the first to be dropped again - so it is not made at all
+            if (index == 0 && _intervals.Count >= MaxNoIntervals) return;
+            interval = new(start, IntervalUtils.AddOne(start, IntervalType), CreateAggregator());
+            _intervals.Insert(index, interval);
+            while (_intervals.Count > MaxNoIntervals) _intervals.RemoveAt(0);
+        }
+        Record(interval, recordValue);
+    }
+    // the intervals are sorted by their start and hold no two with the same one
+    int firstIndexAtOrAfter(DateTime from) {
+        int lo = 0, hi = _intervals.Count;
+        while (lo < hi) {
+            var mid = (lo + hi) >>> 1;
+            if (_intervals[mid].From < from) lo = mid + 1;
+            else hi = mid;
+        }
+        return lo;
     }
     public List<Interval<TAggregator>> GetValues(DateTime fromUtc, DateTime toUtc, bool fillInBlanks) {
         var result = new List<Interval<TAggregator>>();

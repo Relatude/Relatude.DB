@@ -103,6 +103,9 @@ public static class FileKeyUtility {
     const string loggerBinaryExt = ".bin";
     const string loggerTextExt = ".txt";
     const string loggerBkUpExt = ".bkup";
+    // a log's settings as json (see LogSettings.Save); deliberately not matched by the .bin/.txt
+    // patterns the log streams search and delete by, so deleting a log's data keeps its settings
+    static readonly string[] loggerSettingsFilePattern = [LogFolderName, loggerNamePrefix + loggerFilePartDelim + "*" + loggerFilePartDelim + "settings.json"];
 
     static readonly string[] criticalErrorLogFilePattern = [LogFolderName, "critical.error.txt"];
 
@@ -272,6 +275,10 @@ public static class FileKeyUtility {
         var key = Logger_GetStatistics(loggerKey);
         return [.. key[..^1], key.FileName() + loggerBkUpExt];
     }
+    /// <summary>Where a log's settings are saved as json: log.[key].settings.json in the log folder.</summary>
+    public static string[] Logger_GetSettings(string loggerKey) => fill(loggerSettingsFilePattern, loggerKey);
+    /// <summary>The keys of every saved log settings file in the log folder.</summary>
+    public static string[][] Logger_GetAllSettingsFileKeys(IIOProvider io) => [.. io.Search(loggerSettingsFilePattern)];
     /// <summary>The file name prefix (inside the log folder) of one log's files for the given interval.</summary>
     public static string Logger_NamePrefix(string logName, FileInterval fileInterval) => loggerNamePrefix + loggerFilePartDelim + logName + loggerFilePartDelim + fileInterval.ToString().ToLower() + loggerFilePartDelim;
     public static string[] Logger_FileNameBin(string logName, FileInterval fileInterval, DateTime floored) => logger_FileName(logName, fileInterval, floored, loggerBinaryExt);
@@ -415,6 +422,7 @@ public static class FileKeyUtility {
         if (key.MatchesPattern(stateFilePattern) || key.MatchesPattern(stateFileLegacyPattern)) return "State";
         if (key.MatchesPattern([indexStoreFolderPattern])) return "Index Store";
         if (key.MatchesPattern(queueFileKeyPattern)) return "Task queue";
+        if (key.MatchesPattern(loggerSettingsFilePattern)) return "Log settings";
         if (key.MatchesPattern(loggerAllFilePattern)) return "Log file";
         if (key.MatchesPattern(indexFilePattern)) return "Index";
         // index engine files: unprefixed, inside their engine folder (see the region above); matched

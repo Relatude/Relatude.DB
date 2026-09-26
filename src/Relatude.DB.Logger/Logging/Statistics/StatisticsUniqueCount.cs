@@ -66,6 +66,7 @@ public class AggregatorSmallUniqueCount : ICondensable {
         }
         return ms.ToArray();
     }
+    public bool AcceptsValues => _condensedValueCount == -1;
     public void Condense() {
         _condensedValueCount = HashCount();
         _values = null;

@@ -56,6 +56,7 @@ public class AggregatorProbabilisticCount : ICondensable {
         }
         return ms.ToArray();
     }
+    public bool AcceptsValues => _condensedValueCount == -1;
     public void Condense() {
         _condensedValueCount = EstimateCount();
         _values = null;

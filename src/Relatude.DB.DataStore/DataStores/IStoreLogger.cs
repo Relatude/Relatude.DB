@@ -78,6 +78,12 @@ public interface IStoreLogger {
     int MinDurationMsBeforeLogging { get; set; }
     bool RecordingPropertyHits { get; set; }
     public ILogStore LogStore { get; }
+    /// <summary>
+    /// The logs defined while the application runs rather than in code - in the admin UI, or as
+    /// settings files in the log folder - and what an application records into them. They share the
+    /// log folder with the system logs above, whose keys they may not take.
+    /// </summary>
+    ICustomLogs CustomLogs { get; }
     Interval<int>[] AnalyseActionCount(IntervalType intervalType, DateTime from, DateTime to);
     Interval<Dictionary<string, int>> AnalyseActionOperations(IntervalType intervalType, DateTime from, DateTime to);
     Interval<int>[] AnalyseQueryCount(IntervalType intervalType, DateTime from, DateTime to);

@@ -67,10 +67,11 @@
   /**
    * The menu's colours: one per rail entry, so a page is recognised by its colour before its name is
    * read. They are their own tokens rather than the semantic ones (--ok, --data, --accent) because
-   * they mean nothing - they are labels, not states - and because a set of nine has to be told
+   * they mean nothing - they are labels, not states - and because a set of eleven has to be told
    * apart as a set: the three blues in particular are chosen against each other (cyan-leaning,
-   * true, indigo) rather than each on its own, and the red is held clear of the orange. Every one
-   * is a shade that reads on a light panel; the dark theme lightens all nine below.
+   * true, indigo) rather than each on its own, the three greens by how light they are (dark, middle,
+   * light), and the red is held clear of the orange. Every one is a shade that reads on a light
+   * panel; the dark theme lightens all eleven below.
    */
   --nav-purple: #6b3fb5;
   --nav-blue-light: #1a86c4;
@@ -78,8 +79,13 @@
   --nav-blue-dark: #35399b;
   --nav-red: #c4302a;
   --nav-orange: #cc5a11;
+  --nav-green-dark: #1f6b3b;
   --nav-green: #2f7a44;
-  --nav-yellow: #9a7b00;
+  --nav-green-light: #36984e;
+  /* a golden yellow: the darker olive this used to be read as brown on a light rail. It is too light
+     for text on a light page, so the page takes the deeper shade beside it (see .content below) */
+  --nav-yellow: #ca8a04;
+  --nav-yellow-deep: #a16207;
   --nav-pink: #bd3a7e;
 }
 
@@ -127,8 +133,11 @@
   --nav-blue-dark: #7a86e0;
   --nav-red: #f2867c;
   --nav-orange: #f5945a;
+  --nav-green-dark: #4e9e63;
   --nav-green: #6fbf85;
+  --nav-green-light: #95dca6;
   --nav-yellow: #e5cd4f;
+  --nav-yellow-deep: #e5cd4f;
   --nav-pink: #f08bc0;
 }
 
@@ -1034,8 +1043,16 @@ a {
   --nav-tone: var(--nav-orange);
 }
 
+.nav-tone-green-dark {
+  --nav-tone: var(--nav-green-dark);
+}
+
 .nav-tone-green {
   --nav-tone: var(--nav-green);
+}
+
+.nav-tone-green-light {
+  --nav-tone: var(--nav-green-light);
 }
 
 .nav-tone-yellow {
@@ -1156,6 +1173,13 @@ a {
 
 .content.nav-tone-plain {
   --section-tone: var(--accent);
+}
+
+/* Yellow is the one tone too light to be read as text on a light page: the rail's icon keeps the
+   golden yellow, and the page - its active tab, its switches, its chosen chips - takes a deeper shade
+   of the same yellow. In the dark theme the two are one. */
+.content.nav-tone-yellow {
+  --section-tone: var(--nav-yellow-deep);
 }
 
 .content-body {

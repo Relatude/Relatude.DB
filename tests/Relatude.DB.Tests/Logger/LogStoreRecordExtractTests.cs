@@ -47,21 +47,107 @@ public class LogStoreRecordExtractTests {
         store.Dispose();
     }
     [TestMethod]
-    public void DeclaredTypeWinsOverRecordedTypeOnExtract() {
+    public void DeclaredTypeWinsOverRecordedType() {
         var io = new IOProviderMemory();
         var settings = H.Settings(configure: s => {
             s.Properties.Add("pInt", new LogProperty { DataType = LogDataType.Integer });
             s.Properties.Add("pDbl", new LogProperty { DataType = LogDataType.Double });
+            s.Properties.Add("pLong", new LogProperty { DataType = LogDataType.Integer });
+            s.Properties.Add("pText", new LogProperty { DataType = LogDataType.String });
+            s.Properties.Add("pWhen", new LogProperty { DataType = LogDataType.DateTime });
+            s.Properties.Add("pSpan", new LogProperty { DataType = LogDataType.TimeSpan });
         });
         var store = H.Store(io, settings);
-        store.Record("test", H.Entry(H.T0, ("pInt", "abc"), ("pDbl", 5)));
+        var when = new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.FromHours(2));
+        store.Record("test", H.Entry(H.T0, ("pInt", "abc"), ("pDbl", 5), ("pLong", 1234567890123L), ("pText", 1.5m), ("pWhen", when), ("pSpan", 250)));
         var e = store.ExtractLog("test", H.T0, H.T0.AddDays(1), 0, 10, false, out _).Single();
-        // values recorded with a type that differs from the declared property type
-        // fall back to the default of the declared type on extract
-        Assert.IsInstanceOfType(e.Values["pInt"], typeof(int));
-        Assert.AreEqual(0, e.Values["pInt"]);
-        Assert.IsInstanceOfType(e.Values["pDbl"], typeof(double));
-        Assert.AreEqual(0.0, e.Values["pDbl"]);
+        // values are converted to the declared type when they are recorded...
+        Assert.AreEqual(5.0, e.Values["pDbl"]);
+        Assert.AreEqual(int.MaxValue, e.Values["pLong"]); // clamped rather than wrapped
+        Assert.AreEqual("1.5", e.Values["pText"]); // invariant, whatever the server's culture
+        Assert.AreEqual(when.UtcDateTime, e.Values["pWhen"]);
+        Assert.AreEqual(DateTimeKind.Utc, ((DateTime)e.Values["pWhen"]).Kind);
+        Assert.AreEqual(TimeSpan.FromMilliseconds(250), e.Values["pSpan"]);
+        // ...and one with no reading as that type is left out rather than recorded as a zero
+        Assert.IsFalse(e.Values.ContainsKey("pInt"));
+        store.Dispose();
+    }
+    [TestMethod]
+    public void ValuesRecordedBeforeATypeChangeAreReadAsTheNewType() {
+        var io = new IOProviderMemory();
+        var before = H.Settings(configure: s => {
+            s.Properties.Add("n", new LogProperty { DataType = LogDataType.Integer });
+            s.Properties.Add("t", new LogProperty { DataType = LogDataType.String });
+        });
+        var store = H.Store(io, before);
+        store.Record("test", H.Entry(H.T0, ("n", 7), ("t", "not a number")));
+        store.Dispose();
+        var after = H.Settings(configure: s => {
+            s.Properties.Add("n", new LogProperty { DataType = LogDataType.Double });
+            s.Properties.Add("t", new LogProperty { DataType = LogDataType.Integer });
+        });
+        store = H.Store(io, after);
+        var e = store.ExtractLog("test", H.T0, H.T0.AddDays(1), 0, 10, false, out _).Single();
+        Assert.AreEqual(7.0, e.Values["n"]);
+        // no reading as the new type: kept as it was stored, never shown as a zero nobody recorded
+        Assert.AreEqual("not a number", e.Values["t"]);
+        store.Dispose();
+    }
+    [TestMethod]
+    public void DeclaredColumnsKeepTheirSpellingAndNullsAreLeftOut() {
+        var io = new IOProviderMemory();
+        var store = H.Store(io, H.RichSettings());
+        store.Record("test", H.Entry(H.T0, ("PINT", 3), ("pDouble", null!)));
+        var e = store.ExtractLog("test", H.T0, H.T0.AddDays(1), 0, 10, false, out _).Single();
+        Assert.IsTrue(e.Values.ContainsKey("pInt"));
+        Assert.IsFalse(e.Values.ContainsKey("PINT"));
+        Assert.IsFalse(e.Values.ContainsKey("pDouble"));
+        // and the statistics of the column saw it under its own name
+        Assert.AreEqual(3, store.AnalyseCombinedIntegerSums("test", "pInt", Relatude.DB.Logging.Statistics.IntervalType.Hour, H.T0, H.T0.AddHours(1)).Value);
+        store.Dispose();
+    }
+    [TestMethod]
+    public void LocalTimestampsAreStoredAsUtc() {
+        var io = new IOProviderMemory();
+        var store = H.Store(io, H.Settings());
+        var local = H.T0.ToLocalTime();
+        store.Record("test", new LogEntry { Timestamp = local, Values = { ["n"] = 1 } });
+        var e = store.ExtractLog("test", H.T0, H.T0.AddDays(1), 0, 10, false, out _).Single();
+        Assert.AreEqual(H.T0, e.Timestamp);
+        store.Dispose();
+    }
+    [TestMethod]
+    public void ForcingOffLeavesAnEntryOut() {
+        var io = new IOProviderMemory();
+        var store = H.Store(io, H.RichSettings());
+        store.Record("test", H.Entry(H.T0, ("pInt", 5)), forceStatistics: false);
+        store.ExtractLog("test", H.T0, H.T0.AddDays(1), 0, 10, false, out var total);
+        Assert.AreEqual(1, total); // written...
+        Assert.AreEqual(0, store.AnalyseCombinedRows("test", Relatude.DB.Logging.Statistics.IntervalType.Hour, H.T0, H.T0.AddHours(1)).Value); // ...but not counted
+        store.Record("test", H.Entry(H.T0.AddMinutes(1), ("pInt", 5)), forceLogging: false);
+        store.ExtractLog("test", H.T0, H.T0.AddDays(1), 0, 10, false, out total);
+        Assert.AreEqual(1, total); // counted, not written
+        Assert.AreEqual(1, store.AnalyseCombinedRows("test", Relatude.DB.Logging.Statistics.IntervalType.Hour, H.T0, H.T0.AddHours(1)).Value);
+        store.Dispose();
+    }
+    [TestMethod]
+    public void PagesOfALargeRangeMatchTheWholeRangeSorted() {
+        // more entries than a page keeps while reading, so the window is trimmed many times over;
+        // shuffled, and sharing timestamps, which is where a trimmed window could go wrong
+        var io = new IOProviderMemory();
+        var store = H.Store(io, H.Settings());
+        var random = new Random(7);
+        var written = Enumerable.Range(0, 3000).Select(i => (Time: H.T0.AddSeconds(random.Next(600)), N: i)).ToList();
+        foreach (var (time, n) in written) store.Record("test", H.Entry(time, ("n", n)));
+        foreach (var descending in new[] { true, false }) {
+            // a stable sort by time: entries sharing one keep the order they were written in
+            var expected = (descending ? written.OrderByDescending(w => w.Time) : written.OrderBy(w => w.Time)).Select(w => w.N).ToList();
+            foreach (var (skip, take) in new[] { (0, 100), (100, 100), (2950, 100), (0, 3000), (1234, 1) }) {
+                var page = store.ExtractLog("test", H.T0, H.T0.AddHours(1), skip, take, descending, out var total).Select(e => (int)e.Values["n"]).ToList();
+                Assert.AreEqual(3000, total);
+                CollectionAssert.AreEqual(expected.Skip(skip).Take(take).ToList(), page, $"descending={descending} skip={skip} take={take}");
+            }
+        }
         store.Dispose();
     }
     [TestMethod]

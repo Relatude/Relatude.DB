@@ -23,6 +23,7 @@ public sealed class UIServer {
     readonly Timer _containerWatch;
     readonly UIQuery _query;
     readonly UILogs _logs;
+    readonly UICustomLogs _customLogs;
     readonly UIFileTransfer _transfer;
     string? _lastContainersJson;
     public UIEventStream Events { get; } = new();
@@ -37,6 +38,8 @@ public sealed class UIServer {
         new UILicense(server).Register(Commands);
         _logs = new UILogs(server);
         _logs.Register(Commands);
+        _customLogs = new UICustomLogs(server);
+        _customLogs.Register(Commands);
         _transfer = new UIFileTransfer(server);
         new UIDashboard(server).Register(Commands);
         new UIMemory(server).Register(Commands);
@@ -145,6 +148,15 @@ public sealed class UIServer {
             } catch (Exception error) when (!ctx.Response.HasStarted) {
                 // the log and its range are read before the first row is written, so until then the
                 // client can still be told what went wrong
+                return Results.Json(new { error = error.Message }, RelatudeDBJsonOptions.Default, statusCode: 500);
+            }
+            return Results.Empty;
+        });
+        // a custom log as a file (a download, so not a command): tab or comma separated, or json lines
+        app.MapPost(path + "custom-log-export", async (HttpContext ctx, UICustomLogs.ExportPayload payload) => {
+            try {
+                await _customLogs.WriteExport(ctx, payload);
+            } catch (Exception error) when (!ctx.Response.HasStarted) {
                 return Results.Json(new { error = error.Message }, RelatudeDBJsonOptions.Default, statusCode: 500);
             }
             return Results.Empty;

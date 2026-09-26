@@ -63,11 +63,68 @@ public class LogStore : IDisposable, ILogStore {
     public bool HasLog(string logKey) => _logs.ContainsKey(logKey);
     public void AddLog(LogSettings settings) {
         lock (_addLock) {
+            if (_logs.ContainsKey(settings.Key)) throw new ArgumentException($"There is already a log with the key '{settings.Key}'.");
             var logs = new Dictionary<string, Log>(_logs, StringComparer.OrdinalIgnoreCase);
             logs.Add(settings.Key, new Log(settings, _io));
             _logs = logs;
         }
     }
+    /// <summary>
+    /// Takes a log out of the store, saving its statistics and closing its files first. What it
+    /// wrote stays on disk: removing a log is not deleting it (see <see cref="DeleteLogAndStatistics"/>).
+    /// Returns false when there was no such log.
+    /// </summary>
+    public bool RemoveLog(string logKey) {
+        Log? removed;
+        lock (_addLock) {
+            if (!_logs.TryGetValue(logKey, out removed)) return false;
+            var logs = new Dictionary<string, Log>(_logs, StringComparer.OrdinalIgnoreCase);
+            logs.Remove(logKey);
+            _logs = logs;
+        }
+        // out of the dictionary before it is closed, so no new record is handed to it; one already
+        // on its way is dropped by the log itself once it is disposed
+        removed.Dispose();
+        return true;
+    }
+    /// <summary>
+    /// Puts a log back with new settings, or adds it when there was none: the old one saves its
+    /// statistics and closes its files before the new one opens them, so the two never have the
+    /// same files open at once.
+    /// </summary>
+    public void ReplaceLog(LogSettings settings) {
+        lock (_addLock) {
+            if (_logs.TryGetValue(settings.Key, out var old)) old.Dispose();
+            var logs = new Dictionary<string, Log>(_logs, StringComparer.OrdinalIgnoreCase);
+            logs[settings.Key] = new Log(settings, _io);
+            _logs = logs;
+        }
+    }
+    /// <summary>A store with every log whose settings are saved in the log folder (see <see cref="SaveSettings"/>).</summary>
+    public static LogStore FromSavedSettings(IIOProvider io) => new(io, LogSettings.LoadAll(io));
+    public LogSettings AddLogFromJson(string json) {
+        var settings = LogSettings.FromJson(json);
+        AddLog(settings);
+        return settings;
+    }
+    public LogSettings AddLogFromFile(string filePath) {
+        var settings = LogSettings.LoadFromFile(filePath);
+        AddLog(settings);
+        return settings;
+    }
+    public LogSettings AddLogFromSavedSettings(string logKey) {
+        var settings = LogSettings.LoadIfSaved(_io, logKey) ?? throw new Exception($"No saved settings for log '{logKey}'.");
+        AddLog(settings);
+        return settings;
+    }
+    public string GetSettingJson(string logKey) => GetSetting(logKey).ToJson();
+    public void SaveSettings(string logKey) => GetSetting(logKey).Save(_io);
+    public void SaveSettingsToFile(string logKey, string filePath) => GetSetting(logKey).SaveToFile(filePath);
+    public void SaveAllSettings() {
+        foreach (var log in _logs.Values) log.Setting.Save(_io);
+    }
+    public bool HasSavedSettings(string logKey) => _io.ExistsAndIsNotEmpty(FileKeyUtility.Logger_GetSettings(logKey));
+    public void DeleteSavedSettings(string logKey) => LogSettings.DeleteSaved(_io, logKey);
     public LogSettings GetSetting(string logKey) {
         return get(logKey)?.Setting ?? throw new Exception($"Log with key '{logKey}' not found");
     }

@@ -1,40 +1,20 @@
 using Relatude.DB.DataStores;
-using Relatude.DB.IO;
 using Relatude.DB.Logging;
-using Relatude.DB.Logging.Statistics;
 using Relatude.DB.NodeServer.Settings;
-using System.Globalization;
-using System.Text;
 
 namespace Relatude.DB.NodeServer.UI;
 
 /// <summary>
-/// The logs section of the admin UI: the activity logs of one database, what they contain, and the
-/// statistics kept alongside them.
+/// The system logs section of the admin UI: the activity logs of one database, what they contain,
+/// and the statistics kept alongside them.
 ///
 /// Nothing here knows what a query log or a metrics log looks like. A log describes itself through
-/// its <see cref="LogSettings"/> - a name, a property per column with the data type behind it, and
-/// the statistics each property declares - and that description is what the client renders, both
-/// for the tables and for the graphs. A log added to StoreLogger therefore shows up in the UI, with
-/// its columns and its graphs, without a line changing here or in the browser.
-///
-/// Two things about the statistics decide the shape of a series:
-///   - which statistic a property declares decides what can be drawn (a count is a line, a
-///     CountSumAvgMinMax is a line with a min/max band, a UniqueCountWithValues is a breakdown per
-///     value), so the series carries that kind and the client picks the chart from it;
-///   - statistics are kept per interval type with a limited number of intervals each, so a range is
-///     only answerable as far back as the log kept it. The range is clamped to that, and to a point
-///     cap: filling in blank intervals walks one interval at a time, so a year of seconds would
-///     otherwise be thirty million of them.
+/// its <see cref="LogSettings"/>, and that description is what the client renders, both for the
+/// tables and for the graphs (see <see cref="UILogReader"/>, which reads them for the custom logs
+/// too). A log added to StoreLogger therefore shows up in the UI, with its columns and its graphs,
+/// without a line changing here or in the browser.
 /// </summary>
 sealed class UILogs {
-    // no chart shows more than a few hundred points, and every point beyond that is walked, held
-    // and serialized for nothing
-    const int maxPoints = 400;
-    // a breakdown with a hundred values is a wall of colour, not a graph: the rest becomes "Other"
-    const int maxGroups = 10;
-    const string otherGroup = "Other";
-
     readonly RelatudeDBServer _server;
     internal UILogs(RelatudeDBServer server) => _server = server;
 
@@ -96,7 +76,7 @@ sealed class UILogs {
                     Name = p.Value.Name,
                     DataType = p.Value.DataType.ToString(),
                 }),
-                Series = seriesOf(setting),
+                Series = UILogReader.SeriesOf(setting),
             };
         }).ToArray();
         return new {
@@ -114,182 +94,22 @@ sealed class UILogs {
         };
     }
 
-    /// <summary>
-    /// The graphs a log can draw. Every log can draw its entry count over time (the row statistic,
-    /// which every log keeps); a property adds one series per statistic it declares, as long as
-    /// that statistic is one its data type supports - the same test the log makes when it creates
-    /// them, repeated here so the UI never offers a graph that could only come back empty.
-    /// </summary>
-    static object[] seriesOf(LogSettings setting) {
-        var all = new List<object> {
-            new {
-                Property = (string?)null,
-                Statistic = "Count",
-                Kind = "count",
-                Label = "Entries",
-                DataType = "Integer",
-            },
-        };
-        foreach (var property in setting.Properties) {
-            foreach (var stat in property.Value.Statistics ?? []) {
-                if (stat == null) continue;
-                var kind = kindOf(stat.StatisticsType, property.Value.DataType);
-                if (kind == null) continue; // the log would not create this statistic either
-                all.Add(new {
-                    Property = (string?)property.Key,
-                    Statistic = stat.StatisticsType.ToString(),
-                    Kind = kind,
-                    Label = property.Value.Name + " · " + labelOf(stat.StatisticsType),
-                    DataType = property.Value.DataType.ToString(),
-                });
-            }
-        }
-        return [.. all];
-    }
-
-    // what the client draws, and which Analyse* answers it. null = the log does not keep this
-    // statistic for this data type (the same rules as Log.createStatisticsIfPossible)
-    static string? kindOf(StatisticsType type, LogDataType dataType) {
-        var numeric = dataType is LogDataType.Integer or LogDataType.Double;
-        return type switch {
-            StatisticsType.Count => "count",
-            StatisticsType.Sum when numeric => "sum",
-            StatisticsType.AvgMinMax when numeric => "avgminmax",
-            StatisticsType.CountSumAvgMinMax when numeric => "full",
-            StatisticsType.UniqueCountWithValues when dataType is not LogDataType.Bytes => "groups",
-            StatisticsType.UniqueCountHashedValues when dataType is not LogDataType.Bytes => "count",
-            StatisticsType.UniqueCountEstimate when dataType is not LogDataType.Bytes => "count",
-            _ => null,
-        };
-    }
-    static string labelOf(StatisticsType type) => type switch {
-        StatisticsType.Count => "count",
-        StatisticsType.Sum => "total",
-        StatisticsType.AvgMinMax => "avg, min, max",
-        StatisticsType.CountSumAvgMinMax => "avg, min, max",
-        StatisticsType.UniqueCountWithValues => "by value",
-        StatisticsType.UniqueCountHashedValues => "unique",
-        StatisticsType.UniqueCountEstimate => "unique, estimated",
-        _ => type.ToString(),
-    };
-
     // ---- reading entries ----
 
     object extract(ExtractPayload p) {
         var log = logger(p.StoreId);
-        // the log files are read by UTC timestamp and refuse anything else, so an unspecified kind
-        // (an omitted bound, or a value that arrived without a marker) is taken as UTC here
-        var (fromUtc, toUtc) = window(p.LastMs, p.FromUtc, p.ToUtc);
-        var from = fromUtc ?? DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
-        var to = toUtc ?? DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc);
-        var skip = Math.Max(0, p.Skip);
-        // A page of the table is a hundred rows, but the column filters search what the browser
-        // already holds, so filtering asks for a window of thousands in one call. Reading a range
-        // reads every record in it whatever the take is, so a larger one costs a larger response
-        // and no more work here.
-        var take = Math.Clamp(p.Take, 1, 10000);
-        // A search reads the same records, and tests each one: it costs the range, not the number
-        // of matches, so what it is given is the range the page is already showing. The total then
-        // counts matches rather than entries, which is what the page says it is.
-        var search = LogSearch.Parse(p.Search, p.CaseSensitive);
-        int total;
-        var entries = search.IsEmpty
-            ? log.ExtractLog(p.LogKey, from, to, skip, take, true, out total)
-            : log.SearchLog(p.LogKey, search, from, to, skip, take, true, out total);
-        return new {
-            Total = total,
-            Skip = skip,
-            Take = take,
-            Searched = !search.IsEmpty,
-            Entries = entries.Select(e => new {
-                TimestampUtc = utc(e.Timestamp),
-                e.Values,
-            }),
-        };
+        return UILogReader.Extract(log.LogStore, p.LogKey, p.LastMs, p.FromUtc, p.ToUtc, p.Skip, p.Take, p.Search, p.CaseSensitive);
     }
 
     // ---- a log as a file ----
 
     /// <summary>
-    /// A log written out as tab separated text: the whole of it, or one range. The column no log
-    /// declares comes first - the timestamp, ISO 8601 in UTC so it sorts as text - and then one
-    /// column per property the log declares, in the order its table shows them.
-    ///
-    /// The range is walked one slice at a time rather than asked for in one call, because
-    /// extracting a range reads every record in it into memory: a whole log of a busy database
-    /// would otherwise be held at once. A slice is never smaller than one of the log's own files,
-    /// since a smaller one would only read the same file again, and the rows come out oldest
-    /// first - the order the files are walked in.
-    ///
-    /// A search narrows the file to the entries matching it. It is tested here rather than asked
-    /// of the log, because the slices are already being read one at a time: searching each of them
-    /// would read the same records twice, once to count the matches and once to write them.
+    /// A log written out as tab separated text: the whole of it, or one range, narrowed to what a
+    /// search matches when there is one. See <see cref="UILogReader.WriteEntries"/>.
     /// </summary>
-    internal async Task WriteTsv(HttpContext http, ExportPayload p) {
+    internal Task WriteTsv(HttpContext http, ExportPayload p) {
         var log = logger(p.StoreId);
-        var store = log.LogStore;
-        var setting = store.GetSetting(p.LogKey); // an unknown log throws here, before anything is written
-        var search = LogSearch.Parse(p.Search, p.CaseSensitive);
-        var first = asUtc(store.GetTimestampOfFirstRecord(p.LogKey));
-        var last = asUtc(store.GetTimestampOfLastRecord(p.LogKey));
-        var columns = setting.Properties.ToArray();
-        var name = p.LogKey + "-log-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".tsv";
-        http.Response.ContentType = "text/tab-separated-values; charset=utf-8";
-        http.Response.Headers.ContentDisposition = "attachment; filename=\"" + name + "\"";
-        var writer = new StreamWriter(http.Response.Body, new UTF8Encoding(true)); // BOM: spreadsheets read the file as utf-8 without being told
-        await using (writer.ConfigureAwait(false)) {
-            await writer.WriteAsync(row(["Time", .. columns.Select(c => c.Value.Name)]));
-            // Nothing recorded: the header alone says what the file would have held.
-            if (first is not DateTime firstRecord || last is not DateTime lastRecord) return;
-            // An omitted bound is the whole log. A bound reaching past what the log holds is that
-            // too, and is clamped rather than walked: a range starting at year one is half a
-            // million empty day slices before the first record the log actually has.
-            var rangeFrom = asUtc(p.FromUtc) is DateTime f && f > firstRecord ? f : firstRecord;
-            var rangeTo = asUtc(p.ToUtc) is DateTime t && t <= lastRecord ? t : lastRecord.AddTicks(1); // [from, to): the last record is in it
-            var interval = setting.FileInterval;
-            for (var sliceFrom = floorToSlice(rangeFrom, interval); sliceFrom < rangeTo; sliceFrom = nextSlice(sliceFrom, interval)) {
-                if (http.RequestAborted.IsCancellationRequested) return;
-                var sliceTo = nextSlice(sliceFrom, interval);
-                var entries = log.ExtractLog(p.LogKey, sliceFrom > rangeFrom ? sliceFrom : rangeFrom, sliceTo < rangeTo ? sliceTo : rangeTo,
-                    0, int.MaxValue, false, out _);
-                foreach (var entry in entries) {
-                    if (http.RequestAborted.IsCancellationRequested) return;
-                    if (!search.Matches(entry, setting)) continue;
-                    await writer.WriteAsync(row([
-                        cell(entry.Timestamp),
-                        .. columns.Select(c => cell(entry.Values.TryGetValue(c.Key, out var value) ? value : null)),
-                    ]));
-                }
-            }
-        }
-    }
-
-    // A slice covers whole log files: one day, or one month for a log keeping a file per month.
-    // A log writing a file per minute or per hour reads several of them per slice, which is the
-    // point - the slice is there to bound memory, not to read as little as possible.
-    static DateTime floorToSlice(DateTime at, FileInterval interval) => interval == FileInterval.Month
-        ? new DateTime(at.Year, at.Month, 1, 0, 0, 0, DateTimeKind.Utc)
-        : new DateTime(at.Year, at.Month, at.Day, 0, 0, 0, DateTimeKind.Utc);
-    static DateTime nextSlice(DateTime at, FileInterval interval) => interval == FileInterval.Month ? at.AddMonths(1) : at.AddDays(1);
-
-    static string row(IEnumerable<string> cells) => string.Join('\t', cells) + "\r\n";
-
-    /// <summary>
-    /// One value as the file holds it. Tab separated text has no escape - a value with a tab in it
-    /// would become another column, and one with a newline another row - so those become spaces.
-    /// Nothing else is dressed up: the numbers are the numbers, and the timestamps sort as text.
-    /// </summary>
-    static string cell(object? value) {
-        var text = value switch {
-            null => string.Empty,
-            DateTime dt => DateTime.SpecifyKind(dt, DateTimeKind.Utc).ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture),
-            TimeSpan ts => ts.ToString("c", CultureInfo.InvariantCulture),
-            double d => d.ToString("R", CultureInfo.InvariantCulture),
-            int i => i.ToString(CultureInfo.InvariantCulture),
-            byte[] bytes => bytes.Length + " bytes", // the log holds them, a text file cannot
-            _ => value.ToString() ?? string.Empty,
-        };
-        return text.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
+        return UILogReader.WriteEntries(http, log.LogStore, p.LogKey, p.FromUtc, p.ToUtc, p.Search, p.CaseSensitive, "tsv");
     }
 
     // The trace is the last messages the running database kept in memory: the ones written before
@@ -324,170 +144,7 @@ sealed class UILogs {
 
     object series(SeriesPayload p) {
         var log = logger(p.StoreId);
-        var store = log.LogStore;
-        var setting = store.GetSetting(p.LogKey);
-        var statistic = parseStatistic(p.Statistic);
-        var interval = parseInterval(p.Interval);
-        var (fromUtc, toUtc) = window(p.LastMs, p.FromUtc, p.ToUtc);
-        var to = toUtc ?? DateTime.UtcNow;
-        var requested = fromUtc ?? to.AddHours(-24);
-        if (requested >= to) throw new Exception("The time range is empty. ");
-        var from = clamp(requested, to, interval, resolutionOf(setting, p.Property, statistic), setting.FirstDayOfWeek, out var clamped);
-        var property = p.Property;
-        var kind = property == null ? "count"
-            : kindOf(statistic, columnType(setting, property)) ?? throw new Exception("No " + p.Statistic + " statistic is kept for " + property + ". ");
-        object[] points;
-        object? summary = null;
-        string[] groups = [];
-        switch (kind) {
-            case "count": {
-                    var values = property == null
-                        ? store.AnalyseRows(p.LogKey, interval, from, to, false, true)
-                        : counts(store, p.LogKey, property, statistic, interval, from, to);
-                    points = [.. values.Select(i => (object)new { FromUtc = utc(i.From), i.HasValue, Value = i.HasValue ? i.Value : (int?)null })];
-                    // a unique count has no combined form - unique values cannot be added up - so
-                    // only the plain counts carry a total
-                    if (property == null) {
-                        var combined = store.AnalyseCombinedRows(p.LogKey, interval, from, to);
-                        summary = new { Total = combined.HasValue ? combined.Value : 0 };
-                    } else if (statistic == StatisticsType.Count) {
-                        var combined = store.AnalyseCombinedCounts(p.LogKey, property, interval, from, to);
-                        summary = new { Total = combined.HasValue ? combined.Value : 0 };
-                    }
-                    break;
-                }
-            case "sum": {
-                    if (columnType(setting, property!) == LogDataType.Integer) {
-                        var values = store.AnalyseIntegerSums(p.LogKey, property!, interval, from, to, false, true);
-                        points = [.. values.Select(i => (object)new { FromUtc = utc(i.From), i.HasValue, Value = i.HasValue ? i.Value : (double?)null })];
-                        var combined = store.AnalyseCombinedIntegerSums(p.LogKey, property!, interval, from, to);
-                        summary = new { Total = combined.HasValue ? (double)combined.Value : 0d };
-                    } else {
-                        var values = store.AnalyseFloatSums(p.LogKey, property!, interval, from, to, false, true);
-                        points = [.. values.Select(i => (object)new { FromUtc = utc(i.From), i.HasValue, Value = i.HasValue ? i.Value : (double?)null })];
-                        var combined = store.AnalyseCombinedFloatSums(p.LogKey, property!, interval, from, to);
-                        summary = new { Total = combined.HasValue ? combined.Value : 0d };
-                    }
-                    break;
-                }
-            case "avgminmax": {
-                    var values = store.AnalyseAvgMinMax(p.LogKey, property!, interval, from, to, false, true);
-                    points = [.. values.Select(i => (object)new {
-                        FromUtc = utc(i.From),
-                        i.HasValue,
-                        Value = i.HasValue ? i.Value.Avg : (double?)null,
-                        Min = i.HasValue ? i.Value.Min : null,
-                        Max = i.HasValue ? i.Value.Max : null,
-                    })];
-                    var combined = store.AnalyseCombinedAvgMinMax(p.LogKey, property!, interval, from, to);
-                    if (combined.HasValue) summary = new { combined.Value.Avg, combined.Value.Min, combined.Value.Max };
-                    break;
-                }
-            case "full": {
-                    var values = store.AnalyseCountSumAvgMinMax(p.LogKey, property!, interval, from, to, false, true);
-                    points = [.. values.Select(i => (object)new {
-                        FromUtc = utc(i.From),
-                        i.HasValue,
-                        Value = i.HasValue ? i.Value.Avg : (double?)null,
-                        Min = i.HasValue ? i.Value.Min : null,
-                        Max = i.HasValue ? i.Value.Max : null,
-                        Sum = i.HasValue ? i.Value.Sum : (double?)null,
-                        Count = i.HasValue ? i.Value.Count : (int?)null,
-                    })];
-                    var combined = store.AnalyseCombinedCountSumAvgMinMax(p.LogKey, property!, interval, from, to);
-                    if (combined.HasValue) summary = new { combined.Value.Count, combined.Value.Sum, combined.Value.Avg, combined.Value.Min, combined.Value.Max };
-                    break;
-                }
-            case "groups": {
-                    var values = store.AnalyseGroupCounts(p.LogKey, property!, interval, from, to, false, true).ToArray();
-                    var combined = store.AnalyseCombinedGroupCounts(p.LogKey, property!, interval, from, to);
-                    var totals = combined.HasValue ? combined.Value : [];
-                    // the graph keeps the values that carry the shape and folds the tail into one.
-                    // Ordered by name so a value keeps its colour between refreshes even when the
-                    // order by size changes under it.
-                    groups = [.. totals.OrderByDescending(kv => kv.Value).Take(maxGroups).Select(kv => kv.Key).Order(StringComparer.Ordinal)];
-                    var named = groups.ToHashSet(StringComparer.Ordinal);
-                    var hasOther = totals.Count > groups.Length;
-                    points = [.. values.Select(i => {
-                        var buckets = new Dictionary<string, int>(StringComparer.Ordinal);
-                        var other = 0;
-                        if (i.HasValue) {
-                            foreach (var kv in i.Value) {
-                                if (named.Contains(kv.Key)) buckets[kv.Key] = kv.Value;
-                                else other += kv.Value;
-                            }
-                        }
-                        if (hasOther) buckets[otherGroup] = other;
-                        return (object)new { FromUtc = utc(i.From), i.HasValue, Values = buckets };
-                    })];
-                    if (hasOther) groups = [.. groups, otherGroup];
-                    summary = new {
-                        Total = totals.Sum(kv => kv.Value),
-                        Groups = totals.OrderByDescending(kv => kv.Value).Take(maxGroups).Select(kv => new { Name = kv.Key, Count = kv.Value }),
-                    };
-                    break;
-                }
-            default: throw new Exception("Unknown statistic. ");
-        }
-        return new {
-            p.LogKey,
-            p.Property,
-            p.Statistic,
-            Kind = kind,
-            Interval = interval.ToString(),
-            FromUtc = utc(from),
-            ToUtc = utc(to),
-            Clamped = clamped,
-            EnabledStatistics = log.IsStatisticsEnabled(p.LogKey),
-            Groups = groups,
-            Summary = summary,
-            Points = points,
-        };
-    }
-
-    static IEnumerable<Interval<int>> counts(ILogStore store, string logKey, string property, StatisticsType type, IntervalType interval, DateTime from, DateTime to) {
-        return type switch {
-            StatisticsType.Count => store.AnalyseCounts(logKey, property, interval, from, to, false, true),
-            StatisticsType.UniqueCountHashedValues => store.AnalyseUniqueCounts(logKey, property, interval, from, to, false, true),
-            StatisticsType.UniqueCountEstimate => store.AnalyseEstimatedUniqueCounts(logKey, property, interval, from, to, false, true),
-            _ => throw new Exception("Unknown count statistic. "),
-        };
-    }
-
-    static LogDataType columnType(LogSettings setting, string property) {
-        if (!setting.Properties.TryGetValue(property, out var p)) throw new Exception("Unknown log property: " + property + ". ");
-        return p.DataType;
-    }
-    // How many intervals of one type the statistic keeps: the row statistic and every property
-    // statistic carry their own resolution, and the oldest interval is dropped as new ones arrive,
-    // so asking further back than that can only produce blanks.
-    static int resolutionOf(LogSettings setting, string? property, StatisticsType statistic) {
-        if (property == null) return Math.Max(1, setting.ResolutionRowStats);
-        if (!setting.Properties.TryGetValue(property, out var p)) return 1;
-        var info = (p.Statistics ?? []).FirstOrDefault(s => s != null && s.StatisticsType == statistic);
-        return Math.Max(1, info?.Resolution ?? 1);
-    }
-    static int keptIntervals(IntervalType type, int resolution) => resolution * type switch {
-        IntervalType.Second => 60,
-        IntervalType.Minute => 60,
-        IntervalType.Hour => 48,
-        IntervalType.Day => 60,
-        IntervalType.Week => 52,
-        IntervalType.Month => 60,
-        _ => 60,
-    };
-    static DateTime clamp(DateTime from, DateTime to, IntervalType interval, int resolution, DayOfWeek firstDayOfWeek, out bool clamped) {
-        var allowed = Math.Min(maxPoints, keptIntervals(interval, resolution));
-        var oldest = IntervalUtils.Floor(to, interval, firstDayOfWeek);
-        for (var i = 0; i < allowed; i++) oldest = IntervalUtils.SubtractOne(oldest, interval);
-        clamped = from < oldest;
-        return clamped ? oldest : from;
-    }
-    static IntervalType parseInterval(string value) {
-        return Enum.TryParse<IntervalType>(value, true, out var t) ? t : throw new Exception("Unknown interval: " + value + ". ");
-    }
-    static StatisticsType parseStatistic(string value) {
-        return Enum.TryParse<StatisticsType>(value, true, out var t) ? t : throw new Exception("Unknown statistic: " + value + ". ");
+        return UILogReader.Series(log.LogStore, p.LogKey, p.Property, p.Statistic, p.Interval, p.LastMs, p.FromUtc, p.ToUtc, log.IsStatisticsEnabled(p.LogKey));
     }
 
     // ---- switches and cleaning ----
@@ -594,34 +251,7 @@ sealed class UILogs {
         return new { Recording = log.RecordingPropertyHits };
     }
 
-    // Timestamps read off the log files are UTC, but one that reaches the browser without the
-    // marker is read there as local time, quietly moving it by the offset
-    /// <summary>
-    /// The range a page is asking about. A window given as "the last so many milliseconds" ends now,
-    /// which is what a page following a log wants: the range moves with each sample instead of
-    /// staying where it was when the page subscribed (see <see cref="UILiveFeeds"/>). Absolute
-    /// bounds are left exactly as they were given.
-    /// </summary>
-    static (DateTime? From, DateTime? To) window(long? lastMs, DateTime? fromUtc, DateTime? toUtc) {
-        // a year in milliseconds is past what an int holds, and a year is one of the ranges the logs
-        // page offers
-        if (lastMs is not long ms || ms <= 0) return (asUtc(fromUtc), asUtc(toUtc));
-        var to = DateTime.UtcNow;
-        return (to.AddMilliseconds(-ms), to);
-    }
-    static DateTime? asUtc(DateTime? value) {
-        if (value is not DateTime v) return null;
-        return v.Kind switch {
-            DateTimeKind.Utc => v,
-            DateTimeKind.Local => v.ToUniversalTime(),
-            _ => DateTime.SpecifyKind(v, DateTimeKind.Utc),
-        };
-    }
-
-    static string? utc(DateTime? value) {
-        if (value is not DateTime v) return null;
-        return DateTime.SpecifyKind(v, DateTimeKind.Utc).ToString("o");
-    }
+    static string? utc(DateTime? value) => UILogReader.Utc(value);
 
     sealed record StorePayload(Guid StoreId);
     sealed record LogPayload(Guid StoreId, string LogKey);

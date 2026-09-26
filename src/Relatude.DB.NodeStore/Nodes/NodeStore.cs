@@ -94,6 +94,12 @@ public class NodeStore : IDisposable {
     public readonly NodeMapper Mapper;
     /// <summary>The AI engine used for vector embeddings and semantic search, as configured for this database.</summary>
     public AIEngine AI => Datastore.AI;
+    /// <summary>
+    /// The logs defined for this database in the admin UI (or as settings files in its log folder),
+    /// and the way to record into them: <c>store.CustomLogs.Record("orders", ("amount", 12.5))</c>.
+    /// A log that does not exist, or is turned off, records nothing and costs a lookup.
+    /// </summary>
+    public Relatude.DB.Logging.ICustomLogs CustomLogs => Datastore.Logger.CustomLogs;
     readonly ISMSProvider? _sms;
     // a store made by Context shares the provider with the one it came from, and must not dispose
     // what it did not make: there is one provider per database, and it outlives any reading context

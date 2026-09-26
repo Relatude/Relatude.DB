@@ -86,9 +86,19 @@ export interface ChartProps {
   height?: number | "fill";
   /** Series on the right-hand scale, drawn over the first; see ChartOverlay. */
   overlays?: ChartOverlay[];
+  /**
+   * Bars instead of a line, for a count or a total: each interval is a quantity of its own, and a
+   * line drawn between them reads as a rate changing smoothly from one to the next. Stacked groups
+   * are bars already, and a band (avg, min, max) keeps its line.
+   */
+  bars?: boolean;
+  /** Called with the index of the interval clicked, which makes the plot clickable. */
+  onPick?: (index: number) => void;
+  /** What the tooltip calls the value of a count or a total, when it is neither: "max", say. */
+  valueLabel?: string;
 }
 
-export function Chart({ kind, points, groups, interval, format, integer = false, compactAxis = true, height: heightProp = 210, overlays }: ChartProps) {
+export function Chart({ kind, points, groups, interval, format, integer = false, compactAxis = true, height: heightProp = 210, overlays, bars = false, onPick, valueLabel }: ChartProps) {
   const wrap = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [measuredHeight, setMeasuredHeight] = useState(0);
@@ -194,7 +204,23 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
                   </g>
                 );
               })
-            : segments(points).map((segment, si) => (
+            : bars && (kind === "count" || kind === "sum")
+              ? points.map((p, i) => {
+                  if (!p.hasValue || p.value == null) return null;
+                  const top = y(p.value);
+                  const base = y(Math.max(scaleBottom, Math.min(0, scaleTop)));
+                  return (
+                    <rect
+                      key={i}
+                      className="chart-bar"
+                      x={xCenter(i) - Math.max(1, band * 0.4)}
+                      width={Math.max(1, band * 0.8)}
+                      y={Math.min(top, base)}
+                      height={Math.max(1, Math.abs(base - top))}
+                    />
+                  );
+                })
+              : segments(points).map((segment, si) => (
                 <g key={si}>
                   {(kind === "avgminmax" || kind === "full") && <path className="chart-band" d={bandPath(segment, xCenter, y)} />}
                   <path className="chart-area" d={areaPath(segment, xCenter, y, pad.top + plotH)} />
@@ -235,6 +261,15 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
             width={plotW}
             height={plotH}
             fill="transparent"
+            style={onPick ? { cursor: "pointer" } : undefined}
+            onClick={(e) => {
+              if (!onPick || points.length === 0) return;
+              // from where the click landed, not from the last move: a tap or a click that came
+              // without one has no hover to go by
+              const box = e.currentTarget.getBoundingClientRect();
+              const index = Math.floor(((e.clientX - box.left) / Math.max(1, box.width)) * points.length);
+              onPick(Math.max(0, Math.min(points.length - 1, index)));
+            }}
             onMouseMove={(e) => {
               const box = e.currentTarget.getBoundingClientRect();
               const index = Math.floor(((e.clientX - box.left) / Math.max(1, box.width)) * points.length);
@@ -262,7 +297,7 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
                 </div>
               ))
           ) : (
-            tipRows(kind, hovered).map((row) => (
+            tipRows(kind, hovered, valueLabel).map((row) => (
               <div key={row.k} className="chart-tip-row">
                 <span className="chart-tip-k">{row.k}</span>
                 <span className="chart-tip-v">{format(row.v)}</span>
@@ -285,7 +320,7 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
   );
 }
 
-function tipRows(kind: SeriesKind, p: SeriesPoint): { k: string; v: number }[] {
+function tipRows(kind: SeriesKind, p: SeriesPoint, valueLabel?: string): { k: string; v: number }[] {
   const rows: { k: string; v: number }[] = [];
   if (kind === "avgminmax" || kind === "full") {
     rows.push({ k: "avg", v: p.value ?? 0 });
@@ -294,7 +329,7 @@ function tipRows(kind: SeriesKind, p: SeriesPoint): { k: string; v: number }[] {
     if (p.count != null) rows.push({ k: "entries", v: p.count });
     if (p.sum != null) rows.push({ k: "total", v: p.sum });
   } else {
-    rows.push({ k: kind === "sum" ? "total" : "count", v: p.value ?? 0 });
+    rows.push({ k: valueLabel ?? (kind === "sum" ? "total" : "count"), v: p.value ?? 0 });
   }
   return rows;
 }
@@ -371,6 +406,23 @@ function compact(value: number, format: (v: number) => string): string {
 function xLabels(points: SeriesPoint[], interval: IntervalType, band: number, plotW: number): { index: number; text: string }[] {
   if (points.length === 0 || band <= 0) return [];
   const room = Math.max(1, Math.floor(plotW / 78)); // ~78px per label before they touch
+  // Hours over several days: a row of times of day reads as one day, so the days are labelled
+  // instead, at their midnights. A timezone whose midnight falls between two hour buckets has no
+  // point to hang a date on, and keeps the times.
+  if ((interval === "Hour" || interval === "Minute") && points.length > 1) {
+    const span = Date.parse(points[points.length - 1].fromUtc) - Date.parse(points[0].fromUtc);
+    if (span >= 2 * 86_400_000) {
+      const midnights = points
+        .map((p, index) => ({ index, date: new Date(p.fromUtc) }))
+        .filter((x) => x.date.getHours() === 0 && x.date.getMinutes() === 0);
+      if (midnights.length > 0) {
+        const every = Math.max(1, Math.ceil(midnights.length / room));
+        return midnights
+          .filter((_, k) => k % every === 0)
+          .map((x) => ({ index: x.index, text: x.date.toLocaleDateString([], { month: "short", day: "numeric" }) }));
+      }
+    }
+  }
   const every = Math.max(1, Math.ceil(points.length / room));
   const labels: { index: number; text: string }[] = [];
   for (let i = points.length - 1; i >= 0; i -= every) labels.push({ index: i, text: axisTime(points[i].fromUtc, interval) });

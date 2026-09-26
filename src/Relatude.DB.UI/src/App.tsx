@@ -8,6 +8,7 @@ import { Header } from "./components/Header";
 import { LicenseSection } from "./components/LicenseSection";
 import { Login } from "./components/Login";
 import { LogsSection } from "./components/LogsSection";
+import { CustomLogsSection } from "./components/CustomLogsSection";
 import { Overview } from "./components/Overview";
 import { QuerySection } from "./components/QuerySection";
 import { SettingsSection } from "./components/SettingsSection";
@@ -196,6 +197,8 @@ export function App() {
             <DatamodelSection key={activeDb.id} db={activeDb} />
           ) : activeSectionId === "logs" && activeDb ? (
             <LogsSection key={activeDb.id} db={activeDb} />
+          ) : activeSectionId === "custom-logs" && activeDb ? (
+            <CustomLogsSection key={activeDb.id} db={activeDb} />
           ) : activeSectionId === "query" && activeDb ? (
             <QuerySection key={activeDb.id} db={activeDb} />
           ) : isFilesStorage(activeSectionId) && activeDb ? (

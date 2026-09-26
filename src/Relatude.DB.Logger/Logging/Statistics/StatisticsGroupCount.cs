@@ -31,7 +31,8 @@ public class AggregatorGroupCount : ICondensable {
     bool _condensed = false;
     public Dictionary<string, int> Values = new();
     public void Record(string group) {
-        if (_condensed) throw new Exception("Cannot add values after condense. ");
+        // a condensed breakdown is the top groups of the interval, and adding one more entry to it
+        // is still a count per group: it only means a rare group may be missing from an old interval
         if (Values.Count > _groupCountLimitCurrent) return;
         if (!Values.ContainsKey(group)) Values[group] = 0;
         Values[group] += 1;
@@ -66,6 +67,7 @@ public class AggregatorGroupCount : ICondensable {
         }
         return ms.ToArray();
     }
+    public bool AcceptsValues => true;
     public void Condense() {
         _condensed = true;
         if (Values.Count <= _groupCountLimitCondensed) return;

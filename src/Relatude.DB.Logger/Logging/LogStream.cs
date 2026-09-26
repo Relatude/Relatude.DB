@@ -87,12 +87,6 @@ internal class LogStream : IDisposable {
             _lastAppendStream = null;
         }
     }
-    public IEnumerable<LogRecord> Extract(DateTime from, DateTime until, int skip, int take, bool orderByDescendingDates, out int total) {
-        var result = Enumerate(from, until).ToList();
-        total = result.Count;
-        var ordered = orderByDescendingDates ? result.OrderByDescending(r => r.TimeStamp) : result.OrderBy(r => r.TimeStamp);
-        return ordered.Skip(skip).Take(take).ToList();
-    }
     /// <summary>
     /// Every record of a range, one at a time, oldest file first. Records within one file come in
     /// the order they were written, which is nearly but not exactly the order they were recorded
