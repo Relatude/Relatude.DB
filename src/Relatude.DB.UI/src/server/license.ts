@@ -58,9 +58,16 @@ export interface LicenseStatus {
   servicesServerUrl: string;
   /** only a debug build of the server shows and edits the license server address */
   showLicenseServer: boolean;
+  /** whether the settings hold a license key; it need not be set, since it is found from the API key */
   hasLicenseKey: boolean;
   hasApiKey: boolean;
-  /** the license key itself, which is not a secret; the API key is never sent back */
+  /** the first five characters of the saved API key, to tell which one it is; the rest is never sent back */
+  apiKeyStart: string | null;
+  /**
+   * The license key this installation goes by: the license server's answer for the API key when it
+   * gave one, otherwise what the settings say. Not shown on this page - the settings page has it -
+   * but it names the license's own page in the portal.
+   */
   licenseKey: string | null;
   signInEnabled: boolean;
   lastContactUtc: string | null;
@@ -83,9 +90,30 @@ export function fetchLicenseStatus(): Promise<LicenseStatus> {
  * The license settings are ordinary server settings, so they are saved through the settings command
  * rather than a second path of their own: that is what keeps a configuration override, a secret that
  * is written but never read back, and the settings file itself behaving the same either way.
+ *
+ * A value the server turns down comes back in the result rather than as an error, so it is made one
+ * here: this page saves a handful of values at once and has nowhere else to say that one did not take.
  */
-export function saveLicenseSettings(values: Record<string, unknown>): Promise<unknown> {
-  return saveServerSettings(values);
+export async function saveLicenseSettings(values: Record<string, unknown>): Promise<void> {
+  const result = await saveServerSettings(values);
+  if (result.rejected.length > 0) throw new Error(result.rejected.map((r) => r.reason).join(" "));
+}
+
+/** The license a pasted API key belongs to, as the license server says. */
+export interface ApiKeyLookup {
+  /** the key as the settings hold it: trimmed, lower case, with the dashes */
+  apiKey: string;
+  licenseKey: string;
+  name: string;
+}
+
+/**
+ * Asks the license server about an API key before it is saved. It is the only key anybody pastes:
+ * the answer names the license, and so gives the license key to save beside it. A key the server
+ * does not take, or a server that cannot be reached, is an error with the reason, and nothing is saved.
+ */
+export function lookUpApiKey(apiKey: string): Promise<ApiKeyLookup> {
+  return send<ApiKeyLookup>("license-look-up", { apiKey });
 }
 
 /**
@@ -146,7 +174,7 @@ export function sendTestSms(values: { from: string; to: string; message: string 
   return send<SmsReceipt>("license-sms-test", values);
 }
 
-/** Whether the rail should draw attention to the License entry, and in how many words. */
+/** Whether the rail should draw attention to the Services entry, and in how many words. */
 export function licenseAttention(status: LicenseStatus | null): { text: string; danger: boolean } | null {
   if (!status) return null;
   if (status.state === "missing") return { text: "none", danger: false };

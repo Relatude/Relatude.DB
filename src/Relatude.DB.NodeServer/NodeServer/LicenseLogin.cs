@@ -5,8 +5,12 @@ using Relatude.DB.NodeServer.Settings;
 namespace Relatude.DB.NodeServer;
 /// <summary>
 /// This installation's side of Relatude.License: letting an admin sign in with a Relatude.License
-/// account, and reporting in (the heartbeat). Both need the license key and an API key from the
-/// portal in the settings; the sign-in also needs AllowLicenseeAdminLogin.
+/// account, and reporting in (the heartbeat). Both need an API key from the portal in the settings;
+/// the sign-in also needs AllowLicenseeAdminLogin.
+/// <para>The API key is the only key anybody has to copy. It belongs to one license for as long as
+/// it exists, and the license server says which (<see cref="LookUpAsync"/>), so the license key is
+/// found from it rather than trusted from the settings: LicenseKey in the settings is a record of
+/// it, used only while the license server has not answered.</para>
 /// <para>The sign-in is a redirect in three steps. First this server tells the license server, over
 /// the back channel with its API key, that a browser is about to come and where to send it back;
 /// the license server answers with a sign-in url, and the browser is sent there with nothing but a
@@ -44,22 +48,33 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     public sealed record RateWindow(int Limit, int Used);
 
     /// <summary>
-    /// How this installation stands with the license server, for the License page. One of:
+    /// How this installation stands with the license server, for the Services page. One of:
     /// <list type="bullet">
-    /// <item><c>missing</c>: one or both keys are not set, so there is nothing to ask about.</item>
-    /// <item><c>malformed</c>: a key is set but is not a key, so the server was not asked.</item>
+    /// <item><c>missing</c>: no API key is set, so there is nothing to ask about.</item>
+    /// <item><c>malformed</c>: the API key is set but is not a key, so the server was not asked.</item>
     /// <item><c>unreachable</c>: the license server did not answer, which says nothing about the license.</item>
     /// <item><c>invalid</c>: the server does not recognise the API key, or will not answer for it.</item>
     /// <item><c>valid</c>: the server answered, and <see cref="License"/> says what it carries - including whether it is disabled or expired.</item>
     /// </list>
+    /// <para><see cref="LicenseKey"/> is the key this installation goes by: the license server's answer
+    /// for the API key when it gave one, otherwise what the settings say. <see cref="ApiKeyStart"/> is
+    /// the first five characters of the API key in the settings - enough to tell which key is saved,
+    /// and all of the secret that is ever handed back.</para>
     /// </summary>
     public sealed record LicenseStatus(
         string State, string? Reason, string ServicesServerUrl,
-        bool HasLicenseKey, bool HasApiKey, string? LicenseKey,
+        bool HasLicenseKey, bool HasApiKey, string? ApiKeyStart, string? LicenseKey,
         bool SignInEnabled, bool HeartbeatDisabled, DateTime? LastContactUtc,
         LicenseInfo? License,
         /// <summary>A pairing this server is still waiting on, so a page that has just loaded takes it up rather than starting a second one.</summary>
         PairingHandle? Pairing);
+
+    /// <summary>
+    /// What the license server says about one API key: <c>valid</c> with the license it belongs to -
+    /// whose <see cref="LicenseInfo.Id"/> is the license key - or <c>invalid</c> or <c>unreachable</c>
+    /// with the reason, in the same sense as <see cref="LicenseStatus"/>.
+    /// </summary>
+    public sealed record ApiKeyLookup(string State, string? Reason, LicenseInfo? License);
 
     static readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web);
     HttpClient? _httpClient;
@@ -95,15 +110,19 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     public Validity? LastValidity { get; private set; }
     public DateTime? LastHeartbeatUtc { get; private set; }
 
-    /// <summary>Both keys are set and are guids; without them there is nothing to say to the license server.</summary>
-    public bool HasKeys => tryGetKeys(out _, out _);
+    /// <summary>
+    /// The API key is set and is a guid; without it there is nothing to say to the license server.
+    /// It is the only key needed: the license key is found from it (<see cref="LookUpAsync"/>).
+    /// </summary>
+    public bool HasKeys => tryGetApiKey(out _);
     /// <summary>The login page may offer "Sign in with Relatude.License".</summary>
     public bool SignInAvailable => settings.AllowLicenseeAdminLogin && HasKeys;
 
-    bool tryGetKeys(out Guid licenseKey, out Guid apiKey) {
-        apiKey = default;
-        return Guid.TryParse(settings.LicenseKey, out licenseKey) && Guid.TryParse(settings.ApiKey, out apiKey);
-    }
+    bool tryGetApiKey(out Guid apiKey) => Guid.TryParse(settings.ApiKey, out apiKey);
+
+    /// <summary>The license an API key was last found to belong to. An API key never moves to another license, so this holds until the key itself changes.</summary>
+    sealed record KnownLicense(Guid ApiKey, Guid LicenseKey);
+    volatile KnownLicense? _known; // a reference, so a read never sees half of a write
     string baseUrl => (string.IsNullOrWhiteSpace(settings.ServicesServerUrl) ? Defaults.ServicesServerUrl : settings.ServicesServerUrl).TrimEnd('/');
     /// <summary>
     /// What this installation calls itself towards the license server: the persisted server id and the
@@ -132,12 +151,25 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
 
     /// <summary>Step one: register the sign-in with the license server and send the browser there.</summary>
     public async Task StartAsync(HttpContext context) {
-        if (!SignInAvailable || !tryGetKeys(out var licenseKey, out var apiKey)) { failed(context, "Sign-in with Relatude Services is not enabled on this server."); return; }
+        if (!SignInAvailable || !tryGetApiKey(out var apiKey)) { failed(context, "Sign-in with Relatude Services is not enabled on this server."); return; }
         var redirectUri = $"{context.Request.Scheme}://{context.Request.Host}{server.ApiUrlPublic}license-login/callback/";
-        var request = new LoginRequestCreate(apiKey, licenseKey, installationKey, redirectUri, settings.Name);
         // the same question the heartbeat asks, and here it also answers the user faster than
         // waiting out the http timeout would
         if (!await TcpProbe.IsListeningAsync(baseUrl, cancellationToken: context.RequestAborted)) { unreachable(context, "start"); return; }
+        // The license key goes with the API key, and the license server only takes the one the API
+        // key belongs to - so it is that one, found from the API key the first time it is needed.
+        if (_known is not { } known || known.ApiKey != apiKey) {
+            var lookup = await LookUpAsync(apiKey, context.RequestAborted);
+            if (lookup.License == null) {
+                RelatudeDBServer.Trace("Sign-in with Relatude.License could not start: the API key was not looked up. " + lookup.Reason);
+                failed(context, lookup.State == "invalid"
+                    ? "Relatude Services does not accept this server's API key: " + lookup.Reason
+                    : "Relatude Services could not be reached. Use the master login, or try again later.");
+                return;
+            }
+            known = new KnownLicense(apiKey, lookup.License.Id);
+        }
+        var request = new LoginRequestCreate(apiKey, known.LicenseKey, installationKey, redirectUri, settings.Name);
         try {
             using var response = await http.PostAsJsonAsync(baseUrl + "/api/connect/login-requests", request, _json, context.RequestAborted);
             if (!response.IsSuccessStatusCode) { failed(context, "Relatude Services refused the sign-in: " + await reasonOf(response)); return; }
@@ -156,7 +188,7 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     public async Task CallbackAsync(HttpContext context, string? code, string? state) {
         var expected = context.Request.Cookies[_stateCookie];
         context.Response.Cookies.Delete(_stateCookie, stateCookieOptions(null));
-        if (!SignInAvailable || !tryGetKeys(out _, out var apiKey)) { failed(context, "Sign-in with Relatude Services is not enabled on this server."); return; }
+        if (!SignInAvailable || !tryGetApiKey(out var apiKey)) { failed(context, "Sign-in with Relatude Services is not enabled on this server."); return; }
         if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state) || expected != state) { failed(context, "The sign-in did not come back the way it left. Try again."); return; }
         if (!await TcpProbe.IsListeningAsync(baseUrl, cancellationToken: context.RequestAborted)) { unreachable(context, "complete"); return; }
         try {
@@ -224,11 +256,12 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
         return "HTTP " + (int)response.StatusCode;
     }
 
-    // ------------------------------------------------------------------ what the License page shows
+    // ------------------------------------------------------------------ what the Services page shows
 
     /// <summary>
-    /// How this installation stands with the license server, asked fresh. The keys are read from the
-    /// settings, and when both are usable the license server is asked what the license carries.
+    /// How this installation stands with the license server, asked fresh. The API key is read from
+    /// the settings, and when it is usable the license server is asked which license it belongs to
+    /// and what that license carries.
     ///
     /// <para>Nothing here throws: every way this can fail is one of the states, because the License
     /// page has to say which one it is. "Unreachable" is kept apart from "invalid" on purpose - a
@@ -236,38 +269,58 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     /// their license is bad because a network was down would be its own kind of wrong.</para>
     /// </summary>
     public async Task<LicenseStatus> DescribeAsync(CancellationToken cancellationToken = default) {
-        var hasLicenseKey = !string.IsNullOrWhiteSpace(settings.LicenseKey);
+        var savedLicenseKey = string.IsNullOrWhiteSpace(settings.LicenseKey) ? null : settings.LicenseKey.Trim();
         var hasApiKey = !string.IsNullOrWhiteSpace(settings.ApiKey);
-        var licenseKey = hasLicenseKey ? settings.LicenseKey!.Trim() : null;
+        var apiKeyStart = startOf(settings.ApiKey);
+        // an answer for the API key decides the license key, whatever the settings say
         LicenseStatus state(string name, string? reason, LicenseInfo? license = null) => new(
-            name, reason, baseUrl, hasLicenseKey, hasApiKey, licenseKey,
+            name, reason, baseUrl, savedLicenseKey != null, hasApiKey, apiKeyStart, license?.Id.ToString("D") ?? savedLicenseKey,
             settings.AllowLicenseeAdminLogin, settings.DisableHeartbeat, LastHeartbeatUtc, license, PendingPairing);
 
-        if (!hasLicenseKey || !hasApiKey) {
-            return state("missing", !hasLicenseKey && !hasApiKey ? "No license key or API key is set."
-                : hasLicenseKey ? "A license key is set but no API key." : "An API key is set but no license key.");
-        }
-        if (!tryGetKeys(out _, out var apiKey)) {
-            return state("malformed", "The license key and the API key are both guids; one of these is not, so the license server has not been asked.");
-        }
+        if (!hasApiKey) return state("missing", savedLicenseKey == null ? "No API key is set." : "A license key is set, but no API key.");
+        if (!tryGetApiKey(out var apiKey)) return state("malformed", "The API key is not a guid, so the license server has not been asked.");
+        var lookup = await LookUpAsync(apiKey, cancellationToken);
+        return state(lookup.State, lookup.Reason, lookup.License);
+    }
+
+    /// <summary>
+    /// The first five characters of an API key, written the one way a guid is written, so a key saved
+    /// in upper case or with braces starts the same as it does in the portal. A value too short to
+    /// keep anything back gets nothing.
+    /// </summary>
+    static string? startOf(string? apiKey) {
+        if (string.IsNullOrWhiteSpace(apiKey)) return null;
+        var text = Guid.TryParse(apiKey, out var key) ? key.ToString("D") : apiKey.Trim();
+        return text.Length > 10 ? text[..5] : null;
+    }
+
+    /// <summary>
+    /// Asks the license server which license an API key belongs to, and what that license carries.
+    /// This is how the license key is found from the API key: it is the answer's
+    /// <see cref="LicenseInfo.Id"/>, and it is remembered for the sign-in, which has to present it.
+    /// Any API key can be asked about, not only the one in the settings - the Services page checks a
+    /// pasted key this way before it saves it. Nothing here throws: a failure is in the answer.
+    /// </summary>
+    public async Task<ApiKeyLookup> LookUpAsync(Guid apiKey, CancellationToken cancellationToken = default) {
         // the same courtesy the heartbeat does itself: a license server that is not running is found
         // out from the socket rather than from a dozen exceptions inside HttpClient
         if (!await TcpProbe.IsListeningAsync(baseUrl, cancellationToken: cancellationToken)) {
-            return state("unreachable", "Nothing is listening at " + baseUrl + ".");
+            return new ApiKeyLookup("unreachable", "Nothing is listening at " + baseUrl + ".", null);
         }
         try {
             using var response = await http.GetAsync(baseUrl + "/api/license?apiKey=" + apiKey.ToString("D"), cancellationToken);
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound) {
                 // the license server's own words: an unknown, disabled or expired key, or one
                 // belonging to no license. All of them mean the same thing here - fix it there.
-                return state("invalid", await reasonOf(response));
+                return new ApiKeyLookup("invalid", await reasonOf(response), null);
             }
-            if (!response.IsSuccessStatusCode) return state("unreachable", "The license server answered " + (int)response.StatusCode + ".");
+            if (!response.IsSuccessStatusCode) return new ApiKeyLookup("unreachable", "The license server answered " + (int)response.StatusCode + ".", null);
             var license = await response.Content.ReadFromJsonAsync<LicenseInfo>(_json, cancellationToken);
-            if (license == null) return state("unreachable", "The license server answered without a license.");
-            return state("valid", null, license);
+            if (license == null || license.Id == Guid.Empty) return new ApiKeyLookup("unreachable", "The license server answered without a license.", null);
+            _known = new KnownLicense(apiKey, license.Id);
+            return new ApiKeyLookup("valid", null, license);
         } catch (Exception err) when (err is HttpRequestException or TaskCanceledException or JsonException) {
-            return state("unreachable", err.Message);
+            return new ApiKeyLookup("unreachable", err.Message, null);
         }
     }
 
@@ -374,7 +427,7 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
         // read per beat rather than at start-up: switching it on in the settings page has to stop
         // the reporting there and then, not at the next restart
         if (settings.DisableHeartbeat) return;
-        if (!tryGetKeys(out _, out var apiKey)) return;
+        if (!tryGetApiKey(out var apiKey)) return;
         // A license server that is not running is the normal state of a developer's machine, and
         // finding that out through HttpClient costs a dozen first-chance exceptions every ten
         // minutes. Asking the socket first costs none. See TcpProbe for what a yes is worth: the

@@ -302,19 +302,19 @@ public static class SettingsCatalog {
                 new() {
                     Id = "relatude-license",
                     Title = "Relatude.License",
-                    Help = "The license this installation runs under, from the Relatude.License portal. Both keys set is what lets it use the Relatude services. With the sign-in switch on, the owner of the license and the users they grant can sign in here with their Relatude.License account instead of the master password.",
+                    Help = "The license this installation runs under, from the Relatude.License portal. An API key is what lets it use the Relatude services; the license key is looked up from it. With the sign-in switch on, the owner of the license and the users they grant can sign in here with their Relatude.License account instead of the master password.",
                     Settings = [
                         new() {
                             Path = "LicenseKey", Label = "License key", Applies = SettingApplies.Live,
-                            Help = "The license's key, shown on its page in the portal.",
+                            Help = "The license's id. It need not be set: the license server tells it from the API key, and the Services page saves it beside the API key. When the two disagree, the API key's license is the one used.",
                         },
                         new() {
                             Path = "ApiKey", Label = "API key", Secret = true, Applies = SettingApplies.Live,
-                            Help = "One of the license's API keys, from the same page. It identifies this installation to the license server, so keep it in configuration or user secrets rather than in the settings file.",
+                            Help = "One of the license's API keys, from its page in the portal - the one key to copy. It tells the license server which license this is and identifies this installation to it, so keep it in configuration or user secrets rather than in the settings file. The Services page checks a pasted key with the license server before saving it.",
                         },
                         new() {
                             Path = "AllowLicenseeAdminLogin", Label = "Allow sign-in with Relatude.License", Applies = SettingApplies.Live,
-                            Help = "Shows \"Sign in with Relatude.License\" on the login page. Who gets in is decided by the license server: the owner of the license, and anyone the owner has granted this installation to in the portal. Turning it off ends those sessions at once; the master login is unaffected either way.",
+                            Help = "Shows \"Sign in with Relatude Services\" on the login page. Who gets in is decided by the license server: the owner of the license, and anyone the owner has granted this installation to in the portal. Turning it off ends those sessions at once; the master login is unaffected either way.",
                         },
                         // Reporting in (DisableHeartbeat) is deliberately not offered here: it stays a
                         // setting in the json file for whoever has a reason to turn it off, but it is

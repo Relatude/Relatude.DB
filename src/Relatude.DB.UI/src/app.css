@@ -9610,10 +9610,11 @@ body.pg-resizing {
 }
 
 /* A direct child only: the refresh button at the end of the line has an icon of its own, and it is a
-   button, not a heading mark */
+   button, not a heading mark. The module's own colour - orange here, green on the Services page,
+   which borrows this heading so the two read alike. */
 .storage-group-head > svg {
   align-self: center;
-  color: var(--nav-orange);
+  color: var(--section-tone, var(--nav-orange));
 }
 
 /* An action icon carries the colour of what it acts on; the label stays the text colour. The same
@@ -10818,33 +10819,21 @@ body.pg-resizing {
   background: var(--border);
 }
 
-/* ---- the License page ----
-   A grid, not a column: the status and the "do I need one?" aside share the top row, the keys run
-   the full width with their fields side by side, and what the license carries sits in three columns
-   below. Narrow screens fold it all back into one column. */
+/* ---- the Services page (LicenseSection) ----
+   One column of full-width panels under Storage's group heading: the status and the API key in
+   the first, what the license carries in three columns below it, and "do I need one?" last. */
 
 .license-page {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   max-width: 1500px;
   align-items: start;
 }
 
-.license-keys,
-.license-entitlements {
-  grid-column: 1 / -1;
-}
-
-@media (max-width: 900px) {
-  .license-page {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.license-status-panel,
-.license-intro {
-  align-self: stretch;
+/* the heading sits closer to the panel it names than the panels sit to each other, as in Storage */
+.license-page > .storage-group-head {
+  margin-bottom: -2px;
 }
 
 .license-intro h3 {
@@ -10876,18 +10865,11 @@ body.pg-resizing {
   color: var(--text-muted);
 }
 
-.license-status-panel h3,
-.license-keys h3,
 .license-entitlements h3 {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-}
-
-.license-status-panel h3 .icon-button {
-  width: 22px;
-  height: 22px;
 }
 
 /* the one line that says where this installation stands, in the colour of that answer, with the
@@ -10948,20 +10930,80 @@ body.pg-resizing {
   min-width: 0;
 }
 
-.license-facts {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 8px 16px;
-  margin-top: 10px;
+/* Under the status line: one line saying what to copy, the API key - the only key entered - on the
+   left, the sign-in switch on the right, and one Save under both. */
+.license-keys-lead {
+  margin: 14px 0;
+  max-width: 820px;
   font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-soft);
 }
 
-/* the fields flow into as many columns as fit, and the Save button takes the last cell */
-.license-fields {
+.license-keys-lead a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.license-keys-body {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 12px 16px;
-  align-items: start;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 16px 0;
+  align-items: stretch;
+}
+
+.license-keys-column {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  max-width: 560px;
+}
+
+.license-keys-column + .license-keys-column {
+  padding-left: 24px;
+  margin-left: 24px;
+  border-left: 1px solid var(--border);
+}
+
+@media (max-width: 900px) {
+  .license-keys-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .license-keys-column + .license-keys-column {
+    padding: 14px 0 0;
+    margin: 0;
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+}
+
+/* the first five characters of the saved API key, beside its name: enough to tell which key is saved
+   against the list in the portal, and too little to be of use to anyone reading it off the screen */
+.license-key-start {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--badge-bg);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.license-keys-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.license-keys-footer .action-button {
+  min-width: 100px;
 }
 
 .license-field {
@@ -10990,10 +11032,6 @@ body.pg-resizing {
 }
 
 /* the SMS test: the two numbers narrow, the message taking what is left, Send at the end */
-.license-sms {
-  grid-column: 1 / -1;
-}
-
 .license-sms h3 {
   display: flex;
   align-items: center;

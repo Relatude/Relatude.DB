@@ -2,17 +2,23 @@ import { useCallback, useEffect, useState } from "react";
 import {
   IconAlertTriangle,
   IconCircleCheck,
+  IconCloud,
   IconExternalLink,
   IconInfoCircle,
   IconPlugConnected,
+  IconPlugConnectedX,
   IconMessage,
   IconRefresh,
   IconSend,
 } from "@tabler/icons-react";
+import { showConfirm } from "../dialogs";
+import { masterLoginOptions } from "../server/auth";
+import { fetchWhoAmI } from "../server/serverInfo";
 import {
   cancelPairing,
   fetchLicenseStatus,
   licenseCarriesSms,
+  lookUpApiKey,
   pollPairing,
   saveLicenseSettings,
   sendTestSms,
@@ -25,15 +31,17 @@ import {
 import { formatTime } from "../format";
 
 /**
- * Everything about the license this installation runs under: whether it has one, what it carries,
- * and the keys that decide both.
+ * The Services module: the Relatude Services account this installation runs under - whether it has
+ * one, what it carries, and the key that decides both.
  *
- * Laid out as a grid rather than a column: where the installation stands and what a license is for
- * share the top row, the keys run across the full width, and what the license carries sits below in
- * three columns. Someone asking "do I need this?" gets the answer - no - in the aside beside the status.
+ * One column of full-width panels under one heading, written the way Storage writes its group
+ * headings: where the installation stands and the key that puts it there share the first panel,
+ * which has no heading of its own - the group's name is its name. What the license carries follows,
+ * and "do I need one?" - the answer is no - closes the page.
  *
  * The keys are ordinary server settings and are saved through the settings command, so a key that
- * configuration decides is locked here exactly as it is on the settings page.
+ * configuration decides is locked here exactly as it is on the settings page. Only the API key is
+ * entered: the license key is looked up from it and saved beside it, and is not shown here.
  */
 export function LicenseSection({ onChanged }: { onChanged?: (status: LicenseStatus) => void }) {
   const [status, setStatus] = useState<LicenseStatus | null>(null);
@@ -65,11 +73,20 @@ export function LicenseSection({ onChanged }: { onChanged?: (status: LicenseStat
 
   return (
     <div className="license-page">
-      <StatusPanel status={status} busy={busy} onRefresh={load} onPaired={load} />
-      <WhatALicenseIs />
-      <KeysPanel status={status} onSaved={load} />
+      {/* Storage's group heading, so the two modules read alike: an icon in this module's colour, the
+          name beside it, what it is about, and the refresh at the end of the line */}
+      <div className="storage-group-head">
+        <IconCloud size={18} stroke={1.7} />
+        <h2>Relatude Services Account</h2>
+        <span className="muted">the license this installation runs under, and the API key that connects it</span>
+        <button className="icon-button storage-refresh" onClick={() => void load()} disabled={busy} title="Ask the license server again">
+          <IconRefresh size={14} stroke={1.8} />
+        </button>
+      </div>
+      <LicensePanel status={status} onReload={load} />
       {status.state === "valid" && status.license && <EntitlementsPanel status={status} />}
       {licenseCarriesSms(status) && <SmsTestPanel />}
+      <WhatALicenseIs />
     </div>
   );
 }
@@ -134,11 +151,18 @@ function usePairing(onPaired: () => Promise<unknown>, pending: PairingHandle | n
         const answer = await pollPairing(pairing.pairingId);
         if (stopped) return;
         if (answer.status === "ready" && answer.licenseKey && answer.apiKey) {
+          // the pairing is spent at both ends once it has answered, so whatever the save does, the
+          // waiting is over - a save that fails says why rather than polling a pairing that is gone
           setSaving(true);
-          await saveLicenseSettings({ LicenseKey: answer.licenseKey, ApiKey: answer.apiKey });
-          await onPaired();
-          setSaving(false);
-          setPairing(null);
+          try {
+            await saveLicenseSettings({ LicenseKey: answer.licenseKey, ApiKey: answer.apiKey });
+            await onPaired();
+          } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+          } finally {
+            setSaving(false);
+            setPairing(null);
+          }
           return;
         }
         if (answer.status === "expired") {
@@ -165,7 +189,7 @@ function usePairing(onPaired: () => Promise<unknown>, pending: PairingHandle | n
 }
 
 /**
- * The same whatever the state. Someone who has just found a section called "License" in a database
+ * The same whatever the state. Someone who has just found a section called "Services" in a database
  * they are running wants to know whether something is wrong, and the answer is no.
  */
 function WhatALicenseIs() {
@@ -187,34 +211,114 @@ function WhatALicenseIs() {
   );
 }
 
-/** Where the installation stands, said in one line, with the action that state calls for. */
-function StatusPanel({
-  status,
-  busy,
-  onRefresh,
-  onPaired,
-}: {
-  status: LicenseStatus;
-  busy: boolean;
-  onRefresh: () => void;
-  onPaired: () => Promise<unknown>;
-}) {
-  const server = status.servicesServerUrl.replace(/\/$/, "");
-  // a key that is not a guid names no license page, so the portal's front page is the best there is
-  const key = status.licenseKey?.trim() ?? "";
-  const licensePage = /^[0-9a-f]{8}-?([0-9a-f]{4}-?){3}[0-9a-f]{12}$/i.test(key) ? `${server}/licenses/${encodeURIComponent(key)}` : server;
+/**
+ * Where the installation stands and the key that puts it there, in one panel: the answer in one
+ * line with the actions that state calls for, then the API key - the only key anybody enters - and
+ * the switch that decides whether it signs people in, under one Save.
+ *
+ * A pasted key is looked up before anything is saved, so a key the server does not take is refused
+ * with its reason rather than saved. The license key comes back with the answer and is saved beside
+ * it, but is not shown: the settings page has it, and nobody needs it to set anything up. The saved
+ * API key is told apart by its first five characters, which is all of it the server ever sends back.
+ */
+function LicensePanel({ status, onReload }: { status: LicenseStatus; onReload: () => Promise<unknown> }) {
+  const { server, licensePage } = portalLinks(status);
   const tone = toneOf(status);
-  const pair = usePairing(onPaired, status.pairing);
+  const pair = usePairing(onReload, status.pairing);
+  const [apiKey, setApiKey] = useState("");
+  const [serverUrl, setServerUrl] = useState(status.servicesServerUrl);
+  const [signIn, setSignIn] = useState(status.signInEnabled);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // the page is reloaded after every save, so the fields follow what the server now holds - and a
+  // refusal from before is no longer about what is on screen
+  useEffect(() => {
+    setApiKey("");
+    setServerUrl(status.servicesServerUrl);
+    setSignIn(status.signInEnabled);
+    setSaveError(null);
+  }, [status]);
+
+  const locked = (path: string) => status.locked.includes(path);
+  const apiKeyLocked = locked("ApiKey");
+  const pasted = apiKey.trim();
+  // only a debug build of the server offers the address, and only then will it accept it
+  const serverChanged = status.showLicenseServer && !locked("ServicesServerUrl") && serverUrl.trim() !== status.servicesServerUrl;
+  const signInChanged = !locked("AllowLicenseeAdminLogin") && signIn !== status.signInEnabled;
+  const changed = (pasted.length > 0 && !apiKeyLocked) || serverChanged || signInChanged;
+
+  async function save() {
+    if (saving || !changed) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      // the address first: a pasted key is checked with the license server it is going to be used with
+      if (serverChanged) await saveLicenseSettings({ ServicesServerUrl: serverUrl.trim() });
+      const values: Record<string, unknown> = {};
+      if (pasted.length > 0 && !apiKeyLocked) {
+        const found = await lookUpApiKey(pasted);
+        values.ApiKey = found.apiKey;
+        // saved beside it, so the settings file says which license this is. When configuration
+        // decides the license key instead, the API key's license is the one used all the same.
+        if (!locked("LicenseKey")) values.LicenseKey = found.licenseKey;
+      }
+      if (signInChanged) values.AllowLicenseeAdminLogin = signIn;
+      if (Object.keys(values).length > 0) await saveLicenseSettings(values);
+      await onReload();
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /**
+   * Takes the installation out from under the license: the API key goes, the license key saved
+   * beside it too, and sign-in with Relatude Services is turned off - which ends every session opened
+   * that way, the one doing this included. The dialog says so, and when there is no master login to
+   * come back in with it will not go ahead until that has been read and ticked.
+   */
+  async function remove() {
+    const turnsOffSignIn = status.signInEnabled && !locked("AllowLicenseeAdminLogin");
+    const who = turnsOffSignIn ? await fetchWhoAmI().catch(() => null) : null;
+    const signsOutThisUser = who?.via === "license";
+    const lockedOut = signsOutThisUser && !(await masterLoginOptions().catch(() => null))?.available;
+    const body = [
+      `The API key is removed from this installation's settings, so it no longer runs under ${status.license ? `"${status.license.name}"` : "the license"}.`,
+      turnsOffSignIn ? "Sign-in with Relatude Services is turned off too, which ends every session opened with it." : "",
+      signsOutThisUser
+        ? lockedOut
+          ? "That includes yours, and there is no master login you can use from here: you will be locked out of this admin UI."
+          : "That includes yours: you will be signed out, and can sign in again with the master login."
+        : "",
+      "The license itself is not deleted - paste an API key again to put it back.",
+    ]
+      .filter((sentence) => sentence.length > 0)
+      .join(" ");
+    const { ok } = await showConfirm("Remove the license", body, {
+      confirmLabel: "Remove license",
+      danger: true,
+      option: lockedOut ? { label: "I understand that I will be locked out", required: true } : undefined,
+    });
+    if (!ok) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const values: Record<string, unknown> = { ApiKey: "" };
+      if (!locked("LicenseKey")) values.LicenseKey = "";
+      if (turnsOffSignIn) values.AllowLicenseeAdminLogin = false;
+      await saveLicenseSettings(values);
+      await onReload();
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
-    <section className="panel license-status-panel">
-      <h3>
-        Status
-        <span className="panel-sub">
-          <button className="icon-button" onClick={onRefresh} disabled={busy} title="Ask the license server again">
-            <IconRefresh size={15} stroke={1.8} />
-          </button>
-        </span>
-      </h3>
+    <section className="panel license-main">
       <div className={"license-status license-status-" + tone}>
         <span className="license-status-icon">
           {tone === "ok" ? <IconCircleCheck size={20} stroke={1.8} /> : tone === "bad" ? <IconAlertTriangle size={20} stroke={1.8} /> : <IconInfoCircle size={20} stroke={1.8} />}
@@ -246,6 +350,19 @@ function StatusPanel({
               <IconExternalLink size={13} stroke={1.8} />
             </a>
           )}
+          {status.hasApiKey && (
+            // Storage's toolbar rule: the label in the text colour, red on the icon only - it destroys
+            // something - and the dialog behind it says how much
+            <button
+              className="action-button"
+              onClick={remove}
+              disabled={saving || apiKeyLocked}
+              title={apiKeyLocked ? "The API key is set by configuration, so it is removed there." : "Take this installation out from under the license"}
+            >
+              <IconPlugConnectedX size={15} stroke={1.8} className="tone-danger" />
+              Remove license
+            </button>
+          )}
         </div>
       </div>
 
@@ -255,113 +372,79 @@ function StatusPanel({
         pair.error && <div className="license-error">{pair.error}</div>
       )}
 
-      <div className="license-facts">
-        {status.showLicenseServer && <Fact k="License server" v={server} />}
-        <Fact k="Cloud sign-in" v={status.signInEnabled ? "On" : "Off"} />
-      </div>
-    </section>
-  );
-}
-
-/** The keys, and the switch that decides whether they sign people in. */
-function KeysPanel({ status, onSaved }: { status: LicenseStatus; onSaved: () => Promise<unknown> }) {
-  const [licenseKey, setLicenseKey] = useState(status.licenseKey ?? "");
-  const [apiKey, setApiKey] = useState("");
-  const [serverUrl, setServerUrl] = useState(status.servicesServerUrl);
-  const [signIn, setSignIn] = useState(status.signInEnabled);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  // the page is reloaded after every save, so the fields follow what the server now holds
-  useEffect(() => {
-    setLicenseKey(status.licenseKey ?? "");
-    setApiKey("");
-    setServerUrl(status.servicesServerUrl);
-    setSignIn(status.signInEnabled);
-  }, [status]);
-
-  const locked = (path: string) => status.locked.includes(path);
-  const changed =
-    licenseKey.trim() !== (status.licenseKey ?? "")
-    || apiKey.trim().length > 0
-    || (status.showLicenseServer && serverUrl.trim() !== status.servicesServerUrl)
-    || signIn !== status.signInEnabled;
-
-  async function save() {
-    setSaving(true);
-    setSaveError(null);
-    try {
-      const values: Record<string, unknown> = {};
-      if (!locked("LicenseKey")) values.LicenseKey = licenseKey.trim();
-      // a secret is only sent when a new one was typed; an empty box means "leave it alone"
-      if (!locked("ApiKey") && apiKey.trim().length > 0) values.ApiKey = apiKey.trim();
-      // only a debug build of the server offers the address, and only then will it accept it
-      if (status.showLicenseServer && !locked("ServicesServerUrl")) values.ServicesServerUrl = serverUrl.trim();
-      if (!locked("AllowLicenseeAdminLogin")) values.AllowLicenseeAdminLogin = signIn;
-      await saveLicenseSettings(values);
-      await onSaved();
-    } catch (e) {
-      setSaveError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <section className="panel license-keys">
-      <h3>
-        Keys
-        <span className="panel-sub"> · from the license's page in the portal. The API key is secret: keep it in configuration or user secrets.</span>
-      </h3>
-      <div className="license-fields">
-        <Field label="License key" locked={locked("LicenseKey")}>
-          <input
-            className="text-input"
-            value={licenseKey}
-            spellCheck={false}
-            placeholder="00000000-0000-0000-0000-000000000000"
-            disabled={locked("LicenseKey")}
-            onChange={(e) => setLicenseKey(e.target.value)}
-          />
-        </Field>
-        <Field label="API key" hint={status.hasApiKey ? "Leave empty to keep the current one." : undefined} locked={locked("ApiKey")}>
-          <input
-            className="text-input"
-            type="password"
-            autoComplete="new-password"
-            value={apiKey}
-            placeholder={status.hasApiKey ? "•••••••• (unchanged)" : "not set"}
-            disabled={locked("ApiKey")}
-            onChange={(e) => setApiKey(e.target.value)}
-          />
-        </Field>
-        {status.showLicenseServer && (
-          <Field label="License server" hint="Only for self-hosted or test servers." locked={locked("ServicesServerUrl")}>
+      <p className="license-keys-lead">
+        Copy an <strong>API key</strong> from{" "}
+        <a href={licensePage} target="_blank" rel="noreferrer">
+          the license's page in Relatude Services
+          <IconExternalLink size={12} stroke={1.8} />
+        </a>{" "}
+        and paste it here. It is the only key this installation needs.
+      </p>
+      <div className="license-keys-body">
+        <div className="license-keys-column">
+          <Field
+            label="API key"
+            locked={apiKeyLocked}
+            extra={
+              status.apiKeyStart && (
+                <span className="license-key-start" title={`The saved API key starts with ${status.apiKeyStart}`}>
+                  {status.apiKeyStart}…
+                </span>
+              )
+            }
+            hint={apiKeyLocked ? undefined : "A secret: once saved, only its first five characters are shown. On a production server, keep it in configuration or user secrets instead."}
+          >
             <input
               className="text-input"
-              value={serverUrl}
+              type="password"
+              autoComplete="new-password"
               spellCheck={false}
-              disabled={locked("ServicesServerUrl")}
-              onChange={(e) => setServerUrl(e.target.value)}
+              value={apiKey}
+              placeholder={apiKeyLocked ? "Set by configuration" : status.hasApiKey ? "Paste another one to replace it" : "Paste the API key"}
+              disabled={apiKeyLocked || saving}
+              onChange={(e) => {
+                setApiKey(e.target.value);
+                setSaveError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void save();
+              }}
             />
           </Field>
-        )}
-        <Field label="Cloud sign-in" hint="Adds the button to the login page; the portal decides who gets in." locked={locked("AllowLicenseeAdminLogin")}>
-          <label className="license-toggle">
-            <input type="checkbox" checked={signIn} disabled={locked("AllowLicenseeAdminLogin")} onChange={(e) => setSignIn(e.target.checked)} />
-            <span>{signIn ? "On" : "Off"}</span>
-          </label>
-        </Field>
-        <div className="license-save">
-          <button className="action-button primary" onClick={save} disabled={saving || !changed}>
-            {saving ? "Saving…" : "Save"}
-          </button>
-          {status.locked.length > 0 && (
-            <span className="license-muted">
-              {status.locked.length === 1 ? "1 field is" : `${status.locked.length} fields are`} set by configuration.
+        </div>
+        <div className="license-keys-column">
+          <Field
+            label="Cloud sign-in"
+            hint={'Adds "Sign in with Relatude Services" to the login page; the portal decides who gets in.'}
+            locked={locked("AllowLicenseeAdminLogin")}
+          >
+            <span className="license-toggle">
+              <input type="checkbox" checked={signIn} disabled={locked("AllowLicenseeAdminLogin") || saving} onChange={(e) => setSignIn(e.target.checked)} />
+              <span>{signIn ? "On" : "Off"}</span>
             </span>
+          </Field>
+          {status.showLicenseServer && (
+            <Field label="License server" hint="Only for self-hosted or test servers. Offered by debug builds only." locked={locked("ServicesServerUrl")}>
+              <input
+                className="text-input"
+                value={serverUrl}
+                spellCheck={false}
+                disabled={locked("ServicesServerUrl") || saving}
+                onChange={(e) => setServerUrl(e.target.value)}
+              />
+            </Field>
           )}
         </div>
+      </div>
+      <div className="license-keys-footer">
+        <button className="action-button primary" onClick={save} disabled={saving || !changed}>
+          {saving ? (pasted.length > 0 ? "Checking the key…" : "Saving…") : "Save"}
+        </button>
+        {status.locked.length > 0 && (
+          <span className="license-muted">
+            {status.locked.length === 1 ? "1 field is" : `${status.locked.length} fields are`} set by configuration.
+          </span>
+        )}
       </div>
       {saveError && <div className="license-error">{saveError}</div>}
     </section>
@@ -556,28 +639,42 @@ function Waiting({ pairing, saving, onStop }: { pairing: PairingHandle; saving: 
   );
 }
 
-function Fact({ k, v }: { k: string; v: string }) {
-  return (
-    <div className="fact">
-      <div className="fact-k">{k}</div>
-      <div className="fact-v" title={v}>
-        {v}
-      </div>
-    </div>
-  );
-}
-
-function Field({ label, hint, locked, children }: { label: string; hint?: string; locked: boolean; children: React.ReactNode }) {
+/** A labelled field; `extra` goes on the label's line, after the name. */
+function Field({
+  label,
+  hint,
+  locked,
+  extra,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  locked: boolean;
+  extra?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <label className="license-field">
       <span className="license-field-label">
         {label}
+        {extra}
         {locked && <span className="license-lock">from configuration</span>}
       </span>
       {children}
       {hint && <span className="license-muted license-field-hint">{hint}</span>}
     </label>
   );
+}
+
+/**
+ * The portal, and the license's own page in it. A key that is not a guid names no license page, so
+ * the portal's front page is the best there is then.
+ */
+function portalLinks(status: LicenseStatus): { server: string; licensePage: string } {
+  const server = status.servicesServerUrl.replace(/\/$/, "");
+  const key = status.licenseKey?.trim() ?? "";
+  const licensePage = /^[0-9a-f]{8}-?([0-9a-f]{4}-?){3}[0-9a-f]{12}$/i.test(key) ? `${server}/licenses/${encodeURIComponent(key)}` : server;
+  return { server, licensePage };
 }
 
 function toneOf(status: LicenseStatus): "ok" | "bad" | "info" {

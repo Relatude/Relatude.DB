@@ -21,11 +21,14 @@ public class RelatudeDBServerSettings {
     public int TokenCookieMaxAgeInSec { get; set; } = 60 * 60 * 24 * 10; // 10 days
 
     // Relatude.License: the license this installation runs under, and whether its users may sign in here with it.
-    /// <summary>The license key from the Relatude.License portal: the license's id. With <see cref="ApiKey"/> it
-    /// lets this installation report in and use the Relatude services.</summary>
+    /// <summary>The license key from the Relatude.License portal: the license's id. Optional: the license
+    /// server tells it from <see cref="ApiKey"/>, and the Services page saves it beside the API key. When the
+    /// two disagree, the API key's license is the one used; see <see cref="LicenseLogin"/>.</summary>
     public string? LicenseKey { get; set; }
-    /// <summary>An API key issued for that license in the portal. It lets whoever holds it act as this
-    /// installation towards the license server, so keep it in configuration or user secrets rather than here.</summary>
+    /// <summary>An API key issued for a license in the portal: all an installation needs to report in and
+    /// use the Relatude services, since the license server knows which license it belongs to. It lets
+    /// whoever holds it act as this installation towards the license server, so keep it in configuration
+    /// or user secrets rather than here.</summary>
     public string? ApiKey { get; set; }
     /// <summary>Offers "Sign in with Relatude.License" on the login page. Who gets in is the license
     /// server's decision: the owner of the license, and the users the owner has granted this installation

@@ -4,16 +4,17 @@ using Relatude.DB.SMS;
 namespace Relatude.DB.NodeServer.UI;
 
 /// <summary>
-/// The License page: where this installation stands with Relatude.License, and the keys that put it
+/// The Services page: where this installation stands with Relatude.License, and the keys that put it
 /// there. Reading is <see cref="LicenseLogin.DescribeAsync"/>; writing goes through the settings
 /// accessor, so a key decided by configuration is refused here exactly as it is on the settings
-/// page rather than being written to a file the overlay would win over at the next start.
+/// page rather than being written to a file the overlay would win over at the next start. The one
+/// key the page takes is the API key; the license key is looked up from it (<c>license-look-up</c>).
 ///
 /// <para>Deliberately not cached. It is asked when the page opens and after anything changes, which
 /// is rare, and a stale answer about whether a license is valid is worse than a round trip.</para>
 /// </summary>
 sealed class UILicense(RelatudeDBServer server) {
-    /// <summary>The settings the page edits. The API key is secret, so it is written but never read back.</summary>
+    /// <summary>The settings the page edits. The API key is secret, so it is written but never read back - only its first five characters, to tell which one is saved.</summary>
     static readonly string[] _paths = [
         nameof(RelatudeDBServerSettings.LicenseKey),
         nameof(RelatudeDBServerSettings.ApiKey),
@@ -36,6 +37,10 @@ sealed class UILicense(RelatudeDBServer server) {
 
     internal void Register(UICommands commands) {
         commands.Register("license-status", async ctx => await describe());
+        // Only the API key is pasted in. Before it is saved it is checked with the license server,
+        // whose answer names the license - and so the license key, which is saved beside it. A key
+        // the server does not take is refused here with its reason rather than saved.
+        commands.Register("license-look-up", async ctx => await lookUp(ctx.Payload<LookUpPayload>().ApiKey, ctx.Http.RequestAborted));
         // Getting a license without copying a key by hand: the page opens the claim url in a tab and
         // asks here every couple of seconds until somebody has answered it. The keys come back to the
         // page, which saves them the way it saves any other setting.
@@ -50,6 +55,23 @@ sealed class UILicense(RelatudeDBServer server) {
 
     sealed record PairingPayload(string? PairingId);
     sealed record SmsTestPayload(string? From, string? To, string? Message);
+    sealed record LookUpPayload(string? ApiKey);
+
+    /// <summary>
+    /// The license a pasted API key belongs to, with the key written the one way the settings hold
+    /// it. Nothing is saved here: the page saves both keys through the settings command, as it does
+    /// every other setting, so a key configuration decides stays locked.
+    /// </summary>
+    async Task<object> lookUp(string? apiKey, CancellationToken cancellationToken) {
+        var text = apiKey?.Trim() ?? "";
+        if (text.Length == 0) throw new Exception("Paste an API key first.");
+        if (!Guid.TryParse(text, out var key)) throw new Exception("That is not an API key. An API key looks like 3f2504e0-4f89-11d3-9a0c-0305e82c3301; copy it from the license's page in Relatude Services.");
+        var lookup = await server.LicenseLogin.LookUpAsync(key, cancellationToken);
+        if (lookup.License is { } license) return new { ApiKey = key.ToString("D"), LicenseKey = license.Id.ToString("D"), license.Name };
+        throw new Exception(lookup.State == "invalid"
+            ? "Relatude Services does not accept this API key: " + lookup.Reason + " Nothing was saved."
+            : "Relatude Services could not be reached to check the API key, so nothing was saved. " + lookup.Reason);
+    }
 
     /// <summary>The feature a license must carry for the Relatude SMS service to accept its API key.</summary>
     internal const string SmsFeature = "SMS";
@@ -85,6 +107,7 @@ sealed class UILicense(RelatudeDBServer server) {
             ShowLicenseServer = _showLicenseServer,
             status.HasLicenseKey,
             status.HasApiKey,
+            status.ApiKeyStart,
             status.LicenseKey,
             status.SignInEnabled,
             // reporting in (DisableHeartbeat) is left out on purpose: it is a json-file setting only
