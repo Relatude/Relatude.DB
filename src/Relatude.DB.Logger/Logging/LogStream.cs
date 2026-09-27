@@ -38,12 +38,26 @@ internal class LogStream : IDisposable {
     }
     public void Record(LogRecord record, bool flushToDisk = false) {
         // the buffer is keyed by the joined form of the file key
-        var fileKey = FileKeyUtility.Logger_FileNameBin(_logName, _fileInterval, record.TimeStamp).AsKeyString();
+        var fileKey = fileKeyOf(record.TimeStamp);
         if (_buffer.TryGetValue(fileKey, out var records)) records.Add(record);
         else _buffer.Add(fileKey, new() { record });
         _dataInBuffer += record.Data.Length + 29;
         if (flushToDisk) flushBuffer(true);
         else if (_dataInBuffer >= _bufferAutoFlushLimit) flushBuffer(false);
+    }
+    // The file a record goes to changes only when its interval does, so the key is worked out once
+    // per interval rather than once per record: formatting the date and joining up the name cost
+    // about as much as all the rest of putting a record in the buffer.
+    DateTime _keyFrom = DateTime.MaxValue;
+    DateTime _keyUntil = DateTime.MinValue;
+    string _key = string.Empty;
+    string fileKeyOf(DateTime timestamp) {
+        if (timestamp < _keyFrom || timestamp >= _keyUntil) {
+            _keyFrom = timestamp.Floor(_fileInterval);
+            _keyUntil = _keyFrom.EndOfInterval(_fileInterval);
+            _key = FileKeyUtility.Logger_FileNameBin(_logName, _fileInterval, _keyFrom).AsKeyString();
+        }
+        return _key;
     }
     void flushBuffer(bool flushToDisk) {
         foreach (var (fileKey, records) in _buffer) {
@@ -51,7 +65,11 @@ internal class LogStream : IDisposable {
             // correct segment bounds are essential as they are used to skip segments on extract
             var dtFirst = DateTime.MaxValue;
             var dtLast = DateTime.MinValue;
-            var ms = new MemoryStream();
+            // sized up front, since the size is known: a stream left to grow on its own allocates
+            // the batch several times over on its way up
+            var size = sizeof(int);
+            foreach (var record in records) size += sizeof(long) + sizeof(int) + record.Data.Length;
+            var ms = new MemoryStream(size);
             BinaryWriter bw = new(ms);
             bw.Write(records.Count);
             foreach (var record in records) {
@@ -61,8 +79,9 @@ internal class LogStream : IDisposable {
                 bw.Write(record.Data.Length);
                 bw.Write(record.Data);
             }
-            var data = ms.ToArray();
-            if (_compressed) data = CompressionUtility.Compress(data);
+            // written from the stream's own buffer: copying it out first would allocate it once more
+            var data = _compressed ? CompressionUtility.Compress(ms.ToArray()) : ms.GetBuffer();
+            var length = _compressed ? data.Length : (int)ms.Length;
             if (_lastAppendStream == null) {
                 _lastAppendStream = _io.OpenAppend(fileKey.SplitKey());
             } else if (_lastAppendStream.FileKey != fileKey) {
@@ -73,7 +92,8 @@ internal class LogStream : IDisposable {
             _lastAppendStream.WriteDateTimeUtc(dtFirst);
             _lastAppendStream.WriteDateTimeUtc(dtLast);
             _lastAppendStream.WriteBool(_compressed);
-            _lastAppendStream.WriteByteArray(data);
+            _lastAppendStream.WriteVerifiedInt(length); // as WriteByteArray writes it
+            _lastAppendStream.Append(data, length);
             _lastAppendStream.WriteGuid(_endMarker);
             if (flushToDisk) _lastAppendStream.Flush(true);
         }

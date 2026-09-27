@@ -27,7 +27,12 @@ internal class LogTextStream : IDisposable {
         if (flushToDisk) stream.Flush(true);
     }
     IAppendStream? _lastAppendStream;
+    // the interval the open file is the file of: an entry inside it goes to the same file without
+    // the file's name being worked out again
+    DateTime _openFrom = DateTime.MaxValue;
+    DateTime _openUntil = DateTime.MinValue;
     IAppendStream getCorrectStream(DateTime timestamp) {
+        if (_lastAppendStream != null && timestamp >= _openFrom && timestamp < _openUntil) return _lastAppendStream;
         var floored = timestamp.Floor(_fileInterval);
         var fileKey = FileKeyUtility.Logger_FileNameTxt(_logName, _fileInterval, floored);
         if (_lastAppendStream == null) {
@@ -36,6 +41,8 @@ internal class LogTextStream : IDisposable {
             _lastAppendStream.Dispose();
             _lastAppendStream = _io.OpenAppend(fileKey);
         }
+        _openFrom = floored;
+        _openUntil = floored.EndOfInterval(_fileInterval);
         return _lastAppendStream;
     }
     void releaseOpenFiles() {

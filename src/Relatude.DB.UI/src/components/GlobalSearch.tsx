@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
-import { IconArrowRight, IconCornerDownLeft, IconDatabaseSearch, IconSearch, IconSettings, IconX } from "@tabler/icons-react";
+import { IconArrowRight, IconCornerDownLeft, IconDatabaseSearch, IconHash, IconId, IconSearch, IconSettings, IconX } from "@tabler/icons-react";
 import { sections } from "../navigation";
 import { openInDatamodel, openInQuery, openInSettings, openSearch, type SearchTarget } from "../navigate";
 import { useLiveResult } from "../server/hooks";
+import { useIdMatches, type IdMatch } from "../server/idLookup";
 import { globalSearch, minSearchLength, type SearchResults } from "../server/search";
 import type { DatabaseInfo } from "../server/serverInfo";
 import { KindIcon, PropertyIcon } from "./DatamodelIcons";
@@ -27,7 +28,8 @@ interface Hit {
  * lives: the pages by their own names, which are in the client (navigation.ts); the data model and
  * the settings catalog on the server, which holds both; and the nodes through the database's text
  * index. The first group is matched as it is typed and needs no round trip at all, so the panel is
- * never empty while the rest arrive.
+ * never empty while the rest arrive. A text that is nothing but node ids - an internal id or a guid -
+ * also looks those nodes up directly (idLookup.ts), and they head the panel.
  *
  * Every row opens something, and opening is a hand-off through navigate.ts rather than a route: the
  * shell switches section and the page that owns the target picks it up. Nothing here knows what a
@@ -57,14 +59,19 @@ export function GlobalSearch({
   // the answer to an older keystroke is still on screen while the next one runs; showing it against
   // the text it answered would be wrong, so it is only used once the two agree
   const answer: SearchResults | null = result && result.text === trimmed ? result : null;
+  // the nodes the text names by id, when that is all it is; looked up from the first digit, since an
+  // id is exact where a one-letter prefix search is not
+  const ids = useIdMatches(activeDb?.id ?? null, trimmed);
+  const searching = loading || ids.loading;
 
   const hits = useMemo(
-    () => build(trimmed, answer, activeDb, onSelectSection),
-    [trimmed, answer, activeDb, onSelectSection],
+    () => build(trimmed, answer, ids.matches, activeDb, onSelectSection),
+    [trimmed, answer, ids.matches, activeDb, onSelectSection],
   );
 
-  // the highlight starts at the top of every new set of results
-  useEffect(() => setActive(0), [trimmed, answer]);
+  // the highlight starts at the top of every new set of results - and a direct hit arriving puts a
+  // new row at the top, which is the one enter should open
+  useEffect(() => setActive(0), [trimmed, answer, ids.matches]);
 
   // ctrl/cmd+k from anywhere, which is where everyone's fingers already go
   useEffect(() => {
@@ -151,7 +158,7 @@ export function GlobalSearch({
           className="text-input"
           value={text}
           spellCheck={false}
-          placeholder="Search types, properties, settings and nodes…"
+          placeholder="Search types, properties, settings and nodes, or paste a node id…"
           onChange={(e) => {
             setText(e.target.value);
             setOpen(true);
@@ -209,14 +216,16 @@ export function GlobalSearch({
           ))}
           {hits.length === 0 && (
             <div className="global-search-empty">
-              {trimmed.length < minSearchLength
+              {trimmed.length < minSearchLength && ids.terms === null
                 ? `Type at least ${minSearchLength} letters.`
-                : loading
+                : searching
                   ? "Searching…"
-                  : `Nothing matches “${trimmed}”.`}
+                  : trimmed.length < minSearchLength
+                    ? `No node has the id “${trimmed}”.` // too short for a text search, so the id was all that was asked
+                    : `Nothing matches “${trimmed}”.`}
             </div>
           )}
-          {hits.length > 0 && loading && <div className="global-search-empty">Searching the database…</div>}
+          {hits.length > 0 && searching && <div className="global-search-empty">Searching the database…</div>}
         </div>
       )}
     </div>
@@ -226,17 +235,32 @@ export function GlobalSearch({
 /**
  * The rows, in the order they are offered: the pages first because they are matched here and are
  * certain, then the model, then the settings, then the database's own content, which is the longest
- * list and the one that changes under you.
+ * list and the one that changes under you. Ahead of all of them come the nodes the text named by id:
+ * whoever pastes a guid is looking for that node and nothing else, and enter should open it.
  */
 function build(
   text: string,
   answer: SearchResults | null,
+  idMatches: IdMatch[],
   activeDb: DatabaseInfo | null,
   onSelectSection: (id: string) => void,
 ): Hit[] {
   const hits: Hit[] = [];
   const lower = text.toLowerCase();
   if (lower.length === 0) return hits;
+
+  const direct = new Set<string>();
+  for (const { term, node } of idMatches) {
+    direct.add(node.id);
+    hits.push({
+      key: "id/" + node.id,
+      group: idMatches.length === 1 ? "Node by id" : "Nodes by id",
+      icon: term.kind === "int" ? <IconHash size={16} stroke={1.8} /> : <IconId size={16} stroke={1.8} />,
+      label: node.displayName,
+      hint: node.typeName + " · #" + node.intId + " · open in query & edit",
+      open: () => openInQuery({ typeId: node.typeId, nodeId: node.id }),
+    });
+  }
 
   for (const section of sections) {
     if (section.hidden) continue;
@@ -295,6 +319,7 @@ function build(
   });
 
   for (const node of answer?.nodes ?? []) {
+    if (direct.has(node.id)) continue; // already at the top, found by its id
     hits.push({
       key: "node/" + node.id,
       group: "Nodes",

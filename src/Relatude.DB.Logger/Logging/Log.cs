@@ -1,10 +1,12 @@
 ﻿using Relatude.DB.IO;
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using Relatude.DB.Logging.Statistics;
 
 namespace Relatude.DB.Logging;
 // threadsafe
 internal class Log : IDisposable {
+    // Taken through hold() and tryHold(), never on its own: see there.
     readonly object _lock = new();
     public LogSettings Setting { get => _setting; }
     readonly LogStream _logStream;
@@ -75,7 +77,7 @@ internal class Log : IDisposable {
     }
     public void FlushToDiskNow() {
         if (_setting.EnableLog) {
-            lock (_lock) {
+            using (hold()) {
                 _logStream.FlushToDisk();
                 if (_setting.EnableLogTextFormat) _logTextStream.FlushToDisk();
             }
@@ -86,33 +88,118 @@ internal class Log : IDisposable {
     /// entry or counts it although the log is off, false leaves it out although the log is on - which
     /// is how entries that are already counted (moved to a new file layout, say) are written without
     /// being counted twice.
+    ///
+    /// The caller is not made to wait for a log that is busy - with a page or a search being read,
+    /// its statistics being saved, its old files deleted. What is recorded is a query that has just
+    /// been answered or a transaction that has just been made, and a page of a large log can take a
+    /// good part of a second to read. So an entry that finds the log busy is left in its backlog, and
+    /// whoever holds the log next records the backlog before doing anything else: a page, a statistic
+    /// or a flush always includes every entry recorded before it was asked for. An entry that has to
+    /// be on disk when this returns does wait, and so does one that finds the backlog full.
     /// </summary>
     public void Record(LogEntry entry, bool flushToDisk, bool? forceLogging = null, bool? forceStatistics = null) {
-        lock (_lock) {
-            // a log replaced or removed while a caller still held it: its files belong to the log
-            // that took its place, and writing here would reopen them behind that one's back
-            if (_disposed) return;
-            var logging = forceLogging ?? _setting.EnableLog;
-            var statistics = forceStatistics ?? _setting.EnableStatistics;
-            if (!logging && !statistics) return;
-            // the entry as the log declares it, once, so the file and the statistics see the same values
-            entry = normalize(entry);
-            if (logging) {
-                var record = getRecord(entry);
-                _logStream.Record(record, flushToDisk);
-                if (_setting.EnableLogTextFormat) _logTextStream.Record(entry, flushToDisk);
-            }
-            if (statistics) {
-                _rowStat.RecordIfPossible(entry.Timestamp, true);
-                foreach (var value in entry.Values) {
-                    if (_statByProp.TryGetValue(value.Key, out var stats)) {
-                        foreach (var stat in stats) {
-                            stat.RecordIfPossible(entry.Timestamp, value.Value);
-                        }
+        if (_disposed) return;
+        var logging = forceLogging ?? _setting.EnableLog;
+        var statistics = forceStatistics ?? _setting.EnableStatistics;
+        if (!logging && !statistics) return;
+        // The entry as the log declares it, once, so the file and the statistics see the same values.
+        // Both are worked out from the entry and the log's settings alone, so neither needs the lock.
+        entry = normalize(entry);
+        var pending = new Pending(entry, logging ? getRecord(entry) : null, statistics);
+        if (flushToDisk || Volatile.Read(ref _backlogCount) >= MaxBacklog) {
+            using (hold()) recordNow(pending, flushToDisk);
+        } else if (tryHold(out var held)) {
+            using (held) recordNow(pending, false);
+        } else {
+            leave(pending);
+        }
+    }
+    void recordNow(Pending pending, bool flushToDisk) {
+        // a log replaced or removed while a caller still held it: its files belong to the log
+        // that took its place, and writing here would reopen them behind that one's back
+        if (_disposed) return;
+        var entry = pending.Entry;
+        if (pending.Record != null) {
+            _logStream.Record(pending.Record, flushToDisk);
+            if (_setting.EnableLogTextFormat) _logTextStream.Record(entry, flushToDisk);
+        }
+        if (pending.Statistics) {
+            _rowStat.RecordIfPossible(entry.Timestamp, _true);
+            foreach (var value in entry.Values) {
+                if (_statByProp.TryGetValue(value.Key, out var stats)) {
+                    foreach (var stat in stats) {
+                        stat.RecordIfPossible(entry.Timestamp, value.Value);
                     }
                 }
             }
         }
+    }
+    static readonly object _true = true; // boxed once, rather than once per entry the row statistic counts
+
+    // ---- the lock and the backlog ----
+
+    // An entry recorded while the log was busy, ready to go: as the log declares it, and the record
+    // it is written as (null when it is only counted).
+    readonly record struct Pending(LogEntry Entry, LogRecord? Record, bool Statistics);
+    // Entries that found the log busy, for whoever holds it next. Bounded, so a log that stays busy
+    // makes its callers wait again rather than keep a backlog that grows for as long as it is busy.
+    readonly ConcurrentQueue<Pending> _backlog = new();
+    int _backlogCount;
+    internal const int MaxBacklog = 20_000;
+    // Takes the log, the way everything in this class takes it: the backlog is recorded first, so
+    // whatever is read, saved or flushed holding the log includes every entry recorded before.
+    Held hold() {
+        Monitor.Enter(_lock);
+        return entered();
+    }
+    bool tryHold(out Held held) {
+        held = default;
+        if (!Monitor.TryEnter(_lock)) return false;
+        held = entered();
+        return true;
+    }
+    // the log just taken, handed over once the backlog is recorded
+    Held entered() {
+        try {
+            recordBacklog();
+        } catch {
+            Monitor.Exit(_lock);
+            throw;
+        }
+        return new(this);
+    }
+    void release() {
+        try {
+            recordBacklog(); // what was left while this held the log
+        } finally {
+            Monitor.Exit(_lock);
+        }
+        // ...and what was left in the moment between the two, by a caller that found the log still
+        // held: it would otherwise wait for the next caller to come along
+        if (!_backlog.IsEmpty && Monitor.TryEnter(_lock)) {
+            try {
+                recordBacklog();
+            } finally {
+                Monitor.Exit(_lock);
+            }
+        }
+    }
+    readonly struct Held(Log? log) : IDisposable {
+        public void Dispose() => log?.release();
+    }
+    void recordBacklog() {
+        while (_backlog.TryDequeue(out var pending)) {
+            Interlocked.Decrement(ref _backlogCount);
+            recordNow(pending, false);
+        }
+    }
+    // an entry the log was too busy to take: left in the backlog, for whoever holds the log next
+    void leave(Pending pending) {
+        _backlog.Enqueue(pending);
+        Interlocked.Increment(ref _backlogCount);
+        // The one holding the log may have let go of it since it was found busy, and then nobody
+        // would record this entry until the next one came: whoever gets the log now records it.
+        if (tryHold(out var held)) held.Dispose();
     }
     /// <summary>
     /// The entry the way the log keeps it: the timestamp in UTC, and every declared value in its
@@ -149,7 +236,7 @@ internal class Log : IDisposable {
     /// read, as a stable sort of the whole range would give them.
     /// </summary>
     public IEnumerable<LogEntry> Extract(DateTime from, DateTime to, int skip, int take, bool orderByDescendingDates, out int total) {
-        lock (_lock) {
+        using (hold()) {
             if (skip < 0) skip = 0;
             if (take < 0) take = 0;
             var wanted = (long)skip + take;
@@ -194,7 +281,7 @@ internal class Log : IDisposable {
     /// therefore answerable: the rest are counted and let go.
     /// </summary>
     public IEnumerable<LogEntry> Search(LogSearch search, DateTime from, DateTime to, int skip, int take, bool orderByDescendingDates, out int total) {
-        lock (_lock) {
+        using (hold()) {
             if (search.IsEmpty) return Extract(from, to, skip, take, orderByDescendingDates, out total);
             if (skip < 0) skip = 0;
             if (take < 0) take = 0;
@@ -228,12 +315,12 @@ internal class Log : IDisposable {
     }
     public long GetTotalFileSize() => GetLogFileSize() + GetStatisticsFileSize();
     public long GetLogFileSize() {
-        lock (_lock) {
+        using (hold()) {
             return _logStream.Size() + _logTextStream.Size();
         }
     }
     public long GetStatisticsFileSize() {
-        lock (_lock) {
+        using (hold()) {
             return _io.GetFileSizeOrZeroIfUnknown(_statFileKey);
         }
     }
@@ -250,7 +337,7 @@ internal class Log : IDisposable {
         s.LoadState(read);
     }
     void loadStatisticsState() {
-        lock (_lock) {
+        using (hold()) {
             if (!_setting.EnableStatistics) return;
             if (_io.DoesNotExistOrIsEmpty(_statFileKey)) return;
 
@@ -314,7 +401,7 @@ internal class Log : IDisposable {
         return g2 != _endMarker; // true if invalid
     }
     public void SaveStatisticsState() {
-        lock (_lock) {
+        using (hold()) {
             if (!_setting.EnableStatistics) return;
             var allStats = _statByProp.Values.SelectMany(s => s).ToList();
             var anyDirty = allStats.Any(s => s.IsDirty) || _rowStat.IsDirty;
@@ -341,11 +428,17 @@ internal class Log : IDisposable {
             stream.WriteGuid(_endMarker);
         }
     }
-    LogRecord getRecord(LogEntry entry) {
-        var ms = new MemoryStream();
-        var bw = new BinaryWriter(ms);
+    // A record is written in a buffer its thread keeps for the next one, and copied out when it is
+    // done. It is written by the thread recording the entry, outside the lock, so no two records
+    // ever share one - and one grown by an unusually large entry is let go of, not kept for good.
+    [ThreadStatic] static BinaryWriter? _recordWriter;
+    const int maxKeptRecordBuffer = 64 * 1024;
+    static LogRecord getRecord(LogEntry entry) {
+        var bw = _recordWriter ??= new BinaryWriter(new MemoryStream(512));
+        var ms = (MemoryStream)bw.BaseStream;
+        ms.SetLength(0);
         bw.Write(entry.Timestamp.Ticks);
-        bw.Write(entry.Values.Count());
+        bw.Write(entry.Values.Count);
         foreach (var kv in entry.Values) {
             var dataType = getDataType(kv.Value);
             bw.Write(kv.Key);
@@ -374,7 +467,9 @@ internal class Log : IDisposable {
                     throw new NotImplementedException();
             }
         }
-        return new LogRecord(entry.Timestamp, ms.ToArray());
+        var record = new LogRecord(entry.Timestamp, ms.ToArray());
+        if (ms.Capacity > maxKeptRecordBuffer) _recordWriter = null;
+        return record;
     }
     static LogDataType getDataType(object value) => LogValues.StoredTypeOf(value);
     object forceToLegalType(object value) {
@@ -428,36 +523,36 @@ internal class Log : IDisposable {
 
     }
     public void DeleteAll() {
-        lock (_lock) {
+        using (hold()) {
             EnforceDateLimit(DateTime.MaxValue);
             DeleteStatistics();
         }
     }
     public void DeleteStatistics() {
-        lock (_lock) {
+        using (hold()) {
             _io.DeleteFileIfItExists(_statFileKey);
             _io.DeleteFileIfItExists(_backupStatFile);
             loadAllStatistics();
         }
     }
     public void EnforceDateLimit(DateTime to) {
-        lock (_lock) {
+        using (hold()) {
             _logStream.Delete(to);
             _logTextStream.Delete(to);
         }
     }
     public DateTime? GetTimestampOfFirstRecord() {
-        lock (_lock) {
+        using (hold()) {
             return _logStream.GetTimestampOfFirstRecord();
         }
     }
     public DateTime? GetTimestampOfLastRecord() {
-        lock (_lock) {
+        using (hold()) {
             return _logStream.GetTimestampOfLastRecord();
         }
     }
     public Dictionary<string, List<StatisticsInfo>> GetAvailableStatisticsByProperty() {
-        lock (_lock) {
+        using (hold()) {
             var result = new Dictionary<string, List<StatisticsInfo>>();
             if (_statByProp != null) {
                 foreach (var kv in _statByProp) {
@@ -472,33 +567,33 @@ internal class Log : IDisposable {
         }
     }
     public IEnumerable<Interval<int>> AnalyseRows(IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
-        lock (_lock) {
+        using (hold()) {
             return _rowStat.GetValues(intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated);
         }
     }
     public IEnumerable<Interval<int>> AnalyseCounts(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
-        lock (_lock) {
+        using (hold()) {
             if (!_statByProp.TryGetValue(property, out var stats)) return Array.Empty<Interval<int>>();
             var cn = stats.OfType<StatisticsCount>().FirstOrDefault();
             return cn == null ? Array.Empty<Interval<int>>() : cn.GetValues(intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated);
         }
     }
     public IEnumerable<Interval<int>> AnalyseIntegerSums(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
-        lock (_lock) {
+        using (hold()) {
             if (!_statByProp.TryGetValue(property, out var stats)) return Array.Empty<Interval<int>>();
             var cn = stats.OfType<StatisticsIntegerSum>().FirstOrDefault();
             return cn == null ? Array.Empty<Interval<int>>() : cn.GetValues(intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated);
         }
     }
     public IEnumerable<Interval<double>> AnalyseDoubleSums(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
-        lock (_lock) {
+        using (hold()) {
             if (!_statByProp.TryGetValue(property, out var stats)) return Array.Empty<Interval<double>>();
             var cn = stats.OfType<StatisticsDoubleSum>().FirstOrDefault();
             return cn == null ? Array.Empty<Interval<double>>() : cn.GetValues(intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated);
         }
     }
     public IEnumerable<Interval<AvgMinMax<double>>> AnalyseAvgMinMax(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
-        lock (_lock) {
+        using (hold()) {
             if (!_statByProp.TryGetValue(property, out var stats)) return Array.Empty<Interval<AvgMinMax<double>>>();
             var cn = stats.OfType<StatisticsAvgMinMax>().FirstOrDefault();
             return cn == null ? Array.Empty<Interval<AvgMinMax<double>>>() : cn.GetValues(intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated)
@@ -506,7 +601,7 @@ internal class Log : IDisposable {
         }
     }
     public IEnumerable<Interval<CountSumAvgMinMax<double>>> AnalyseCountSumAvgMinMax(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
-        lock (_lock) {
+        using (hold()) {
             if (!_statByProp.TryGetValue(property, out var stats)) return Array.Empty<Interval<CountSumAvgMinMax<double>>>();
             var cn = stats.OfType<StatisticsCountSumAvgMinMax>().FirstOrDefault();
             return cn == null ? Array.Empty<Interval<CountSumAvgMinMax<double>>>() : cn.GetValues(intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated)
@@ -514,7 +609,7 @@ internal class Log : IDisposable {
         }
     }
     public IEnumerable<Interval<Dictionary<string, int>>> AnalyseGroupCounts(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
-        lock (_lock) {
+        using (hold()) {
             if (!_statByProp.TryGetValue(property, out var stats)) return Array.Empty<Interval<Dictionary<string, int>>>();
             var cn = stats.OfType<StatisticsGroupCount>().FirstOrDefault();
             // ensureing dictionary is copied to avoid concurrency issues
@@ -523,47 +618,47 @@ internal class Log : IDisposable {
         }
     }
     public IEnumerable<Interval<int>> AnalyseUniqueCounts(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
-        lock (_lock) {
+        using (hold()) {
             if (!_statByProp.TryGetValue(property, out var stats)) return Array.Empty<Interval<int>>();
             var cn = stats.OfType<StatisticsUniqueCount>().FirstOrDefault();
             return cn == null ? Array.Empty<Interval<int>>() : cn.GetValues(intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated).Select(c => c.Map(i => i.HashCount())).ToList();
         }
     }
     public IEnumerable<Interval<int>> AnalyseEstimatedUniqueCounts(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
-        lock (_lock) {
+        using (hold()) {
             if (!_statByProp.TryGetValue(property, out var stats)) return Array.Empty<Interval<int>>();
             var cn = stats.OfType<StatisticsEstimatedUniqueCount>().FirstOrDefault();
             return cn == null ? Array.Empty<Interval<int>>() : cn.GetValues(intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated).Select(c => c.Map(i => i.EstimateCount())).ToList();
         }
     }
     public Interval<int> AnalyseCombinedRows(IntervalType intervalType, DateTime fromUtc, DateTime toUtc) {
-        lock (_lock) {
+        using (hold()) {
             return _rowStat.GetCombinedValue(intervalType, fromUtc, toUtc);
         }
     }
     public Interval<int> AnalyseCombinedCounts(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc) {
-        lock (_lock) {
+        using (hold()) {
             if (!_statByProp.TryGetValue(property, out var stats)) return new(fromUtc, toUtc);
             var cn = stats.OfType<StatisticsCount>().FirstOrDefault();
             return cn == null ? new(fromUtc, toUtc) : cn.GetCombinedValue(intervalType, fromUtc, toUtc);
         }
     }
     public Interval<int> AnalyseCombinedIntegerSums(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc) {
-        lock (_lock) {
+        using (hold()) {
             if (!_statByProp.TryGetValue(property, out var stats)) return new(fromUtc, toUtc);
             var cn = stats.OfType<StatisticsIntegerSum>().FirstOrDefault();
             return cn == null ? new(fromUtc, toUtc) : cn.GetCombinedValue(intervalType, fromUtc, toUtc);
         }
     }
     public Interval<double> AnalyseCombinedDoubleSums(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc) {
-        lock (_lock) {
+        using (hold()) {
             if (!_statByProp.TryGetValue(property, out var stats)) return new(fromUtc, toUtc);
             var cn = stats.OfType<StatisticsDoubleSum>().FirstOrDefault();
             return cn == null ? new(fromUtc, toUtc) : cn.GetCombinedValue(intervalType, fromUtc, toUtc);
         }
     }
     public Interval<AvgMinMax<double>> AnalyseCombinedAvgMinMax(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc) {
-        lock (_lock) {
+        using (hold()) {
             if (!_statByProp.TryGetValue(property, out var stats)) return new(fromUtc, toUtc);
             var cn = stats.OfType<StatisticsAvgMinMax>().FirstOrDefault();
             var i = cn == null ? new(fromUtc, toUtc) : cn.GetCombinedValue(intervalType, fromUtc, toUtc);
@@ -571,7 +666,7 @@ internal class Log : IDisposable {
         }
     }
     public Interval<CountSumAvgMinMax<double>> AnalyseCombinedCountSumAvgMinMax(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval = true, DateTime? nowSimulated = null) {
-        lock (_lock) {
+        using (hold()) {
             if (!_statByProp.TryGetValue(property, out var stats)) return new(fromUtc, toUtc);
             var cn = stats.OfType<StatisticsCountSumAvgMinMax>().FirstOrDefault();
             var i = cn == null ? new(fromUtc, toUtc) : cn.GetCombinedValue(intervalType, fromUtc, toUtc);
@@ -579,7 +674,7 @@ internal class Log : IDisposable {
         }
     }
     public Interval<Dictionary<string, int>> AnalyseCombinedGroupCounts(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc) {
-        lock (_lock) {
+        using (hold()) {
             if (!_statByProp.TryGetValue(property, out var stats)) return new(fromUtc, toUtc);
             var cn = stats.OfType<StatisticsGroupCount>().FirstOrDefault();
             var value = cn == null ? new(fromUtc, toUtc) : cn.GetCombinedValue(intervalType, fromUtc, toUtc);
@@ -603,9 +698,9 @@ internal class Log : IDisposable {
         while (currentFrom < end) {
             var currentTo = new DateTime(Math.Min(currentFrom.Ticks + deltaTimePerChunk, end.Ticks), DateTimeKind.Utc);
             var entries = Extract(currentFrom, currentTo, 0, int.MaxValue, false, out _);
-            lock (_lock) {
+            using (hold()) {
                 foreach (var entry in entries) {
-                    _rowStat.RecordIfPossible(entry.Timestamp, true);
+                    _rowStat.RecordIfPossible(entry.Timestamp, _true);
                     foreach (var value in entry.Values) {
                         if (_statByProp.TryGetValue(value.Key, out var stats)) {
                             foreach (var stat in stats) {
@@ -619,9 +714,9 @@ internal class Log : IDisposable {
         }
         SaveStatisticsState();
     }
-    bool _disposed;
+    volatile bool _disposed; // read without the lock by Record, to turn an entry away early
     public void Dispose() {
-        lock (_lock) {
+        using (hold()) {
             if (_disposed) return;
             SaveStatisticsState();
             _logStream.Dispose();
@@ -630,7 +725,7 @@ internal class Log : IDisposable {
         }
     }
     internal void EnforceSizeLimit(int maxTotalSizeOfLogFilesInMb) {
-        lock (_lock) {
+        using (hold()) {
             _logStream.DeleteLargeLog(maxTotalSizeOfLogFilesInMb);
         }
     }

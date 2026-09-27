@@ -431,6 +431,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     object? query(IExpression expression, string? query, IEnumerable<Parameter> parameters, QueryContext? ctx) {
+        object? result;
+        TimeSpan duration;
+        int resultCount;
+        Metrics metrics;
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
@@ -439,23 +443,28 @@ public sealed partial class DataStoreLocal : IDataStore {
             _queryActivity.Record();
             var sw = Stopwatch.StartNew();
             var scope = _variables.CreateQueryBaseScope(parameters, ctx);
-            var result = expression.Evaluate(scope);
+            result = expression.Evaluate(scope);
             if (result is IIncludeBranches nd) nd.EnsureRetrivalOfRelationNodesDataBeforeExitingReadLock(scope.Metrics);
             sw.Stop();
-            var durationMs = (double)sw.Elapsed.Ticks / TimeSpan.TicksPerMillisecond;
-            var resultCount = 1;
+            duration = sw.Elapsed;
+            var durationMs = (double)duration.Ticks / TimeSpan.TicksPerMillisecond;
+            resultCount = 1;
             if (result is ICollectionBase t) {
                 t.DurationMs = durationMs;
                 resultCount = t.Count;
             }
-            if (_logger.LoggingQueries) _logger.RecordQuery(query ?? expression.ToString()!, sw.Elapsed, resultCount, scope.Metrics);
+            metrics = scope.Metrics;
             Interlocked.Increment(ref _noQueriesSinceClearCache);
             Interlocked.Increment(ref _noQueriesSinceLastMetric);
-            return result;
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();
         }
+        // Recorded once the read lock is let go of. A writer waiting for the lock holds up every
+        // reader that comes after it, so whatever keeps a query in the lock keeps them all waiting -
+        // and writing a log entry is no reason to.
+        if (_logger.LoggingQueries) _logger.RecordQuery(query ?? expression.ToString()!, duration, resultCount, metrics);
+        return result;
     }
     public object? Query(string query, IEnumerable<Parameter> parameters, QueryContext? ctx = null) {
         var syntaxTree = TokenParser.Parse(query, parameters);

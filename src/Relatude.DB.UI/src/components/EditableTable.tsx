@@ -14,6 +14,8 @@ interface Props {
   selected: ReadonlySet<number>;
   /** the whole result is selected (the page's Select all): every row of it is marked */
   allSelected?: boolean;
+  /** rows on the page that are not in the result - direct hits on an id (idLookup.ts) - by node id: Select all does not mark them */
+  outsideResult?: ReadonlySet<string>;
   sort: { key: string; descending: boolean } | null;
   sortApplied: boolean;
   onSort: (key: string) => void;
@@ -45,7 +47,7 @@ interface Cursor {
  * embedded document each need a control of their own, and the form beside the table is where they
  * are edited; their columns are marked read only here rather than pretending otherwise.
  */
-export function EditableTable({ storeId, columns, columnsUi, hits, selected, allSelected, sort, sortApplied, onSort, onSaved, loading }: Props) {
+export function EditableTable({ storeId, columns, columnsUi, hits, selected, allSelected, outsideResult, sort, sortApplied, onSort, onSaved, loading }: Props) {
   const [cursor, setCursor] = useState<Cursor>({ row: 0, col: 0 });
   const [editing, setEditing] = useState<{ row: number; col: number; value: string } | null>(null);
   // what was written here since the last search, keyed "<node id>/<column key>": the table shows
@@ -238,7 +240,11 @@ export function EditableTable({ storeId, columns, columnsUi, hits, selected, all
         </thead>
         <tbody>
           {hits.slice(0, builtRows).map((hit, row) => (
-            <tr key={hit.id} className={allSelected || selected.has(hit.intId) ? "selected" : ""} data-node-id={hit.intId}>
+            <tr
+              key={hit.id}
+              className={((allSelected && !outsideResult?.has(hit.id)) || selected.has(hit.intId) ? "selected" : "") + (hit.idMatch ? " id-match" : "")}
+              data-node-id={hit.intId}
+            >
               {columns.map((column, col) => {
                 const cellKey = key(hit, column);
                 const here = cursor.row === row && cursor.col === col;

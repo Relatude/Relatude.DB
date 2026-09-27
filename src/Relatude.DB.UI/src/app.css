@@ -52,8 +52,10 @@
   --revert: #7a3fb0;
   --revert-soft: rgba(122, 63, 176, 0.12);
   --badge-bg: rgba(0, 0, 0, 0.07);
-  /* a word a search matched, marked in the text it was found in */
+  /* a word a search matched, marked in the text it was found in; the strong one is the bar beside a
+     row the search text named by its id */
   --mark-soft: rgba(226, 178, 42, 0.38);
+  --mark-strong: #d19c14;
   --backdrop-ink: #1d1c1a;
   --backdrop-opacity: 0.16;
   /* what a machine wrote, shown as the machine wrote it: paper-bright with dark ink in the light
@@ -115,6 +117,7 @@
   --revert-soft: rgba(196, 155, 240, 0.16);
   --badge-bg: rgba(255, 255, 255, 0.09);
   --mark-soft: rgba(226, 178, 42, 0.30);
+  --mark-strong: #e2b22a;
   --backdrop-ink: #a8cdf2;
   --backdrop-opacity: 0.18;
   /* a shade under the panel rather than over it: in the dark theme the terminal is the deepest
@@ -7119,6 +7122,22 @@ body.pg-resizing {
 .query-hit-summary em {
   font-style: normal;
   color: var(--text-faint);
+}
+
+/* A direct hit (idLookup.ts): a node the search text named by its id, put at the head of the list
+   rather than wherever the search would have ranked it. The bar is the match colour, the same one
+   the id is marked with in the snippet line - it says why the row is there, not that it is chosen,
+   so it sits beside the selected background rather than replacing it. */
+.query-hit.id-match,
+.query-table tbody tr.id-match td:first-child {
+  box-shadow: inset 3px 0 0 var(--mark-strong);
+}
+
+/* beside the count: the direct hits on the page that the count does not include */
+.query-id-note {
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: help;
 }
 
 /* ---- the table view ---- */

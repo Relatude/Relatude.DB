@@ -4235,39 +4235,15 @@ Counting how many *different* values there were — distinct users in an hour, d
 day — is the one question a log cannot answer from a running total. An exact answer has to remember
 every value it has seen, to know whether the next one is new, so it grows with the data: a busy site
 has millions of sessions a month. The estimated unique count answers it from a summary of a fixed
-size instead, using the **HyperLogLog** algorithm (Flajolet, Fusy, Gandouet and Meunier, 2007).
+size instead, using the **HyperLogLog** algorithm (Flajolet, Fusy, Gandouet and Meunier, 2007) — how
+it works is explained on [Wikipedia](https://en.wikipedia.org/wiki/HyperLogLog).
 
-The idea is that a good hash makes every value look like a random number, and the random numbers
-say something about how many values produced them. Of all hashes, half end in a 1 bit, a quarter in
-`10`, an eighth in `100`: a run of *k* zero bits turns up about once in 2<sup>k</sup> values. So the
-longest run seen is a rough measure of how many distinct values went by — and a value seen twice
-has the same hash both times, so repeats change nothing, which is exactly what makes it count
-*distinct* values rather than entries. One such measure is far too noisy on its own (one lucky hash
-and the guess doubles), so HyperLogLog keeps many:
-
-1. Each value is hashed to 32 bits.
-2. The first 14 bits pick one of 2<sup>14</sup> = **16,384 registers**; the value only ever touches
-   that one register.
-3. The rest of the hash is looked at for its run of zero bits, and the register keeps the longest
-   run it has been shown.
-4. The estimate combines all the registers — a harmonic mean of 2<sup>run</sup> over them, which
-   keeps a few lucky registers from dominating, times a constant that corrects the method's known
-   bias. While most registers are still empty (few values so far) it uses *linear counting*
-   instead: the share of registers still untouched says how many values it took to touch the rest.
-
-The standard error is 1.04/√*m* for *m* registers — about 0.8 % with 16,384 of them, which is where
-"within about one percent" comes from — and it holds for a hundred values and for a hundred million alike. The
-memory does not grow at all: 16,384 small registers, 64 KB per interval, however many values went
-into it. Two refinements keep that cheap in practice, because a log keeps an estimate for every
-second, minute and hour it keeps, and most of those see a handful of values:
-
-- **An interval with few values keeps their hashes instead**, and makes the registers only when it
-  has seen more than 1,024 different values. The estimate it gives is the one the registers would
-  give (the linear counting above needs only how many registers are touched), so the switch changes
-  no number.
-- **An interval that is over keeps only its number.** Once the next interval has begun, the
-  registers of the last one are condensed into the estimate they give — which is also why an entry
-  arriving late for a closed interval cannot be added to it.
+Here the summary is 16,384 registers: 64 KB per interval however many values went into it, and a
+standard error of about 0.8 % — the "within about one percent" — for a hundred values and a hundred
+million alike. Most intervals see only a handful of values, so an interval keeps just their hashes
+until it has seen more than 1,024 different ones (the estimate is the same either way), and an
+interval that is over keeps only its number — which is also why an entry arriving late for a closed
+interval cannot be added to it.
 
 What it cannot do is **add up**. The number of different users in a day is not the sum of the
 numbers per hour — the same user in two hours is one user for the day — so an estimated (or exact)

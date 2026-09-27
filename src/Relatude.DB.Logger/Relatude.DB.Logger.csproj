@@ -11,5 +11,8 @@
     <ProjectReference Include="..\Relatude.DB.Common\Relatude.DB.Common.csproj" />
     <ProjectReference Include="..\Relatude.DB.IO\Relatude.DB.IO.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Relatude.DB.Tests" />
+  </ItemGroup>
 
 </Project>

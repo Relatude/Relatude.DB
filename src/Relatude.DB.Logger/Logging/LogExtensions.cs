@@ -14,6 +14,13 @@ internal static class LogExtensions {
     public static DateTime Ceiling(this DateTime d, FileInterval res) {
         return d.Floor(res).AddInterval(res).AddTicks(-1);
     }
+    /// <summary>
+    /// Where the interval a floored moment begins ends: the beginning of the next one - or, for the
+    /// last interval there is, the last moment there is, since it has no next one to begin.
+    /// </summary>
+    public static DateTime EndOfInterval(this DateTime floored, FileInterval res) {
+        return floored >= DateTime.MaxValue.Floor(res) ? DateTime.MaxValue : floored.AddInterval(res);
+    }
     public static DateTime AddInterval(this DateTime d, FileInterval res) {
         return res switch {
             FileInterval.Minute => d.AddMinutes(1),

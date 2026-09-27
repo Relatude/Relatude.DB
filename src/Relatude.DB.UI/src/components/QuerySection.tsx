@@ -57,6 +57,7 @@ import {
   type TextSample,
 } from "../server/query";
 import { useLiveResult } from "../server/hooks";
+import { hitOfMatch, useIdMatches } from "../server/idLookup";
 import { subscribeResync } from "../server/channel";
 import type { DatabaseInfo } from "../server/serverInfo";
 import { formatCount, formatQuery, formatTime } from "../format";
@@ -477,8 +478,6 @@ function QueryTab({
   /** and whether that is the whole result set rather than nodes named one by one */
   const allSelected = selection.kind === "query";
   const marked = useMemo(() => new Set(selectedInts(selection)), [selection]);
-  /** whether a row of the list or the table is in the selection: all of them while the whole result is */
-  const isSelected = (hit: { intId: number }) => selection.kind === "query" || marked.has(hit.intId);
   const anchor = useRef<number | null>(null);
   // The editor column's width, dragged on the bar between the list and the form. null is the
   // stylesheet's own share of the page, which is where most people leave it; a width someone has
@@ -546,12 +545,35 @@ function QueryTab({
 
   const { result, loading, error, refresh } = useLiveResult(query, runSearch);
 
+  // Direct hits (idLookup.ts): a search text that is nothing but node ids or guids looks those nodes
+  // up as well, and they head the first page of the list - whatever the type and the facets say, since
+  // whoever typed the id already knows which node they mean. The summaries have no rows to put them in.
+  const idMatches = useIdMatches(db.id, text, mode === "search");
+  const idHits = useMemo(
+    () => (result && page === 0 ? idMatches.matches.map((m) => hitOfMatch(m, result.columns, table && editCells)) : []),
+    [result, page, idMatches.matches, table, editCells],
+  );
+
   // The rows of the page, and how many of them are built (see rowWindow): a page can be asked to
   // hold a hundred thousand, which is a query the store answers in a moment and a table the dom
   // cannot be handed in one piece. One array per result, so the window starts over with the search
-  // and not with every render of it.
-  const hits = useMemo(() => result?.hits ?? [], [result]);
+  // and not with every render of it. A node the search found as well as the id is shown once, at the
+  // top; `outside` is the direct hits it did not find, which are on the page but not in the result.
+  const { hits, outside } = useMemo(() => {
+    const found = result?.hits ?? [];
+    if (idHits.length === 0) return { hits: found, outside: new Set<string>() };
+    const searched = new Set(found.map((h) => h.id));
+    const direct = new Set(idHits.map((h) => h.id));
+    return { hits: [...idHits, ...found.filter((h) => !direct.has(h.id))], outside: new Set(idHits.filter((h) => !searched.has(h.id)).map((h) => h.id)) };
+  }, [result, idHits]);
   const rowWindow = useRowWindow(hits);
+
+  /**
+   * Whether a row of the list or the table is in the selection: all of them while the whole result
+   * is - except a direct hit the search did not find, which "select all" does not reach, since what it
+   * selects is the query (see saveAll and deleteAll).
+   */
+  const isSelected = (hit: { id: string; intId: number }) => (allSelected && !outside.has(hit.id)) || marked.has(hit.intId);
 
   const [epoch, setEpoch] = useState(0);
   const [formEpoch, setFormEpoch] = useState(0);
@@ -566,6 +588,7 @@ function QueryTab({
    */
   function refreshData() {
     refresh();
+    idMatches.refresh(); // a direct hit is a row of the list like any other, and as stale
     setEpoch((e) => e + 1);
     onNodesChanged(); // the type picker counts nodes too, and is as stale as everything else
   }
@@ -576,14 +599,16 @@ function QueryTab({
     refreshData();
     setFormEpoch((e) => e + 1);
   }
+  const refreshIds = idMatches.refresh;
   useEffect(
     () =>
       subscribeResync(() => {
         refresh();
+        refreshIds();
         setEpoch((e) => e + 1);
         setFormEpoch((e) => e + 1);
       }),
-    [refresh],
+    [refresh, refreshIds],
   );
 
   // the summaries' source: the search as this page has it, without the paging and the view switches
@@ -1024,7 +1049,7 @@ function QueryTab({
             // caret starts here rather than one click away
             autoFocus
             value={text}
-            placeholder="Free text search — leave empty to browse everything"
+            placeholder="Free text search or node ids — leave empty to browse everything"
             spellCheck={false}
             onChange={(e) => reset({ text: e.target.value })}
           />
@@ -1205,6 +1230,15 @@ function QueryTab({
                     {result.total === 1 ? "node" : "nodes"}
                     {result.total !== result.sourceCount ? ` of ${formatCount(result.sourceCount)}` : ""} · {result.durationMs.toFixed(1)} ms
                   </span>
+                  {outside.size > 0 && (
+                    // on the page but not in the count: the search did not find them, the id named them
+                    <span
+                      className="query-id-note"
+                      title="Named by an id in the search text and shown at the top of the list, whatever the type and the filters say. The search itself did not find them, so they are not in the count."
+                    >
+                      + {formatCount(outside.size)} by id
+                    </span>
+                  )}
                 </>
               ) : (
                 <span className="muted">Searching…</span>
@@ -1282,8 +1316,8 @@ function QueryTab({
                 // this page of the table, as it is shown: what a spreadsheet or a message wants pasted
                 <CopyButton
                   title="Copy this page of the table to the clipboard"
-                  disabled={!result?.columns || result.hits.length === 0}
-                  table={() => ({ header: result?.columns?.map((c) => c.name) ?? [], rows: result?.hits.map((h) => h.cells ?? []) ?? [] })}
+                  disabled={!result?.columns || hits.length === 0}
+                  table={() => ({ header: result?.columns?.map((c) => c.name) ?? [], rows: hits.map((h) => h.cells ?? []) })}
                 />
               )}
               {!summary && result && result.total > pageRows && (
@@ -1364,6 +1398,7 @@ function QueryTab({
               hits={hits}
               selected={marked}
               allSelected={allSelected}
+              outsideResult={outside}
               sort={sort}
               sortApplied={result.sortApplied}
               onSort={toggleSort}
@@ -1401,7 +1436,7 @@ function QueryTab({
                   {hits.slice(0, rowWindow.count).map((hit) => (
                     <tr
                       key={hit.id}
-                      className={isSelected(hit) ? "selected" : ""}
+                      className={(isSelected(hit) ? "selected" : "") + (hit.idMatch ? " id-match" : "")}
                       data-node-id={hit.intId}
                       // a shift-click takes a run of rows, not a run of text
                       onMouseDown={(e) => e.shiftKey && e.preventDefault()}
@@ -1424,7 +1459,12 @@ function QueryTab({
             <div className={"query-hits" + (loading ? " loading" : "")} tabIndex={-1} title={hitsHint} onScroll={rowWindow.onScroll} onKeyDown={onHitsKeyDown}>
               {result && hits.length === 0 && <div className="query-empty">Nothing matched.</div>}
               {hits.slice(0, rowWindow.count).map((hit) => (
-                <button className={"query-hit" + (isSelected(hit) ? " selected" : "")} key={hit.id} data-node-id={hit.intId} onClick={(e) => selectHit(e, hit)}>
+                <button
+                  className={"query-hit" + (isSelected(hit) ? " selected" : "") + (hit.idMatch ? " id-match" : "")}
+                  key={hit.id}
+                  data-node-id={hit.intId}
+                  onClick={(e) => selectHit(e, hit)}
+                >
                   <div className="query-hit-head">
                     <span className="query-hit-name" title={hit.displayName}>
                       <Sampled sample={hit.nameSample} plain={hit.displayName} />

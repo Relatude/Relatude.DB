@@ -21,13 +21,15 @@ namespace Relatude.DB.Logging;
 public static class LogValues {
     /// <summary>The value as the declared type, or false when it has no sensible reading as one.</summary>
     public static bool TryConvert(object? value, LogDataType type, [NotNullWhen(true)] out object? converted) {
+        // A value that already is what the column declares is handed back as it came: converting it
+        // would only box it again, for every value of every entry recorded and read.
         converted = value == null ? null : type switch {
-            LogDataType.String => toText(value),
-            LogDataType.Integer => toInteger(value),
-            LogDataType.Double => toDouble(value),
-            LogDataType.DateTime => toDateTime(value),
-            LogDataType.TimeSpan => toTimeSpan(value),
-            LogDataType.Bytes => toBytes(value),
+            LogDataType.String => value as string ?? toText(value),
+            LogDataType.Integer => value is int ? value : toInteger(value),
+            LogDataType.Double => value is double d && double.IsFinite(d) ? value : toDouble(value),
+            LogDataType.DateTime => value is DateTime { Kind: DateTimeKind.Utc } ? value : toDateTime(value),
+            LogDataType.TimeSpan => value is TimeSpan ? value : toTimeSpan(value),
+            LogDataType.Bytes => value is byte[] ? value : toBytes(value),
             _ => null,
         };
         return converted != null;

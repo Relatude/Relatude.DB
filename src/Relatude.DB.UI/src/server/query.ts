@@ -101,6 +101,11 @@ export interface Hit {
   cells: string[] | null;
   /** the values behind `cells`, keyed by column key; only sent when the request asked to edit */
   values?: Record<string, unknown> | null;
+  /**
+   * Never sent by the server: set on a row the page put at the head of the list because the search
+   * text named the node by its id (see idLookup.ts), rather than because the search found it.
+   */
+  idMatch?: boolean;
 }
 
 /** A column of the table view. `key` is a property id, or a "__"-prefixed name for a node's own fields. */
