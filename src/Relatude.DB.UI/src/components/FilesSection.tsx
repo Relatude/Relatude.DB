@@ -69,8 +69,9 @@ import { FileTile } from "./FileTile";
 import { FileViewer } from "./FileViewer";
 
 // Selection is one thing here: a click on a file row selects that file (ctrl toggles, shift takes a
-// range, the checkbox toggles), and folders are ticked in the tree. Exactly one selected file and no
-// selected folder opens the viewer panel to the right; anything else gives the list the whole width.
+// range, the checkbox toggles), and folders are ticked in the tree - once "Select folders" has put
+// the boxes there. Exactly one selected file and no selected folder opens the viewer panel to the
+// right; anything else gives the list the whole width.
 //
 // The list itself has two switches. "Include subfolders" replaces the open folder's files with
 // every file below it as well, gathered folder by folder behind a progress dialog so a big tree can
@@ -125,6 +126,9 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   // this is on; the map comes from the database and the substitution is display only
   const [names, setNames] = useState<NameMap>({});
   const [friendly, setFriendly] = useState(() => localStorage.getItem(friendlyNamesKey) === "true");
+  // the tick boxes on the folders, for gathering several into one delete: off until asked for, since
+  // a box on every row of the tree is noise to everyone who is only browsing it
+  const [folderChecks, setFolderChecks] = useState(() => localStorage.getItem(folderChecksKey) === "true");
   const show = useCallback((name: string) => (friendly ? friendlyName(name, names) : name), [friendly, names]);
   const showPath = useCallback((p: string) => (friendly ? friendlyPath(p, names) : p), [friendly, names]);
   // rows or pictures
@@ -143,6 +147,15 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     const next = !friendly;
     setFriendly(next);
     localStorage.setItem(friendlyNamesKey, String(next));
+  }
+
+  async function toggleFolderChecks() {
+    const next = !folderChecks;
+    // hiding the boxes lets go of the folders they ticked: a folder still counted in "Delete N
+    // selected" with nothing on screen saying so is the one thing this must not leave behind
+    if (!next && selectedFolders.size > 0 && !(await changeSelection(selected, new Set()))) return;
+    setFolderChecks(next);
+    localStorage.setItem(folderChecksKey, String(next));
   }
 
   function chooseView(next: ViewMode) {
@@ -189,14 +202,24 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
       .catch(() => setNames({}));
   }, [db.id]);
 
+  // The provider on screen, read when a listing comes back. The listings are kept by path alone, so a
+  // listing of a provider that has been switched away from since it was asked for - by an upload
+  // minimized into the top bar and finishing later, say - would be filed under the wrong tree.
+  const shownIo = useRef<string | null>(null);
+  useEffect(() => {
+    shownIo.current = ioId; // before the effect below asks for the new provider's root
+  }, [ioId]);
   const loadFolder = useCallback(
     (io: string, folderPath: string) => {
       fetchFolder(io, folderPath)
         .then((listing) => {
+          if (shownIo.current !== io) return;
           setListings((prev) => ({ ...prev, [folderPath]: listing }));
           setError(null);
         })
-        .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+        .catch((e) => {
+          if (shownIo.current === io) setError(e instanceof Error ? e.message : String(e));
+        });
     },
     [setListings],
   );
@@ -693,8 +716,13 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     await uploadWithDialog(ioId, path, entries);
   }
 
+  // Transfers are minimizable: the bytes go between the browser and the server while the database
+  // carries on, so a big one can be put in the top bar and the storage browsed meanwhile. Whatever
+  // runs after the await may therefore find another folder, or another provider, on screen.
   async function uploadWithDialog(io: string, target: string, entries: UploadEntry[]) {
-    const failed = await runWithProgress(`Upload to ${showPath(target) || "storage root"}`, (ctl) => uploadEntries(ctl, io, target, entries));
+    const failed = await runWithProgress(`Upload to ${showPath(target) || "storage root"}`, (ctl) => uploadEntries(ctl, io, target, entries), {
+      minimizable: true,
+    });
     if (failed) {
       if (failed.length > 0) {
         showError("Upload incomplete", `${entries.length - failed.length} of ${entries.length} files were uploaded.`, failed);
@@ -792,7 +820,9 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
         setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
       };
     }
-    const result = await runWithProgress(`Zip ${keys.length} file${keys.length === 1 ? "" : "s"}`, (ctl) => downloadZipToSink(ctl, io, keys, target, sink));
+    const result = await runWithProgress(`Zip ${keys.length} file${keys.length === 1 ? "" : "s"}`, (ctl) => downloadZipToSink(ctl, io, keys, target, sink), {
+      minimizable: true,
+    });
     if (!result) return; // cancelled or failed (the dialog showed it); the sink was aborted
     if ("locked" in result) {
       showError("Files are in use", "The zip was not created because some files are locked.", result.locked);
@@ -894,7 +924,9 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     }
     if (!directory) return;
     const io = ioId;
-    const failed = await runWithProgress(`Download ${showPath(path) || "storage root"}`, (ctl) => downloadFolderToDirectory(ctl, db.id, io, path, directory));
+    const failed = await runWithProgress(`Download ${showPath(path) || "storage root"}`, (ctl) => downloadFolderToDirectory(ctl, db.id, io, path, directory), {
+      minimizable: true,
+    });
     if (failed) {
       if (failed.length > 0) {
         showError("Download incomplete", `${failed.length} file${failed.length === 1 ? "" : "s"} could not be downloaded.`, failed);
@@ -1025,6 +1057,10 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
           <input type="checkbox" checked={recursive} onChange={toggleRecursive} disabled={!ioId} />
           Include subfolders
         </label>
+        <label className="files-friendly" title="Show a tick box on every folder in the tree, to select several folders at once - to delete them together, say">
+          <input type="checkbox" checked={folderChecks} onChange={toggleFolderChecks} />
+          Select folders
+        </label>
         <div className="files-view">
           <button
             className={"icon-button" + (view === "list" ? " active" : "")}
@@ -1089,6 +1125,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
             expanded={expanded}
             currentPath={path}
             selectedFolders={selectedFolders}
+            checks={folderChecks}
             sizes={treeSizes}
             onComputeSize={computeTreeSize}
             onOpen={openFolder}
@@ -1353,6 +1390,7 @@ interface FolderNodeProps {
   expanded: Set<string>;
   currentPath: string;
   selectedFolders: Set<string>;
+  checks: boolean; // whether the rows carry their tick boxes
   sizes: Record<string, FolderSize | "pending">;
   onComputeSize: (path: string) => void;
   onOpen: (path: string) => void;
@@ -1398,7 +1436,7 @@ function FolderNode(p: FolderNodeProps) {
         >
           {isExpanded ? <IconChevronDown size={13} stroke={2} /> : <IconChevronRight size={13} stroke={2} />}
         </button>
-        {p.path !== "" && (
+        {p.checks && p.path !== "" && (
           <input
             type="checkbox"
             className="tree-check"
@@ -1457,6 +1495,7 @@ function FolderNode(p: FolderNodeProps) {
             expanded={p.expanded}
             currentPath={p.currentPath}
             selectedFolders={p.selectedFolders}
+            checks={p.checks}
             sizes={p.sizes}
             onComputeSize={p.onComputeSize}
             onOpen={p.onOpen}
@@ -1471,6 +1510,7 @@ function FolderNode(p: FolderNodeProps) {
 }
 
 const friendlyNamesKey = "filesFriendlyNames";
+const folderChecksKey = "filesFolderChecks";
 
 const primaryDataTip = "Nothing can generate it again, so deleting anything here loses data for good.";
 

@@ -71,9 +71,7 @@ export function Overview() {
     { k: "Databases", v: `${data.containers.length} · ${open} open` },
     { k: "Default database", v: data.defaultDatabase ?? "—" },
     { k: "Admin path", v: data.adminPath },
-    { k: "Settings file", v: data.settingsFile },
     { k: "Working folder", v: data.workingFolder },
-    ...(data.tempFolder ? [{ k: "Temporary files", v: data.tempFolder }] : []),
   ];
   const hostPanel = (
     <section className="panel">
@@ -87,16 +85,12 @@ export function Overview() {
             </div>
           </div>
         ))}
+        {/* the drives after all of that, a square apiece like any other fact, with a bar: "410 GB
+            free" says nothing until it is put beside how big the disk is */}
+        {data.disks.map((d) => (
+          <Drive key={d.name} drive={d} />
+        ))}
       </div>
-      {/* the drives under all of that: a bar apiece, because "410 GB free" says nothing until it is
-          put beside how big the disk is */}
-      {data.disks.length > 0 && (
-        <div className="host-disks">
-          {data.disks.map((d) => (
-            <Drive key={d.name} drive={d} />
-          ))}
-        </div>
-      )}
     </section>
   );
 
@@ -117,6 +111,7 @@ export function Overview() {
         icon={IconRefresh}
         tone="data"
         hint="re-reads settings, closes and reopens every database"
+        major
         disabled={!data.restart.canSoftRestart}
         confirm={{
           title: "Soft restart?",
@@ -131,6 +126,7 @@ export function Overview() {
         icon={IconPlayerStop}
         hint="stops the host process"
         danger
+        major
         disabled={!data.restart.canStopHost}
         confirm={{
           title: "Stop the application?",
@@ -258,31 +254,31 @@ function utcOffset(minutes: number): string {
 }
 
 /**
- * One drive, as a bar: how much of it is gone, what is left, and what of the server put it on the
- * list. It turns amber and then red as it fills - a database whose disk is nearly full is about to
- * stop being a database, and that is worth seeing before it happens rather than in the log after.
+ * One drive, in a square of the facts grid like the facts before it: which drive, what is left of
+ * it, and a bar of how full it is. What of the server is on it, and the exact numbers, are in the
+ * tooltip. The bar is a quiet grey while there is room and only takes a colour when the disk is
+ * filling (amber) or nearly gone (red) - a database whose disk is nearly full is about to stop being
+ * a database, and that is worth seeing before it happens rather than in the log after.
  */
 function Drive({ drive }: { drive: DriveInfo }) {
   const used = Math.max(0, drive.totalBytes - drive.freeBytes);
   const percent = drive.totalBytes > 0 ? (used / drive.totalBytes) * 100 : 0;
   const tone = percent >= 95 ? " bad" : percent >= 85 ? " warn" : "";
+  const details =
+    `${drive.name}${drive.label ? " " + drive.label : ""}${drive.format ? " · " + drive.format : ""}\n` +
+    `${formatBytes(used)} of ${formatBytes(drive.totalBytes)} used · ${formatPercent(percent)}\n` +
+    `on it: ${drive.uses.join(", ")}`;
   return (
-    <div className="host-disk">
-      <div className="host-disk-head">
-        <span className="host-disk-name" title={drive.name + (drive.format ? " · " + drive.format : "")}>
-          {drive.name}
-          {drive.label && <span className="muted"> {drive.label}</span>}
-        </span>
-        <span className="muted host-disk-uses" title={"what of the server is on this drive: " + drive.uses.join(", ")}>
-          {drive.uses.join(", ")}
-        </span>
-        <span className="host-disk-free">{formatBytes(drive.freeBytes)} free</span>
+    <div className="fact host-disk" title={details}>
+      <div className="fact-k">
+        Disk {drive.name}
+        {drive.label && <span className="host-disk-label"> {drive.label}</span>}
       </div>
-      <div className="host-disk-bar" title={`${formatBytes(used)} of ${formatBytes(drive.totalBytes)} used`}>
+      <div className="fact-v">
+        {formatBytes(drive.freeBytes)} free of {formatBytes(drive.totalBytes)}
+      </div>
+      <div className="host-disk-bar">
         <div className={"host-disk-fill" + tone} style={{ width: Math.max(1, Math.min(100, percent)) + "%" }} />
-      </div>
-      <div className="host-disk-foot muted">
-        {formatBytes(used)} of {formatBytes(drive.totalBytes)} · {formatPercent(percent)} used
       </div>
     </div>
   );
@@ -294,6 +290,7 @@ function ProcessAction({
   tone,
   hint,
   danger,
+  major,
   disabled,
   confirm,
   run,
@@ -306,6 +303,8 @@ function ProcessAction({
   tone?: "ok" | "data" | "accent";
   hint: string;
   danger?: boolean;
+  /** one of the two that take the server down, for a moment or for good: a bigger button, found at once */
+  major?: boolean;
   disabled: boolean;
   confirm?: { title: string; body: string; confirmLabel: string };
   run: () => Promise<ProcessActionResult>;
@@ -330,9 +329,9 @@ function ProcessAction({
     }
   }
   return (
-    <div className="process-action">
+    <div className={"process-action" + (major ? " major" : "")}>
       <button className={"action-button" + (danger ? " danger" : "")} onClick={click} disabled={disabled || busy}>
-        <Icon size={14} stroke={1.8} className={tone ? "tone-" + tone : undefined} /> {label}
+        <Icon size={major ? 17 : 14} stroke={1.8} className={tone ? "tone-" + tone : undefined} /> {label}
       </button>
       <span className="muted">{disabled ? "not available on this server" : (message ?? hint)}</span>
     </div>

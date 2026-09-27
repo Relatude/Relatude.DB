@@ -1,4 +1,5 @@
 using Relatude.DB.Common;
+using Relatude.DB.DataStores;
 using Relatude.DB.Logging;
 using Relatude.DB.Logging.Statistics;
 using System.Globalization;
@@ -22,6 +23,13 @@ namespace Relatude.DB.NodeServer.UI;
 ///
 /// The logger of a closed database reads and writes the same files, so all of this works while the
 /// database is closed - a log can be defined before the application that records into it is started.
+///
+/// <para>The database's own logs (the Activity page) can be shown in the section as well, read only:
+/// <c>custom-logs-info</c> describes them too when asked, and the commands that only read a log -
+/// entries, graphs, distributions, exports, rebuilding the statistics - take their keys. A key names
+/// either a log defined here or one of those, never both (the system keys are reserved), so the key
+/// alone says which of the two log stores to read (<see cref="source"/>). Their definitions and their
+/// switches stay where they are made, in code and on the Activity page.</para>
 /// </summary>
 sealed class UICustomLogs {
     // how many entries a distribution reads before it stops and says it did: the answer is an
@@ -37,7 +45,7 @@ sealed class UICustomLogs {
     internal UICustomLogs(RelatudeDBServer server) => _server = server;
 
     internal void Register(UICommands commands) {
-        commands.Register("custom-logs-info", ctx => info(ctx.Payload<StorePayload>().StoreId));
+        commands.Register("custom-logs-info", ctx => info(ctx.Payload<InfoPayload>()));
         commands.Register("custom-logs-definition", ctx => definition(ctx.Payload<LogPayload>()));
         commands.Register("custom-logs-plan", ctx => plan(ctx.Payload<DefinitionPayload>()));
         commands.Register("custom-logs-save", ctx => save(ctx.Payload<DefinitionPayload>()));
@@ -64,12 +72,34 @@ sealed class UICustomLogs {
     }
     ICustomLogs logs(Guid storeId) => container(storeId).GetLogger().CustomLogs;
 
+    /// <summary>
+    /// The store a log is read from, and whether its statistics are being kept: the custom logs' own
+    /// store for a log defined here, the logger's for one of the database's own logs. A key that is
+    /// neither goes to the custom store, which answers it the way it always has.
+    /// </summary>
+    (ILogStore Store, bool Statistics) source(Guid storeId, string logKey) {
+        var logger = container(storeId).GetLogger();
+        var custom = logger.CustomLogs;
+        if (!custom.HasLog(logKey) && isBuiltIn(logger, logKey)) return (logger.LogStore, logger.IsStatisticsEnabled(logKey));
+        return (custom.LogStore, custom.GetDefinition(logKey)?.EnableStatistics ?? false);
+    }
+    static bool isBuiltIn(IStoreLogger logger, string logKey) =>
+        logger.GetLogKeysAndNames().Any(kv => string.Equals(kv.Key, logKey, StringComparison.OrdinalIgnoreCase));
+
     // ---- what there is ----
 
-    object info(Guid storeId) {
-        var c = container(storeId);
-        var custom = c.GetLogger().CustomLogs;
-        var summaries = custom.GetDefinitions().Select(s => summary(custom, s)).ToArray();
+    object info(InfoPayload p) {
+        var c = container(p.StoreId);
+        var logger = c.GetLogger();
+        var custom = logger.CustomLogs;
+        var summaries = custom.GetDefinitions().Select(s => summary(custom.LogStore, s, s.Name, s.EnableLog, s.EnableStatistics)).ToArray();
+        // the database's own logs, only when the page shows them: each costs its file sizes and, with
+        // statistics on, a day of its row statistic, and most visits to the page are about the others
+        var builtIn = p.IncludeBuiltIn
+            ? logger.GetLogKeysAndNames()
+                .Select(kv => summary(logger.LogStore, logger.LogStore.GetSetting(kv.Key), kv.Value, logger.IsLogEnabled(kv.Key), logger.IsStatisticsEnabled(kv.Key)))
+                .ToArray()
+            : [];
         return new {
             Open = c.IsOpen(),
             State = c.HasFailed ? "Error" : c.Store?.State.ToString() ?? "Closed",
@@ -79,6 +109,7 @@ sealed class UICustomLogs {
             TotalBytes = summaries.Sum(s => s.TotalBytes),
             LoadErrors = custom.LoadErrors.Select(e => new { e.FileKey, e.Message }).ToArray(),
             Logs = summaries,
+            BuiltIn = builtIn,
         };
     }
     static Guid? logIoId(NodeStoreContainer c) {
@@ -95,11 +126,12 @@ sealed class UICustomLogs {
         string? FirstRecordUtc, string? LastRecordUtc, long LogBytes, long StatisticsBytes, long TotalBytes,
         int? EntriesLastDay, int[]? Activity, object[] Columns, object[] Series);
 
-    static LogSummary summary(ICustomLogs custom, LogSettings s) {
-        var store = custom.LogStore;
+    // name and the two switches are passed in rather than read off the settings: a system log's name
+    // is the logger's, and its switches are the logger's live ones
+    static LogSummary summary(ILogStore store, LogSettings s, string name, bool enabledLog, bool enabledStatistics) {
         int? lastDay = null;
         int[]? activity = null;
-        if (s.EnableStatistics) {
+        if (enabledStatistics) {
             // the row statistic answers both without reading a single entry: the entries of the last
             // day, and how they were spread over its hours - the line the overview draws for a log
             var now = DateTime.UtcNow;
@@ -110,8 +142,8 @@ sealed class UICustomLogs {
         var logBytes = store.GetLogFileSize(s.Key);
         var statisticsBytes = store.GetStatisticsFileSize(s.Key);
         return new LogSummary(
-            s.Key, s.Name, s.Description,
-            s.EnableLog, s.EnableStatistics, s.EnableLogTextFormat, s.Compressed,
+            s.Key, name, s.Description,
+            enabledLog, enabledStatistics, s.EnableLogTextFormat, s.Compressed,
             s.FileInterval.ToString(), s.MaxAgeOfLogFilesInDays, s.MaxTotalSizeOfLogFilesInMb, s.ResolutionRowStats, s.FirstDayOfWeek.ToString(),
             UILogReader.Utc(store.GetTimestampOfFirstRecord(s.Key)), UILogReader.Utc(store.GetTimestampOfLastRecord(s.Key)),
             logBytes, statisticsBytes, logBytes + statisticsBytes,
@@ -258,9 +290,9 @@ sealed class UICustomLogs {
     }
 
     object rebuild(LogPayload p) {
-        var custom = logs(p.StoreId);
-        if (!custom.IsEnabled(p.LogKey) || custom.GetDefinition(p.LogKey)?.EnableStatistics != true) throw new Exception("Turn statistics on before rebuilding them. ");
-        custom.LogStore.RebuildStatistics(p.LogKey);
+        var (store, statistics) = source(p.StoreId, p.LogKey);
+        if (!statistics) throw new Exception("Turn statistics on before rebuilding them. ");
+        store.RebuildStatistics(p.LogKey);
         return new { Rebuilt = true };
     }
 
@@ -295,19 +327,18 @@ sealed class UICustomLogs {
     // ---- reading ----
 
     object extract(ExtractPayload p) {
-        var custom = logs(p.StoreId);
-        return UILogReader.Extract(custom.LogStore, p.LogKey, p.LastMs, p.FromUtc, p.ToUtc, p.Skip, p.Take, p.Search, p.CaseSensitive, p.NewestFirst);
+        var (store, _) = source(p.StoreId, p.LogKey);
+        return UILogReader.Extract(store, p.LogKey, p.LastMs, p.FromUtc, p.ToUtc, p.Skip, p.Take, p.Search, p.CaseSensitive, p.NewestFirst);
     }
 
     object series(SeriesPayload p) {
-        var custom = logs(p.StoreId);
-        var enabled = custom.GetDefinition(p.LogKey)?.EnableStatistics ?? false;
-        return UILogReader.Series(custom.LogStore, p.LogKey, p.Property, p.Statistic, p.Interval, p.LastMs, p.FromUtc, p.ToUtc, enabled);
+        var (store, statistics) = source(p.StoreId, p.LogKey);
+        return UILogReader.Series(store, p.LogKey, p.Property, p.Statistic, p.Interval, p.LastMs, p.FromUtc, p.ToUtc, statistics);
     }
 
     internal Task WriteExport(HttpContext http, ExportPayload p) {
-        var custom = logs(p.StoreId);
-        return UILogReader.WriteEntries(http, custom.LogStore, p.LogKey, p.FromUtc, p.ToUtc, p.Search, p.CaseSensitive, p.Format);
+        var (store, _) = source(p.StoreId, p.LogKey);
+        return UILogReader.WriteEntries(http, store, p.LogKey, p.FromUtc, p.ToUtc, p.Search, p.CaseSensitive, p.Format);
     }
 
     /// <summary>
@@ -325,8 +356,7 @@ sealed class UICustomLogs {
     /// were; bytes are measured by their length.
     /// </summary>
     object analyse(AnalysePayload p, CancellationToken cancel) {
-        var custom = logs(p.StoreId);
-        var store = custom.LogStore;
+        var (store, _) = source(p.StoreId, p.LogKey);
         var setting = store.GetSetting(p.LogKey);
         var type = setting.Properties.TryGetValue(p.Property, out var column) ? column.DataType : LogDataType.String;
         var (fromBound, toBound) = UILogReader.Window(p.LastMs, p.FromUtc, p.ToUtc);
@@ -604,6 +634,8 @@ sealed class UICustomLogs {
     static double dayWave(DateTime t) => 0.7 + 0.6 * Math.Pow(Math.Sin(Math.PI * (t.Hour + t.Minute / 60d) / 24d), 2);
 
     sealed record StorePayload(Guid StoreId);
+    // IncludeBuiltIn: describe the database's own logs as well, for a page that shows them beside these
+    sealed record InfoPayload(Guid StoreId, bool IncludeBuiltIn = false);
     sealed record LogPayload(Guid StoreId, string LogKey);
     // Settings is the page's form (the columns as a list), Json the text of a settings file; one of
     // the two. IsNew says the key is to be a new log's rather than an existing one's, and

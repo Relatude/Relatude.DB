@@ -80,7 +80,8 @@ export function CustomLogEntries({
   tick: number;
   handedSearch: string | null;
   onHandedSearchTaken: () => void;
-  onStartRecording: () => void;
+  /** Left out for one of the database's own logs, whose switches are on the Activity page. */
+  onStartRecording?: () => void;
 }) {
   const [page, setPage] = useState<LogPage | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -291,9 +292,13 @@ export function CustomLogEntries({
       {!log.enabledLog && (
         <div className="logs-note">
           Entries are not being recorded{log.enabledStatistics ? " - only counted into the statistics" : ""}.
-          <button className="link-button" onClick={onStartRecording}>
-            Start recording
-          </button>
+          {onStartRecording ? (
+            <button className="link-button" onClick={onStartRecording}>
+              Start recording
+            </button>
+          ) : (
+            " Recording is switched on the Activity page."
+          )}
         </div>
       )}
       {error && <div className="logs-note">{error}</div>}

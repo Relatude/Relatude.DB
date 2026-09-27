@@ -1,4 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { IconAlertTriangle, IconCheck, IconLoader2, IconMinus, IconX } from "@tabler/icons-react";
 import { DialogTools } from "./DialogTools";
 import {
@@ -21,7 +22,23 @@ import {
 } from "../dialogs";
 
 // Renders whatever dialog is active (a running task's progress, or a message). Mounted once in App.
+//
+// While part of the page is full screen (the query view, the model diagrams), the dialog is drawn
+// inside that element instead. The browser shows nothing of the page outside it then, so a dialog
+// in its usual place - the confirmation before deleting what was selected in a full screen query
+// view, say - stayed invisible until full screen was left, and the view looked as if it had hung.
 export function DialogHost() {
+  const fullscreen = useSyncExternalStore(subscribeFullscreen, () => document.fullscreenElement);
+  const dialog = <ActiveDialog />;
+  return fullscreen ? createPortal(dialog, fullscreen) : dialog;
+}
+
+function subscribeFullscreen(listener: () => void): () => void {
+  document.addEventListener("fullscreenchange", listener);
+  return () => document.removeEventListener("fullscreenchange", listener);
+}
+
+function ActiveDialog() {
   const dialog = useSyncExternalStore(subscribeDialogs, getDialogState);
   if (!dialog) return null;
   if (dialog.kind === "prompt") return <PromptDialog dialog={dialog} />;

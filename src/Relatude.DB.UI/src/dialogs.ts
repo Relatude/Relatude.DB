@@ -2,9 +2,10 @@
 //  - progress: a task runs behind a modal with a progress bar and a cancel button; the task reports
 //    through a ProgressController and honors its AbortSignal. A task started as minimizable can be
 //    put away into the top bar, where it keeps running and keeps reporting - that is for the long
-//    jobs that leave the database usable while they run (adding demo content, truncating), where
-//    holding the whole UI behind a modal buys nothing. Everything else stays modal, so there is at
-//    most one un-minimized task at a time and the others are chips in the bar.
+//    jobs that leave the database usable while they run (adding demo content, truncating, backups,
+//    file audits, uploads and downloads), where holding the whole UI behind a modal buys nothing.
+//    Everything else stays modal, so there is at most one un-minimized task at a time and the others
+//    are chips in the bar.
 //  - message: a reusable result/alert dialog (title, body, optional detail list), used
 //    when an action could not be completed (failed deletions, downloads, uploads, ...).
 //  - confirm: a question with confirm/cancel and an optional checkbox.
@@ -129,10 +130,14 @@ export function getMinimizedProgress(): ProgressState[] {
   return minimized;
 }
 
-/** The task started under this key, whether it is showing or minimized; for buttons that must not start a second one. */
+/**
+ * The task started under this key, whether it is showing or minimized; for buttons that must not
+ * start a second one. A running task wins over a finished one under the same key: a failed run stays
+ * in the bar until it is read, and a job started again meanwhile must still read as running.
+ */
 export function getProgressByKey(key: string | null): ProgressState | null {
   if (!key) return null;
-  return tasks.find((t) => t.key === key) ?? null;
+  return tasks.find((t) => t.key === key && t.status === "running") ?? tasks.find((t) => t.key === key) ?? null;
 }
 
 function findTask(id: number): ProgressState | null {

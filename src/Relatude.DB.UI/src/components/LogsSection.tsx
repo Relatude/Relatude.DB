@@ -2,17 +2,12 @@ import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouse
 import {
   IconAlertTriangle,
   IconArrowAutofitWidth,
-  IconArrowsExchange,
-  IconBolt,
   IconChartHistogram,
   IconChevronLeft,
   IconChevronRight,
-  IconDatabaseSearch,
   IconDeviceFloppy,
   IconDownload,
   IconEraser,
-  IconFileText,
-  IconGauge,
   IconHelpCircle,
   IconLetterCase,
   IconListSearch,
@@ -20,15 +15,13 @@ import {
   IconReload,
   IconRotate,
   IconSearch,
-  IconServerCog,
-  IconStack2,
-  IconSubtask,
   IconTable,
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import type { ComponentType, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Chart, groupColor, intervalLabel } from "./Chart";
+import { logIcon, type LogIconType } from "../logIcons";
 import { showChoice, showConfirm, showError, showInfo } from "../dialogs";
 import {
   clearLog,
@@ -66,25 +59,7 @@ import { formatBytes, formatCount, formatTime } from "../format";
  * their data types, and the statistics each column declares - and this renders that description, so
  * a log added to the server appears here with its table and its graphs already working.
  */
-type IconType = ComponentType<{ size?: number; stroke?: number; className?: string }>;
-
-/**
- * The picture a log is known by, in the tabs and again beside its name in the table. The keys are
- * the server's (StoreLogger), and a log it grows that is not on this list gets the generic page -
- * naming every log here would make adding one on the server a change in two places, which is the
- * one thing this page is built not to be.
- */
-const logIcons: Record<string, IconType> = {
-  system: IconServerCog,
-  query: IconDatabaseSearch,
-  transaction: IconArrowsExchange,
-  action: IconBolt,
-  task: IconSubtask,
-  taskbatch: IconStack2,
-  metrics: IconGauge,
-};
-
-const logIcon = (key: string): IconType => logIcons[key] ?? IconFileText;
+type IconType = LogIconType;
 
 export function LogsSection({ db }: { db: DatabaseInfo }) {
   const [info, setInfo] = useState<LogsInfo | null>(null);
@@ -108,7 +83,7 @@ export function LogsSection({ db }: { db: DatabaseInfo }) {
   return (
     <div className="logs">
       <div className="logs-tabs">
-        <Tab id="overview" label="All logs" icon={IconTable} active={tab} onSelect={setTab} />
+        <Tab id="overview" label="All activities" icon={IconTable} active={tab} onSelect={setTab} />
         <Tab id="trace" label="Trace" icon={IconListSearch} active={tab} onSelect={setTab} />
         {info.logs.map((l) => (
           <Tab

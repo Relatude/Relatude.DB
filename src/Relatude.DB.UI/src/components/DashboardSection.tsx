@@ -8,7 +8,6 @@ import {
   IconDatabaseSearch,
   IconEyeOff,
   IconLayoutList,
-  IconActivityHeartbeat,
   IconArrowsExchange,
   IconCircles,
   IconClock,
@@ -459,23 +458,19 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
       )}
 
       <div className="dash-tiles">
-        <Tile
-          label="State"
-          icon={IconActivityHeartbeat}
-          value={state}
-          tone={open ? "ok" : state === "Error" ? "bad" : undefined}
-          action={
+        <StateTile value={state} tone={open ? "ok" : state === "Error" ? "bad" : undefined}>
+          {
             // The switch for the database itself, on the tile that says which way it stands - and
             // said in words rather than as one more grey glyph: stopping a database and starting it
             // are the two things on this page that change what the server is doing, so they are
-            // named, coloured (stop reads as danger, start as the green of a database that is up)
-            // and are the only buttons here anyone has to find in a hurry.
+            // named. Stop wears the plain frame of the restart beside it, since the tile around it
+            // is already coloured by the state; start is the green of a database that is up.
             open ? (
               <span className="dash-tile-actions">
                 <button className="dash-tile-button quiet" title="Restart the database — close it and open it again" disabled={openBusy} onClick={onRestart}>
                   <IconReload size={14} stroke={2} />
                 </button>
-                <button className="dash-tile-button stop" title="Close the database" disabled={openBusy} onClick={onClose}>
+                <button className="dash-tile-button" title="Close the database" disabled={openBusy} onClick={onClose}>
                   <IconPlayerStopFilled size={13} stroke={2} />
                   Stop
                 </button>
@@ -489,7 +484,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
               </span>
             )
           }
-        />
+        </StateTile>
         <Tile label="Nodes" icon={IconCircles} value={formatCount(live?.nodeCount ?? 0)} />
         <Tile label="Relations" icon={IconArrowsExchange} value={formatCount(live?.relationCount ?? 0)} />
         <Tile label="Open for" icon={IconClock} value={uptime == null ? "—" : formatDuration(uptime)} />
@@ -848,15 +843,29 @@ function useLeaving<T>(items: T[], keyOf: (item: T, index: number, taken: Set<st
  * The icon goes beside the LABEL rather than over the number: the top right corner of a tile is
  * where its buttons are, and the number is what the tile is for and should have the row to itself.
  */
-function Tile({ label, icon: Icon, value, tone, action }: { label: string; icon?: typeof IconCircles; value: string; tone?: "ok" | "bad"; action?: React.ReactNode }) {
+function Tile({ label, icon: Icon, value }: { label: string; icon?: typeof IconCircles; value: string }) {
   return (
-    <div className={"dash-tile" + (tone ? " " + tone : "")}>
+    <div className="dash-tile">
       <div className="dash-tile-value">{value}</div>
       <div className="dash-tile-label">
         {Icon && <Icon size={13} stroke={1.8} />}
         {label}
       </div>
-      {action}
+    </div>
+  );
+}
+
+/**
+ * How the database stands, and its switch. The whole tile takes the state's colour - a soft tint
+ * of it, not a block - so the page says open or failed before a word of it is read, which leaves
+ * the word "State" nothing to add. The switch sits on the same line as the state rather than under
+ * it, so this tile is no taller than the ones beside it.
+ */
+function StateTile({ value, tone, children }: { value: string; tone?: "ok" | "bad"; children?: React.ReactNode }) {
+  return (
+    <div className={"dash-tile dash-state" + (tone ? " " + tone : "")}>
+      <div className="dash-tile-value">{value}</div>
+      {children}
     </div>
   );
 }

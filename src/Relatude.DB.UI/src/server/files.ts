@@ -146,10 +146,10 @@ export interface DeepListing {
  * folder itself while it is being listed, since its path is the empty string at the storage root.
  *
  * The server can answer the whole tree in a single call (fetchFolderRecursive, which the folder
- * download and delete use), but a big tree then takes minutes with nothing to show for it and no way
- * out; walking it here costs a request per folder and gives both. Folders are listed several at a
- * time, and the total grows as more of them are found, so the bar moves towards an end that is only
- * known once the walk is over.
+ * delete uses), but a big tree then takes minutes with nothing to show for it and no way out; walking
+ * it here costs a request per folder and gives both. Folders are listed several at a time, and the
+ * total grows as more of them are found, so the bar moves towards an end that is only known once the
+ * walk is over. The folder download lists what it fetches this way too.
  */
 export async function scanFolderRecursive(ctl: ProgressController, ioId: string, path: string, rootLabel: string): Promise<DeepListing> {
   const found: FileInfo[] = [];
@@ -329,9 +329,15 @@ function byteProgress(ctl: ProgressController, totalBytes: number, totalFiles: n
   const started = performance.now();
   let doneBytes = 0;
   let doneFiles = 0;
+  // the bytes of the request each worker has in flight: a download runs several at once (slot is
+  // the worker), an upload one at a time (always slot 0)
+  const inFlight = new Map<number, number>();
   return {
-    report(inFlight: number, label: string): void {
-      const done = Math.min(doneBytes + inFlight, totalBytes);
+    report(bytes: number, label: string, slot = 0): void {
+      inFlight.set(slot, bytes);
+      let flying = 0;
+      for (const b of inFlight.values()) flying += b;
+      const done = Math.min(doneBytes + flying, totalBytes);
       const seconds = (performance.now() - started) / 1000;
       const rate = seconds > 1 ? done / seconds : 0;
       const left = rate > 0 ? (totalBytes - done) / rate : 0;
@@ -345,9 +351,10 @@ function byteProgress(ctl: ProgressController, totalBytes: number, totalFiles: n
           (left > 1 ? ` · ${formatRemaining(left)} left` : ""),
       });
     },
-    advance(bytes: number, files: number): void {
+    advance(bytes: number, files: number, slot = 0): void {
       doneBytes += bytes;
       doneFiles += files;
+      inFlight.delete(slot);
     },
   };
 }
@@ -720,18 +727,28 @@ export async function downloadFolderToDirectory(
   path: string,
   directory: FileSystemDirectoryHandle,
 ): Promise<string[]> {
-  ctl.set({ label: "Listing files…", total: null });
-  const root = await fetchFolderRecursive(ioId, path);
-  const all: FileInfo[] = [];
-  collectFiles(root, all);
-  return downloadFilesToDirectory(ctl, storeId, ioId, all, path === "" ? "" : path + "/", directory);
+  // Listed folder by folder, several at a time, rather than asked for as one answer for the whole
+  // tree: a big tree then says how far the listing has come and can be given up on, and the server
+  // reads the folders side by side instead of one after the other.
+  const listing = await scanFolderRecursive(ctl, ioId, path, "Listing files…");
+  return downloadFilesToDirectory(ctl, storeId, ioId, listing.files, path === "" ? "" : path + "/", directory);
 }
+
+// Requests in flight at once: well inside the six a browser keeps open to one server, beside the
+// event stream and the page's own calls.
+const downloadWorkers = 3;
+// Files of one batch written to disk at a time.
+const fileWrites = 4;
 
 /**
  * Downloads the given files into the directory handle, recreating the folders below basePath.
  * Grouped exactly like an upload: a big file is streamed on its own, while small ones are asked
  * for together and arrive in one framed response, so a folder of thousands of tiny files costs a
  * round trip per batch instead of one per file. Returns the files that failed.
+ *
+ * Several groups are on their way at once. One request at a time left the link idle through every
+ * round trip and every moment spent writing to disk, and against a distant or busy server - an App
+ * Service reading its files off a network share - those waits were most of what a download took.
  */
 export async function downloadFilesToDirectory(
   ctl: ProgressController,
@@ -747,32 +764,51 @@ export async function downloadFilesToDirectory(
     all.length,
   );
   const relativeTo = (key: string) => (key.startsWith(basePath) ? key.slice(basePath.length) : key);
+  const target = directoryWriter(directory);
   const failed: string[] = [];
+  // One plan shared by the workers: each takes the next group when it is free, and every group is
+  // sized by what the link has shown so far.
+  const groups = planGroups(all, (file) => file.size, downloadSizer);
+  let stopped: unknown = null;
   progress.report(0, "Starting…");
-  for (const group of planGroups(all, (file) => file.size, downloadSizer)) {
-    throwIfAborted(ctl.signal);
-    const groupBytes = group.reduce((sum, file) => sum + file.size, 0);
-    const label = group.length === 1 ? relativeTo(group[0].key) : `${group.length} files — ${relativeTo(group[0].key)} …`;
-    progress.report(0, label);
-    let done: number;
-    if (group.length === 1) {
-      done = await downloadEach(ctl, storeId, ioId, group, relativeTo, directory, progress, failed);
-    } else {
-      try {
-        const errors = await downloadBatch(ctl, ioId, group, relativeTo, directory, progress, label);
-        failed.push(...errors);
-        done = group.length - errors.length;
-      } catch {
-        // The response is one stream, so a file that ends early - it shrank while it was being
-        // read - takes the rest of the batch down with it and names none of them. The group goes
-        // again one at a time, which both gets the healthy files and finds the one at fault.
+  async function worker(slot: number): Promise<void> {
+    try {
+      while (stopped === null) {
         throwIfAborted(ctl.signal);
-        done = await downloadEach(ctl, storeId, ioId, group, relativeTo, directory, progress, failed);
+        const next = groups.next();
+        if (next.done) return;
+        const group = next.value;
+        const groupBytes = group.reduce((sum, file) => sum + file.size, 0);
+        const label = group.length === 1 ? relativeTo(group[0].key) : `${group.length} files — ${relativeTo(group[0].key)} …`;
+        progress.report(0, label, slot);
+        let done: number;
+        if (group.length === 1) {
+          done = await downloadEach(ctl, storeId, ioId, group, relativeTo, target, progress, failed, slot);
+        } else {
+          try {
+            const errors = await downloadBatch(ctl, ioId, group, relativeTo, target, (received) => progress.report(Math.min(received, groupBytes), label, slot));
+            failed.push(...errors);
+            done = group.length - errors.length;
+          } catch {
+            // The response is one stream, so a file that ends early - it shrank while it was being
+            // read - takes the rest of the batch down with it and names none of them. The group goes
+            // again one at a time, which both gets the healthy files and finds the one at fault.
+            throwIfAborted(ctl.signal);
+            done = await downloadEach(ctl, storeId, ioId, group, relativeTo, target, progress, failed, slot);
+          }
+        }
+        progress.advance(groupBytes, done, slot);
+        progress.report(0, label, slot);
       }
+    } catch (error) {
+      // the others stop at their next group rather than carry on after the download has ended
+      if (stopped === null) stopped = error;
+      throw error;
     }
-    progress.advance(groupBytes, done);
-    progress.report(0, label);
   }
+  // every worker has stopped before this returns, so nothing is still writing once the dialog says done
+  await Promise.allSettled(Array.from({ length: downloadWorkers }, (_, slot) => worker(slot)));
+  if (stopped !== null) throw stopped;
   return failed;
 }
 
@@ -785,9 +821,10 @@ async function downloadEach(
   ioId: string,
   group: { key: string; size: number }[],
   relativeTo: (key: string) => string,
-  directory: FileSystemDirectoryHandle,
+  target: DirectoryWriter,
   progress: ByteProgress,
   failed: string[],
+  slot: number,
 ): Promise<number> {
   let done = 0;
   let received = 0;
@@ -796,7 +833,7 @@ async function downloadEach(
     const before = received;
     const relative = relativeTo(file.key);
     try {
-      await downloadOne(ctl, storeId, ioId, file.key, relative, directory, (bytes) => progress.report(before + bytes, relative));
+      await downloadOne(ctl, storeId, ioId, file.key, relative, target, (bytes) => progress.report(before + bytes, relative, slot));
       done++;
     } catch (error) {
       throwIfAborted(ctl.signal);
@@ -814,13 +851,13 @@ async function downloadOne(
   ioId: string,
   key: string,
   relative: string,
-  directory: FileSystemDirectoryHandle,
+  target: DirectoryWriter,
   onBytes: (received: number) => void,
 ): Promise<void> {
   const started = performance.now();
   const response = await fetch(downloadUrl(storeId, ioId, key), { signal: ctl.signal });
   if (!response.ok || !response.body) throw new Error(response.status === 423 ? "the file is in use" : `HTTP ${response.status}`);
-  const writable = await (await fileHandleForPath(directory, relative)).createWritable();
+  const writable = await (await target.file(relative)).createWritable();
   const reader = response.body.getReader();
   let received = 0;
   try {
@@ -831,24 +868,26 @@ async function downloadOne(
       received += value.byteLength;
       onBytes(received);
     }
+    // timed before the close: closing is where the browser checks the file it has written, which is
+    // the disk's time rather than the link's, and the link is all the sizer is asking about
+    downloadSizer.note(received, performance.now() - started);
     await writable.close();
   } catch (error) {
     await writable.abort().catch(() => {});
     throw error;
   }
-  downloadSizer.note(received, performance.now() - started);
 }
 
 // Several whole files in one response, framed as UIFileTransfer describes. Returns the ones the
-// server could not read; those frames carry the reason instead of the bytes.
+// server could not read (those frames carry the reason instead of the bytes) and the ones that could
+// not be written.
 async function downloadBatch(
   ctl: ProgressController,
   ioId: string,
   group: { key: string }[],
   relativeTo: (key: string) => string,
-  directory: FileSystemDirectoryHandle,
-  progress: ByteProgress,
-  label: string,
+  target: DirectoryWriter,
+  onReceived: (bytes: number) => void,
 ): Promise<string[]> {
   const started = performance.now();
   const response = await fetch(`${adminBase}/ui/download-batch`, {
@@ -858,71 +897,86 @@ async function downloadBatch(
     signal: ctl.signal,
   });
   if (!response.ok || !response.body) throw new Error(`Download failed (HTTP ${response.status}).`);
-  const frames = new FrameReader(response.body);
+  // The whole batch comes off the wire before any of it goes to disk - a batch is a couple of
+  // megabytes at most. Written as it arrived, the link waited on the disk: the browser checks every
+  // file it closes, that time went into what the request sizer measured, and the sizer answered by
+  // shrinking the batches to its floor - a round trip for every handful of small files.
+  const body = await readWhole(response.body, onReceived);
+  downloadSizer.note(body.byteLength, performance.now() - started);
   const decoder = new TextDecoder();
   const errors: string[] = [];
-  let received = 0;
-  for (;;) {
-    const head = await frames.take(4);
-    if (head === null) break;
-    const name = decoder.decode(await frames.takeOrThrow(dataView(head).getInt32(0, true)));
-    const ok = (await frames.takeOrThrow(1))[0] === 1;
-    const length = Number(dataView(await frames.takeOrThrow(8)).getBigInt64(0, true));
-    if (!ok) {
-      errors.push(`${relativeTo(name)} (${decoder.decode(await frames.takeOrThrow(length))})`);
-      continue;
-    }
-    const writable = await (await fileHandleForPath(directory, relativeTo(name))).createWritable();
-    try {
-      for (let written = 0; written < length; ) {
-        const chunk = await frames.takeOrThrow(Math.min(length - written, 1024 * 1024));
-        await writable.write(chunk);
-        written += chunk.length;
-        received += chunk.length;
-        progress.report(received, label);
-      }
-      await writable.close();
-    } catch (error) {
-      await writable.abort().catch(() => {});
-      throw error;
-    }
+  const writes: { relative: string; bytes: Uint8Array<ArrayBuffer> }[] = [];
+  for (const frame of batchFrames(body)) {
+    const relative = relativeTo(frame.name);
+    if (frame.ok) writes.push({ relative, bytes: frame.bytes });
+    else errors.push(`${relative} (${decoder.decode(frame.bytes)})`);
   }
-  downloadSizer.note(received, performance.now() - started);
+  // a few at a time: the checks on close are the slow part, and those of different files overlap
+  await eachLimited(writes, fileWrites, async ({ relative, bytes }) => {
+    try {
+      await target.write(relative, bytes);
+    } catch (error) {
+      errors.push(`${relative} (${error instanceof Error ? error.message : error})`);
+    }
+  });
   return errors;
 }
 
-const dataView = (bytes: Uint8Array) => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+// A response read to its end, the bytes received so far reported as they come.
+async function readWhole(stream: ReadableStream<Uint8Array>, onReceived: (bytes: number) => void): Promise<Uint8Array<ArrayBuffer>> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.byteLength;
+    onReceived(received);
+  }
+  const whole = new Uint8Array(new ArrayBuffer(received));
+  let at = 0;
+  for (const chunk of chunks) {
+    whole.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return whole;
+}
 
-// Reads a framed response field by field, holding on to whatever a chunk brings past the field
-// that was asked for.
-class FrameReader {
-  private readonly reader: ReadableStreamDefaultReader<Uint8Array>;
-  private held = new Uint8Array(new ArrayBuffer(0));
-  constructor(stream: ReadableStream<Uint8Array>) {
-    this.reader = stream.getReader();
+// The frames of a batch (see UIFileTransfer.cs): per file an int32 name length, the name in utf-8,
+// one byte that is 1 when the bytes are the file's and 0 when they are the reason it could not be
+// read, an int64 length, and that many bytes - all little endian.
+function* batchFrames(body: Uint8Array<ArrayBuffer>): Generator<{ name: string; ok: boolean; bytes: Uint8Array<ArrayBuffer> }> {
+  const view = new DataView(body.buffer, body.byteOffset, body.byteLength);
+  const decoder = new TextDecoder();
+  let at = 0;
+  const need = (count: number) => {
+    if (count < 0 || at + count > body.byteLength) throw new Error("The download ended mid file.");
+  };
+  while (at < body.byteLength) {
+    need(4);
+    const nameLength = view.getInt32(at, true);
+    at += 4;
+    need(nameLength + 9);
+    const name = decoder.decode(body.subarray(at, at + nameLength));
+    at += nameLength;
+    const ok = body[at] === 1;
+    at += 1;
+    const length = Number(view.getBigInt64(at, true));
+    at += 8;
+    need(length);
+    yield { name, ok, bytes: body.subarray(at, at + length) };
+    at += length;
   }
-  // count bytes, or null when the response ended exactly on a frame boundary
-  async take(count: number): Promise<Uint8Array<ArrayBuffer> | null> {
-    while (this.held.length < count) {
-      const { done, value } = await this.reader.read();
-      if (done) {
-        if (this.held.length === 0) return null;
-        throw new Error("The download ended mid file.");
-      }
-      const grown = new Uint8Array(new ArrayBuffer(this.held.length + value.length));
-      grown.set(this.held);
-      grown.set(value, this.held.length);
-      this.held = grown;
-    }
-    const taken = this.held.subarray(0, count);
-    this.held = this.held.subarray(count);
-    return taken;
-  }
-  async takeOrThrow(count: number): Promise<Uint8Array<ArrayBuffer>> {
-    const taken = await this.take(count);
-    if (taken === null) throw new Error("The download ended mid file.");
-    return taken;
-  }
+}
+
+// Runs the work over the items, at most limit of them at a time.
+async function eachLimited<T>(items: T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const lane = async () => {
+    while (next < items.length) await work(items[next++]);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
 }
 
 function collectFiles(folder: FolderListing, into: FileInfo[]): void {
@@ -930,12 +984,45 @@ function collectFiles(folder: FolderListing, into: FileInfo[]): void {
   for (const sub of folder.subFolders) collectFiles(sub, into);
 }
 
-async function fileHandleForPath(root: FileSystemDirectoryHandle, relativePath: string): Promise<FileSystemFileHandle> {
-  const parts = relativePath.split("/");
-  let dir = root;
-  for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part, { create: true });
-  return dir.getFileHandle(parts[parts.length - 1], { create: true });
+/**
+ * Writes files below a picked folder. The folders on the way are made once each and their handles
+ * shared: walking down from the top again for every file cost a call to the browser per folder level
+ * per file, made one after the other.
+ */
+function directoryWriter(root: FileSystemDirectoryHandle) {
+  const folders = new Map<string, Promise<FileSystemDirectoryHandle>>();
+  const folder = (path: string): Promise<FileSystemDirectoryHandle> => {
+    if (path === "") return Promise.resolve(root);
+    const known = folders.get(path);
+    if (known) return known;
+    const cut = path.lastIndexOf("/");
+    const made = folder(cut < 0 ? "" : path.slice(0, cut)).then((parent) => parent.getDirectoryHandle(path.slice(cut + 1), { create: true }));
+    folders.set(path, made);
+    // one that failed is asked for again by the next file in it
+    made.catch(() => {
+      if (folders.get(path) === made) folders.delete(path);
+    });
+    return made;
+  };
+  const file = async (relativePath: string): Promise<FileSystemFileHandle> => {
+    const cut = relativePath.lastIndexOf("/");
+    const dir = await folder(cut < 0 ? "" : relativePath.slice(0, cut));
+    return dir.getFileHandle(relativePath.slice(cut + 1), { create: true });
+  };
+  const write = async (relativePath: string, bytes: Uint8Array<ArrayBuffer>): Promise<void> => {
+    const writable = await (await file(relativePath)).createWritable();
+    try {
+      await writable.write(bytes);
+      await writable.close();
+    } catch (error) {
+      await writable.abort().catch(() => {});
+      throw error;
+    }
+  };
+  return { file, write };
 }
+
+type DirectoryWriter = ReturnType<typeof directoryWriter>;
 
 function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) throw new DOMException("Aborted", "AbortError");

@@ -203,7 +203,7 @@ public class AzureBlobIOProvider : IIOProvider {
     }
     public Task<FolderMeta> GetFolderAsync(string[] path, bool recursive, bool withFiles) {
         var prefix = path.Length > 0 ? getAndValidateBlobName(path) + _virtualFolderChar : "";
-        var blobs = Client.ListBlobs(prefix.Length > 0 ? prefix : null).ToArray();
+        var blobs = Client.ListBlobs(prefix.Length > 0 ? prefix : null);
         var root = new FolderMeta { Name = path.Length > 0 ? path[^1] : "" }.Describe(relPathOfPrefix(prefix));
         addAzureSubFolders(root, prefix, blobs, recursive, withFiles);
         return Task.FromResult(root);
@@ -211,41 +211,64 @@ public class AzureBlobIOProvider : IIOProvider {
     // a blob name is the file key, so the prefix (minus its trailing delimiter) is the folder's
     // path below the storage root: what the well known folder descriptions are keyed on
     static string relPathOfPrefix(string prefix) => prefix.TrimEnd(_virtualFolderChar[0]);
-    void addAzureSubFolders(FolderMeta folder, string prefix, BlobListItem[] blobs, bool recursive, bool withFiles) {
-        var directChildren = blobs
-            .Select(b => b.Name[prefix.Length..])
-            .Where(rel => rel.Length > 0);
+    /// <summary>
+    /// Sorts the blobs below a folder into its own files and one group per sub folder in a single
+    /// pass, and walks on into the groups. It used to go through every blob of the listing once for
+    /// each sub folder (and once more for every file it had no tracked entry for), which is fine for
+    /// a folder of ten and turns a listing of a store with thousands of folders into minutes.
+    /// </summary>
+    void addAzureSubFolders(FolderMeta folder, string prefix, List<BlobListItem> blobs, bool recursive, bool withFiles) {
+        var files = new List<BlobListItem>();
+        // by the name the first blob gave it, as the provider compares keys: ignoring case
+        var groups = new Dictionary<string, List<BlobListItem>>(StringComparer.OrdinalIgnoreCase);
+        var subFolderNames = new List<string>(); // in listing order, which is name order
+        foreach (var blob in blobs) {
+            var rel = blob.Name[prefix.Length..];
+            if (rel.Length == 0) continue;
+            var cut = rel.IndexOf(_virtualFolderChar, StringComparison.Ordinal);
+            if (cut < 0) {
+                files.Add(blob);
+                continue;
+            }
+            var name = rel[..cut];
+            if (!groups.TryGetValue(name, out var group)) {
+                groups[name] = group = [];
+                subFolderNames.Add(name);
+            }
+            group.Add(blob);
+        }
 
-        var subFolderNames = directChildren
-            .Where(rel => rel.Contains(_virtualFolderChar))
-            .Select(rel => rel[..rel.IndexOf(_virtualFolderChar)])
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        if (withFiles) {
+            var metas = new FileMeta[files.Count];
+            lock (_lock) { // the tracked metas are written by the streams as they open and close
+                for (var i = 0; i < files.Count; i++) {
+                    var blob = files[i];
+                    // prefer the tracked meta (it reflects open streams), else build from the listing
+                    metas[i] = _files.TryGetValue(blob.Name, out var tracked) ? tracked
+                        : new FileMeta { Key = blob.Name, Size = blob.ContentLength, LastModifiedUtc = blob.LastModifiedUtc, CreationTimeUtc = blob.CreatedOnUtc };
+                }
+            }
+            folder.Files = metas;
+        }
 
-        var fileNames = directChildren
-            .Where(rel => !rel.Contains(_virtualFolderChar))
-            .ToArray();
-
-        if (withFiles)
-            folder.Files = [.. fileNames.Select(f => {
-                // prefer the tracked meta (it reflects open streams), else build from the listing
-                if (_files.TryGetValue(prefix + f, out var m)) return m;
-                var blob = blobs.First(b => b.Name == prefix + f);
-                return new FileMeta { Key = blob.Name, Size = blob.ContentLength, LastModifiedUtc = blob.LastModifiedUtc, CreationTimeUtc = blob.CreatedOnUtc };
-            })];
-
-        folder.HasFiles = fileNames.Length > 0;
-        folder.HasSubFolders = subFolderNames.Length > 0;
+        folder.HasFiles = files.Count > 0;
+        folder.HasSubFolders = subFolderNames.Count > 0;
 
         folder.SubFolders = [.. subFolderNames.Select(name => {
             var subPrefix = prefix + name + _virtualFolderChar;
-            var subBlobs = blobs.Where(b => b.Name.StartsWith(subPrefix, StringComparison.OrdinalIgnoreCase)).ToArray();
-            var sub = new FolderMeta {
-                Name = name,
-                HasFiles = subBlobs.Any(b => !b.Name[subPrefix.Length..].Contains(_virtualFolderChar)),
-                HasSubFolders = subBlobs.Any(b => b.Name[subPrefix.Length..].Contains(_virtualFolderChar)),
-            }.Describe(relPathOfPrefix(subPrefix));
-            if (recursive) addAzureSubFolders(sub, subPrefix, subBlobs, recursive, withFiles);
+            var subBlobs = groups[name];
+            var sub = new FolderMeta { Name = name }.Describe(relPathOfPrefix(subPrefix));
+            if (recursive) {
+                addAzureSubFolders(sub, subPrefix, subBlobs, recursive, withFiles); // sets both flags as it goes
+            } else {
+                foreach (var blob in subBlobs) {
+                    var rel = blob.Name[subPrefix.Length..];
+                    if (rel.Length == 0) continue;
+                    if (rel.Contains(_virtualFolderChar)) sub.HasSubFolders = true;
+                    else sub.HasFiles = true;
+                    if (sub.HasFiles && sub.HasSubFolders) break;
+                }
+            }
             return sub;
         })];
     }

@@ -2118,6 +2118,17 @@ a {
   max-width: 100%; /* the panel around it is resizable: a fixed width still has to fit inside it */
 }
 
+/* the soft restart and the stop on the server overview: the two that take the server down, for a
+   moment or for good, and the two anyone must find at once - the same width, a size bigger */
+.process-action.major .action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+}
+
 .action-button:hover:not(:disabled) {
   background: var(--hover);
 }
@@ -2206,57 +2217,37 @@ a {
   font-weight: 600;
 }
 
-/* ---- the drives under the host facts ---- */
+/* ---- the drives, in the last squares of the host facts ---- */
 
-.host-disks {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-
-.host-disk {
-  font-size: 12px;
-}
-
-.host-disk-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.host-disk-name {
-  font-weight: 600;
-}
-
-/* what of the server is on the drive: it gives way first when the row is too narrow for all three */
-.host-disk-uses {
-  flex: 1;
-  min-width: 0;
+.host-disk .fact-k,
+.host-disk .fact-v {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.host-disk-free {
+.host-disk .fact-v {
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+}
+
+/* the volume's own name, beside the drive letter: part of the key, a shade quieter */
+.host-disk-label {
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .host-disk-bar {
   height: 6px;
-  margin: 4px 0 3px;
+  margin-top: 5px;
   background: var(--hover);
   border-radius: 3px;
   overflow: hidden;
 }
 
-/* the accent while there is room, amber when the disk is filling, red when it is nearly gone */
+/* a quiet grey while there is room, amber when the disk is filling, red when it is nearly gone */
 .host-disk-fill {
   height: 100%;
-  background: var(--accent);
+  background: color-mix(in srgb, var(--text-muted) 70%, transparent);
   border-radius: 3px;
 }
 
@@ -2266,10 +2257,6 @@ a {
 
 .host-disk-fill.bad {
   background: var(--danger);
-}
-
-.host-disk-foot {
-  font-size: 11px;
 }
 
 /* ---- files & storage ---- */
@@ -2364,10 +2351,12 @@ a {
   pointer-events: none;
 }
 
+/* wraps rather than running off the page when the window is too narrow for every switch in one row */
 .files-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px 10px;
 }
 
 /* aligned with the tree column below it */
@@ -9275,6 +9264,9 @@ body.pg-resizing {
   --viz-6: #008300;
   --viz-7: #4a3aa7;
   --viz-8: #e34948;
+  /* the cpu line on the process charts: green, told apart from the accent blue of the memory and the
+     amber of the disk (checked for colour-blind separation against both, on each theme's panel) */
+  --chart-cpu: var(--viz-6);
 }
 
 [data-theme="dark"] {
@@ -9286,6 +9278,8 @@ body.pg-resizing {
   --viz-6: #008300;
   --viz-7: #9085e9;
   --viz-8: #e66767;
+  /* the dark green step sits too close to the amber for a red-blind reader; the aqua-green does not */
+  --chart-cpu: var(--viz-3);
 }
 
 .bar-chart {
@@ -9469,27 +9463,27 @@ body.pg-resizing {
 }
 
 /* the chart's second series: another colour, its own axis on the right, no fill under it */
-/* The second series and everything that names it: red, against the accent blue the first series is
-   drawn in. The two are the only lines on the plot, they are on scales of their own, and the legend
-   under it says which is which by colour - so the colour has to be one word's worth of difference,
-   not a neighbouring hue. */
+/* The second series and everything that names it: green (the cpu), against the accent blue the first
+   series is drawn in. The two are the only lines on the plot, they are on scales of their own, and the
+   legend under it says which is which by colour - so the colour has to be one word's worth of
+   difference, not a neighbouring hue. */
 .chart-line-overlay {
-  stroke: var(--viz-8);
+  stroke: var(--chart-cpu);
 }
 
 .chart-point-overlay {
-  fill: var(--viz-8);
+  fill: var(--chart-cpu);
 }
 
 .chart-axis-overlay {
-  fill: var(--viz-8);
+  fill: var(--chart-cpu);
 }
 
 .chart-swatch-overlay {
-  background: var(--viz-8);
+  background: var(--chart-cpu);
 }
 
-/* a second overlay on the same right-hand scale - the disk beside the cpu. Amber against the red:
+/* a second overlay on the same right-hand scale - the disk beside the cpu. Amber against the green:
    far enough apart to be told at a glance on a plot where both lines run near the same height. */
 .chart-line-overlay-b {
   stroke: var(--viz-4);
@@ -9513,7 +9507,7 @@ body.pg-resizing {
 }
 
 .chart-key-second {
-  color: var(--viz-8);
+  color: var(--chart-cpu);
 }
 
 .chart-key-third {
@@ -9656,6 +9650,31 @@ body.pg-resizing {
   position: relative;
 }
 
+/* The state tile: one line - the state, and the database's switch beside it - so it is no taller
+   than the tiles next to it, on a soft tint of the state's colour. The tint is mixed into the panel
+   colour rather than laid over it, so one rule serves both themes. */
+.dash-state {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.dash-state .dash-tile-actions {
+  margin: 0 0 0 auto;
+  padding: 0;
+}
+
+.dash-state.ok {
+  background: color-mix(in srgb, var(--ok) 12%, var(--panel));
+  border-color: color-mix(in srgb, var(--ok) 32%, var(--border));
+}
+
+.dash-state.bad {
+  background: color-mix(in srgb, var(--danger) 11%, var(--panel));
+  border-color: color-mix(in srgb, var(--danger) 32%, var(--border));
+}
+
 /* the database's own switch, along the foot of the tile that says which way it stands */
 .dash-tile-actions {
   display: flex;
@@ -9667,9 +9686,9 @@ body.pg-resizing {
 
 /**
  * Starting and stopping the database. These are the two things on the dashboard that change what
- * the server is doing, so they are named and coloured rather than being two more grey glyphs in a
- * corner: stop wears the danger red it deserves, start the green that says a database is up, and
- * restart stays quiet between them - it is the one that puts everything back as it was.
+ * the server is doing, so they are named rather than being two more grey glyphs in a corner. Stop
+ * and restart share this plain frame (the tile they sit on is already tinted by the state, and a red
+ * button on a green tile shouted); start wears the green that says a database is up.
  */
 .dash-tile-button {
   display: inline-flex;
@@ -9698,17 +9717,6 @@ body.pg-resizing {
 .dash-tile-button:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-.dash-tile-button.stop {
-  color: var(--danger);
-  background: var(--danger-soft);
-  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
-}
-
-.dash-tile-button.stop:hover:not(:disabled) {
-  color: var(--danger);
-  border-color: var(--danger);
 }
 
 .dash-tile-button.start {

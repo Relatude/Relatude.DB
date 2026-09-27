@@ -5,13 +5,16 @@ public class FolderMeta {
     /// <param name="describe">false for a folder that is not database storage: its "data" or "files"
     /// folders are whatever the owner put there, not the database's, so they get no description
     /// and are not marked as primary data</param>
-    public static FolderMeta FromDirInfo(DirectoryInfo dirInfo, string relpath, bool describe) {
+    /// <param name="probe">false leaves <see cref="HasFiles"/> and <see cref="HasSubFolders"/> to the
+    /// caller: finding them out lists the folder twice, which a caller about to list it anyway (a walk
+    /// of the whole tree) does not need done beforehand</param>
+    public static FolderMeta FromDirInfo(DirectoryInfo dirInfo, string relpath, bool describe, bool probe = true) {
         var folder = new FolderMeta {
             Name = dirInfo.Name,
             CreationTimeUtc = dirInfo.CreationTimeUtc,
             LastModifiedUtc = dirInfo.LastWriteTimeUtc,
-            HasFiles = dirInfo.EnumerateFiles().Any(),
-            HasSubFolders = dirInfo.EnumerateDirectories().Any(),
+            HasFiles = probe && dirInfo.EnumerateFiles().Any(),
+            HasSubFolders = probe && dirInfo.EnumerateDirectories().Any(),
         };
         if (describe) folder.Describe(relpath);
         return folder;

@@ -169,46 +169,120 @@ internal sealed class UIFileTransfer {
     /// Streams whole files back in one response, framed as described above. A file that cannot be
     /// read is reported in its own frame and the rest still arrive, so one locked file costs the
     /// download nothing.
+    /// <para>The files are opened a few ahead of the one being written, and the small ones read whole
+    /// while the ones before them are still going out. Where every open is a round trip - blob
+    /// storage, or the network share behind an App Service's home folder - those waits are what a
+    /// batch of small files is made of, and this way they overlap instead of adding up one after the
+    /// other. The frames are gathered in a buffer rather than written one by one: every write to the
+    /// response is a flush, so a batch of two hundred small files used to leave as some four hundred
+    /// tiny packets.</para>
     /// </summary>
     async Task<IResult> downloadBatchAsync(HttpContext ctx, DownloadBatchPayload payload) {
         if (payload.Keys.Length == 0) return Results.BadRequest(new { error = "No files to download. " });
         var io = _server.GetIO(payload.IoId);
+        var token = ctx.RequestAborted;
         var buffer = new byte[copyBufferSize];
         ctx.Response.ContentType = "application/octet-stream";
-        foreach (var key in payload.Keys) {
-            Stream? source = null;
-            string? failure = null;
-            long length = 0;
-            try {
-                // not shared with writers: a copy of a file mid-write is a copy that is wrong,
-                // and the single file download this sits beside refuses one for the same reason
-                source = UIServer.OpenFileForReading(io, key.SplitKey(), shareWithWriters: false);
-                if (source == null) failure = "The file was not found. ";
-                else length = source.Length;
-            } catch (IOException) {
-                failure = "The file is in use. ";
-            } catch (Exception exception) {
-                failure = exception.Message;
+        // flushed explicitly at the end and never disposed: disposing it would dispose the response
+        // body under it, and synchronously at that, which Kestrel refuses
+        var output = new BufferedStream(ctx.Response.Body, batchOutputBufferSize);
+        var ahead = new Queue<Task<BatchFile>>();
+        var next = 0;
+        void readAhead() {
+            while (ahead.Count < batchReadAhead && next < payload.Keys.Length) {
+                var key = payload.Keys[next++];
+                ahead.Enqueue(Task.Run(() => openBatchFileAsync(io, key, token), token));
             }
-            using (source) {
-                var reason = failure == null ? [] : Encoding.UTF8.GetBytes(failure);
-                await ctx.Response.Body.WriteAsync(frameHeader(key, failure == null, failure == null ? length : reason.Length), ctx.RequestAborted);
-                if (failure != null) {
-                    await ctx.Response.Body.WriteAsync(reason, ctx.RequestAborted);
+        }
+        try {
+            readAhead();
+            while (ahead.Count > 0) {
+                using var file = await ahead.Dequeue();
+                readAhead();
+                var reason = file.Failure == null ? [] : Encoding.UTF8.GetBytes(file.Failure);
+                await output.WriteAsync(frameHeader(file.Key, file.Failure == null, file.Failure == null ? file.Length : reason.Length), token);
+                if (file.Failure != null) {
+                    await output.WriteAsync(reason, token);
                     continue;
                 }
-                var remaining = length;
+                if (file.Bytes != null) {
+                    await output.WriteAsync(file.Bytes, token);
+                    continue;
+                }
+                var remaining = file.Length;
                 while (remaining > 0) {
-                    var read = await source!.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), ctx.RequestAborted);
+                    var read = await file.Source!.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), token);
                     // the promised length is already on the wire, so a file that shrank under us
                     // can only end the response - padding it would hand over a corrupt file
-                    if (read == 0) throw new EndOfStreamException(key + " ended before its last byte. ");
-                    await ctx.Response.Body.WriteAsync(buffer.AsMemory(0, read), ctx.RequestAborted);
+                    if (read == 0) throw new EndOfStreamException(file.Key + " ended before its last byte. ");
+                    await output.WriteAsync(buffer.AsMemory(0, read), token);
                     remaining -= read;
+                }
+            }
+            await output.FlushAsync(token);
+        } finally {
+            // what was opened ahead of a batch that ended early - cancelled, or broken by a file that
+            // shrank - is closed here rather than left to the finalizer
+            while (ahead.Count > 0) {
+                try {
+                    (await ahead.Dequeue()).Dispose();
+                } catch {
+                    // it failed or was cancelled while opening: there is nothing to close
                 }
             }
         }
         return Results.Empty;
+    }
+
+    // how many files of a batch are opened ahead of the one being written, and how small a file must
+    // be to be read whole while it waits: small enough that the ones waiting cost a couple of MB at most
+    const int batchReadAhead = 8;
+    const int batchWholeFileBytes = 256 * 1024;
+    const int batchOutputBufferSize = 64 * 1024;
+
+    /// <summary>A file of a download batch, opened - and read whole, when it is small - ahead of its turn.</summary>
+    sealed class BatchFile(string key) : IDisposable {
+        public string Key { get; } = key;
+        public Stream? Source { get; set; }
+        public byte[]? Bytes { get; set; }
+        public long Length { get; set; }
+        public string? Failure { get; set; }
+        public void Dispose() {
+            Source?.Dispose();
+            Source = null;
+        }
+    }
+
+    static async Task<BatchFile> openBatchFileAsync(IIOProvider io, string key, CancellationToken token) {
+        var file = new BatchFile(key);
+        try {
+            // not shared with writers: a copy of a file mid-write is a copy that is wrong,
+            // and the single file download this sits beside refuses one for the same reason
+            file.Source = UIServer.OpenFileForReading(io, key.SplitKey(), shareWithWriters: false);
+            if (file.Source == null) {
+                file.Failure = "The file was not found. ";
+                return file;
+            }
+            file.Length = file.Source.Length;
+            if (file.Length <= batchWholeFileBytes) {
+                var bytes = new byte[file.Length];
+                await file.Source.ReadExactlyAsync(bytes, token);
+                file.Bytes = bytes;
+                file.Dispose();
+            }
+        } catch (OperationCanceledException) {
+            file.Dispose();
+            throw;
+        } catch (Exception exception) {
+            file.Dispose();
+            file.Bytes = null;
+            // read whole before a byte of it was promised, a file that shrank can still be reported
+            // on its own rather than end the response for every file after it
+            file.Failure = exception is EndOfStreamException ? "The file changed while it was being read. "
+                : exception is IOException ? "The file is in use. "
+                : exception.Message;
+        }
+        return file;
     }
 
     static byte[] frameHeader(string name, bool ok, long length) {

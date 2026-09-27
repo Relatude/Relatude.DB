@@ -2033,7 +2033,7 @@ What you do in it:
 | **Storage** | Backups — one click to take one, one to go back to it. Take one before upgrading, the project is pre-1.0. The database file itself lives here too: download it, upload one, or copy it up to a moment in time and open the database on that copy. Any file the Files page lists can be made the database file, which is the way back from all three: whatever is replaced is kept beside the new file, never deleted. |
 | **Status** | Store state, running file conversions, activity and timings. |
 | **Activity** | What the database records about itself — queries, transactions, actions, tasks, metrics, the system trace — each log switched on or off, with its entries, search and graphs. |
-| **Logs** | Logs of your own: define one, and read what the application recorded into it as graphs, entries and the spread of a column's values. See [§32](#32-logs--recording-what-the-application-does). |
+| **Logs** | Logs of your own: define one, and read what the application recorded into it as graphs, entries and the spread of a column's values. The **Built-in logs** switch shows the Activity logs here too, read only. See [§32](#32-logs--recording-what-the-application-does). |
 | **Memory** (on the dashboard) | Every memory budget of one database on one line - the node and result set caches, each index engine, the state store - each showing what it is actually holding against what it is allowed. Dragging a budget takes effect at once where the part can be re-sized while it runs; saving writes them back to `relatude.db.json` for the next start. |
 
 Two habits worth forming:
@@ -4344,6 +4344,12 @@ The activity logs on the Activity page work the same way, with two differences: 
 the database itself, and a switch flipped there is live at once but kept across a restart only when
 *Save and remember changes* writes it to `relatude.db.json` (`LogRecording`,
 [§12.1](#121-every-setting-in-relatudedbjson)).
+
+They can be read on the Logs page as well: the **Built-in logs** switch at the end of its tabs (off
+until it is turned on, and remembered in the browser) adds a tab for each of them after your own logs,
+and a table of them on the overview. They get the same Graphs, Entries and Analyse views; the
+Definition and Data views are not offered, and their switches are shown but stay on the Activity page,
+where switching and saving belong together.
 
 ---
 

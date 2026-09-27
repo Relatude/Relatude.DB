@@ -88,18 +88,40 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const [filesMessage, setFilesMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
-  // The two long jobs here can be put away in the top bar and go on running, so their buttons read
-  // the task store rather than a local flag: leaving this page and coming back must not offer to
-  // start a second copy of a job that is still going.
+  // The long jobs here can be put away in the top bar and go on running, so their buttons read the
+  // task store rather than a local flag: leaving this page and coming back must not offer to start a
+  // second copy of a job that is still going. What stays modal is what closes or replaces the
+  // database under the UI (reverting to a backup), where there is nothing to carry on with meanwhile.
   const demoKey = `demo:${db.id}`;
   const truncateKey = `truncate:${db.id}`;
   const wikiKey = `wiki:${db.id}`;
+  const backupKey = `backup:${db.id}`;
+  const stateKey = `state:${db.id}`;
+  const reindexKey = `reindex:${db.id}`;
+  const auditKey = `audit:${db.id}`;
+  const convertedKey = `converted:${db.id}`;
+  const storageDownloadKey = `storage-download:${db.id}`;
+  const uploadKey = `db-upload:${db.id}`;
   const demoTask = useProgressTask(demoKey);
   const truncateTask = useProgressTask(truncateKey);
   const wikiTask = useProgressTask(wikiKey);
+  const backupTask = useProgressTask(backupKey);
+  const stateTask = useProgressTask(stateKey);
+  const reindexTask = useProgressTask(reindexKey);
+  const auditTask = useProgressTask(auditKey);
+  const convertedTask = useProgressTask(convertedKey);
+  const storageDownloadTask = useProgressTask(storageDownloadKey);
+  const uploadTask = useProgressTask(uploadKey);
   const demoRunning = demoTask?.status === "running";
   const truncateRunning = truncateTask?.status === "running";
   const wikiRunning = wikiTask?.status === "running";
+  const backupRunning = backupTask?.status === "running";
+  const stateRunning = stateTask?.status === "running";
+  const reindexRunning = reindexTask?.status === "running";
+  const auditRunning = auditTask?.status === "running";
+  const convertedRunning = convertedTask?.status === "running";
+  const storageDownloadRunning = storageDownloadTask?.status === "running";
+  const uploadRunning = uploadTask?.status === "running";
 
   const load = useCallback(() => {
     fetchBackupList(db.id)
@@ -137,23 +159,29 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
 
   async function onBackupNow() {
     const beforeKeys = new Set((backups?.files ?? []).map((f) => f.key));
-    const done = await runWithProgress(`Backup ${db.name}`, async (ctl) => {
-      ctl.set({ label: "Requesting backup…" });
-      await backupNow(db.id, truncate, keepForever);
-      // the backup runs as a background task on the server: wait for the new file to appear
-      // (cancel stops the waiting, not the server task)
-      for (;;) {
-        if (ctl.signal.aborted) throw new DOMException("Aborted", "AbortError");
-        ctl.set({ label: "Backup running on the server…" });
-        await new Promise((r) => setTimeout(r, 1500));
-        const list = await fetchBackupList(db.id);
-        const fresh = list.files.find((f) => !beforeKeys.has(f.key));
-        if (fresh) {
-          ctl.set({ label: `${fresh.name} (${formatBytes(fresh.size)})` });
-          return true;
+    // the backup is written by the server while the database stays open, so it can be put in the
+    // top bar: what is being waited for is a file appearing, not the UI staying still
+    const done = await runWithProgress(
+      `Backup ${db.name}`,
+      async (ctl) => {
+        ctl.set({ label: "Requesting backup…" });
+        await backupNow(db.id, truncate, keepForever);
+        // the backup runs as a background task on the server: wait for the new file to appear
+        // (cancel stops the waiting, not the server task)
+        for (;;) {
+          if (ctl.signal.aborted) throw new DOMException("Aborted", "AbortError");
+          ctl.set({ label: "Backup running on the server…" });
+          await new Promise((r) => setTimeout(r, 1500));
+          const list = await fetchBackupList(db.id);
+          const fresh = list.files.find((f) => !beforeKeys.has(f.key));
+          if (fresh) {
+            ctl.set({ label: `${fresh.name} (${formatBytes(fresh.size)})` });
+            return true;
+          }
         }
-      }
-    });
+      },
+      { minimizable: true, key: backupKey },
+    );
     if (done) setMessage("Backup created.");
     load();
   }
@@ -196,10 +224,14 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       { confirmLabel: "Rebuild" },
     );
     if (!choice.ok) return;
-    const result = await runWithProgress(`Rebuild the text index of ${db.name}`, async (ctl) => {
-      ctl.set({ label: "Queueing every indexed node…" });
-      return await rebuildTextIndex(db.id);
-    });
+    const result = await runWithProgress(
+      `Rebuild the text index of ${db.name}`,
+      async (ctl) => {
+        ctl.set({ label: "Queueing every indexed node…" });
+        return await rebuildTextIndex(db.id);
+      },
+      { minimizable: true, key: reindexKey },
+    );
     if (!result) return;
     setMaintenanceMessage(
       result.queued === 0
@@ -239,11 +271,15 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   }
 
   async function onSaveState() {
-    const done = await runWithProgress(`Update state snapshot`, async (ctl) => {
-      ctl.set({ label: "Writing the state snapshot…" });
-      await saveStateSnapshot(db.id);
-      return true;
-    });
+    const done = await runWithProgress(
+      `Update state snapshot`,
+      async (ctl) => {
+        ctl.set({ label: "Writing the state snapshot…" });
+        await saveStateSnapshot(db.id);
+        return true;
+      },
+      { minimizable: true, key: stateKey },
+    );
     if (done) setMaintenanceMessage("State snapshot updated.");
     load();
   }
@@ -259,12 +295,18 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
    * offered for deletion, in that order: the problem before the tidying.
    */
   async function onAuditFiles() {
-    const found = await runWithProgress(`Missing and redundant files in ${db.name}`, async (ctl) => {
-      const missing = (await runFileScan(ctl, db.id, "missing", false, "Missing files")).missing;
-      // counted, never deleted here: deleting is its own answer, behind its own confirmation
-      const redundant = (await runFileScan(ctl, db.id, "unreferenced", true, "Redundant files")).unreferenced;
-      return { missing, redundant };
-    });
+    // both scans walk every node on the server while the database stays open: minimizable, and what
+    // they found is reported in dialogs of its own, wherever in the UI the user is by then
+    const found = await runWithProgress(
+      `Missing and redundant files in ${db.name}`,
+      async (ctl) => {
+        const missing = (await runFileScan(ctl, db.id, "missing", false, "Missing files")).missing;
+        // counted, never deleted here: deleting is its own answer, behind its own confirmation
+        const redundant = (await runFileScan(ctl, db.id, "unreferenced", true, "Redundant files")).unreferenced;
+        return { missing, redundant };
+      },
+      { minimizable: true, key: auditKey },
+    );
     if (!found) return;
     const { missing, redundant } = found;
     const missingCount = missing?.missingCount ?? 0;
@@ -303,7 +345,11 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   }
 
   async function deleteUnreferenced() {
-    const progress = await runWithProgress(`Delete redundant files in ${db.name}`, (ctl) => runFileScan(ctl, db.id, "unreferenced", false));
+    // under the audit's key: it is the second half of the same job, and the audit button stays off until it is done
+    const progress = await runWithProgress(`Delete redundant files in ${db.name}`, (ctl) => runFileScan(ctl, db.id, "unreferenced", false), {
+      minimizable: true,
+      key: auditKey,
+    });
     const result: UnreferencedResult | null | undefined = progress?.unreferenced;
     if (!result) return;
     const summary = `Deleted ${formatCount(result.totalFilesDeleted)} file${result.totalFilesDeleted === 1 ? "" : "s"} and ${formatCount(result.totalFoldersDeleted)} folder${result.totalFoldersDeleted === 1 ? "" : "s"}, freed ${formatBytes(result.totalBytesDeleted)}.`;
@@ -314,10 +360,14 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   // Empties the converted file cache. Measured first, so the confirmation names a number and an
   // empty cache costs nothing but the measurement.
   async function onDeleteConverted() {
-    const info = await runWithProgress(`Converted files in ${db.name}`, async (ctl) => {
-      ctl.set({ label: "Measuring the converted file cache…" });
-      return await fetchConvertedInfo(db.id);
-    });
+    const info = await runWithProgress(
+      `Converted files in ${db.name}`,
+      async (ctl) => {
+        ctl.set({ label: "Measuring the converted file cache…" });
+        return await fetchConvertedInfo(db.id);
+      },
+      { minimizable: true, key: convertedKey },
+    );
     if (!info) return;
     if (info.files === 0) {
       setFilesMessage("No converted files.");
@@ -330,10 +380,14 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       { confirmLabel: "Delete", danger: true },
     );
     if (!choice.ok) return;
-    const result = await runWithProgress(`Delete converted files in ${db.name}`, async (ctl) => {
-      ctl.set({ label: "Deleting…" });
-      return await deleteConvertedFiles(db.id);
-    });
+    const result = await runWithProgress(
+      `Delete converted files in ${db.name}`,
+      async (ctl) => {
+        ctl.set({ label: "Deleting…" });
+        return await deleteConvertedFiles(db.id);
+      },
+      { minimizable: true, key: convertedKey },
+    );
     if (!result) return;
     const summary = `Deleted ${formatCount(result.deleted)} converted file${result.deleted === 1 ? "" : "s"}, freed ${formatBytes(result.freed)}.`;
     setFilesMessage(summary);
@@ -369,7 +423,12 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       return;
     }
     if (!directory) return;
-    const failed = await runWithProgress(`Download file storage ${storage.name}`, (ctl) => downloadFileStorage(ctl, db.id, storage, directory));
+    // the files go straight into the picked folder from the browser, so the rest of the UI can be
+    // used meanwhile
+    const failed = await runWithProgress(`Download file storage ${storage.name}`, (ctl) => downloadFileStorage(ctl, db.id, storage, directory), {
+      minimizable: true,
+      key: storageDownloadKey,
+    });
     if (failed) {
       if (failed.length > 0) {
         showError("Download incomplete", `${failed.length} file${failed.length === 1 ? "" : "s"} could not be downloaded.`, failed);
@@ -505,7 +564,12 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
     if (!list || list.length === 0 || !dbFile) return;
     const file = list[0];
     const info = dbFile;
-    const result = await runWithProgress(`Upload database to ${db.name}`, (ctl) => uploadDatabase(ctl, db.id, info, file));
+    // most of this is the upload, with the database still running; it is only closed for the swap
+    // at the end, so a big file need not hold the UI still while it goes up
+    const result = await runWithProgress(`Upload database to ${db.name}`, (ctl) => uploadDatabase(ctl, db.id, info, file), {
+      minimizable: true,
+      key: uploadKey,
+    });
     if (result) setDbFileMessage(`Uploaded as ${result.newKey}. The database was reopened on it.`);
     load();
   }
@@ -545,7 +609,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
           {/* making one and having them is the same subject: the button that adds to the list sits
               above the list it adds to, rather than in a panel of its own beside it */}
           <div className="storage-make-backup">
-            <button className="action-button" onClick={onBackupNow} disabled={db.state !== "Open"}>
+            <button className="action-button" onClick={onBackupNow} disabled={db.state !== "Open" || backupRunning}>
               <IconDeviceFloppy size={14} stroke={1.8} /> Backup now
             </button>
             <label className="login-remember">
@@ -556,7 +620,10 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
               <input type="checkbox" checked={keepForever} onChange={(e) => setKeepForever(e.target.checked)} />
               Keep forever (never expires)
             </label>
-            <span className="muted">{db.state !== "Open" ? "the database must be open" : (message ?? "")}</span>
+            {/* while the backup is minimized its line follows it here too, like the demo content's */}
+            <span className="muted">
+              {db.state !== "Open" ? "the database must be open" : backupRunning ? (backupTask?.label || "backing up…") : (message ?? "")}
+            </span>
           </div>
           {/* the list grows with every backup taken: it scrolls rather than pushing the rest of
               the page down, with the column names staying put above it */}
@@ -626,11 +693,13 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
               <span className="muted">a complete copy with history, or a truncated version</span>
             </div>
             <div className="process-action">
-              <button className="action-button" onClick={() => uploadInput.current?.click()}>
+              <button className="action-button" onClick={() => uploadInput.current?.click()} disabled={uploadRunning}>
                 <IconDatabaseImport size={14} stroke={1.8} /> Upload database
               </button>
               <span className="muted">
-                uploads with the database running, then closes it, puts the file in place as the next database file, and reopens on it
+                {uploadRunning
+                  ? `${uploadTask?.label || "uploading"}${uploadTask?.meta ? " · " + uploadTask.meta : ""}`
+                  : "uploads with the database running, then closes it, puts the file in place as the next database file, and reopens on it"}
               </span>
             </div>
             <input
@@ -685,10 +754,10 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
               </div>
             </div>
             <div className="process-action">
-              <button className="action-button" onClick={onSaveState} disabled={!maintenance.open}>
+              <button className="action-button" onClick={onSaveState} disabled={!maintenance.open || stateRunning}>
                 Update state snapshot
               </button>
-              <span className="muted">writes the current state so the next open replays fewer actions</span>
+              <span className="muted">{stateRunning ? (stateTask?.label || "writing…") : "writes the current state so the next open replays fewer actions"}</span>
             </div>
             <div className="process-action">
               <button className="action-button" onClick={onTruncate} disabled={!maintenance.open || truncateRunning}>
@@ -699,11 +768,12 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
               </span>
             </div>
             <div className="process-action">
-              <button className="action-button" onClick={onRebuildTextIndex} disabled={!maintenance.open}>
+              <button className="action-button" onClick={onRebuildTextIndex} disabled={!maintenance.open || reindexRunning}>
                 <IconTextRecognition size={14} stroke={1.8} /> Rebuild text index
               </button>
               <span className="muted">
-                {maintenanceMessage ??
+                {(reindexRunning ? reindexTask?.label || "queueing…" : null) ??
+                  maintenanceMessage ??
                   (maintenance.tasksQueued
                     ? `${formatCount(maintenance.tasksQueued)} background task${maintenance.tasksQueued === 1 ? "" : "s"} still to run`
                     : "extracts the searchable text of every indexed node again and rewrites the search index")}
@@ -724,31 +794,37 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
         </div>
       <section className="panel">
         <div className="process-action">
-          <button className="action-button" onClick={onAuditFiles} disabled={db.state !== "Open"}>
+          <button className="action-button" onClick={onAuditFiles} disabled={db.state !== "Open" || auditRunning}>
             <IconFileSearch size={14} stroke={1.8} /> Missing and redundant files
           </button>
           <span className="muted">
             {db.state !== "Open"
               ? "the database must be open"
-              : "checks every file value against its store, and the stores for files no node points at any more"}
+              : auditRunning
+                ? auditTask?.label || "scanning…"
+                : "checks every file value against its store, and the stores for files no node points at any more"}
           </span>
         </div>
         <div className="process-action">
-          <button className="action-button" onClick={onDeleteConverted} disabled={db.state !== "Open"}>
+          <button className="action-button" onClick={onDeleteConverted} disabled={db.state !== "Open" || convertedRunning}>
             <IconPhotoCancel size={14} stroke={1.8} /> Reset converted file cache
           </button>
-          <span className="muted">empties the cache of resized images and converted media; they are recreated on demand</span>
+          <span className="muted">
+            {convertedRunning ? convertedTask?.label || "working…" : "empties the cache of resized images and converted media; they are recreated on demand"}
+          </span>
         </div>
         <div className="process-action">
-          <button className="action-button" onClick={onDownloadFileStorage} disabled={fileStorages.length === 0}>
+          <button className="action-button" onClick={onDownloadFileStorage} disabled={fileStorages.length === 0 || storageDownloadRunning}>
             <IconFolderDown size={14} stroke={1.8} /> Download file storage
           </button>
           <span className="muted">
-            {fileStorages.length === 0
-              ? "no file storage configured"
-              : fileStorages.length === 1
-                ? `copies ${fileStorages[0].name} (${storageHint(fileStorages[0])}) to a folder on disk`
-                : `copies one of the ${fileStorages.length} file storages to a folder on disk`}
+            {storageDownloadRunning
+              ? `${storageDownloadTask?.label || "downloading"}${storageDownloadTask?.meta ? " · " + storageDownloadTask.meta : ""}`
+              : fileStorages.length === 0
+                ? "no file storage configured"
+                : fileStorages.length === 1
+                  ? `copies ${fileStorages[0].name} (${storageHint(fileStorages[0])}) to a folder on disk`
+                  : `copies one of the ${fileStorages.length} file storages to a folder on disk`}
           </span>
         </div>
         {filesMessage && (

@@ -181,7 +181,17 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             // locked file fails fast as 423 instead, so a folder download can warn and keep going.
             if (io.TryGetLocalFilePath(fileKey, out var localFilePath)) {
                 try {
-                    var fileStream = new FileStream(localFilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    // Read a megabyte at a time, sequentially: the response is copied out in 64 KB
+                    // pieces, and with the default 4 KB buffer each piece was its own read of the file -
+                    // on a network share (the Azure Files mount behind an App Service's home folder) a
+                    // round trip per 64 KB, which is what capped how fast a big file could go out.
+                    var fileStream = new FileStream(localFilePath, new FileStreamOptions {
+                        Mode = FileMode.Open,
+                        Access = FileAccess.Read,
+                        Share = FileShare.Read,
+                        BufferSize = 1024 * 1024,
+                        Options = FileOptions.SequentialScan | FileOptions.Asynchronous,
+                    });
                     return Results.File(fileStream, contentType, fileKey.FileName(), null, null, true);
                 } catch (FileNotFoundException) {
                     return Results.NotFound();

@@ -219,36 +219,66 @@ public class IOProviderDisk : IIOProvider {
         }
     }
 
+    /// <summary>
+    /// The folder as it is on disk, with the open stream counts of its files.
+    /// <para>The provider lock is held only while those counts are copied, not while the folders are
+    /// walked. A walk is a trip to the disk per folder - several on a network share such as the Azure
+    /// Files mount behind an App Service's home folder - so listing a large tree takes seconds, and
+    /// with the lock held for all of it every other file of the provider waited: the database opening
+    /// a file, a download, a second listing. The counts are a snapshot taken as the listing starts,
+    /// which is all a listing of a folder that can change under it ever was.</para>
+    /// </summary>
     public Task<FolderMeta> GetFolderAsync(string[] path, bool recursive, bool withFiles) {
+        Dictionary<string, int> readers, writers;
         lock (_lock) {
             ensureFolder();
             validate(path);
-            var relativePath = string.Join('/', path);
-            var dirInfo = new DirectoryInfo(Path.Combine([BaseFolder, .. path]));
-            if (!dirInfo.Exists) {
-                var missing = new FolderMeta { Name = path.Length > 0 ? path[^1] : "" };
-                return Task.FromResult(PlainFolder ? missing : missing.Describe(relativePath));
+            readers = new(_openReaders);
+            writers = new(_openWriters);
+        }
+        var relativePath = string.Join('/', path);
+        var dirInfo = new DirectoryInfo(Path.Combine([BaseFolder, .. path]));
+        if (!dirInfo.Exists) {
+            var missing = new FolderMeta { Name = path.Length > 0 ? path[^1] : "" };
+            return Task.FromResult(PlainFolder ? missing : missing.Describe(relativePath));
+        }
+        var folderMeta = FolderMeta.FromDirInfo(dirInfo, relativePath, describe: !PlainFolder);
+        addAllSubFolders(dirInfo, folderMeta, relativePath, recursive, withFiles, readers, writers);
+        return Task.FromResult(folderMeta);
+    }
+    void addAllSubFolders(DirectoryInfo dirInfo, FolderMeta folder, string relativeParentPath, bool recursive, bool withFiles,
+        Dictionary<string, int> readers, Dictionary<string, int> writers) {
+        if (withFiles) folder.Files = [.. filesOf(dirInfo).Select(f => fileMetaWithLockCounts(f, relativeKey(relativeParentPath, f.Name), readers, writers))];
+        var subDirs = foldersOf(dirInfo);
+        // A walk of the whole tree lists every folder below anyway, so asking each one first whether
+        // it holds files and folders - two more trips to the disk a folder, on top of the two the walk
+        // makes - is only worth it where the walk stops, and the answer is read off what it found.
+        folder.SubFolders = [.. subDirs.Select(d => FolderMeta.FromDirInfo(d, relativeKey(relativeParentPath, d.Name), describe: !PlainFolder, probe: !recursive))];
+        if (recursive) {
+            for (var i = 0; i < subDirs.Length; i++) {
+                var subFolder = folder.SubFolders[i];
+                addAllSubFolders(subDirs[i], subFolder, relativeKey(relativeParentPath, subFolder.Name), recursive, withFiles, readers, writers);
+                subFolder.HasSubFolders = subFolder.SubFolders.Length > 0;
+                subFolder.HasFiles = withFiles ? subFolder.Files.Length > 0 : hasFiles(subDirs[i]);
             }
-            var folderMeta = FolderMeta.FromDirInfo(dirInfo, relativePath, describe: !PlainFolder);
-            addAllSubFolders(dirInfo, folderMeta, relativePath, recursive, withFiles);
-            return Task.FromResult(folderMeta);
         }
     }
-    void addAllSubFolders(DirectoryInfo dirInfo, FolderMeta folder, string relativeParentPath, bool recursive, bool withFiles) {
-        if (withFiles) folder.Files = [.. dirInfo.GetFiles().Select(f => fileMetaWithLockCounts(f, relativeKey(relativeParentPath, f.Name)))];
-        folder.SubFolders = [.. dirInfo.GetDirectories().Select(d => FolderMeta.FromDirInfo(d, relativeKey(relativeParentPath, d.Name), describe: !PlainFolder))];
-        if (recursive) {
-            foreach (var subFolder in folder.SubFolders) {
-                var subDirInfo = new DirectoryInfo(Path.Combine(dirInfo.FullName, subFolder.Name));
-                addAllSubFolders(subDirInfo, subFolder, relativeKey(relativeParentPath, subFolder.Name), recursive, withFiles);
-            }
-        }
+    // A folder that goes away while the tree is walked (a rebuilt index replacing its segment
+    // folder, say) is a folder that is no longer there, not a listing that failed.
+    static FileInfo[] filesOf(DirectoryInfo dir) {
+        try { return dir.GetFiles(); } catch (DirectoryNotFoundException) { return []; }
+    }
+    static DirectoryInfo[] foldersOf(DirectoryInfo dir) {
+        try { return dir.GetDirectories(); } catch (DirectoryNotFoundException) { return []; }
+    }
+    static bool hasFiles(DirectoryInfo dir) {
+        try { return dir.EnumerateFiles().Any(); } catch (DirectoryNotFoundException) { return false; }
     }
     static string relativeKey(string parent, string name) => parent.Length == 0 ? name : parent + "/" + name;
-    FileMeta fileMetaWithLockCounts(FileInfo fileInfo, string key) {
+    static FileMeta fileMetaWithLockCounts(FileInfo fileInfo, string key, Dictionary<string, int> openReaders, Dictionary<string, int> openWriters) {
         var meta = FileMeta.FromFileInfo(fileInfo, key);
-        if (_openReaders.TryGetValue(key, out var readers)) meta.Readers = readers;
-        if (_openWriters.TryGetValue(key, out var writers)) meta.Writers = writers;
+        if (openReaders.TryGetValue(key, out var readers)) meta.Readers = readers;
+        if (openWriters.TryGetValue(key, out var writers)) meta.Writers = writers;
         return meta;
     }
     public void DeleteFolderIfItExists(string[] path) {

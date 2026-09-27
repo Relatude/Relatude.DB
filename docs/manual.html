@@ -3102,7 +3102,7 @@ indistinguishable by timing.</p>
 </tr>
 <tr>
 <td><strong>Logs</strong></td>
-<td>Logs of your own: define one, and read what the application recorded into it as graphs, entries and the spread of a column's values. See <a href="#32-logs-recording-what-the-application-does">§32</a>.</td>
+<td>Logs of your own: define one, and read what the application recorded into it as graphs, entries and the spread of a column's values. The <strong>Built-in logs</strong> switch shows the Activity logs here too, read only. See <a href="#32-logs-recording-what-the-application-does">§32</a>.</td>
 </tr>
 <tr>
 <td><strong>Memory</strong> (on the dashboard)</td>
@@ -5646,6 +5646,11 @@ entries read and test entries recorded — but the application records only thro
 the database itself, and a switch flipped there is live at once but kept across a restart only when
 <em>Save and remember changes</em> writes it to <code>relatude.db.json</code> (<code>LogRecording</code>,
 <a href="#121-every-setting-in-relatudedbjson">§12.1</a>).</p>
+<p>They can be read on the Logs page as well: the <strong>Built-in logs</strong> switch at the end of its tabs (off
+until it is turned on, and remembered in the browser) adds a tab for each of them after your own logs,
+and a table of them on the overview. They get the same Graphs, Entries and Analyse views; the
+Definition and Data views are not offered, and their switches are shown but stay on the Activity page,
+where switching and saving belong together.</p>
 <hr />
 <h2 id="where-to-look-when-this-manual-runs-out">Where to look when this manual runs out<a class="anchor" href="#where-to-look-when-this-manual-runs-out" aria-label="Link to this section">#</a></h2>
 <p>The public documentation is still thin and the API is pre-1.0. When something here does not match

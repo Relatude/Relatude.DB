@@ -46,6 +46,7 @@ import {
 } from "../server/customLogs";
 import type { DatabaseInfo } from "../server/serverInfo";
 import { lint } from "../code/lint";
+import { logIcon, type LogIconType } from "../logIcons";
 
 /**
  * The Logs page: logs someone defines for a database, rather than the logs the database keeps about
@@ -60,6 +61,13 @@ import { lint } from "../code/lint";
  *
  * Definitions being edited are held here, not in the editor, so leaving the editor for the graphs
  * and coming back finds the edit where it was left; they are lost only when the page is.
+ *
+ * The database's own logs - the ones on the Activity page - can be shown here too, behind a switch
+ * that starts off: each gets a tab after the logs defined here, and a table of its own on the
+ * overview, and is read with the same graphs, entries and analysis. They are read only here. Their
+ * columns are defined in code, and their recording is switched (and saved) on the Activity page,
+ * where the switches say whether the choice survives a restart - so the Definition and Data views
+ * are not offered for them, and their switches are shown but not live.
  */
 
 export type LogView = "graphs" | "entries" | "analyse" | "definition" | "data";
@@ -72,9 +80,15 @@ const views: { id: LogView; label: string; icon: typeof IconChartLine }[] = [
   { id: "data", label: "Data", icon: IconDatabaseCog },
 ];
 
+// what a built-in log can be looked at with: reading, not defining or managing
+const builtInViews = views.filter((v) => v.id === "graphs" || v.id === "entries" || v.id === "analyse");
+
+const builtInNote = "Switched on and off, and saved, on the Activity page";
+
 // the tabs that are not a log: a key cannot start with an asterisk, so these never collide with one
 const overviewTab = "*overview";
 const newTab = "*new";
+const builtInKey = "customLogs:builtIn";
 
 function readStored(key: string): string | null {
   try {
@@ -103,6 +117,8 @@ export function CustomLogsSection({ db }: { db: DatabaseInfo }) {
   const [drafts, setDrafts] = useState<Record<string, LogDefinition>>({});
   const [range, setRange] = useState<LogRange>(defaultRange);
   const [live, setLive] = useState(false);
+  // the database's own logs beside these: off until asked for, and remembered for every database
+  const [showBuiltIn, setShowBuiltInState] = useState(() => readStored(builtInKey) === "true");
 
   const apply = useCallback((i: CustomLogsInfo) => {
     setInfo(i);
@@ -110,8 +126,13 @@ export function CustomLogsSection({ db }: { db: DatabaseInfo }) {
   }, []);
   // what every log holds changes as the application records, so the overview follows it - but no
   // faster than every few seconds: it reads the sizes and the first and last entry of every log
-  useLive<CustomLogsInfo>("custom-logs-info", { storeId: db.id }, apply, { minMs: 5000, restartOn: tick, onError: setError });
+  useLive<CustomLogsInfo>("custom-logs-info", { storeId: db.id, includeBuiltIn: showBuiltIn }, apply, { minMs: 5000, restartOn: tick, onError: setError });
   const refresh = useCallback(() => setTick((t) => t + 1), []);
+
+  function setShowBuiltIn(next: boolean) {
+    setShowBuiltInState(next);
+    writeStored(builtInKey, String(next));
+  }
 
   function setTab(next: string) {
     setTabState(next);
@@ -171,8 +192,13 @@ export function CustomLogsSection({ db }: { db: DatabaseInfo }) {
 
   if (error && !info) return <div className="placeholder">{error}</div>;
   if (!info) return null;
-  const log = info.logs.find((l) => l.key === tab) ?? null;
-  // a tab for a log that is gone - deleted here, or in another window - falls back to the overview
+  // hidden the moment the switch goes off, not when the next answer (without them) comes in
+  const builtIn = showBuiltIn ? (info.builtIn ?? []) : [];
+  const customLog = info.logs.find((l) => l.key === tab) ?? null;
+  const builtInLog = customLog ? null : (builtIn.find((l) => l.key === tab) ?? null);
+  const log = customLog ?? builtInLog;
+  // a tab for a log that is gone - deleted here, or in another window, or a built-in one hidden -
+  // falls back to the overview
   const activeTab = tab === newTab ? (newDraft ? newTab : overviewTab) : tab === overviewTab || log ? tab : overviewTab;
 
   return (
@@ -198,10 +224,35 @@ export function CustomLogsSection({ db }: { db: DatabaseInfo }) {
         <button className="logs-tab clog-add-tab" onClick={() => startNew()} title="Define a new log">
           <IconPlus size={15} stroke={1.8} /> {newDraft ? "" : "New log"}
         </button>
+        {/* the database's own logs come after the "new log" tab, which belongs to the logs before it */}
+        {builtIn.length > 0 && <span className="clog-tab-divider" aria-hidden="true" />}
+        {builtIn.map((l) => {
+          const Icon = logIcon(l.key);
+          return (
+            <button
+              key={l.key}
+              className={"logs-tab" + (activeTab === l.key ? " active" : "")}
+              onClick={() => setTab(l.key)}
+              title={`${l.name || l.key} - built into the database`}
+            >
+              <Icon size={15} stroke={1.8} />
+              {l.name || l.key}
+              {(l.enabledLog || l.enabledStatistics) && <span className="logs-rec" title="Recording" />}
+            </button>
+          );
+        })}
+        <span className="clog-builtin-switch">
+          <Switch
+            label="Built-in logs"
+            checked={showBuiltIn}
+            title="Show the logs the database keeps about itself - the ones on the Activity page - here too, beside the logs defined here"
+            onChange={setShowBuiltIn}
+          />
+        </span>
       </div>
 
       {activeTab === overviewTab ? (
-        <Overview db={db} info={info} onOpen={setTab} onNew={startNew} onChanged={refresh} />
+        <Overview db={db} info={info} builtIn={builtIn} onOpen={setTab} onNew={startNew} onChanged={refresh} />
       ) : activeTab === newTab && newDraft ? (
         <CustomLogEditor
           db={db}
@@ -223,6 +274,7 @@ export function CustomLogsSection({ db }: { db: DatabaseInfo }) {
           db={db}
           info={info}
           log={log}
+          builtIn={builtInLog !== null}
           view={view}
           onView={setView}
           range={range}
@@ -251,6 +303,7 @@ function LogPage({
   db,
   info,
   log,
+  builtIn,
   view,
   onView,
   range,
@@ -267,6 +320,8 @@ function LogPage({
   db: DatabaseInfo;
   info: CustomLogsInfo;
   log: CustomLogSummary;
+  /** One of the database's own logs, read only here. */
+  builtIn: boolean;
   view: LogView;
   onView: (view: LogView) => void;
   range: LogRange;
@@ -307,49 +362,69 @@ function LogPage({
     onView("entries");
   }
 
-  const ranged = view === "graphs" || view === "entries" || view === "analyse";
+  // a built-in log opened while the last view picked was one it does not have starts on its graphs,
+  // without forgetting that choice for the next log defined here
+  const shownViews = builtIn ? builtInViews : views;
+  const current: LogView = shownViews.some((v) => v.id === view) ? view : "graphs";
+  const ranged = current === "graphs" || current === "entries" || current === "analyse";
   const refreshTick = tick + localTick;
+  const HeadIcon = builtIn ? logIcon(log.key) : IconFileAnalytics;
   return (
     <div className="logs-body clog">
       <div className="clog-head">
         <div className="clog-title">
-          <IconFileAnalytics size={20} stroke={1.7} className={log.enabledLog || log.enabledStatistics ? "log-icon on" : "log-icon"} />
+          <HeadIcon size={20} stroke={1.7} className={log.enabledLog || log.enabledStatistics ? "log-icon on" : "log-icon"} />
           <h2>{log.name || log.key}</h2>
-          <code className="clog-key" title="The key the application records into this log by">
+          <code className="clog-key" title={builtIn ? "The key the database keeps this log under" : "The key the application records into this log by"}>
             {log.key}
           </code>
+          {builtIn && <span className="badge">built in</span>}
           {log.lastRecordUtc && (
             <span className="muted clog-last" title={formatDateTime(log.lastRecordUtc)}>
               last entry {formatAgo(log.lastRecordUtc)}
             </span>
           )}
           <span className="logs-spacer" />
-          <Switch label="Record" checked={log.enabledLog} title="Write every entry of this log to disk" onChange={(v) => toggle({ log: v })} />
+          <Switch
+            label="Record"
+            checked={log.enabledLog}
+            disabled={builtIn}
+            title={builtIn ? builtInNote : "Write every entry of this log to disk"}
+            onChange={(v) => toggle({ log: v })}
+          />
           <Switch
             label="Statistics"
             checked={log.enabledStatistics}
-            title="Aggregate the entries into the statistics the graphs are drawn from"
+            disabled={builtIn}
+            title={builtIn ? builtInNote : "Aggregate the entries into the statistics the graphs are drawn from"}
             onChange={(v) => toggle({ statistics: v })}
           />
         </div>
-        {log.description && <div className="clog-desc">{log.description}</div>}
+        {builtIn ? (
+          <div className="clog-desc">
+            A log the database keeps about itself. Its columns are defined in code, and it is switched on and off - and the choice saved - on the Activity
+            page; here it is read the same way as the logs defined on this page.
+          </div>
+        ) : (
+          log.description && <div className="clog-desc">{log.description}</div>
+        )}
       </div>
       <div className="clog-bar">
         <div className="module-switch">
-          {views.map((v) => {
+          {shownViews.map((v) => {
             const Icon = v.icon;
             return (
-              <button key={v.id} className={view === v.id ? "active" : ""} onClick={() => onView(v.id)}>
+              <button key={v.id} className={current === v.id ? "active" : ""} onClick={() => onView(v.id)}>
                 <Icon size={14} stroke={1.8} /> {v.label}
                 {v.id === "definition" && draft && <span className="clog-draft-dot" title="Unsaved changes" />}
               </button>
             );
           })}
         </div>
-        {ranged && <RangeBar range={range} onRange={onRange} live={live} onLive={onLive} onRefresh={changed} showLive={view !== "analyse"} />}
+        {ranged && <RangeBar range={range} onRange={onRange} live={live} onLive={onLive} onRefresh={changed} showLive={current !== "analyse"} />}
       </div>
 
-      {view === "graphs" ? (
+      {current === "graphs" ? (
         <CustomLogGraphs
           db={db}
           log={log}
@@ -357,11 +432,11 @@ function LogPage({
           live={live}
           tick={refreshTick}
           onPick={showEntriesBetween}
-          onTurnOnStatistics={() => toggle({ statistics: true })}
+          onTurnOnStatistics={builtIn ? undefined : () => toggle({ statistics: true })}
           onChanged={changed}
-          onRecord={() => onView("data")}
+          onRecord={builtIn ? undefined : () => onView("data")}
         />
-      ) : view === "entries" ? (
+      ) : current === "entries" ? (
         <CustomLogEntries
           db={db}
           log={log}
@@ -371,11 +446,11 @@ function LogPage({
           tick={refreshTick}
           handedSearch={handedSearch}
           onHandedSearchTaken={() => setHandedSearch(null)}
-          onStartRecording={() => toggle({ log: true })}
+          onStartRecording={builtIn ? undefined : () => toggle({ log: true })}
         />
-      ) : view === "analyse" ? (
+      ) : current === "analyse" ? (
         <CustomLogAnalyse db={db} log={log} range={range} tick={refreshTick} onShowMatching={showEntriesMatching} />
-      ) : view === "definition" ? (
+      ) : current === "definition" ? (
         <CustomLogEditor
           db={db}
           info={info}
@@ -504,12 +579,15 @@ function RangeBar({
 function Overview({
   db,
   info,
+  builtIn,
   onOpen,
   onNew,
   onChanged,
 }: {
   db: DatabaseInfo;
   info: CustomLogsInfo;
+  /** The database's own logs, when the switch shows them; empty otherwise. */
+  builtIn: CustomLogSummary[];
   onOpen: (key: string) => void;
   onNew: (from?: LogDefinition) => void;
   onChanged: () => void;
@@ -593,54 +671,31 @@ function Overview({
           <EmptyState onNew={onNew} />
         ) : (
           <div className="log-table">
-            <div className="log-table-row log-table-head clog-overview-row">
-              <span>Log</span>
-              <span>Last 24 hours</span>
-              <span className="num" title="Entries recorded in the last 24 hours">
-                In 24 h
-              </span>
-              <span>Record</span>
-              <span>Statistics</span>
-              <span>Last entry</span>
-              <span className="num">On disk</span>
-              <span>Keeps</span>
-            </div>
+            <OverviewHead />
             {info.logs.map((log) => (
-              <div key={log.key} className="log-table-row clog-overview-row clickable" onClick={() => onOpen(log.key)} title="Open this log">
-                <span className="log-cell log-name">
-                  <IconFileAnalytics size={15} stroke={1.8} className={log.enabledLog || log.enabledStatistics ? "log-icon on" : "log-icon"} />
-                  <span className="clog-name-text">
-                    {log.name || log.key}
-                    <span className="clog-name-key">{log.key}</span>
-                  </span>
-                </span>
-                <span>
-                  {log.activity ? (
-                    <Sparkline values={log.activity} title="Entries per hour, the last 24 hours" />
-                  ) : (
-                    <span className="muted" title="Statistics are off, and they are what this is drawn from">
-                      —
-                    </span>
-                  )}
-                </span>
-                <span className="num">{log.entriesLastDay == null ? "—" : formatCount(log.entriesLastDay)}</span>
-                {/* the switches are their own targets: clicking one must not also open the log */}
-                <span onClick={(e) => e.stopPropagation()}>
-                  <Switch checked={log.enabledLog} onChange={(v) => toggle(log.key, { log: v })} />
-                </span>
-                <span onClick={(e) => e.stopPropagation()}>
-                  <Switch checked={log.enabledStatistics} onChange={(v) => toggle(log.key, { statistics: v })} />
-                </span>
-                <span className="log-cell muted" title={log.lastRecordUtc ? formatDateTime(log.lastRecordUtc) : undefined}>
-                  {log.lastRecordUtc ? formatAgo(log.lastRecordUtc) : "nothing yet"}
-                </span>
-                <span className="num">{log.totalBytes > 0 ? formatBytes(log.totalBytes) : "—"}</span>
-                <span className="log-cell muted">{keepsText(log)}</span>
-              </div>
+              <OverviewRow key={log.key} log={log} onOpen={onOpen} onToggle={(change) => toggle(log.key, change)} />
             ))}
           </div>
         )}
       </section>
+
+      {builtIn.length > 0 && (
+        <section className="panel">
+          <h3>
+            Built-in logs{" "}
+            <span className="panel-sub">
+              {builtIn.length} {builtIn.length === 1 ? "log" : "logs"} the database keeps about itself · {formatBytes(builtIn.reduce((sum, l) => sum + l.totalBytes, 0))}{" "}
+              on disk · switched on the Activity page
+            </span>
+          </h3>
+          <div className="log-table">
+            <OverviewHead />
+            {builtIn.map((log) => (
+              <OverviewRow key={log.key} log={log} icon={logIcon(log.key)} onOpen={onOpen} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {info.loadErrors.length > 0 && (
         <section className="panel clog-broken">
@@ -694,6 +749,78 @@ function Overview({
         setBroken(null);
         onChanged();
       }} />}
+    </div>
+  );
+}
+
+function OverviewHead() {
+  return (
+    <div className="log-table-row log-table-head clog-overview-row">
+      <span>Log</span>
+      <span>Last 24 hours</span>
+      <span className="num" title="Entries recorded in the last 24 hours">
+        In 24 h
+      </span>
+      <span>Record</span>
+      <span>Statistics</span>
+      <span>Last entry</span>
+      <span className="num">On disk</span>
+      <span>Keeps</span>
+    </div>
+  );
+}
+
+/**
+ * One log in an overview table. Without onToggle the switches only show the state - the database's
+ * own logs are switched on the Activity page, where saving the choice is part of switching.
+ */
+function OverviewRow({
+  log,
+  icon: Icon = IconFileAnalytics,
+  onOpen,
+  onToggle,
+}: {
+  log: CustomLogSummary;
+  icon?: LogIconType;
+  onOpen: (key: string) => void;
+  onToggle?: (change: { log?: boolean; statistics?: boolean }) => void;
+}) {
+  return (
+    <div className="log-table-row clog-overview-row clickable" onClick={() => onOpen(log.key)} title="Open this log">
+      <span className="log-cell log-name">
+        <Icon size={15} stroke={1.8} className={log.enabledLog || log.enabledStatistics ? "log-icon on" : "log-icon"} />
+        <span className="clog-name-text">
+          {log.name || log.key}
+          <span className="clog-name-key">{log.key}</span>
+        </span>
+      </span>
+      <span>
+        {log.activity ? (
+          <Sparkline values={log.activity} title="Entries per hour, the last 24 hours" />
+        ) : (
+          <span className="muted" title="Statistics are off, and they are what this is drawn from">
+            —
+          </span>
+        )}
+      </span>
+      <span className="num">{log.entriesLastDay == null ? "—" : formatCount(log.entriesLastDay)}</span>
+      {/* the switches are their own targets: clicking one must not also open the log */}
+      <span onClick={(e) => e.stopPropagation()}>
+        <Switch checked={log.enabledLog} disabled={!onToggle} title={onToggle ? undefined : builtInNote} onChange={(v) => onToggle?.({ log: v })} />
+      </span>
+      <span onClick={(e) => e.stopPropagation()}>
+        <Switch
+          checked={log.enabledStatistics}
+          disabled={!onToggle}
+          title={onToggle ? undefined : builtInNote}
+          onChange={(v) => onToggle?.({ statistics: v })}
+        />
+      </span>
+      <span className="log-cell muted" title={log.lastRecordUtc ? formatDateTime(log.lastRecordUtc) : undefined}>
+        {log.lastRecordUtc ? formatAgo(log.lastRecordUtc) : "nothing yet"}
+      </span>
+      <span className="num">{log.totalBytes > 0 ? formatBytes(log.totalBytes) : "—"}</span>
+      <span className="log-cell muted">{keepsText(log)}</span>
     </div>
   );
 }

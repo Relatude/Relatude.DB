@@ -27,6 +27,24 @@
   color: var(--text-muted);
 }
 
+/* the database's own logs follow the logs defined here, with a hairline between the two families */
+.clog-tab-divider {
+  align-self: center;
+  width: 1px;
+  height: 18px;
+  margin: 0 6px;
+  background: var(--border);
+}
+
+/* the switch that shows them, at the far end of the strip */
+.clog-builtin-switch {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding: 0 4px 2px;
+  font-size: 12px;
+}
+
 /* ---- one log: its header and the bar under it ---- */
 
 .clog-head {

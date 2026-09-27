@@ -180,6 +180,12 @@ export interface CustomLogsInfo {
   totalBytes: number;
   loadErrors: CustomLogLoadError[];
   logs: CustomLogSummary[];
+  /**
+   * The database's own logs (the Activity page), described the same way - only when asked for with
+   * includeBuiltIn, and empty otherwise. They are read through the same commands as the logs above,
+   * by their keys, and are read only here: defined in code, switched on the Activity page.
+   */
+  builtIn: CustomLogSummary[];
 }
 
 export interface DefinitionPlan {

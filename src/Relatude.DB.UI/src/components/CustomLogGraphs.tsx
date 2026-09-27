@@ -63,9 +63,11 @@ export function CustomLogGraphs({
   live: boolean;
   tick: number;
   onPick: (fromUtc: string, toUtc: string, label: string) => void;
-  onTurnOnStatistics: () => void;
+  /** Left out for one of the database's own logs, whose switches are on the Activity page. */
+  onTurnOnStatistics?: () => void;
   onChanged: () => void;
-  onRecord: () => void;
+  /** Left out where there is nothing to record test entries into (the database's own logs). */
+  onRecord?: () => void;
 }) {
   const [chosenInterval, setChosenInterval] = useState<IntervalType | "auto">(() => readJson("customLogs:interval:" + log.key, "auto"));
   const [columns, setColumns] = useState<number>(() => readJson("customLogs:graphColumns", 2));
@@ -159,20 +161,27 @@ export function CustomLogGraphs({
       {!log.enabledStatistics && (
         <div className="logs-note">
           Statistics are off: nothing new is aggregated, and what was kept earlier is not read until they are back on.
-          <button className="link-button" onClick={onTurnOnStatistics}>
-            Turn them on
-          </button>
+          {onTurnOnStatistics ? (
+            <button className="link-button" onClick={onTurnOnStatistics}>
+              Turn them on
+            </button>
+          ) : (
+            " They are switched on the Activity page."
+          )}
         </div>
       )}
-      {nothingYet && (
-        <div className="logs-note">
-          This log has recorded nothing yet. The application records into it by its key - or record a test entry, or a few hundred made-up ones, to see what the
-          graphs will look like.
-          <button className="link-button" onClick={onRecord}>
-            Record test entries
-          </button>
-        </div>
-      )}
+      {nothingYet &&
+        (onRecord ? (
+          <div className="logs-note">
+            This log has recorded nothing yet. The application records into it by its key - or record a test entry, or a few hundred made-up ones, to see what
+            the graphs will look like.
+            <button className="link-button" onClick={onRecord}>
+              Record test entries
+            </button>
+          </div>
+        ) : (
+          <div className="logs-note">This log has recorded nothing yet. The database records into it while it is switched on, on the Activity page.</div>
+        ))}
 
       <StatTiles tiles={tiles} />
 
