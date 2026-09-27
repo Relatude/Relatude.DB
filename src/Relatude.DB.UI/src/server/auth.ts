@@ -28,6 +28,25 @@ export function haveUsers(): Promise<boolean> {
   return post<boolean>("have-users");
 }
 
+// Whether the master account can be used from here: set up at all (a user name and a password), and
+// - from anywhere but the server itself - allowed remotely (AllowMasterLoginOutsideLocalhost). When
+// it cannot, the login page leaves its whole form out.
+export interface MasterLoginOptions {
+  available: boolean;
+  /** why not: no master user or password set, or master login refused from outside the server */
+  reason: "no-user" | "remote" | null;
+}
+
+export async function masterLoginOptions(): Promise<MasterLoginOptions> {
+  try {
+    return await post<MasterLoginOptions>("master-login-options");
+  } catch {
+    // a server from before the endpoint: all it can say is whether a master user is set up
+    const configured = await haveUsers();
+    return { available: configured, reason: configured ? null : "no-user" };
+  }
+}
+
 export async function login(userName: string, password: string, remember: boolean): Promise<boolean> {
   const result = await post<{ success: boolean }>("login", { userName, password, remember });
   return result.success;

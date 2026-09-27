@@ -155,6 +155,19 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
         app.MapPost(path("have-users"), (HttpContext context) => {
             return !string.IsNullOrEmpty(server.Settings.MasterUserName) && !string.IsNullOrEmpty(server.Settings.MasterPassword);
         });
+        // Whether the master account can be used from where this request comes from: a user name and
+        // a password must be set, and - unless the request comes from a browser on this machine -
+        // master login must be allowed remotely. The same two rules the login itself applies, asked
+        // beforehand so the login page can leave the form out rather than offer fields that can only
+        // ever answer "wrong username or password". Reason says which rule it was.
+        app.MapPost(path("master-login-options"), (HttpContext context) => {
+            var configured = !string.IsNullOrEmpty(server.Settings.MasterUserName) && !string.IsNullOrEmpty(server.Settings.MasterPassword);
+            var reachable = server.Settings.AllowMasterLoginOutsideLocalhost || LocalRequest.IsLocalhost(context);
+            return new {
+                Available = configured && reachable,
+                Reason = !configured ? "no-user" : !reachable ? "remote" : null,
+            };
+        });
         app.MapPost(path("is-logged-in"), (HttpContext context) => server.Authentication.IsLoggedIn(context));
         app.MapPost(path("version"), () => { return new { Version = "1.0.0" }; });
         app.MapPost(path("logout"), (HttpContext context) => server.Authentication.LogOut(context));

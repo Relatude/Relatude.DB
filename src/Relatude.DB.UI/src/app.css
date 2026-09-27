@@ -1894,23 +1894,75 @@ a {
   border-radius: 7px;
 }
 
-.login-submit {
-  align-self: flex-end;
-  padding: 7px 18px;
+/* The login's buttons: quiet surfaces rather than blocks of the accent. The page has one thing to
+   do and nothing to compete with, so it needs no loud colour to say where to click - the accent only
+   rings a button that has the keyboard. */
+.login-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 18px;
+  font: inherit;
   font-size: 13px;
   font-weight: 600;
-  color: var(--accent-contrast);
-  background: var(--accent);
-  border-radius: 7px;
+  color: var(--text);
+  text-decoration: none;
+  background: var(--button-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease;
 }
 
-.login-submit:hover:not(:disabled) {
-  filter: brightness(1.1);
+.login-button svg {
+  flex: none;
+  color: var(--text-muted);
+  transition: color 140ms ease;
 }
 
-.login-submit:disabled {
-  opacity: 0.6;
+.login-button:hover:not(:disabled) {
+  text-decoration: none;
+  background: color-mix(in srgb, var(--text) 6%, var(--button-bg));
+  border-color: var(--text-faint);
+}
+
+.login-button:hover:not(:disabled) svg {
+  color: var(--text);
+}
+
+.login-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: 2px;
+}
+
+.login-button:disabled {
+  opacity: 0.55;
   cursor: default;
+}
+
+/* "Remember me" and the master sign-in share the foot of the form */
+.login-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+/* on the way out to Relatude Services: everything fades before the page goes, so the landing page -
+   the same background, and nothing on it but a progress line - follows on from an empty screen */
+.login.leaving {
+  pointer-events: none;
+  animation: login-leave 320ms ease-in forwards;
+}
+
+@keyframes login-leave {
+  to {
+    opacity: 0;
+  }
 }
 
 /* ---- server overview ---- */
@@ -4675,7 +4727,7 @@ a.action-button {
 
 .tasks-type {
   display: grid;
-  grid-template-columns: 1fr 1.4fr 1fr;
+  grid-template-columns: 1fr 1.4fr 1fr 1fr;
   gap: 10px;
   padding: 6px 4px;
   border-top: 1px solid var(--border);
@@ -4690,9 +4742,15 @@ a.action-button {
 }
 
 .tasks-type-meta,
-.tasks-type-keep {
+.tasks-type-keep,
+.tasks-type-concurrency {
   color: var(--text-muted);
   font-size: 12px;
+}
+
+/* batches of the type being worked on now, in the colour the Running tile and state use */
+.tasks-type-running {
+  color: var(--accent);
 }
 
 @media (max-width: 900px) {
@@ -10737,17 +10795,11 @@ body.pg-resizing {
   }
 }
 
-/* "Sign in with Relatude.License": a link styled as the primary button, full width so it reads as
-   the main way in when it is offered; the master form below is the fallback. */
-.login-license {
+/* "Sign in with Relatude Services": full width, so it reads as the main way in when it is offered;
+   the master form below it is the fallback. */
+.login-services {
   align-self: stretch;
-  text-align: center;
-  text-decoration: none;
-  padding: 9px 18px;
-}
-
-.login-license:hover {
-  text-decoration: none;
+  min-height: 40px;
 }
 
 .login-divider {

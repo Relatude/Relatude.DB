@@ -137,7 +137,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         RegisterRunner(new TextIndexTaskRunner(this));
         if (_ai != null) RegisterRunner(new SemanticIndexTaskRunner(this, _ai));
         RegisterRunner(new RewriteTaskRunner(this));
-        TaskQueue = new(this, new DefaultQueueStore(_taskRunners), _taskRunners);
+        // read at every batch start, off the same settings object the admin UI edits, so a change to
+        // how many batches of a type run at once applies without a reopen
+        Func<ITaskRunner, int?> configuredConcurrency = runner => _settings.FindTaskConcurrency(runner.TaskTypeId);
+        TaskQueue = new(this, new DefaultQueueStore(_taskRunners), _taskRunners, configuredConcurrency);
         if (queueStore == null) {
             if (_settings.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Native) {
                 queueStore = new DefaultQueueStore(_taskRunners, _ioIndex, FileKeyUtility.Queue_GetFileKey("bin"));
@@ -147,7 +150,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 throw new Exception("Queue store engine must be set to either BuiltIn or Memory if no queueStore is provided.");
             }
         }
-        TaskQueuePersisted = new(this, queueStore, _taskRunners);
+        TaskQueuePersisted = new(this, queueStore, _taskRunners, configuredConcurrency);
         Datamodel = datamodel;
         datamodel.EnsureInitalization();
         datamodel.SetIndexDefaults(_settings.EnableTextIndexByDefault, _settings.EnableSemanticIndexByDefault, _settings.EnableInstantTextIndexingByDefault);

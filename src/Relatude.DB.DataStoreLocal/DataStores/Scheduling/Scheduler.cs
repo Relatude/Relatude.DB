@@ -139,7 +139,10 @@ internal class Scheduler {
     DateTime _lastDeleteExpiredPersistedTasks = DateTime.MinValue;
 
     long _actionCountAtCompletionOfTaskDequeue;
-    void dequeueTaskQueues(object? state) {
+    // async void: a timer callback returns nothing, and everything after the first await is inside the
+    // try below, so nothing can escape it. The timer is stopped until the pulse is over, however long
+    // the batches it started take
+    async void dequeueTaskQueues(object? state) {
         if (_stopped || _db.State != DataStoreState.Open) return;
         try {
             _taskDequeueTimer?.Change(Timeout.Infinite, Timeout.Infinite); // stop it...
@@ -152,7 +155,7 @@ internal class Scheduler {
                 return;
             }
             deleteExpiredTasksIfDue(_db, _db.TaskQueue, ref _lastDeleteExpiredTasks, _intervalOfDeletingExpiredTasks);
-            dequeueOneTaskQueue(_db.TaskQueue, _dequeIndexTaskRunningFlag, _db, taskQueueMaxRuntimeMs);
+            await dequeueOneTaskQueueAsync(_db.TaskQueue, _dequeIndexTaskRunningFlag, _db, taskQueueMaxRuntimeMs);
             _actionCountAtCompletionOfTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
         } catch (ObjectDisposedException) {
             // timer disposed by Stop() while callback was in flight, safe to ignore
@@ -163,7 +166,7 @@ internal class Scheduler {
         }
     }
     long _actionCountAtCompletionOfPersistedTaskDequeue;
-    void dequeuePersistedTaskQueues(object? state) {
+    async void dequeuePersistedTaskQueues(object? state) { // async void for the same reason as dequeueTaskQueues
         if (_stopped || _db.State != DataStoreState.Open) return;
         try {
             _taskDequeuePersistedTimer?.Change(Timeout.Infinite, Timeout.Infinite); // stop it...
@@ -177,7 +180,7 @@ internal class Scheduler {
             }
             if (_db.TaskQueuePersisted != null) {  // it will be null if persisted queue is not enabled, ( all tasks will then be run by non persisted queue )
                 deleteExpiredTasksIfDue(_db, _db.TaskQueuePersisted, ref _lastDeleteExpiredPersistedTasks, _intervalOfDeletingExpiredTasks);
-                dequeueOneTaskQueue(_db.TaskQueuePersisted, _dequeIndexTaskPersistedRunningFlag, _db, taskQueueMaxRuntimeMs);
+                await dequeueOneTaskQueueAsync(_db.TaskQueuePersisted, _dequeIndexTaskPersistedRunningFlag, _db, taskQueueMaxRuntimeMs);
             }
             _actionCountAtCompletionOfPersistedTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
         } catch (ObjectDisposedException) {
@@ -204,17 +207,17 @@ internal class Scheduler {
         if (restartedBatches > 0) db.LogInfo("   -> " + restartedBatches + " batches with " + restaredTasks + " tasks restarted after shutdown");
         if (abortedBatches > 0) db.LogInfo("   -> " + abortedBatches + " batches with " + abortedTasks + " tasks aborted due to shutdown");
     }
-    static void dequeueOneTaskQueue(TaskQueue queue, OnlyOneThreadRunning oneThread, DataStoreLocal db, int maxRunTime) {
+    static async Task dequeueOneTaskQueueAsync(TaskQueue queue, OnlyOneThreadRunning oneThread, DataStoreLocal db, int maxRunTime) {
         if (oneThread.IsRunning_IfNotSetFlagToRunning()) return;
         long activityId = -1;
         try {
             if (db.State != DataStoreState.Open) return;
-            if (queue.CountBatch(BatchState.Pending) == 0) return; // no tasks to execute            
+            if (queue.CountBatch(BatchState.Pending) == 0) return; // no tasks to execute
             Stopwatch sw = Stopwatch.StartNew();
             bool abort() => db.State != DataStoreState.Open;
-            var tasks = new List<Task<BatchTaskResult[]>>();
             activityId = db.RegisterActvity(DataStoreActivityCategory.RunningTask, "Running tasks", 0);
-            BatchTaskResult[] result = queue.ExecuteTasksAsync(maxRunTime, abort, activityId).Result;
+            // awaited rather than blocked on: the batches run on threads of their own, several at once
+            BatchTaskResult[] result = await queue.ExecuteTasksAsync(maxRunTime, abort, activityId);
             var ms = sw.Elapsed.TotalMilliseconds;
             if (result.Length == 0) return; // no tasks executed
             var failed = result.Count(r => r.Error != null);

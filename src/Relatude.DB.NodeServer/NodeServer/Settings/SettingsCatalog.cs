@@ -1123,6 +1123,33 @@ public static class SettingsCatalog {
                         },
                     ],
                 },
+                new() {
+                    Id = "task-concurrency",
+                    Title = "Batches at once",
+                    Help = "How many batches of one kind of task run at the same time. Each kind runs as many as its code asks for: semantic indexing four at once, since it mostly waits for the AI service; "
+                        + "text indexing one at a time, since its work is done under the database's write lock anyway; log rewrites and backups always one at a time; and a kind your own code adds one at a time unless it says otherwise. "
+                        + "An entry here sets the number for one kind. Two indexing batches never work on the same node at once, whatever the number, and a change applies to the next batch that starts. The Tasks page shows the numbers in force.",
+                    List = new() {
+                        Path = "LocalSettings.TaskConcurrency",
+                        ItemName = "task type",
+                        LabelField = "TaskType",
+                        EmptyHelp = "No kind of task is set here, so each runs as many batches at once as its code asks for.",
+                        Fields = [
+                            new() {
+                                Path = "TaskType", Label = "Task type", Picker = "taskTypes", Applies = SettingApplies.Live,
+                                Help = "The kind of task the number is for. The list holds the kinds this database runs and can run side by side; a log rewrite is left out, since it never runs beside another.",
+                            },
+                            new() {
+                                Path = "MaxConcurrency", Label = "Batches at once", Placeholder = "default", Applies = SettingApplies.Live,
+                                Help = "More runs a backlog down faster where the work waits on something outside the database, like the AI service - which may start refusing requests when asked too often, and is then retried. Empty leaves the number to the task type itself.",
+                            },
+                            new() {
+                                Path = "Id", Label = "Entry id", ReadOnly = true,
+                                Help = "Identifies this entry in the settings file so this page can edit and remove it. Generated when the entry is added, and nothing else refers to it.",
+                            },
+                        ],
+                    },
+                },
             ],
         },
         new() {

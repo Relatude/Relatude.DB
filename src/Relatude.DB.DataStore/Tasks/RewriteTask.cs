@@ -45,6 +45,10 @@ public class RewriteTaskRunner(IDataStore db) : TaskRunner<RewriteTask> {
     public override bool PersistToDisk => false;
     public override bool DeleteOnSuccess => true;
     public override int MaxTaskCountPerBatch => 1;
+    // a rewrite or copy refuses to start while another one runs, so a second one alongside would
+    // fail rather than wait: one at a time, whatever the settings say
+    public override int MaxConcurrency => 1;
+    public override int MaxConcurrencyLimit => 1;
     public override TimeSpan GetMaximumAgeInQueueAfterExecution() => TimeSpan.FromHours(24);
     public override RewriteTask TaskFromBytes(byte[] bytes) => throw new NotImplementedException();
     public override byte[] TaskToBytes(RewriteTask task) => throw new NotImplementedException();

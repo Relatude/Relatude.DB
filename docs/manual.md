@@ -2012,7 +2012,10 @@ which refuses both the login and any existing session cookie from a remote addre
 deliberately, over HTTPS, and only after setting credentials. Set `MasterUserName` and
 `MasterPassword` in `relatude.db.json`, or better, in the `RelatudeDB` configuration section (user
 secrets, environment variables); until they are set, logging in throws "No master user configured on
-the server."
+the server." The admin UI's login page asks the server first, and leaves the user name and
+password fields out wherever the master account cannot be used - no master user set, or a remote
+address while this setting is off - showing only *Sign in with Relatude.License* when that is set up,
+or a line saying that logging in is not possible from there.
 
 Three more details cost people time: the stored user name must be **lowercase** (the check
 lowercases the input before comparing), the password is compared verbatim and stored in plain text,

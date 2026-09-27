@@ -12,6 +12,13 @@ public class SemanticIndexTaskRunner(IDataStore db, AIEngine ai) : TaskRunner<Se
     public override BatchTaskPriority Priority => BatchTaskPriority.Low;
     public override int MaxTaskCountPerBatch => 50;
     public override bool PersistToDisk => true;
+    // most of a batch is spent waiting for the AI service, outside every lock, so batches running side
+    // by side are close to that many times faster - until the service's rate limit, which the
+    // providers back off from and retry
+    public override int MaxConcurrency => 4;
+    // the text is read before the embeddings are fetched and written after, so two batches holding
+    // the same node must not overlap: the one that read the older text could finish last
+    public override string? GetConcurrencyKey(SemanticIndexTask task) => task.NodeId.ToString();
     public override async Task ExecuteAsync(Batch<SemanticIndexTask> batch, TaskLogger? taskLogger) {
         var ids = batch.Tasks.Select(t => t.NodeId).ToArray();
         var extracts = db.GetTextExtract(ids, TextIndexType.SemanticTextSearch);

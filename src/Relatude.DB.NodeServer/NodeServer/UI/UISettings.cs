@@ -1,6 +1,8 @@
 using Relatude.DB.AI;
 using Relatude.DB.DataStores;
 using Relatude.DB.NodeServer.Settings;
+using Relatude.DB.Tasks;
+using Relatude.DB.Tasks.TextIndexing;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Reflection;
@@ -135,8 +137,35 @@ sealed class UISettings {
                 ValueIndexes = indexEnginePicker(settings.LocalSettings?.ValueIndexes),
                 TextIndexes = indexEnginePicker(settings.LocalSettings?.TextIndexes),
                 VectorIndexes = indexEnginePicker(settings.LocalSettings?.VectorIndexes),
+                TaskTypes = taskTypePicker(container),
             },
         };
+    }
+
+    /// <summary>
+    /// The kinds of task an entry of <see cref="SettingsLocal.TaskConcurrency"/> can name: the runners
+    /// of the open database, less those that can never run beside themselves - a log rewrite - since a
+    /// number set for one would change nothing. A closed database has no runners to ask, so the
+    /// built-in kinds it would have stand in; a kind application code registers is only listed while
+    /// the database is open, and one already named in an entry is shown as it is either way.
+    /// </summary>
+    static object[] taskTypePicker(NodeStoreContainer container) {
+        var runners = container.IsOpen() ? container.Store?.Datastore.TaskQueue.Runners : null;
+        if (runners != null) {
+            return [.. runners
+                .Where(r => TaskQueue.ConcurrencyLimitOf(r) > 1)
+                .OrderBy(r => r.TaskTypeId, StringComparer.Ordinal)
+                .Select(r => {
+                    var byDefault = Math.Clamp(r.MaxConcurrency, 1, TaskQueue.ConcurrencyLimitOf(r));
+                    return (object)new {
+                        Value = r.TaskTypeId,
+                        Label = UITasks.TaskTypeName(r.TaskTypeId),
+                        Hint = (byDefault == 1 ? "one at a time" : byDefault + " at once") + " unless set here",
+                    };
+                })];
+        }
+        Type[] builtIn = container.Settings.AISettings == null ? [typeof(TextIndexTask)] : [typeof(SemanticIndexTask), typeof(TextIndexTask)];
+        return [.. builtIn.Select(t => (object)new { Value = t.FullName!, Label = UITasks.TaskTypeName(t.FullName!), Hint = (string?)null })];
     }
 
     // the memory index comes first, under the id that means it, so a default of Guid.Empty is a named

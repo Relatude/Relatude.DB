@@ -102,6 +102,34 @@ public class SettingsLocal {
     public bool AutoDequeTasks { get; set; } = true;
     public PersistedQueueStoreEngine PersistedQueueStoreEngine { get; set; } = PersistedQueueStoreEngine.Native;
     public string? PersistedQueueStoreFolderPath { get; set; }
+    /// <summary>
+    /// How many batches of a task type may run at the same time, for the types that should not run as
+    /// many as their runner asks for (<see cref="Relatude.DB.Tasks.ITaskRunner.MaxConcurrency"/>). A type that is
+    /// not listed runs as its runner says: semantic indexing four at once, text indexing and log
+    /// rewrites one at a time, and a type application code adds one at a time unless it says otherwise.
+    /// Read every time a batch is about to start, so a change applies to the next one.
+    /// </summary>
+    public TaskConcurrencySettings[]? TaskConcurrency { get; set; }
+
+    /// <summary>
+    /// The number of batches at once <see cref="TaskConcurrency"/> sets for a task type, or null when
+    /// it leaves the type to its runner. An entry names the type by the full name of its task class or
+    /// by the class name alone; the first entry naming it with a number set is the one that counts.
+    /// </summary>
+    public int? FindTaskConcurrency(string taskTypeId) {
+        var entries = TaskConcurrency;
+        if (entries == null || entries.Length == 0) return null;
+        var dot = taskTypeId.LastIndexOf('.');
+        var className = dot >= 0 ? taskTypeId[(dot + 1)..] : taskTypeId;
+        foreach (var entry in entries) {
+            if (entry?.MaxConcurrency is not int value) continue;
+            var named = entry.TaskType?.Trim();
+            if (string.IsNullOrEmpty(named)) continue;
+            if (string.Equals(named, taskTypeId, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(named, className, StringComparison.OrdinalIgnoreCase)) return value;
+        }
+        return null;
+    }
     public DefaultUrlManagerOptions? UrlOptions { get; set; } = new();
 
     public ImageDefaultFormat ImageDefaultFormat { get; set; } = ImageDefaultFormat.Jpeg;
@@ -219,6 +247,21 @@ public static class IndexEngineTypes {
     public static readonly string[] TextEngines = [Native, Sqlite, Lucene];
     public static readonly string[] VectorEngines = [IVS, HNSW];
     public static bool Is(string? typeName, string known) => string.Equals(typeName, known, StringComparison.OrdinalIgnoreCase);
+}
+/// <summary>One entry of <see cref="SettingsLocal.TaskConcurrency"/>: how many batches of one task type may run at once.</summary>
+public class TaskConcurrencySettings {
+    /// <summary>Identifies the entry in the settings file, so the admin UI can edit and remove it. Nothing else refers to it.</summary>
+    public Guid Id { get; set; }
+    /// <summary>The task type, by the full name of its task class - "Relatude.DB.Tasks.TextIndexing.SemanticIndexTask" -
+    /// or by the class name alone.</summary>
+    public string? TaskType { get; set; }
+    /// <summary>
+    /// How many batches of the type may run at the same time. Empty leaves it to the type's runner. The
+    /// number is kept within what the runner allows: a log rewrite runs one at a time whatever is set
+    /// here, and no type runs more than <see cref="Relatude.DB.Tasks.TaskQueue.MaxSupportedConcurrency"/> at once.
+    /// </summary>
+    public int? MaxConcurrency { get; set; }
+    public override string ToString() => (TaskType ?? "?") + ": " + (MaxConcurrency?.ToString() ?? "default");
 }
 public enum PersistedQueueStoreEngine {
     Memory = 0,

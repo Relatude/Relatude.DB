@@ -89,48 +89,63 @@ public class SqliteQueueStore : IQueueStore {
             P("@taskCount", batch.GenericTasks.Count()),
             P("@taskData", batch.TasksToBytes(runner)));
     }
-    public IBatch? DequeueAndSetRunning(Dictionary<string, ITaskRunner> runners) {
+    public IBatch? DequeueAndSetRunning(Dictionary<string, ITaskRunner> runners) => DequeueAndSetRunning(runners, _noTypes, null);
+    static readonly IReadOnlySet<string> _noTypes = new HashSet<string>();
+    // How far down the line a batch that has to wait is looked past. A type already running as many
+    // batches as it may is filtered out in the query, so only a clash on a concurrency key gets this
+    // far - rare enough that a short window is plenty, and it bounds what one dequeue can cost.
+    const int maxCandidates = 64;
+    public IBatch? DequeueAndSetRunning(Dictionary<string, ITaskRunner> runners, IReadOnlySet<string> excludedTypeIds, Func<IBatch, bool>? accept) {
         invalidatePendingCache();
-        using var cmd = _connection.CreateCommand();
-        cmd.CommandText = @"
-            SELECT id, type_id, job_id, priority, state, created, completed, error_type, error_message, task_count, task_data
-            FROM tasks
-            WHERE state = @state
-            ORDER BY priority DESC, created ASC
-            LIMIT 1";
-        cmd.Parameters.AddWithValue("@state", (int)BatchState.Pending);
-
-        using var reader = cmd.ExecuteReader();
-        if (!reader.Read()) return null; // no pending tasks
-
+        // only the types this database has a runner for: a batch of any other type - queued while an AI
+        // provider was configured, say - cannot be run here, and at the head of the line it would stop
+        // everything behind it
+        var startable = runners.Keys.Where(t => !excludedTypeIds.Contains(t)).ToArray();
+        if (startable.Length == 0) return null;
+        IBatch? chosen = null;
+        using (var cmd = _connection.CreateCommand()) {
+            cmd.CommandText = $@"
+                SELECT id, type_id, job_id, priority, state, created, completed, error_type, error_message, task_count, task_data
+                FROM tasks
+                WHERE state = @state AND type_id IN ({string.Join(",", startable.Select(sqlSafeString))})
+                ORDER BY priority DESC, created ASC
+                LIMIT {(accept == null ? 1 : maxCandidates)}";
+            cmd.Parameters.AddWithValue("@state", (int)BatchState.Pending);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) {
+                var batch = readBatch(reader, runners);
+                if (accept == null || accept(batch)) {
+                    chosen = batch;
+                    break;
+                }
+            }
+        }
+        if (chosen == null) return null; // no pending tasks, or none that can start now
+        chosen.Meta.SetState(BatchState.Running);
+        Set([chosen.Meta.BatchId], BatchState.Running);
+        return chosen;
+    }
+    static IBatch readBatch(SqliteDataReader reader, Dictionary<string, ITaskRunner> runners) {
         var batchId = Guid.Parse(reader.GetString(0));
         var typeId = reader.GetString(1);
         var jobId = reader.IsDBNull(2) ? null : reader.GetString(2);
         var priority = (BatchTaskPriority)reader.GetInt32(3);
-        var state = BatchState.Running; // (BatchState)reader.GetInt32(4);
+        var state = (BatchState)reader.GetInt32(4);
         var created = reader.GetDateTime(5);
         DateTime? completed = reader.IsDBNull(6) ? null : reader.GetDateTime(6);
         string? errorType = reader.IsDBNull(7) ? null : reader.GetString(7);
         string? errorMessage = reader.IsDBNull(8) ? null : reader.GetString(8);
-        int taskCount = reader.GetInt32(9);
         byte[] taskData = reader.GetFieldValue<byte[]>(10);
-
         var meta = new BatchMeta(batchId, typeId, state, priority, created) {
             JobId = jobId,
             Completed = completed,
             ErrorType = errorType,
             ErrorMessage = errorMessage
         };
-
         if (!runners.TryGetValue(typeId, out var runner)) {
             throw new Exception("No task runner registered for type: " + typeId);
         }
-        var batch = runner.GetBatchFromMetaAndData(meta, taskData);
-
-        // Update the state to Processing
-        Set([batchId], BatchState.Running);
-
-        return batch;
+        return runner.GetBatchFromMetaAndData(meta, taskData);
     }
     public void FlushDiskIfNeeded() {
         //_cachedNoPendingTasks = null; // invalidate cache

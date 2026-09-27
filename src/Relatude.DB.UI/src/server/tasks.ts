@@ -40,6 +40,16 @@ export interface TaskType {
   /** how long a finished batch is kept before it is swept; null means forever */
   retentionMs: number | null;
   restartOnStartup: boolean;
+  /** how many batches of the type run at the same time, as things stand */
+  concurrency: number;
+  /** what the type's own code asks for, which is what applies while no setting names the type */
+  defaultConcurrency: number;
+  /** the most the type can ever run at once; 1 for work that must never overlap with itself */
+  concurrencyLimit: number;
+  /** true when the database's settings (LocalSettings.TaskConcurrency) decide the number */
+  concurrencySet: boolean;
+  /** batches of the type a runner is working on right now */
+  running: number;
 }
 
 /** One batch: the unit the queue actually holds, carrying up to maxTasksPerBatch tasks of one type. */

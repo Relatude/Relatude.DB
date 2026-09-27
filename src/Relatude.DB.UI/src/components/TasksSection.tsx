@@ -1,7 +1,8 @@
 import { useCallback, useRef, useState } from "react";
-import { IconChevronLeft, IconChevronRight, IconEraser, IconReload, IconTrash, IconX } from "@tabler/icons-react";
+import { IconChevronLeft, IconChevronRight, IconEraser, IconReload, IconSettings, IconTrash, IconX } from "@tabler/icons-react";
 import { useLive } from "../live";
 import { showConfirm, showError, showInfo } from "../dialogs";
+import { openInSettings } from "../navigate";
 import {
   clearTasks,
   deleteTasks,
@@ -12,6 +13,7 @@ import {
   type QueueId,
   type TaskBatch,
   type TasksInfo,
+  type TaskType,
 } from "../server/tasks";
 import type { DatabaseInfo } from "../server/serverInfo";
 import { formatCount, formatDuration, formatTime } from "../format";
@@ -422,7 +424,19 @@ export function TasksSection({ db }: { db: DatabaseInfo }) {
 
       <section className="panel">
         <h3>
-          Task types <span className="panel-sub">what this database runs in the background, and how</span>
+          Task types{" "}
+          <span className="panel-sub">
+            what this database runs in the background, and how
+            {/* the number is a setting of the database, so it is changed where the settings are */}
+            <button
+              className="link-button"
+              title="How many batches of each type run at the same time is a database setting"
+              onClick={() => openInSettings({ scope: "database", storeId: db.id, sectionId: "maintenance", groupId: "task-concurrency" })}
+            >
+              <IconSettings size={13} stroke={1.8} />
+              Batches at once
+            </button>
+          </span>
         </h3>
         <div className="tasks-types">
           {data.types.map((t) => (
@@ -435,6 +449,10 @@ export function TasksSection({ db }: { db: DatabaseInfo }) {
               </span>
               <span className="tasks-type-keep">
                 {t.deleteOnSuccess ? "removed once it succeeds" : t.retentionMs == null ? "kept until deleted" : `kept ${formatKept(t.retentionMs)} after it runs`}
+              </span>
+              <span className="tasks-type-concurrency" title={concurrencyTitle(t)}>
+                {concurrencyText(t)}
+                {t.running > 0 && <span className="tasks-type-running"> · {formatCount(t.running)} running</span>}
               </span>
             </div>
           ))}
@@ -553,6 +571,21 @@ function formatElapsed(ms: number): string {
   if (ms < 1000) return Math.round(ms) + " ms";
   if (ms < 60000) return (ms / 1000).toFixed(1) + " s";
   return formatDuration(ms);
+}
+
+/** How many batches of the type run side by side, and who decided that. */
+function concurrencyText(t: TaskType): string {
+  if (t.concurrencyLimit === 1) return "always one at a time";
+  const count = t.concurrency === 1 ? "one at a time" : `${formatCount(t.concurrency)} at once`;
+  return t.concurrencySet ? count + ", set in settings" : count;
+}
+
+function concurrencyTitle(t: TaskType): string {
+  if (t.concurrencyLimit === 1) return "This kind of work never runs beside itself, whatever the settings say.";
+  const own = t.defaultConcurrency === 1 ? "one at a time" : `${t.defaultConcurrency} at once`;
+  return t.concurrencySet
+    ? `The database settings decide this; the type's own code asks for ${own}.`
+    : "What the type's own code asks for. The database settings can change it, under Maintenance › Batches at once.";
 }
 
 /** Retention is a policy, not a measurement: hours and days, not a clock. */

@@ -95,17 +95,29 @@ sealed class UITasks {
             }.Where(q => q != null),
             Types = store.TaskQueue.Runners
                 .OrderBy(r => r.TaskTypeId)
-                .Select(r => new {
-                    Id = r.TaskTypeId,
-                    Name = typeName(r.TaskTypeId),
-                    Priority = r.Priority.ToString(),
-                    Queue = r.PersistToDisk ? persistedId : memoryId,
-                    MaxTasksPerBatch = r.MaxTaskCountPerBatch,
-                    // both explain why finished batches are not in the list: most types are deleted
-                    // the moment they succeed, and the rest are swept once they are old enough
-                    r.DeleteOnSuccess,
-                    RetentionMs = finiteMs(r.GetMaximumAgeInQueuePerState(BatchState.Completed)),
-                    RestartOnStartup = r.RestartTaskBatchesOnStartupThatStartedButNeverFailedOrCompleted,
+                .Select(r => {
+                    // the queue the type lands in, which is the one running its batches
+                    var queue = r.PersistToDisk && store.TaskQueuePersisted != null ? store.TaskQueuePersisted : store.TaskQueue;
+                    var limit = TaskQueue.ConcurrencyLimitOf(r);
+                    return new {
+                        Id = r.TaskTypeId,
+                        Name = TaskTypeName(r.TaskTypeId),
+                        Priority = r.Priority.ToString(),
+                        Queue = r.PersistToDisk ? persistedId : memoryId,
+                        MaxTasksPerBatch = r.MaxTaskCountPerBatch,
+                        // both explain why finished batches are not in the list: most types are deleted
+                        // the moment they succeed, and the rest are swept once they are old enough
+                        r.DeleteOnSuccess,
+                        RetentionMs = finiteMs(r.GetMaximumAgeInQueuePerState(BatchState.Completed)),
+                        RestartOnStartup = r.RestartTaskBatchesOnStartupThatStartedButNeverFailedOrCompleted,
+                        // how many batches of the type run at once: the number in force, what the runner
+                        // asks for on its own, whether a setting decides it, and the most it can be
+                        Concurrency = queue.ConcurrencyOf(r),
+                        DefaultConcurrency = Math.Clamp(r.MaxConcurrency, 1, limit),
+                        ConcurrencyLimit = limit,
+                        ConcurrencySet = queue.ConfiguredConcurrencyOf(r) != null,
+                        Running = queue.RunningCount(r.TaskTypeId),
+                    };
                 }),
             Queue = wanted.Length == 1 ? wanted[0] : "both",
             QueuesShown = wanted,
@@ -113,7 +125,7 @@ sealed class UITasks {
                 x.batch.BatchId,
                 Queue = x.queue,
                 TypeId = x.batch.TaskTypeId,
-                Type = typeName(x.batch.TaskTypeId),
+                Type = TaskTypeName(x.batch.TaskTypeId),
                 State = x.batch.State.ToString(),
                 Priority = x.batch.Priority.ToString(),
                 x.batch.TaskCount,
@@ -220,7 +232,7 @@ sealed class UITasks {
     }
 
     /// <summary>The type name without its namespace, spaced out: "TextIndexTask" reads as "Text index task".</summary>
-    static string typeName(string typeId) {
+    internal static string TaskTypeName(string typeId) {
         var index = typeId.LastIndexOf('.');
         var name = index > -1 && index < typeId.Length - 1 ? typeId[(index + 1)..] : typeId;
         return name.Decamelize();

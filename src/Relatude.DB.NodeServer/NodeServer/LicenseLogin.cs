@@ -132,7 +132,7 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
 
     /// <summary>Step one: register the sign-in with the license server and send the browser there.</summary>
     public async Task StartAsync(HttpContext context) {
-        if (!SignInAvailable || !tryGetKeys(out var licenseKey, out var apiKey)) { failed(context, "Sign-in with Relatude.License is not enabled on this server."); return; }
+        if (!SignInAvailable || !tryGetKeys(out var licenseKey, out var apiKey)) { failed(context, "Sign-in with Relatude Services is not enabled on this server."); return; }
         var redirectUri = $"{context.Request.Scheme}://{context.Request.Host}{server.ApiUrlPublic}license-login/callback/";
         var request = new LoginRequestCreate(apiKey, licenseKey, installationKey, redirectUri, settings.Name);
         // the same question the heartbeat asks, and here it also answers the user faster than
@@ -140,15 +140,15 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
         if (!await TcpProbe.IsListeningAsync(baseUrl, cancellationToken: context.RequestAborted)) { unreachable(context, "start"); return; }
         try {
             using var response = await http.PostAsJsonAsync(baseUrl + "/api/connect/login-requests", request, _json, context.RequestAborted);
-            if (!response.IsSuccessStatusCode) { failed(context, "The license server refused the sign-in: " + await reasonOf(response)); return; }
+            if (!response.IsSuccessStatusCode) { failed(context, "Relatude Services refused the sign-in: " + await reasonOf(response)); return; }
             var created = await response.Content.ReadFromJsonAsync<LoginRequestCreated>(_json, context.RequestAborted);
-            if (created == null || string.IsNullOrEmpty(created.LoginUrl) || string.IsNullOrEmpty(created.RequestId)) { failed(context, "The license server answered without a sign-in url."); return; }
+            if (created == null || string.IsNullOrEmpty(created.LoginUrl) || string.IsNullOrEmpty(created.RequestId)) { failed(context, "Relatude Services answered without a sign-in url."); return; }
             // binds the browser that leaves to the one that comes back with the code
             context.Response.Cookies.Append(_stateCookie, created.RequestId, stateCookieOptions(_stateLifetime));
-            context.Response.Redirect(created.LoginUrl);
+            context.Response.Redirect(withQuery(created.LoginUrl, colourParameters(context.Request)));
         } catch (Exception err) when (err is HttpRequestException or TaskCanceledException or JsonException) {
             RelatudeDBServer.Trace("Sign-in with Relatude.License could not start: " + err.Message);
-            failed(context, "The license server could not be reached. Use the master login, or try again later.");
+            failed(context, "Relatude Services could not be reached. Use the master login, or try again later.");
         }
     }
 
@@ -156,21 +156,21 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     public async Task CallbackAsync(HttpContext context, string? code, string? state) {
         var expected = context.Request.Cookies[_stateCookie];
         context.Response.Cookies.Delete(_stateCookie, stateCookieOptions(null));
-        if (!SignInAvailable || !tryGetKeys(out _, out var apiKey)) { failed(context, "Sign-in with Relatude.License is not enabled on this server."); return; }
+        if (!SignInAvailable || !tryGetKeys(out _, out var apiKey)) { failed(context, "Sign-in with Relatude Services is not enabled on this server."); return; }
         if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state) || expected != state) { failed(context, "The sign-in did not come back the way it left. Try again."); return; }
         if (!await TcpProbe.IsListeningAsync(baseUrl, cancellationToken: context.RequestAborted)) { unreachable(context, "complete"); return; }
         try {
             using var response = await http.PostAsJsonAsync(baseUrl + "/api/connect/token", new TokenRequest(apiKey, code, state), _json, context.RequestAborted);
-            if (!response.IsSuccessStatusCode) { failed(context, "The license server refused the sign-in: " + await reasonOf(response)); return; }
+            if (!response.IsSuccessStatusCode) { failed(context, "Relatude Services refused the sign-in: " + await reasonOf(response)); return; }
             var token = await response.Content.ReadFromJsonAsync<TokenResult>(_json, context.RequestAborted);
-            if (token == null || token.Subject == Guid.Empty) { failed(context, "The license server answered without a user."); return; }
+            if (token == null || token.Subject == Guid.Empty) { failed(context, "Relatude Services answered without a user."); return; }
             if (!string.Equals(token.InstallationKey, installationKey, StringComparison.OrdinalIgnoreCase)) { failed(context, "The sign-in was meant for another installation."); return; }
             server.Authentication.LogInLicensee(context, token.Subject.ToString(), token.Name, token.ExpiresUtc);
             RelatudeDBServer.Trace($"{token.Name} signed in with Relatude.License as {token.Role} of the license \"{token.LicenseName}\".");
             context.Response.Redirect(server.ApiUrlRoot + "/");
         } catch (Exception err) when (err is HttpRequestException or TaskCanceledException or JsonException) {
             RelatudeDBServer.Trace("Sign-in with Relatude.License could not complete: " + err.Message);
-            failed(context, "The license server could not be reached. Use the master login, or try again later.");
+            failed(context, "Relatude Services could not be reached. Use the master login, or try again later.");
         }
     }
 
@@ -181,8 +181,28 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     /// </summary>
     void unreachable(HttpContext context, string step) {
         RelatudeDBServer.Trace($"Sign-in with Relatude.License could not {step}: nothing is listening at {baseUrl}.");
-        failed(context, "The license server could not be reached. Use the master login, or try again later.");
+        failed(context, "Relatude Services could not be reached. Use the master login, or try again later.");
     }
+
+    /// <summary>
+    /// The colours of the login screen the sign-in was started from (Login.tsx sends them), passed on
+    /// to the license server's landing page. When the user can go straight back, that page shows
+    /// nothing but a progress line - in these colours it reads as the same screen, not a stop at
+    /// another site in between. Only plain hex colours are passed on; anything else is dropped.
+    /// </summary>
+    static string colourParameters(HttpRequest request) {
+        var parts = new List<string>();
+        foreach (var name in _colourParameters) {
+            var value = request.Query[name].ToString();
+            if (isHexColour(value)) parts.Add(name + "=" + Uri.EscapeDataString(value));
+        }
+        return string.Join("&", parts);
+    }
+    static readonly string[] _colourParameters = ["bg", "track", "bar"];
+    static bool isHexColour(string value) =>
+        value.Length is 4 or 5 or 7 or 9 && value[0] == '#' && value.Skip(1).All(Uri.IsHexDigit);
+    static string withQuery(string url, string query) =>
+        query.Length == 0 ? url : url + (url.Contains('?') ? "&" : "?") + query;
 
     /// <summary>Back to the login page with the reason, which it shows (Login.tsx reads login-error).</summary>
     void failed(HttpContext context, string reason) =>

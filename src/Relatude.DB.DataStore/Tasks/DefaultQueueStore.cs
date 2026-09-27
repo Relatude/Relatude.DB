@@ -113,16 +113,18 @@ public class DefaultQueueStore : IQueueStore {
             }
         }
     }
-    public IBatch? DequeueAndSetRunning(Dictionary<string, ITaskRunner> runners) {
+    public IBatch? DequeueAndSetRunning(Dictionary<string, ITaskRunner> runners) => DequeueAndSetRunning(runners, _noTypes, null);
+    static readonly IReadOnlySet<string> _noTypes = new HashSet<string>();
+    public IBatch? DequeueAndSetRunning(Dictionary<string, ITaskRunner> runners, IReadOnlySet<string> excludedTypeIds, Func<IBatch, bool>? accept) {
         // ThenBy, not a second OrderBy: a second OrderBy re-sorts from scratch and drops the
         // priority, which is the whole reason a batch carries one (SqliteQueueStore orders the same
         // way, "ORDER BY priority DESC, created ASC")
         IBatch? task = _batchesById.Values
-            .Where(b => b.Meta.State == BatchState.Pending)
+            .Where(b => b.Meta.State == BatchState.Pending && !excludedTypeIds.Contains(b.Meta.TaskTypeId))
             .OrderByDescending(b => b.Meta.Priority)
             .ThenBy(b => b.Meta.CreatedUtc)
-            .FirstOrDefault();
-        if (task == null) return null; // no pending tasks
+            .FirstOrDefault(b => accept == null || accept(b));
+        if (task == null) return null; // no pending tasks, or none that can start now
         _batchesById[task.Meta.BatchId].Meta.State = BatchState.Running;
         if (_persistToDisk) writeBatchToDisk(task, runners[task.Meta.TaskTypeId]);
         return task;
@@ -160,7 +162,9 @@ public class DefaultQueueStore : IQueueStore {
         }
     }
     public void Set(Guid batchId, Exception error) {
-        var batch = _batchesById[batchId];
+        // a batch deleted from the admin UI while it ran is gone by the time its failure comes back,
+        // and there is nothing left to mark - the other two setters ignore a missing batch the same way
+        if (!_batchesById.TryGetValue(batchId, out var batch)) return;
         batch.Meta.SetState(BatchState.Failed);
         batch.Meta.ErrorType = error.GetType().FullName ?? "Unknown";
         batch.Meta.ErrorMessage = error.Message;

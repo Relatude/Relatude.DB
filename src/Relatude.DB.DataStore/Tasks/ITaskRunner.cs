@@ -1,4 +1,4 @@
-﻿using Relatude.DB.Datamodels.Properties;
+using Relatude.DB.Datamodels.Properties;
 
 namespace Relatude.DB.Tasks;
 
@@ -24,6 +24,29 @@ public interface ITaskRunner {
     TimeSpan GetMaximumAgeInQueuePerState(BatchState state);
     bool DeleteOnSuccess { get; }
     bool PersistToDisk { get; }
+    /// <summary>
+    /// How many batches of this type may run at the same time when the database's settings say
+    /// nothing about the type (<c>LocalSettings.TaskConcurrency</c> can). 1 runs them one after
+    /// another, which is what a runner written without concurrency in mind needs, so that is the
+    /// default. A runner that raises it has to be safe to run beside itself - see
+    /// <see cref="GetConcurrencyKeyGeneric"/> for work that reads something and writes a result back.
+    /// </summary>
+    int MaxConcurrency => 1;
+    /// <summary>
+    /// The most batches of this type that may ever run at once, whatever the settings say: 1 for work
+    /// that must never overlap with itself, such as a log rewrite. The queue also caps every type at
+    /// <see cref="TaskQueue.MaxSupportedConcurrency"/>.
+    /// </summary>
+    int MaxConcurrencyLimit => TaskQueue.MaxSupportedConcurrency;
+    /// <summary>
+    /// What a task works on, for a type that may run more than one batch at once. A batch holding a
+    /// task whose key a running batch of the same type also holds is not started until that one is
+    /// done, so two tasks with the same key never run at the same time. Work that reads the current
+    /// state of something and writes a result back needs this: two batches indexing the same node,
+    /// finishing in the wrong order, would leave the older result in place. Null, the default, lets
+    /// any two tasks run together.
+    /// </summary>
+    string? GetConcurrencyKeyGeneric(TaskData task) => null;
 }
 public abstract class TaskRunner<TTask> : ITaskRunner where TTask : TaskData {
     public string TaskTypeId { get; } = typeof(TTask).FullName ?? throw new InvalidOperationException("Task type must have a valid FullName.");
@@ -31,6 +54,13 @@ public abstract class TaskRunner<TTask> : ITaskRunner where TTask : TaskData {
     public virtual bool RestartTaskBatchesOnStartupThatStartedButNeverFailedOrCompleted { get; } = true;
     public abstract TimeSpan GetMaximumAgeInQueueAfterExecution();
     public abstract bool PersistToDisk { get; }
+    /// <inheritdoc cref="ITaskRunner.MaxConcurrency"/>
+    public virtual int MaxConcurrency => 1;
+    /// <inheritdoc cref="ITaskRunner.MaxConcurrencyLimit"/>
+    public virtual int MaxConcurrencyLimit => TaskQueue.MaxSupportedConcurrency;
+    public string? GetConcurrencyKeyGeneric(TaskData task) => GetConcurrencyKey((TTask)task);
+    /// <inheritdoc cref="ITaskRunner.GetConcurrencyKeyGeneric"/>
+    public virtual string? GetConcurrencyKey(TTask task) => null;
     public virtual TimeSpan GetMaximumAgeInQueuePerState(BatchState state) {
         return state switch {
             BatchState.Completed => GetMaximumAgeInQueueAfterExecution(),
