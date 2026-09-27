@@ -9264,9 +9264,10 @@ body.pg-resizing {
   --viz-6: #008300;
   --viz-7: #4a3aa7;
   --viz-8: #e34948;
-  /* the cpu line on the process charts: green, told apart from the accent blue of the memory and the
-     amber of the disk (checked for colour-blind separation against both, on each theme's panel) */
-  --chart-cpu: var(--viz-6);
+  /* the process charts: cpu in yellow, disk (server overview only) in green, both told apart from the
+     accent blue of the memory (checked for colour-blind separation as a set, on each theme's panel) */
+  --chart-cpu: var(--viz-4);
+  --chart-disk: var(--viz-6);
 }
 
 [data-theme="dark"] {
@@ -9278,8 +9279,9 @@ body.pg-resizing {
   --viz-6: #008300;
   --viz-7: #9085e9;
   --viz-8: #e66767;
+  --chart-cpu: var(--viz-4);
   /* the dark green step sits too close to the amber for a red-blind reader; the aqua-green does not */
-  --chart-cpu: var(--viz-3);
+  --chart-disk: var(--viz-3);
 }
 
 .bar-chart {
@@ -9463,7 +9465,7 @@ body.pg-resizing {
 }
 
 /* the chart's second series: another colour, its own axis on the right, no fill under it */
-/* The second series and everything that names it: green (the cpu), against the accent blue the first
+/* The second series and everything that names it: yellow (the cpu), against the accent blue the first
    series is drawn in. The two are the only lines on the plot, they are on scales of their own, and the
    legend under it says which is which by colour - so the colour has to be one word's worth of
    difference, not a neighbouring hue. */
@@ -9483,18 +9485,18 @@ body.pg-resizing {
   background: var(--chart-cpu);
 }
 
-/* a second overlay on the same right-hand scale - the disk beside the cpu. Amber against the green:
+/* a second overlay on the same right-hand scale - the disk beside the cpu. Green against the yellow:
    far enough apart to be told at a glance on a plot where both lines run near the same height. */
 .chart-line-overlay-b {
-  stroke: var(--viz-4);
+  stroke: var(--chart-disk);
 }
 
 .chart-point-overlay-b {
-  fill: var(--viz-4);
+  fill: var(--chart-disk);
 }
 
 .chart-swatch-overlay-b {
-  background: var(--viz-4);
+  background: var(--chart-disk);
 }
 
 /* the legend under a two-series chart: the name of a series in the colour it is drawn in */
@@ -9511,7 +9513,7 @@ body.pg-resizing {
 }
 
 .chart-key-third {
-  color: var(--viz-4);
+  color: var(--chart-disk);
 }
 
 /* ---- storage groups ---- */
