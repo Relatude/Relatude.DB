@@ -170,9 +170,49 @@ export function formatLogValue(value: unknown, type: LogDataType): string {
     case "Bytes":
       // json carries bytes as base64; its length is what can be said about them in a cell
       return typeof value === "string" ? formatBytes(Math.floor((value.length * 3) / 4) - (value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0)) : "bytes";
+    case "GeoCoordinate":
+      return formatPosition(value);
     default:
       return typeof value === "object" ? JSON.stringify(value) : String(value);
   }
+}
+
+/**
+ * A position the way a GeoCoordinate travels in json - {latitude, longitude} - as "59.9139, 10.7522":
+ * six decimals, about ten centimetres, which rounds away what snapping to the store's grid adds (the
+ * server searches the same text, so what is shown is what a search finds).
+ */
+export function formatPosition(value: unknown): string {
+  if (value && typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    if (typeof o.latitude === "number" && typeof o.longitude === "number") return coordinate(o.latitude) + ", " + coordinate(o.longitude);
+  }
+  return typeof value === "string" ? value : "—";
+}
+const coordinate = (v: number) => (Math.round(v * 1e6) / 1e6).toString();
+
+/** A distance in the unit that reads: metres under a kilometre, kilometres with a decimal under a hundred. */
+export function formatDistance(meters: number): string {
+  const m = Math.abs(meters);
+  if (m < 1) return (Math.round(meters * 100) / 100).toString() + " m";
+  if (m < 1000) return Math.round(meters) + " m";
+  if (m < 100_000) return (Math.round(meters / 100) / 10).toLocaleString("en-US") + " km";
+  return formatCount(Math.round(meters / 1000)) + " km";
+}
+
+/** An area in the unit that reads: square metres, hectares' worth of them, square kilometres. */
+export function formatArea(squareMeters: number): string {
+  if (squareMeters < 10_000) return Math.round(squareMeters) + " m²";
+  const km2 = squareMeters / 1e6;
+  if (km2 < 10) return (Math.round(km2 * 100) / 100).toLocaleString("en-US") + " km²";
+  if (km2 < 1000) return (Math.round(km2 * 10) / 10).toLocaleString("en-US") + " km²";
+  return formatCount(Math.round(km2)) + " km²";
+}
+
+/** A speed from metres a second, the way a road reads it. */
+export function formatSpeed(metersPerSecond: number): string {
+  const kmh = metersPerSecond * 3.6;
+  return (kmh >= 100 ? Math.round(kmh).toString() : (Math.round(kmh * 10) / 10).toString()) + " km/h";
 }
 
 /**

@@ -183,7 +183,15 @@ sealed class UICustomLogs {
             Key = p.Key,
             p.Value.Name,
             DataType = p.Value.DataType.ToString(),
-            Statistics = p.Value.Statistics.Select(x => new { StatisticsType = x.StatisticsType.ToString(), x.Resolution }),
+            // the parameters a statistic about positions is measured against, when it has any
+            Statistics = p.Value.Statistics.Select(x => new {
+                StatisticsType = x.StatisticsType.ToString(),
+                x.Resolution,
+                Reference = x.Reference.IsEmpty ? null : (object)new { x.Reference.Latitude, x.Reference.Longitude },
+                x.Bands,
+                Zones = x.Zones?.Select(z => new { z.Name, Center = new { z.Center.Latitude, z.Center.Longitude }, z.RadiusMeters }),
+                Level = x.Level == 0 ? (int?)null : x.Level,
+            }),
         }),
     };
 
@@ -206,6 +214,14 @@ sealed class UICustomLogs {
                 if (columns.ContainsKey(key)) throw new ArgumentException($"The column '{key}' is there twice.");
                 var copy = (JsonObject)column.DeepClone();
                 copy.Remove("key");
+                // A parameter a statistic has no use for comes back from the form as null - the
+                // definition sent to the page carries every one of them - and a null is not a number:
+                // left out, it is the default it stands for.
+                if (copy["statistics"] is JsonArray statistics) {
+                    foreach (var statistic in statistics.OfType<JsonObject>()) {
+                        foreach (var name in statistic.Where(kv => kv.Value == null).Select(kv => kv.Key).ToList()) statistic.Remove(name);
+                    }
+                }
                 columns[key] = copy;
             }
             node["properties"] = columns;
@@ -365,6 +381,12 @@ sealed class UICustomLogs {
         var cap = Math.Clamp(p.MaxEntries <= 0 ? defaultAnalyseEntries : p.MaxEntries, 1, maxAnalyseEntries);
         var search = LogSearch.Parse(p.Search, p.CaseSensitive);
         var numeric = type is LogDataType.Integer or LogDataType.Double or LogDataType.TimeSpan or LogDataType.DateTime or LogDataType.Bytes;
+        // a column of positions is read into a list of them, with the columns that say what moved
+        // and what colours them (see UIGeoAnalysis)
+        var geo = type is LogDataType.GeoCoordinate;
+        var collected = geo ? new UIGeoAnalysis.Collected() : null;
+        var trackBy = geo ? columnOf(setting, p.TrackBy) : null;
+        var colourBy = geo ? columnOf(setting, p.ColorBy) : null;
         var numbers = new List<double>();
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
         var overflow = 0; // values past the distinct ones tracked
@@ -391,6 +413,14 @@ sealed class UICustomLogs {
                     lastSeen = lastSeen == null || entry.Timestamp > lastSeen ? entry.Timestamp : lastSeen;
                     if (!entry.Values.TryGetValue(p.Property, out var value) || value == null) continue;
                     withValue++;
+                    if (collected != null) {
+                        if (value is GeoCoordinate { IsEmpty: false } position) {
+                            collected.Add(entry.Timestamp, position,
+                                trackBy == null ? null : UIGeoAnalysis.TextOf(entry.Values.GetValueOrDefault(trackBy)),
+                                colourBy == null ? null : UIGeoAnalysis.TextOf(entry.Values.GetValueOrDefault(colourBy)));
+                        }
+                        continue;
+                    }
                     if (numeric && asNumber(value, type) is double n) {
                         numbers.Add(n);
                     } else if (!numeric) {
@@ -424,7 +454,7 @@ sealed class UICustomLogs {
                 Percentiles = ranks.Select(r => new { P = r, Value = percentile(numbers, r) }).ToArray(),
                 Histogram = histogram(numbers, type == LogDataType.Integer || type == LogDataType.Bytes),
             };
-        } else if (!numeric) {
+        } else if (!numeric && !geo) {
             var total = counts.Values.Sum() + overflow;
             var top = counts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal).Take(topValues).ToArray();
             breakdown = new {
@@ -448,7 +478,19 @@ sealed class UICustomLogs {
             LastUtc = UILogReader.Utc(lastSeen),
             Distribution = distribution,
             Breakdown = breakdown,
+            Geo = collected == null || collected.Count == 0 ? null : UIGeoAnalysis.Summarize(collected, Math.Clamp(p.MapPoints <= 0 ? defaultMapPoints : p.MapPoints, 1, maxMapPoints), trackBy, colourBy),
         };
+    }
+    // the positions an analysis hands the map: the query map's cap, and a default that loads quickly
+    const int defaultMapPoints = 250_000;
+    const int maxMapPoints = 1_000_000;
+    /// <summary>The key of the column a name or key given by the page means, or null.</summary>
+    static string? columnOf(LogSettings setting, string? name) {
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        foreach (var kv in setting.Properties) {
+            if (string.Equals(kv.Key, name, StringComparison.OrdinalIgnoreCase)) return kv.Key;
+        }
+        return null;
     }
     // a duration is its milliseconds, a moment its milliseconds since 1970, and bytes their length:
     // each of them is then a number like any other, and the page formats it back
@@ -510,6 +552,10 @@ sealed class UICustomLogs {
                 JsonValueKind.Number => element.TryGetInt32(out var i) ? i : element.GetDouble(),
                 JsonValueKind.True => true,
                 JsonValueKind.False => false,
+                // a position: {"latitude": .., "longitude": ..} as its json, or [latitude, longitude]
+                JsonValueKind.Object => element.GetRawText(),
+                JsonValueKind.Array when element.GetArrayLength() == 2 && element.EnumerateArray().All(e => e.ValueKind == JsonValueKind.Number)
+                    => element.EnumerateArray().Select(e => e.GetDouble()).ToArray(),
                 _ => null,
             };
             if (value is string text && text.Length == 0) continue; // an empty field is no value
@@ -545,6 +591,17 @@ sealed class UICustomLogs {
         }
         times.Sort();
         var makers = setting.Properties.ToDictionary(kv => kv.Key, kv => sampleValue(kv.Key, kv.Value.DataType, start, end));
+        // A column of positions beside one naming what moves - a vehicle, a device, a courier - is
+        // made as a fleet going about its day rather than as places drawn at random: the tracks of
+        // the analysis have something to follow, stops and the odd GPS jump included.
+        var placeKey = setting.Properties.FirstOrDefault(kv => kv.Value.DataType == LogDataType.GeoCoordinate).Key;
+        var moverKey = placeKey == null ? null : setting.Properties
+            .FirstOrDefault(kv => kv.Value.DataType == LogDataType.String && sampleMovers.Any(h => kv.Key.Contains(h, StringComparison.OrdinalIgnoreCase))).Key;
+        var fleet = moverKey != null ? new SampleFleet(random) : null;
+        if (fleet != null) {
+            makers.Remove(placeKey!);
+            makers.Remove(moverKey!);
+        }
         // Written entries are counted once, by the rebuild at the end, rather than as they are
         // written as well: a hundred thousand of them would otherwise be aggregated twice. A log that
         // only keeps statistics has nothing to rebuild from, so there they are counted as they come.
@@ -555,6 +612,11 @@ sealed class UICustomLogs {
             foreach (var (key, make) in makers) {
                 if (random.NextDouble() < 0.03) continue; // now and then a value is missing, as they are
                 entry.Values[key] = make(random, t);
+            }
+            if (fleet != null) {
+                var (mover, position) = fleet.Next(random, t);
+                entry.Values[moverKey!] = mover;
+                entry.Values[placeKey!] = position;
             }
             store.Record(p.LogKey, entry, false, null, countNow);
         }
@@ -579,6 +641,8 @@ sealed class UICustomLogs {
         ("channel", ["web", "mobile", "store", "phone"]),
     ];
     static readonly int[] sampleStatuses = [200, 200, 200, 200, 200, 200, 304, 201, 204, 301, 302, 404, 400, 401, 403, 500, 503];
+    // a text column with one of these in its name says what the positions of the entries belong to
+    static readonly string[] sampleMovers = ["vehicle", "device", "courier", "driver", "truck", "car", "tracker", "unit", "bike", "boat"];
     static Func<Random, DateTime, object> sampleValue(string key, LogDataType type, DateTime start, DateTime end) {
         // the column's name decides its scale, so two columns of one log do not look alike
         var seed = (int)(key.XXH64Hash() % 1000);
@@ -614,6 +678,8 @@ sealed class UICustomLogs {
                     r.NextBytes(bytes);
                     return bytes;
                 };
+            case LogDataType.GeoCoordinate:
+                return (r, t) => SampleFleet.Place(r);
             default: {
                     if (named("user", "customer", "client", "account")) return (r, t) => "user-" + (1 + (int)Math.Floor(Math.Pow(r.NextDouble(), 2) * 200));
                     if (named("message", "text", "details", "description")) {
@@ -649,7 +715,10 @@ sealed class UICustomLogs {
     // Format: "tsv", "csv" or "jsonl"
     internal sealed record ExportPayload(Guid StoreId, string LogKey, DateTime? FromUtc, DateTime? ToUtc, string? Search = null, bool CaseSensitive = false, string Format = "tsv");
     sealed record SeriesPayload(Guid StoreId, string LogKey, string? Property, string Statistic, string Interval, DateTime? FromUtc, DateTime? ToUtc, long? LastMs = null);
-    sealed record AnalysePayload(Guid StoreId, string LogKey, string Property, DateTime? FromUtc, DateTime? ToUtc, long? LastMs = null, string? Search = null, bool CaseSensitive = false, int MaxEntries = 0);
+    // TrackBy and ColorBy: for a column of positions, the column saying what moved (its tracks are
+    // measured), and the one whose values colour the positions on the map; MapPoints how many of them to send
+    sealed record AnalysePayload(Guid StoreId, string LogKey, string Property, DateTime? FromUtc, DateTime? ToUtc, long? LastMs = null, string? Search = null, bool CaseSensitive = false, int MaxEntries = 0,
+        string? TrackBy = null, string? ColorBy = null, int MapPoints = 0);
     sealed record RecordPayload(Guid StoreId, string LogKey, Dictionary<string, JsonElement>? Values, DateTime? TimestampUtc = null);
     sealed record SamplePayload(Guid StoreId, string LogKey, int Count = 500, long SpanMs = 86_400_000);
     sealed record BrokenPayload(Guid StoreId, string FileKey, string? Json = null);

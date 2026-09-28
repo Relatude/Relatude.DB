@@ -36,6 +36,11 @@ export interface MapPoints {
   lat: Float32Array;
   lon: Float32Array;
   byProperty: Map<string, MapProperty>;
+  /**
+   * How much each point counts for, when not one: a cell of a heatmap stands for every position
+   * counted in it. Heat, bubbles, rods and countries add these up; dots and pins are drawn one each.
+   */
+  weight?: Float32Array | null;
 }
 
 /** What the server sends a coordinate as: ten million to the degree, which is the grid the store snaps to. */

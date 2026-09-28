@@ -25,23 +25,31 @@ export type Place = (i: number, out: Float32Array) => boolean;
  * per rod - with the heights by SQUARE ROOT of the count, so a village is not invisible beside a
  * capital. `counts` carries the same rods' real counts, for the tooltip.
  */
-export function rodsOf(lat: Float32Array, lon: Float32Array, count: number, cellDegrees: number): { rods: Float32Array; counts: Int32Array; total: number; max: number } {
+export function rodsOf(
+  lat: Float32Array,
+  lon: Float32Array,
+  count: number,
+  cellDegrees: number,
+  weight?: Float32Array | null,
+): { rods: Float32Array; counts: Float64Array; total: number; max: number } {
   const cell = Math.max(0.25, cellDegrees);
   const cols = Math.ceil(360 / cell) + 1;
   const patches = new Map<number, { lat: number; lon: number; n: number }>();
   for (let i = 0; i < count; i++) {
+    const w = weight ? weight[i] : 1;
+    if (!(w > 0)) continue;
     const key = Math.floor((90 - lat[i]) / cell) * cols + Math.floor((lon[i] + 180) / cell);
     let patch = patches.get(key);
     if (patch === undefined) {
       patch = { lat: 0, lon: 0, n: 0 };
       patches.set(key, patch);
     }
-    patch.lat += lat[i];
-    patch.lon += lon[i];
-    patch.n++;
+    patch.lat += lat[i] * w;
+    patch.lon += lon[i] * w;
+    patch.n += w;
   }
   const rods = new Float32Array(patches.size * 3);
-  const counts = new Int32Array(patches.size);
+  const counts = new Float64Array(patches.size);
   let max = 1;
   for (const patch of patches.values()) if (patch.n > max) max = patch.n;
   let at = 0;
@@ -75,7 +83,17 @@ export interface Cluster {
  * cluster mean the same thing on the flat map and on the globe: however far in the map is zoomed,
  * there are only ever as many squares as fit on a screen.
  */
-export function clusterPoints(count: number, step: number, place: Place, lat: Float32Array, lon: Float32Array, width: number, height: number, cellPixels: number): Cluster[] {
+export function clusterPoints(
+  count: number,
+  step: number,
+  place: Place,
+  lat: Float32Array,
+  lon: Float32Array,
+  width: number,
+  height: number,
+  cellPixels: number,
+  weight?: Float32Array | null,
+): Cluster[] {
   const cell = Math.max(8, cellPixels);
   const byCell = new Map<number, { x: number; y: number; lat: number; lon: number; count: number }>();
   const out = new Float32Array(2);
@@ -85,17 +103,19 @@ export function clusterPoints(count: number, step: number, place: Place, lat: Fl
     const x = out[0];
     const y = out[1];
     if (x < -cell || y < -cell || x > width + cell || y > height + cell) continue;
+    const w = weight ? weight[i] : 1;
+    if (!(w > 0)) continue;
     const key = (Math.floor(y / cell) + 1) * cols + Math.floor(x / cell) + 1;
     let bucket = byCell.get(key);
     if (bucket === undefined) {
       bucket = { x: 0, y: 0, lat: 0, lon: 0, count: 0 };
       byCell.set(key, bucket);
     }
-    bucket.x += x;
-    bucket.y += y;
-    bucket.lat += lat[i];
-    bucket.lon += lon[i];
-    bucket.count++;
+    bucket.x += x * w;
+    bucket.y += y * w;
+    bucket.lat += lat[i] * w;
+    bucket.lon += lon[i] * w;
+    bucket.count += w;
   }
   const clusters: Cluster[] = [];
   for (const b of byCell.values()) {

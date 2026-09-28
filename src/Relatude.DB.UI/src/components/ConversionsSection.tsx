@@ -5,6 +5,7 @@ import { cancelConversion, fetchConversions, type ConversionsInfo, type FileConv
 import type { DatabaseInfo } from "../server/serverInfo";
 import { useLive } from "../live";
 import { formatCount, formatTime } from "../format";
+import { Loading } from "./Loading";
 
 // long enough to read as "that one is done and gone" rather than a flicker; must match conv-leave
 const leaveMs = 420;
@@ -118,7 +119,7 @@ export function ConversionsSection({ db }: { db: DatabaseInfo }) {
   }
 
   if (error) return <div className="placeholder">{error}</div>;
-  if (!data) return null;
+  if (!data) return <Loading label="Loading the conversions…" />;
   if (!data.open) return <div className="placeholder">Open the database to see its conversions.</div>;
 
   return (

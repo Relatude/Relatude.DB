@@ -60,7 +60,7 @@ concept builds on the last.
 **Part IV — Tooling**
 
 31. [The command line tool](#31-the-command-line-tool)
-32. [Logs — recording what the application does](#32-logs--recording-what-the-application-does) · [32.4 HyperLogLog](#324-estimated-unique-counts-hyperloglog)
+32. [Logs — recording what the application does](#32-logs--recording-what-the-application-does) · [32.4 HyperLogLog](#324-estimated-unique-counts-hyperloglog) · [32.8 Positions](#328-positions)
 
 ---
 ---
@@ -4068,14 +4068,14 @@ graphed.
 ### 32.1 Defining a log
 
 A log is defined on the Logs page — **New log** starts one from a blank definition or from a
-template (web requests, business events, errors and warnings, background jobs) — or by a settings
+template (web requests, business events, errors and warnings, positions, background jobs) — or by a settings
 file in the log folder, or from code. All three end up as the same thing:
 
 | Part | What it is |
 |---|---|
 | **Key** | What the application records by and what the files are named after: letters, digits, `-` and `_`, starting with a letter or a digit, at most 64 characters. It cannot be changed afterwards (duplicate the log instead), and the activity logs' own keys — `system`, `query`, `transaction`, `action`, `task`, `taskbatch`, `metrics` — are taken. |
 | **Name**, **description** | What the page shows. |
-| **Columns** | What an entry holds besides its timestamp: a key, a name, a type — text, whole number, decimal number, date and time, duration or bytes — and the statistics kept about it ([§32.3](#323-statistics)). |
+| **Columns** | What an entry holds besides its timestamp: a key, a name, a type — text, whole number, decimal number, date and time, duration, bytes or a position ([§32.8](#328-positions)) — and the statistics kept about it ([§32.3](#323-statistics)). |
 | **Record entries** / **Keep statistics** | The two switches. Entries are the records themselves; statistics are the aggregates the graphs are drawn from. Either can be off: a log that only counts, or one that only records. |
 | **One file per** | Minute, hour, day or month: how the entries are cut into files. A file is what the age and size limits delete, whole. |
 | **Keep entries for** / **At most** | The age limit in days and the size limit in MB; 0 is no limit. |
@@ -4098,7 +4098,8 @@ view of a log shows the same file as JSON and edits it as text as well as throug
     "path":     { "Name": "Path", "DataType": "String", "Statistics": [ { "StatisticsType": "UniqueCountEstimate", "Resolution": 3 } ] },
     "status":   { "Name": "Status", "DataType": "Integer", "Statistics": [ { "StatisticsType": "UniqueCountWithValues", "Resolution": 3 } ] },
     "duration": { "Name": "Duration (ms)", "DataType": "Double", "Statistics": [ { "StatisticsType": "CountSumAvgMinMax", "Resolution": 3 } ] },
-    "user":     { "Name": "User", "DataType": "String", "Statistics": [ { "StatisticsType": "UniqueCountEstimate", "Resolution": 3 } ] }
+    "user":     { "Name": "User", "DataType": "String", "Statistics": [ { "StatisticsType": "UniqueCountEstimate", "Resolution": 3 } ] },
+    "position": { "Name": "Position", "DataType": "GeoCoordinate", "Statistics": [ { "StatisticsType": "GeoHeatmap", "Resolution": 3 } ] }
   },
   "FileInterval": "Hour",
   "EnableLog": true,
@@ -4158,7 +4159,7 @@ control and deployed with the application.
 db.CustomLogs.Record("requests", ("path", ctx.Request.Path.Value), ("status", 200), ("duration", sw.Elapsed.TotalMilliseconds));
 
 // an object: its public properties are matched to the columns without regard to case
-db.CustomLogs.RecordObject("requests", new { Path = "/products", Status = 200, Duration = 12.5 });
+db.CustomLogs.RecordObject("requests", new { Path = "/products", Status = 200, Duration = 12.5, Position = new GeoCoordinate(59.9139, 10.7522) });
 
 // a dictionary, with a time of its own
 db.CustomLogs.Record("requests", new Dictionary<string, object?> { ["path"] = "/cart" }, timestampUtc: startedUtc);
@@ -4185,6 +4186,7 @@ records rarely has exactly the type a log stores:
 | Date and time | `DateTime` (local times moved to UTC, unspecified ones taken as UTC), `DateTimeOffset`, `DateOnly`, ISO text |
 | Duration | `TimeSpan`, `TimeOnly`, a number as milliseconds, text like `00:01:30` |
 | Bytes | `byte[]`, `Memory<byte>`, `ArraySegment<byte>`, text as UTF-8 |
+| Position | `GeoCoordinate`, text like `59.91, 10.75`, a `(latitude, longitude)` tuple, an array of the two ([§32.8](#328-positions)) |
 
 A value that is null, or has no reading as its column's type, is **left out of the entry** rather
 than recorded as a zero the statistics would count as a measurement nobody made. Values for keys
@@ -4208,6 +4210,9 @@ whatever the log holds. Every log counts its entries; each column adds the stati
 | **Count per value** (`UniqueCountWithValues`) | how often each value occurred — a status code, a level, a country — drawn as stacked bars | all but bytes | every value and its count: meant for columns with few distinct values (under a hundred or so); up to 5,000 values per interval, and older intervals keep their 50 most common |
 | **Unique count** (`UniqueCountHashedValues`) | how many different values there were — exact | all but bytes | a 64-bit hash per distinct value per interval, up to 50,000 of them |
 | **Unique count, estimated** (`UniqueCountEstimate`) | how many different values there were, within about one percent, however many — users, sessions, paths | all but bytes | a fixed amount of memory per interval, whatever the number: the HyperLogLog algorithm, [§32.4](#324-estimated-unique-counts-hyperloglog) |
+
+A column of positions keeps six more — a centre and spread, a heatmap, distances from a point,
+distance bands, zones and areas covered — described in [§32.8](#328-positions).
 
 **The level of statistical detail** is how far back the statistics reach. A statistic keeps a fixed
 number of intervals of each size, and the level multiplies them: level 1 keeps 60 seconds, 60
@@ -4269,7 +4274,7 @@ moments typed in, or an interval picked on a graph.
 |---|---|
 | **Graphs** | Tiles that sum the range up (entries, the busiest interval, averages, the most common values), then a graph per statistic: bars or a line for counts and totals; the average with its min–max band, or any one of count, total, min and max; a breakdown per value as stacked bars, or as shares of each interval. The bucket size follows the range or is chosen. Clicking an interval opens its entries. Each graph downloads as CSV. |
 | **Entries** | The entries of the range, newest (or oldest) first. The search box reads the whole range on the server — `timeout`, `get*nodes`, `"could not open"`, `-shutdown`, `status:500`; terms must all hold, `*` and `?` are wildcards, `column:term` searches one column — and the fields under the headings filter what the browser holds. Columns can be hidden and dragged wider. *Live* marks new entries as they arrive. An entry opens to all of it, with ways to filter or search by any of its values or show what else was recorded around it. *Download* writes the range or the whole log as tab separated, comma separated or JSON lines. |
-| **Analyse** | How one column's values are spread, read from the entries themselves — what statistics cannot say. Numbers and durations get percentiles (median, 90th, 99th…) and a histogram, text its most common values (click one to list its entries). It reads the newest entries of the range up to a limit (200,000 by default) and says when it stopped. |
+| **Analyse** | How one column's values are spread, read from the entries themselves — what statistics cannot say. Numbers and durations get percentiles (median, 90th, 99th…) and a histogram, text its most common values (click one to list its entries), positions their median centre, distances, clusters, tracks and a map ([§32.8](#328-positions)). It reads the newest entries of the range up to a limit (200,000 by default) and says when it stopped. |
 | **Definition** | The form, the JSON of the settings file, and the application code that records into the log, written for its columns. |
 | **Data** | *Try it out* — record a test entry, or up to a million made-up ones, spread over a stretch of time with plausible values for every column, to see the graphs before the application records anything. *Clean up* — delete older entries, every entry, the statistics; rebuild the statistics; write to disk now. The definition file, and the log's files on disk with a download each. |
 
@@ -4299,7 +4304,7 @@ does to what is recorded, and the confirmation lists it; nothing is lost that th
 | Change | What happens to what is recorded |
 |---|---|
 | Name, description, text copy, compression | Nothing: compression and the text copy apply to what is written from then on. |
-| A column added | The entries recorded so far have no value for it. |
+| A column added | The entries recorded so far have no value for it — unless the application recorded one under its key before the column was declared: those values were kept in the entries, and are read as the new column (and counted by its statistics once they are rebuilt). |
 | A column removed | Its values stay in the entries they were recorded with (the entry view shows them); its statistics are dropped. |
 | A column's type | Old values are read as the new type where they convert, and shown as they were stored where they do not. A column with statistics has them rebuilt from the entries — what they held was aggregated as the old type. |
 | A statistic added | It starts empty; the confirmation offers to rebuild the statistics from the entries. |
@@ -4353,6 +4358,132 @@ until it is turned on, and remembered in the browser) adds a tab for each of the
 and a table of them on the overview. They get the same Graphs, Entries and Analyse views; the
 Definition and Data views are not offered, and their switches are shown but stay on the Activity page,
 where switching and saving belong together.
+
+### 32.8 Positions
+
+A column can hold a position: its type is **Position** (`LogDataType.GeoCoordinate`), the same
+`GeoCoordinate` the node store places nodes by ([§5](#5-geo-coordinates)) — eight bytes a value, on
+the store's own one-centimetre grid. The **Positions** template starts a log with one, beside a text
+column naming what moved and one for what happened.
+
+```csharp
+using Relatude.DB.Common;   // GeoCoordinate
+
+db.CustomLogs.Record("deliveries", ("position", new GeoCoordinate(59.9139, 10.7522)), ("vehicle", "van-7"));
+db.CustomLogs.Record("deliveries", ("position", "60.3913, 5.3221"));   // text: latitude, then longitude
+db.CustomLogs.Record("deliveries", ("position", (63.4305, 10.3951)));  // a (latitude, longitude) tuple
+```
+
+A position converts from a `GeoCoordinate`, from text (`"59.91, 10.75"`, with a comma, a semicolon or
+a space between the two, or the `{"latitude": .., "longitude": ..}` json a `GeoCoordinate` is written
+as), from a `(latitude, longitude)` tuple and from an array of the two — latitude first, always.
+`GeoCoordinate.Empty`, a latitude past a pole and a longitude past the antimeridian are no position,
+and are left out like any value that does not convert. A position reads as text with six decimals
+(about ten centimetres: `59.9139, 10.7522`), which is what the entries table shows and what a search
+reads.
+
+**Searching by distance.** A term naming a column of positions, with a place and a distance, finds
+the entries within that distance of the place; `near:` asks it of any column of positions:
+
+```text
+position:59.9139,10.7522~2km        within 2 km of the middle of Oslo
+near:60.39,5.32~500m                any column of positions, within 500 m
+-position:59.9139,10.7522~50km      everything further out than 50 km
+```
+
+The distance is in `m` or `km`, and in metres when it has no unit. Anything else asked of the column
+is text as before: `position:59.91*` still finds the positions whose text starts that way.
+
+**Statistics.** Besides *Count* and the counts per value (which count exact positions, useful when
+the positions are a small set of known places — shops, sensors), a column of positions keeps six
+statistics of its own. Two have graphs of their own; four are kept by the statistics above, and drawn
+like them:
+
+| Statistic | What it answers | Drawn as | Measured against |
+|---|---|---|---|
+| **Centre and spread** (`GeoSpread`) | where the positions of each interval were: their centre, how far from it they lay, which way they spread, and the box round them | the spread as a line (or one number of several: along or across the spread, how far the centre moved, the count), or the centre of every interval on a map | — |
+| **Heatmap** (`GeoHeatmap`) | how many positions each cell of a grid held | a map: heat, bubbles, countries or rods, over the range | a cell size (`Level`) |
+| **Distance from a point** (`GeoDistance`) | count, total, average, nearest and farthest distance from a point, in metres | like Count, total, average, min, max | a point (`Reference`) |
+| **Distance bands** (`GeoDistanceBands`) | how many fell within each band of distance from a point: under 1 km, 1–5 km, … | like Count per value, nearest band first | a point and the band edges in metres (`Bands`) |
+| **Zones** (`GeoZones`) | how many fell in each of a few named circles — the first a position is in, or `Outside` | like Count per value, in the zones' order | the zones: a name, a centre, a radius in metres (`Zones`) |
+| **Areas covered** (`GeoCoverage`) | how many different cells of a grid had a position in them: how much ground the entries covered | like Unique count, estimated | a cell size (`Level`) |
+
+The editor asks for what a statistic is measured against as it is switched on — one point for both
+distance statistics, the bands in kilometres, the zones as rows, the cell size from about 20 m to
+20 km — and the settings file holds it beside the statistic:
+
+```json
+"position": { "Name": "Position", "DataType": "GeoCoordinate", "Statistics": [
+  { "StatisticsType": "GeoSpread", "Resolution": 3 },
+  { "StatisticsType": "GeoHeatmap", "Resolution": 3, "Level": 16 },
+  { "StatisticsType": "GeoDistance", "Resolution": 3, "Reference": { "latitude": 59.9139, "longitude": 10.7522 } },
+  { "StatisticsType": "GeoDistanceBands", "Resolution": 3, "Reference": "59.9139, 10.7522", "Bands": [1000, 5000, 20000] },
+  { "StatisticsType": "GeoZones", "Resolution": 3, "Zones": [
+    { "Name": "Oslo", "Center": { "latitude": 59.9139, "longitude": 10.7522 }, "RadiusMeters": 3000 } ] } ] }
+```
+
+In code the parameters are the optional arguments of `StatisticsInfo`: `new(StatisticsType.GeoDistance,
+reference: depot)`, `new(StatisticsType.GeoZones, zones: [new GeoZone("Oslo", oslo, 3000)])`. A
+statistic without what it needs is refused when the settings are saved. Measured against something
+else — another point, other bands, other zones, cells of another size — a statistic is another
+statistic: it starts empty, and the confirmation says so and offers to rebuild it from the entries.
+
+How the two with graphs of their own are kept:
+
+- **The centre and spread** is the *spherical* mean: each position a point on the unit sphere, and the
+  centre the direction of their average — right across the date line (the average of the degrees of
+  a cluster round Fiji is in Africa) and near the poles. An interval keeps fifteen numbers — the count,
+  that average, the sums of the squared deviations from it, and the extent — and intervals add up
+  exactly, so the centre and spread of any range are those of every position in it. The spread is the
+  *standard distance* (the root mean square distance from the centre), and the *standard deviational
+  ellipse* is one standard deviation along the direction the positions spread most and across it.
+  The deviations are kept the way a running variance is (Welford, merged the way Chan et al. merge
+  them), so a spread of a metre is still a metre among millions of positions.
+- **The heatmap** counts positions per cell of a grid that is the Morton code of the `GeoCoordinate`
+  itself: 4^level cells of 180/2^level by 360/2^level degrees, square on the ground at 60° north
+  (level 16 is 305 m, 14 about 1.2 km, 12 about 4.9 km). An interval that is over is kept in a budget
+  of cells — 8 a second, 32 a minute, 128 an hour, 512 a day, week or month — by merging cells into
+  their parents where little is in them and keeping them fine where a lot is, **without a count lost**:
+  the budget decides how sharp an old interval is, never how much it holds. A range is drawn in up to
+  4,096 cells. At the default level of detail (3) a heatmap keeps at most about 290,000 cells — 180
+  days of daily maps, three years of weekly ones — which is under 2 MB in the statistics file and
+  about 5 MB in memory; a quiet log keeps far less.
+  A cell's area shrinks with the cosine of the latitude, so the densest cells are found by positions
+  per square kilometre, not per cell.
+
+**Analyse** reads a column of positions from its entries and says what the statistics cannot:
+
+| | |
+|---|---|
+| **The median centre** | the geometric median — the place with the least total distance to every position — which a few far-off positions do not pull away the way they pull the mean |
+| **How far from it** | percentiles (half within, nine in ten within) and a histogram of the distances |
+| **Where they crowd** | clusters: the cells of a grid sized to the spread holding at least twice what an occupied cell holds on average, joined where they touch; click one to list its entries |
+| **Tracks** | with *Tracks by* set to the column that says what moved (a vehicle, a device, a courier), each one's positions in time order: the distance covered, time moving, average and top speed, stops (within 100 m of one place for five minutes or more) and jumps (a step faster than 300 m/s, or two places at one moment — a bad fix, left out of the distance); click one to list its entries |
+| **A map** | every position read (up to 250,000, evenly thinned beyond that), coloured by another column when *Colour by* is set, in any of the map's ways of drawing them |
+
+From code, the two statistics with graphs of their own are read with `AnalyseGeoSpread` /
+`AnalyseCombinedGeoSpread` (a `GeoSpread` per interval, or for the range) and `AnalyseGeoHeatmap` /
+`AnalyseCombinedGeoHeatmap` (a `GeoHeatmap` of `GeoCellCount`s); the others with the reads of the
+statistics that keep them, naming which one is meant:
+
+```csharp
+var store = db.CustomLogs.LogStore;
+var spread = store.AnalyseCombinedGeoSpread("deliveries", "position", IntervalType.Day, from, to).Value;
+Console.WriteLine($"centre {spread.Center}, spread {spread.StandardDistanceMeters:0} m");
+var heat = store.AnalyseCombinedGeoHeatmap("deliveries", "position", IntervalType.Day, from, to, maxCells: 1000).Value;
+var densest = heat.Cells.MaxBy(c => c.Count / c.Cell.AreaSquareMeters);
+var zones = store.AnalyseCombinedGroupCounts("deliveries", "position", IntervalType.Day, from, to, StatisticsType.GeoZones).Value;
+```
+
+The same mathematics is in `Relatude.DB.Common` for use anywhere: `GeoMoments` (add positions, merge
+sets, `Summarize()` into a `GeoSpread`), `GeoCell` (a position's cell at a level, its parent,
+neighbours, bounds and area) and `GeoCellCounts.Compress` (counts per cell within a budget of cells,
+every count kept).
+
+A made-up entry for a log with a position and a text column named like something that moves
+(*vehicle*, *device*, *courier*, *unit*, …) is recorded by a small fleet going about its day round a
+handful of towns — driving by day, stopping now and then, parked at night, with the odd fix hundreds of
+kilometres off — so every one of these has something to show before the application records anything.
 
 ---
 

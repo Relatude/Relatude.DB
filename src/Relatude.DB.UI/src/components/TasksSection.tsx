@@ -17,6 +17,7 @@ import {
 } from "../server/tasks";
 import type { DatabaseInfo } from "../server/serverInfo";
 import { formatCount, formatDuration, formatTime } from "../format";
+import { Loading } from "./Loading";
 
 const pageSize = 50;
 
@@ -196,7 +197,7 @@ export function TasksSection({ db }: { db: DatabaseInfo }) {
   }
 
   if (error) return <div className="placeholder">{error}</div>;
-  if (!data) return null;
+  if (!data) return <Loading label="Loading the tasks…" />;
   if (!data.open) return <div className="placeholder">Open the database to see its background tasks.</div>;
 
   // the counts are those of the queues shown, added up when both are

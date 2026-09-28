@@ -69,6 +69,7 @@ import { HistoryView, MatrixView, ModelsView, RelationsView, SourcesView } from 
 import { DatamodelDiagram } from "./diagram/DatamodelDiagram";
 import { DatamodelGraphView } from "./DatamodelGraphView";
 import { modeKey, remember } from "./datamodelGraphModel";
+import { Loading } from "./Loading";
 import "../datamodel.css";
 
 type ViewId = "models" | "relations" | "diagram" | "graph" | "matrix" | "sources" | "history";
@@ -869,7 +870,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
       </div>
     );
   }
-  if (!page || !schema || !ctx) return <div className="dm placeholder muted">Loading the model…</div>;
+  if (!page || !schema || !ctx) return <Loading label="Loading the data model…" />;
   if (!model) {
     return (
       <div className="dm">

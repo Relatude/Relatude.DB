@@ -3,6 +3,7 @@ import { IconArrowBackUp, IconDeviceFloppy, IconRefresh } from "@tabler/icons-re
 import { fetchNodeMeta, saveNodeMeta, type AccessView, type IdView, type MetaKey, type NodeMetaView } from "../server/query";
 import { showError } from "../dialogs";
 import { formatCount, formatTime } from "../format";
+import { Loading } from "./Loading";
 
 type Edits = Partial<Record<MetaKey, string | boolean | null>>;
 
@@ -67,7 +68,7 @@ export function NodeMetaTab({ storeId, nodeId, onSaved }: { storeId: string; nod
   }
 
   if (error) return <div className="placeholder">{error}</div>;
-  if (!meta) return null;
+  if (!meta) return <Loading label="Loading the meta data…" />;
 
   const guid = (key: MetaKey, stored: IdView) => (key in edits ? ((edits[key] as string | null) ?? "") : (stored.value ?? ""));
   const date = (key: MetaKey, stored: string | null) => (key in edits ? ((edits[key] as string | null) ?? "") : (stored ?? ""));

@@ -29,6 +29,7 @@ import {
   type PairingHandle,
 } from "../server/license";
 import { formatTime } from "../format";
+import { Loading } from "./Loading";
 
 /**
  * The Services module: the Relatude Services account this installation runs under - whether it has
@@ -69,7 +70,7 @@ export function LicenseSection({ onChanged }: { onChanged?: (status: LicenseStat
   }, [load]);
 
   if (error) return <div className="placeholder">{error}</div>;
-  if (!status) return null;
+  if (!status) return <Loading label="Checking the license…" />;
 
   return (
     <div className="license-page">

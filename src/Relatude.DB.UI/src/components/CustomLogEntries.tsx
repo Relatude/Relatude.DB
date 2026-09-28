@@ -479,7 +479,9 @@ function EntryDialog({
           {log.columns.map((c) => {
             const value = entry.values[c.key];
             const shown = formatLogValue(value, c.dataType);
-            const raw = value == null ? "" : typeof value === "object" ? JSON.stringify(value) : String(value);
+            // a position is the text it is shown as (what the search reads too), and is searched for by distance
+            const place = c.dataType === "GeoCoordinate" && value && typeof value === "object" ? (value as { latitude: number; longitude: number }) : null;
+            const raw = value == null ? "" : place ? shown : typeof value === "object" ? JSON.stringify(value) : String(value);
             return (
               <div key={c.key} className="clog-entry-row">
                 <span className="clog-entry-name" title={`${c.key} · ${dataTypeLabel[c.dataType]}`}>
@@ -497,7 +499,11 @@ function EntryDialog({
                     <button className="icon-button" title="Filter the table by this value" onClick={() => onFilter(c.key, raw.length > 80 ? raw.slice(0, 80) : raw)}>
                       <IconFilter size={14} stroke={1.8} />
                     </button>
-                    <button className="icon-button" title="Search the whole range for this value in this column" onClick={() => onSearch(searchFor(c.key, raw))}>
+                    <button
+                      className="icon-button"
+                      title={place ? "Search the whole range for positions within 100 m of this one" : "Search the whole range for this value in this column"}
+                      onClick={() => onSearch(place ? `${c.key}:${place.latitude.toFixed(6)},${place.longitude.toFixed(6)}~100m` : searchFor(c.key, raw))}
+                    >
                       <IconSearch size={14} stroke={1.8} />
                     </button>
                   </span>

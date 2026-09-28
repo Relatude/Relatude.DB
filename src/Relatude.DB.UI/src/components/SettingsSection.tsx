@@ -56,6 +56,7 @@ import {
   type SettingVisibility,
   type SettingsPage,
 } from "../server/settings";
+import { Loading } from "./Loading";
 
 // Where a programmatic scroll leaves a group's heading, and the line at which the contents counts a
 // heading as passed. The line sits a hair below the landing point, so a group that was scrolled to
@@ -380,7 +381,7 @@ export function SettingsSection({
   }
 
   if (error) return <div className="placeholder">{error}</div>;
-  if (!page) return null;
+  if (!page) return <Loading label="Loading the settings…" />;
 
   const editsBySection = new Map<string, number>();
   for (const section of page.sections) {

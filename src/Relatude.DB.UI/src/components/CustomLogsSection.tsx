@@ -47,6 +47,7 @@ import {
 import type { DatabaseInfo } from "../server/serverInfo";
 import { lint } from "../code/lint";
 import { logIcon, type LogIconType } from "../logIcons";
+import { Loading } from "./Loading";
 
 /**
  * The Logs page: logs someone defines for a database, rather than the logs the database keeps about
@@ -191,7 +192,7 @@ export function CustomLogsSection({ db }: { db: DatabaseInfo }) {
   }
 
   if (error && !info) return <div className="placeholder">{error}</div>;
-  if (!info) return null;
+  if (!info) return <Loading label="Loading the logs…" />;
   // hidden the moment the switch goes off, not when the next answer (without them) comes in
   const builtIn = showBuiltIn ? (info.builtIn ?? []) : [];
   const customLog = info.logs.find((l) => l.key === tab) ?? null;

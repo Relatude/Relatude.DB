@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { IconArrowsMaximize, IconArrowsMinimize, IconChartBar, IconChartHistogram, IconChartLine, IconDownload, IconEye, IconPercentage } from "@tabler/icons-react";
+import { IconArrowsMaximize, IconArrowsMinimize, IconChartBar, IconChartHistogram, IconChartLine, IconDownload, IconEye, IconMap, IconPercentage } from "@tabler/icons-react";
 import { Chart, groupColor, intervalLabel } from "./Chart";
 import { ShareBars, StatTiles, type Tile } from "./LogCharts";
+import { CentresView, HeatmapView, bearingText, spreadTiles } from "./CustomLogGeo";
 import { rebuildCustomStatistics, saveText, type CustomLogSeries, type CustomLogSummary } from "../server/customLogs";
 import type { IntervalType, SeriesData, SeriesPoint } from "../server/logs";
 import type { DatabaseInfo } from "../server/serverInfo";
 import { useLive } from "../live";
 import { showError, showInfo } from "../dialogs";
 import { formatCount } from "../format";
-import { addInterval, autoInterval, formatAgo, intervals, rangeLabel, rangePayload, type LogRange } from "../customLogRange";
+import { addInterval, autoInterval, formatAgo, formatArea, formatDistance, intervals, rangeLabel, rangePayload, type LogRange } from "../customLogRange";
 
 /**
  * A log's statistics, drawn: a panel per statistic its columns keep, over the range the page is
@@ -24,9 +25,21 @@ import { addInterval, autoInterval, formatAgo, intervals, rangeLabel, rangePaylo
  * unless it is rebuilt from the entries, which the foot of the page offers.
  */
 
-type Measure = "avg" | "sum" | "count" | "min" | "max";
+type Measure = "avg" | "sum" | "count" | "min" | "max" | "spread" | "major" | "minor" | "drift";
 
-const measureLabels: Record<Measure, string> = { avg: "Average", sum: "Total", count: "Count", min: "Lowest", max: "Highest" };
+const measureLabels: Record<Measure, string> = {
+  avg: "Average",
+  sum: "Total",
+  count: "Count",
+  min: "Lowest",
+  max: "Highest",
+  spread: "Spread",
+  major: "Along the spread",
+  minor: "Across the spread",
+  drift: "Centre moved",
+};
+// what the graph of a centre-and-spread series can draw, and what each one is (see viewOf)
+const geoMeasures: Measure[] = ["spread", "major", "minor", "drift", "count"];
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -45,6 +58,8 @@ function writeJson(key: string, value: unknown) {
 }
 
 export const seriesId = (s: { property: string | null; statistic: string }) => (s.property ?? "*") + ":" + s.statistic;
+
+const startsWide = (s: CustomLogSeries) => s.kind === "heatmap";
 
 export function CustomLogGraphs({
   db,
@@ -72,7 +87,10 @@ export function CustomLogGraphs({
   const [chosenInterval, setChosenInterval] = useState<IntervalType | "auto">(() => readJson("customLogs:interval:" + log.key, "auto"));
   const [columns, setColumns] = useState<number>(() => readJson("customLogs:graphColumns", 2));
   const [hidden, setHidden] = useState<string[]>(() => readJson("customLogs:hidden:" + log.key, []));
-  const [expanded, setExpanded] = useState<string | null>(null);
+  // the graphs whose width was toggled from where they start: a heatmap starts across the whole width
+  // (a map squeezed into half the page is a letterbox of sea), every other graph in its column
+  const [toggledWidth, setToggledWidth] = useState<string[]>([]);
+  const isExpanded = (s: CustomLogSeries) => toggledWidth.includes(seriesId(s)) !== startsWide(s);
   const [data, setData] = useState<Record<string, SeriesData>>({});
   const [rebuilding, setRebuilding] = useState(false);
   const interval = chosenInterval === "auto" ? autoInterval(range) : chosenInterval;
@@ -196,8 +214,8 @@ export function CustomLogGraphs({
             interval={interval}
             live={live}
             tick={tick}
-            expanded={expanded === seriesId(s)}
-            onExpand={() => setExpanded(expanded === seriesId(s) ? null : seriesId(s))}
+            expanded={isExpanded(s)}
+            onExpand={() => setToggledWidth((t) => (t.includes(seriesId(s)) ? t.filter((id) => id !== seriesId(s)) : [...t, seriesId(s)]))}
             onReport={report}
             onPick={onPick}
           />
@@ -243,7 +261,18 @@ function summaryTiles(log: CustomLogSummary, data: Record<string, SeriesData>, i
     if (tiles.length >= 8) break;
     const d = data[seriesId(s)];
     if (!d?.summary) continue;
-    if ((s.kind === "full" || s.kind === "avgminmax") && d.summary.avg != null) {
+    const name = s.label.replace(/ · .*$/, "");
+    if (s.kind === "geo") {
+      tiles.push(...spreadTiles(name, d.summary));
+    } else if (s.kind === "heatmap" && d.summary.total != null && d.summary.halfWithinSquareMeters != null) {
+      tiles.push({ label: name + " · half within", value: formatArea(d.summary.halfWithinSquareMeters), hint: "the densest ground holding half of the positions" });
+    } else if (s.kind === "full" && s.unit === "meters" && d.summary.avg != null) {
+      tiles.push({
+        label: name + " · average distance",
+        value: formatDistance(d.summary.avg),
+        hint: `nearest ${d.summary.min == null ? "—" : formatDistance(d.summary.min)}, farthest ${d.summary.max == null ? "—" : formatDistance(d.summary.max)}`,
+      });
+    } else if ((s.kind === "full" || s.kind === "avgminmax") && d.summary.avg != null) {
       tiles.push({
         label: s.label.replace(/ · .*$/, "") + " · avg",
         value: trim(d.summary.avg),
@@ -289,9 +318,11 @@ function SeriesPanel({
   const id = seriesId(series);
   const [data, setData] = useState<SeriesData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [measure, setMeasure] = useState<Measure>("avg");
+  const [measure, setMeasure] = useState<Measure>(series.kind === "geo" ? "spread" : "avg");
   const [bars, setBars] = useState(series.kind === "count" || series.kind === "sum");
   const [percent, setPercent] = useState(false);
+  // a centre-and-spread series is a line of numbers, or the centres themselves on a map
+  const [onMap, setOnMap] = useState(false);
   const apply = useCallback(
     (d: SeriesData) => {
       setData(d);
@@ -319,9 +350,17 @@ function SeriesPanel({
     { once: !live, restartOn: tick, minMs: interval === "Second" ? 1000 : 5000, onError: fail },
   );
 
-  const measures: Measure[] = series.kind === "full" ? ["avg", "sum", "count", "max", "min"] : series.kind === "avgminmax" ? ["avg", "max", "min"] : [];
+  const measures: Measure[] =
+    series.kind === "full" ? ["avg", "sum", "count", "max", "min"] : series.kind === "avgminmax" ? ["avg", "max", "min"] : series.kind === "geo" && !onMap ? geoMeasures : [];
   const view = useMemo(() => (data ? viewOf(data, measure, percent) : null), [data, measure, percent]);
-  const integer = series.kind === "count" || series.kind === "groups" || series.dataType === "Integer" || (series.kind === "full" && measure === "count");
+  const integer =
+    series.kind === "count" ||
+    series.kind === "groups" ||
+    series.kind === "heatmap" ||
+    (series.dataType === "Integer" && series.kind !== "geo") ||
+    ((series.kind === "full" || series.kind === "geo") && measure === "count");
+  const tall = series.kind === "heatmap" || (series.kind === "geo" && onMap);
+  const intervalOf = useCallback((i: number) => (data ? intervalLabel(data.points[i]?.fromUtc ?? data.fromUtc, data.interval) : ""), [data]);
 
   function downloadCsv() {
     if (!data) return;
@@ -335,7 +374,7 @@ function SeriesPanel({
         <span className="clog-graph-title" title={series.label}>
           {series.label}
         </span>
-        <span className="panel-sub">{data ? summaryLine(data, measure) : ""}</span>
+        <span className="panel-sub">{data ? summaryLine(data, measure, series.unit) : ""}</span>
         <span className="clog-graph-tools">
           {measures.length > 0 && (
             <select className="select compact" value={measure} onChange={(e) => setMeasure(e.currentTarget.value as Measure)} title="Which number to draw">
@@ -356,6 +395,11 @@ function SeriesPanel({
               <IconPercentage size={15} stroke={1.8} />
             </button>
           )}
+          {series.kind === "geo" && (
+            <button className={"icon-button" + (onMap ? " on" : "")} onClick={() => setOnMap(!onMap)} title={onMap ? "Back to the graph" : "The centre of every interval on a map, each as large as its entries"}>
+              {onMap ? <IconChartLine size={15} stroke={1.8} /> : <IconMap size={15} stroke={1.8} />}
+            </button>
+          )}
           <button className="icon-button" onClick={downloadCsv} disabled={!data} title="Download the points as comma separated text">
             <IconDownload size={15} stroke={1.8} />
           </button>
@@ -366,6 +410,22 @@ function SeriesPanel({
       </h3>
       {error ? (
         <div className="logs-note">{error}</div>
+      ) : data && series.kind === "heatmap" ? (
+        <>
+          <HeatmapView logKey={log.key} data={data} height={expanded ? 560 : 340} />
+          <div className="clog-graph-foot muted">
+            {intervalLabel(data.fromUtc, data.interval)} — {intervalLabel(data.toUtc, data.interval)}
+            {data.clamped && <span className="logs-warn"> · kept only this far back at one point per {data.interval.toLowerCase()}</span>}
+          </div>
+        </>
+      ) : data && series.kind === "geo" && onMap ? (
+        <>
+          <CentresView logKey={log.key} data={data} height={expanded ? 560 : 340} label={intervalOf} />
+          <div className="clog-graph-foot muted">
+            one dot per {data.interval.toLowerCase()}, as large as its entries
+            {data.summary?.bearing != null && <> · the positions spread {bearingText(data.summary.bearing)}</>}
+          </div>
+        </>
       ) : data && view ? (
         <>
           <Chart
@@ -375,7 +435,9 @@ function SeriesPanel({
             interval={data.interval}
             format={view.format ?? valueFormatter(series, data.kind, measure)}
             integer={integer && !percent}
-            height={expanded ? 320 : 190}
+            // distances say their own unit on the axis ("400 km"), which "400k" would not
+            compactAxis={!((series.kind === "geo" || series.unit === "meters") && measure !== "count")}
+            height={expanded ? 320 : tall ? 340 : 190}
             bars={bars}
             valueLabel={view.valueLabel}
             onPick={(index) => {
@@ -451,6 +513,18 @@ function viewOf(
       format: (v) => (Math.round(v * 10) / 10).toString() + "%",
     };
   }
+  if (data.kind === "geo") {
+    // one number of the several each interval holds, drawn as a plain line (count as bars)
+    const pick = (p: SeriesPoint) =>
+      measure === "major" ? p.major : measure === "minor" ? p.minor : measure === "drift" ? p.drift : measure === "count" ? p.count : p.value;
+    return {
+      kind: measure === "count" ? "count" : "sum",
+      points: data.points.map((p) => ({ fromUtc: p.fromUtc, hasValue: p.hasValue && pick(p) != null, value: pick(p) ?? null })),
+      valueLabel: measure === "count" ? "positions" : measureLabels[measure].toLowerCase(),
+      format: measure === "count" ? (v) => formatCount(Math.round(v)) : (v) => formatDistance(v),
+    };
+  }
+  if (data.kind === "heatmap") return { kind: "count", points: data.points, valueLabel: "positions" };
   if (data.kind === "full" || data.kind === "avgminmax") {
     if (measure === "avg") return { kind: data.kind, points: data.points };
     const pick = (p: SeriesPoint) => (measure === "sum" ? p.sum : measure === "count" ? p.count : measure === "min" ? p.min : p.max);
@@ -464,16 +538,17 @@ function viewOf(
 }
 
 function valueFormatter(series: CustomLogSeries, kind: SeriesData["kind"], measure: Measure): (v: number) => string {
-  if (kind === "count" || kind === "groups" || (kind === "full" && measure === "count")) return (v) => formatCount(Math.round(v));
+  if (kind === "count" || kind === "groups" || kind === "heatmap" || (kind === "full" && measure === "count")) return (v) => formatCount(Math.round(v));
+  if (series.unit === "meters") return (v) => formatDistance(v);
   if (series.dataType === "Integer") return (v) => (Math.abs(v) >= 1000 ? formatCount(Math.round(v)) : trim(v));
   return (v) => trim(v);
 }
 
 /** The line beside a panel's title: what the whole range adds up to, for the number drawn. */
-function summaryLine(data: SeriesData, measure: Measure): string {
+function summaryLine(data: SeriesData, measure: Measure, unit?: string | null): string {
   const s = data.summary;
   if (!s) return "";
-  const n = (v: number | null | undefined) => (v == null ? "—" : Math.abs(v) >= 1000 ? formatCount(Math.round(v)) : trim(v));
+  const n = (v: number | null | undefined) => (v == null ? "—" : unit === "meters" ? formatDistance(v) : Math.abs(v) >= 1000 ? formatCount(Math.round(v)) : trim(v));
   switch (data.kind) {
     case "count":
       return s.total == null ? "" : `${formatCount(s.total)} in the range`;
@@ -487,6 +562,13 @@ function summaryLine(data: SeriesData, measure: Measure): string {
       if (measure === "sum") return `${n(s.sum)} in total`;
       if (measure === "count") return `${formatCount(s.count ?? 0)} entries`;
       return `${formatCount(s.count ?? 0)} entries · avg ${n(s.avg)} · min ${n(s.min)} · max ${n(s.max)}`;
+    case "geo":
+      if (s.count == null) return "";
+      return `${formatCount(s.count)} positions${s.standardDistance != null ? ` · spread ${formatDistance(s.standardDistance)}` : ""}${
+        s.major != null && s.minor != null ? ` (${formatDistance(s.major)} × ${formatDistance(s.minor)})` : ""
+      }`;
+    case "heatmap":
+      return s.total == null ? "" : `${formatCount(s.total)} positions${s.halfWithinSquareMeters ? ` · half within ${formatArea(s.halfWithinSquareMeters)}` : ""}`;
   }
 }
 
@@ -507,6 +589,10 @@ function seriesCsv(data: SeriesData): string {
     case "avgminmax":
       lines.push("Interval,Average,Lowest,Highest");
       for (const p of data.points) lines.push([p.fromUtc, cell(p.value), cell(p.min), cell(p.max)].join(","));
+      break;
+    case "geo":
+      lines.push("Interval,Positions,Latitude,Longitude,Spread (m),Along (m),Across (m),Bearing,Centre moved (m)");
+      for (const p of data.points) lines.push([p.fromUtc, cell(p.count), cell(p.latitude), cell(p.longitude), cell(p.value), cell(p.major), cell(p.minor), cell(p.bearing), cell(p.drift)].join(","));
       break;
     default:
       lines.push(`Interval,${data.kind === "sum" ? "Total" : "Count"}`);

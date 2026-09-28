@@ -6,6 +6,7 @@ import { DialogHost } from "./components/DialogHost";
 import { FilesStorageSection, type FilesStorageView } from "./components/FilesStorageSection";
 import { Header } from "./components/Header";
 import { LicenseSection } from "./components/LicenseSection";
+import { Loading } from "./components/Loading";
 import { Login } from "./components/Login";
 import { LogsSection } from "./components/LogsSection";
 import { CustomLogsSection } from "./components/CustomLogsSection";
@@ -35,6 +36,8 @@ export function App() {
   const [theme, setTheme] = useState(getInitialTheme);
   const [auth, setAuth] = useState<AuthState>("checking");
   const [serverInfo, setServerInfo] = useState<ServerInfo | null>(null);
+  // why the first server-info never came, so a database page can say so rather than wait forever
+  const [serverInfoError, setServerInfoError] = useState<string | null>(null);
   const [activeDbId, setActiveDbId] = useState<string | null>(null);
   const [activeSectionId, setActiveSectionId] = useState("dashboard");
   const [navOpen, setNavOpen] = useState(true);
@@ -57,6 +60,7 @@ export function App() {
       // a 401 from the channel means the session expired: back to the login screen
       subscribeUnauthorized(() => {
         disconnect();
+        setServerInfoError(null);
         setAuth("login");
       }),
     [],
@@ -82,9 +86,12 @@ export function App() {
         .then((info) => {
           if (cancelled) return;
           setServerInfo(info);
+          setServerInfoError(null);
           applyContainers(info.containers);
         })
-        .catch(() => {}); // a 401 is handled by subscribeUnauthorized; other errors leave the shell empty
+        // a 401 is handled by subscribeUnauthorized; anything else is shown where the database page
+        // would be, until the next resync brings an answer
+        .catch((e) => !cancelled && setServerInfoError(e instanceof Error ? e.message : String(e)));
     load();
     // after a stream reconnect (e.g. a server restart) events were missed: fetch a fresh snapshot
     const unsubscribeResync = subscribeResync(load);
@@ -131,6 +138,7 @@ export function App() {
     } finally {
       disconnect();
       setServerInfo(null);
+      setServerInfoError(null);
       setAuth("login");
     }
   }
@@ -206,6 +214,15 @@ export function App() {
             <FilesStorageSection db={activeDb} view={activeSectionId} onSelectView={setActiveSectionId} />
           ) : activeSectionId === "tasks" && activeDb ? (
             <TasksSection key={activeDb.id} db={activeDb} />
+          ) : section.scope === "database" && !activeDb ? (
+            // a database page has no database until the server has said which there are
+            serverInfo !== null ? (
+              <div className="placeholder">There is no database on this server yet — create one under Databases.</div>
+            ) : serverInfoError ? (
+              <div className="placeholder">Could not load the databases: {serverInfoError}</div>
+            ) : (
+              <Loading label="Loading the databases…" />
+            )
           ) : (
             <div className="placeholder">
               <span>{section.label} — not implemented yet</span>

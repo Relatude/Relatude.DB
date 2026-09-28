@@ -442,7 +442,15 @@ function RecordPanel({ db, log, onRecorded, onView }: { db: DatabaseInfo; log: C
                 className="text-input"
                 type={c.dataType === "Integer" || c.dataType === "Double" ? "number" : c.dataType === "DateTime" ? "datetime-local" : "text"}
                 step={c.dataType === "Double" ? "any" : undefined}
-                placeholder={c.dataType === "TimeSpan" ? "milliseconds, or 00:01:30" : c.dataType === "Bytes" ? "text, stored as UTF-8" : ""}
+                placeholder={
+                  c.dataType === "TimeSpan"
+                    ? "milliseconds, or 00:01:30"
+                    : c.dataType === "Bytes"
+                      ? "text, stored as UTF-8"
+                      : c.dataType === "GeoCoordinate"
+                        ? "latitude, longitude: 59.9139, 10.7522"
+                        : ""
+                }
                 value={values[c.key] ?? ""}
                 onChange={(e) => setValues({ ...values, [c.key]: e.currentTarget.value })}
               />

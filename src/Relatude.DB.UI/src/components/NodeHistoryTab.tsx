@@ -4,6 +4,7 @@ import { fetchNodeVersions, restoreNodeVersion, versionFileUrl, type NodeHistory
 import { showConfirm, showError, showInfo } from "../dialogs";
 import { formatBytes, formatCount, formatTime } from "../format";
 import { DiffView, VersionCompare } from "./VersionCompare";
+import { Loading } from "./Loading";
 
 // a change longer than this is shown as a word diff rather than as old → new: two long texts side
 // by side say that something changed, a diff says what
@@ -96,7 +97,7 @@ export function NodeHistoryTab({ storeId, nodeId, onRestored }: { storeId: strin
   }
 
   if (error) return <div className="placeholder">{error}</div>;
-  if (!history) return null;
+  if (!history) return <Loading label="Loading the history…" />;
 
   return (
     <div className="node-history">

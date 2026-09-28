@@ -7,10 +7,13 @@ import { adminBase } from "./base";
 import { send } from "./channel";
 
 /** How a log value is stored, which is all the client needs to know to format it. */
-export type LogDataType = "DateTime" | "TimeSpan" | "String" | "Integer" | "Double" | "Bytes";
+export type LogDataType = "DateTime" | "TimeSpan" | "String" | "Integer" | "Double" | "Bytes" | "GeoCoordinate";
 
-/** How a statistic is drawn. Decided on the server from the statistic and the data type. */
-export type SeriesKind = "count" | "sum" | "avgminmax" | "full" | "groups";
+/**
+ * How a statistic is drawn. Decided on the server from the statistic and the data type: "geo" is
+ * the centre and spread of a column of positions, "heatmap" its counts per cell of a grid.
+ */
+export type SeriesKind = "count" | "sum" | "avgminmax" | "full" | "groups" | "geo" | "heatmap";
 
 /** The buckets a statistic is kept in; the range picker chooses one. */
 export type IntervalType = "Second" | "Minute" | "Hour" | "Day" | "Week" | "Month";
@@ -28,6 +31,8 @@ export interface LogSeries {
   kind: SeriesKind;
   label: string;
   dataType: LogDataType;
+  /** What the numbers are in when it is not what the column holds: "meters" for distances from a column of positions. */
+  unit?: string | null;
 }
 
 export interface LogInfo {
@@ -88,6 +93,34 @@ export interface SeriesPoint {
   count?: number | null;
   /** kind "groups" only: the count per value in this interval. */
   values?: Record<string, number>;
+  /** kind "geo" only: where the centre of the interval's positions was, the axes of their spread, and how far the centre was from the centre of the whole range. */
+  latitude?: number | null;
+  longitude?: number | null;
+  major?: number | null;
+  minor?: number | null;
+  bearing?: number | null;
+  drift?: number | null;
+}
+
+/** A heatmap's cells as they travel: packed, the way the map's own points do (see server/query.ts). */
+export interface HeatmapCells {
+  count: number;
+  /** int32 pairs, latitude then longitude, at ten million to the degree (base64) */
+  centres: string;
+  /** float64 counts (base64) */
+  counts: string;
+  /** one byte per cell: its level (base64) */
+  levels: string;
+}
+
+export interface Hotspot {
+  latitude: number;
+  longitude: number;
+  count: number;
+  share: number;
+  level: number;
+  heightMeters: number;
+  perSquareKilometre: number;
 }
 
 export interface SeriesSummary {
@@ -98,6 +131,24 @@ export interface SeriesSummary {
   sum?: number;
   count?: number;
   groups?: { name: string; count: number }[];
+  // kind "geo": the centre and spread of the whole range (see GeoSpread on the server)
+  latitude?: number | null;
+  longitude?: number | null;
+  standardDistance?: number | null;
+  major?: number | null;
+  minor?: number | null;
+  bearing?: number | null;
+  concentration?: number;
+  south?: number | null;
+  north?: number | null;
+  west?: number | null;
+  east?: number | null;
+  // kind "heatmap": the whole range in one grid
+  level?: number;
+  cells?: HeatmapCells;
+  hotspots?: Hotspot[];
+  halfWithinSquareMeters?: number;
+  nineTenthsWithinSquareMeters?: number;
 }
 
 export interface SeriesData {
@@ -152,6 +203,7 @@ export const searchHelp = [
   ['"could not open"', "a phrase, since a space is otherwise two terms"],
   ["error -shutdown", "both hold: one anywhere, the other nowhere"],
   ["type:error", "one column, by its name or its key"],
+  ["position:59.91,10.75~2km", "a position within that distance of a place (m or km)"],
 ] as const;
 
 /**

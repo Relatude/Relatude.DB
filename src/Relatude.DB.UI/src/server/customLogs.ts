@@ -19,11 +19,17 @@ export type StatisticsType =
   | "CountSumAvgMinMax"
   | "UniqueCountWithValues"
   | "UniqueCountHashedValues"
-  | "UniqueCountEstimate";
+  | "UniqueCountEstimate"
+  | "GeoSpread"
+  | "GeoDistance"
+  | "GeoDistanceBands"
+  | "GeoZones"
+  | "GeoCoverage"
+  | "GeoHeatmap";
 
 export const fileIntervals: FileInterval[] = ["Minute", "Hour", "Day", "Month"];
 export const daysOfWeek: DayOfWeek[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-export const dataTypes: LogDataType[] = ["String", "Integer", "Double", "DateTime", "TimeSpan", "Bytes"];
+export const dataTypes: LogDataType[] = ["String", "Integer", "Double", "DateTime", "TimeSpan", "Bytes", "GeoCoordinate"];
 
 /** What a data type is called on the page: what it holds, not what .NET calls it. */
 export const dataTypeLabel: Record<LogDataType, string> = {
@@ -33,6 +39,7 @@ export const dataTypeLabel: Record<LogDataType, string> = {
   DateTime: "Date and time",
   TimeSpan: "Duration",
   Bytes: "Bytes",
+  GeoCoordinate: "Position",
 };
 
 export interface StatisticInfo {
@@ -44,6 +51,10 @@ export interface StatisticInfo {
   numericOnly?: boolean;
   /** A breakdown or a unique count of bytes has nothing to tell apart. */
   notBytes?: boolean;
+  /** Only a column of positions has a centre, a distance or a place on a grid. */
+  geoOnly?: boolean;
+  /** What the statistic is measured against, which the editor asks for when it is switched on. */
+  needs?: ("reference" | "bands" | "zones" | "level")[];
 }
 
 /** Every statistic a column can keep, in the order the editor offers them. */
@@ -79,13 +90,89 @@ export const statisticInfos: StatisticInfo[] = [
     help: "How many different values there were per interval, estimated with the HyperLogLog algorithm: within about one percent, in the same small amount of memory however many values there are.",
     notBytes: true,
   },
+  {
+    type: "GeoSpread",
+    label: "Centre and spread",
+    short: "centre",
+    help: "Where the positions of each interval were: their centre (the spherical mean, right across the date line and near the poles), how far from it they lay, which way they spread, and the box round them. Fifteen numbers an interval, and any range of them adds up exactly.",
+    geoOnly: true,
+  },
+  {
+    type: "GeoHeatmap",
+    label: "Heatmap",
+    short: "heatmap",
+    help: "How many positions each cell of a grid held, per interval, drawn on a map. Where little happens the cells are merged into larger ones, and where a lot happens they stay small, so an interval is kept in a fixed number of cells without a count lost.",
+    geoOnly: true,
+    needs: ["level"],
+  },
+  {
+    type: "GeoDistance",
+    label: "Distance from a point",
+    short: "distance",
+    help: "How far the positions were from a point you choose - a depot, a shop, the office: how many, the total, the average, the nearest and the farthest, per interval.",
+    geoOnly: true,
+    needs: ["reference"],
+  },
+  {
+    type: "GeoDistanceBands",
+    label: "Distance bands",
+    short: "bands",
+    help: "How many positions fell within each band of distance from a point: under 1 km, 1-5 km and so on, per interval.",
+    geoOnly: true,
+    needs: ["reference", "bands"],
+  },
+  {
+    type: "GeoZones",
+    label: "Zones",
+    short: "zones",
+    help: "How many positions fell in each of a few named circles on the map, per interval: the first zone a position is in, or Outside.",
+    geoOnly: true,
+    needs: ["zones"],
+  },
+  {
+    type: "GeoCoverage",
+    label: "Areas covered",
+    short: "areas",
+    help: "How many different cells of a grid had a position in them, per interval: how much ground the entries covered, estimated with HyperLogLog.",
+    geoOnly: true,
+    needs: ["level"],
+  },
 ];
+
+/** A place, as a GeoCoordinate is written in json. */
+export interface GeoPoint {
+  latitude: number;
+  longitude: number;
+}
+
+/** A named circle on the map, which a Zones statistic counts positions by. */
+export interface GeoZoneDefinition {
+  name: string;
+  center: GeoPoint | null;
+  radiusMeters: number;
+}
+
+/** The cell levels offered for a grid, and how tall a cell of each is (see GeoCell on the server). */
+export const geoLevels: { level: number; label: string }[] = [
+  { level: 10, label: "20 km" },
+  { level: 12, label: "5 km" },
+  { level: 13, label: "2.4 km" },
+  { level: 14, label: "1.2 km" },
+  { level: 15, label: "600 m" },
+  { level: 16, label: "300 m" },
+  { level: 17, label: "150 m" },
+  { level: 18, label: "75 m" },
+  { level: 20, label: "20 m" },
+];
+/** The level a grid uses when none is chosen: StatisticsInfo.DefaultGeoLevel on the server. */
+export const defaultGeoLevel = 16;
 
 export function statisticApplies(type: StatisticsType, dataType: LogDataType): boolean {
   const info = statisticInfos.find((s) => s.type === type);
   if (!info) return false;
   if (info.numericOnly && dataType !== "Integer" && dataType !== "Double") return false;
   if (info.notBytes && dataType === "Bytes") return false;
+  if (info.geoOnly && dataType !== "GeoCoordinate") return false;
   return true;
 }
 
@@ -109,6 +196,13 @@ export function retentionOf(resolution: number): { interval: string; count: numb
 export interface StatisticDefinition {
   statisticsType: StatisticsType;
   resolution: number;
+  // what a statistic about positions is measured against (see statisticInfos' needs)
+  reference?: GeoPoint | null;
+  /** the edges between distance bands, in meters */
+  bands?: number[] | null;
+  zones?: GeoZoneDefinition[] | null;
+  /** the cell level of a grid; 0 or missing is the default */
+  level?: number | null;
 }
 
 export interface ColumnDefinition {
@@ -234,6 +328,75 @@ export interface Breakdown {
   other: number;
 }
 
+/** A column of positions read from its entries (UIGeoAnalysis on the server). */
+export interface GeoAnalysis {
+  count: number;
+  spread: {
+    count: number;
+    latitude: number | null;
+    longitude: number | null;
+    standardDistance: number | null;
+    major: number | null;
+    minor: number | null;
+    bearing: number | null;
+    concentration: number;
+    south: number | null;
+    north: number | null;
+    west: number | null;
+    east: number | null;
+  };
+  /** the geometric median: the place with the least total distance to every position */
+  median: GeoPoint | null;
+  distances: {
+    from: GeoPoint;
+    mean: number;
+    max: number;
+    percentiles: { p: number; value: number }[];
+    histogram: { from: number; to: number; count: number }[];
+    /** positions further out than the last bar reaches (the 99th percentile) */
+    beyond: number;
+  } | null;
+  clusters: {
+    cellMeters: number;
+    inClusters: number;
+    items: { latitude: number; longitude: number; count: number; share: number; radius: number; south: number; north: number; west: number; east: number }[];
+  } | null;
+  tracks: {
+    column: string;
+    tracks: number;
+    withoutName: number;
+    totalDistance: number;
+    totalMoving: number;
+    stops: number;
+    jumps: number;
+    distancePercentiles: { p: number; value: number }[];
+    top: {
+      name: string;
+      points: number;
+      distance: number;
+      duration: number;
+      moving: number;
+      averageSpeed: number;
+      topSpeed: number;
+      stops: number;
+      stopped: number;
+      jumps: number;
+      firstUtc: string;
+      lastUtc: string;
+    }[];
+  } | null;
+  points: {
+    count: number;
+    total: number;
+    firstUtc: string;
+    /** int32 pairs, latitude then longitude, at ten million to the degree (base64) */
+    coordinates: string;
+    /** int32 seconds after firstUtc (base64) */
+    times: string;
+    colour: { column: string; groups: { label: string; count: number; kind: "value" | "other" | "none" }[]; assignment: string } | null;
+  };
+}
+
 export interface AnalyseResult {
   logKey: string;
   property: string;
@@ -248,6 +411,7 @@ export interface AnalyseResult {
   lastUtc: string | null;
   distribution: Distribution | null;
   breakdown: Breakdown | null;
+  geo?: GeoAnalysis | null;
 }
 
 export function fetchDefinition(storeId: string, logKey: string): Promise<{ settings: LogDefinition; json: string }> {
@@ -333,6 +497,7 @@ export function analyseColumn(
   search: string | null,
   caseSensitive: boolean,
   maxEntries: number,
+  geo?: { trackBy?: string | null; colorBy?: string | null; mapPoints?: number },
 ): Promise<AnalyseResult> {
   return send("custom-logs-analyse", {
     storeId,
@@ -344,6 +509,9 @@ export function analyseColumn(
     search,
     caseSensitive,
     maxEntries,
+    trackBy: geo?.trackBy ?? null,
+    colorBy: geo?.colorBy ?? null,
+    mapPoints: geo?.mapPoints ?? 0,
   });
 }
 
@@ -419,7 +587,7 @@ export function definitionToFileJson(d: LogDefinition): string {
     properties[column.key] = {
       Name: column.name,
       DataType: column.dataType,
-      Statistics: column.statistics.map((s) => ({ StatisticsType: s.statisticsType, Resolution: s.resolution })),
+      Statistics: column.statistics.map(statisticToFile),
     };
   }
   return JSON.stringify(
@@ -441,6 +609,52 @@ export function definitionToFileJson(d: LogDefinition): string {
     null,
     2,
   );
+}
+
+/** One statistic as the settings file holds it: its parameters only when it has them, as the server writes them. */
+function statisticToFile(s: StatisticDefinition): Record<string, unknown> {
+  const out: Record<string, unknown> = { StatisticsType: s.statisticsType, Resolution: s.resolution };
+  if (s.reference) out.Reference = { latitude: s.reference.latitude, longitude: s.reference.longitude };
+  if (s.bands && s.bands.length > 0) out.Bands = [...s.bands];
+  if (s.zones && s.zones.length > 0)
+    out.Zones = s.zones.map((z) => ({ Name: z.name, Center: z.center ? { latitude: z.center.latitude, longitude: z.center.longitude } : null, RadiusMeters: z.radiusMeters }));
+  if (s.level) out.Level = s.level;
+  return out;
+}
+
+/** A place as a settings file may give it: {latitude, longitude} (lat/lon/lng too), or "latitude, longitude". */
+export function geoPointOf(v: unknown): GeoPoint | null {
+  if (typeof v === "string") return parseGeoPoint(v);
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  const find = (...names: string[]) => {
+    const key = Object.keys(o).find((k) => names.includes(k.toLowerCase()));
+    return key === undefined ? undefined : o[key];
+  };
+  const lat = find("latitude", "lat");
+  const lon = find("longitude", "lon", "lng");
+  return typeof lat === "number" && typeof lon === "number" && isFinite(lat) && isFinite(lon) ? { latitude: lat, longitude: lon } : null;
+}
+
+/** "59.9139, 10.7522" - latitude first, the way the server and every map service write it - or null. */
+export function parseGeoPoint(text: string): GeoPoint | null {
+  const parts = text
+    .trim()
+    .replace(/^[([]|[)\]]$/g, "")
+    .split(/[,; ]+/)
+    .filter((p) => p.length > 0);
+  if (parts.length !== 2) return null;
+  const lat = Number(parts[0]);
+  const lon = Number(parts[1]);
+  if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return { latitude: lat, longitude: lon };
+}
+
+/** A place written back as text, to six decimals (about ten centimetres). */
+export function geoPointText(p: GeoPoint | null | undefined): string {
+  if (!p) return "";
+  const n = (v: number) => (Math.round(v * 1e6) / 1e6).toString();
+  return n(p.latitude) + ", " + n(p.longitude);
 }
 
 /**
@@ -468,7 +682,7 @@ export function definitionFromFileJson(text: string): LogDefinition {
   // the .NET enum order, for files that write them as numbers
   const intervalOrder: FileInterval[] = ["Minute", "Hour", "Day", "Month"];
   const dayOrder: DayOfWeek[] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const typeOrder: LogDataType[] = ["DateTime", "TimeSpan", "String", "Integer", "Double", "Bytes"];
+  const typeOrder: LogDataType[] = ["DateTime", "TimeSpan", "String", "Integer", "Double", "Bytes", "GeoCoordinate"];
   const statisticOrder: StatisticsType[] = [
     "Count",
     "Sum",
@@ -477,6 +691,12 @@ export function definitionFromFileJson(text: string): LogDefinition {
     "UniqueCountWithValues",
     "UniqueCountHashedValues",
     "UniqueCountEstimate",
+    "GeoSpread",
+    "GeoDistance",
+    "GeoDistanceBands",
+    "GeoZones",
+    "GeoCoverage",
+    "GeoHeatmap",
   ];
   const columns: ColumnDefinition[] = [];
   const properties = get(o, "Properties");
@@ -491,10 +711,23 @@ export function definitionFromFileJson(text: string): LogDefinition {
         statistics: Array.isArray(statistics)
           ? statistics
               .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
-              .map((s) => ({
-                statisticsType: enumOf(get(s, "StatisticsType"), statisticOrder, "Count", statisticOrder),
-                resolution: Math.max(1, Math.round(num(get(s, "Resolution"), 3))),
-              }))
+              .map((s) => {
+                const zones = get(s, "Zones");
+                const bands = get(s, "Bands");
+                const level = get(s, "Level");
+                return {
+                  statisticsType: enumOf(get(s, "StatisticsType"), statisticOrder, "Count", statisticOrder),
+                  resolution: Math.max(1, Math.round(num(get(s, "Resolution"), 3))),
+                  reference: geoPointOf(get(s, "Reference")),
+                  bands: Array.isArray(bands) ? bands.filter((b): b is number => typeof b === "number" && isFinite(b)) : null,
+                  zones: Array.isArray(zones)
+                    ? zones
+                        .filter((z): z is Record<string, unknown> => !!z && typeof z === "object")
+                        .map((z) => ({ name: text_(get(z, "Name")), center: geoPointOf(get(z, "Center")), radiusMeters: num(get(z, "RadiusMeters"), 0) }))
+                    : null,
+                  level: typeof level === "number" && isFinite(level) ? Math.round(level) : null,
+                };
+              })
           : [],
       });
     }
@@ -576,12 +809,12 @@ export const templates: { id: string; name: string; description: string; make: (
   {
     id: "requests",
     name: "Web requests",
-    description: "Path, status and duration of the requests a site answers.",
+    description: "Path, status and duration of the requests a site answers, and where they came from.",
     make: () => ({
       ...blankDefinition(),
       key: "requests",
       name: "Web requests",
-      description: "The requests the site answers: what was asked for, how it went and how long it took.",
+      description: "The requests the site answers: what was asked for, how it went, how long it took and where it came from.",
       fileInterval: "Hour",
       maxAgeOfLogFilesInDays: 14,
       properties: [
@@ -591,6 +824,14 @@ export const templates: { id: string; name: string; description: string; make: (
         { key: "duration", name: "Duration (ms)", dataType: "Double", statistics: [stat("CountSumAvgMinMax")] },
         { key: "bytes", name: "Bytes sent", dataType: "Integer", statistics: [stat("Sum")] },
         { key: "user", name: "User", dataType: "String", statistics: [stat("UniqueCountHashedValues")] },
+        // where a request came from - a GeoIP lookup of the client's address, say, which is good to a
+        // town rather than a street: the areas covered are counted in cells of about 20 km
+        {
+          key: "position",
+          name: "Position",
+          dataType: "GeoCoordinate",
+          statistics: [stat("GeoSpread"), stat("GeoHeatmap"), { ...stat("GeoCoverage"), level: 10 }],
+        },
       ],
     }),
   },
@@ -632,6 +873,24 @@ export const templates: { id: string; name: string; description: string; make: (
     }),
   },
   {
+    id: "positions",
+    name: "Positions",
+    description: "Where things happen or go: deliveries, check-ins, vehicles, devices - on a map, with a centre, a spread and a heatmap.",
+    make: () => ({
+      ...blankDefinition(),
+      key: "positions",
+      name: "Positions",
+      description: "Where the application sees things happen, and what was there.",
+      fileInterval: "Day",
+      maxAgeOfLogFilesInDays: 90,
+      properties: [
+        { key: "position", name: "Position", dataType: "GeoCoordinate", statistics: [stat("GeoSpread"), stat("GeoHeatmap"), stat("GeoCoverage")] },
+        { key: "vehicle", name: "Vehicle", dataType: "String", statistics: [stat("UniqueCountHashedValues")] },
+        { key: "event", name: "Event", dataType: "String", statistics: [stat("UniqueCountWithValues")] },
+      ],
+    }),
+  },
+  {
     id: "jobs",
     name: "Background jobs",
     description: "Scheduled work: which job, whether it succeeded, how long it ran.",
@@ -668,6 +927,8 @@ export function csharpSample(dataType: LogDataType, key: string): string {
       return "TimeSpan.FromMilliseconds(250)";
     case "Bytes":
       return "new byte[] { 1, 2, 3 }";
+    case "GeoCoordinate":
+      return "new GeoCoordinate(59.9139, 10.7522)";
     default: {
       // what a column with this name usually holds, so the example reads like the real call
       const text = named("method")
@@ -697,9 +958,16 @@ export function recordingCode(d: { key: string; properties: { key: string; dataT
   const pairs = columns.map((c, i) => `    ("${c.key}", ${csharpSample(c.dataType, c.key)})${i < columns.length - 1 ? "," : ");"}`);
   const pascal = (k: string) => k.replace(/(^|[-_])([a-z0-9])/gi, (_, __, ch: string) => ch.toUpperCase()).replace(/[^A-Za-z0-9]/g, "");
   const props = columns.map((c) => `    ${pascal(c.key) || "Value"} = ${csharpSample(c.dataType, c.key)},`);
+  const geo = columns.some((c) => c.dataType === "GeoCoordinate");
   return [
     `// Record into the "${key}" log from the application. A value is converted to its column's`,
     `// type, and a log that is turned off (or not defined) records nothing.`,
+    ...(geo
+      ? [
+          `// A position is a GeoCoordinate (using Relatude.DB.Common;) - or "59.9139, 10.7522", or a`,
+          `// (latitude, longitude) tuple; GeoCoordinate.Empty is no position and is left out.`,
+        ]
+      : []),
     `store.CustomLogs.Record("${key}",`,
     ...pairs,
     ``,

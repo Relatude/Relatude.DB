@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { IconArrowNarrowDown, IconArrowNarrowUp, IconCube3dSphere, IconFocusCentered, IconListDetails, IconMinus, IconPhoto, IconPhotoOff, IconPlus, IconRestore, IconRotate360 } from "@tabler/icons-react";
-import { BareButton, FullscreenButton } from "./DatamodelGraph";
+import { BareButton, FullscreenButton, MaximizeButton } from "./DatamodelGraph";
 import type { PivotBase } from "./PivotView";
 import { bytesOf, fetchPivotModel, runVisual, type PivotModel, type PivotProperty, type VisualGroup, type VisualRequest, type VisualResult } from "../server/query";
 import { useLiveResult } from "../server/hooks";
@@ -202,6 +202,8 @@ export function VisualPivotView({
   allSelected,
   fullscreen,
   onToggleFullscreen,
+  maximized = false,
+  onToggleMaximized,
   head,
 }: {
   base: PivotBase;
@@ -233,6 +235,9 @@ export function VisualPivotView({
   fullscreen: boolean;
   /** Fills the screen with that row, or hands it back; the page owns it, since the rail is not ours. */
   onToggleFullscreen: () => void;
+  /** The same row filling the browser window instead of the screen (see useMaximized); the page owns it too. */
+  maximized?: boolean;
+  onToggleMaximized?: () => void;
   /**
    * What the result's own head would say, when the page has folded that head away and handed it here
    * instead: how many nodes were found, and the switch for the facet rail. Filling the screen with a
@@ -1583,6 +1588,7 @@ export function VisualPivotView({
             <button className={"icon-button" + (def.legend ? " active" : "")} title={def.legend ? "Hide the legend" : "Show the legend"} onClick={() => onChange({ ...def, legend: !def.legend })}>
               <IconListDetails size={16} stroke={1.9} />
             </button>
+            {onToggleMaximized && <MaximizeButton on={maximized} onToggle={onToggleMaximized} what="picture" />}
             <FullscreenButton on={fullscreen} onToggle={onToggleFullscreen} what="picture" />
           </div>
         </div>

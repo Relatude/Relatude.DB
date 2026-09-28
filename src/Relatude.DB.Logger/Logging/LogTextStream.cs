@@ -20,7 +20,9 @@ internal class LogTextStream : IDisposable {
         sb.Append(entry.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff"));
         foreach (var kv in entry.Values) {
             sb.Append('\t');
-            sb.Append((kv.Value + string.Empty).Replace("\t", " ").ReplaceLineEndings("[CR]"));
+            // a position as the two numbers it is, to the store's own centimetre
+            var text = kv.Value is GeoCoordinate position ? LogValues.PositionText(position, 7) : kv.Value + string.Empty;
+            sb.Append(text.Replace("\t", " ").ReplaceLineEndings("[CR]"));
         }
         sb.AppendLine();
         stream.Append(Encoding.UTF8.GetBytes(sb.ToString()));

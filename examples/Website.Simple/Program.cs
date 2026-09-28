@@ -61,6 +61,7 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
         Duration = 12.5,
         Bytes = 2048,
         User = "user-42",
+        Position = DemoVisitors.Position(), // a GeoCoordinate: where the request came from
     });
     var html = "<html><body>"
     + $@"<h1>Welcome to Relatude.DB</h1><p>Database has {count} objects.</p>"
@@ -464,6 +465,24 @@ app.Run();
 record ShopSearchRequest(string? Query, int Page, List<ShopFacetSelection>? Selections);
 record ShopFacetSelection(string Property, List<string>? Values, List<ShopFacetRange>? Ranges);
 record ShopFacetRange(string From, string To);
+// Where a visitor is. A real site would look the client's address up in a GeoIP database; the demo
+// picks one of a few towns, a little way off its middle, so the requests log's map and heatmap have
+// something to show when the front page is loaded a few times.
+static class DemoVisitors {
+    static readonly (double Latitude, double Longitude)[] towns = [
+        (59.9139, 10.7522), // Oslo
+        (60.3913, 5.3221), // Bergen
+        (63.4305, 10.3951), // Trondheim
+        (58.9700, 5.7331), // Stavanger
+        (69.6496, 18.9560), // Tromsø
+        (59.3293, 18.0686), // Stockholm
+        (55.6761, 12.5683), // Copenhagen
+    ];
+    public static GeoCoordinate Position() {
+        var (latitude, longitude) = towns[Random.Shared.Next(towns.Length)];
+        return new GeoCoordinate(latitude + (Random.Shared.NextDouble() - 0.5) * 0.04, longitude + (Random.Shared.NextDouble() - 0.5) * 0.08);
+    }
+}
 static class FacetJson {
     // facet values are sent as invariant strings so the client can post them back unchanged
     public static string? Str(object? v) => v switch {

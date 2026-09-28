@@ -50,6 +50,7 @@ import {
 import type { DatabaseInfo } from "../server/serverInfo";
 import { useLive } from "../live";
 import { formatBytes, formatCount, formatTime } from "../format";
+import { Loading } from "./Loading";
 
 /**
  * What the database has been doing: the trace it keeps in memory, the logs it writes to disk, the
@@ -78,7 +79,7 @@ export function LogsSection({ db }: { db: DatabaseInfo }) {
   }, [load]);
 
   if (error) return <div className="placeholder">{error}</div>;
-  if (!info) return null;
+  if (!info) return <Loading label="Loading the activity…" />;
   const log = info.logs.find((l) => l.key === tab) ?? null;
   return (
     <div className="logs">
@@ -1171,6 +1172,9 @@ function summaryText(series: SeriesData | null): string {
       return `avg ${number(s.avg)} · min ${number(s.min)} · max ${number(s.max)}`;
     case "full":
       return `${formatCount(s.count ?? 0)} entries · avg ${number(s.avg)} · min ${number(s.min)} · max ${number(s.max)}`;
+    default:
+      // positions have graphs of their own on the Logs page; no system log keeps them
+      return "";
   }
 }
 
@@ -1242,7 +1246,7 @@ function TraceTab({ db }: { db: DatabaseInfo }) {
   }, [trace, live]);
 
   if (error) return <div className="placeholder">{error}</div>;
-  if (!trace) return null;
+  if (!trace) return <Loading label="Loading the trace…" />;
   return (
     <div className="logs-body">
       <div className="logs-toolbar">
@@ -1325,7 +1329,7 @@ function ScansTab({ db }: { db: DatabaseInfo }) {
   }
 
   if (error) return <div className="placeholder">{error}</div>;
-  if (!scans) return null;
+  if (!scans) return <Loading label="Loading the scans…" />;
   const total = scans.hits.reduce((sum, h) => sum + h.count, 0);
   return (
     <div className="logs-body">

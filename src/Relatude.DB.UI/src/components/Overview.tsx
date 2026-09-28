@@ -17,6 +17,7 @@ import { subscribe, subscribeResync } from "../server/channel";
 import { ProcessChart, currentCpu, currentDisk, formatPercent, useProcessSamples, type ProcessSample } from "./ProcessChart";
 import { useLive } from "../live";
 import { formatBytes, formatCount, formatDuration, formatTime } from "../format";
+import { Loading } from "./Loading";
 
 export function Overview() {
   const [data, setData] = useState<ServerOverview | null>(null);
@@ -46,7 +47,7 @@ export function Overview() {
   // the process itself moves faster than the facts: read on the refresh cadence for the graph
   const samples = useProcessSamples("server-live", null, readProcess);
   if (error) return <div className="placeholder">{error}</div>;
-  if (!data) return null;
+  if (!data) return <Loading label="Loading the server overview…" />;
   const open = data.containers.filter((c) => c.state === "Open").length;
   // The machine, then the runtime hosting it, then the process, then where it keeps things: read
   // down the list and it runs from what could not change without moving the server to what a

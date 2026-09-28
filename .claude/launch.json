@@ -118,6 +118,16 @@
       "autoPort": false
     },
     {
+      "name": "relatude-db-ui-5064b",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set PORT=5179&& set API_URL=http://localhost:5064&& npm run dev --prefix src/Relatude.DB.UI"
+      ],
+      "port": 5179,
+      "autoPort": false
+    },
+    {
       "name": "relatude-db-ui-5062",
       "runtimeExecutable": "cmd",
       "runtimeArgs": [

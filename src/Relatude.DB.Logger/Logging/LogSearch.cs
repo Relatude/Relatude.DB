@@ -1,3 +1,4 @@
+using Relatude.DB.Common;
 using System.Globalization;
 using System.Text;
 
@@ -17,6 +18,8 @@ namespace Relatude.DB.Logging;
 ///   "could not open"         a phrase, because a space would otherwise be two terms
 ///   error -shutdown          both hold: "error" somewhere, "shutdown" nowhere
 ///   duration:*ms message:get a term can name the column it searches
+///   position:59.91,10.75~2km a position within 2 km of a place (m or km; meters when no unit)
+///   near:59.91,10.75~500m    the same for any column of positions
 /// </code>
 /// Several terms all have to hold. A term is looked for anywhere in a value, wildcard or not:
 /// <c>get*nodes</c> finds "GetNodes" in the middle of a longer value, and a leading or trailing
@@ -33,6 +36,12 @@ public sealed class LogSearch {
 
     // the names of the timestamp, which is the one column no log declares
     static readonly string[] _timeFields = ["time", "timestamp"];
+    // what a term asking about any column of positions names, unless the log has a column called that
+    static readonly string[] _nearFields = ["near", "within"];
+    // "59.91,10.75~2km": a place and how far from it, which a column of positions answers by distance
+    static readonly System.Text.RegularExpressions.Regex _nearPattern = new(
+        @"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*~\s*(\d+(?:\.\d+)?)\s*(m|km)?\s*$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
     // how a timestamp reads when it is searched, the same form the text log writes
     internal const string TimeFormat = "yyyy-MM-dd HH:mm:ss.fff";
 
@@ -89,6 +98,21 @@ public sealed class LogSearch {
     }
 
     bool matches(Term term, LogEntry entry, LogSettings? settings) {
+        // A place and a distance, asked of a column of positions - or of any of them, for "near:" -
+        // is answered by distance. Asked of anything else it is text like any other term.
+        if (term.Near is Near near && term.Field != null) {
+            var named = settings == null ? null : namedColumn(settings, term.Field);
+            var anyColumn = named == null && isNearField(term.Field);
+            var column = named ?? term.Field;
+            if (anyColumn || named != null && settings!.Properties[named].DataType == LogDataType.GeoCoordinate || holdsPosition(entry, column)) {
+                foreach (var value in entry.Values) {
+                    if (value.Value is not GeoCoordinate { IsEmpty: false } position) continue;
+                    if (!anyColumn && !string.Equals(value.Key, column, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (position.IsWithin(near.Center, near.Meters)) return true;
+                }
+                return false;
+            }
+        }
         // A term naming a column searches that column alone - but only once the column is known to
         // exist, since "10:30" names no column and is a search for half past ten. A log whose
         // settings changed can hold entries carrying values it no longer declares, so the entry is
@@ -111,6 +135,31 @@ public sealed class LogSearch {
             if (matchesText(textOf(value), term.Text)) return true;
         }
         return false;
+    }
+
+    static bool isNearField(string field) {
+        foreach (var name in _nearFields) {
+            if (string.Equals(field, name, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+    static bool holdsPosition(LogEntry entry, string key) {
+        foreach (var value in entry.Values) {
+            if (value.Value is GeoCoordinate && string.Equals(value.Key, key, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+    /// <summary>A place and a distance from it, the way a term writes one: "59.91,10.75~2km".</summary>
+    readonly record struct Near(GeoCoordinate Center, double Meters);
+    static Near? nearOf(string value) {
+        var m = _nearPattern.Match(value);
+        if (!m.Success) return null;
+        var lat = double.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
+        var lon = double.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+        var distance = double.Parse(m.Groups[3].Value, CultureInfo.InvariantCulture);
+        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+        if (string.Equals(m.Groups[4].Value, "km", StringComparison.OrdinalIgnoreCase)) distance *= 1000;
+        return new Near(new GeoCoordinate(lat, lon), distance);
     }
 
     static bool isTimeField(string field) {
@@ -173,6 +222,7 @@ public sealed class LogSearch {
         string s => s,
         DateTime dt => timeText(dt),
         TimeSpan ts => ts.ToString("c", CultureInfo.InvariantCulture),
+        GeoCoordinate g => LogValues.PositionText(g),
         double d => d.ToString("R", CultureInfo.InvariantCulture),
         int i => i.ToString(CultureInfo.InvariantCulture),
         byte[] => string.Empty,
@@ -263,10 +313,12 @@ public sealed class LogSearch {
             Field = field;
             Value = new(value);
             Negated = negated;
+            Near = field == null ? null : nearOf(value);
         }
         public readonly Needle Text;
         public readonly string? Field;
         public readonly Needle Value;
         public readonly bool Negated;
+        public readonly Near? Near;
     }
 }

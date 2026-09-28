@@ -164,6 +164,11 @@ export interface MapField {
   setSelection(indexes: ArrayLike<number>): void;
   /** rgb bytes per colour group, and the group of each node; a null assignment paints them all with the first colour. */
   setColors(palette: Uint8Array, assignment: Uint16Array | null): void;
+  /**
+   * How much each point adds to the heat field, when not one each: a cell of a heatmap counted on
+   * the server stands for every position in it. Null is one each. New points reset it.
+   */
+  setWeights(weights: Float32Array | null): void;
   /** The colours a heat field is read through: rgba bytes, low end first. */
   setRamp(ramp: Uint8Array): void;
   /**
@@ -316,7 +321,7 @@ export function createMapField(canvas: HTMLCanvasElement): MapField | null {
   const pinProgram = program(gl, pinVert, solidFrag);
   const haloProgram = program(gl, screenVert, haloFrag);
   const markProgram = program(gl, markVert, markFrag);
-  const heatProgram = program(gl, markVert, heatFrag);
+  const heatProgram = program(gl, heatVert, heatFrag);
   const blurProgram = program(gl, screenVert, blurFrag);
   const reduceProgram = program(gl, screenVert, reduceFrag);
   const rampProgram = program(gl, screenVert, rampFrag);
@@ -358,18 +363,27 @@ export function createMapField(canvas: HTMLCanvasElement): MapField | null {
   const placeBuffer = gl.createBuffer()!;
   const groupBuffer = gl.createBuffer()!;
   const markVao = gl.createVertexArray()!;
-  for (const p of [markProgram, heatProgram]) {
-    gl.bindVertexArray(markVao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, placeBuffer);
-    attribute(gl, p, "aPlace", 2);
-    gl.bindBuffer(gl.ARRAY_BUFFER, groupBuffer);
-    const at = gl.getAttribLocation(p, "aGroup");
-    if (at >= 0) {
-      gl.enableVertexAttribArray(at);
-      gl.vertexAttribIPointer(at, 1, gl.UNSIGNED_SHORT, 0, 0);
-    }
+  gl.bindVertexArray(markVao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, placeBuffer);
+  attribute(gl, markProgram, "aPlace", 2);
+  gl.bindBuffer(gl.ARRAY_BUFFER, groupBuffer);
+  const markGroupAt = gl.getAttribLocation(markProgram, "aGroup");
+  if (markGroupAt >= 0) {
+    gl.enableVertexAttribArray(markGroupAt);
+    gl.vertexAttribIPointer(markGroupAt, 1, gl.UNSIGNED_SHORT, 0, 0);
   }
   gl.bindVertexArray(null);
+  // the heat field reads the same places, and a weight per point (one each unless told otherwise)
+  const weightBuffer = gl.createBuffer()!;
+  const heatVao = gl.createVertexArray()!;
+  gl.bindVertexArray(heatVao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, placeBuffer);
+  attribute(gl, heatProgram, "aPlace", 2);
+  gl.bindBuffer(gl.ARRAY_BUFFER, weightBuffer);
+  attribute(gl, heatProgram, "aWeight", 1);
+  gl.bindVertexArray(null);
+  /** whether the points carry weights of their own (see setWeights) */
+  let weighted = false;
 
   // the pins: one mesh, and the very same places and colour groups the sprites use - read one per
   // PIN here rather than one per vertex, which is the whole of what makes them instances
@@ -563,8 +577,10 @@ export function createMapField(canvas: HTMLCanvasElement): MapField | null {
     gl.uniform2f(gl.getUniformLocation(heatProgram, "uTarget"), heatWidth, heatHeight);
     // a node drawn instead of several stands for all of them; without whole floats to add up in,
     // the counts run 0..1 and are scaled back by the same amount they saturate at
-    gl.uniform1f(gl.getUniformLocation(heatProgram, "uWeight"), Math.max(1, Math.ceil(pointCount / Math.max(1, scene.limit))) / (float ? 1 : 255));
-    gl.bindVertexArray(markVao);
+    // (weights, without whole floats, arrive scaled to the heaviest: one of those adds a whole unit)
+    const unit = float ? 1 : weighted ? 1 : 1 / 255;
+    gl.uniform1f(gl.getUniformLocation(heatProgram, "uWeight"), Math.max(1, Math.ceil(pointCount / Math.max(1, scene.limit))) * unit);
+    gl.bindVertexArray(heatVao);
     gl.drawArrays(gl.POINTS, 0, Math.min(pointCount, Math.max(1, scene.limit)));
 
     gl.disable(gl.BLEND);
@@ -751,6 +767,26 @@ export function createMapField(canvas: HTMLCanvasElement): MapField | null {
       }
       gl.bindBuffer(gl.ARRAY_BUFFER, placeBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, places, gl.STATIC_DRAW);
+      // one each, until weights are given
+      weighted = false;
+      gl.bindBuffer(gl.ARRAY_BUFFER, weightBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(count).fill(1), gl.STATIC_DRAW);
+    },
+    setWeights(weights) {
+      const w = new Float32Array(pointCount);
+      weighted = weights !== null;
+      if (weights === null) {
+        w.fill(1);
+      } else {
+        let max = 0;
+        for (let i = 0; i < pointCount; i++) if (weights[i] > max) max = weights[i];
+        // Whole floats add up anything. Eight bits hold 255 steps, so there the weights are scaled
+        // to the heaviest instead - the picture is the same, its peak just no longer a count.
+        const scale = float || max <= 0 ? 1 : 1 / max;
+        for (let i = 0; i < pointCount; i++) w[i] = Math.max(0, (weights[i] ?? 0) * scale);
+      }
+      gl.bindBuffer(gl.ARRAY_BUFFER, weightBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, w, gl.STATIC_DRAW);
     },
     setSelection(indexes) {
       const places = new Float32Array(indexes.length * 2);
@@ -1021,13 +1057,13 @@ export function createMapField(canvas: HTMLCanvasElement): MapField | null {
     degreesPerPixel,
     destroy() {
       for (const p of [groundProgram, landProgram, lineProgram, rodProgram, pinProgram, haloProgram, markProgram, heatProgram, blurProgram, reduceProgram, rampProgram]) gl.deleteProgram(p);
-      for (const b of [ground.places, ground.indices, land.vertices, outlines.segments, coarse.segments, graticule.segments, corners, hexMesh, pinBody, placeBuffer, groupBuffer, rodBuffer, selectedBuffer]) gl.deleteBuffer(b);
+      for (const b of [ground.places, ground.indices, land.vertices, outlines.segments, coarse.segments, graticule.segments, corners, hexMesh, pinBody, placeBuffer, groupBuffer, weightBuffer, rodBuffer, selectedBuffer]) gl.deleteBuffer(b);
       for (const t of [palette, surfaceRaster, surfaceColors, ramp, rodRamp, dayMap, nightMap]) gl.deleteTexture(t);
       for (const t of [density, scratch, tiles, peak]) {
         gl.deleteFramebuffer(t.frame);
         if (t.texture) gl.deleteTexture(t.texture);
       }
-      for (const v of [groundVao, landVao, outlineVao, coarseVao, graticuleVao, markVao, rodVao, pinVao, selectedVao, selectedPinVao, screenVao]) gl.deleteVertexArray(v);
+      for (const v of [groundVao, landVao, outlineVao, coarseVao, graticuleVao, markVao, heatVao, rodVao, pinVao, selectedVao, selectedPinVao, screenVao]) gl.deleteVertexArray(v);
     },
   };
 }
@@ -1974,12 +2010,36 @@ const markFrag = `#version 300 es
     outColor = vec4(mix(uOutline, c, fill), edge * uAlpha);
   }`;
 
-/** The same nodes, counted rather than drawn: one added per node per cell of the density field. */
+/**
+ * The same places counted rather than drawn, each carrying how much it counts for: one per node, or
+ * the positions a heatmap's cell holds. The sprite is a single cell of the density field.
+ */
+const heatVert = `#version 300 es
+  in vec2 aPlace;
+  in float aWeight;
+  uniform float uLift;
+  uniform float uPointSize;
+  uniform float uScale;
+  uniform vec2 uTarget;
+  flat out float vWeight;
+${placeGlsl}
+  void main() {
+    vWeight = aWeight;
+    gl_PointSize = 0.0;
+    vec2 px;
+    if (!placeOf(aPlace, uLift, px)) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+    px *= uScale;
+    gl_Position = toClip(px, uTarget);
+    gl_PointSize = uPointSize;
+  }`;
+
+/** One added per node per cell of the density field - or the node's weight. */
 const heatFrag = `#version 300 es
   precision highp float;
   uniform float uWeight;
+  flat in float vWeight;
   out vec4 outColor;
-  void main() { outColor = vec4(uWeight, 0.0, 0.0, 1.0); }`;
+  void main() { outColor = vec4(uWeight * vWeight, 0.0, 0.0, 1.0); }`;
 
 /** A triangle over the whole target, built from the vertex id: the fullscreen passes take no attributes. */
 const screenVert = `#version 300 es

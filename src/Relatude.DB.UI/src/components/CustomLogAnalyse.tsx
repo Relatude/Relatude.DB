@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { IconChartHistogram, IconDownload, IconPlayerPlay } from "@tabler/icons-react";
 import { Histogram, ShareBars, StatTiles, type Tile } from "./LogCharts";
+import { GeoAnalysisView } from "./CustomLogAnalyseGeo";
 import { analyseColumn, dataTypeLabel, saveText, type AnalyseResult, type CustomLogSummary } from "../server/customLogs";
 import type { DatabaseInfo } from "../server/serverInfo";
 import { formatCount, formatDateTime } from "../format";
@@ -18,6 +19,8 @@ import { formatMeasure, formatMeasureShort, rangeLabel, rangePayload, type LogRa
  */
 
 const caps = [50_000, 200_000, 1_000_000];
+// a text column with one of these in its name says what the positions belong to: what moved
+const moverHints = ["vehicle", "device", "courier", "driver", "truck", "car", "tracker", "unit", "bike", "boat"];
 // below this, reading the whole range is quick enough to do without being asked
 const autoRunBytes = 20 * 1024 * 1024;
 
@@ -42,6 +45,12 @@ export function CustomLogAnalyse({
   const [busy, setBusy] = useState(false);
   const request = useRef(0);
   const column = log.columns.find((c) => c.key === property) ?? null;
+  const geo = column?.dataType === "GeoCoordinate";
+  // for a column of positions: which column says what moved (its tracks are measured), and which
+  // colours the positions on the map - the same one, to begin with
+  const textColumns = log.columns.filter((c) => c.key !== property && (c.dataType === "String" || c.dataType === "Integer"));
+  const [trackBy, setTrackBy] = useState<string | null>(() => log.columns.find((c) => c.dataType === "String" && moverHints.some((h) => c.key.toLowerCase().includes(h)))?.key ?? null);
+  const [colorBy, setColorBy] = useState<string | null>(() => trackBy);
 
   async function run() {
     if (!property) return;
@@ -49,7 +58,7 @@ export function CustomLogAnalyse({
     setBusy(true);
     setError(null);
     try {
-      const r = await analyseColumn(db.id, log.key, property, rangePayload(range), search.trim() || null, false, cap);
+      const r = await analyseColumn(db.id, log.key, property, rangePayload(range), search.trim() || null, false, cap, geo ? { trackBy, colorBy } : undefined);
       if (id !== request.current) return; // a newer question was asked meanwhile
       setResult(r);
     } catch (e) {
@@ -65,7 +74,7 @@ export function CustomLogAnalyse({
   useEffect(() => {
     if (log.logBytes <= autoRunBytes) run();
     else setResult(null);
-  }, [property, rangeKey, tick]);
+  }, [property, rangeKey, tick, geo ? trackBy : null, geo ? colorBy : null]);
 
   if (log.columns.length === 0) return <div className="logs-note">This log has no columns to analyse. Add some on its Definition page.</div>;
   const type = result?.dataType ?? column?.dataType ?? "String";
@@ -97,7 +106,23 @@ export function CustomLogAnalyse({
     if (!result) return;
     const lines: string[] = [];
     const quote = (t: string) => (/[",\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t);
-    if (d) {
+    const g = result.geo;
+    if (g) {
+      if (g.distances) {
+        lines.push("Percentile,Distance from the median centre (m)");
+        for (const p of g.distances.percentiles) lines.push(`${p.p},${p.value}`);
+        lines.push("");
+      }
+      if (g.clusters) {
+        lines.push("Cluster latitude,Cluster longitude,Entries,Share,Spread (m)");
+        for (const c of g.clusters.items) lines.push([c.latitude, c.longitude, c.count, c.share, c.radius].join(","));
+        lines.push("");
+      }
+      if (g.tracks) {
+        lines.push([quote(g.tracks.column), "Positions", "Distance (m)", "Duration (s)", "Moving (s)", "Average speed (m/s)", "Top speed (m/s)", "Stops", "Jumps"].join(","));
+        for (const t of g.tracks.top) lines.push([quote(t.name), t.points, t.distance, t.duration, t.moving, t.averageSpeed, t.topSpeed, t.stops, t.jumps].join(","));
+      }
+    } else if (d) {
       lines.push("Percentile,Value");
       for (const p of d.percentiles) lines.push(`${p.p},${p.value}`);
       lines.push("");
@@ -131,6 +156,32 @@ export function CustomLogAnalyse({
           onChange={(e) => setSearch(e.currentTarget.value)}
           onKeyDown={(e) => e.key === "Enter" && run()}
         />
+        {geo && (
+          <>
+            <label className="clog-inline-field" title="The column saying what moved: each value's positions are followed in time order, and measured">
+              Tracks by
+              <select className="select" value={trackBy ?? ""} onChange={(e) => setTrackBy(e.currentTarget.value || null)}>
+                <option value="">(none)</option>
+                {textColumns.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="clog-inline-field" title="The column whose values colour the positions on the map">
+              Colour by
+              <select className="select" value={colorBy ?? ""} onChange={(e) => setColorBy(e.currentTarget.value || null)}>
+                <option value="">(one colour)</option>
+                {textColumns.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        )}
         <label className="clog-inline-field" title="The newest this many entries of the range are read; the rest are left out">
           Read at most
           <select className="select" value={cap} onChange={(e) => setCap(Number(e.currentTarget.value))}>
@@ -145,7 +196,7 @@ export function CustomLogAnalyse({
           <IconPlayerPlay size={15} stroke={1.8} /> {busy ? "Reading…" : "Analyse"}
         </button>
         <span className="logs-spacer" />
-        <button className="action-button" onClick={downloadCsv} disabled={!result || (!d && !b)} title="The percentiles and the histogram, or the values and their counts, as comma separated text">
+        <button className="action-button" onClick={downloadCsv} disabled={!result || (!d && !b && !result.geo)} title="The percentiles and the histogram, or the values and their counts, as comma separated text">
           <IconDownload size={15} stroke={1.8} />
         </button>
       </div>
@@ -166,7 +217,9 @@ export function CustomLogAnalyse({
               {result.firstUtc ? `, reaching back to ${formatDateTime(result.firstUtc)}` : ""}. Narrow the range, or read more, to cover all of it.
             </div>
           )}
-          {d ? (
+          {result.geo ? (
+            <GeoAnalysisView log={log} property={property} result={result} trackBy={trackBy} onShowMatching={onShowMatching} />
+          ) : d ? (
             <div className="clog-analyse-grid">
               <section className="panel">
                 <h3>

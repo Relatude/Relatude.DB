@@ -36,6 +36,7 @@ import { closeStore, openStore } from "../server/storage";
 import type { DatabaseInfo } from "../server/serverInfo";
 import type { SeriesPoint } from "../server/logs";
 import { formatBytes, formatCount, formatDuration, formatTime } from "../format";
+import { Loading } from "./Loading";
 import "../datamodel.css";
 
 /**
@@ -215,7 +216,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   }
 
   if (error) return <div className="placeholder">{error}</div>;
-  if (!info) return null;
+  if (!info) return <Loading label="Loading the dashboard…" />;
 
   // the live sample is seconds old, the full picture up to a minute: the state comes from the live one
   const state = live?.state ?? info.state;

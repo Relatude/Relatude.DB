@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { IconArrowBackUp, IconArrowsMaximize, IconArrowsShuffle, IconContrast, IconCube3dSphere, IconFileTypeSvg, IconFocusCentered, IconHierarchy3, IconMaximize, IconMinimize, IconTopologyStar3, IconTypography, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
+import { IconArrowBackUp, IconArrowsMaximize, IconArrowsMinimize, IconArrowsShuffle, IconContrast, IconCube3dSphere, IconFileTypeSvg, IconFocusCentered, IconHierarchy3, IconMaximize, IconMinimize, IconTopologyStar3, IconTypography, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
 import type { EditorContext, Selection } from "./DatamodelEditors";
 import type { GraphShell } from "./DatamodelGraphView";
 import { embeddedColor, kindMeta, propertyColor, relationColor } from "./DatamodelIcons";
@@ -666,6 +666,15 @@ export function FullscreenButton({ on, onToggle, what = "graph" }: { on: boolean
   return (
     <button className={"icon-button" + (on ? " active" : "")} aria-pressed={on} title={on ? `Leave fullscreen (Escape, or F over the ${what})` : `Fill the screen with the ${what} (F over the ${what})`} onClick={onToggle}>
       {on ? <IconMinimize size={16} stroke={1.9} /> : <IconMaximize size={16} stroke={1.9} />}
+    </button>
+  );
+}
+
+/** The view filling the browser window rather than the screen (see useMaximized); Escape puts it back. */
+export function MaximizeButton({ on, onToggle, what }: { on: boolean; onToggle: () => void; what: string }) {
+  return (
+    <button className={"icon-button" + (on ? " active" : "")} aria-pressed={on} title={on ? "Back to its place on the page (Escape)" : `Fill the browser window with the ${what}`} onClick={onToggle}>
+      {on ? <IconArrowsMinimize size={16} stroke={1.9} /> : <IconArrowsMaximize size={16} stroke={1.9} />}
     </button>
   );
 }

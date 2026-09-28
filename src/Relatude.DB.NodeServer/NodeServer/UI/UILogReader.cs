@@ -1,3 +1,4 @@
+using Relatude.DB.Common;
 using Relatude.DB.IO;
 using Relatude.DB.Logging;
 using Relatude.DB.Logging.Statistics;
@@ -50,6 +51,7 @@ static class UILogReader {
                 Label = "Entries",
                 DataType = "Integer",
                 Resolution = Math.Max(1, setting.ResolutionRowStats),
+                Unit = (string?)null,
             },
         };
         foreach (var property in setting.Properties) {
@@ -64,6 +66,9 @@ static class UILogReader {
                     Label = (string.IsNullOrWhiteSpace(property.Value.Name) ? property.Key : property.Value.Name) + " · " + LabelOf(stat.StatisticsType),
                     DataType = property.Value.DataType.ToString(),
                     stat.Resolution,
+                    // what the numbers of the series are counted in, when it is not what the column holds:
+                    // a column of positions draws distances
+                    Unit = stat.StatisticsType is StatisticsType.GeoDistance or StatisticsType.GeoSpread ? "meters" : null,
                 });
             }
         }
@@ -74,6 +79,7 @@ static class UILogReader {
     /// this statistic for this data type (the same rules as Log.createStatisticsIfPossible).</summary>
     internal static string? KindOf(StatisticsType type, LogDataType dataType) {
         var numeric = dataType is LogDataType.Integer or LogDataType.Double;
+        var geo = dataType is LogDataType.GeoCoordinate;
         return type switch {
             StatisticsType.Count => "count",
             StatisticsType.Sum when numeric => "sum",
@@ -82,6 +88,14 @@ static class UILogReader {
             StatisticsType.UniqueCountWithValues when dataType is not LogDataType.Bytes => "groups",
             StatisticsType.UniqueCountHashedValues when dataType is not LogDataType.Bytes => "count",
             StatisticsType.UniqueCountEstimate when dataType is not LogDataType.Bytes => "count",
+            // positions: two statistics with graphs of their own, and four that are drawn the way the
+            // statistic keeping them is (a distance is a CountSumAvgMinMax, a zone a count per value)
+            StatisticsType.GeoSpread when geo => "geo",
+            StatisticsType.GeoHeatmap when geo => "heatmap",
+            StatisticsType.GeoDistance when geo => "full",
+            StatisticsType.GeoDistanceBands when geo => "groups",
+            StatisticsType.GeoZones when geo => "groups",
+            StatisticsType.GeoCoverage when geo => "count",
             _ => null,
         };
     }
@@ -93,6 +107,12 @@ static class UILogReader {
         StatisticsType.UniqueCountWithValues => "by value",
         StatisticsType.UniqueCountHashedValues => "unique",
         StatisticsType.UniqueCountEstimate => "unique, estimated",
+        StatisticsType.GeoSpread => "centre and spread",
+        StatisticsType.GeoHeatmap => "heatmap",
+        StatisticsType.GeoDistance => "distance",
+        StatisticsType.GeoDistanceBands => "distance bands",
+        StatisticsType.GeoZones => "zones",
+        StatisticsType.GeoCoverage => "areas covered",
         _ => type.ToString(),
     };
 
@@ -229,6 +249,7 @@ static class UILogReader {
         double d => d.ToString("R", CultureInfo.InvariantCulture),
         int i => i.ToString(CultureInfo.InvariantCulture),
         byte[] bytes => bytes.Length + " bytes", // the log holds them, a text file cannot
+        GeoCoordinate position => LogValues.PositionText(position, 7), // to the store's own centimetre
         _ => value.ToString() ?? string.Empty,
     };
 
@@ -260,6 +281,12 @@ static class UILogReader {
             // a duration as a number of milliseconds, the unit every duration column is read in
             case TimeSpan ts: json.WriteNumber(name, ts.TotalMilliseconds); break;
             case byte[] bytes: json.WriteBase64String(name, bytes); break;
+            case GeoCoordinate position:
+                json.WriteStartObject(name);
+                json.WriteNumber("latitude", position.Latitude);
+                json.WriteNumber("longitude", position.Longitude);
+                json.WriteEndObject();
+                break;
             default: json.WriteString(name, value.ToString()); break;
         }
     }
@@ -329,7 +356,7 @@ static class UILogReader {
                     break;
                 }
             case "full": {
-                    var values = store.AnalyseCountSumAvgMinMax(logKey, property!, intervalType, from, to, false, true);
+                    var values = store.AnalyseCountSumAvgMinMax(logKey, property!, intervalType, from, to, false, true, statistic: statisticType);
                     points = [.. values.Select(i => (object)new {
                         FromUtc = Utc(i.From),
                         i.HasValue,
@@ -339,18 +366,23 @@ static class UILogReader {
                         Sum = i.HasValue ? i.Value.Sum : (double?)null,
                         Count = i.HasValue ? i.Value.Count : (int?)null,
                     })];
-                    var combined = store.AnalyseCombinedCountSumAvgMinMax(logKey, property!, intervalType, from, to);
+                    var combined = store.AnalyseCombinedCountSumAvgMinMax(logKey, property!, intervalType, from, to, statisticType);
                     if (combined.HasValue) summary = new { combined.Value.Count, combined.Value.Sum, combined.Value.Avg, combined.Value.Min, combined.Value.Max };
                     break;
                 }
             case "groups": {
-                    var values = store.AnalyseGroupCounts(logKey, property!, intervalType, from, to, false, true).ToArray();
-                    var combined = store.AnalyseCombinedGroupCounts(logKey, property!, intervalType, from, to);
+                    var values = store.AnalyseGroupCounts(logKey, property!, intervalType, from, to, false, true, statistic: statisticType).ToArray();
+                    var combined = store.AnalyseCombinedGroupCounts(logKey, property!, intervalType, from, to, statisticType);
                     var totals = combined.HasValue ? combined.Value : [];
                     // the graph keeps the values that carry the shape and folds the tail into one.
                     // Ordered by name so a value keeps its colour between refreshes even when the
-                    // order by size changes under it.
-                    groups = [.. totals.OrderByDescending(kv => kv.Value).Take(maxGroups).Select(kv => kv.Key).Order(StringComparer.Ordinal)];
+                    // order by size changes under it - or, for bands and zones, in the order they
+                    // were declared in, which is the order they mean something in (nearest first)
+                    var declared = declaredOrder(setting, property!, statisticType);
+                    var kept = totals.OrderByDescending(kv => kv.Value).Take(maxGroups).Select(kv => kv.Key);
+                    groups = declared == null
+                        ? [.. kept.Order(StringComparer.Ordinal)]
+                        : [.. kept.OrderBy(k => Array.IndexOf(declared, k) is var i && i >= 0 ? i : int.MaxValue).ThenBy(k => k, StringComparer.Ordinal)];
                     var named = groups.ToHashSet(StringComparer.Ordinal);
                     var hasOther = totals.Count > groups.Length;
                     points = [.. values.Select(i => {
@@ -371,6 +403,23 @@ static class UILogReader {
                         Distinct = totals.Count,
                         Groups = totals.OrderByDescending(kv => kv.Value).Take(maxGroups).Select(kv => new { Name = kv.Key, Count = kv.Value }),
                     };
+                    break;
+                }
+            case "geo": {
+                    var values = store.AnalyseGeoSpread(logKey, property!, intervalType, from, to, false, true).ToArray();
+                    var combined = store.AnalyseCombinedGeoSpread(logKey, property!, intervalType, from, to);
+                    var overall = combined.HasValue ? combined.Value : GeoSpread.None;
+                    // the line drawn is the spread; the rest of each point says where the centre was,
+                    // and how far it was from the centre of the whole range
+                    points = [.. values.Select(i => geoPoint(i, overall))];
+                    if (overall.Count > 0) summary = GeoSummary(overall);
+                    break;
+                }
+            case "heatmap": {
+                    var values = store.AnalyseGeoHeatmap(logKey, property!, intervalType, from, to, false, true).ToArray();
+                    var combined = store.AnalyseCombinedGeoHeatmap(logKey, property!, intervalType, from, to, heatmapCells);
+                    points = [.. values.Select(i => (object)new { FromUtc = Utc(i.From), i.HasValue, Value = i.HasValue ? i.Value.Total : (long?)null })];
+                    if (combined.HasValue) summary = HeatmapSummary(combined.Value);
                     break;
                 }
             default: throw new Exception("Unknown statistic. ");
@@ -395,8 +444,103 @@ static class UILogReader {
         return type switch {
             StatisticsType.Count => store.AnalyseCounts(logKey, property, interval, from, to, false, true),
             StatisticsType.UniqueCountHashedValues => store.AnalyseUniqueCounts(logKey, property, interval, from, to, false, true),
-            StatisticsType.UniqueCountEstimate => store.AnalyseEstimatedUniqueCounts(logKey, property, interval, from, to, false, true),
+            StatisticsType.UniqueCountEstimate or StatisticsType.GeoCoverage => store.AnalyseEstimatedUniqueCounts(logKey, property, interval, from, to, false, true, statistic: type),
             _ => throw new Exception("Unknown count statistic. "),
+        };
+    }
+
+    // ---- positions ----
+
+    // how many cells a heatmap of a range is sent in: enough to read a city on a map of a country,
+    // and about 100 KB of json
+    const int heatmapCells = 4096;
+    /// <summary>The bands or zones a statistic counts by, in the order they were declared; null for any other statistic.</summary>
+    static string[]? declaredOrder(LogSettings setting, string property, StatisticsType type) {
+        if (type is not (StatisticsType.GeoDistanceBands or StatisticsType.GeoZones)) return null;
+        if (!setting.Properties.TryGetValue(property, out var p)) return null;
+        var info = (p.Statistics ?? []).FirstOrDefault(s => s != null && s.StatisticsType == type);
+        if (info == null) return null;
+        return type == StatisticsType.GeoZones ? StatisticsGeoZones.LabelsOf(info) : StatisticsGeoBands.LabelsOf(info);
+    }
+    static object geoPoint(Interval<GeoSpread> i, GeoSpread overall) {
+        if (!i.HasValue || i.Value.Count == 0) return new { FromUtc = Utc(i.From), HasValue = false, Value = (double?)null };
+        var s = i.Value;
+        return new {
+            FromUtc = Utc(i.From),
+            HasValue = true,
+            Value = finite(s.StandardDistanceMeters),
+            s.Count,
+            Latitude = s.HasCenter ? s.Center.Latitude : (double?)null,
+            Longitude = s.HasCenter ? s.Center.Longitude : (double?)null,
+            Major = finite(s.MajorAxisMeters),
+            Minor = finite(s.MinorAxisMeters),
+            Bearing = finite(s.MajorAxisBearingDegrees),
+            // how far this interval's centre was from the centre of the whole range: the drift of the activity
+            Drift = s.HasCenter && overall.HasCenter ? s.Center.DistanceTo(overall.Center) : (double?)null,
+        };
+    }
+    /// <summary>The centre and spread of a set of positions, the way the page reads them.</summary>
+    internal static object GeoSummary(GeoSpread s) => new {
+        s.Count,
+        Latitude = s.HasCenter ? s.Center.Latitude : (double?)null,
+        Longitude = s.HasCenter ? s.Center.Longitude : (double?)null,
+        StandardDistance = finite(s.StandardDistanceMeters),
+        Major = finite(s.MajorAxisMeters),
+        Minor = finite(s.MinorAxisMeters),
+        Bearing = finite(s.MajorAxisBearingDegrees),
+        s.Concentration,
+        South = finite(s.South),
+        North = finite(s.North),
+        West = finite(s.West),
+        East = finite(s.East),
+    };
+    static double? finite(double v) => double.IsFinite(v) ? v : null;
+
+    /// <summary>
+    /// A heatmap as the page draws it: every cell as its centre, its count and its level, packed the
+    /// way the map's own points travel (int32 pairs at ten million to the degree), with the densest
+    /// cells named and how much ground holds half and nine tenths of the positions.
+    /// </summary>
+    internal static object HeatmapSummary(GeoHeatmap heatmap) {
+        var cells = heatmap.Cells;
+        var centres = new byte[cells.Count * 8];
+        var counts = new byte[cells.Count * 8];
+        var levels = new byte[cells.Count];
+        for (var k = 0; k < cells.Count; k++) {
+            var c = cells[k].Cell;
+            BitConverter.TryWriteBytes(centres.AsSpan(k * 8), (int)Math.Round(c.CenterLatitude * 1e7));
+            BitConverter.TryWriteBytes(centres.AsSpan(k * 8 + 4), (int)Math.Round(c.CenterLongitude * 1e7));
+            BitConverter.TryWriteBytes(counts.AsSpan(k * 8), (double)cells[k].Count);
+            levels[k] = (byte)c.Level;
+        }
+        // densest first: by the count per square kilometre, which a count per cell is not when the
+        // cells differ in size
+        var byDensity = cells.OrderByDescending(c => c.Count / c.Cell.AreaSquareMeters).ToArray();
+        double areaFor(double share) {
+            var wanted = heatmap.Total * share;
+            double counted = 0, area = 0;
+            foreach (var c in byDensity) {
+                if (counted >= wanted) break;
+                counted += c.Count;
+                area += c.Cell.AreaSquareMeters;
+            }
+            return area;
+        }
+        return new {
+            heatmap.Total,
+            heatmap.Level,
+            Cells = new { cells.Count, Centres = centres, Counts = counts, Levels = levels },
+            Hotspots = byDensity.Take(10).Select(c => new {
+                Latitude = c.Cell.CenterLatitude,
+                Longitude = c.Cell.CenterLongitude,
+                c.Count,
+                Share = heatmap.Total > 0 ? (double)c.Count / heatmap.Total : 0,
+                c.Cell.Level,
+                c.Cell.HeightMeters,
+                PerSquareKilometre = c.Count / (c.Cell.AreaSquareMeters / 1e6),
+            }).ToArray(),
+            HalfWithinSquareMeters = areaFor(0.5),
+            NineTenthsWithinSquareMeters = areaFor(0.9),
         };
     }
 

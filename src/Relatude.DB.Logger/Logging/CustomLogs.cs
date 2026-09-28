@@ -257,20 +257,29 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
             }
             var had = statisticsOf(before);
             var has = statisticsOf(after);
-            foreach (var (type, resolution) in had) {
+            foreach (var (type, (resolution, parameters)) in had) {
                 if (!has.TryGetValue(type, out var now)) {
                     notes.Add($"{label} no longer keeps {statisticName(type)} statistics; what they hold is dropped.");
-                } else if (now != resolution) {
+                    continue;
+                }
+                if (now.Parameters != parameters) {
+                    // measured from another point, by other bands or zones, in cells of another size:
+                    // another statistic, which starts empty (its state is kept under another key)
                     statisticsRestart = true;
-                    if (levelChanged && now == next.ResolutionRowStats) continue; // said with the level
-                    notes.Add($"{label} keeps its {statisticName(type)} statistics at level {now} instead of {resolution}. They start over at the new level.");
+                    notes.Add($"{label} keeps its {statisticName(type)} statistics {parameterChange(type)}. They start over.");
+                } else if (now.Resolution != resolution) {
+                    statisticsRestart = true;
+                    if (levelChanged && now.Resolution == next.ResolutionRowStats) continue; // said with the level
+                    notes.Add($"{label} keeps its {statisticName(type)} statistics at level {now.Resolution} instead of {resolution}. They start over at the new level.");
                 }
             }
             if (has.Keys.Any(t => !had.ContainsKey(t))) statisticsAdded = true;
         }
         foreach (var (column, added) in next.Properties) {
             if (old.Properties.ContainsKey(column)) continue;
-            notes.Add($"{columnLabel(column, added)} is a new column: the entries recorded so far have no value for it.");
+            // what an entry carried for the key before the log declared it is kept in the entry, and is
+            // read as the column from now on - an application recording ahead of the definition loses nothing
+            notes.Add($"{columnLabel(column, added)} is a new column: the entries recorded so far have no value for it, unless they were recorded with one under its key before it was declared - those values are read as the new column.");
             if (added.Statistics.Count > 0) statisticsAdded = true;
         }
         if (old.FirstDayOfWeek != next.FirstDayOfWeek) {
@@ -300,11 +309,18 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
         }
         return changes;
     }
-    static Dictionary<StatisticsType, int> statisticsOf(LogProperty property) {
-        var result = new Dictionary<StatisticsType, int>();
-        foreach (var s in property.Statistics) result.TryAdd(s.StatisticsType, s.Resolution);
+    static Dictionary<StatisticsType, (int Resolution, string Parameters)> statisticsOf(LogProperty property) {
+        var result = new Dictionary<StatisticsType, (int, string)>();
+        foreach (var s in property.Statistics) result.TryAdd(s.StatisticsType, (s.Resolution, s.ParameterSignature()));
         return result;
     }
+    static string parameterChange(StatisticsType type) => type switch {
+        StatisticsType.GeoDistance => "measured from another point",
+        StatisticsType.GeoDistanceBands => "with other bands, or from another point",
+        StatisticsType.GeoZones => "by other zones",
+        StatisticsType.GeoCoverage or StatisticsType.GeoHeatmap => "in cells of another size",
+        _ => "with other settings",
+    };
     static string columnLabel(string key, LogProperty property) => string.IsNullOrWhiteSpace(property.Name) || property.Name == key ? $"'{key}'" : $"'{property.Name}' ({key})";
     static string intervalName(FileInterval interval) => interval.ToString().ToLowerInvariant();
     static string typeName(LogDataType type) => type switch {
@@ -314,6 +330,7 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
         LogDataType.Integer => "a whole number",
         LogDataType.Double => "a decimal number",
         LogDataType.Bytes => "bytes",
+        LogDataType.GeoCoordinate => "a position",
         _ => type.ToString(),
     };
     static string statisticName(StatisticsType type) => type switch {
@@ -324,6 +341,12 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
         StatisticsType.UniqueCountWithValues => "count per value",
         StatisticsType.UniqueCountHashedValues => "unique count",
         StatisticsType.UniqueCountEstimate => "estimated unique count",
+        StatisticsType.GeoSpread => "centre and spread",
+        StatisticsType.GeoDistance => "distance",
+        StatisticsType.GeoDistanceBands => "distance band",
+        StatisticsType.GeoZones => "zone",
+        StatisticsType.GeoCoverage => "areas covered",
+        StatisticsType.GeoHeatmap => "heatmap",
         _ => type.ToString(),
     };
     static string bytes(long value) {

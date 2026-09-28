@@ -65,6 +65,8 @@ import { loadTabs, newQuery, saveTabs, type HitsView, type QueryMode, type Query
 import { useRowWindow } from "../rowWindow";
 import { applyMarquee, applySelect, noSelection, selectedInts, selectionCount, selectModeOf, type MarqueeMode, type PageSelection, type SelectMode } from "../selection";
 import { marqueeModeClass, useListMarquee, useMarqueeMode } from "../marquee";
+import { useMaximized } from "../maximize";
+import { Loading } from "./Loading";
 
 // How many hits one page holds. The large ones are for reading a whole set in one go - a table
 // someone is going to scroll, or export - and are asked for deliberately; "all" (0 here) is one
@@ -367,7 +369,7 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
           <IconPlus size={16} stroke={1.8} />
         </button>
       </div>
-      {model && (
+      {model ? (
         <QueryTab
           key={active.id}
           db={db}
@@ -377,6 +379,8 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
           onChange={(changes) => patch(active.id, changes)}
           onNodesChanged={refreshCounts}
         />
+      ) : (
+        <Loading label="Loading the data model…" />
       )}
     </div>
   );
@@ -488,6 +492,10 @@ function QueryTab({
   });
   const [resizing, setResizing] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  // the map or the visual pivot filling the browser window instead: the same row fullscreen takes,
+  // laid over the page. Another view starts on the page, whatever the last one was doing
+  const [viewMaximized, toggleMaximized, setViewMaximized] = useMaximized();
+  useEffect(() => setViewMaximized(false), [mode, setViewMaximized]);
   const body = useRef<HTMLDivElement>(null);
   const results = useRef<HTMLDivElement>(null);
   const editor = useRef<HTMLElement>(null);
@@ -969,7 +977,8 @@ function QueryTab({
   // Filling the screen with the picture: the result's own head is a line spent on a count and the
   // switch for the facet rail, and in the visual pivot both of those fit on the line of controls the
   // picture already has. So they go down there, and the head goes away - one more line of canvas.
-  const headInToolbar = (visual || map) && fullscreen;
+  const maximized = (map || visual) && viewMaximized;
+  const headInToolbar = (visual || map) && (fullscreen || maximized);
   const resultHead = (
     <>
       <span className="query-head-count">
@@ -1174,7 +1183,7 @@ function QueryTab({
 
       <div
         ref={body}
-        className={"query-body" + (nodesSelected > 0 ? " with-editor" : "") + (showFacets ? "" : " no-facets") + (resizing ? " resizing" : "")}
+        className={"query-body" + (nodesSelected > 0 ? " with-editor" : "") + (showFacets ? "" : " no-facets") + (resizing ? " resizing" : "") + (maximized ? " maximized" : "")}
         // capped as a share of the page as well as in pixels: a width dragged on a wide window
         // would otherwise leave nothing of the list on a narrow one
         style={editorWidth === null ? undefined : ({ "--editor-width": `min(${editorWidth}px, ${maxEditorShare * 100}%)` } as React.CSSProperties)}
@@ -1353,6 +1362,8 @@ function QueryTab({
               allSelected={allSelected}
               fullscreen={fullscreen}
               onToggleFullscreen={toggleFullscreen}
+              maximized={maximized}
+              onToggleMaximized={toggleMaximized}
               head={headInToolbar ? resultHead : undefined}
             />
           ) : map ? (
@@ -1370,6 +1381,8 @@ function QueryTab({
               allSelected={allSelected}
               fullscreen={fullscreen}
               onToggleFullscreen={toggleFullscreen}
+              maximized={maximized}
+              onToggleMaximized={toggleMaximized}
               head={headInToolbar ? resultHead : undefined}
             />
           ) : cloud ? (

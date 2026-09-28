@@ -166,25 +166,28 @@ function ashore(cells: Uint8Array, col: number, row: number): number {
  * shore" (see countryAt).
  */
 export interface CountryCounts {
-  counts: Int32Array;
+  /** per country; whole numbers unless the points carry weights */
+  counts: Float64Array;
   atSea: number;
   max: number;
   total: number;
 }
 
-export function countCountries(lat: Float32Array, lon: Float32Array, count: number): CountryCounts {
+export function countCountries(lat: Float32Array, lon: Float32Array, count: number, weight?: Float32Array | null): CountryCounts {
   const cells = countryRaster();
   const countries = world().countries.length;
-  const counts = new Int32Array(countries);
+  const counts = new Float64Array(countries);
   let atSea = 0;
   for (let i = 0; i < count; i++) {
+    const w = weight ? weight[i] : 1;
+    if (!(w > 0)) continue;
     const col = Math.floor(colOf(lon[i]));
     const row = Math.floor(rowOf(lat[i]));
     if (col < 0 || col >= rasterWidth || row < 0 || row >= rasterHeight) continue;
     let country = cells[row * rasterWidth + col];
     if (country === 0) country = ashore(cells, col, row); // see countryAt
-    if (country === 0) atSea++;
-    else counts[country - 1]++;
+    if (country === 0) atSea += w;
+    else counts[country - 1] += w;
   }
   let max = 0;
   let total = 0;

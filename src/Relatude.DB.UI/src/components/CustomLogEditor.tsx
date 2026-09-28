@@ -23,6 +23,10 @@ import {
   dataTypeLabel,
   dataTypes,
   daysOfWeek,
+  defaultGeoLevel,
+  geoLevels,
+  geoPointText,
+  parseGeoPoint,
   definitionFromFileJson,
   definitionToFileJson,
   fetchDefinition,
@@ -40,7 +44,10 @@ import {
   type CustomLogsInfo,
   type CustomLogSummary,
   type DefinitionPlan,
+  type GeoPoint,
+  type GeoZoneDefinition,
   type LogDefinition,
+  type StatisticDefinition,
   type StatisticsType,
 } from "../server/customLogs";
 import type { LogDataType } from "../server/logs";
@@ -205,9 +212,12 @@ export function CustomLogEditor({
     if (!base) return;
     const column = base.properties[index];
     const has = column.statistics.some((s) => s.statisticsType === type);
-    // a statistic switched on is kept at the log's level of detail, like every other one of it
+    // a statistic switched on is kept at the log's level of detail, like every other one of it -
+    // and one about positions starts from what the column's others are measured against
     updateColumn(index, {
-      statistics: has ? column.statistics.filter((s) => s.statisticsType !== type) : [...column.statistics, { statisticsType: type, resolution: base.resolutionRowStats }],
+      statistics: has
+        ? column.statistics.filter((s) => s.statisticsType !== type)
+        : [...column.statistics, { statisticsType: type, resolution: base.resolutionRowStats, ...startingParameters(type, column.statistics) }],
     });
   }
   /**
@@ -711,7 +721,197 @@ function ColumnRow({
           <IconTrash size={14} stroke={1.8} />
         </button>
       </span>
+      {column.dataType === "GeoCoordinate" && <GeoParameters statistics={column.statistics} onChange={(statistics) => updateColumn(index, { statistics })} />}
     </div>
+  );
+}
+
+/** What a statistic about positions starts from when it is switched on: what the column's others are measured against, or a first guess. */
+function startingParameters(type: StatisticsType, others: StatisticDefinition[]): Partial<StatisticDefinition> {
+  const reference = others.find((s) => s.reference)?.reference ?? null;
+  switch (type) {
+    case "GeoDistance":
+      return { reference };
+    case "GeoDistanceBands":
+      return { reference, bands: [1000, 5000, 20000, 100000] };
+    case "GeoZones":
+      return { zones: [{ name: "", center: reference, radiusMeters: 1000 }] };
+    default:
+      return {};
+  }
+}
+
+/**
+ * What the statistics about positions a column keeps are measured against, under its row: the
+ * point distances are measured from (one for both distance statistics), where the bands are
+ * divided, the zones, and how large the cells of a grid are. Shown only for the statistics that
+ * need them, as they are switched on; what is missing is said by the server under the form.
+ */
+function GeoParameters({ statistics, onChange }: { statistics: StatisticDefinition[]; onChange: (statistics: StatisticDefinition[]) => void }) {
+  const has = (type: StatisticsType) => statistics.some((s) => s.statisticsType === type);
+  const distances = has("GeoDistance") || has("GeoDistanceBands");
+  const bands = statistics.find((s) => s.statisticsType === "GeoDistanceBands");
+  const zones = statistics.find((s) => s.statisticsType === "GeoZones");
+  const heatmap = statistics.find((s) => s.statisticsType === "GeoHeatmap");
+  const coverage = statistics.find((s) => s.statisticsType === "GeoCoverage");
+  if (!distances && !zones && !heatmap && !coverage) return null;
+  const reference = statistics.find((s) => (s.statisticsType === "GeoDistance" || s.statisticsType === "GeoDistanceBands") && s.reference)?.reference ?? null;
+  const set = (types: StatisticsType[], change: Partial<StatisticDefinition>) => onChange(statistics.map((s) => (types.includes(s.statisticsType) ? { ...s, ...change } : s)));
+  const zoneList = zones?.zones ?? [];
+  const setZones = (list: GeoZoneDefinition[]) => set(["GeoZones"], { zones: list });
+  return (
+    <div className="clog-geo-params">
+      {distances && (
+        <label className="clog-geo-param">
+          <span className="clog-field-label">Measured from</span>
+          <PointField value={reference} onChange={(point) => set(["GeoDistance", "GeoDistanceBands"], { reference: point })} placeholder="59.9139, 10.7522" />
+          <span className="clog-field-hint">latitude, longitude: the depot, the shop, the office</span>
+        </label>
+      )}
+      {bands && (
+        <label className="clog-geo-param">
+          <span className="clog-field-label">Bands at (km)</span>
+          <NumbersField value={(bands.bands ?? []).map((m) => m / 1000)} onChange={(km) => set(["GeoDistanceBands"], { bands: km.map((k) => Math.round(k * 1000)) })} placeholder="1, 5, 20, 100" />
+          <span className="clog-field-hint">{bandsText(bands.bands ?? [])}</span>
+        </label>
+      )}
+      {heatmap && (
+        <LevelField label="Heatmap cells" hint="the finest the heatmap goes: sparse places are merged into larger cells" value={heatmap.level} onChange={(level) => set(["GeoHeatmap"], { level })} />
+      )}
+      {coverage && <LevelField label="Areas covered, in cells of" hint="what one area is: a town, a street" value={coverage.level} onChange={(level) => set(["GeoCoverage"], { level })} />}
+      {zones && (
+        <div className="clog-geo-param wide">
+          <span className="clog-field-label">Zones</span>
+          <div className="clog-geo-zones">
+            {zoneList.map((z, i) => (
+              <div key={i} className="clog-geo-zone">
+                <input
+                  className="text-input"
+                  value={z.name}
+                  placeholder="Name"
+                  onChange={(e) => setZones(zoneList.map((x, j) => (j === i ? { ...x, name: e.currentTarget.value } : x)))}
+                />
+                <PointField value={z.center} onChange={(center) => setZones(zoneList.map((x, j) => (j === i ? { ...x, center } : x)))} placeholder="centre: latitude, longitude" />
+                <span className="clog-number">
+                  <NumbersField
+                    value={[z.radiusMeters / 1000]}
+                    single
+                    onChange={(km) => setZones(zoneList.map((x, j) => (j === i ? { ...x, radiusMeters: Math.round((km[0] ?? 0) * 1000) } : x)))}
+                    placeholder="1"
+                  />
+                  km
+                </span>
+                <button className="icon-button" title="Remove the zone" onClick={() => setZones(zoneList.filter((_, j) => j !== i))}>
+                  <IconTrash size={14} stroke={1.8} />
+                </button>
+              </div>
+            ))}
+            <button className="link-button" onClick={() => setZones([...zoneList, { name: "", center: null, radiusMeters: 1000 }])}>
+              <IconPlus size={13} stroke={1.8} /> Add a zone
+            </button>
+          </div>
+          <span className="clog-field-hint">circles on the map, tested in this order: a position counts for the first it is in, or for Outside</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** How large the cells of a grid are, from about 20 m to about 20 km tall; the default is left out of the file. */
+function LevelField({ label, hint, value, onChange }: { label: string; hint: string; value: number | null | undefined; onChange: (level: number | null) => void }) {
+  return (
+    <label className="clog-geo-param">
+      <span className="clog-field-label">{label}</span>
+      <select
+        className="select"
+        value={value || defaultGeoLevel}
+        onChange={(e) => {
+          const level = Number(e.currentTarget.value);
+          onChange(level === defaultGeoLevel ? null : level);
+        }}
+      >
+        {geoLevels.map((l) => (
+          <option key={l.level} value={l.level}>
+            about {l.label} tall
+          </option>
+        ))}
+      </select>
+      <span className="clog-field-hint">{hint}</span>
+    </label>
+  );
+}
+
+function bandsText(meters: number[]): string {
+  if (meters.length === 0) return "where the bands divide";
+  const km = (m: number) => (m >= 1000 ? `${m / 1000} km` : `${m} m`);
+  const sorted = [...meters].sort((a, b) => a - b);
+  return ["under " + km(sorted[0]), ...sorted.slice(1).map((m, i) => km(sorted[i]) + "–" + km(m)), "over " + km(sorted[sorted.length - 1])].join(" · ");
+}
+
+/**
+ * A place typed as "latitude, longitude". What is typed stays as it is typed while it is being
+ * typed - a half-written number is not a place yet - and the place is handed on whenever the text
+ * reads as one (or as nothing, which clears it).
+ */
+function PointField({ value, onChange, placeholder }: { value: GeoPoint | null | undefined; onChange: (point: GeoPoint | null) => void; placeholder?: string }) {
+  const [text, setText] = useState(() => geoPointText(value));
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    if (!focused) setText(geoPointText(value));
+  }, [value?.latitude, value?.longitude, focused]);
+  const parsed = text.trim().length === 0 ? null : parseGeoPoint(text);
+  const bad = text.trim().length > 0 && parsed === null;
+  return (
+    <input
+      className={"text-input mono" + (bad ? " invalid" : "")}
+      value={text}
+      placeholder={placeholder}
+      title={bad ? "Two numbers: latitude (-90 to 90), then longitude (-180 to 180)" : undefined}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onChange={(e) => {
+        const next = e.currentTarget.value;
+        setText(next);
+        if (next.trim().length === 0) onChange(null);
+        else {
+          const point = parseGeoPoint(next);
+          if (point) onChange(point);
+        }
+      }}
+    />
+  );
+}
+
+/** Numbers typed with commas or spaces between them, handed on as a list whenever every one of them reads. */
+function NumbersField({ value, onChange, placeholder, single }: { value: number[]; onChange: (numbers: number[]) => void; placeholder?: string; single?: boolean }) {
+  const show = (v: number[]) => v.map((n) => String(Math.round(n * 1000) / 1000)).join(", ");
+  const [text, setText] = useState(() => show(value));
+  const [focused, setFocused] = useState(false);
+  const signature = value.join(",");
+  useEffect(() => {
+    if (!focused) setText(show(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature, focused]);
+  const parts = text.split(/[,; ]+/).filter((t) => t.length > 0);
+  const numbers = parts.map(Number);
+  const bad = numbers.some((n) => !isFinite(n) || n <= 0) || (single === true && numbers.length > 1);
+  return (
+    <input
+      className={"text-input mono" + (single ? " number" : "") + (bad ? " invalid" : "")}
+      value={text}
+      placeholder={placeholder}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onChange={(e) => {
+        const next = e.currentTarget.value;
+        setText(next);
+        const values = next
+          .split(/[,; ]+/)
+          .filter((t) => t.length > 0)
+          .map(Number);
+        if (values.every((n) => isFinite(n) && n > 0)) onChange(values);
+      }}
+    />
   );
 }
 

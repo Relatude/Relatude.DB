@@ -1788,6 +1788,34 @@ a {
   color: var(--text-muted);
 }
 
+/**
+ * A page waiting for its first answer (components/Loading.tsx). It takes the placeholder's room but
+ * not its dashed frame - the frame says "nothing here", and this is "something on its way". The fade
+ * starts after a delay and fills backwards, so for that first moment it is there but invisible: a
+ * page that answers at once never shows it.
+ */
+.content .page-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 260px;
+  color: var(--text-muted);
+  font-size: 13px;
+  animation: page-loading-enter 0.25s ease 0.2s both;
+}
+
+.page-loading .progress-bar {
+  width: min(240px, 60%);
+}
+
+@keyframes page-loading-enter {
+  from {
+    opacity: 0;
+  }
+}
+
 /* ---- login ---- */
 
 .login {
@@ -6626,6 +6654,18 @@ body.pg-resizing {
   background: var(--bg);
 }
 
+/* The map filling the browser window rather than the screen: the same row, laid over the header and
+   the rail (and under the dialogs, at 100). Nothing round the query section is a container, so a
+   fixed box here is placed against the window, and the row never leaves its place in the page. */
+.query-body.maximized {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  padding: 12px;
+  gap: 12px;
+  background: var(--bg);
+}
+
 /* while the bar is being dragged: the pointer owns the page, and a drag across a list of hits
    should not select their text on the way */
 .query-body.resizing {
@@ -8164,11 +8204,15 @@ body.pg-resizing {
   padding: 2px;
 }
 
-/* the options of an axis sit at the end of its line */
+/* the options of an axis sit at the end of its line - and wrap there when the line is too narrow for
+   them (a map with the form open beside it and the result's head riding along), rather than running
+   on under whatever is next to the panel, which hid the very buttons that put the view back */
 .pivot-options {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
-  gap: 10px;
+  gap: 6px 10px;
   margin-left: auto;
   color: var(--text-muted);
 }

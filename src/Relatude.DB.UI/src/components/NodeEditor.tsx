@@ -49,6 +49,7 @@ import { formatBytes, formatCount, formatTime } from "../format";
 import { FilePreview } from "./MediaPreview";
 import { NodeMetaTab } from "./NodeMetaTab";
 import { NodeHistoryTab } from "./NodeHistoryTab";
+import { Loading } from "./Loading";
 
 type EditorTab = "properties" | "meta" | "history";
 
@@ -530,7 +531,7 @@ export function NodeEditor({
     );
   }
 
-  if (!nodes) return null;
+  if (!nodes) return <Loading label={multi ? "Reading the nodes…" : "Reading the node…"} />;
   const node = nodes[0];
   /**
    * The survey stopped at its bound rather than because it knew (see maxSurvey), AND something is

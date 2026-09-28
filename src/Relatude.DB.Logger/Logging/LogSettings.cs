@@ -1,4 +1,5 @@
 ﻿using Relatude.DB.IO;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -135,6 +136,8 @@ public class LogSettings {
             foreach (var stat in kv.Value.Statistics) {
                 if (stat != null && !Enum.IsDefined(stat.StatisticsType))
                     throw new ArgumentException($"Log '{Key}': property '{kv.Key}' has unknown statistics type {(int)stat.StatisticsType}.");
+                if (stat != null && stat.ProblemWithParameters() is string problem)
+                    throw new ArgumentException($"Log '{Key}': property '{kv.Key}': {problem}");
             }
         }
     }
@@ -147,6 +150,8 @@ public enum LogDataType {
     Integer,
     Double,
     Bytes,
+    /// <summary>A position, as a <see cref="Common.GeoCoordinate"/>: 8 bytes, on the store's own 1 cm grid.</summary>
+    GeoCoordinate,
 }
 public enum StatisticsType {
     Count = 0,
@@ -156,16 +161,109 @@ public enum StatisticsType {
     UniqueCountWithValues = 4, // Exact but only small data sets, recommended <100
     UniqueCountHashedValues = 5, // Accurate, but medium size data set, recommended <10000
     UniqueCountEstimate = 6, // HyperLogLog: about 99% accurate, in fixed memory however many values there are
+    // ---- positions (GeoCoordinate columns) ----
+    GeoSpread = 7, // centre and spread: spherical mean, standard distance, deviational ellipse, bounding box
+    GeoDistance = 8, // count, total, average, min and max of the distance to a reference point, in meters
+    GeoDistanceBands = 9, // count per band of distance from a reference point
+    GeoZones = 10, // count per named zone (a circle), the first one a position is in, or "Outside"
+    GeoCoverage = 11, // estimated number of distinct grid cells with a position in them (HyperLogLog)
+    GeoHeatmap = 12, // count per grid cell, cells merged where there is little in them to stay within a budget
 }
 public class StatisticsInfo {
+    /// <summary>The cell level a coverage or a heatmap uses when none is given: about 300 m tall.</summary>
+    public const int DefaultGeoLevel = 16;
+    /// <summary>
+    /// A statistic, and - for the ones about positions - what it is measured against. A parameter a
+    /// statistic has no use for is kept, but ignored.
+    /// </summary>
+    /// <param name="reference">The point <see cref="StatisticsType.GeoDistance"/> and <see cref="StatisticsType.GeoDistanceBands"/> measure from.</param>
+    /// <param name="bands">The edges between the bands of <see cref="StatisticsType.GeoDistanceBands"/>, in meters: [1000, 5000] is under 1 km, 1-5 km and over 5 km.</param>
+    /// <param name="zones">The zones <see cref="StatisticsType.GeoZones"/> counts by, tested in this order.</param>
+    /// <param name="level">The cell level of <see cref="StatisticsType.GeoCoverage"/> and <see cref="StatisticsType.GeoHeatmap"/> (see <see cref="Common.GeoCell"/>); 0 is <see cref="DefaultGeoLevel"/>.</param>
     [JsonConstructor] // a resolution left out of the json gets the default below
-    public StatisticsInfo(StatisticsType statisticsType, int resolution = 3) {
+    public StatisticsInfo(StatisticsType statisticsType, int resolution = 3, Common.GeoCoordinate reference = default, double[]? bands = null, GeoZone[]? zones = null, int level = 0) {
         StatisticsType = statisticsType;
         if (resolution < 1) resolution = 1;
         Resolution = resolution;
+        Reference = reference;
+        // the edges in order, once each: the order they were typed in says nothing
+        Bands = bands == null ? null : [.. bands.Where(b => double.IsFinite(b) && b > 0).Distinct().Order()];
+        Zones = zones?.Where(z => z != null).ToArray();
+        Level = level;
     }
     public StatisticsType StatisticsType { get; } = StatisticsType.Count;
     public int Resolution { get; } = 1;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Common.GeoCoordinate Reference { get; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double[]? Bands { get; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public GeoZone[]? Zones { get; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int Level { get; }
+    /// <summary>The level actually used: <see cref="Level"/>, or the default when none was given.</summary>
+    [JsonIgnore]
+    public int EffectiveLevel => Level <= 0 ? DefaultGeoLevel : Math.Min(Level, Common.GeoCell.MaxLevel);
+    [JsonIgnore]
+    public bool IsGeo => StatisticsType >= StatisticsType.GeoSpread;
+
+    /// <summary>What is wrong with the parameters a statistic needs, or null when nothing is.</summary>
+    public string? ProblemWithParameters() {
+        switch (StatisticsType) {
+            case StatisticsType.GeoDistance:
+                return Reference.IsEmpty ? "distances need a reference point to be measured from." : null;
+            case StatisticsType.GeoDistanceBands:
+                if (Reference.IsEmpty) return "distance bands need a reference point to be measured from.";
+                return Bands is not { Length: > 0 } ? "distance bands need at least one distance to divide the bands at." : null;
+            case StatisticsType.GeoZones:
+                if (Zones is not { Length: > 0 }) return "zones need at least one zone.";
+                var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var z in Zones) {
+                    if (string.IsNullOrWhiteSpace(z.Name)) return "every zone needs a name.";
+                    if (string.Equals(z.Name, GeoZone.OutsideName, StringComparison.OrdinalIgnoreCase)) return $"'{GeoZone.OutsideName}' is what a position in no zone is counted as, so no zone can have that name.";
+                    if (!names.Add(z.Name)) return $"two zones are named '{z.Name}'.";
+                    if (z.Center.IsEmpty) return $"the zone '{z.Name}' needs a centre.";
+                    if (!(z.RadiusMeters > 0) || !double.IsFinite(z.RadiusMeters)) return $"the zone '{z.Name}' needs a radius greater than zero.";
+                }
+                return null;
+            case StatisticsType.GeoCoverage:
+            case StatisticsType.GeoHeatmap:
+                return Level < 0 || Level > Common.GeoCell.MaxLevel ? $"the cell level is 1 to {Common.GeoCell.MaxLevel} (or 0 for the default, {DefaultGeoLevel})." : null;
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// The parameters as one string, empty when the statistic has none: a statistic kept with other
+    /// parameters is another statistic, and its state is found by a key that includes these.
+    /// </summary>
+    internal string ParameterSignature() {
+        return StatisticsType switch {
+            StatisticsType.GeoDistance => "r" + Reference.StorageValue.ToString(CultureInfo.InvariantCulture),
+            StatisticsType.GeoDistanceBands => "r" + Reference.StorageValue.ToString(CultureInfo.InvariantCulture)
+                + "b" + string.Join(",", (Bands ?? []).Select(b => b.ToString("R", CultureInfo.InvariantCulture))),
+            StatisticsType.GeoZones => "z" + string.Join("|", (Zones ?? []).Select(z =>
+                z.Name.Length.ToString(CultureInfo.InvariantCulture) + ":" + z.Name + "@" + z.Center.StorageValue.ToString(CultureInfo.InvariantCulture) + "~" + z.RadiusMeters.ToString("R", CultureInfo.InvariantCulture))),
+            StatisticsType.GeoCoverage or StatisticsType.GeoHeatmap => "l" + EffectiveLevel.ToString(CultureInfo.InvariantCulture),
+            _ => string.Empty,
+        };
+    }
+}
+/// <summary>A named circle on the Earth: what <see cref="StatisticsType.GeoZones"/> counts positions by.</summary>
+public sealed class GeoZone {
+    /// <summary>What a position in none of the zones is counted as.</summary>
+    public const string OutsideName = "Outside";
+    [JsonConstructor]
+    public GeoZone(string name, Common.GeoCoordinate center, double radiusMeters) {
+        Name = name?.Trim() ?? string.Empty;
+        Center = center;
+        RadiusMeters = radiusMeters;
+    }
+    public string Name { get; }
+    public Common.GeoCoordinate Center { get; }
+    public double RadiusMeters { get; }
+    public bool Contains(Common.GeoCoordinate position) => !position.IsEmpty && position.IsWithin(Center, RadiusMeters);
 }
 public class LogProperty {
     public string Name { get; set; } = string.Empty;

@@ -1,3 +1,4 @@
+using Relatude.DB.Common;
 using Relatude.DB.IO;
 using Relatude.DB.Logging.Statistics;
 
@@ -151,17 +152,29 @@ public class LogStore : IDisposable, ILogStore {
     public IEnumerable<Interval<AvgMinMax<double>>> AnalyseAvgMinMax(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
         return get(logKey)?.AnalyseAvgMinMax(property, intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated) ?? [];
     }
-    public IEnumerable<Interval<CountSumAvgMinMax<double>>> AnalyseCountSumAvgMinMax(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
-        return get(logKey)?.AnalyseCountSumAvgMinMax(property, intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated) ?? [];
+    public IEnumerable<Interval<CountSumAvgMinMax<double>>> AnalyseCountSumAvgMinMax(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null, StatisticsType? statistic = null) {
+        return get(logKey)?.AnalyseCountSumAvgMinMax(property, intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated, statistic) ?? [];
     }
-    public IEnumerable<Interval<Dictionary<string, int>>> AnalyseGroupCounts(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
-        return get(logKey)?.AnalyseGroupCounts(property, intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated) ?? [];
+    public IEnumerable<Interval<Dictionary<string, int>>> AnalyseGroupCounts(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null, StatisticsType? statistic = null) {
+        return get(logKey)?.AnalyseGroupCounts(property, intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated, statistic) ?? [];
+    }
+    public IEnumerable<Interval<GeoSpread>> AnalyseGeoSpread(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
+        return get(logKey)?.AnalyseGeoSpread(property, intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated) ?? [];
+    }
+    public Interval<GeoSpread> AnalyseCombinedGeoSpread(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc) {
+        return get(logKey)?.AnalyseCombinedGeoSpread(property, intervalType, fromUtc, toUtc) ?? new(fromUtc, toUtc);
+    }
+    public IEnumerable<Interval<GeoHeatmap>> AnalyseGeoHeatmap(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
+        return get(logKey)?.AnalyseGeoHeatmap(property, intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated) ?? [];
+    }
+    public Interval<GeoHeatmap> AnalyseCombinedGeoHeatmap(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, int maxCells = StatisticsGeoHeatmap.DefaultCombinedCells) {
+        return get(logKey)?.AnalyseCombinedGeoHeatmap(property, intervalType, fromUtc, toUtc, maxCells) ?? new(fromUtc, toUtc);
     }
     public IEnumerable<Interval<int>> AnalyseUniqueCounts(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
         return get(logKey)?.AnalyseUniqueCounts(property, intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated) ?? [];
     }
-    public IEnumerable<Interval<int>> AnalyseEstimatedUniqueCounts(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
-        return get(logKey)?.AnalyseEstimatedUniqueCounts(property, intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated) ?? [];
+    public IEnumerable<Interval<int>> AnalyseEstimatedUniqueCounts(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null, StatisticsType? statistic = null) {
+        return get(logKey)?.AnalyseEstimatedUniqueCounts(property, intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated, statistic) ?? [];
     }
     public Interval<int> AnalyseCombinedRows(string logKey, IntervalType intervalType, DateTime fromUtc, DateTime toUtc) {
         return get(logKey)?.AnalyseCombinedRows(intervalType, fromUtc, toUtc) ?? new(fromUtc, toUtc);
@@ -178,11 +191,11 @@ public class LogStore : IDisposable, ILogStore {
     public Interval<AvgMinMax<double>> AnalyseCombinedAvgMinMax(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc) {
         return get(logKey)?.AnalyseCombinedAvgMinMax(property, intervalType, fromUtc, toUtc) ?? new(fromUtc, toUtc);
     }
-    public Interval<CountSumAvgMinMax<double>> AnalyseCombinedCountSumAvgMinMax(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc) {
-        return get(logKey)?.AnalyseCombinedCountSumAvgMinMax(property, intervalType, fromUtc, toUtc) ?? new(fromUtc, toUtc);
+    public Interval<CountSumAvgMinMax<double>> AnalyseCombinedCountSumAvgMinMax(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, StatisticsType? statistic = null) {
+        return get(logKey)?.AnalyseCombinedCountSumAvgMinMax(property, intervalType, fromUtc, toUtc, statistic: statistic) ?? new(fromUtc, toUtc);
     }
-    public Interval<Dictionary<string, int>> AnalyseCombinedGroupCounts(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc) {
-        return get(logKey)?.AnalyseCombinedGroupCounts(property, intervalType, fromUtc, toUtc) ?? new(fromUtc, toUtc);
+    public Interval<Dictionary<string, int>> AnalyseCombinedGroupCounts(string logKey, string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, StatisticsType? statistic = null) {
+        return get(logKey)?.AnalyseCombinedGroupCounts(property, intervalType, fromUtc, toUtc, statistic) ?? new(fromUtc, toUtc);
     }
     public void Dispose() {
         foreach (var log in _logs.Values) log.Dispose();

@@ -7,6 +7,7 @@ import { createDatabase, fetchDatabases, setDefaultDatabase, type DatabaseList, 
 import { closeStore, openStore } from "../server/storage";
 import { useLive } from "../live";
 import { formatCount } from "../format";
+import { Loading } from "./Loading";
 
 /**
  * Every database on this server, and the things that are decided about a database rather than inside
@@ -43,7 +44,7 @@ export function DatabasesSection({ onSelectDb }: { onSelectDb?: (id: string) => 
   }, [load]);
 
   if (error) return <div className="placeholder">{error}</div>;
-  if (!data) return null;
+  if (!data) return <Loading label="Loading the databases…" />;
 
   const open = data.databases.filter((d) => d.state === "Open").length;
 

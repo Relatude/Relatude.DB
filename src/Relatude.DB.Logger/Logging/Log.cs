@@ -1,4 +1,6 @@
-﻿using Relatude.DB.IO;
+﻿using Relatude.DB.Common;
+using Relatude.DB.Hash.xxHash;
+using Relatude.DB.IO;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using Relatude.DB.Logging.Statistics;
@@ -24,7 +26,12 @@ internal class Log : IDisposable {
     static string getStatisticsFileKey(string property, StatisticsInfo info, LogSettings settings) {
         // a unique that prevents collisions between different statistical settings
         // if a change is made to the stat settings it will simply have a different key and last state will be ignored and not corrupt the new state
-        return "stat_" + property + "_" + info.Resolution + "_" + settings.FirstDayOfWeek + "_" + info.StatisticsType;
+        var key = "stat_" + property + "_" + info.Resolution + "_" + settings.FirstDayOfWeek + "_" + info.StatisticsType;
+        // ...and the same goes for what a statistic about positions is measured against: distances
+        // from another reference point, or cells of another size, are another statistic. Statistics
+        // without parameters keep the key they always had.
+        var parameters = info.ParameterSignature();
+        return parameters.Length == 0 ? key : key + "_" + parameters.XXH64Hash().ToString("x16", System.Globalization.CultureInfo.InvariantCulture);
     }
     public Log(LogSettings settings, IIOProvider io) {
         _setting = settings;
@@ -63,6 +70,10 @@ internal class Log : IDisposable {
         var key = getStatisticsFileKey(propertyId, info, _setting);
         var isNumeric = property.DataType is LogDataType.Integer or LogDataType.Double;
         var isBytes = property.DataType is LogDataType.Bytes;
+        var isGeo = property.DataType is LogDataType.GeoCoordinate;
+        // a statistic about positions without what it measures against is left out, like any other
+        // statistic the column cannot keep (the settings say so where they are validated)
+        var usable = info.ProblemWithParameters() == null;
         return info.StatisticsType switch {
             StatisticsType.Count => new StatisticsCount(info, f, key),
             StatisticsType.Sum when property.DataType is LogDataType.Integer => new StatisticsIntegerSum(info, f, key),
@@ -72,6 +83,12 @@ internal class Log : IDisposable {
             StatisticsType.UniqueCountWithValues when !isBytes => new StatisticsGroupCount(info, f, key),
             StatisticsType.UniqueCountHashedValues when !isBytes => new StatisticsUniqueCount(info, f, key),
             StatisticsType.UniqueCountEstimate when !isBytes => new StatisticsEstimatedUniqueCount(info, f, key),
+            StatisticsType.GeoSpread when isGeo => new StatisticsGeoSpread(info, f, key),
+            StatisticsType.GeoDistance when isGeo && usable => new StatisticsGeoDistance(info, f, key),
+            StatisticsType.GeoDistanceBands when isGeo && usable => new StatisticsGeoBands(info, f, key),
+            StatisticsType.GeoZones when isGeo && usable => new StatisticsGeoZones(info, f, key),
+            StatisticsType.GeoCoverage when isGeo && usable => new StatisticsGeoCoverage(info, f, key),
+            StatisticsType.GeoHeatmap when isGeo && usable => new StatisticsGeoHeatmap(info, f, key),
             _ => null,
         };
     }
@@ -216,7 +233,8 @@ internal class Log : IDisposable {
         };
         var values = new Dictionary<string, object>(entry.Values.Count);
         foreach (var kv in entry.Values) {
-            if (kv.Value == null) continue;
+            // an empty position is how a GeoCoordinate says there is none: no value, like a null
+            if (kv.Value == null || kv.Value is GeoCoordinate { IsEmpty: true }) continue;
             if (_declaredKeys.TryGetValue(kv.Key, out var declared) && _setting.Properties.TryGetValue(declared, out var property)) {
                 if (LogValues.TryConvert(kv.Value, property.DataType, out var converted)) values[declared] = converted;
             } else {
@@ -463,6 +481,10 @@ internal class Log : IDisposable {
                     bw.Write(((byte[])kv.Value).Length);
                     bw.Write((byte[])kv.Value);
                     break;
+                case LogDataType.GeoCoordinate:
+                    // the position's own lossless 8 bytes: the Morton code the geo index sorts by
+                    bw.Write(((GeoCoordinate)kv.Value).StorageValue);
+                    break;
                 default:
                     throw new NotImplementedException();
             }
@@ -479,6 +501,7 @@ internal class Log : IDisposable {
         if (value is DateTime) return value;
         if (value is TimeSpan) return value;
         if (value is byte[]) return value;
+        if (value is GeoCoordinate) return value;
         return value + string.Empty;
     }
     LogEntry getEntry(LogRecord record) {
@@ -517,6 +540,8 @@ internal class Log : IDisposable {
             case LogDataType.Bytes:
                 var len = br.ReadInt32();
                 return br.ReadBytes(len);
+            case LogDataType.GeoCoordinate:
+                return GeoCoordinate.TryFromStorageValue(br.ReadUInt64(), out var position) ? position : GeoCoordinate.Empty;
             default:
                 throw new NotImplementedException();
         }
@@ -600,21 +625,64 @@ internal class Log : IDisposable {
                 .Select(c => c.Map(i => new AvgMinMax<double>(i.Average, i.Min, i.Max))).ToList();
         }
     }
-    public IEnumerable<Interval<CountSumAvgMinMax<double>>> AnalyseCountSumAvgMinMax(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
+    public IEnumerable<Interval<CountSumAvgMinMax<double>>> AnalyseCountSumAvgMinMax(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null, StatisticsType? statistic = null) {
         using (hold()) {
             if (!_statByProp.TryGetValue(property, out var stats)) return Array.Empty<Interval<CountSumAvgMinMax<double>>>();
-            var cn = stats.OfType<StatisticsCountSumAvgMinMax>().FirstOrDefault();
+            var cn = pick<StatisticsCountSumAvgMinMax>(stats, statistic);
             return cn == null ? Array.Empty<Interval<CountSumAvgMinMax<double>>>() : cn.GetValues(intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated)
                 .Select(c => c.Map(i => new CountSumAvgMinMax<double>(i.RecordCount, i.Sum, i.Average, i.Min, i.Max))).ToList();
         }
     }
-    public IEnumerable<Interval<Dictionary<string, int>>> AnalyseGroupCounts(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
+    public IEnumerable<Interval<Dictionary<string, int>>> AnalyseGroupCounts(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null, StatisticsType? statistic = null) {
         using (hold()) {
             if (!_statByProp.TryGetValue(property, out var stats)) return Array.Empty<Interval<Dictionary<string, int>>>();
-            var cn = stats.OfType<StatisticsGroupCount>().FirstOrDefault();
+            var cn = pick<StatisticsGroupCount>(stats, statistic);
             // ensureing dictionary is copied to avoid concurrency issues
             return cn == null ? new() : cn.GetValues(intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated)
                 .Select(c => c.Map(i => i.Values.ToDictionary(k => k.Key, v => v.Value))).ToList();
+        }
+    }
+    /// <summary>
+    /// The statistic of a CLR type a column keeps. Several statistics about positions are kept by the
+    /// aggregators of others (distances by a CountSumAvgMinMax, zones by a count per value), so the
+    /// one meant is found by its type when a caller names it, and otherwise the plain one wins - which
+    /// is what every caller asking without a name has always got.
+    /// </summary>
+    static T? pick<T>(List<IStatistics> stats, StatisticsType? statistic) where T : class, IStatistics {
+        if (statistic is StatisticsType wanted) return stats.OfType<T>().FirstOrDefault(s => s.Info.StatisticsType == wanted);
+        return stats.OfType<T>().FirstOrDefault(s => s.GetType() == typeof(T)) ?? stats.OfType<T>().FirstOrDefault();
+    }
+    public IEnumerable<Interval<GeoSpread>> AnalyseGeoSpread(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
+        using (hold()) {
+            if (!_statByProp.TryGetValue(property, out var stats)) return Array.Empty<Interval<GeoSpread>>();
+            var cn = pick<StatisticsGeoSpread>(stats, null);
+            return cn == null ? Array.Empty<Interval<GeoSpread>>() : cn.GetValues(intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated)
+                .Select(c => c.Map(m => m.Summarize())).ToList();
+        }
+    }
+    public Interval<GeoSpread> AnalyseCombinedGeoSpread(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc) {
+        using (hold()) {
+            if (!_statByProp.TryGetValue(property, out var stats)) return new(fromUtc, toUtc);
+            var cn = pick<StatisticsGeoSpread>(stats, null);
+            var value = cn == null ? new(fromUtc, toUtc) : cn.GetCombinedValue(intervalType, fromUtc, toUtc);
+            return value.Map(m => m.Summarize());
+        }
+    }
+    public IEnumerable<Interval<GeoHeatmap>> AnalyseGeoHeatmap(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
+        using (hold()) {
+            if (!_statByProp.TryGetValue(property, out var stats)) return Array.Empty<Interval<GeoHeatmap>>();
+            var cn = pick<StatisticsGeoHeatmap>(stats, null);
+            // copied out while the log is held: the grids go on being counted into
+            return cn == null ? Array.Empty<Interval<GeoHeatmap>>() : cn.GetValues(intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated)
+                .Select(c => c.Map(g => g.Snapshot())).ToList();
+        }
+    }
+    public Interval<GeoHeatmap> AnalyseCombinedGeoHeatmap(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, int maxCells) {
+        using (hold()) {
+            if (!_statByProp.TryGetValue(property, out var stats)) return new(fromUtc, toUtc);
+            var cn = pick<StatisticsGeoHeatmap>(stats, null);
+            if (cn == null) return new(fromUtc, toUtc);
+            return cn.GetCombinedValue(intervalType, fromUtc, toUtc, maxCells).Map(g => g.Snapshot());
         }
     }
     public IEnumerable<Interval<int>> AnalyseUniqueCounts(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
@@ -624,10 +692,10 @@ internal class Log : IDisposable {
             return cn == null ? Array.Empty<Interval<int>>() : cn.GetValues(intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated).Select(c => c.Map(i => i.HashCount())).ToList();
         }
     }
-    public IEnumerable<Interval<int>> AnalyseEstimatedUniqueCounts(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null) {
+    public IEnumerable<Interval<int>> AnalyseEstimatedUniqueCounts(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval, bool fillInBlanks, DateTime? nowSimulated = null, StatisticsType? statistic = null) {
         using (hold()) {
             if (!_statByProp.TryGetValue(property, out var stats)) return Array.Empty<Interval<int>>();
-            var cn = stats.OfType<StatisticsEstimatedUniqueCount>().FirstOrDefault();
+            var cn = pick<StatisticsEstimatedUniqueCount>(stats, statistic);
             return cn == null ? Array.Empty<Interval<int>>() : cn.GetValues(intervalType, fromUtc, toUtc, estimateNowInterval, fillInBlanks, nowSimulated).Select(c => c.Map(i => i.EstimateCount())).ToList();
         }
     }
@@ -665,18 +733,18 @@ internal class Log : IDisposable {
             return i.Map(i => new AvgMinMax<double>(i.Average, i.Min, i.Max));
         }
     }
-    public Interval<CountSumAvgMinMax<double>> AnalyseCombinedCountSumAvgMinMax(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval = true, DateTime? nowSimulated = null) {
+    public Interval<CountSumAvgMinMax<double>> AnalyseCombinedCountSumAvgMinMax(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, bool estimateNowInterval = true, DateTime? nowSimulated = null, StatisticsType? statistic = null) {
         using (hold()) {
             if (!_statByProp.TryGetValue(property, out var stats)) return new(fromUtc, toUtc);
-            var cn = stats.OfType<StatisticsCountSumAvgMinMax>().FirstOrDefault();
+            var cn = pick<StatisticsCountSumAvgMinMax>(stats, statistic);
             var i = cn == null ? new(fromUtc, toUtc) : cn.GetCombinedValue(intervalType, fromUtc, toUtc);
             return i.Map(i => new CountSumAvgMinMax<double>(i.RecordCount, i.Sum, i.Average, i.Min, i.Max));
         }
     }
-    public Interval<Dictionary<string, int>> AnalyseCombinedGroupCounts(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc) {
+    public Interval<Dictionary<string, int>> AnalyseCombinedGroupCounts(string property, IntervalType intervalType, DateTime fromUtc, DateTime toUtc, StatisticsType? statistic = null) {
         using (hold()) {
             if (!_statByProp.TryGetValue(property, out var stats)) return new(fromUtc, toUtc);
-            var cn = stats.OfType<StatisticsGroupCount>().FirstOrDefault();
+            var cn = pick<StatisticsGroupCount>(stats, statistic);
             var value = cn == null ? new(fromUtc, toUtc) : cn.GetCombinedValue(intervalType, fromUtc, toUtc);
             return value.Map(v => v.Values.ToDictionary(k => k.Key, v => v.Value));
         }
