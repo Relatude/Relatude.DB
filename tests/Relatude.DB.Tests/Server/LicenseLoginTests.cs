@@ -37,14 +37,24 @@ public class LicenseLoginTests {
         try { Directory.Delete(_root, true); } catch { }
     }
 
-    TestServerHost startServer(string? apiKey, string? licenseKey, string? servicesServerUrl = null) =>
+    TestServerHost startServer(string? apiKey, string? licenseKey, string? servicesServerUrl = null, string? publicUrl = null) =>
         TestServerHost.Start(_root, configure: s => {
             s.ServicesServerUrl = servicesServerUrl ?? _stub!.Url;
             s.ApiKey = apiKey;
             s.LicenseKey = licenseKey;
             s.AllowLicenseeAdminLogin = true;
             s.DisableHeartbeat = true;
+            s.PublicUrl = publicUrl;
         });
+
+    /// <summary>A request as it reaches the server: the host name is whatever the sender put in it.</summary>
+    static DefaultHttpContext request(string host, string query = "") {
+        var context = new DefaultHttpContext();
+        context.Request.Scheme = "https";
+        context.Request.Host = new HostString(host);
+        context.Request.QueryString = new QueryString(query);
+        return context;
+    }
 
     [TestMethod]
     public async Task LookUp_FindsTheLicenseKeyFromTheApiKey() {
@@ -140,11 +150,9 @@ public class LicenseLoginTests {
     [TestMethod]
     public async Task SignIn_PresentsTheApiKeysLicense_WhateverTheSettingsSay() {
         foreach (var saved in new string?[] { null, "11111111-2222-3333-4444-555555555555" }) {
-            var host = startServer(_apiKey.ToString(), saved);
+            var host = startServer(_apiKey.ToString(), saved, publicUrl: "https://db.example.com");
             try {
-                var context = new DefaultHttpContext();
-                context.Request.Scheme = "https";
-                context.Request.Host = new HostString("db.example.com");
+                var context = request("db.example.com");
                 await host.Server.LicenseLogin.StartAsync(context);
 
                 Assert.AreEqual(StatusCodes.Status302Found, context.Response.StatusCode);
@@ -155,6 +163,92 @@ public class LicenseLoginTests {
             } finally {
                 await host.DisposeAsync();
             }
+        }
+    }
+
+    // ---- where the browser is sent back to with its code ----
+
+    [TestMethod]
+    public async Task SignIn_WithoutAPublicUrl_NeverReturnsToTheHostARequestNames() {
+        var host = startServer(_apiKey.ToString(), licenseKey: null);
+        try {
+            // a server that answers on any name, reached by its IP address, say: the sender picks the host
+            var context = request("evil.example");
+            await host.Server.LicenseLogin.StartAsync(context);
+            StringAssert.StartsWith(context.Response.Headers.Location.ToString(), host.Server.ApiUrlRoot + "/?login-error=", "refused, back to the login page");
+            Assert.IsTrue(_stub!.LoginRequests.IsEmpty, "the license server is never asked to send a code there");
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
+    public async Task SignIn_OnALoopbackAddress_ReturnsToIt() {
+        var host = startServer(_apiKey.ToString(), licenseKey: null);
+        try {
+            var context = request("localhost:5001");
+            await host.Server.LicenseLogin.StartAsync(context);
+            StringAssert.StartsWith(context.Response.Headers.Location.ToString(), _stub!.Url + "/connect?request=r1");
+            Assert.IsTrue(_stub.LoginRequests.TryDequeue(out var posted));
+            Assert.AreEqual("https://localhost:5001" + host.Server.ApiUrlRoot + "/auth/license-login/callback/", posted.GetProperty("redirectUri").GetString());
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
+    public async Task SignIn_ReturnsToThePublicUrl_WhateverHostTheRequestNames() {
+        var host = startServer(_apiKey.ToString(), licenseKey: null, publicUrl: "https://db.example.com/");
+        try {
+            // started on another name: sent to the public address first, so its state cookie is set where the browser comes back
+            var elsewhere = request("evil.example", "?bg=%23102030");
+            await host.Server.LicenseLogin.StartAsync(elsewhere);
+            Assert.AreEqual("https://db.example.com" + host.Server.ApiUrlRoot + "/auth/license-login/start?bg=%23102030&on-public-url=1", elsewhere.Response.Headers.Location.ToString());
+            Assert.IsTrue(_stub!.LoginRequests.IsEmpty);
+
+            // sent on once only - and however it arrives then, the code goes to the public address
+            var sentOn = request("evil.example", "?on-public-url=1");
+            await host.Server.LicenseLogin.StartAsync(sentOn);
+            StringAssert.StartsWith(sentOn.Response.Headers.Location.ToString(), _stub.Url + "/connect?request=r1");
+            Assert.IsTrue(_stub.LoginRequests.TryDequeue(out var posted));
+            Assert.AreEqual("https://db.example.com" + host.Server.ApiUrlRoot + "/auth/license-login/callback/", posted.GetProperty("redirectUri").GetString());
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
+    public async Task SignIn_RefusesAPublicUrlItCannotReturnTo() {
+        foreach (var bad in new[] { "http://db.example.com", "db.example.com", "https://db.example.com/?x=1" }) {
+            var host = startServer(_apiKey.ToString(), licenseKey: null, publicUrl: bad);
+            try {
+                var context = request("db.example.com");
+                await host.Server.LicenseLogin.StartAsync(context);
+                StringAssert.StartsWith(context.Response.Headers.Location.ToString(), host.Server.ApiUrlRoot + "/?login-error=", bad);
+                Assert.IsTrue(_stub!.LoginRequests.IsEmpty, bad);
+            } finally {
+                await host.DisposeAsync();
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task RememberPublicUrl_TakesTheAddressTheServicesPageIsUsedOn_OnceAndNeverLoopback() {
+        var host = startServer(_apiKey.ToString(), licenseKey: null);
+        try {
+            host.Server.LicenseLogin.RememberPublicUrl(request("localhost:5001"));
+            Assert.IsNull(host.Server.Settings.PublicUrl, "a loopback address is right only on this machine");
+            var plain = request("db.example.com");
+            plain.Request.Scheme = "http";
+            host.Server.LicenseLogin.RememberPublicUrl(plain);
+            Assert.IsNull(host.Server.Settings.PublicUrl, "nor one the sign-in could not return to");
+
+            host.Server.LicenseLogin.RememberPublicUrl(request("db.example.com"));
+            Assert.AreEqual("https://db.example.com", host.Server.Settings.PublicUrl);
+            host.Server.LicenseLogin.RememberPublicUrl(request("other.example.com"));
+            Assert.AreEqual("https://db.example.com", host.Server.Settings.PublicUrl, "filled in once: after that it is changed in the settings, not by a request");
+        } finally {
+            await host.DisposeAsync();
         }
     }
 

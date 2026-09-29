@@ -31,9 +31,17 @@ public class RelatudeDBServerSettings {
     /// or user secrets rather than here.</summary>
     public string? ApiKey { get; set; }
     /// <summary>Offers "Sign in with Relatude.License" on the login page. Who gets in is the license
-    /// server's decision: the owner of the license, and the users the owner has granted this installation
-    /// to. The master login stays as the fallback. See <see cref="LicenseLogin"/>.</summary>
+    /// server's decision: anyone with access to the license there. The master login stays as the
+    /// fallback. See <see cref="LicenseLogin"/>.</summary>
     public bool AllowLicenseeAdminLogin { get; set; } = false;
+    /// <summary>
+    /// The address this server is reached on, such as https://db.example.com: where "Sign in with
+    /// Relatude.License" sends the browser back to, with its one-time code. The sign-in never takes
+    /// that address from a request, whose host name is whatever its sender chose, so without this it
+    /// works only on a loopback address (see <see cref="LicenseLogin.StartAsync"/>). The Services page
+    /// fills it in from the address it is used on when the API key is saved or the installation is paired.
+    /// </summary>
+    public string? PublicUrl { get; set; }
     /// <summary>
     /// Stops this installation reporting in to the license server. Written as the exception rather
     /// than the rule so that the reporting an installation has always done is what an absent

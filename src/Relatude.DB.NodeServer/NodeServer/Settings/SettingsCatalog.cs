@@ -314,7 +314,11 @@ public static class SettingsCatalog {
                         },
                         new() {
                             Path = "AllowLicenseeAdminLogin", Label = "Allow sign-in with Relatude.License", Applies = SettingApplies.Live,
-                            Help = "Shows \"Sign in with Relatude Services\" on the login page. Who gets in is decided by the license server: the owner of the license, and anyone the owner has granted this installation to in the portal. Turning it off ends those sessions at once; the master login is unaffected either way.",
+                            Help = "Shows \"Sign in with Relatude Services\" on the login page. Who gets in is decided by the license server: anyone with access to the license in the portal. Turning it off ends those sessions at once; the master login is unaffected either way.",
+                        },
+                        new() {
+                            Path = "PublicUrl", Label = "Public address", Applies = SettingApplies.Live, Placeholder = "https://db.example.com",
+                            Help = "The address this server is reached on, where sign-in with Relatude.License sends the browser back with its code. It is filled in from the address the Services page is used on when the API key is saved or the installation is paired. Without it the sign-in works only on localhost: the host name a request gives is chosen by whoever sends it, so it is never used for this.",
                         },
                         // Reporting in (DisableHeartbeat) is deliberately not offered here: it stays a
                         // setting in the json file for whoever has a reason to turn it off, but it is

@@ -12,7 +12,6 @@ using System.Text;
 using Website.Simple;
 using Website.Simple.Data;
 using Website.Simple.Models;
-using static Lucene.Net.Documents.Field;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddRelatudeDB(options => {

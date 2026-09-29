@@ -14,8 +14,9 @@ namespace Relatude.DB.NodeServer;
 /// <para>The sign-in is a redirect in three steps. First this server tells the license server, over
 /// the back channel with its API key, that a browser is about to come and where to send it back;
 /// the license server answers with a sign-in url, and the browser is sent there with nothing but a
-/// request id (the redirect uri never travels through the browser). The user signs in there and
-/// the license server checks that they own the license or have been granted this installation.
+/// request id (the redirect uri never travels through the browser). Where to send it back is this
+/// server's public address, never the host name a request gives (see <see cref="returnAddress"/>).
+/// The user signs in there and the license server checks that they have access to the license.
 /// The browser then comes back to the callback with a one-time code, which this server trades,
 /// again over the back channel with its API key, for who the user is - and opens its own session.
 /// A code is useless without the API key, and the master login keeps working throughout.</para>
@@ -152,7 +153,10 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     /// <summary>Step one: register the sign-in with the license server and send the browser there.</summary>
     public async Task StartAsync(HttpContext context) {
         if (!SignInAvailable || !tryGetApiKey(out var apiKey)) { failed(context, "Sign-in with Relatude Services is not enabled on this server."); return; }
-        var redirectUri = $"{context.Request.Scheme}://{context.Request.Host}{server.ApiUrlPublic}license-login/callback/";
+        var returnTo = returnAddress(context);
+        if (returnTo.Refusal is { } refusal) { failed(context, refusal); return; }
+        if (returnTo.StartAt is { } startAt) { context.Response.Redirect(startAt); return; }
+        var redirectUri = returnTo.Base + server.ApiUrlPublic + "license-login/callback/";
         // the same question the heartbeat asks, and here it also answers the user faster than
         // waiting out the http timeout would
         if (!await TcpProbe.IsListeningAsync(baseUrl, cancellationToken: context.RequestAborted)) { unreachable(context, "start"); return; }
@@ -205,6 +209,83 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
             failed(context, "Relatude Services could not be reached. Use the master login, or try again later.");
         }
     }
+
+    /// <summary>
+    /// Where the browser comes back to, as <see cref="returnAddress"/> decides it: the base to build
+    /// the callback url on, or where to start the sign-in instead, or why it cannot start. One is set.
+    /// </summary>
+    sealed record ReturnAddress(string? Base, string? StartAt, string? Refusal);
+
+    /// <summary>A sign-in sent on to the public address carries this, so it is sent on once only.</summary>
+    const string _onPublicUrl = "on-public-url";
+
+    /// <summary>
+    /// Where the license server sends the browser back to with the code: <see cref="RelatudeDBServerSettings.PublicUrl"/>
+    /// when it is set, and otherwise this request's own address only when that is a loopback one.
+    /// <para>A request's host name is not enough on its own, because whoever sends the request chooses
+    /// it. A server that answers on any name - reached by its IP address, say - would register a
+    /// sign-in that returns to an address of the sender's choosing. Should someone with access to the
+    /// license then approve that address on the sign-in page, their code would go to the sender, who
+    /// could bring it here with the state cookie of the sign-in they started, and be signed in as
+    /// them. A code sent to a loopback address reaches nobody but the machine it is on.</para>
+    /// <para>A sign-in started on another host than the public address is sent there first, so that
+    /// its state cookie is set where the browser comes back to - once only: behind a proxy that hands
+    /// this server another host name than the browser used, it would otherwise go round for ever.</para>
+    /// </summary>
+    ReturnAddress returnAddress(HttpContext context) {
+        if (!string.IsNullOrWhiteSpace(settings.PublicUrl)) {
+            if (!tryPublicBase(settings.PublicUrl, out var publicUri, out var publicBase))
+                return new(null, null, "The public address in the settings (PublicUrl) is not one the sign-in can return to: it has to be an https address such as https://db.example.com. Fix it in the settings, or use the master login.");
+            if (!string.Equals(context.Request.Host.Host, publicUri.Host, StringComparison.OrdinalIgnoreCase) && string.IsNullOrEmpty(context.Request.Query[_onPublicUrl])) {
+                var query = context.Request.QueryString.HasValue ? context.Request.QueryString.Value![1..] + "&" : "";
+                return new(null, withQuery(publicBase + server.ApiUrlPublic + "license-login/start", query + _onPublicUrl + "=1"), null);
+            }
+            return new(publicBase, null, null);
+        }
+        if (isLoopback(context.Request)) return new($"{context.Request.Scheme}://{context.Request.Host}", null, null);
+        return new(null, null, "Sign-in with Relatude Services is not set up for this address yet: the server's public address (PublicUrl) is not set. "
+            + "It is filled in when the API key is saved or the installation is paired on the Services page, or it can be set in the settings. Until then, use the master login.");
+    }
+
+    /// <summary>
+    /// Fills in <see cref="RelatudeDBServerSettings.PublicUrl"/>, when it is not set yet, from the
+    /// address the Services page is being used on. It is asked as the API key is saved or the
+    /// installation paired, by someone signed in to this admin UI - the one kind of request whose host
+    /// name can be taken at its word. A loopback address is not remembered: it is right only on this
+    /// machine, where the sign-in needs no public address. Nor is one that is not https, and a value
+    /// that configuration decides is left alone.
+    /// </summary>
+    public void RememberPublicUrl(HttpContext context) {
+        lock (_rememberLock) {
+            if (!string.IsNullOrWhiteSpace(settings.PublicUrl)) return;
+            var overlay = server.ConfigurationOverlay;
+            if (overlay != null && overlay.IsOverridden(SettingsOverlay.OverridePath(null, nameof(RelatudeDBServerSettings.PublicUrl)), out _)) return;
+            var seen = context.Request.Scheme + "://" + context.Request.Host.Value + context.Request.PathBase.Value;
+            if (!tryPublicBase(seen, out var uri, out var publicBase) || uri.IsLoopback) return;
+            settings.PublicUrl = publicBase;
+            server.UpdateWAFServerSettingsFile();
+            RelatudeDBServer.Trace("Sign-in with Relatude.License will send browsers back to " + publicBase + ", the address the Services page was used on. "
+                + "Change PublicUrl in the settings if that is not this server's public address.");
+        }
+    }
+    readonly object _rememberLock = new();
+
+    /// <summary>A public address as the sign-in can use it: absolute, https - or http on a loopback host - with no query, fragment or user name, written without a trailing slash.</summary>
+    static bool tryPublicBase(string? value, out Uri uri, out string publicBase) {
+        uri = null!;
+        publicBase = "";
+        if (!Uri.TryCreate(value?.Trim(), UriKind.Absolute, out var parsed)) return false;
+        var https = parsed.Scheme == Uri.UriSchemeHttps;
+        var localHttp = parsed.Scheme == Uri.UriSchemeHttp && parsed.IsLoopback;
+        if (!https && !localHttp) return false;
+        if (parsed.Query.Length > 0 || parsed.Fragment.Length > 0 || parsed.UserInfo.Length > 0) return false;
+        uri = parsed;
+        publicBase = parsed.GetLeftPart(UriPartial.Path).TrimEnd('/');
+        return true;
+    }
+
+    static bool isLoopback(HttpRequest request) =>
+        request.Host.HasValue && Uri.TryCreate("https://" + request.Host.Value, UriKind.Absolute, out var uri) && uri.IsLoopback;
 
     /// <summary>
     /// The license server is not answering at all. Said in the same words whether the probe or the

@@ -39,12 +39,21 @@ sealed class UILicense(RelatudeDBServer server) {
         commands.Register("license-status", async ctx => await describe());
         // Only the API key is pasted in. Before it is saved it is checked with the license server,
         // whose answer names the license - and so the license key, which is saved beside it. A key
-        // the server does not take is refused here with its reason rather than saved.
-        commands.Register("license-look-up", async ctx => await lookUp(ctx.Payload<LookUpPayload>().ApiKey, ctx.Http.RequestAborted));
+        // the server does not take is refused here with its reason rather than saved. Either way to a
+        // license - this or pairing - also tells the sign-in its public address, when it has none: the
+        // address the page is used on (LicenseLogin.RememberPublicUrl).
+        commands.Register("license-look-up", async ctx => {
+            var found = await lookUp(ctx.Payload<LookUpPayload>().ApiKey, ctx.Http.RequestAborted);
+            server.LicenseLogin.RememberPublicUrl(ctx.Http);
+            return found;
+        });
         // Getting a license without copying a key by hand: the page opens the claim url in a tab and
         // asks here every couple of seconds until somebody has answered it. The keys come back to the
         // page, which saves them the way it saves any other setting.
-        commands.Register("license-pair-start", async ctx => await server.LicenseLogin.StartPairingAsync(ctx.Http.RequestAborted));
+        commands.Register("license-pair-start", async ctx => {
+            server.LicenseLogin.RememberPublicUrl(ctx.Http);
+            return await server.LicenseLogin.StartPairingAsync(ctx.Http.RequestAborted);
+        });
         commands.Register("license-pair-poll", async ctx => await server.LicenseLogin.PollPairingAsync(ctx.Payload<PairingPayload>().PairingId ?? "", ctx.Http.RequestAborted));
         commands.Register("license-pair-cancel", async ctx => {
             await server.LicenseLogin.CancelPairingAsync(ctx.Payload<PairingPayload>().PairingId ?? "", ctx.Http.RequestAborted);
