@@ -3182,7 +3182,8 @@ domain needs a "user", model your own type and relate it to <code>ISystemUser</c
 <span class="kt">long</span><span class="w"> </span><span class="n">venues</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Count</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">();</span>
 </code></pre></div>
 
-<p><code>Get</code> throws when the id is missing; <code>TryGet</code> returns <code>false</code>.</p>
+<p><code>Get</code> throws when the id is missing or belongs to a node of another type; <code>TryGet</code> returns <code>false</code> for
+both. A node whose type inherits from <code>T</code> counts as a <code>T</code>, just as it does for <code>Exists&lt;T&gt;</code>.</p>
 <h3 id="update-upsert-delete">Update, upsert, delete<a class="anchor" href="#update-upsert-delete" aria-label="Link to this section">#</a></h3>
 <p>Every mutating call returns a <code>TransactionResult</code> and accepts <code>flushToDisk: bool = false</code>. The
 default is queued/async, which is what you want in hot paths; pass <code>true</code> to force a disk sync

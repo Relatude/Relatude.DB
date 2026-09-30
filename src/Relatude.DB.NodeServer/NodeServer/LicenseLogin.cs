@@ -115,6 +115,18 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     /// </summary>
     string installationKey => settings.Id.ToString() + ":" + fingerprint;
     /// <summary>
+    /// The name this installation goes by at the license server, which the portal shows under its
+    /// address: the name of its default database, the one the people running it know it by. The
+    /// server name is a label most installations leave at "Relatude.DB Server", so it is only the
+    /// fallback, for an installation without a named database.
+    /// </summary>
+    string? installationName {
+        get {
+            var name = (server.DefaultContainer ?? server.GetContainers().FirstOrDefault())?.Settings.Name;
+            return string.IsNullOrWhiteSpace(name) ? settings.Name : name.Trim();
+        }
+    }
+    /// <summary>
     /// InstallationIdentity.Get() is deterministic and cached after the first call, but that first call
     /// reads hardware identifiers and may spawn a process (up to three seconds on Windows), so
     /// <see cref="StartHeartbeat"/> warms it up off the request path.
@@ -134,7 +146,7 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     public async Task StartAsync(HttpContext context) {
         if (!SignInAvailable || !tryGetKeys(out var licenseKey, out var apiKey)) { failed(context, "Sign-in with Relatude.License is not enabled on this server."); return; }
         var redirectUri = $"{context.Request.Scheme}://{context.Request.Host}{server.ApiUrlPublic}license-login/callback/";
-        var request = new LoginRequestCreate(apiKey, licenseKey, installationKey, redirectUri, settings.Name);
+        var request = new LoginRequestCreate(apiKey, licenseKey, installationKey, redirectUri, installationName);
         // the same question the heartbeat asks, and here it also answers the user faster than
         // waiting out the http timeout would
         if (!await TcpProbe.IsListeningAsync(baseUrl, cancellationToken: context.RequestAborted)) { unreachable(context, "start"); return; }
@@ -254,7 +266,7 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     // ------------------------------------------------------------------ getting a license at all
 
     // The pairing shapes, mirroring Relatude.DB.Services Connect/ConnectContracts.cs.
-    sealed record PairingStart(string? InstallationKey, string? InstallationName);
+    sealed record PairingStart(string? InstallationKey, string? InstallationName, string? Host);
     sealed record PairingCreated(string PairingId, string Secret, string ClaimUrl, DateTime ExpiresUtc, int PollSeconds);
     sealed record PairingResult(string Status, Guid? LicenseKey, Guid? ApiKey);
 
@@ -277,10 +289,11 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
 
     /// <summary>
     /// Asks the license server for a pairing and returns where to send the browser. No keys are
-    /// needed, and none are held: that is the point of the flow.
+    /// needed, and none are held: that is the point of the flow. <paramref name="host"/> is the
+    /// address the admin UI asking was opened on, which the portal names this installation by.
     /// </summary>
-    public async Task<PairingHandle> StartPairingAsync(CancellationToken cancellationToken = default) {
-        var body = new PairingStart(installationKey, settings.Name);
+    public async Task<PairingHandle> StartPairingAsync(string? host, CancellationToken cancellationToken = default) {
+        var body = new PairingStart(installationKey, installationName, host);
         using var response = await http.PostAsJsonAsync(baseUrl + "/api/connect/pairings", body, _json, cancellationToken);
         if (!response.IsSuccessStatusCode) throw new Exception("The license server would not start a pairing: " + await reasonOf(response));
         var created = await response.Content.ReadFromJsonAsync<PairingCreated>(_json, cancellationToken)
@@ -336,11 +349,12 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     /// Reports in shortly after start and every ten minutes after that, whenever the keys are set
     /// and <see cref="RelatudeDBServerSettings.DisableHeartbeat"/> is off. Failures are logged and
     /// nothing more.
-    /// <para>One beat carries the API key, the installation key, the server and machine name, the
-    /// build version and the total node count of the open databases. It carries no stored content,
-    /// no queries and nothing about the people using the database. The answer says whether the
-    /// license is valid and repeats the messages and stop switches the owner set on it; this server
-    /// records that in <see cref="LastValidity"/> and acts on none of it.</para>
+    /// <para>One beat carries the API key, the installation key, the name of the default database,
+    /// the server and machine name, the build version and the total node count of the open
+    /// databases. It carries no stored content, no queries and nothing about the people using the
+    /// database. The answer says whether the license is valid and repeats the messages and stop
+    /// switches the owner set on it; this server records that in <see cref="LastValidity"/> and
+    /// acts on none of it.</para>
     /// <para>The timer is started either way and the switch is read at each beat, so an
     /// installation that disables reporting stops sending without a restart, and one that allows it
     /// again starts within the interval.</para>
@@ -368,7 +382,7 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
             foreach (var container in server.GetContainers()) {
                 try { if (container.Store is { } store) nodes += store.Count(); } catch { } // a database that is not open has no count
             }
-            var beat = new Heartbeat(apiKey, installationKey, settings.Name, (int)Math.Min(nodes, int.MaxValue),
+            var beat = new Heartbeat(apiKey, installationKey, installationName, (int)Math.Min(nodes, int.MaxValue),
                 settings.Name, Environment.MachineName, typeof(LicenseLogin).Assembly.GetName().Version?.ToString());
             using var response = await http.PostAsJsonAsync(baseUrl + "/api/license/heartbeat", beat, _json);
             LastHeartbeatUtc = DateTime.UtcNow;

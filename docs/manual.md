@@ -2136,7 +2136,8 @@ long total  = db.Count();
 long venues = db.Count<IVenue>();
 ```
 
-`Get` throws when the id is missing; `TryGet` returns `false`.
+`Get` throws when the id is missing or belongs to a node of another type; `TryGet` returns `false` for
+both. A node whose type inherits from `T` counts as a `T`, just as it does for `Exists<T>`.
 
 ### Update, upsert, delete
 

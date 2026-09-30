@@ -121,7 +121,20 @@ public class NodeMapper {
         if (!_nodeValueMapperByTypeId.TryGetValue(nodeData.NodeType, out var mapper)) {
             throw new Exception(nodeData.NodeType + " is not part of the datamodel. ");
         }
-        return (T)mapper.NodeDataToObject(nodeData, _store, propertyPath);
+        if (mapper.NodeDataToObject(nodeData, _store, propertyPath) is T node) return node;
+        // a plain cast fails here too, but names only the generated class, and not the node or its type
+        throw new InvalidCastException("Node " + nodeData.Id + " is of type " + _store.Datamodel.NodeTypes[nodeData.NodeType].FullName
+            + ", not " + typeof(T).FullName + ". ");
+    }
+    /// <summary>
+    /// Whether a node stored as the given node type is a <typeparamref name="T"/>: of that type, or of one inheriting
+    /// from it. The datamodel answers, as it does for <see cref="NodeStore.Exists{T}(Guid)"/>, so no object is made
+    /// just to see whether it casts. Every node is an object, which is not itself a type in the datamodel.
+    /// </summary>
+    internal bool IsOfType<T>(Guid nodeTypeId) {
+        if (typeof(T) == typeof(object)) return true;
+        return _store.Datamodel.NodeTypes.TryGetValue(nodeTypeId, out var nodeType)
+            && nodeType.ThisAndAllInheritedTypes.ContainsKey(GetNodeTypeId(typeof(T)));
     }
     public bool TryGetIdGuidAndCreateIfPossible(object node, out Guid id) {
         return getNodeValueMapper(node.GetType(), out _).TryGetIdGuidAndCreateIfPossible(node, out id);

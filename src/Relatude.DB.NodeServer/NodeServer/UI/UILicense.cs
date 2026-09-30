@@ -39,7 +39,7 @@ sealed class UILicense(RelatudeDBServer server) {
         // Getting a license without copying a key by hand: the page opens the claim url in a tab and
         // asks here every couple of seconds until somebody has answered it. The keys come back to the
         // page, which saves them the way it saves any other setting.
-        commands.Register("license-pair-start", async ctx => await server.LicenseLogin.StartPairingAsync(ctx.Http.RequestAborted));
+        commands.Register("license-pair-start", async ctx => await server.LicenseLogin.StartPairingAsync(ctx.Http.Request.Host.Value, ctx.Http.RequestAborted));
         commands.Register("license-pair-poll", async ctx => await server.LicenseLogin.PollPairingAsync(ctx.Payload<PairingPayload>().PairingId ?? "", ctx.Http.RequestAborted));
         commands.Register("license-pair-cancel", async ctx => {
             await server.LicenseLogin.CancelPairingAsync(ctx.Payload<PairingPayload>().PairingId ?? "", ctx.Http.RequestAborted);

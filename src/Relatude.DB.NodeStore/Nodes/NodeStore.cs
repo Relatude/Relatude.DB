@@ -781,7 +781,7 @@ public class NodeStore : IDisposable {
     /// <summary>Changes the node with this internal id into the model type T.</summary>
     public void ChangeType<T>(int nodeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType<T>(nodeId), flushToDisk);
 
-    /// <summary>Awaitable single node lookup by public id. Throws if the node does not exist, see TryGet for a softer version.</summary>
+    /// <summary>Awaitable single node lookup by public id. Throws if the node does not exist or is another type, see TryGet for a softer version.</summary>
     public async Task<T> GetAsync<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(await Datastore.GetAsync(id), null);
     /// <summary>Runs a transaction you have built yourself. Everything in it is applied atomically.</summary>
     public Task<TransactionResult> ExecuteAsync(Transaction transaction, bool flushToDisk = false) => Datastore.ExecuteAsync(transaction._transactionData, flushToDisk);
@@ -848,7 +848,8 @@ public class NodeStore : IDisposable {
 
     // ---------------------------------------------------------------------------------------------------------
     // GET: direct lookup by id, much cheaper than a query when you already know which node you want.
-    // The Get methods throw if the node is missing, the TryGet methods return false instead.
+    // The Get methods throw if the node is missing or not of the type asked for, the TryGet methods return false
+    // instead. A node of a type inheriting from the one asked for counts as that type, as it does for Exists.
     // ---------------------------------------------------------------------------------------------------------
 
     /// <summary>Reads one node by internal id, as its mapped model type. Throws if it does not exist.</summary>
@@ -885,7 +886,10 @@ public class NodeStore : IDisposable {
     /// <summary>True if a node with this public id exists at all.</summary>
     public bool Exists(Guid id) => Datastore.ExistsAndIsType(id, NodeConstants.BaseNodeTypeId);
     /// <summary>True if a node with this public id exists and is of type T, or a type inheriting from it.</summary>
-    public bool Exists<T>(Guid id) => Datastore.ExistsAndIsType(id, Mapper.GetNodeTypeId(typeof(T)));
+    public bool Exists<T>(Guid id) {
+        if (typeof(T) == typeof(object)) return Exists(id); // every node is an object, which is not itself a type in the datamodel
+        return Datastore.ExistsAndIsType(id, Mapper.GetNodeTypeId(typeof(T)));
+    }
 
     /// <summary>Reads many nodes by internal id in one go, which is much faster than one call each. Lazily evaluated.</summary>
     public IEnumerable<T> Get<T>(IEnumerable<int> ids) => Datastore.Get(ids).Select(n => Mapper.CreateObjectFromNodeData<T>(n, null));
@@ -894,18 +898,18 @@ public class NodeStore : IDisposable {
 
     /// <summary>Reads a node by public id, returning false rather than throwing when it does not exist.</summary>
     public bool TryGet(Guid id, [MaybeNullWhen(false)] out object node) => TryGet<object>(id, out node);
-    /// <summary>Reads a node by public id as type T, returning false rather than throwing when it does not exist.</summary>
+    /// <summary>Reads a node by public id as type T, returning false rather than throwing when it does not exist or is of another type.</summary>
     public bool TryGet<T>(Guid id, [MaybeNullWhen(false)] out T node) {
-        if (Datastore.TryGet(id, out var nodeData)) {
+        if (Datastore.TryGet(id, out var nodeData) && Mapper.IsOfType<T>(nodeData.NodeType)) {
             node = Mapper.CreateObjectFromNodeData<T>(nodeData, null);
             return true;
         }
         node = default;
         return false;
     }
-    /// <summary>Reads a node by internal id as type T, returning false rather than throwing when it does not exist.</summary>
+    /// <summary>Reads a node by internal id as type T, returning false rather than throwing when it does not exist or is of another type.</summary>
     public bool TryGet<T>(int id, [MaybeNullWhen(false)] out T node) {
-        if (Datastore.TryGet((int)id, out var nodeData)) {
+        if (Datastore.TryGet((int)id, out var nodeData) && Mapper.IsOfType<T>(nodeData.NodeType)) {
             node = Mapper.CreateObjectFromNodeData<T>(nodeData, null);
             return true;
         }
@@ -971,9 +975,12 @@ public class NodeStore : IDisposable {
     public bool TryGetIdFromAddress(string address, [MaybeNullWhen(false)] out int nodeId, [MaybeNullWhen(false)] out string cultureCode) {
         return Datastore.TryGetNodeIdFromAddress(address, out nodeId, out cultureCode);
     }
-    /// <summary>Reads the node an address points to, in one step. This is the normal way to serve a page request.</summary>
+    /// <summary>
+    /// Reads the node an address points to, in one step. This is the normal way to serve a page request.
+    /// False when no node has the address, or the node that has it is of another type than T.
+    /// </summary>
     public bool TryGetFromAddress<T>(string address, [MaybeNullWhen(false)] out T node) {
-        if (Datastore.TryGetNodeDataFromAddress(address, out var nodeData)) {
+        if (Datastore.TryGetNodeDataFromAddress(address, out var nodeData) && Mapper.IsOfType<T>(nodeData.NodeType)) {
             node = Mapper.CreateObjectFromNodeData<T>(nodeData, null);
             return true;
         }
