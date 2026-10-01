@@ -218,7 +218,7 @@ sealed class UIQuery {
                 c.Key,
                 c.Name,
                 Type = c.TypeName,
-                Sortable = c.Property != null && isSortable(c.Property),
+                c.Sortable,
                 // what a cell of this column is edited with, when it can be edited at all
                 Editor = cellEditor(c.Property),
                 Options = c.Property is IntegerPropertyModel ic ? choices(ic.LegalValues, ic.LegalValueNames) : null,
@@ -302,12 +302,20 @@ sealed class UIQuery {
     /// it is read - and the page is told (SortApplied) so it can say so rather than draw an arrow
     /// over rows that are not in that order. Only a property whose
     /// values have an order can be sorted on: a relation is a list, an embedded value is a document,
-    /// and an array has no single key to sort by, so none of them are offered.
+    /// and an array has no single key to sort by, so none of them are offered. Of the node's own
+    /// fields, the created and changed dates sort (by their system property, on any type).
     /// </summary>
     static string orderClause(Datamodel dm, string? sortBy, bool descending) {
-        if (string.IsNullOrEmpty(sortBy) || !Guid.TryParse(sortBy, out var propertyId)) return "";
-        if (!dm.Properties.TryGetValue(propertyId, out var property) || !isSortable(property)) return "";
-        return ".OrderBy(n => n." + property.CodeName + (descending ? ", true)" : ")");
+        if (string.IsNullOrEmpty(sortBy)) return "";
+        string? codeName;
+        if (metaColumns.FirstOrDefault(c => c.Key == sortBy) is { } field) {
+            codeName = field.SortName;
+        } else {
+            if (!Guid.TryParse(sortBy, out var propertyId)) return "";
+            codeName = dm.Properties.TryGetValue(propertyId, out var property) && isSortable(property) ? property.CodeName : null;
+        }
+        if (codeName == null) return "";
+        return ".OrderBy(n => n." + codeName + (descending ? ", true)" : ")");
     }
     static bool isSortable(PropertyModel property) => property is not RelationPropertyModel && property.PropertyType is
         PropertyType.String or PropertyType.Integer or PropertyType.Long or PropertyType.Double or PropertyType.Float
@@ -323,18 +331,24 @@ sealed class UIQuery {
 
     // ---- the table: one column per property ----
 
-    /// <summary>A column of the table view: either one of the node's own fields or a property of its type.</summary>
-    sealed record Column(string Key, string Name, string TypeName, PropertyModel? Property);
+    /// <summary>
+    /// A column of the table view: either one of the node's own fields or a property of its type.
+    /// SortName is the system property a node field is sorted by, for the fields that have one.
+    /// </summary>
+    sealed record Column(string Key, string Name, string TypeName, PropertyModel? Property, string? SortName = null) {
+        public bool Sortable => SortName != null || Property != null && isSortable(Property);
+    }
 
     // Every node has these whatever its type, and on the base type ("all node types") they are the
-    // only columns there are - the base type declares nothing but internal properties.
+    // only columns there are - the base type declares nothing but internal properties. The two dates
+    // are indexed system properties of every node, so those two columns sort.
     static readonly Column[] metaColumns = [
         new("__type", "Type", "NodeType", null),
         new("__name", "Display name", "String", null),
         new("__id", "Id", "Guid", null),
         new("__address", "Address", "String", null),
-        new("__created", "Created (UTC)", "DateTime", null),
-        new("__changed", "Changed (UTC)", "DateTime", null),
+        new("__created", "Created (UTC)", "DateTime", null, NodeConstants.SystemCreatedUtcPropertyName),
+        new("__changed", "Changed (UTC)", "DateTime", null, NodeConstants.SystemChangedUtcPropertyName),
     ];
 
     /// <summary>
@@ -378,7 +392,7 @@ sealed class UIQuery {
                 c.Key,
                 c.Name,
                 Type = c.TypeName,
-                Sortable = c.Property != null && isSortable(c.Property),
+                c.Sortable,
                 // a node field is nobody's; a property inherited from another type says whose
                 DeclaredBy = c.Property == null || c.Property.NodeType == type.Id ? null
                     : dm.NodeTypes.TryGetValue(c.Property.NodeType, out var owner) ? owner.CodeName : null,

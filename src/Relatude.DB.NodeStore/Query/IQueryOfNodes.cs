@@ -79,6 +79,17 @@ public interface IQueryOfNodes<TNode, TInclude> : IQueryCollection<ResultSet<TNo
     [Pure] IQueryOfNodes<TNode, TInclude> OrderBy(Expression<Func<TNode, object>> expression, bool descending = false);
     [Pure] IQueryOfNodes<TNode, TInclude> OrderByDescending(Expression<Func<TNode, object>> expression);
 
+    /// <summary>
+    /// Filters by the node's own meta: m => m.ChangedUtc > since. CreatedUtc and ChangedUtc are indexed
+    /// system properties of every node of every type, so this works on any query - the base type
+    /// included - whether or not the class maps a member to them. Other NodeMeta members are not
+    /// indexed and throw NotSupportedException.
+    /// </summary>
+    [Pure] IQueryOfNodes<TNode, TInclude> WhereMeta(Expression<Func<NodeMeta, bool>> expression);
+    /// <summary>Sorts by the node's own meta, from its index: m => m.ChangedUtc. See <see cref="WhereMeta"/>.</summary>
+    [Pure] IQueryOfNodes<TNode, TInclude> OrderByMeta(Expression<Func<NodeMeta, object>> expression, bool descending = false);
+    [Pure] IQueryOfNodes<TNode, TInclude> OrderByMetaDescending(Expression<Func<NodeMeta, object>> expression);
+
     //IIncludeQueryOfNodes<TNode, TProperty> Include<TProperty>(Guid relationPropertyId, int? top = null);
     [Pure] IIncludeQueryOfNodes<TNode, TProperty> Include<TProperty>(Expression<Func<TNode, TProperty>> relationProperty, int? top = null);
     [Pure] IIncludeQueryOfNodes<TNode, TProperty> Include<TProperty>(Expression<Func<TNode, TProperty[]?>> relationProperty, int? top = null);

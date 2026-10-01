@@ -534,7 +534,7 @@ namespace Relatude.DB.DataStores.Definitions {
             if (pm is DoublePropertyModel d) return new DoubleProperty(d, def);
             if (pm is FloatPropertyModel f) return new FloatProperty(f, def);
             if (pm is GuidPropertyModel g) return new GuidProperty(g, def);
-            if (pm is DateTimePropertyModel dt) return new DateTimeProperty(dt, def);
+            if (pm is DateTimePropertyModel dt) return NodeConstants.IsNodeDateProperty(dt.Id) ? new SystemDateTimeProperty(dt, def) : new DateTimeProperty(dt, def);
             if (pm is DateTimeOffsetPropertyModel dto) return new DateTimeOffsetProperty(dto, def);
             if (pm is GeoCoordinatePropertyModel geo) return new GeoCoordinateProperty(geo, def);
             if (pm is TimeSpanPropertyModel t) return new TimeSpanProperty(t, def);

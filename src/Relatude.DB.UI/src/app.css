@@ -7497,7 +7497,8 @@ body.pg-resizing {
 
 /* sorted by, but the order did not survive the facet filter - the arrow says which column was asked
    for without claiming the rows are in that order */
-.query-table th.sorted-inactive {
+.query-table th.sorted-inactive,
+.select.sorted-inactive {
   color: var(--text-faint);
   text-decoration: line-through;
 }

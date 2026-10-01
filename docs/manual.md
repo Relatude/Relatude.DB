@@ -511,8 +511,8 @@ per role.**
 | `[AddressProperty]` | The URL slug — one segment of the address, not the whole path. Surfaces as `Meta.Address` and feeds the URL manager ([§18](#18-urls-and-the-url-manager)). |
 | `[PublicIdProperty]` | The external id used in URLs and APIs. Defaults to `Id` (Guid). |
 | `[InternalIdProperty]` | The internal int id. Defaults to `__Id`. |
-| `[CreatedUtcProperty]` | Stamped with the creation time. |
-| `[ChangedUtcProperty]` | Stamped with the last-change time. |
+| `[CreatedUtcProperty]` | Stamped with the creation time. Filter and sort by it like any indexed property. |
+| `[ChangedUtcProperty]` | Stamped with the last-change time. Filter and sort by it like any indexed property. |
 
 ```csharp
 [DisplayNameProperty]
@@ -544,6 +544,25 @@ Every node carries system metadata. Read it; never write it.
 | `CreatedBy`, `ChangedBy` | User Guids. |
 | `ReleaseUtc`, `ExpireUtc` | Scheduled publishing. |
 | `Deleted` | Soft-delete flag. |
+
+### Querying by the node's own dates
+
+`CreatedUtc` and `ChangedUtc` are indexed for **every node of every type** — a class does not have to
+map them to members of its own. Refer to them through `NodeMeta`:
+
+```csharp
+// recently changed, on any type - the base type included
+db.Query<IArticle>().OrderByMetaDescending(m => m.ChangedUtc).Page(0, 50).Execute();
+db.Query<IArticle>().WhereMeta(m => m.CreatedUtc >= since).Count();
+```
+
+A class that maps them answers the same queries through its own members — `x.ChangedUtc` on a
+`[ChangedUtcProperty]` member, or `x.Meta.ChangedUtc` on its `NodeMeta` — and they use the same index.
+In a query string the two are the system properties `_createdUtc` and `_changedUtc` of every type:
+`Where("n => n._changedUtc > " + since.Ticks)`. The indexes live in the engine `DefaultValueIndex`
+names, like any other value index ([§12.1](#121-every-setting-in-relatudedbjson)). The rest of `NodeMeta` is not indexed
+and cannot be queried; for a node with revisions the published revisions decide (the first creation,
+the last change).
 
 ---
 
@@ -3346,7 +3365,12 @@ The result carries the node ids and the materialised nodes in order, from → to
 ```csharp
 .OrderBy(Expression<Func<TNode, object>> expression, bool descending = false)
 .OrderByDescending(Expression<Func<TNode, object>> expression)
+.OrderByMeta(Expression<Func<NodeMeta, object>> expression, bool descending = false)   // m => m.ChangedUtc
+.OrderByMetaDescending(Expression<Func<NodeMeta, object>> expression)
 ```
+
+`OrderByMeta` sorts by the node's own `CreatedUtc` or `ChangedUtc`, on any type, whether or not the
+class maps them ([Querying by the node's own dates](#querying-by-the-nodes-own-dates)).
 
 Chain them for a compound sort — the first call is the primary key, later calls are tie-breakers:
 

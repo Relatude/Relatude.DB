@@ -72,6 +72,13 @@ public class QueryOfNodes<TNode, TInclude> : IQueryOfNodes<TNode, TInclude> {
         => fork(q => q.OrderBy(expression, descending));
     public IQueryOfNodes<TNode, TInclude> OrderByDescending(Expression<Func<TNode, object>> expression)
         => fork(q => q.OrderBy(expression, true));
+    // the meta lambdas render as lambdas over the node itself (m => m._changedUtc), see LinqToQueryString
+    public IQueryOfNodes<TNode, TInclude> WhereMeta(Expression<Func<NodeMeta, bool>> expression)
+        => fork(q => q.Where(expression));
+    public IQueryOfNodes<TNode, TInclude> OrderByMeta(Expression<Func<NodeMeta, object>> expression, bool descending = false)
+        => fork(q => q.OrderBy(expression, descending));
+    public IQueryOfNodes<TNode, TInclude> OrderByMetaDescending(Expression<Func<NodeMeta, object>> expression)
+        => fork(q => q.OrderBy(expression, true));
     public IQueryCollection<ResultSet<Guid>> SelectId() {
         var q = _q.Clone();
         q.SelectId();

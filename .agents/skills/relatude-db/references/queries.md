@@ -481,7 +481,16 @@ The result carries the node ids and the materialised nodes in order, `from` → 
 ```csharp
 .OrderBy(Expression<Func<TNode, object>> expression, bool descending = false)
 .OrderByDescending(Expression<Func<TNode, object>> expression)
+.OrderByMeta(Expression<Func<NodeMeta, object>> expression, bool descending = false)
+.OrderByMetaDescending(Expression<Func<NodeMeta, object>> expression)
+.WhereMeta(Expression<Func<NodeMeta, bool>> expression)
 ```
+
+The node's own `CreatedUtc` and `ChangedUtc` are indexed for every node of every type, mapped to a
+member or not — sort and filter by them through `NodeMeta`: `db.Query<IArticle>().OrderByMetaDescending(m => m.ChangedUtc)`,
+`.WhereMeta(m => m.CreatedUtc >= since)`. A `[ChangedUtcProperty]` member (`x.ChangedUtc`) or a mapped
+`x.Meta.ChangedUtc` hits the same index; in a query string they are `n._createdUtc` / `n._changedUtc`.
+No other `NodeMeta` member can be queried (it throws `NotSupportedException`).
 
 Chain them for a compound sort — the first call is the primary key, later calls are tie-breakers:
 

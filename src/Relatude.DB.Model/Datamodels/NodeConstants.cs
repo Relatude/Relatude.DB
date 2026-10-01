@@ -10,6 +10,14 @@ public static class NodeConstants {
     public static readonly Guid SystemAutoAddressPropertyId = new("cf885adf-1121-41d8-85e6-70c553345dd0");
     public static readonly Guid SystemDisplayNamePropertyId = new("c1ea2c8a-dbe8-4fa0-a020-ae05507305b6");
 
+    // The node's own creation and change times (NodeMeta.CreatedUtc / ChangedUtc) as indexed system
+    // properties of every node type. Their values are never stored among the node's values: the
+    // engine indexes them from the node record itself, so every node can be filtered and sorted by
+    // them whether or not its class maps a member to them.
+    public static readonly Guid SystemCreatedUtcPropertyId = new("eff5e7b5-7830-4989-b6b6-a4cfe799f89d");
+    public static readonly Guid SystemChangedUtcPropertyId = new("98859963-f477-4c3c-aa8b-2b81238a4689");
+    public static bool IsNodeDateProperty(Guid propertyId) => propertyId == SystemCreatedUtcPropertyId || propertyId == SystemChangedUtcPropertyId;
+
 
     public static readonly Guid MasterAdminUserId = Guid.Parse("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF");
 
@@ -23,6 +31,8 @@ public static class NodeConstants {
     public static readonly string SystemAddressPropertyName = "_address";
     public static readonly string SystemAutoAddressPropertyName = "_autoAddress";
     public static readonly string SystemDisplayNamePropertyName = "_displayName";
+    public const string SystemCreatedUtcPropertyName = "_createdUtc";
+    public const string SystemChangedUtcPropertyName = "_changedUtc";
 
     public const string BaseUserIdString = "243f1514-46c3-4106-9c6a-4a25fb39238b";
     public const string BaseUserGroupIdString = "afd3b9e4-7565-49ae-ac3b-ed20b5ccfe6a";

@@ -44,3 +44,36 @@ internal class DateTimeProperty : ValueProperty<DateTime>, IPropertyContainsValu
         return false;
     }
 }
+/// <summary>
+/// The node's own creation or change time as an indexed property of every node type, declared on the
+/// base type (see NodeConstants.SystemCreatedUtcPropertyId). The value is never among the node's
+/// values: the indexes (Definition.IteratePropertyIndexes) and row evaluation (NodeObjectData) both
+/// read it from the node record, and it cannot be written - the database stamps it.
+/// </summary>
+internal sealed class SystemDateTimeProperty : DateTimeProperty {
+    readonly bool _created;
+    public SystemDateTimeProperty(DateTimePropertyModel pm, Definition def) : base(pm, def) {
+        _created = pm.Id == NodeConstants.SystemCreatedUtcPropertyId;
+    }
+    // must be a pure function of the node data: index and de-index of the same node have to agree
+    public DateTime ValueOf(INodeData node) {
+        if (node is NodeDataRevisions revs) return valueOf(revs);
+        return _created ? node.CreatedUtc : node.ChangedUtc;
+    }
+    // A node with revisions has a date per revision. Queries return the published ones, so they
+    // decide - all of them when none is published: the first creation and the last change.
+    DateTime valueOf(NodeDataRevisions revs) {
+        var anyPublished = revs.Revisions.Any(r => r.RevisionType == RevisionType.Published);
+        DateTime? result = null;
+        foreach (var rev in revs.Revisions) {
+            if (anyPublished && rev.RevisionType != RevisionType.Published) continue;
+            var v = _created ? rev.CreatedUtc : rev.ChangedUtc;
+            if (result == null || (_created ? v < result.Value : v > result.Value)) result = v;
+        }
+        return result ?? DateTime.MinValue;
+    }
+    public override void ValidateValue(object value, INodeData node) {
+        throw new Exception("The property " + CodeName + " is the node's own " + (_created ? "creation" : "change")
+            + " time. It is maintained by the database and cannot be written. ");
+    }
+}

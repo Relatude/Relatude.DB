@@ -97,7 +97,8 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
         throw new NotImplementedException();
     }
     public bool TryOrderByIndexes(string propertyName, bool descending) {
-        var prop = _def.NodeTypes[_nodeType.Id].AllPropertiesByName[propertyName];
+        // not a property by that name (an id member, a dotted path): the row evaluation answers or explains
+        if (!_def.NodeTypes[_nodeType.Id].AllPropertiesByName.TryGetValue(propertyName, out var prop)) return false;
         if (prop is not IValueProperty valueProperty) return false;
         if (!valueProperty.TryReorder(_ids, descending, _ctx, out var sorted)) return false;
         if (_nodes != null) { // permute already materialized nodes to match the new order, same as ReOrder

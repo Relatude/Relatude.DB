@@ -61,7 +61,7 @@ public static partial class FromBytes {
             var missing = allProps.Where(n => !values.ContainsKey(n.Key));
             foreach (var n in missing) {
                 var propDef = datamodel.Properties[n.Key];
-                if (propDef.PropertyType != PropertyType.Relation) {
+                if (propDef.PropertyType != PropertyType.Relation && !NodeConstants.IsNodeDateProperty(n.Key)) { // the node's own dates are on the record, not among its values
                     values.Add(n.Key, propDef.GetDefaultValue());
                 }
             }
@@ -97,7 +97,7 @@ public static partial class FromBytes {
             var missing = allProps.Where(n => !values.ContainsKey(n.Key));
             foreach (var n in missing) {
                 var propDef = datamodel.Properties[n.Key];
-                if (propDef.PropertyType != PropertyType.Relation) {
+                if (propDef.PropertyType != PropertyType.Relation && !NodeConstants.IsNodeDateProperty(n.Key)) { // the node's own dates are on the record, not among its values
                     values.Add(n.Key, propDef.GetDefaultValue());
                 }
             }
@@ -142,7 +142,7 @@ public static partial class FromBytes {
             var missing = allProps.Where(n => !values.ContainsKey(n.Key));
             foreach (var n in missing) {
                 var propDef = datamodel.Properties[n.Key];
-                if (propDef.PropertyType != PropertyType.Relation) {
+                if (propDef.PropertyType != PropertyType.Relation && !NodeConstants.IsNodeDateProperty(n.Key)) { // the node's own dates are on the record, not among its values
                     values.Add(n.Key, propDef.GetDefaultValue());
                 }
             }
@@ -188,7 +188,7 @@ public static partial class FromBytes {
             var missing = allProps.Where(n => !values.ContainsKey(n.Key));
             foreach (var n in missing) {
                 var propDef = datamodel.Properties[n.Key];
-                if (propDef.PropertyType != PropertyType.Relation) {
+                if (propDef.PropertyType != PropertyType.Relation && !NodeConstants.IsNodeDateProperty(n.Key)) { // the node's own dates are on the record, not among its values
                     values.Add(n.Key, propDef.GetDefaultValue());
                 }
             }

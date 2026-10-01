@@ -72,6 +72,14 @@ import { Loading } from "./Loading";
 // someone is going to scroll, or export - and are asked for deliberately; "all" (0 here) is one
 // page as large as the server will build, which is maxPageRows.
 const pageSizes = [25, 50, 100, 200, 1000, 10_000, 100_000];
+// the orders the list view offers: the keys are the table's node-field columns (see UIQuery.metaColumns)
+const listSorts = [
+  { value: "", label: "Default order" },
+  { value: "__changed:desc", label: "Changed, newest first" },
+  { value: "__changed:asc", label: "Changed, oldest first" },
+  { value: "__created:desc", label: "Created, newest first" },
+  { value: "__created:asc", label: "Created, oldest first" },
+];
 
 // The round numbers the csv export offers, beside the page on screen and the whole result set.
 const csvRowChoices = [1000, 10_000, 100_000];
@@ -729,6 +737,17 @@ function QueryTab({
     setPage(0);
     onChange({ sort: sort?.key !== key ? { key, descending: false } : sort.descending ? null : { key, descending: true } });
   }
+  // The list has no headings to click, so it sorts from a menu - by the node's own dates, which every
+  // node has whatever its type and which the database keeps an index of. A sort chosen from a table
+  // heading stays in force here too; the menu says so rather than pretending it is not.
+  const listSortValue = sort ? sort.key + (sort.descending ? ":desc" : ":asc") : "";
+  const listSortIsColumn = sort !== null && !listSorts.some((s) => s.value === listSortValue);
+  function setListSort(value: string) {
+    setPage(0);
+    if (!value) return onChange({ sort: null });
+    const [key, dir] = value.split(":");
+    onChange({ sort: { key, descending: dir === "desc" } });
+  }
 
   /** Takes a column out of the table - and the sort with it, if that is what it was sorted by. */
   function removeColumn(key: string) {
@@ -1286,6 +1305,25 @@ function QueryTab({
                     </button>
                   ))}
                 </div>
+              )}
+              {mode === "search" && !table && (
+                <select
+                  className={"select compact" + (sort && result && !result.sortApplied ? " sorted-inactive" : "")}
+                  value={listSortValue}
+                  title={
+                    sort && result && !result.sortApplied
+                      ? "Sorted, but a facet selection is filtering and the hits come back in the database's own order"
+                      : "The order of the hits"
+                  }
+                  onChange={(e) => setListSort(e.target.value)}
+                >
+                  {listSorts.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                  {listSortIsColumn && <option value={listSortValue}>By a table column</option>}
+                </select>
               )}
               {table && (
                 // typing into the cells; off by default, because a table people read should not change

@@ -1,6 +1,7 @@
 ﻿using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
+using Relatude.DB.DataStores.Definitions.PropertyTypes;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Indexes.Meta;
 using Relatude.DB.DataStores.Sets;
@@ -25,12 +26,14 @@ internal sealed class Definition {
             var properties = cm.Properties.Values.Select(p => Property.Create(p, this));
             foreach (var property in properties) Properties.Add(property.Id, property);
         }
+        _nodeDateProperties = [.. Properties.Values.OfType<SystemDateTimeProperty>()];
         foreach (var cm in datamodel.NodeTypes.Values) {
             var c = NodeTypes[cm.Id];
             foreach (var p in cm.AllProperties.Values) {
                 c.AllPropertiesByName.Add(p.CodeName, Properties[p.Id]);
                 c.AllProperties.Add(p.Id, Properties[p.Id]);
             }
+            addNodeDateAliases(c, cm);
         }
         foreach (var cm in datamodel.Relations.Values) {
             var c = new Relation(cm, store);
@@ -39,6 +42,22 @@ internal sealed class Definition {
         PropertyGuidBy__Id = Properties.Values.ToDictionary(p => p.__Id_transient, p => p.Id);
         _nodeTypeIndex = new(this, store._nativeModelStore, store.Settings);
     }
+    // A class can map the node's own dates to members of its own - [CreatedUtcProperty] members, or the
+    // members of its NodeMeta - and a query over it names them by those: x.Created, x.Meta.CreatedUtc.
+    // They are the system properties under other names, so they resolve to them.
+    void addNodeDateAliases(NodeType c, NodeTypeModel cm) {
+        void alias(string? name, Guid propertyId) {
+            if (string.IsNullOrEmpty(name) || !Properties.TryGetValue(propertyId, out var p)) return;
+            c.AllPropertiesByName.TryAdd(name, p);
+        }
+        alias(cm.NameOfCreatedUtcProperty, NodeConstants.SystemCreatedUtcPropertyId);
+        alias(cm.NameOfChangedUtcProperty, NodeConstants.SystemChangedUtcPropertyId);
+        if (!string.IsNullOrEmpty(cm.NameOfMetaProperty)) {
+            alias(cm.NameOfMetaProperty + "." + nameof(NodeMeta.CreatedUtc), NodeConstants.SystemCreatedUtcPropertyId);
+            alias(cm.NameOfMetaProperty + "." + nameof(NodeMeta.ChangedUtc), NodeConstants.SystemChangedUtcPropertyId);
+        }
+    }
+    readonly SystemDateTimeProperty[] _nodeDateProperties;
     public DataStoreLocal Store { get; }
     public Datamodel Datamodel { get; }
     public SetRegister Sets { get; }
@@ -67,6 +86,7 @@ internal sealed class Definition {
         if (node is NodeData nd) {
             foreach (var kv in nd.Values) {
                 var propDef = Properties[kv.PropertyId];
+                if (propDef is SystemDateTimeProperty) continue; // indexed from the node record below, never from a value
                 if (!propDef.ShouldIndexValue(kv.Value)) continue;
                 foreach (var index in propDef.AllIndexes) {
                     if (propDef.IsNodeRelevantForIndex(nd.NodeType, index)) action(nd, index, kv.Value);
@@ -78,6 +98,7 @@ internal sealed class Definition {
                 if (rev.RevisionType == RevisionType.Published) {
                     foreach (var kv in rev.Values) {
                         var propDef = Properties[kv.PropertyId];
+                        if (propDef is SystemDateTimeProperty) continue;
                         if (!propDef.ShouldIndexValue(kv.Value)) continue;
                         bool shouldIndex = true;
                         if (!propDef.Model.CultureSensitive) {  // only once for all revisions
@@ -97,6 +118,11 @@ internal sealed class Definition {
             }
         } else {
             throw new Exception("Unknown node data type");
+        }
+        // every node is in the indexes of its own dates, whatever its type and whatever it maps
+        foreach (var p in _nodeDateProperties) {
+            object value = p.ValueOf(node);
+            foreach (var index in p.AllIndexes) action(node, index, value);
         }
     }
     internal void IndexNode(INodeData node) {

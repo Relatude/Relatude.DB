@@ -194,7 +194,10 @@ export interface SearchRequest extends SearchTerms {
   facets: boolean;
   /** Which properties the query sees: the selected type's own, or (the default) its subtypes' too. */
   propertyScope?: PropertyScope;
-  /** The property id of the column the table is sorted by, or null for the store's own order. */
+  /**
+   * The key of the column the hits are sorted by - a property id, or "__created" / "__changed" for
+   * the node's own dates - or null for the store's own order.
+   */
   sortBy: string | null;
   sortDescending: boolean;
   /** The columns wanted, by key and in order; null is the type's own set of them. Read only with `table`. */

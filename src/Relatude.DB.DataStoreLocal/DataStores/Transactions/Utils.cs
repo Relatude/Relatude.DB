@@ -41,7 +41,8 @@ internal static class Utils {
         // copying missing properties from old node
         if (oldNode != null) { // copy missing properties from old node, only props in model and not relations or text index
             foreach (var prop in allProps.Values) {
-                if (prop.PropertyType != PropertyType.Relation && prop.Id != NodeConstants.SystemTextIndexPropertyId && prop.Id != NodeConstants.SystemVectorIndexPropertyId) {
+                if (prop.PropertyType != PropertyType.Relation && prop.Id != NodeConstants.SystemTextIndexPropertyId && prop.Id != NodeConstants.SystemVectorIndexPropertyId
+                    && !NodeConstants.IsNodeDateProperty(prop.Id)) { // the node's own dates are on the record, never among its values
                     if (!node.Contains(prop.Id)) {
                         if (oldNode.TryGetValue(prop.Id, out var oldValue)) {
                             node.Add(prop.Id, oldValue);

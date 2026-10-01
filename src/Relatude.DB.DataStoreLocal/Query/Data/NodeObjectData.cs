@@ -3,6 +3,7 @@ using Relatude.DB.DataStores;
 using Relatude.DB.Serialization;
 using System.Text;
 using Relatude.DB.DataStores.Definitions;
+using Relatude.DB.DataStores.Definitions.PropertyTypes;
 using Relatude.DB.Datamodels.Properties;
 
 namespace Relatude.DB.Query.Data;
@@ -31,6 +32,7 @@ internal class NodeObjectData : IStoreNodeData {
     }
     public object? GetValue(string propertyName) {
         if (_allPropertiesByName.TryGetValue(propertyName, out var propertyId)) {
+            if (NodeConstants.IsNodeDateProperty(propertyId)) return nodeDate(propertyId);
             if (_nodeData.TryGetValue(propertyId, out var value)) {
                 if (_db.Logger.RecordingPropertyHits) _db.Logger.RecordPropertyHit(propertyId);
                 return value;
@@ -40,6 +42,11 @@ internal class NodeObjectData : IStoreNodeData {
                 return prop.GetDefaultValue(); // values equal to the default are not stored
             }
         } else {
+            // the node's own dates under the names its class maps them to: x.Created, x.Meta.ChangedUtc
+            if (_def.NodeTypes.TryGetValue(_nodeData.NodeType, out var nodeType)
+                && nodeType.AllPropertiesByName.TryGetValue(propertyName, out var aliased) && aliased is SystemDateTimeProperty) {
+                return nodeDate(aliased.Id);
+            }
             var parts = propertyName.Split('.');
             if (parts.Length > 1) {
                 var value = GetValue(parts[0]);
@@ -64,6 +71,8 @@ internal class NodeObjectData : IStoreNodeData {
             throw new Exception($"Property {propertyName} could not be evaluated. ");
         }
     }
+    // on the node record, never among its values (see SystemDateTimeProperty)
+    object nodeDate(Guid propertyId) => propertyId == NodeConstants.SystemCreatedUtcPropertyId ? _nodeData.CreatedUtc : _nodeData.ChangedUtc;
     object? getRelated(RelationPropertyModel relProp) {
         var relation = _def.Relations[relProp.RelationId];
         var ids = relation.GetRelated(_nodeData.__Id, relProp.FromTargetToSource).ToArray();

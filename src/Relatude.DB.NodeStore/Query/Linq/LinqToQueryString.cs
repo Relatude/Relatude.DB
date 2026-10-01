@@ -1,5 +1,7 @@
-﻿using Relatude.DB.Query;
+﻿using Relatude.DB.Datamodels;
+using Relatude.DB.Query;
 using System.Collections;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -206,6 +208,10 @@ internal sealed class LinqToQueryString : ExpressionVisitor {
     }
 
     protected override Expression VisitMember(MemberExpression node) {
+        if (tryGetNodeMetaProperty(node, out var parameter, out var systemProperty)) {
+            _sb.Append(parameter.Name).Append('.').Append(systemProperty);
+            return node;
+        }
         if (node.Expression == null) {
             bool parensS = NeedParens(Precedence.CallAccess);
             if (parensS) _sb.Append('(');
@@ -220,6 +226,30 @@ internal sealed class LinqToQueryString : ExpressionVisitor {
         _sb.Append('.').Append(node.Member.Name);
         if (parens) _sb.Append(')');
         return node;
+    }
+
+    /// <summary>
+    /// A NodeMeta member read off the node a lambda is over: m.ChangedUtc where the lambda parameter is
+    /// the node's meta (WhereMeta / OrderByMeta), or x.Meta.ChangedUtc on a class mapping a NodeMeta
+    /// member. Created and changed are indexed system properties of every node, so both render as the
+    /// node's system property - x._changedUtc - whatever the class maps. The rest of NodeMeta is not
+    /// indexed and cannot be queried, which is said here rather than as an unknown property later.
+    /// </summary>
+    private static bool tryGetNodeMetaProperty(MemberExpression node, [NotNullWhen(true)] out ParameterExpression? parameter, [NotNullWhen(true)] out string? systemProperty) {
+        parameter = null;
+        systemProperty = null;
+        if (node.Member.DeclaringType != typeof(NodeMeta)) return false;
+        var owner = UnwrapConvert(node.Expression!);
+        if (owner is ParameterExpression p) parameter = p;
+        else if (owner is MemberExpression { Expression: ParameterExpression mp } && owner.Type == typeof(NodeMeta)) parameter = mp;
+        else return false;
+        systemProperty = node.Member.Name switch {
+            nameof(NodeMeta.CreatedUtc) => NodeConstants.SystemCreatedUtcPropertyName,
+            nameof(NodeMeta.ChangedUtc) => NodeConstants.SystemChangedUtcPropertyName,
+            _ => throw new NotSupportedException("NodeMeta." + node.Member.Name + " cannot be used in a query. Of the node meta, only "
+                + nameof(NodeMeta.CreatedUtc) + " and " + nameof(NodeMeta.ChangedUtc) + " are system properties a query can filter, sort and select by. "),
+        };
+        return true;
     }
 
     private static bool IsExtension(MethodInfo m)

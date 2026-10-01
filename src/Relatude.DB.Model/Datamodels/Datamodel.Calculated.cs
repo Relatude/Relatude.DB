@@ -208,6 +208,7 @@ public partial class Datamodel {
             nodeType.DataTypeOfPublicId = getBestPublicIdPropTypeInParents(nodeType);
             nodeType.NameOfPublicIdProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfPublicIdProperty);
             nodeType.NameOfInternalIdProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfInternalIdProperty);
+            nodeType.NameOfCreatedUtcProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfCreatedUtcProperty);
             nodeType.NameOfChangedUtcProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfChangedUtcProperty);
             nodeType.NameOfMetaProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfMetaProperty);
             nodeType.NameOfDisplayNameProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfDisplayNameProperty);
@@ -405,6 +406,26 @@ public partial class Datamodel {
             Internal = true,
         };
         props.Add(displayName);
+        // filled from the node record, not from its values (see NodeConstants.SystemCreatedUtcPropertyId);
+        // no facets, as a timestamp per node is a bucket per node
+        var createdUtc = new DateTimePropertyModel() {
+            Id = NodeConstants.SystemCreatedUtcPropertyId,
+            CodeName = NodeConstants.SystemCreatedUtcPropertyName,
+            ExcludeFromTextIndex = true,
+            Indexed = true,
+            NotFacet = true,
+            Internal = true,
+        };
+        props.Add(createdUtc);
+        var changedUtc = new DateTimePropertyModel() {
+            Id = NodeConstants.SystemChangedUtcPropertyId,
+            CodeName = NodeConstants.SystemChangedUtcPropertyName,
+            ExcludeFromTextIndex = true,
+            Indexed = true,
+            NotFacet = true,
+            Internal = true,
+        };
+        props.Add(changedUtc);
         return props;
     }
     static void findAllInherited(Datamodel datamodel, NodeTypeModel ct, Dictionary<Guid, NodeTypeModel> allInherited) {
