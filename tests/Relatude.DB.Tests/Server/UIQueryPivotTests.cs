@@ -66,17 +66,33 @@ public class UIQueryPivotTests {
             Assert.IsTrue(prop(properties["Size"], "numeric").GetBoolean());
             Assert.IsTrue(prop(properties["Size"], "aggregatable").GetBoolean());
             Assert.IsFalse(properties.ContainsKey("Content"), "not indexed: neither groupable nor aggregatable, so not offered");
-            // The base type ("all node types") has no groupable or aggregatable property of its own.
+
+            // The base type ("all node types") with the property scope left out - "subtypes", the
+            // page's default: the properties of every type the result can hold, each listed once and
+            // saying which type declares it.
+            var baseModel = await command(host, "query-pivot-model", new { storeId, typeId = (Guid?)null });
+            var baseProperties = prop(baseModel, "properties").EnumerateArray().ToArray();
+            var baseIds = baseProperties.Select(p => prop(p, "id").GetGuid()).ToList();
+            Assert.AreEqual(baseIds.Count, baseIds.Distinct().Count(), "a property inherited by several types is listed once");
+            foreach (var p in properties.Values) {
+                var id = prop(p, "id").GetGuid();
+                CollectionAssert.Contains(baseIds, id, prop(p, "name").GetString() + " of DemoArticle is offered on the base type too");
+            }
+            var title = baseProperties.Single(p => prop(p, "id").GetGuid() == prop(properties["Title"], "id").GetGuid());
+            Assert.AreEqual(nameof(DemoArticle), prop(title, "declaredBy").GetString(), "a subtype's property says whose it is");
+            Assert.AreEqual(1, baseProperties.Count(p => prop(p, "name").GetString() == "All text"));
+
+            // Scoped to the base type itself it has no groupable or aggregatable property of its own.
             // What it does offer is the one internal property the builder lists: the combined
             // free-text index, which is where the words of a node are when the model indexes text per
             // node type, and which the word cloud reads. It can do nothing else here.
-            var baseModel = await command(host, "query-pivot-model", new { storeId, typeId = (Guid?)null });
-            var baseProperties = prop(baseModel, "properties").EnumerateArray().ToArray();
-            Assert.AreEqual(1, baseProperties.Length, "only the free-text index");
-            Assert.AreEqual("All text", prop(baseProperties[0], "name").GetString());
-            Assert.IsTrue(prop(baseProperties[0], "words").GetBoolean(), "it is listed for the word cloud");
-            Assert.IsFalse(prop(baseProperties[0], "groupable").GetBoolean());
-            Assert.IsFalse(prop(baseProperties[0], "aggregatable").GetBoolean());
+            var baseOnly = await command(host, "query-pivot-model", new { storeId, typeId = (Guid?)null, propertyScope = "type" });
+            var baseOnlyProperties = prop(baseOnly, "properties").EnumerateArray().ToArray();
+            Assert.AreEqual(1, baseOnlyProperties.Length, "only the free-text index");
+            Assert.AreEqual("All text", prop(baseOnlyProperties[0], "name").GetString());
+            Assert.IsTrue(prop(baseOnlyProperties[0], "words").GetBoolean(), "it is listed for the word cloud");
+            Assert.IsFalse(prop(baseOnlyProperties[0], "groupable").GetBoolean());
+            Assert.IsFalse(prop(baseOnlyProperties[0], "aggregatable").GetBoolean());
         } finally {
             await host.DisposeAsync();
             try { Directory.Delete(root, true); } catch { }
