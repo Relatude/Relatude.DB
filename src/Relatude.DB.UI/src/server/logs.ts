@@ -181,7 +181,13 @@ export interface StartupError {
 }
 
 export interface TraceInfo {
+  /** the lines come from a database that is open or opening, and more will follow */
   open: boolean;
+  /**
+   * Set when the database is not running and the lines are what it said last, before it was closed
+   * or failed to open: when that was. Unset from an older server, which sends no lines then.
+   */
+  keptUtc?: string | null;
   entries: TraceEntry[];
   startupError: StartupError | null;
 }

@@ -40,7 +40,7 @@ sealed class UITasks {
 
     object tasks(TasksPayload p) {
         var c = container(p.StoreId);
-        var state = c.HasFailed ? "Error" : c.Store?.State.ToString() ?? "Closed";
+        var state = c.StateName;
         if (!c.IsOpen()) {
             // the queues live in the open store: a closed database has a queue file on disk, but
             // nothing that can read it, and saying so beats an empty table that looks like "no work"

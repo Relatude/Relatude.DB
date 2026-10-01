@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   IconAlertTriangle,
   IconCircleCheck,
@@ -40,6 +40,7 @@ import {
 } from "../server/license";
 import { formatTime } from "../format";
 import { Loading } from "./Loading";
+import { FoldHead } from "./LogsSection";
 
 /**
  * The Services module: the Relatude Services account this installation runs under - whether it has
@@ -563,6 +564,42 @@ function EntitlementsPanel({ status }: { status: LicenseStatus }) {
   );
 }
 
+/** the fold's own duration in app.css (.fold), after which an open panel stops clipping its content */
+const foldMs = 180;
+
+/**
+ * A test panel, folded to its heading until somebody wants it: the tests send real messages and
+ * make real calls that are charged to the license, so they start out of the way, and the heading
+ * still says what is in there.
+ *
+ * The content stays mounted while folded - what was typed and the last receipt are still there when
+ * the panel is opened again - and `inert` keeps the folded fields out of the tab order. It is
+ * clipped only while it moves: once open and still, a model list may reach past the panel's edge.
+ */
+function TestPanel({ className, icon, title, sub, label, children }: { className: string; icon: ReactNode; title: string; sub: string; label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    setSettled(false);
+    if (!open) return;
+    const id = window.setTimeout(() => setSettled(true), foldMs);
+    return () => window.clearTimeout(id);
+  }, [open]);
+  return (
+    <section className={"panel " + className + (open ? "" : " folded")}>
+      <h3 className="with-fold">
+        <FoldHead open={open} label={label} onToggle={() => setOpen(!open)}>
+          {icon} {title}
+          <span className="panel-sub"> · {sub}</span>
+        </FoldHead>
+      </h3>
+      <div className={"fold" + (open ? " open" : "") + (open && settled ? " settled" : "")} inert={!open}>
+        <div className="fold-inner">{children}</div>
+      </div>
+    </section>
+  );
+}
+
 /**
  * A real message through the Relatude SMS service, so whoever set up the license can see it arrive
  * before any code depends on it. Only offered when the license has the "sms" credit account; it is
@@ -595,11 +632,13 @@ function SmsTestPanel({ senders, anySender }: { senders: string[]; anySender: bo
   }
 
   return (
-    <section className="panel license-sms">
-      <h3>
-        <IconMessage size={15} stroke={1.8} /> Test SMS
-        <span className="panel-sub"> · sends a real message, charged to the license</span>
-      </h3>
+    <TestPanel
+      className="license-sms"
+      icon={<IconMessage size={15} stroke={1.8} />}
+      title="Test SMS"
+      sub="sends a real message, charged to the license"
+      label="the SMS test"
+    >
       <div className="license-sms-fields">
         {anySender ? (
           <Field label="From" hint="Any name of at most 11 letters and digits, or a number with its country code. Empty: the service's own sender." locked={false}>
@@ -657,7 +696,7 @@ function SmsTestPanel({ senders, anySender }: { senders: string[]; anySender: bo
           </div>
         </div>
       )}
-    </section>
+    </TestPanel>
   );
 }
 
@@ -678,11 +717,13 @@ function AiTestPanel({ configuredUrl, embeddings, completions }: { configuredUrl
       return m[kind];
     });
   return (
-    <section className="panel license-ai">
-      <h3>
-        <IconSparkles size={15} stroke={1.8} /> Test AI
-        <span className="panel-sub"> · real calls to the AI service, charged to the license</span>
-      </h3>
+    <TestPanel
+      className="license-ai"
+      icon={<IconSparkles size={15} stroke={1.8} />}
+      title="Test AI"
+      sub="real calls to the AI service, charged to the license"
+      label="the AI tests"
+    >
       <div className="license-ai-url">
         <Field label="Service URL" hint={configuredUrl ? "the address a database here uses" : undefined} locked={false}>
           <input className="text-input" value={serviceUrl} placeholder="https://ai.relatude.com (the hosted service)" spellCheck={false} onChange={(e) => setServiceUrl(e.target.value)} />
@@ -692,7 +733,7 @@ function AiTestPanel({ configuredUrl, embeddings, completions }: { configuredUrl
         {embeddings && <AiEmbeddingTest serviceUrl={url} loadModels={models("embeddings")} />}
         {completions && <AiCompletionTest serviceUrl={url} loadModels={models("completions")} />}
       </div>
-    </section>
+    </TestPanel>
   );
 }
 

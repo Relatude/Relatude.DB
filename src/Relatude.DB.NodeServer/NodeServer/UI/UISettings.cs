@@ -96,7 +96,7 @@ sealed class UISettings {
             Scope = "database",
             StoreId = settings.Id,
             Title = string.IsNullOrEmpty(settings.Name) ? settings.Id.ToString() : settings.Name,
-            State = container.HasFailed ? "Error" : container.Store?.State.ToString() ?? "Closed",
+            State = container.StateName,
             IsOpen = container.IsOpenOrOpening(),
             SettingsFile = _server.Settings.DBSettingsFilePath ?? Defaults.SettingsFileName,
             ConfigSection = _server.ConfigurationOverlay?.SectionName,

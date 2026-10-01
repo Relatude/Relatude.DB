@@ -19,9 +19,15 @@ public class DataStoreOpeningStatus {
         TimeRemainingMs = timeRemainingMs;
         TimeElapsedMs = timeElapsedMs;
     }
-    public int ProgressPercentage { get; } 
+    public int ProgressPercentage { get; }
     public int TimeRemainingMs { get; }
     public int TimeElapsedMs { get; }
+    /// <summary>
+    /// When the estimate was made. The store only estimates while it reads the log, so once that is
+    /// done the last estimate stays put while the open finishes: what is left of it now is
+    /// <see cref="TimeRemainingMs"/> less the time since this.
+    /// </summary>
+    public DateTime MeasuredUtc { get; } = DateTime.UtcNow;
 }
 public class DataStoreStatus(DataStoreState state, DataStoreActivity[] activities) {
     [JsonConverter(typeof(JsonStringEnumConverter))]

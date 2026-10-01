@@ -11,6 +11,10 @@ namespace Relatude.DB.SMS;
 ///
 /// <para>An implementation is long lived and shared: it is built once when the database is
 /// configured and disposed with it, so it must be safe to call from several threads at once.</para>
+///
+/// <para>Many messages at once go with <see cref="SendBatchAsync"/>: all of them or none, paid for
+/// before it returns and sent in the background. Both batch methods have a default that throws
+/// <see cref="NotSupportedException"/>, so a provider of your own need not offer them.</para>
 /// </summary>
 public interface ISMSProvider : IDisposable {
     /// <summary>What this provider is, for the admin UI and the log. Not the sender shown on the phone.</summary>
@@ -34,6 +38,29 @@ public interface ISMSProvider : IDisposable {
     /// a part, so an innocent edit can double the price.
     /// </summary>
     Task<SmsQuote> QuoteAsync(string to, string message, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sends many messages in one call, all of them or none. Every message is checked and the whole
+    /// batch is paid for before this returns; the messages are then sent in the background, and
+    /// <see cref="GetBatchAsync"/> tells how that goes. One message that cannot be sent - a number
+    /// that is not one, an empty or too long text - refuses the whole batch, with every such message
+    /// named, and nothing is sent or charged.
+    /// <para>A provider that cannot send batches says so with a <see cref="NotSupportedException"/>;
+    /// sending the messages one at a time with <see cref="SendAsync"/> instead is not the same thing,
+    /// since some of them may then go and some not.</para>
+    /// </summary>
+    /// <param name="messages">The messages, in the order they should go. Each one's number is any form of a mobile number, as for <see cref="SendAsync"/>.</param>
+    /// <param name="from">The sender of every message in the batch. Null takes the provider's own.</param>
+    /// <param name="reference">The caller's own label for the batch; a message's own reference labels that message.</param>
+    Task<SmsBatchReceipt> SendBatchAsync(IReadOnlyList<SmsBatchMessage> messages, string? from = null, string? reference = null, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException($"{Name} cannot send a batch of messages.");
+
+    /// <summary>
+    /// How a batch sent with <see cref="SendBatchAsync"/> is going: which messages are sent, which are
+    /// still waiting, and which could not be. Null when the provider knows no batch by that id.
+    /// </summary>
+    Task<SmsBatchStatus?> GetBatchAsync(string batchId, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException($"{Name} cannot send a batch of messages.");
 }
 
 /// <summary>
@@ -49,6 +76,44 @@ public sealed record SmsReceipt(string MessageId, string To, int Parts, int Cred
 /// message unexpectedly costs more than one part.
 /// </summary>
 public sealed record SmsQuote(string To, int Parts, int Credits, bool Unicode, int Characters);
+
+/// <summary>One message of a batch: the recipient, the text, and the caller's own label for it.</summary>
+public sealed record SmsBatchMessage(string To, string Message, string? Reference = null);
+
+/// <summary>
+/// A batch that was paid for and queued. <see cref="Credits"/> is what the whole batch cost, and
+/// <see cref="CreditsLeft"/> the balance after it. <see cref="Items"/> are the messages in the order
+/// they were given, each with the number it goes to and its price. The messages are sent after this
+/// is returned: ask <see cref="ISMSProvider.GetBatchAsync"/> with <see cref="BatchId"/> how it goes.
+/// </summary>
+public sealed record SmsBatchReceipt(string BatchId, int Messages, int Parts, int Credits, int CreditsLeft, string From,
+    IReadOnlyList<SmsBatchItem> Items, string? Reference = null);
+
+/// <summary>One message of an accepted batch: the number it goes to, as the service will send it, and what it costs.</summary>
+public sealed record SmsBatchItem(string To, int Parts, int Credits, string? Reference = null);
+
+/// <summary>
+/// How a batch is going. <see cref="State"/> is "queued" until the first message is handed to the
+/// gateway, "sending" while any is left, and "done" when every message has an outcome; <see cref="Pending"/>
+/// counts the messages without one yet. <see cref="Items"/> are in the order the messages were given.
+/// Every message was paid for with the batch, whatever became of it.
+/// </summary>
+public sealed record SmsBatchStatus(string BatchId, string State, DateTime AcceptedUtc, DateTime? CompletedUtc, string From,
+    int Messages, int Credits, int Pending, int Sent, int Undeliverable, int Failed, int Expired,
+    IReadOnlyList<SmsBatchMessageStatus> Items, string? Reference = null) {
+    /// <summary>Every message has an outcome: nothing more will change.</summary>
+    public bool IsDone => State == "done";
+}
+
+/// <summary>
+/// One message of a batch. <see cref="State"/> is "queued" (waiting its turn), "sending" (with the
+/// gateway now), "sent" (the gateway took it, and <see cref="MessageId"/> is its id), "undeliverable"
+/// (the gateway will not deliver this message, and <see cref="Error"/> says why), "failed" (the
+/// gateway failed while it had the message, so it may or may not have reached the phone) or
+/// "expired" (the gateway could not take it in time, and it was not sent).
+/// </summary>
+public sealed record SmsBatchMessageStatus(string To, int Parts, string State, string? MessageId = null, string? Error = null,
+    DateTime? AtUtc = null, string? Reference = null);
 
 /// <summary>
 /// How the database reaches an SMS service. The shape follows

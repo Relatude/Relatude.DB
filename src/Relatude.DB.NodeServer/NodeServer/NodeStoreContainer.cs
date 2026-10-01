@@ -80,6 +80,97 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     public DateTime? StartUpExceptionDateTimeUTC = null;
     public bool HasFailed => Interlocked.CompareExchange(ref _hasFailedCounter, 0, 0) > 0;
 
+    // ---- an open in progress, as the admin UI watches it ----
+
+    int _openingCounter = 0;
+    DateTime? _openingSinceUtc;
+    string? _openingStep;
+    /// <summary>
+    /// The store an open is building, from the moment it exists until it is handed out as
+    /// <see cref="Store"/>. Building the mappers happens in between and can take seconds, and what
+    /// the store says while it does is only readable through this.
+    /// </summary>
+    IDataStore? _datastoreBeingBuilt;
+    /// <summary>The trace of the last store, kept when it was disposed: what it said before it closed or failed.</summary>
+    TraceEntry[] _lastTrace = [];
+    DateTime? _lastTraceUtc;
+
+    /// <summary>
+    /// True for the whole of an open, not only the part the store itself calls
+    /// <see cref="DataStoreState.Opening"/>: before that the model is loaded and the mappers are built
+    /// or read from disk, and in that time <see cref="Store"/> is still null - which on its own reads
+    /// as closed.
+    /// </summary>
+    public bool IsOpening {
+        get {
+            var state = Store?.State;
+            if (state == DataStoreState.Opening) return true;
+            return Volatile.Read(ref _openingCounter) > 0 && state != DataStoreState.Open;
+        }
+    }
+    /// <summary>When the open running now began, or null when none is.</summary>
+    public DateTime? OpeningSinceUtc => IsOpening ? _openingSinceUtc : null;
+    /// <summary>
+    /// What the open is busy with, one line: set by this container for the steps before the store
+    /// takes over, and left on the last of them while the store reports its own activities.
+    /// </summary>
+    public string? OpeningStep => IsOpening ? _openingStep : null;
+    /// <summary>How far the store being opened says it is, or null before it has a say.</summary>
+    public DataStoreOpeningStatus? GetOpeningProgress() {
+        if (!IsOpening) return null;
+        var datastore = Store?.Datastore ?? _datastoreBeingBuilt;
+        return datastore?.GetOpeningStatus();
+    }
+    /// <summary>What the store being opened is doing, or null before it exists.</summary>
+    public DataStoreStatus? GetOpeningActivity() {
+        if (!IsOpening) return null;
+        var datastore = Store?.Datastore ?? _datastoreBeingBuilt;
+        return datastore?.GetStatus();
+    }
+    /// <summary>
+    /// How the database stands, in the one word the admin UI shows: Opening for the whole of an open,
+    /// Error when the last attempt failed, else the store's own state, or Closed without one.
+    /// </summary>
+    public string StateName {
+        get {
+            var state = Store?.State;
+            if (state == DataStoreState.Open) return nameof(DataStoreState.Open);
+            if (IsOpening) return nameof(DataStoreState.Opening);
+            if (HasFailed) return nameof(DataStoreState.Error);
+            return state?.ToString() ?? nameof(DataStoreState.Closed);
+        }
+    }
+    /// <summary>
+    /// The latest lines of the system trace, newest first. While there is a store - the one being
+    /// opened included, before it is <see cref="Store"/> - they are its live trace; without one they
+    /// are what the last store said before it was closed or failed to open, and
+    /// <paramref name="keptUtc"/> says when that was.
+    /// </summary>
+    public TraceEntry[] GetTrace(int take, out DateTime? keptUtc) {
+        var datastore = Store?.Datastore ?? _datastoreBeingBuilt;
+        if (datastore != null) {
+            keptUtc = null;
+            return datastore.GetSystemTrace(0, take);
+        }
+        keptUtc = _lastTraceUtc;
+        var kept = _lastTrace;
+        return kept.Length <= take ? kept : kept[..take];
+    }
+    // the tracer lives in memory with the store and goes with it, so it is copied out on the way
+    void keepTrace(IDataStore datastore) {
+        try {
+            _lastTrace = datastore.GetSystemTrace(0, 1000);
+            _lastTraceUtc = DateTime.UtcNow;
+        } catch { } // a trace that cannot be read is not a reason for a close to fail
+    }
+    // the store does not trace an exception thrown past it, so the reason an open stopped would
+    // otherwise be missing from the very lines kept to explain it
+    void keepFailure(Exception error) {
+        var line = new TraceEntry(DateTime.UtcNow, SystemLogEntryType.Error, "The database could not be opened: " + error.Message, error.ToString());
+        _lastTrace = [line, .. _lastTrace];
+        _lastTraceUtc = DateTime.UtcNow;
+    }
+
     public void DeleteAllStateAndIndexFiles() {
         var settingsLocal = settings.LocalSettings;
         if (settingsLocal == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
@@ -240,6 +331,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     void initializeCore() {
         AIEngine? ai = null;
         ISMSProvider? sms = null;
+        IDataStore? datastore = null;
         try {
             // before anything reads the log files: the store opens its own logger on them
             if (_logger != null) { _logger.Dispose(); _logger = null; }
@@ -247,6 +339,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             disposeCore();
             var local = settings.LocalSettings;
             if (local == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
+            // the steps named here are what the admin UI says an open is doing until the store
+            // exists and reports its own activities (see OpeningStep)
+            _openingStep = "Loading the datamodel";
             Datamodel = loadDatamodel();
             server.RaiseEventDatamodelInit(Datamodel, settings);
             DatamodelAsLoadedJson = DatamodelJson.Serialize(Datamodel);
@@ -331,7 +426,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             // returns null the store falls back to the flat built-in TreeUrlManager ("/{address}")
             var urlManager = server?.Options?.CreateUrlManager?.Invoke(settings);
 
-            IDataStore datastore = new DataStoreLocal(
+            _openingStep = "Starting the store and its indexes";
+            datastore = new DataStoreLocal(
                     Datamodel,
                     local,
                     ioDatabase,
@@ -348,6 +444,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     urlManager: urlManager,
                     createStateStore: createStateStore
                     );
+            _datastoreBeingBuilt = datastore;
             Interlocked.Increment(ref _initializationCounter);
             //var runners = server.GetRegisteredTaskRunners(this);
             //foreach (var runner in runners) datastore.RegisterRunner(runner);
@@ -358,10 +455,21 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             // yet - but it is also what a mistyped namespace or path looks like, and a model that
             // quietly lost its types would leave the stored nodes without them. So it is a warning.
             foreach (var notice in Datamodel.SourceNotices) datastore.LogWarning(notice);
+            // read from the index folder, or generated and compiled when the model changed - which
+            // is most of an open when there is little to replay
+            _openingStep = "Preparing the object mappers";
             Store = new NodeStore(datastore, sms);
+            _datastoreBeingBuilt = null;
             server?.RaiseEventStoreInit(this, Store);
         } catch {
-            if (Store == null && ai != null) {
+            _datastoreBeingBuilt = null;
+            if (Store == null && datastore != null) {
+                // built but never handed out: nothing else would close the files it opened (the
+                // log, the indexes), and the next attempt would find them held. It owns the AI
+                // engine from here on, and disposes it with everything else.
+                try { datastore.Dispose(); } catch { }
+                keepTrace(datastore);
+            } else if (Store == null && ai != null) {
                 try { ai.Dispose(); } catch { }
             }
             // the store never took ownership, so nothing else will close its http client
@@ -381,11 +489,18 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         }
     }
     void openCore() {
+        Interlocked.Increment(ref _openingCounter);
+        _openingSinceUtc = DateTime.UtcNow;
+        _openingStep = "Starting";
+        // what the last store said belongs to the last store: from here on the trace is this open's
+        _lastTrace = [];
+        _lastTraceUtc = null;
         try {
             var sw = Stopwatch.StartNew();
             if (Store == null) initializeCore();
             Store!.Datastore.LogInfo($"NodeStore initialized in {sw.ElapsedMilliseconds.To1000N()}ms, opening... ");
             if (Store == null) throw new Exception("Datastore is not initialized. ");
+            _openingStep = "Reading the state and replaying the log";
             try {
                 Store.Datastore.Open(false, false);
             } catch {
@@ -395,9 +510,12 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             Store!.Datastore.LogInfo($"NodeStore ready in a total of {sw.ElapsedMilliseconds.To1000N()}ms.");
             server.RaiseEventStoreOpen(this, Store);
             ModelEditor.DatamodelDrafts.RecordOpen(this); // the model history; never throws
-            // it opened, so whatever stopped it last time is no longer what is wrong with it
+            // it opened, so whatever stopped it last time is no longer what is wrong with it - and
+            // that includes the failure count, or a database that opened at the second attempt (a
+            // file another process held a moment too long) reads as failed for as long as it is up
             StartUpException = null;
             StartUpExceptionDateTimeUTC = null;
+            Interlocked.Exchange(ref _hasFailedCounter, 0);
         } catch (Exception error) {
             // kept, not only counted: an open asked for by hand leaves the container in Error, and
             // without the reason the admin UI has a red dot and nothing to say about it. The auto
@@ -405,7 +523,10 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             StartUpException = error;
             StartUpExceptionDateTimeUTC = DateTime.UtcNow;
             Interlocked.Increment(ref _hasFailedCounter);
+            keepFailure(error);
             throw;
+        } finally {
+            Interlocked.Decrement(ref _openingCounter);
         }
     }
     public void CloseIfOpen() {
@@ -475,7 +596,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     }
     void disposeCore() {
         if (Store != null) {
+            var datastore = Store.Datastore;
             Store.Dispose();
+            keepTrace(datastore); // after the dispose, which may still have something to say
             Store = null;
             Datamodel = null;
         }

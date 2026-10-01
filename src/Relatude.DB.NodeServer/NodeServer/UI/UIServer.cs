@@ -103,7 +103,7 @@ public sealed class UIServer {
             return (object)new {
                 c.Settings.Id,
                 Name = string.IsNullOrEmpty(c.Settings.Name) ? c.Settings.Id.ToString() : c.Settings.Name,
-                State = c.HasFailed ? "Error" : c.Store?.State.ToString() ?? "Closed",
+                State = c.StateName,
                 NodeCount = nodeCount,
                 ConversionCount = conversionCount,
                 TaskCount = taskCount,
@@ -875,7 +875,7 @@ public sealed class UIServer {
                     return new {
                         c.Settings.Id,
                         Name = string.IsNullOrEmpty(c.Settings.Name) ? c.Settings.Id.ToString() : c.Settings.Name,
-                        State = c.HasFailed ? "Error" : c.Store?.State.ToString() ?? "Closed",
+                        State = c.StateName,
                         NodeCount = nodeCount,
                         Provider = io == null ? null : string.IsNullOrEmpty(io.Name) ? io.IOType.ToString() : io.Name,
                     };
@@ -1342,7 +1342,7 @@ public sealed class UIServer {
                 IoId = ioId,
                 CurrentKey = current.AsKeyString(),
                 Size = io.GetFileSizeOrZeroIfUnknown(current),
-                State = c.HasFailed ? "Error" : c.Store?.State.ToString() ?? "Closed",
+                State = c.StateName,
                 IoType = ioType.ToString(),
             };
         });

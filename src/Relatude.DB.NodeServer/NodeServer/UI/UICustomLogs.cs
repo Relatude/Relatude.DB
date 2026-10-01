@@ -102,7 +102,7 @@ sealed class UICustomLogs {
             : [];
         return new {
             Open = c.IsOpen(),
-            State = c.HasFailed ? "Error" : c.Store?.State.ToString() ?? "Closed",
+            State = c.StateName,
             // the provider the log folder is in, for downloading a log's files as they are
             IoId = logIoId(c),
             ReservedKeys = custom.ReservedKeys.Order(StringComparer.OrdinalIgnoreCase).ToArray(),

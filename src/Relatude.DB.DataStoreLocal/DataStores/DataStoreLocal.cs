@@ -396,6 +396,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _lock.EnterWriteLock();
         LogInfo("Database opening");
         var activityId = RegisterActvity(DataStoreActivityCategory.Opening, "Database opening", 0);
+        _openingActivityId = activityId;
         setStartupProgressEstimate(1);
         var currentModelHash = Guid.Empty;
         try { // inside try so the write lock is released if it throws
@@ -437,6 +438,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
         } finally {
             if (_state == DataStoreState.Error) Dispose();
+            _openingActivityId = 0;
             DeRegisterActivity(activityId);
             _lock.ExitWriteLock();
         }

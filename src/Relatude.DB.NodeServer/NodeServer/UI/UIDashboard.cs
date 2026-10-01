@@ -39,7 +39,7 @@ sealed class UIDashboard {
     async Task<object> full(Guid storeId) {
         var c = container(storeId);
         var settings = c.Settings;
-        var state = c.HasFailed ? "Error" : c.Store?.State.ToString() ?? "Closed";
+        var state = c.StateName;
         if (c.Store == null || c.Store.State != DataStoreState.Open) {
             return new {
                 Open = false,
@@ -149,19 +149,13 @@ sealed class UIDashboard {
 
     object live(Guid storeId) {
         var c = container(storeId);
-        var state = c.HasFailed ? "Error" : c.Store?.State.ToString() ?? "Closed";
+        var state = c.StateName;
         if (c.Store == null || c.Store.State != DataStoreState.Open) {
             // a database that is opening is the one worth watching most closely: it reports how far
             // the log replay has come, and its activities say what it is replaying
             object? opening = null;
             object[] busy = [];
-            if (c.Store != null && c.Store.State == DataStoreState.Opening) {
-                try {
-                    var progress = c.Store.Datastore.GetOpeningStatus();
-                    opening = new { progress.ProgressPercentage, progress.TimeRemainingMs, progress.TimeElapsedMs };
-                    busy = activities(c.Store.Datastore.GetStatus());
-                } catch { } // a store that finishes opening mid-call has nothing to report, not an error
-            }
+            if (c.IsOpening) opening = openingProgress(c, out busy);
             return new {
                 Open = false,
                 State = state,
@@ -206,6 +200,38 @@ sealed class UIDashboard {
             TasksQueued = counters.TasksQueued + counters.TasksQueuedPersisted,
             Conversions = new { conversions.Running, conversions.Queued, conversions.Failed },
             Activities = activities(status),
+        };
+    }
+
+    /// <summary>
+    /// How far an open has come. Most of an open on a database with little to replay happens before
+    /// the store exists at all - the model is loaded, the mappers built - so the step the container
+    /// names is sent whatever the store can say; the percentage and the estimate only arrive once the
+    /// store starts reading its state.
+    /// </summary>
+    static object openingProgress(NodeStoreContainer c, out object[] busy) {
+        busy = [];
+        int percentage = 0, remainingMs = 0;
+        try {
+            if (c.GetOpeningProgress() is DataStoreOpeningStatus progress) {
+                percentage = progress.ProgressPercentage;
+                // the store only estimates while it reads the log; afterwards the last estimate
+                // would stand still for as long as the indexes take to finish, so it counts down
+                if (progress.TimeRemainingMs > 0) {
+                    var since = (DateTime.UtcNow - progress.MeasuredUtc).TotalMilliseconds;
+                    remainingMs = (int)Math.Max(0, progress.TimeRemainingMs - since);
+                }
+            }
+            if (c.GetOpeningActivity() is DataStoreStatus status) busy = activities(status);
+        } catch { } // a store that finishes opening mid-call has nothing to report, not an error
+        var sinceUtc = c.OpeningSinceUtc;
+        return new {
+            ProgressPercentage = percentage,
+            TimeRemainingMs = remainingMs,
+            TimeElapsedMs = sinceUtc is DateTime s ? (int)(DateTime.UtcNow - s).TotalMilliseconds : 0,
+            // counted from here in the browser, so the clock moves between samples
+            SinceUtc = utc(sinceUtc),
+            Step = c.OpeningStep,
         };
     }
 

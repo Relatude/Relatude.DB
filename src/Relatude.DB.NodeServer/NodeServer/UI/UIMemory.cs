@@ -37,7 +37,7 @@ sealed class UIMemory {
         var budgets = open ? c.Store!.Datastore.GetMemoryBudgets() : [];
         return new {
             Open = open,
-            State = c.HasFailed ? "Error" : c.Store?.State.ToString() ?? "Closed",
+            State = c.StateName,
             ManagedBytes = GC.GetTotalMemory(false),
             ProcessBytes = workingSet(),
             Budgets = budgets.Select(b => view(b, local)).ToArray(),

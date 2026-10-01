@@ -1279,7 +1279,14 @@ function TraceTab({ db }: { db: DatabaseInfo }) {
           talks, newest first so the line that just arrived is where the eye already is */}
       <section className="panel panel-fill logs-trace">
         <h3>
-          Trace <span className="panel-sub">{trace.open ? `${trace.entries.length} messages, newest first` : "the database is closed"}</span>
+          Trace{" "}
+          <span className="panel-sub">
+            {trace.open
+              ? `${trace.entries.length} messages, newest first`
+              : trace.keptUtc && trace.entries.length > 0
+                ? `the database is closed · what it said last, before it stopped at ${formatTime(trace.keptUtc)}`
+                : "the database is closed"}
+          </span>
         </h3>
         <div className="term logs-term" ref={term}>
           {trace.entries.length > 0 && <div className="term-idle term-idle-top">_</div>}

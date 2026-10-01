@@ -2111,6 +2111,12 @@ a {
   overflow: hidden;
 }
 
+/* open and done moving: nothing is left to clip, and a list that drops out of a field (a model
+   picker) or a focus ring may reach past the panel's edge */
+.fold.open.settled > .fold-inner {
+  overflow: visible;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .fold,
   .panel-fold,
@@ -6364,11 +6370,24 @@ body.pg-resizing {
 /* watching a database open: the one time this page is the most interesting one */
 .dash-opening {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 50px auto;
+  grid-template-columns: minmax(0, 1fr) 42px auto;
   gap: 10px;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   font-size: 12px;
+}
+
+/* what the open is busy with, in words, between the bar and the store's own activities */
+.dash-opening-step {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* the lines of a database that has stopped: still worth reading, no longer live */
+.term.term-kept .term-line {
+  opacity: 0.78;
 }
 
 /* ---- query ---- */
@@ -9791,6 +9810,19 @@ body.pg-resizing {
   border-color: color-mix(in srgb, var(--danger) 32%, var(--border));
 }
 
+/* opening: neither up nor wrong, so the accent rather than a state colour, and how far it is where
+   the switch would be */
+.dash-state.busy {
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+
+.dash-state-progress {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
 /* the database's own switch, along the foot of the tile that says which way it stands */
 .dash-tile-actions {
   display: flex;
@@ -11088,13 +11120,6 @@ body.pg-resizing {
 }
 
 /* the SMS test: the two numbers narrow, the message taking what is left, Send at the end */
-.license-sms h3 {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
 .license-sms-fields {
   display: grid;
   grid-template-columns: minmax(140px, 200px) minmax(160px, 220px) minmax(0, 1fr) auto;
@@ -11124,13 +11149,6 @@ body.pg-resizing {
 
 .license-sms-receipt {
   margin-top: 10px;
-}
-
-.license-ai h3 {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
 }
 
 .license-ai-url {

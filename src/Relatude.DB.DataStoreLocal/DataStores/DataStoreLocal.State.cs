@@ -131,13 +131,25 @@ public sealed partial class DataStoreLocal : IDataStore {
         _wal.Close();
         var walFileId = LogReader.ReadFileId(_wal.FileKey, _io);
         deleteIncompleteAndLegacyStateFiles(); // before any state or index file is opened
-        LogInfo("Reading indexes:"); // progress 0-50%
+        // The estimate of the whole open is shared between the three things it reads - the index
+        // snapshots, the state snapshot and the log - by how many bytes each is. A fixed split
+        // (it used to be half for the indexes) put a rebuild with no snapshots at 50% the moment it
+        // began, with the entire replay still ahead. The log counts in full until the state snapshot
+        // says where the replay starts, and then only what is left of it: that can only move the
+        // estimate forward. Nothing here reaches 100 - the open is done when the store says Open.
+        long indexFileBytes = 0;
+        foreach (var key in FileKeyUtility.Index_GetAllNumbered(IOIndex)) indexFileBytes += IOIndex.GetFileSizeOrZeroIfUnknown(key);
+        var stateFileKey = FileKeyUtility.State_GetNewestFileKey(IOIndex); // incomplete files are already deleted above
+        long stateFileBytes = stateFileKey == null ? 0 : IOIndex.GetFileSizeOrZeroIfUnknown(stateFileKey);
+        double estimateTotalBytes = Math.Max(1, indexFileBytes + stateFileBytes + walFileSize);
+        int estimate(double bytesDone) => (int)Math.Clamp(1 + 98 * bytesDone / estimateTotalBytes, 1, 99);
+        LogInfo("Reading indexes:");
         try {
             var lastIndexReadStart = sw.ElapsedMilliseconds;
             _index.ReadStateForMemoryIndexes((txt, prg) => {
                 LogInfo(" - " + txt);
                 UpdateActivity(activityId, "Reading index " + txt, prg / 2);
-                setStartupProgressEstimate(1 + prg / 2);
+                setStartupProgressEstimate(estimate(indexFileBytes * prg / 100d));
             }, walFileId); // could introduce lazy loading of indexes later....
             Engines.BindToWalFile(walFileId, msg => LogInfo(msg));
         } catch (Exception err) {
@@ -160,8 +172,6 @@ public sealed partial class DataStoreLocal : IDataStore {
         // an engine backed state store replays from its own position, the state file from its own:
         var stateEngine = _stateStore.Engine;
         var stateEngineTimestamp = stateEngine?.GetTimestamp() ?? 0; // after BindToWalFile, which may have reset it
-        // reading statefile progress 50-55%
-        var stateFileKey = FileKeyUtility.State_GetNewestFileKey(IOIndex); // incomplete files are already deleted above
         if (stateFileKey == null || IOIndex.DoesNotExistOrIsEmpty(stateFileKey)) { // no state file, so read from beginning of log file
             stateFileTimestamp = 0;
             LogInfo("No state file. ");
@@ -169,7 +179,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             try {
                 LogInfo("Reading state file " + stateFileKey.AsKeyString());
                 UpdateActivity(activityId, "Reading state file", 0);
-                setStartupProgressEstimate(50);
+                setStartupProgressEstimate(estimate(indexFileBytes));
                 byte[] stateBytes;
                 using (var fileStream = IOIndex.OpenRead(stateFileKey, 0)) {
                     stateBytes = new byte[fileStream.Length];
@@ -200,11 +210,11 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _addresses.ReadState(stream);
                 UpdateActivity(activityId, "Reading segments", 5);
                 _nodes.ReadState(stream, (d, p) => UpdateActivity(activityId, d, (int)(5 + p! * 0.03))); // 5-8%
-                setStartupProgressEstimate(52);
+                setStartupProgressEstimate(estimate(indexFileBytes + stream.Position));
                 UpdateActivity(activityId, "Reading native models", 8); // 8%-10%
-                setStartupProgressEstimate(53);
+                setStartupProgressEstimate(estimate(indexFileBytes + stream.Position));
                 _nativeModelStore.ReadState(stream);
-                setStartupProgressEstimate(54);
+                setStartupProgressEstimate(estimate(indexFileBytes + stream.Position));
                 _relations.ReadState(stream, (d, p) => UpdateActivity(activityId, d, (int)(10 + p! * 0.05))); // 10-15%
                 _definition.NodeTypeIndex.ReadState(stream);
                 _noPrimitiveActionsInLogThatCanBeTruncated = stream.ReadLong();
@@ -215,7 +225,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     throw new Exception("State file does not end with the completion marker. ");
                 var bytesPerSecond = stream.Length / (Math.Max(sw.ElapsedMilliseconds, 1) / 1000D); // a small state file reads in under 1ms
 
-                setStartupProgressEstimate(55);
+                setStartupProgressEstimate(estimate(indexFileBytes + stream.Position));
                 LogInfo("   State file read in " + sw.ElapsedMilliseconds.To1000N() + "ms - " + bytesPerSecond.ToByteString() + "/s");
                 UpdateActivity(activityId, "State file read", 100);
             } catch (Exception err) {
@@ -250,6 +260,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var readingFrom = stateFileTimestamp > 0 ? "UTC " + new DateTime(stateFileTimestamp, DateTimeKind.Utc) : "the beginning.";
         int positionInPercentage = (int)Math.Round(readLogFileFrom * 100d / (walFileSize + 1d));
         long bytesToRead = walFileSize - readLogFileFrom;
+        estimateTotalBytes = Math.Max(1, indexFileBytes + stateFileBytes + bytesToRead); // now that it is known what is left of the log
         LogInfo("Reading log file from " + positionInPercentage.ToString("0") + "% at " + readingFrom + " (" + bytesToRead.ToByteString() + " to read)");
         UpdateActivity(activityId, "Reading log file", 0);
         var lastProgress = 0D;
@@ -290,7 +301,9 @@ public sealed partial class DataStoreLocal : IDataStore {
                             LogInfo(desc + (isTransactionRelevantForIndexes?" - i":"") + (isTransactionRelevantForStateStores?" - m":""), null, true);
                             var progressBar = progressBarFactor > 0 ? Math.Clamp((int)((estimatedTotalProgress - positionInPercentage) / progressBarFactor), 0, 100) : 100;
                             UpdateActivity(activityId, desc.Trim(), progressBar);
-                            setStartupProgressEstimate(progressBar / 2 + 50, (int)remainingMs);
+                            // the time left is held back for the first ten seconds, as in the line above:
+                            // before then it is a guess that swings by a factor of two
+                            setStartupProgressEstimate(estimate(indexFileBytes + stateFileBytes + bytesToRead * progressBar / 100d), remaining.Length > 0 ? (int)remainingMs : 0);
                             lastBytesRead = readBytes;
                         }
                         if (isTransactionRelevantForStateEngine) {
@@ -342,6 +355,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         // index builds its trie in one pass from the whole corpus), before the engines commit and
         // before anything reads or saves an index
         UpdateActivity(activityId, "Completing indexes", 100);
+        setStartupProgressEstimate(99); // everything is read; what is left has no estimate of its own
         var swCompleteIndexes = Stopwatch.StartNew();
         _index.CompleteStateLoad(txt => LogInfo("   - completed " + txt));
         if (swCompleteIndexes.ElapsedMilliseconds >= 100) LogInfo("   Indexes completed in " + swCompleteIndexes.ElapsedMilliseconds.To1000N() + "ms. ");

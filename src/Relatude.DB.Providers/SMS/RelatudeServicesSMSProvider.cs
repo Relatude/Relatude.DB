@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using Relatude.DB.AI;
@@ -28,6 +29,12 @@ namespace Relatude.DB.SMS;
 /// failing, an error in the service, a timeout, a dropped connection - may already have cost credits
 /// or reached the phone, so it is thrown rather than retried, and whether to send again is for the
 /// caller to decide. A quote costs nothing, so the usual retries apply to it.</para>
+/// <para>Many messages go in one call with <see cref="SendBatchAsync"/>, all of them or none: the
+/// service checks every message, the license and the sender, and takes the whole price in one debit
+/// before it answers, then sends the messages in the background. A batch with a message that cannot
+/// be sent is refused whole, and the exception names every such message. The sender is checked once,
+/// for the whole batch, and the batch is repeated on the same two answers a send is.
+/// <see cref="GetBatchAsync"/> tells how the sending goes, for this key's batches only.</para>
 /// <para>The key is the one issued with the license. On a server it is the installation's own,
 /// handed in as <c>licenseApiKey</c>, so a database's SMS settings need none; elsewhere it is
 /// <see cref="SMSProviderSettings.ApiKey"/>. A provider without either is still built, and says what
@@ -46,6 +53,7 @@ public class RelatudeServicesSMSProvider : ISMSProvider {
     readonly HttpClient _http;
     readonly string _sendUrl;
     readonly string _quoteUrl;
+    readonly string _batchUrl;
     readonly SMSProviderSettings _settings;
     readonly Func<string?>? _licenseApiKey;
     readonly Func<string, CancellationToken, Task<string?>>? _senderCheck;
@@ -67,6 +75,7 @@ public class RelatudeServicesSMSProvider : ISMSProvider {
         var baseUrl = (string.IsNullOrWhiteSpace(settings.ServiceUrl) ? _defaultServiceUrl : settings.ServiceUrl).TrimEnd('/');
         _sendUrl = baseUrl + "/api/sms/send";
         _quoteUrl = baseUrl + "/api/sms/quote";
+        _batchUrl = baseUrl + "/api/sms/batch";
         // A message is one short call; a minute is already generous, and a hung gateway must not
         // hold a request thread for the five an embedding batch is allowed.
         _http = new HttpClient() { Timeout = TimeSpan.FromMinutes(1) };
@@ -133,6 +142,64 @@ public class RelatudeServicesSMSProvider : ISMSProvider {
             number(root, "credits"),
             root.TryGetProperty("unicode", out var unicode) && unicode.ValueKind == JsonValueKind.True,
             number(root, "characters"));
+    }
+
+    public async Task<SmsBatchReceipt> SendBatchAsync(IReadOnlyList<SmsBatchMessage> messages, string? from = null, string? reference = null, CancellationToken cancellationToken = default) {
+        ArgumentNullException.ThrowIfNull(messages);
+        if (messages.Count == 0) throw new ArgumentException("A batch needs at least one message. ", nameof(messages));
+        for (var i = 0; i < messages.Count; i++) {
+            if (messages[i] == null) throw new ArgumentException($"messages[{i}] is null. ", nameof(messages));
+        }
+        var sender = string.IsNullOrWhiteSpace(from) ? _settings.From : from;
+        if (!string.IsNullOrWhiteSpace(sender) && _senderCheck != null) {
+            // once for the batch, before anything is posted: a sender refused here is a batch neither sent nor charged
+            var refusal = await _senderCheck(sender, cancellationToken);
+            if (refusal != null) throw new InvalidOperationException(refusal);
+        }
+        // the numbers and texts go as given: the service checks them all and names every one it cannot send
+        var body = write(w => {
+            w.WriteStartArray("messages");
+            foreach (var message in messages) {
+                w.WriteStartObject();
+                w.WriteString("to", message.To);
+                w.WriteString("message", message.Message);
+                if (!string.IsNullOrWhiteSpace(message.Reference)) w.WriteString("reference", message.Reference);
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+            if (!string.IsNullOrWhiteSpace(sender)) w.WriteString("from", sender);
+            if (!string.IsNullOrWhiteSpace(reference)) w.WriteString("reference", reference);
+        });
+        var json = await postAsync(_batchUrl, body, idempotent: false, cancellationToken);
+        return parse<SmsBatchReceipt>(json, _batchUrl, "an accepted batch");
+    }
+
+    public async Task<SmsBatchStatus?> GetBatchAsync(string batchId, CancellationToken cancellationToken = default) {
+        if (string.IsNullOrWhiteSpace(batchId)) throw new ArgumentException("A batch id is required. ", nameof(batchId));
+        var url = _batchUrl + "/" + Uri.EscapeDataString(batchId.Trim());
+        var key = apiKey();
+        using var response = await HttpRetry.SendAsync(_http, () => {
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + key);
+            return request;
+        }, retryOnTimeout: false);
+        // the service knows no batch by that id for this key, which is not a failure
+        if (response.StatusCode == HttpStatusCode.NotFound) return null;
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode) {
+            throw new Exception($"The Relatude SMS service at {url} returned {(int)response.StatusCode} {response.StatusCode}: {readError(body)}");
+        }
+        return parse<SmsBatchStatus>(body, url, "the status of a batch");
+    }
+
+    static readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web);
+
+    static T parse<T>(string json, string url, string what) where T : class {
+        try {
+            return JsonSerializer.Deserialize<T>(json, _json) ?? throw new JsonException("The body is empty.");
+        } catch (JsonException ex) {
+            throw new Exception($"The Relatude SMS service at {url} answered with something other than {what}: {OpenAIWire.Truncate(json, 200)}", ex);
+        }
     }
 
     static string write(Action<Utf8JsonWriter> properties) {

@@ -103,10 +103,26 @@ export interface DashboardLive {
   setCacheCount?: number;
   setCacheSize?: number;
   tasksQueued?: number;
-  /** Set only while the database is opening: how far the log replay has come. */
-  opening?: { progressPercentage: number; timeRemainingMs: number; timeElapsedMs: number } | null;
+  /** Set only while the database is opening: how far it has come. */
+  opening?: OpeningProgress | null;
   conversions?: { running: number; queued: number; failed: number };
   activities?: { category: string; description: string | null; percentageProgress: number | null }[];
+}
+
+/**
+ * An open in progress. The first part of an open happens before the store exists - the model is
+ * loaded and the mappers are built - and only says what it is doing (`step`); the percentage and the
+ * estimate arrive once the store starts reading its state, and are 0 until then.
+ */
+export interface OpeningProgress {
+  progressPercentage: number;
+  /** what is left of the store's estimate, counted down on the server; 0 when there is none */
+  timeRemainingMs: number;
+  timeElapsedMs: number;
+  /** when the open began, for a clock that moves between samples; unset from an older server */
+  sinceUtc?: string | null;
+  /** what the open is busy with, one line; unset from an older server */
+  step?: string | null;
 }
 
 export function fetchDashboard(storeId: string): Promise<DashboardInfo> {

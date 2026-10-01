@@ -19,12 +19,15 @@ public sealed partial class DataStoreLocal : IDataStore {
             type = SystemLogEntryType.Warning;
             text = text.Substring("WARNING: ".Length);
         }
-        replace = false; // Disable replace for now as it can cause issues with concurrent logs and the benefit is minimal
+        // Disabled on the console for now: moving the cursor up a line overwrites whatever another
+        // thread wrote last, and the benefit is minimal. The trace keeps it (see SimpleSystemLogTracer),
+        // where a progress line only ever replaces the progress line before it.
+        var replaceConsoleLine = false;
         try {
             if (_settings.WriteSystemLogConsole) {
                 lock (_consoleColorLock) {
                     var originalColor = Console.ForegroundColor;
-                    if (replace && Console.CursorTop > 0) {
+                    if (replaceConsoleLine && Console.CursorTop > 0) {
                         Console.SetCursorPosition(0, Console.CursorTop - 1); // Move up one line
                         Console.Write(new string(' ', Console.WindowWidth)); // Clear the line
                         Console.SetCursorPosition(0, Console.CursorTop); // Move back to the start of the line

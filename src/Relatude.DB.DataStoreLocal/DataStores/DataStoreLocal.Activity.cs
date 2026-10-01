@@ -7,8 +7,13 @@ public sealed partial class DataStoreLocal : IDataStore {
     readonly System.Threading.Lock _activityLock = new(); // taken by every Get, query and transaction, so it must stay on the fast path
     DataStoreOpeningStatus _simpleStatus = new(0, 0, 0);
     DateTime _startedOpeningUtc = DateTime.UtcNow;
+    /// <summary>The activity an open runs under, while it runs: it carries the overall estimate, so the activity list says how far the whole open is and not only the step it is on.</summary>
+    long _openingActivityId;
     public DataStoreOpeningStatus GetOpeningStatus() => _simpleStatus;
-    void setStartupProgressEstimate(int progressInPercentage, int remainingMs = 0) => _simpleStatus = new(progressInPercentage, remainingMs, (int)(DateTime.UtcNow - _startedOpeningUtc).TotalMilliseconds);
+    void setStartupProgressEstimate(int progressInPercentage, int remainingMs = 0) {
+        _simpleStatus = new(progressInPercentage, remainingMs, (int)(DateTime.UtcNow - _startedOpeningUtc).TotalMilliseconds);
+        if (_openingActivityId != 0) UpdateActivityProgress(_openingActivityId, progressInPercentage);
+    }
     public DataStoreStatus GetStatus() {
         DataStoreActivity[] activities;
         lock (_activityLock) {

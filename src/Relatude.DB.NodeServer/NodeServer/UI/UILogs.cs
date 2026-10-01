@@ -81,7 +81,7 @@ sealed class UILogs {
         }).ToArray();
         return new {
             Open = c.IsOpen(),
-            State = c.HasFailed ? "Error" : c.Store?.State.ToString() ?? "Closed",
+            State = c.StateName,
             ScansRecording = log.RecordingPropertyHits,
             // the one recording rule that is not on or off: a busy site records every query it
             // serves unless the fast ones are left out
@@ -114,15 +114,18 @@ sealed class UILogs {
 
     // The trace is the last messages the running database kept in memory: the ones written before
     // the system log was ever turned on, and the only ones there are when it is off.
+    // An open is traced from its first step, before the store is handed out, and a database that
+    // closed or failed to open still shows what it said last - which is when it is most worth reading.
     object trace(TracePayload p) {
         var c = container(p.StoreId);
-        if (c.Store == null || !c.IsOpenOrOpening()) {
-            return new { Open = false, Entries = Array.Empty<object>(), StartupError = startupError(c) };
-        }
         var take = Math.Clamp(p.Take, 1, 500);
+        var entries = c.GetTrace(take, out var keptUtc);
         return new {
-            Open = true,
-            Entries = c.Store.Datastore.GetSystemTrace(0, take).Select(e => new {
+            // live: the lines come from a store that is open or opening, and more will follow
+            Open = c.IsOpenOrOpening() || c.IsOpening,
+            // set when the lines are what the last store said before it was disposed, and when that was
+            KeptUtc = utc(keptUtc),
+            Entries = entries.Select(e => new {
                 TimestampUtc = utc(e.Timestamp),
                 Type = e.Type.ToString(),
                 e.Text,

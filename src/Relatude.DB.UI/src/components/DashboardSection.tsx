@@ -94,6 +94,12 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   const [error, setError] = useState<string | null>(null);
   const [metric, setMetric] = useState<MetricId>(metrics[0].id);
   const [openBusy, setOpenBusy] = useState(false);
+  // the page asked for an open itself: from the click on it is opening, not from the first sample
+  // that happens to say so a couple of seconds later
+  const [starting, setStarting] = useState(false);
+  // bumped when the page has just changed the database's state, so the live feeds answer with a
+  // fresh sample at once rather than on the next tick
+  const [kick, setKick] = useState(0);
   const samples = useRef<Sample[]>([]);
   const [, setSampleTick] = useState(0);
   const measuredEvery = useMeasuredEvery();
@@ -150,20 +156,45 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
 
   // the counters, which is what the page is mostly made of: cheap to read, and the only thing here
   // that moves every second
-  useLive<DashboardLive>("dashboard-live", { storeId: db.id }, applySample);
+  useLive<DashboardLive>("dashboard-live", { storeId: db.id }, applySample, { restartOn: kick });
 
-  // the last messages the database wrote, on the same cadence as everything else here
-  useLive<TraceInfo>("logs-trace", { storeId: db.id, take: 12 }, setTrace);
+  // the live sample is seconds old, the full picture up to a minute: the state comes from the live
+  // one - and from the page itself while an open it asked for has not been reported yet
+  const reportedState = live?.state ?? info?.state ?? null;
+  const stateNow = starting && reportedState !== "Open" ? "Opening" : reportedState;
+
+  // the last messages the database wrote, on the same cadence as everything else here. An open
+  // database shares the page with five other panels and sends its latest few; while it opens, or
+  // after it stopped, the trace is most of what there is to read, so it sends a terminal's worth
+  useLive<TraceInfo>("logs-trace", { storeId: db.id, take: stateNow === "Open" ? 12 : 200 }, setTrace, { restartOn: kick });
+
+  // the opening clock counts every second, not only when a sample lands
+  useTick(1000, stateNow === "Opening");
 
   // the running activities, with the ones that just finished kept a moment longer so they fade out
   // instead of vanishing between two samples (a hook, so it sits here with the others, before the
   // early returns below)
   const running = useLeaving(live?.activities ?? [], activityKey, 450);
 
+  // The open request only answers when the database is open, which on a large one is minutes away;
+  // what happens meanwhile is told by the live feeds, asked again shortly after the open has begun
+  // so the first of its trace lines and its first step show without waiting for the next tick.
+  async function openAndFollow() {
+    setStarting(true);
+    const early = setTimeout(() => setKick((k) => k + 1), 600);
+    try {
+      await openStore(db.id);
+    } finally {
+      clearTimeout(early);
+      setStarting(false);
+      setKick((k) => k + 1);
+    }
+  }
+
   async function onOpen() {
     setOpenBusy(true);
     try {
-      await openStore(db.id);
+      await openAndFollow();
       await loadInfo();
     } catch (e) {
       showError("Could not open the database", e instanceof Error ? e.message : String(e));
@@ -185,7 +216,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
     try {
       await closeStore(db.id);
       samples.current = []; // the counters start over with the open
-      await openStore(db.id);
+      await openAndFollow();
       await loadInfo();
     } catch (e) {
       showError("Could not restart the database", e instanceof Error ? e.message : String(e));
@@ -207,6 +238,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
     try {
       await closeStore(db.id);
       samples.current = []; // the counters start over with the next open
+      setKick((k) => k + 1);
       await loadInfo();
     } catch (e) {
       showError("Could not close the database", e instanceof Error ? e.message : String(e));
@@ -218,10 +250,15 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   if (error) return <div className="placeholder">{error}</div>;
   if (!info) return <Loading label="Loading the dashboard…" />;
 
-  // the live sample is seconds old, the full picture up to a minute: the state comes from the live one
-  const state = live?.state ?? info.state;
+  const state = stateNow ?? info.state;
   const open = state === "Open";
   const opening = state === "Opening";
+  // a sample from before the open reported itself carries no progress: the page's own click is all
+  // there is then, and the bar says only that something has started
+  const progress = opening ? (live?.opening ?? null) : null;
+  const openingSince = progress?.sinceUtc ? new Date(progress.sinceUtc).getTime() : null;
+  const openingFor = openingSince != null ? Math.max(0, Date.now() - openingSince) : (progress?.timeElapsedMs ?? null);
+  const openingPercent = Math.round(Math.min(100, Math.max(0, progress?.progressPercentage ?? 0)));
   // counted from when the database opened rather than taken from the full picture, which is up to a
   // minute old: a clock that only moves once a minute reads as a broken one
   const uptime = open && info.openedUtc ? Math.max(0, Date.now() - new Date(info.openedUtc).getTime()) : null;
@@ -276,6 +313,28 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
     </section>
   );
 
+  // what the database is busy with, one row each - in "Right now" when it is open, and as the steps
+  // of the open while it opens
+  const activityRows = running.map(({ item: a, key, leaving }) => (
+    // keyed by what the activity is rather than its position, so a row is the same element
+    // from the moment it appears to the moment it fades, and its bar moves rather than jumps
+    <div key={key} className={"dash-activity" + (leaving ? " leaving" : "") + (a.percentageProgress != null ? " with-progress" : "")}>
+      <span className="conv-chip dash-activity-cat" title={a.category}>
+        {a.category}
+      </span>
+      <span className="log-cell dash-activity-text" title={a.description ?? undefined}>
+        {a.description ?? "—"}
+      </span>
+      <span className="num dash-activity-pct">{a.percentageProgress != null ? `${Math.round(a.percentageProgress)}%` : ""}</span>
+      {a.percentageProgress != null && (
+        // the bar is two lines, not a colour: the track and how far along it the work is
+        <span className="dash-progress" role="progressbar" aria-valuenow={Math.round(a.percentageProgress)} aria-valuemin={0} aria-valuemax={100}>
+          <span className="dash-progress-fill" style={{ width: `${Math.min(100, Math.max(0, a.percentageProgress))}%` }} />
+        </span>
+      )}
+    </div>
+  ));
+
   // the running work takes the middle of the panel, scrolling when there is more than fits; the
   // two counts sit at the bottom whatever is running above them
   const nowPanel = (
@@ -284,25 +343,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
         Right now <span className="panel-sub">{(live?.activities?.length ?? 0) === 0 ? "idle" : `${live!.activities!.length} running`}</span>
       </h3>
       <div className="dash-now fill-body">
-        {running.map(({ item: a, key, leaving }) => (
-          // keyed by what the activity is rather than its position, so a row is the same element
-          // from the moment it appears to the moment it fades, and its bar moves rather than jumps
-          <div key={key} className={"dash-activity" + (leaving ? " leaving" : "") + (a.percentageProgress != null ? " with-progress" : "")}>
-            <span className="conv-chip dash-activity-cat" title={a.category}>
-              {a.category}
-            </span>
-            <span className="log-cell dash-activity-text" title={a.description ?? undefined}>
-              {a.description ?? "—"}
-            </span>
-            <span className="num dash-activity-pct">{a.percentageProgress != null ? `${Math.round(a.percentageProgress)}%` : ""}</span>
-            {a.percentageProgress != null && (
-              // the bar is two lines, not a colour: the track and how far along it the work is
-              <span className="dash-progress" role="progressbar" aria-valuenow={Math.round(a.percentageProgress)} aria-valuemin={0} aria-valuemax={100}>
-                <span className="dash-progress-fill" style={{ width: `${Math.min(100, Math.max(0, a.percentageProgress))}%` }} />
-              </span>
-            )}
-          </div>
-        ))}
+        {activityRows}
         <div className={"muted dash-now-idle" + (running.length === 0 ? "" : " gone")}>Nothing running.</div>
       </div>
       <div className="facts-grid dash-now-facts">
@@ -348,29 +389,34 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
     </section>
   );
 
+  // Watching a database open. The first part of an open has no percentage to give - the model is
+  // loaded and the mappers built before the store exists - so until the store starts reading its
+  // state the bar only says that something is happening, and the step says what. The estimate is
+  // the store's own, made while it replays the log and counted down on the server after that.
   const openingPanel = (
-    <section className="panel">
+    <section className="panel panel-fill">
       <h3>
-        Opening <span className="panel-sub">replaying the transaction log and rebuilding the indexes</span>
+        Opening{" "}
+        <span className="panel-sub">{progress?.sinceUtc ? `started ${formatTime(progress.sinceUtc)}` : "starting…"}</span>
       </h3>
       <div className="dash-opening">
-        <span className="progress-bar">
-          <span className="progress-fill" style={{ width: Math.max(2, Math.min(100, live?.opening?.progressPercentage ?? 0)) + "%" }} />
+        <span
+          className={"progress-bar" + (openingPercent > 0 ? "" : " indeterminate")}
+          role="progressbar"
+          aria-valuenow={openingPercent > 0 ? openingPercent : undefined}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
+          <span className="progress-fill" style={{ width: openingPercent + "%" }} />
         </span>
-        <span className="num">{Math.round(live?.opening?.progressPercentage ?? 0)}%</span>
-        <span className="muted">{live?.opening?.timeRemainingMs ? `about ${formatDuration(live.opening.timeRemainingMs)} left` : "estimating…"}</span>
+        <span className="num">{openingPercent > 0 ? `${openingPercent}%` : ""}</span>
+        <span className="muted">
+          {openingFor != null ? `${formatDuration(openingFor)} so far` : ""}
+          {progress?.timeRemainingMs ? ` · about ${formatDuration(progress.timeRemainingMs)} left` : ""}
+        </span>
       </div>
-      <div className="dash-now">
-        {(live?.activities ?? []).map((a, i) => (
-          <div key={i} className="dash-activity">
-            <span className="conv-chip">{a.category}</span>
-            <span className="log-cell" title={a.description ?? undefined}>
-              {a.description ?? "—"}
-            </span>
-            {a.percentageProgress != null && <span className="num">{a.percentageProgress}%</span>}
-          </div>
-        ))}
-      </div>
+      <div className="dash-opening-step">{progress?.step ?? (progress ? "Opening" : "Asking the server to open it…")}</div>
+      <div className="dash-now fill-body">{activityRows}</div>
     </section>
   );
 
@@ -397,14 +443,28 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   // the same terminal as the server log on the overview: a machine talking, shown the way it talks.
   // Newest first, so a line that just arrived is at the top where the eye already is - and a line
   // carrying details is still worth a click
+  //
+  // While the database opens this is the open's own account of itself, from the first step on: the
+  // panel gets the room of a terminal, and the replay's progress is one line that rewrites itself
+  // (the store replaces it rather than adding one per tick). Once it has stopped - closed, or failed
+  // to open - the lines are what it said last, and the panel says that they are not live.
+  const traceLines = (trace?.entries ?? []).slice(0, open ? 12 : undefined);
+  const traceKept = !trace?.open && !!trace?.keptUtc && traceLines.length > 0;
   const tracePanel = (
     <section className="panel panel-fill">
       <h3>
-        Latest messages <span className="panel-sub">the trace the database keeps in memory</span>
+        Latest messages{" "}
+        <span className="panel-sub">
+          {opening
+            ? "what the database says as it opens"
+            : traceKept
+              ? `what it said last, before it stopped at ${formatTime(trace!.keptUtc!)}`
+              : "the trace the database keeps in memory"}
+        </span>
       </h3>
-      <div className="term fill-body">
-        {(trace?.entries ?? []).length > 0 && <div className="term-idle term-idle-top">_</div>}
-        {(trace?.entries ?? []).slice(0, 12).map((entry, i) => (
+      <div className={"term fill-body" + (traceKept ? " term-kept" : "")}>
+        {traceLines.length > 0 && !traceKept && <div className="term-idle term-idle-top">_</div>}
+        {traceLines.map((entry, i) => (
           <div
             key={i}
             className={"term-line " + entry.type.toLowerCase() + (entry.details ? " clickable" : "")}
@@ -416,7 +476,9 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
             <span className="term-text">{entry.text}</span>
           </div>
         ))}
-        {(trace?.entries ?? []).length === 0 && <div className="term-empty">{open ? "Nothing traced yet." : "Open the database to see its trace."}</div>}
+        {traceLines.length === 0 && (
+          <div className="term-empty">{open || opening ? "Nothing traced yet." : "Open the database to see its trace."}</div>
+        )}
       </div>
     </section>
   );
@@ -424,17 +486,19 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   /**
    * The rows of the resizable grid, and the only place the page decides what sits beside what.
    * The ids are what a dragged height is remembered by, so the three states of a database never
-   * inherit each other's - a closed one has a single panel where an open one has five.
+   * inherit each other's - a closed one has a single panel where an open one has five. The trace of
+   * an opening or a stopped database is a terminal's worth of lines, so its row has a height and
+   * scrolls; the steps of an open take what is left above it.
    */
   const rows: PanelRow[] = opening
     ? [
-        { id: "opening", cells: [openingPanel] },
-        { id: "trace", cells: [tracePanel] },
+        { id: "opening", height: 220, cells: [openingPanel] },
+        { id: "opening-trace", height: 380, cells: [tracePanel] },
       ]
     : !open
       ? [
           { id: "closed", cells: [closedPanel] },
-          { id: "trace", cells: [tracePanel] },
+          { id: "closed-trace", height: 320, cells: [tracePanel] },
         ]
       : [
           // rows given a height of their own hold a panel that fills whatever it is handed - a chart
@@ -459,7 +523,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
       )}
 
       <div className="dash-tiles">
-        <StateTile value={state} tone={open ? "ok" : state === "Error" ? "bad" : undefined}>
+        <StateTile value={state} tone={open ? "ok" : state === "Error" ? "bad" : opening ? "busy" : undefined}>
           {
             // The switch for the database itself, on the tile that says which way it stands - and
             // said in words rather than as one more grey glyph: stopping a database and starting it
@@ -476,7 +540,12 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
                   Stop
                 </button>
               </span>
-            ) : opening ? null : (
+            ) : opening ? (
+              // nothing to switch while it opens; how far it is takes the place of the button
+              <span className="dash-tile-actions">
+                <span className="num dash-state-progress">{openingPercent > 0 ? `${openingPercent}%` : "…"}</span>
+              </span>
+            ) : (
               <span className="dash-tile-actions">
                 <button className="dash-tile-button start" title="Open the database" disabled={openBusy} onClick={onOpen}>
                   <IconPlayerPlayFilled size={13} stroke={2} />
@@ -486,9 +555,14 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
             )
           }
         </StateTile>
-        <Tile label="Nodes" icon={IconCircles} value={formatCount(live?.nodeCount ?? 0)} />
-        <Tile label="Relations" icon={IconArrowsExchange} value={formatCount(live?.relationCount ?? 0)} />
-        <Tile label="Open for" icon={IconClock} value={uptime == null ? "—" : formatDuration(uptime)} />
+        {/* a store that is not up has counted nothing yet: a zero there would read as an empty database */}
+        <Tile label="Nodes" icon={IconCircles} value={open ? formatCount(live?.nodeCount ?? 0) : "—"} />
+        <Tile label="Relations" icon={IconArrowsExchange} value={open ? formatCount(live?.relationCount ?? 0) : "—"} />
+        {opening ? (
+          <Tile label="Opening for" icon={IconClock} value={openingFor == null ? "—" : formatDuration(openingFor)} />
+        ) : (
+          <Tile label="Open for" icon={IconClock} value={uptime == null ? "—" : formatDuration(uptime)} />
+        )}
         <Tile label="On disk" icon={IconDatabase} value={formatBytes(totalDisk)} />
         {/* the one tile that is the server process rather than this database: one heap serves every
             database on it */}
@@ -808,6 +882,16 @@ function activityKey(a: { category: string; description: string | null }, index:
   return key;
 }
 
+/** Renders again every `ms` while `on`: for a clock that would otherwise only move when a sample lands. */
+function useTick(ms: number, on: boolean): void {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!on) return;
+    const timer = setInterval(() => setTick((t) => t + 1), ms);
+    return () => clearInterval(timer);
+  }, [ms, on]);
+}
+
 /**
  * The items as they should be on screen: the current ones, plus any that were there a moment ago
  * and are now leaving. A removed item stays for `ms` with `leaving` set, which is what its exit
@@ -862,7 +946,7 @@ function Tile({ label, icon: Icon, value }: { label: string; icon?: typeof IconC
  * the word "State" nothing to add. The switch sits on the same line as the state rather than under
  * it, so this tile is no taller than the ones beside it.
  */
-function StateTile({ value, tone, children }: { value: string; tone?: "ok" | "bad"; children?: React.ReactNode }) {
+function StateTile({ value, tone, children }: { value: string; tone?: "ok" | "bad" | "busy"; children?: React.ReactNode }) {
   return (
     <div className={"dash-tile dash-state" + (tone ? " " + tone : "")}>
       <div className="dash-tile-value">{value}</div>

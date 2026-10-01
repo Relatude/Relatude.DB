@@ -49,7 +49,7 @@ sealed class UIDatabases {
 
     object describe(NodeStoreContainer c, Guid defaultId) {
         var settings = c.Settings;
-        var state = c.HasFailed ? "Error" : c.Store?.State.ToString() ?? "Closed";
+        var state = c.StateName;
         long? nodes = null, relations = null;
         if (c.Store != null && c.Store.State == DataStoreState.Open) {
             try {

@@ -50,7 +50,7 @@ sealed class UIDatamodel {
 
     object get(Guid storeId) {
         var c = container(storeId);
-        var state = c.HasFailed ? "Error" : c.Store?.State.ToString() ?? "Closed";
+        var state = c.StateName;
         Datamodel? active = null;
         string? activeError = null;
         try {

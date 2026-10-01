@@ -216,6 +216,146 @@ public class SmsProviderWireTests {
         CollectionAssert.AreEqual(new[] { "Bearer license-1", "Bearer license-2", "Bearer from-settings" }, sentWith);
     }
 
+    // ------------------------------------------------------------------ batches
+
+    const string _accepted = """
+        {"batchId":"0123456789abcdef0123456789abcdef","messages":2,"parts":3,"credits":3,"creditsLeft":97,"from":"MyShop",
+         "items":[{"to":"+4791234567","parts":1,"credits":1,"reference":"a"},{"to":"+4790000002","parts":2,"credits":2}],"reference":"newsletter"}
+        """;
+
+    [TestMethod]
+    public async Task ABatchGoesInOneCallWithEveryMessageTheSenderAndTheReference() {
+        await using var stub = await AiServiceStub.StartAsync();
+        using var provider = new RelatudeServicesSMSProvider(new SMSProviderSettings { ServiceUrl = stub.BaseUrl, ApiKey = "key", From = "MyShop" });
+        stub.Enqueue(202, _accepted);
+
+        // through the interface, as NodeStore.SMS hands it out: the provider's own method, not the default
+        ISMSProvider sms = provider;
+        var receipt = await sms.SendBatchAsync([
+            new SmsBatchMessage("912 34 567", "Hello", "a"),
+            new SmsBatchMessage("90000002", new string('a', 200)),
+        ], reference: "newsletter");
+
+        Assert.AreEqual("0123456789abcdef0123456789abcdef", receipt.BatchId);
+        Assert.AreEqual(2, receipt.Messages);
+        Assert.AreEqual(3, receipt.Credits);
+        Assert.AreEqual(97, receipt.CreditsLeft);
+        Assert.AreEqual("MyShop", receipt.From);
+        Assert.AreEqual("+4791234567", receipt.Items[0].To, "the service says which number each message goes to");
+        Assert.AreEqual(2, receipt.Items[1].Parts);
+
+        var request = stub.Single();
+        Assert.AreEqual("POST", request.Method);
+        Assert.AreEqual("/api/sms/batch", request.Path);
+        Assert.AreEqual("Bearer key", request.Headers["Authorization"]);
+        var messages = request.Json.GetProperty("messages");
+        Assert.AreEqual(2, messages.GetArrayLength());
+        Assert.AreEqual("912 34 567", messages[0].GetProperty("to").GetString(), "the numbers go as typed; normalising is the service's job");
+        Assert.AreEqual("a", messages[0].GetProperty("reference").GetString());
+        Assert.IsFalse(messages[1].TryGetProperty("reference", out _));
+        Assert.AreEqual("MyShop", request.Json.GetProperty("from").GetString(), "the sender is the batch's, not each message's");
+        Assert.AreEqual("newsletter", request.Json.GetProperty("reference").GetString());
+    }
+
+    /// <summary>The sender is the batch's, so it is checked once; refused, nothing is posted.</summary>
+    [TestMethod]
+    public async Task ABatchSenderIsCheckedOnceAndARefusedOneSendsNothing() {
+        await using var stub = await AiServiceStub.StartAsync();
+        var asked = new List<string>();
+        using var provider = new RelatudeServicesSMSProvider(new SMSProviderSettings { ServiceUrl = stub.BaseUrl, ApiKey = "key" }, null,
+            (sender, _) => {
+                asked.Add(sender);
+                return Task.FromResult<string?>(sender == "MyShop" ? null : $"The sender {sender} is not approved for this license.");
+            });
+        SmsBatchMessage[] batch = [new("+4790000001", "hi"), new("+4790000002", "hi"), new("+4790000003", "hi")];
+
+        var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.SendBatchAsync(batch, from: "Acme"));
+        Assert.AreEqual("The sender Acme is not approved for this license.", error.Message);
+        Assert.AreEqual(0, stub.Requests.Count);
+
+        stub.Enqueue(202, _accepted);
+        await provider.SendBatchAsync(batch, from: "MyShop");
+        CollectionAssert.AreEqual(new[] { "Acme", "MyShop" }, asked, "once a batch, not once a message");
+    }
+
+    /// <summary>
+    /// A batch is paid for before the service answers, so it is repeated only on the answers given
+    /// before any money moves, as a send is. A refusal for some of its messages names them, in the
+    /// service's own words.
+    /// </summary>
+    [TestMethod]
+    public async Task ABatchIsRepeatedOnlyOnTheAnswersGivenBeforeAnythingIsCharged() {
+        await using var stub = await AiServiceStub.StartAsync();
+        using var provider = new RelatudeServicesSMSProvider(new SMSProviderSettings { ServiceUrl = stub.BaseUrl, ApiKey = "key" });
+        SmsBatchMessage[] batch = [new("+4790000001", "hi"), new("not a phone", "hi")];
+
+        stub.Enqueue(400, """{"error":"1 message of the 2 cannot be sent, so none of the batch was sent or charged. messages[1]: 'not a phone' is not a mobile number.","problems":[{"index":1,"error":"'not a phone' is not a mobile number."}]}""");
+        var refused = await Assert.ThrowsExactlyAsync<Exception>(() => provider.SendBatchAsync(batch));
+        StringAssert.Contains(refused.Message, "returned 400");
+        StringAssert.Contains(refused.Message, "messages[1]");
+        Assert.AreEqual(1, stub.Requests.Count);
+
+        foreach (var status in new[] { 500, 502, 504 }) {
+            stub.Requests.Clear();
+            stub.Enqueue(status, """{"error":"The batch was charged, but could not be queued for sending."}""");
+            await Assert.ThrowsExactlyAsync<Exception>(() => provider.SendBatchAsync(batch));
+            Assert.AreEqual(1, stub.Requests.Count, $"a {status} may come after the batch was charged, so it must not be repeated");
+        }
+
+        stub.Requests.Clear();
+        stub.Enqueue(503, """{"error":"The batch cannot be queued for sending right now. Nothing was charged."}""");
+        stub.Enqueue(202, _accepted);
+        var receipt = await provider.SendBatchAsync(batch);
+        Assert.AreEqual(97, receipt.CreditsLeft);
+        Assert.AreEqual(2, stub.Requests.Count, "a 503 comes before anything is charged, so it is repeated");
+    }
+
+    [TestMethod]
+    public async Task TheStatusOfABatchIsReadAndOneTheServiceDoesNotKnowIsNull() {
+        await using var stub = await AiServiceStub.StartAsync();
+        using var provider = new RelatudeServicesSMSProvider(new SMSProviderSettings { ServiceUrl = stub.BaseUrl, ApiKey = "key" });
+        stub.Enqueue(200, """
+            {"batchId":"0123456789abcdef0123456789abcdef","state":"done","acceptedUtc":"2026-10-01T10:00:00Z","completedUtc":"2026-10-01T10:00:05Z",
+             "from":"Relatude","messages":2,"credits":2,"pending":0,"sent":1,"undeliverable":0,"failed":1,"expired":0,
+             "items":[{"to":"+4790000001","parts":1,"state":"sent","messageId":"gw-1","atUtc":"2026-10-01T10:00:01Z"},
+                      {"to":"+4790000002","parts":1,"state":"failed","error":"The gateway failed while it had this message."}]}
+            """);
+
+        ISMSProvider sms = provider;
+        var status = await sms.GetBatchAsync("0123456789abcdef0123456789abcdef");
+
+        Assert.IsNotNull(status);
+        Assert.IsTrue(status!.IsDone);
+        Assert.AreEqual(1, status.Sent);
+        Assert.AreEqual("gw-1", status.Items[0].MessageId);
+        Assert.AreEqual("failed", status.Items[1].State);
+        Assert.AreEqual(DateTimeKind.Utc, status.AcceptedUtc.Kind);
+        var request = stub.Single();
+        Assert.AreEqual("GET", request.Method);
+        Assert.AreEqual("/api/sms/batch/0123456789abcdef0123456789abcdef", request.Path);
+        Assert.AreEqual("Bearer key", request.Headers["Authorization"]);
+
+        stub.Enqueue(404, """{"error":"There is no batch 'ffffffffffffffffffffffffffffffff' sent with this API key."}""");
+        Assert.IsNull(await provider.GetBatchAsync("ffffffffffffffffffffffffffffffff"));
+    }
+
+    /// <summary>A provider of your own need not send batches: the interface says so for it.</summary>
+    [TestMethod]
+    public async Task AProviderOfYourOwnNeedNotSendBatches() {
+        ISMSProvider provider = new OneAtATimeProvider();
+        await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.SendBatchAsync([new SmsBatchMessage("+4790000001", "hi")]));
+        await Assert.ThrowsExactlyAsync<NotSupportedException>(() => provider.GetBatchAsync("0123456789abcdef0123456789abcdef"));
+    }
+
+    sealed class OneAtATimeProvider : ISMSProvider {
+        public string Name => "one at a time";
+        public Task<SmsReceipt> SendAsync(string to, string message, string? from = null, string? reference = null, CancellationToken cancellationToken = default)
+            => Task.FromResult(new SmsReceipt("id", to, 1, 1, 0, reference));
+        public Task<SmsQuote> QuoteAsync(string to, string message, CancellationToken cancellationToken = default)
+            => Task.FromResult(new SmsQuote(to, 1, 1, false, message.Length));
+        public void Dispose() { }
+    }
+
     [TestMethod]
     public void TheProviderIsRecognisedByEitherOfItsConfiguredNames() {
         Assert.IsTrue(RelatudeServicesSMSProvider.IsProviderName("RelatudeServices"));
