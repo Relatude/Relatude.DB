@@ -27,9 +27,9 @@ app.MapPost("/start", () => {
     ITester[] testers = [
 
         //new MsSqlDBTester(),
-        new RavenDBEmbeddedTester(),
-        new LiteDBTester(),
-        new SQLiteDBTester(),
+        //new RavenDBEmbeddedTester(),
+        //new LiteDBTester(),
+        //new SQLiteDBTester(),
         //new RelatudeDBTester( RelatudeDiskFlushMode.AutoFlush, RelatudeIndexType.Sqlite),
         new RelatudeDBTester( RelatudeDiskFlushMode.AutoFlush, RelatudeIndexType.Native),
         new RelatudeDBTester( RelatudeDiskFlushMode.AutoFlush, RelatudeIndexType.Memory),
