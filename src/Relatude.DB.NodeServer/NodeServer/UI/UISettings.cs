@@ -3,7 +3,6 @@ using Relatude.DB.DataStores;
 using Relatude.DB.NodeServer.Settings;
 using Relatude.DB.Tasks;
 using Relatude.DB.Tasks.TextIndexing;
-using System.Collections.Concurrent;
 using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
@@ -49,8 +48,11 @@ sealed class UISettings {
     /// What the two model fields in the AI group offer, asked for on its own rather than built with
     /// the page: only one kind of provider publishes a list, the page has to follow the provider
     /// type as it is edited rather than as it was saved, and an unreachable service must cost the
-    /// settings page nothing. An unknown provider type answers with two empty lists, which is what
-    /// leaves the fields as the plain text boxes every vendor's own model name needs.
+    /// settings page nothing. An unknown provider type answers with two empty lists.
+    ///
+    /// <para>The page asks each time one of the two drop-downs is opened, so the list is always the
+    /// service's current one; nothing is cached here. Opening a drop-down is one request to a route
+    /// that costs the service nothing.</para>
     ///
     /// <para>A failure is reported in <c>Error</c> rather than thrown: the fields still work, and
     /// "the list could not be fetched" is something to say beside them, not instead of them.</para>
@@ -58,7 +60,7 @@ sealed class UISettings {
     static async Task<object?> aiModels(AiModelsPayload payload) {
         if (!RelatudeServicesAIProvider.IsProviderName(payload.TypeName)) return new { Embeddings = Array.Empty<object>(), Completions = Array.Empty<object>(), Error = (string?)null };
         try {
-            var models = await _aiModelCache.GetAsync(payload.ServiceUrl);
+            var models = await RelatudeServicesAIProvider.GetAvailableModelsAsync(payload.ServiceUrl);
             return new { Embeddings = modelChoices(models.EmbeddingModels), Completions = modelChoices(models.CompletionModels), Error = (string?)null };
         } catch (Exception ex) {
             return new { Embeddings = Array.Empty<object>(), Completions = Array.Empty<object>(), Error = ex.Message };
@@ -66,27 +68,6 @@ sealed class UISettings {
     }
 
     static object[] modelChoices(string[] models) => [.. models.Select(m => new { Value = m, Label = m })];
-
-    /// <summary>
-    /// The published model lists, per service url, for a few minutes. The settings page asks every
-    /// time the provider type or the service url changes, which is on every keystroke in a free text
-    /// field; the list itself changes about as often as the service is deployed.
-    /// </summary>
-    static readonly AiModelCache _aiModelCache = new(TimeSpan.FromMinutes(5));
-
-    sealed class AiModelCache(TimeSpan lifetime) {
-        readonly ConcurrentDictionary<string, (DateTime Fetched, RelatudeServicesModels Models)> _entries = new(StringComparer.OrdinalIgnoreCase);
-
-        public async Task<RelatudeServicesModels> GetAsync(string? serviceUrl) {
-            var key = (serviceUrl ?? string.Empty).Trim().TrimEnd('/');
-            if (_entries.TryGetValue(key, out var entry) && DateTime.UtcNow - entry.Fetched < lifetime) return entry.Models;
-            // Two pages asking at once would fetch twice, which is a wasted request and nothing
-            // worse: the answer is the same either way and the second one replaces the first.
-            var models = await RelatudeServicesAIProvider.GetAvailableModelsAsync(serviceUrl);
-            _entries[key] = (DateTime.UtcNow, models);
-            return models;
-        }
-    }
 
     // ---- reading ----
 
@@ -244,6 +225,7 @@ sealed class UISettings {
             // the sibling is named relative to the element, so it needs the same prefix to be found
             VisibleWhen = VisibilityView.From(definition.VisibleWhen, prefix),
             HiddenWhen = VisibilityView.From(definition.HiddenWhen, prefix),
+            PickerWhen = VisibilityView.From(definition.PickerWhen, prefix),
             Secret = isSecret,
             ReadOnly = definition.ReadOnly || description.Property.SetMethod?.IsPublic != true,
             Applies = definition.Applies.ToString().ToLowerInvariant(),

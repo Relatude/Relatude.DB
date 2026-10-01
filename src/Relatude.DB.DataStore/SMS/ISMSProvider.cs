@@ -69,6 +69,7 @@ public class SMSProviderSettings {
     /// server has none - or where the provider is built from code, without a server.</summary>
     public string? ApiKey { get; set; }
 
-    /// <summary>The sender shown on the phone when a call names none. Most gateways only allow senders registered with them, so the service may ignore it.</summary>
+    /// <summary>The sender shown on the phone when a call names none. The Relatude service only sends as a sender
+    /// approved for the license, and refuses any other; most other gateways only allow senders registered with them.</summary>
     public string? From { get; set; }
 }

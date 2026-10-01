@@ -1506,8 +1506,9 @@ There is also `RelatudeServices`, which needs no account with an AI vendor at al
 hosted Relatude AI service, which holds the vendor credentials and meters every call against your
 Relatude license. `ApiKey` is then the API key issued with that license, and `EmbeddingModel` /
 `CompletionModel` are model keys the service publishes rather than vendor model names. The license
-has to carry the AI feature and a credit account with a balance; a refusal (no feature, no credits,
-too many calls) comes back as an error naming the reason.
+has to carry the credit account each kind of call is charged to, with a balance: `ai_embeddings` for
+embeddings and `ai_completion` for completions (no feature is needed). A refusal (no such account, no
+credits, too many calls) comes back as an error naming the reason.
 The vector index engine itself is not an AI setting: it is chosen in `LocalSettings` like the
 other index kinds (`VectorIndexes` and `DefaultVectorIndex`, see below), and only exists on a
 container that has `AISettings`.

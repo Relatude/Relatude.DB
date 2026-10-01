@@ -87,7 +87,7 @@ export const sections: Section[] = [
   { id: "server-events", label: "Events & exceptions", scope: "server", icon: IconAlertTriangle, hidden: true },
   // its own page rather than part of the settings: the keys are a small part of it, and most of the
   // page is explaining what a license is for to someone who has just found out it exists
-  { id: "server-license", label: "Services", scope: "server", icon: IconCertificate, tone: "green" },
+  { id: "server-license", label: "Relatude Services", scope: "server", icon: IconCertificate, tone: "green" },
   { id: "server-settings", label: "Server settings", scope: "server", icon: IconAdjustments, tone: "red" },
   { id: "server-access", label: "Access", scope: "server", icon: IconLock, settingsSection: "security", hidden: true },
 ];

@@ -13,7 +13,13 @@ internal static class OpenAIWire {
         using (var w = new Utf8JsonWriter(ms)) {
             w.WriteStartObject();
             if (model != null) w.WriteString("model", model);
-            if (maxOutputTokens.HasValue) w.WriteNumber("max_tokens", maxOutputTokens.Value);
+            // max_completion_tokens, not max_tokens: OpenAI deprecated the old name, and the newer
+            // models refuse it outright - "max_tokens is not supported with this model" - on
+            // api.openai.com and on Azure (api-version 2024-10-21) alike. The new name is taken by
+            // every current chat model. For a reasoning model it bounds the thinking as well as
+            // the answer. Anthropic's own API still calls it max_tokens; that provider writes its
+            // own request.
+            if (maxOutputTokens.HasValue) w.WriteNumber("max_completion_tokens", maxOutputTokens.Value);
             w.WriteStartArray("messages");
             w.WriteStartObject();
             w.WriteString("role", "user");

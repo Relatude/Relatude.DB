@@ -10,19 +10,29 @@ import {
   IconMessage,
   IconRefresh,
   IconSend,
+  IconSparkles,
 } from "@tabler/icons-react";
 import { showConfirm } from "../dialogs";
 import { masterLoginOptions } from "../server/auth";
+import { fetchAiModels } from "../server/settings";
+import { Combo, type PickerLoader } from "./Combo";
 import { fetchWhoAmI } from "../server/serverInfo";
 import {
   cancelPairing,
   fetchLicenseStatus,
+  licenseCarriesAi,
   licenseCarriesSms,
+  licenseMayUseAnySmsSender,
+  licenseSmsSenders,
   lookUpApiKey,
   pollPairing,
   saveLicenseSettings,
   sendTestSms,
   startPairing,
+  testAiCompletion,
+  testAiEmbedding,
+  type AiCompletionResult,
+  type AiEmbeddingResult,
   type SmsReceipt,
   type LicenseAccount,
   type LicenseStatus,
@@ -86,7 +96,14 @@ export function LicenseSection({ onChanged }: { onChanged?: (status: LicenseStat
       </div>
       <LicensePanel status={status} onReload={load} />
       {status.state === "valid" && status.license && <EntitlementsPanel status={status} />}
-      {licenseCarriesSms(status) && <SmsTestPanel />}
+      {licenseCarriesSms(status) && <SmsTestPanel senders={licenseSmsSenders(status)} anySender={licenseMayUseAnySmsSender(status)} />}
+      {(licenseCarriesAi(status, "embeddings") || licenseCarriesAi(status, "completions")) && (
+        <AiTestPanel
+          configuredUrl={status.aiServiceUrl ?? ""}
+          embeddings={licenseCarriesAi(status, "embeddings")}
+          completions={licenseCarriesAi(status, "completions")}
+        />
+      )}
       <WhatALicenseIs />
     </div>
   );
@@ -190,7 +207,7 @@ function usePairing(onPaired: () => Promise<unknown>, pending: PairingHandle | n
 }
 
 /**
- * The same whatever the state. Someone who has just found a section called "Services" in a database
+ * The same whatever the state. Someone who has just found a section called "Relatude Services" in a database
  * they are running wants to know whether something is wrong, and the answer is no.
  */
 function WhatALicenseIs() {
@@ -452,9 +469,17 @@ function LicensePanel({ status, onReload }: { status: LicenseStatus; onReload: (
   );
 }
 
-/** What the license turns out to carry. Only shown when the license server answered for it. */
+/**
+ * What the license turns out to carry. Only shown when the license server answered for it. The SMS
+ * senders are shown when the license can send at all - it has the "sms" account and is active - or
+ * has some: they are asked for on the license's page in the portal and approved by Relatude, so that
+ * is where the link goes. Not for a license with the "smsanysender" feature, which may name any sender.
+ */
 function EntitlementsPanel({ status }: { status: LicenseStatus }) {
   const license = status.license!;
+  const { smsSendersPage } = portalLinks(status);
+  const senders = license.smsSenders ?? [];
+  const showSenders = !licenseMayUseAnySmsSender(status) && (senders.length > 0 || licenseCarriesSms(status));
   return (
     <section className="panel license-entitlements">
       <h3>
@@ -474,8 +499,8 @@ function EntitlementsPanel({ status }: { status: LicenseStatus }) {
           ) : (
             <div className="license-chips">
               {license.features.map((f) => (
-                <span key={f} className="license-chip">
-                  {f}
+                <span key={f.key} className="license-chip">
+                  {f.name}
                 </span>
               ))}
             </div>
@@ -490,7 +515,7 @@ function EntitlementsPanel({ status }: { status: LicenseStatus }) {
             <table className="license-table">
               <tbody>
                 {license.limits.map((l) => (
-                  <tr key={l.name}>
+                  <tr key={l.key}>
                     <td>{l.name}</td>
                     <td className="num">{l.unlimited ? "Unlimited" : l.maxValue.toLocaleString()}</td>
                   </tr>
@@ -507,11 +532,32 @@ function EntitlementsPanel({ status }: { status: LicenseStatus }) {
           ) : (
             <div className="license-accounts">
               {license.accounts.map((a) => (
-                <Account key={a.name} account={a} />
+                <Account key={a.key} account={a} />
               ))}
             </div>
           )}
         </div>
+
+        {showSenders && (
+          <div>
+            <h4 className="license-sub">SMS senders</h4>
+            {senders.length === 0 ? (
+              <p className="license-muted">None — messages go as the service's own sender.</p>
+            ) : (
+              <div className="license-chips">
+                {senders.map((s) => (
+                  <span key={s} className="license-chip">
+                    {s}
+                  </span>
+                ))}
+              </div>
+            )}
+            <a className="license-request" href={smsSendersPage} target="_blank" rel="noreferrer">
+              Request a sender
+              <IconExternalLink size={12} stroke={1.8} />
+            </a>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -519,11 +565,16 @@ function EntitlementsPanel({ status }: { status: LicenseStatus }) {
 
 /**
  * A real message through the Relatude SMS service, so whoever set up the license can see it arrive
- * before any code depends on it. Only offered when the license carries SMS; it is charged like any
- * other message, which is why the receipt says what it cost and what is left.
+ * before any code depends on it. Only offered when the license has the "sms" credit account; it is
+ * charged like any other message, which is why the receipt says what it cost and what is left. The
+ * sender is the service's own or one Relatude has approved for the license, and the server checks it
+ * with the license server again before anything is sent.
  */
-function SmsTestPanel() {
+function SmsTestPanel({ senders, anySender }: { senders: string[]; anySender: boolean }) {
   const [from, setFrom] = useState("");
+  // a sender that is no longer approved after a reload falls back to the service's own; with the
+  // any-sender feature whatever is typed goes, and the license server judges it
+  const sender = anySender ? from.trim() : senders.includes(from) ? from : "";
   const [to, setTo] = useState("");
   const [message, setMessage] = useState("Test message from Relatude.DB");
   const [sending, setSending] = useState(false);
@@ -535,7 +586,7 @@ function SmsTestPanel() {
     setError(null);
     setReceipt(null);
     try {
-      setReceipt(await sendTestSms({ from: from.trim(), to: to.trim(), message }));
+      setReceipt(await sendTestSms({ from: sender, to: to.trim(), message }));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -550,9 +601,34 @@ function SmsTestPanel() {
         <span className="panel-sub"> · sends a real message, charged to the license</span>
       </h3>
       <div className="license-sms-fields">
-        <Field label="From" locked={false}>
-          <input className="text-input" value={from} placeholder="the service's own" spellCheck={false} onChange={(e) => setFrom(e.target.value)} />
-        </Field>
+        {anySender ? (
+          <Field label="From" hint="Any name of at most 11 letters and digits, or a number with its country code. Empty: the service's own sender." locked={false}>
+            <input
+              className="text-input"
+              value={from}
+              placeholder="The service's own sender"
+              maxLength={20}
+              spellCheck={false}
+              disabled={sending}
+              onChange={(e) => setFrom(e.currentTarget.value)}
+            />
+          </Field>
+        ) : (
+          <Field
+            label="From"
+            hint={senders.length === 0 ? "Senders are requested on the license's page in Relatude Services and approved by Relatude." : undefined}
+            locked={false}
+          >
+            <select className="select" value={sender} disabled={sending} onChange={(e) => setFrom(e.currentTarget.value)}>
+              <option value="">The service's own sender</option>
+              {senders.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="To" locked={false}>
           <input className="text-input" type="tel" value={to} placeholder="+47 900 00 000" spellCheck={false} onChange={(e) => setTo(e.target.value)} />
         </Field>
@@ -582,6 +658,154 @@ function SmsTestPanel() {
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * Real calls to the Relatude AI service, an embedding and a completion, so whoever set up the license
+ * can see both work before a database depends on them. Each test is offered when the license has the
+ * credit account that kind of call is charged to, "ai_embeddings" or "ai_completion"; every call is
+ * charged like any other, which is why each result says what it cost and what is left. The address starts as the one a database here uses, when one names its own, and empty is
+ * the hosted service. The model lists are asked of that address each time one is opened; empty is the
+ * service's default.
+ */
+function AiTestPanel({ configuredUrl, embeddings, completions }: { configuredUrl: string; embeddings: boolean; completions: boolean }) {
+  const [serviceUrl, setServiceUrl] = useState(configuredUrl);
+  const url = serviceUrl.trim();
+  const models = (kind: "embeddings" | "completions"): PickerLoader => () =>
+    fetchAiModels("RelatudeServices", url).then((m) => {
+      if (m.error) throw new Error(m.error);
+      return m[kind];
+    });
+  return (
+    <section className="panel license-ai">
+      <h3>
+        <IconSparkles size={15} stroke={1.8} /> Test AI
+        <span className="panel-sub"> · real calls to the AI service, charged to the license</span>
+      </h3>
+      <div className="license-ai-url">
+        <Field label="Service URL" hint={configuredUrl ? "the address a database here uses" : undefined} locked={false}>
+          <input className="text-input" value={serviceUrl} placeholder="https://ai.relatude.com (the hosted service)" spellCheck={false} onChange={(e) => setServiceUrl(e.target.value)} />
+        </Field>
+      </div>
+      <div className="license-ai-tests">
+        {embeddings && <AiEmbeddingTest serviceUrl={url} loadModels={models("embeddings")} />}
+        {completions && <AiCompletionTest serviceUrl={url} loadModels={models("completions")} />}
+      </div>
+    </section>
+  );
+}
+
+function AiEmbeddingTest({ serviceUrl, loadModels }: { serviceUrl: string; loadModels: PickerLoader }) {
+  const [model, setModel] = useState("");
+  const [text, setText] = useState("Relatude.DB is a graph database for .NET.");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<AiEmbeddingResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      setResult(await testAiEmbedding({ serviceUrl, model: model.trim(), text }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="license-ai-test">
+      <h4>Embedding</h4>
+      <Field label="Model" locked={false}>
+        <Combo label="Embedding model" placeholder="the service's default" options={[]} load={loadModels} value={model} disabled={busy} onChange={(v) => setModel(String(v ?? ""))} />
+      </Field>
+      <Field label="Text" hint={text.length + " characters"} locked={false}>
+        <textarea className="text-input license-sms-message" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
+      </Field>
+      <div className="license-save">
+        <button className="action-button primary" onClick={run} disabled={busy || !text.trim()}>
+          <IconSparkles size={15} stroke={1.8} />
+          {busy ? "Embedding…" : "Embed"}
+        </button>
+      </div>
+      {error && <div className="license-error">{error}</div>}
+      {result && (
+        <div className="license-status license-status-ok license-ai-result">
+          <span className="license-status-icon">
+            <IconCircleCheck size={20} stroke={1.8} />
+          </span>
+          <div className="license-status-text">
+            <strong>
+              {result.dimensions.toLocaleString()} dimensions from {result.model || "the default model"}
+            </strong>
+            <span className="license-muted">
+              {result.credits} {result.credits === 1 ? "credit" : "credits"} · {result.creditsLeft.toLocaleString()} left · length {result.norm.toFixed(3)}
+            </span>
+            <code className="license-ai-vector">
+              [{result.preview.map((v) => v.toFixed(4)).join(", ")}
+              {result.dimensions > result.preview.length ? ", …" : ""}]
+            </code>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AiCompletionTest({ serviceUrl, loadModels }: { serviceUrl: string; loadModels: PickerLoader }) {
+  const [model, setModel] = useState("");
+  const [prompt, setPrompt] = useState("Say hello to Relatude.DB in one short sentence.");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<AiCompletionResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      setResult(await testAiCompletion({ serviceUrl, model: model.trim(), text: prompt }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="license-ai-test">
+      <h4>Completion</h4>
+      <Field label="Model" locked={false}>
+        <Combo label="Completion model" placeholder="the service's default" options={[]} load={loadModels} value={model} disabled={busy} onChange={(v) => setModel(String(v ?? ""))} />
+      </Field>
+      <Field label="Prompt" hint={prompt.length + " characters"} locked={false}>
+        <textarea className="text-input license-sms-message" rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+      </Field>
+      <div className="license-save">
+        <button className="action-button primary" onClick={run} disabled={busy || !prompt.trim()}>
+          <IconSend size={15} stroke={1.8} />
+          {busy ? "Asking…" : "Ask"}
+        </button>
+      </div>
+      {error && <div className="license-error">{error}</div>}
+      {result && (
+        <div className="license-status license-status-ok license-ai-result">
+          <span className="license-status-icon">
+            <IconCircleCheck size={20} stroke={1.8} />
+          </span>
+          <div className="license-status-text">
+            <strong>Answered by {result.model || "the default model"}</strong>
+            <span className="license-muted">
+              {result.credits} {result.credits === 1 ? "credit" : "credits"} · {result.creditsLeft.toLocaleString()} left
+            </span>
+            <p className="license-ai-answer">{result.text}</p>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -668,14 +892,15 @@ function Field({
 }
 
 /**
- * The portal, and the license's own page in it. A key that is not a guid names no license page, so
- * the portal's front page is the best there is then.
+ * The portal, the license's own page in it, and the page of the license where its SMS senders are
+ * asked for. A key that is not a guid names no license, so the portal's front page is the best there
+ * is then.
  */
-function portalLinks(status: LicenseStatus): { server: string; licensePage: string } {
+function portalLinks(status: LicenseStatus): { server: string; licensePage: string; smsSendersPage: string } {
   const server = status.servicesServerUrl.replace(/\/$/, "");
   const key = status.licenseKey?.trim() ?? "";
   const licensePage = /^[0-9a-f]{8}-?([0-9a-f]{4}-?){3}[0-9a-f]{12}$/i.test(key) ? `${server}/licenses/${encodeURIComponent(key)}` : server;
-  return { server, licensePage };
+  return { server, licensePage, smsSendersPage: licensePage === server ? server : licensePage + "/sms-senders" };
 }
 
 function toneOf(status: LicenseStatus): "ok" | "bad" | "info" {

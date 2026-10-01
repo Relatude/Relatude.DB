@@ -252,12 +252,71 @@ public class LicenseLoginTests {
         }
     }
 
-    /// <summary>The two calls LicenseLogin makes here, answered for one API key the way Relatude.DB.Services answers them.</summary>
+    // ---- SMS senders ----
+
+    [TestMethod]
+    public async Task LookUp_ReadsTheApprovedSmsSenders() {
+        var host = startServer(apiKey: null, licenseKey: null);
+        try {
+            var found = await host.Server.LicenseLogin.LookUpAsync(_apiKey);
+            CollectionAssert.AreEqual(new[] { "Acme", "+4791234567" }, found.License!.SmsSenders);
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
+    public async Task CheckSmsSender_PassesOnTheLicenseServersAnswer_AndRemembersOnlyAnAllowedOne() {
+        var host = startServer(_apiKey.ToString(), licenseKey: null);
+        try {
+            var login = host.Server.LicenseLogin;
+            Assert.IsNull(await login.CheckSmsSenderAsync("Acme"));
+            Assert.IsNull(await login.CheckSmsSenderAsync("Acme"));
+            Assert.AreEqual(1, _stub!.SenderChecks, "an allowed sender is not asked about again within the minute");
+            Assert.AreEqual("Acme", _stub.LastSenderAsked);
+
+            Assert.AreEqual("The sender Other is not approved for this license.", await login.CheckSmsSenderAsync("Other"), "the license server's own words are passed on");
+            _stub.Approved.Add("Other");
+            Assert.IsNull(await login.CheckSmsSenderAsync("Other"), "a refusal is never remembered, so a sender approved since is allowed at once");
+            Assert.AreEqual(3, _stub.SenderChecks);
+
+            Assert.IsNull(await login.CheckSmsSenderAsync("  "), "no sender is the service's own, and is not asked about");
+            Assert.AreEqual(3, _stub.SenderChecks);
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
+    public async Task CheckSmsSender_RefusesWhatItCannotCheck() {
+        var host = startServer(apiKey: null, licenseKey: null);
+        try {
+            var noKey = await host.Server.LicenseLogin.CheckSmsSenderAsync("Acme");
+            StringAssert.Contains(noKey, "no API key");
+            Assert.AreEqual(0, _stub!.SenderChecks, "without a key there is nothing to ask");
+
+            host.Server.Settings.ApiKey = Guid.NewGuid().ToString();
+            Assert.AreEqual("Unknown API key.", await host.Server.LicenseLogin.CheckSmsSenderAsync("Acme"), "the key is answered first");
+
+            host.Server.Settings.ApiKey = _apiKey.ToString();
+            host.Server.Settings.ServicesServerUrl = "http://127.0.0.1:1";
+            StringAssert.Contains(await host.Server.LicenseLogin.CheckSmsSenderAsync("Acme"), "could not be checked", "a license server that cannot be reached allows nothing");
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    /// <summary>The calls LicenseLogin makes here, answered for one API key the way Relatude.DB.Services answers them.</summary>
     sealed class StubLicenseServer : IAsyncDisposable {
         WebApplication _app = null!;
         int _licenseLookups;
+        int _senderChecks;
         public string Url { get; private set; } = "";
         public int LicenseLookups => _licenseLookups;
+        public int SenderChecks => _senderChecks;
+        public string? LastSenderAsked { get; private set; }
+        /// <summary>The senders approved for the license, compared ignoring case as the license server compares names.</summary>
+        public ConcurrentBag<string> Approved { get; } = ["Acme", "+4791234567"];
         public ConcurrentQueue<JsonElement> LoginRequests { get; } = new();
 
         public static async Task<StubLicenseServer> StartAsync(Guid apiKey, Guid licenseId) {
@@ -271,10 +330,20 @@ public class LicenseLoginTests {
                 return Guid.TryParse(http.Request.Query["apiKey"], out var asked) && asked == apiKey
                     ? Results.Ok(new {
                         id = licenseId, name = "Stub license", disabled = false, expired = false, expiresUtc = (DateTime?)null,
-                        features = Array.Empty<string>(), limits = Array.Empty<object>(), accounts = Array.Empty<object>(),
+                        features = Array.Empty<object>(), limits = Array.Empty<object>(), accounts = Array.Empty<object>(),
                         messageToAllEditors = "", messageToAllVisitors = "", stopEdit = false, stopVisit = false,
+                        smsSenders = new[] { "Acme", "+4791234567" },
                     })
                     : Results.NotFound(new { reason = "Unknown API key." });
+            });
+            app.MapGet("/api/license/sms-sender", (HttpContext http) => {
+                Interlocked.Increment(ref stub._senderChecks);
+                var sender = http.Request.Query["sender"].ToString();
+                stub.LastSenderAsked = sender;
+                if (!Guid.TryParse(http.Request.Query["apiKey"], out var asked) || asked != apiKey) return Results.Ok(new { allowed = false, reason = "Unknown API key." });
+                return stub.Approved.Any(s => string.Equals(s, sender, StringComparison.OrdinalIgnoreCase))
+                    ? Results.Ok(new { allowed = true, reason = (string?)null })
+                    : Results.Ok(new { allowed = false, reason = $"The sender {sender} is not approved for this license." });
             });
             app.MapPost("/api/connect/login-requests", async (HttpContext http) => {
                 var body = await JsonSerializer.DeserializeAsync<JsonElement>(http.Request.Body);

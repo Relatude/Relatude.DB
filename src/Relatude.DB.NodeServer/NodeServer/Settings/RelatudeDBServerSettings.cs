@@ -22,7 +22,7 @@ public class RelatudeDBServerSettings {
 
     // Relatude.License: the license this installation runs under, and whether its users may sign in here with it.
     /// <summary>The license key from the Relatude.License portal: the license's id. Optional: the license
-    /// server tells it from <see cref="ApiKey"/>, and the Services page saves it beside the API key. When the
+    /// server tells it from <see cref="ApiKey"/>, and the Relatude Services page saves it beside the API key. When the
     /// two disagree, the API key's license is the one used; see <see cref="LicenseLogin"/>.</summary>
     public string? LicenseKey { get; set; }
     /// <summary>An API key issued for a license in the portal: all an installation needs to report in and
@@ -38,7 +38,7 @@ public class RelatudeDBServerSettings {
     /// The address this server is reached on, such as https://db.example.com: where "Sign in with
     /// Relatude.License" sends the browser back to, with its one-time code. The sign-in never takes
     /// that address from a request, whose host name is whatever its sender chose, so without this it
-    /// works only on a loopback address (see <see cref="LicenseLogin.StartAsync"/>). The Services page
+    /// works only on a loopback address (see <see cref="LicenseLogin.StartAsync"/>). The Relatude Services page
     /// fills it in from the address it is used on when the API key is saved or the installation is paired.
     /// </summary>
     public string? PublicUrl { get; set; }

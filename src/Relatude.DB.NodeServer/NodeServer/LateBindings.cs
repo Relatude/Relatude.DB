@@ -91,7 +91,12 @@ public static class LateBindings {
     public static IEmbeddingCache CreateSqlLiteEmbeddingCache(string? filePath) {
         return create<IEmbeddingCache>("Relatude.DB.AI.SqlLiteEmbeddingCache", "Relatude.DB.Sqlite", "Relatude.DB.Plugins.Sqlite", [filePath]);
     }
-    internal static IAIProvider CreateAiProvider(AIProviderSettings aiSettings) {
+    /// <summary>
+    /// The AI provider a database uses. The hosted Relatude service charges the installation's license,
+    /// so it is given <paramref name="licenseApiKey"/>, the installation's own key, which it sends before
+    /// a key in the AI settings, as the SMS provider does; the vendor providers take theirs from the settings alone.
+    /// </summary>
+    internal static IAIProvider CreateAiProvider(AIProviderSettings aiSettings, Func<string?>? licenseApiKey = null) {
         switch (aiSettings.TypeName) {
             case null or "" or nameof(NativeAzureAIProvider) or "AzureAI":
                 return new NativeAzureAIProvider(aiSettings);
@@ -102,7 +107,7 @@ public static class LateBindings {
             // the literal is what LateBindingsTests reads to check the settings page only suggests
             // names this switch answers to; RelatudeServicesAIProvider.ShortName is the same string
             case nameof(RelatudeServicesAIProvider) or "RelatudeServices":
-                return new RelatudeServicesAIProvider(aiSettings);
+                return new RelatudeServicesAIProvider(aiSettings, licenseApiKey);
             case nameof(DummyAIProvider) or "Dummy":
                 return new DummyAIProvider();
             default:
@@ -113,15 +118,18 @@ public static class LateBindings {
     /// The SMS provider a database sends messages through. One implementation so far, the hosted
     /// Relatude service, which is also what an empty type name means: it is the only one that needs
     /// no account of its own, so it is the only sensible default. It sends with
-    /// <paramref name="licenseApiKey"/>, the installation's own key. Anything else is taken as the full
-    /// type name of a custom provider and resolved the same way a custom AI provider is.
+    /// <paramref name="licenseApiKey"/>, the installation's own key, and asks
+    /// <paramref name="senderCheck"/> - the license server, through <see cref="LicenseLogin.CheckSmsSenderAsync"/> -
+    /// whether a sender of the caller's own is approved for the license before it posts anything.
+    /// Anything else is taken as the full type name of a custom provider and resolved the same way a
+    /// custom AI provider is; its gateway decides its senders.
     /// <para>The names are matched the way <see cref="RelatudeServicesSMSProvider.IsProviderName"/>
     /// matches them, which is also the rule the settings page hides the service URL and API key by
     /// (SettingsCatalogTests checks the two agree).</para>
     /// </summary>
-    internal static ISMSProvider CreateSmsProvider(SMSProviderSettings smsSettings, Func<string?>? licenseApiKey = null) {
+    internal static ISMSProvider CreateSmsProvider(SMSProviderSettings smsSettings, Func<string?>? licenseApiKey = null, Func<string, CancellationToken, Task<string?>>? senderCheck = null) {
         if (string.IsNullOrWhiteSpace(smsSettings.TypeName) || RelatudeServicesSMSProvider.IsProviderName(smsSettings.TypeName)) {
-            return new RelatudeServicesSMSProvider(smsSettings, licenseApiKey);
+            return new RelatudeServicesSMSProvider(smsSettings, licenseApiKey, senderCheck);
         }
         return create<ISMSProvider>(smsSettings.TypeName, null, null, [smsSettings]);
     }

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Relatude.DB.Common;
@@ -29,27 +30,35 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     sealed record TokenRequest(Guid ApiKey, string Code, string State); // State: the request id, so the code is redeemable only for the sign-in it came from
     sealed record TokenResult(Guid Subject, string Name, string Email, string Mobile, Guid LicenseId, string LicenseName, Guid InstallationId, string InstallationKey, string Role, DateTime IssuedUtc, DateTime ExpiresUtc);
     sealed record Heartbeat(Guid ApiKey, string InstallationKey, string? Name, int Nodes, string? ServerName, string? MachineName, string? BuildVersion);
+    sealed record SmsSenderAnswer(bool Allowed, string? Reason);
     sealed record Refusal(string? Reason);
     /// <summary>The license server's answer to a heartbeat: may this installation keep running, and the soft switches of its license.</summary>
     public sealed record Validity(bool Valid, string? Reason, string MessageToAllEditors = "", string MessageToAllVisitors = "", bool StopEdit = false, bool StopVisit = false);
 
     /// <summary>What the license carries, as the license server tells an installation holding its API key.</summary>
+    /// <param name="SmsSenders">The senders Relatude has approved for the license's text messages, as the
+    /// license server writes them: names of up to eleven letters and digits, and phone numbers with their
+    /// country code. A message goes as one of these or as the SMS service's own sender, never as anything
+    /// else. Null from a license server older than the list, which means none.</param>
     public sealed record LicenseInfo(
         Guid Id, string Name, bool Disabled, bool Expired, DateTime? ExpiresUtc,
-        string[] Features, LimitInfo[] Limits, AccountInfo[] Accounts,
-        string MessageToAllEditors, string MessageToAllVisitors, bool StopEdit, bool StopVisit) {
+        FeatureInfo[] Features, LimitInfo[] Limits, AccountInfo[] Accounts,
+        string MessageToAllEditors, string MessageToAllVisitors, bool StopEdit, bool StopVisit,
+        string[]? SmsSenders = null) {
         /// <summary>Neither disabled nor expired: its features, limits and credits are honoured.</summary>
         public bool Active => !Disabled && !Expired;
     }
-    /// <summary>A numeric cap on the license.</summary>
-    public sealed record LimitInfo(string Name, int MaxValue, bool Unlimited);
-    /// <summary>A monthly credit account and its rate limits.</summary>
-    public sealed record AccountInfo(string Name, int MonthlyLimit, int UsedThisMonth, int BalanceLeft, RateWindow Minute, RateWindow Hour, RateWindow Day);
+    /// <summary>A feature the license carries. <c>Key</c> is what code matches on (trimmed, case-insensitive); <c>Name</c> is only for people to read.</summary>
+    public sealed record FeatureInfo(string Key, string Name);
+    /// <summary>A numeric cap on the license. <c>Key</c> is what code matches on; <c>Name</c> is only for display.</summary>
+    public sealed record LimitInfo(string Key, string Name, int MaxValue, bool Unlimited);
+    /// <summary>A monthly credit account and its rate limits. <c>Key</c> is what code matches on, "sms" for instance; <c>Name</c> is only for display.</summary>
+    public sealed record AccountInfo(string Key, string Name, int MonthlyLimit, int UsedThisMonth, int BalanceLeft, RateWindow Minute, RateWindow Hour, RateWindow Day);
     /// <summary>Credits allowed and spent in one clock window. A limit of zero means no limit.</summary>
     public sealed record RateWindow(int Limit, int Used);
 
     /// <summary>
-    /// How this installation stands with the license server, for the Services page. One of:
+    /// How this installation stands with the license server, for the Relatude Services page. One of:
     /// <list type="bullet">
     /// <item><c>missing</c>: no API key is set, so there is nothing to ask about.</item>
     /// <item><c>malformed</c>: the API key is set but is not a key, so the server was not asked.</item>
@@ -244,12 +253,12 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
         }
         if (isLoopback(context.Request)) return new($"{context.Request.Scheme}://{context.Request.Host}", null, null);
         return new(null, null, "Sign-in with Relatude Services is not set up for this address yet: the server's public address (PublicUrl) is not set. "
-            + "It is filled in when the API key is saved or the installation is paired on the Services page, or it can be set in the settings. Until then, use the master login.");
+            + "It is filled in when the API key is saved or the installation is paired on the Relatude Services page, or it can be set in the settings. Until then, use the master login.");
     }
 
     /// <summary>
     /// Fills in <see cref="RelatudeDBServerSettings.PublicUrl"/>, when it is not set yet, from the
-    /// address the Services page is being used on. It is asked as the API key is saved or the
+    /// address the Relatude Services page is being used on. It is asked as the API key is saved or the
     /// installation paired, by someone signed in to this admin UI - the one kind of request whose host
     /// name can be taken at its word. A loopback address is not remembered: it is right only on this
     /// machine, where the sign-in needs no public address. Nor is one that is not https, and a value
@@ -264,7 +273,7 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
             if (!tryPublicBase(seen, out var uri, out var publicBase) || uri.IsLoopback) return;
             settings.PublicUrl = publicBase;
             server.UpdateWAFServerSettingsFile();
-            RelatudeDBServer.Trace("Sign-in with Relatude.License will send browsers back to " + publicBase + ", the address the Services page was used on. "
+            RelatudeDBServer.Trace("Sign-in with Relatude.License will send browsers back to " + publicBase + ", the address the Relatude Services page was used on. "
                 + "Change PublicUrl in the settings if that is not this server's public address.");
         }
     }
@@ -337,7 +346,7 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
         return "HTTP " + (int)response.StatusCode;
     }
 
-    // ------------------------------------------------------------------ what the Services page shows
+    // ------------------------------------------------------------------ what the Relatude Services page shows
 
     /// <summary>
     /// How this installation stands with the license server, asked fresh. The API key is read from
@@ -379,7 +388,7 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     /// Asks the license server which license an API key belongs to, and what that license carries.
     /// This is how the license key is found from the API key: it is the answer's
     /// <see cref="LicenseInfo.Id"/>, and it is remembered for the sign-in, which has to present it.
-    /// Any API key can be asked about, not only the one in the settings - the Services page checks a
+    /// Any API key can be asked about, not only the one in the settings - the Relatude Services page checks a
     /// pasted key this way before it saves it. Nothing here throws: a failure is in the answer.
     /// </summary>
     public async Task<ApiKeyLookup> LookUpAsync(Guid apiKey, CancellationToken cancellationToken = default) {
@@ -403,6 +412,65 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
         } catch (Exception err) when (err is HttpRequestException or TaskCanceledException or JsonException) {
             return new ApiKeyLookup("unreachable", err.Message, null);
         }
+    }
+
+    // ------------------------------------------------------------------ SMS senders
+
+    /// <summary>The senders found allowed lately, by API key and sender, with when each answer runs out.</summary>
+    readonly ConcurrentDictionary<(Guid ApiKey, string Sender), DateTime> _allowedSenders = new();
+    static readonly TimeSpan _allowedSenderLifetime = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// Asks the license server whether this installation's license may send text messages as
+    /// <paramref name="sender"/>, before a message goes out as it: null when it may, otherwise why not,
+    /// in words meant for whoever reads the error. Relatude approves senders license by license; the
+    /// customer asks for them on the license's page in Relatude Services. The sender is passed on as
+    /// given, only trimmed, since the license server writes numbers and names its own way before it compares them. No
+    /// sender at all is the SMS service's own, which every license may use, and is not asked about.
+    /// <para>The SMS service asks the license server the same question again before it sends, so this
+    /// is the first of two checks rather than the only one; it is what lets the database refuse a
+    /// sender with the license server's reason before anything is sent or charged. Nothing here
+    /// allows a sender it could not check: without an API key, or with a license server that cannot
+    /// be reached or answers something unexpected, the answer is a refusal saying so.</para>
+    /// <para>A sender found allowed is not asked about again for a minute, per API key, so a busy site
+    /// does not ask before every message; a refusal is never remembered, so a sender approved a moment
+    /// later can be used at once.</para>
+    /// </summary>
+    public async Task<string?> CheckSmsSenderAsync(string sender, CancellationToken cancellationToken = default) {
+        var asked = sender?.Trim() ?? "";
+        if (asked.Length == 0) return null;
+        if (!tryGetApiKey(out var apiKey)) {
+            return $"The sender {asked} could not be checked with Relatude Services: this installation has no API key. "
+                + "Set one on the Relatude Services page of the admin UI, or leave the sender empty to send as the SMS service's own.";
+        }
+        var key = (apiKey, asked);
+        if (_allowedSenders.TryGetValue(key, out var until) && until > DateTime.UtcNow) return null;
+        string notChecked(string why) => $"The sender {asked} could not be checked with Relatude Services, so nothing was sent: {why}";
+        if (!await TcpProbe.IsListeningAsync(baseUrl, cancellationToken: cancellationToken)) return notChecked("nothing is listening at " + baseUrl + ".");
+        try {
+            var url = baseUrl + "/api/license/sms-sender?apiKey=" + apiKey.ToString("D") + "&sender=" + Uri.EscapeDataString(asked);
+            using var response = await http.GetAsync(url, cancellationToken);
+            if (!response.IsSuccessStatusCode) return notChecked("the license server answered " + (int)response.StatusCode + ".");
+            var answer = await response.Content.ReadFromJsonAsync<SmsSenderAnswer>(_json, cancellationToken);
+            if (answer == null) return notChecked("the license server answered with nothing.");
+            if (!answer.Allowed) {
+                _allowedSenders.TryRemove(key, out _);
+                return string.IsNullOrWhiteSpace(answer.Reason) ? $"The sender {asked} is not approved for this license." : answer.Reason;
+            }
+            rememberAllowed(key);
+            return null;
+        } catch (Exception err) when ((err is HttpRequestException or TaskCanceledException or JsonException) && !cancellationToken.IsCancellationRequested) {
+            return notChecked(err.Message);
+        }
+    }
+
+    void rememberAllowed((Guid ApiKey, string Sender) key) {
+        var now = DateTime.UtcNow;
+        // the senders of one license are few, so this only matters to a key that changes often
+        if (_allowedSenders.Count > 256) {
+            foreach (var entry in _allowedSenders) if (entry.Value <= now) _allowedSenders.TryRemove(entry.Key, out _);
+        }
+        _allowedSenders[key] = now + _allowedSenderLifetime;
     }
 
     // ------------------------------------------------------------------ getting a license at all

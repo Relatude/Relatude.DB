@@ -46,6 +46,10 @@ public sealed class SettingDefinition {
     /// value still saves. A picker without this is a closed drop-down, and an empty one leaves an
     /// ordinary text field, which is what a provider with no published list should look like.</summary>
     public bool AllowCustom { get; init; }
+    /// <summary>Only with <see cref="Picker"/>: the list applies only while a sibling holds one of the
+    /// given values, and the field is plain text otherwise - the models the Relatude AI service
+    /// publishes mean nothing to any other provider. Siblings are named as for <see cref="VisibleWhen"/>.</summary>
+    public SettingVisibility? PickerWhen { get; init; }
     /// <summary>Enum members not offered as choices, for values the settings file may not hold - the
     /// datamodel source type <c>Code</c>, which only model types added from code carry. A value already
     /// stored is still shown, so an excluded one is visible rather than silently replaced.</summary>
@@ -229,6 +233,16 @@ public static class SettingsCatalog {
         Values = ["", RelatudeServicesSMSProvider.ShortName, nameof(RelatudeServicesSMSProvider)],
     };
 
+    /// <summary>
+    /// What the AI provider type holds when it means the hosted Relatude service, by either of its
+    /// names - the ones <c>LateBindings.CreateAiProvider</c> builds the service for. Unlike SMS an empty
+    /// value is not among them: an empty AI provider type means Azure OpenAI.
+    /// </summary>
+    static SettingVisibility relatudeAiService() => new() {
+        Path = "AISettings.TypeName",
+        Values = [RelatudeServicesAIProvider.ShortName, nameof(RelatudeServicesAIProvider)],
+    };
+
     public static SettingSectionDefinition[] Server { get; } = [
         new() {
             Id = "general", Title = "General", Icon = "server",
@@ -306,11 +320,11 @@ public static class SettingsCatalog {
                     Settings = [
                         new() {
                             Path = "LicenseKey", Label = "License key", Applies = SettingApplies.Live,
-                            Help = "The license's id. It need not be set: the license server tells it from the API key, and the Services page saves it beside the API key. When the two disagree, the API key's license is the one used.",
+                            Help = "The license's id. It need not be set: the license server tells it from the API key, and the Relatude Services page saves it beside the API key. When the two disagree, the API key's license is the one used.",
                         },
                         new() {
                             Path = "ApiKey", Label = "API key", Secret = true, Applies = SettingApplies.Live,
-                            Help = "One of the license's API keys, from its page in the portal - the one key to copy. It tells the license server which license this is and identifies this installation to it, so keep it in configuration or user secrets rather than in the settings file. The Services page checks a pasted key with the license server before saving it.",
+                            Help = "One of the license's API keys, from its page in the portal - the one key to copy. It tells the license server which license this is and identifies this installation to it, so keep it in configuration or user secrets rather than in the settings file. The Relatude Services page checks a pasted key with the license server before saving it.",
                         },
                         new() {
                             Path = "AllowLicenseeAdminLogin", Label = "Allow sign-in with Relatude.License", Applies = SettingApplies.Live,
@@ -318,7 +332,7 @@ public static class SettingsCatalog {
                         },
                         new() {
                             Path = "PublicUrl", Label = "Public address", Applies = SettingApplies.Live, Placeholder = "https://db.example.com",
-                            Help = "The address this server is reached on, where sign-in with Relatude.License sends the browser back with its code. It is filled in from the address the Services page is used on when the API key is saved or the installation is paired. Without it the sign-in works only on localhost: the host name a request gives is chosen by whoever sends it, so it is never used for this.",
+                            Help = "The address this server is reached on, where sign-in with Relatude.License sends the browser back with its code. It is filled in from the address the Relatude Services page is used on when the API key is saved or the installation is paired. Without it the sign-in works only on localhost: the host name a request gives is chosen by whoever sends it, so it is never used for this.",
                         },
                         // Reporting in (DisableHeartbeat) is deliberately not offered here: it stays a
                         // setting in the json file for whoever has a reason to turn it off, but it is
@@ -971,7 +985,7 @@ public static class SettingsCatalog {
                         },
                         new() {
                             Path = "AISettings.ApiKey", Label = "API key", Secret = true,
-                            Help = "Keep this in appsettings, an environment variable or user secrets rather than the settings file - configuration values are never written back to disk.",
+                            Help = "The vendor's API key. With the Relatude service leave it empty: calls are charged to this installation's own license, whose API key is set under License, and a key here is only used while the installation has none. Keep it in appsettings, an environment variable or user secrets rather than the settings file - configuration values are never written back to disk.",
                         },
                         new() {
                             Path = "AISettings.ApiVersion", Label = "API version",
@@ -982,7 +996,7 @@ public static class SettingsCatalog {
                             // as a list; every other provider takes the vendor's own model name and
                             // gets an empty list, which leaves the plain text field
                             Path = "AISettings.EmbeddingModel", Label = "Embedding model",
-                            Picker = SettingPickers.AiEmbeddingModels, AllowCustom = true,
+                            Picker = SettingPickers.AiEmbeddingModels, AllowCustom = true, PickerWhen = relatudeAiService(),
                             Help = "The model used to turn text into vectors. Changing it changes the vector space, so an existing semantic index has to be rebuilt to stay comparable. With the Relatude service the models it offers are listed here; with any other provider this is the vendor's own model name.",
                         },
                         new() {
@@ -996,7 +1010,7 @@ public static class SettingsCatalog {
                         new() { Path = "AISettings.EmbeddingApiKey", Label = "Embedding API key", Secret = true, Help = "The key for that separate embedding endpoint. Falls back to the main API key when empty." },
                         new() {
                             Path = "AISettings.CompletionModel", Label = "Completion model",
-                            Picker = SettingPickers.AiCompletionModels, AllowCustom = true,
+                            Picker = SettingPickers.AiCompletionModels, AllowCustom = true, PickerWhen = relatudeAiService(),
                             Help = "The model used for text generation, for code that asks the store for completions. With the Relatude service the models it offers are listed here; with any other provider this is the vendor's own model name.",
                         },
                         new() {
@@ -1052,7 +1066,7 @@ public static class SettingsCatalog {
                         },
                         new() {
                             Path = "SMSSettings.From", Label = "Sender", Placeholder = "the service's own",
-                            Help = "What the message appears to come from. Gateways only allow senders registered with them, so the service may refuse or replace it; leave it empty to use the service's own.",
+                            Help = "What the message appears to come from; leave it empty to use the service's own. The Relatude service only sends as a sender approved for the license - a name of up to 11 letters and digits, or a phone number with its country code - which is requested on the license's page in Relatude Services and approved by Relatude. Any other is refused before anything is sent. A custom provider's gateway decides its own senders.",
                         },
                     ],
                 },

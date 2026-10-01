@@ -33,6 +33,10 @@ sealed class AiServiceStub : IAsyncDisposable {
             lock (stub.Requests) stub.Requests.Add(new(context.Request.Method, context.Request.Path.Value ?? "", context.Request.QueryString.Value ?? "", headers, body));
             (int Status, string Body, string? RetryAfter) response;
             lock (stub._responses) response = stub._responses.Count > 0 ? stub._responses.Dequeue() : (500, "{\"error\":\"no scripted response left\"}", null);
+            if (response.Status == _droppedConnection) {
+                context.Abort();
+                return;
+            }
             context.Response.StatusCode = response.Status;
             if (response.RetryAfter != null) context.Response.Headers.RetryAfter = response.RetryAfter;
             context.Response.ContentType = "application/json";
@@ -45,6 +49,12 @@ sealed class AiServiceStub : IAsyncDisposable {
     public void Enqueue(int status, string body, string? retryAfter = null) {
         lock (_responses) _responses.Enqueue((status, body, retryAfter));
     }
+    /// <summary>
+    /// Scripts the next request to be read, recorded and then left unanswered, its connection dropped:
+    /// what a caller sees when the network fails after the server already has the request.
+    /// </summary>
+    public void EnqueueDroppedConnection() => Enqueue(_droppedConnection, "");
+    const int _droppedConnection = 0; // not a status: no response is sent at all
     public RecordedRequest Single() {
         lock (Requests) {
             Assert.AreEqual(1, Requests.Count, "expected exactly one request");
@@ -77,7 +87,8 @@ public class AiProviderWireTests {
         Assert.AreEqual("/v1/chat/completions", request.Path);
         Assert.AreEqual("Bearer sk-test", request.Headers["Authorization"]);
         Assert.AreEqual("gpt-4o", request.Json.GetProperty("model").GetString());
-        Assert.IsFalse(request.Json.TryGetProperty("max_tokens", out _), "max_tokens should not be sent unless configured");
+        Assert.IsFalse(request.Json.TryGetProperty("max_completion_tokens", out _), "max_completion_tokens should not be sent unless configured");
+        Assert.IsFalse(request.Json.TryGetProperty("max_tokens", out _), "the deprecated max_tokens is never sent");
         var message = request.Json.GetProperty("messages")[0];
         Assert.AreEqual("user", message.GetProperty("role").GetString());
         Assert.AreEqual("Say hello", message.GetProperty("content").GetString());
@@ -97,7 +108,9 @@ public class AiProviderWireTests {
         await provider.GetCompletionAsync("hi", "fast");
         var request = stub.Single();
         Assert.AreEqual("gpt-4o-mini", request.Json.GetProperty("model").GetString());
-        Assert.AreEqual(123, request.Json.GetProperty("max_tokens").GetInt32());
+        // the newer models refuse max_tokens, so the limit goes as max_completion_tokens
+        Assert.AreEqual(123, request.Json.GetProperty("max_completion_tokens").GetInt32());
+        Assert.IsFalse(request.Json.TryGetProperty("max_tokens", out _));
         await Assert.ThrowsExactlyAsync<ArgumentException>(() => provider.GetCompletionAsync("hi", "no-such-key"));
     }
 
@@ -285,6 +298,62 @@ public class AiProviderWireTests {
         Assert.AreEqual(1, stub.Requests.Count, "a licensing refusal must not be retried");
     }
 
+    /// <summary>
+    /// The service takes a call's credits before it calls the upstream model, and cannot give them
+    /// back. So embeddings and completions are repeated only on the two answers given before any money
+    /// moves, 429 and 503, and not on the others the default policy repeats: a 502 or a 500 comes after
+    /// the charge, and a 504 while the service may still be at work, so every repeat would be charged
+    /// again. A 502 has also been retried upstream by the service already.
+    /// </summary>
+    [TestMethod]
+    public async Task RelatudeServicesRepeatsACallOnlyOnTheAnswersGivenBeforeAnythingIsCharged() {
+        await using var stub = await AiServiceStub.StartAsync();
+        using var provider = new RelatudeServicesAIProvider(new AIProviderSettings { ServiceUrl = stub.BaseUrl, ApiKey = "key" });
+        foreach (var status in new[] { 408, 500, 502, 504 }) {
+            // nothing else is scripted: a repeat would be answered too, and counted
+            stub.Requests.Clear();
+            stub.Enqueue(status, """{"error":"The embeddings service is not answering right now. Try again shortly."}""");
+            var embeddings = await Assert.ThrowsExactlyAsync<Exception>(() => provider.GetEmbeddingsAsync(["a"]));
+            Assert.AreEqual(1, stub.Requests.Count, $"embeddings answered {status} may have been charged, so they must not be asked for again");
+            StringAssert.Contains(embeddings.Message, $"returned {status}");
+
+            stub.Requests.Clear();
+            stub.Enqueue(status, """{"error":"The completion service is not answering right now. Try again shortly."}""");
+            var completion = await Assert.ThrowsExactlyAsync<Exception>(() => provider.GetCompletionAsync("hi"));
+            Assert.AreEqual(1, stub.Requests.Count, $"a completion answered {status} may have been charged, so it must not be asked for again");
+            StringAssert.Contains(completion.Message, $"returned {status}");
+        }
+        foreach (var status in new[] { 429, 503 }) {
+            stub.Requests.Clear();
+            stub.Enqueue(status, """{"error":"Try again shortly."}""", retryAfter: status == 429 ? "0" : null);
+            stub.Enqueue(200, """{"model":"small","dimensions":2,"embeddings":[[0.1,0.2]],"credits":1}""");
+            var vectors = await provider.GetEmbeddingsAsync(["a"]);
+            CollectionAssert.AreEqual(new float[] { 0.1f, 0.2f }, vectors[0]);
+            Assert.AreEqual(2, stub.Requests.Count, $"a {status} comes before anything is charged, so it is repeated");
+        }
+    }
+
+    /// <summary>
+    /// A connection that drops once the service has the request looks to the caller like one that
+    /// never connected, and by then the call may have been charged. So a charged call does not repeat
+    /// a connection error, where the model list, which costs nothing, does.
+    /// </summary>
+    [TestMethod]
+    public async Task RelatudeServicesDoesNotRepeatADroppedConnectionButTheModelListDoes() {
+        await using var stub = await AiServiceStub.StartAsync();
+        using var provider = new RelatudeServicesAIProvider(new AIProviderSettings { ServiceUrl = stub.BaseUrl, ApiKey = "key" });
+        stub.EnqueueDroppedConnection(); // and nothing after it: a repeat would be answered too, and counted
+        await Assert.ThrowsAsync<HttpRequestException>(() => provider.GetEmbeddingsAsync(["a"]));
+        Assert.AreEqual(1, stub.Requests.Count, "the service had the request, and may have charged it");
+
+        stub.Requests.Clear();
+        stub.EnqueueDroppedConnection();
+        stub.Enqueue(200, """{"embeddingModels":["embedding-small"],"completionModels":["fast"]}""");
+        var models = await provider.GetAvailableModelsAsync();
+        CollectionAssert.AreEqual(new[] { "embedding-small" }, models.EmbeddingModels);
+        Assert.AreEqual(2, stub.Requests.Count, "the model list is free to ask for again");
+    }
+
     [TestMethod]
     public async Task RelatudeServicesRejectsAVectorCountThatDoesNotMatchTheInput() {
         await using var stub = await AiServiceStub.StartAsync();
@@ -344,5 +413,72 @@ public class AiProviderWireTests {
         Assert.IsFalse(RelatudeServicesAIProvider.IsProviderName("AzureAI"));
         Assert.IsFalse(RelatudeServicesAIProvider.IsProviderName(null));
         Assert.IsFalse(RelatudeServicesAIProvider.IsProviderName("  "));
+    }
+
+    /// <summary>
+    /// The installation's license key is read at every call, so a new license applies without the
+    /// database reopening, and it comes before a key in the AI settings, which is used only while
+    /// the installation has none - the rule the SMS provider follows.
+    /// </summary>
+    [TestMethod]
+    public async Task RelatudeServicesSendsTheLicenseKeyAtEveryCallBeforeTheSettingsKey() {
+        await using var stub = await AiServiceStub.StartAsync();
+        string? licenseKey = "license-1";
+        using var provider = new RelatudeServicesAIProvider(new AIProviderSettings { ServiceUrl = stub.BaseUrl, ApiKey = "from-settings" }, () => licenseKey);
+        var sentWith = new List<string>();
+        foreach (var key in new[] { "license-1", "license-2", null }) {
+            licenseKey = key;
+            stub.Requests.Clear();
+            stub.Enqueue(200, """{"model":"embedding-small","dimensions":1,"embeddings":[[0.5]],"credits":1,"creditsLeft":9}""");
+            await provider.GetEmbeddingsAsync(["a"]);
+            sentWith.Add(stub.Single().Headers["Authorization"]);
+        }
+        CollectionAssert.AreEqual(new[] { "Bearer license-1", "Bearer license-2", "Bearer from-settings" }, sentWith);
+    }
+
+    /// <summary>
+    /// With no key anywhere the provider is still built - the database opens - and a charged call
+    /// says where a key is set, before anything goes on the wire, rather than coming back as the
+    /// service's 401.
+    /// </summary>
+    [TestMethod]
+    public async Task RelatudeServicesWithoutAnyKeySaysWhatIsMissing() {
+        await using var stub = await AiServiceStub.StartAsync();
+        using var provider = new RelatudeServicesAIProvider(new AIProviderSettings { ServiceUrl = stub.BaseUrl }, () => null);
+
+        var embed = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.GetEmbeddingsAsync(["a"]));
+        StringAssert.Contains(embed.Message, "API key");
+        StringAssert.Contains(embed.Message, "License");
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => provider.GetCompletionAsync("hi"));
+        Assert.AreEqual(0, stub.Requests.Count, "nothing is sent without a key");
+    }
+
+    /// <summary>
+    /// The full answers the license page's AI test shows: the model the service used, the vector
+    /// length, what the call cost and what is left - beside what the IAIProvider methods return.
+    /// A model given here is a published key and is sent as it is.
+    /// </summary>
+    [TestMethod]
+    public async Task RelatudeServicesFullAnswersCarryTheModelAndThePrice() {
+        await using var stub = await AiServiceStub.StartAsync();
+        using var provider = new RelatudeServicesAIProvider(new AIProviderSettings { ServiceUrl = stub.BaseUrl }, () => "license-key");
+
+        stub.Enqueue(200, """{"model":"embedding-large","dimensions":3,"embeddings":[[0.1,0.2,0.3]],"credits":2,"creditsLeft":98}""");
+        var embedded = await provider.EmbedAsync(["hello"], "embedding-large");
+        Assert.AreEqual("embedding-large", stub.Single().Json.GetProperty("model").GetString());
+        Assert.AreEqual("embedding-large", embedded.Model);
+        Assert.AreEqual(3, embedded.Dimensions);
+        Assert.AreEqual(0.2f, embedded.Embeddings[0][1], 0.0001f);
+        Assert.AreEqual(2, embedded.Credits);
+        Assert.AreEqual(98, embedded.CreditsLeft);
+
+        stub.Requests.Clear();
+        stub.Enqueue(200, """{"model":"balanced","text":"Hello.","credits":1,"creditsLeft":97}""");
+        var answered = await provider.CompleteAsync("hi");
+        Assert.IsFalse(stub.Single().Json.TryGetProperty("model", out _), "no model is the service's own default");
+        Assert.AreEqual("balanced", answered.Model);
+        Assert.AreEqual("Hello.", answered.Text);
+        Assert.AreEqual(1, answered.Credits);
+        Assert.AreEqual(97, answered.CreditsLeft);
     }
 }

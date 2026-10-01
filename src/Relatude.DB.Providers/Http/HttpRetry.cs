@@ -2,7 +2,8 @@ namespace Relatude.DB.Http;
 /// <summary>
 /// Shared retry policy for the plain-HTTP providers in this plugin.
 /// Retries transient failures (429, 408, 5xx and connection errors) with exponential backoff,
-/// honoring a Retry-After header when the server sends one.
+/// honoring a Retry-After header when the server sends one. A request that must not be applied twice
+/// narrows that per call, to the failures its server answers before acting on it.
 /// <para>This is the one retry in the database that does not use <c>Relatude.DB.Common.Retry</c>, and
 /// the difference is deliberate. That helper waits on a failed operation - an exception - whereas most
 /// retries here are triggered by a perfectly successful response carrying a 429 or a 5xx, and the last
@@ -17,22 +18,31 @@ internal static class HttpRetry {
     // requests must be recreated per attempt (HttpRequestMessage is single use), hence the factory.
     // retryOnTimeout should be false for non-idempotent requests where a timed-out attempt may still
     // have been applied by the server (e.g. blob append blocks without a position guard).
-    public static async Task<HttpResponseMessage> SendAsync(HttpClient client, Func<HttpRequestMessage> createRequest, bool retryOnTimeout = true) {
+    // Such a request can narrow the rest too: isTransient replaces IsTransient with the statuses its
+    // server answers before acting on it, and retryOnConnectionError false stops the retry of an
+    // HttpRequestException, which can come after the server had the request as well as before.
+    // An earlier transient response is disposed once a later attempt supersedes it, or throws.
+    public static async Task<HttpResponseMessage> SendAsync(HttpClient client, Func<HttpRequestMessage> createRequest,
+        bool retryOnTimeout = true, Func<int, bool>? isTransient = null, bool retryOnConnectionError = true) {
+        isTransient ??= IsTransient;
         Exception? lastError = null;
         HttpResponseMessage? lastResponse = null;
         for (var attempt = 1; attempt <= _maxAttempts; attempt++) {
             TimeSpan? retryAfter = null;
             try {
                 var response = await client.SendAsync(createRequest(), HttpCompletionOption.ResponseHeadersRead);
-                if (!IsTransient((int)response.StatusCode)) return response;
-                if (attempt == _maxAttempts) return response;
-                retryAfter = getRetryAfter(response);
                 lastResponse?.Dispose();
                 lastResponse = response;
-            } catch (HttpRequestException ex) { // connection level failure, nothing reached the server
+                if (!isTransient((int)response.StatusCode)) return response;
+                if (attempt == _maxAttempts) return response;
+                retryAfter = getRetryAfter(response);
+            } catch (HttpRequestException ex) when (retryOnConnectionError) { // connection level failure, before or after the server had the request
                 lastError = ex;
             } catch (TaskCanceledException ex) when (retryOnTimeout) { // client side timeout
                 lastError = ex;
+            } catch {
+                lastResponse?.Dispose();
+                throw;
             }
             if (attempt == _maxAttempts) break;
             await Task.Delay(getDelay(attempt, retryAfter));
@@ -40,22 +50,27 @@ internal static class HttpRetry {
         if (lastResponse != null) return lastResponse;
         throw lastError!;
     }
-    public static HttpResponseMessage Send(HttpClient client, Func<HttpRequestMessage> createRequest, bool retryOnTimeout = true) {
+    public static HttpResponseMessage Send(HttpClient client, Func<HttpRequestMessage> createRequest,
+        bool retryOnTimeout = true, Func<int, bool>? isTransient = null, bool retryOnConnectionError = true) {
+        isTransient ??= IsTransient;
         Exception? lastError = null;
         HttpResponseMessage? lastResponse = null;
         for (var attempt = 1; attempt <= _maxAttempts; attempt++) {
             TimeSpan? retryAfter = null;
             try {
                 var response = client.Send(createRequest(), HttpCompletionOption.ResponseHeadersRead);
-                if (!IsTransient((int)response.StatusCode)) return response;
-                if (attempt == _maxAttempts) return response;
-                retryAfter = getRetryAfter(response);
                 lastResponse?.Dispose();
                 lastResponse = response;
-            } catch (HttpRequestException ex) {
+                if (!isTransient((int)response.StatusCode)) return response;
+                if (attempt == _maxAttempts) return response;
+                retryAfter = getRetryAfter(response);
+            } catch (HttpRequestException ex) when (retryOnConnectionError) {
                 lastError = ex;
             } catch (TaskCanceledException ex) when (retryOnTimeout) {
                 lastError = ex;
+            } catch {
+                lastResponse?.Dispose();
+                throw;
             }
             if (attempt == _maxAttempts) break;
             Thread.Sleep(getDelay(attempt, retryAfter));

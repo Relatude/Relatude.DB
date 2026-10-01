@@ -41,7 +41,7 @@ export function App() {
   const [activeDbId, setActiveDbId] = useState<string | null>(null);
   const [activeSectionId, setActiveSectionId] = useState("dashboard");
   const [navOpen, setNavOpen] = useState(true);
-  // The rail marks the Services entry when there is no license or the keys are refused, so the one
+  // The rail marks the Relatude Services entry when there is no license or the keys are refused, so the one
   // place that says so is not a page nobody has opened. Asked once: it changes when someone changes
   // it, and the page hands the fresh answer back rather than making the rail poll for it.
   const [license, setLicense] = useState<LicenseStatus | null>(null);

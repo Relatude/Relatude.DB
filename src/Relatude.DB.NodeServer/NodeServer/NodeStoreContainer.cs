@@ -282,14 +282,22 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 if (string.IsNullOrEmpty(aiFolder)) aiFolder = localDiskFolder;
                 if (!Path.IsPathRooted(aiFolder)) aiFolder = server.RootDataFolderPath.SuperPathCombine(aiFolder);
                 if (!Directory.Exists(aiFolder)) Directory.CreateDirectory(aiFolder);
-                ai = AIProviderFactory.Create(settings.AISettings, aiFolder);
+                // the Relatude service charges this installation's license, read at every call like
+                // the SMS provider's below
+                ai = AIProviderFactory.Create(settings.AISettings, aiFolder, () => server.Settings.ApiKey);
             }
             // Nothing in the database sends a message, so this is built for application code alone
             // (NodeStore.SMS) and has no folder, cache or engine around it. It is resolved here all
             // the same, so a provider that cannot be built says so when the database opens rather
             // than the first time someone tries to send something. The Relatude service charges this
-            // installation's license, read at every send so a new license key applies at once.
-            if (settings.SMSSettings != null) sms = LateBindings.CreateSmsProvider(settings.SMSSettings, () => server.Settings.ApiKey);
+            // installation's license, read at every send so a new license key applies at once, and a
+            // sender of the caller's own is checked with the license server before anything is posted.
+            // That check is a lambda rather than the method itself because the databases open before
+            // the server has its LicenseLogin.
+            if (settings.SMSSettings != null) {
+                sms = LateBindings.CreateSmsProvider(settings.SMSSettings, () => server.Settings.ApiKey,
+                    (sender, cancellationToken) => server.LicenseLogin.CheckSmsSenderAsync(sender, cancellationToken));
+            }
 
             List<string> toLog = new();
             var indexFolderPath = resolveIndexFolderPath(local, localDiskFolder);

@@ -10,7 +10,18 @@ import { saveServerSettings } from "./settings";
  */
 export type LicenseState = "missing" | "malformed" | "unreachable" | "invalid" | "valid";
 
+/**
+ * A feature the license carries. The key is what code matches on, trimmed and ignoring case; the
+ * name is only for people to read.
+ */
+export interface LicenseFeature {
+  key: string;
+  name: string;
+}
+
+/** A numeric cap on the license: matched on its key, with the name only for display. */
 export interface LicenseLimit {
+  key: string;
   name: string;
   maxValue: number;
   unlimited: boolean;
@@ -23,7 +34,9 @@ export interface RateWindow {
   left: number | null;
 }
 
+/** A monthly credit account and its rate limits: matched on its key ("sms", say), with the name only for display. */
 export interface LicenseAccount {
+  key: string;
   name: string;
   monthlyLimit: number;
   usedThisMonth: number;
@@ -39,13 +52,20 @@ export interface LicenseInfo {
   disabled: boolean;
   expired: boolean;
   expiresUtc: string | null;
-  features: string[];
+  features: LicenseFeature[];
   limits: LicenseLimit[];
   accounts: LicenseAccount[];
   messageToAllEditors: string;
   messageToAllVisitors: string;
   stopEdit: boolean;
   stopVisit: boolean;
+  /**
+   * The senders Relatude has approved for the license's text messages, as the license server writes
+   * them: names of up to eleven letters and digits, and phone numbers with their country code. A
+   * message goes as one of these or as the SMS service's own sender. Missing from an older license
+   * server, which means none.
+   */
+  smsSenders?: string[] | null;
   /** neither disabled nor expired */
   active: boolean;
 }
@@ -78,6 +98,11 @@ export interface LicenseStatus {
    * left off instead of starting a second one.
    */
   pairing: PairingHandle | null;
+  /**
+   * The Relatude AI service address a database here is set up to use, which the AI test starts
+   * from; null when none names one, and the hosted service is meant.
+   */
+  aiServiceUrl: string | null;
   /** settings paths decided by configuration, which cannot be edited from this page */
   locked: string[];
 }
@@ -161,20 +186,85 @@ export interface SmsReceipt {
   reference: string | null;
 }
 
-/** Whether the license carries the SMS feature, which is what the Relatude SMS service checks. */
+/** Whether a key from the license server is the one code refers to: trimmed and ignoring case, as the server matches it. */
+function isKey(key: string | null | undefined, expected: string): boolean {
+  return (key ?? "").trim().toLowerCase() === expected;
+}
+
+/** Whether the license has the "sms" credit account, which the Relatude SMS service charges every message to; no feature is needed. */
 export function licenseCarriesSms(status: LicenseStatus): boolean {
-  return status.state === "valid" && !!status.license?.active && status.license.features.some((f) => f.trim().toLowerCase() === "sms");
+  return status.state === "valid" && !!status.license?.active && status.license.accounts.some((a) => isKey(a.key, "sms"));
+}
+
+/**
+ * The senders a message may go as besides the SMS service's own: those Relatude has approved for the
+ * license, while it is valid and active. Empty otherwise, and then only the service's own is left.
+ */
+export function licenseSmsSenders(status: LicenseStatus): string[] {
+  return status.state === "valid" && status.license?.active ? (status.license.smsSenders ?? []) : [];
+}
+
+/**
+ * Whether the license has the "smsanysender" feature, which lets its messages name any sender with no
+ * approved senders at all: the license server allows any sender a phone can show, so the approved
+ * ones are beside the point and are not shown.
+ */
+export function licenseMayUseAnySmsSender(status: LicenseStatus): boolean {
+  return status.state === "valid" && !!status.license?.features.some((f) => isKey(f.key, "smsanysender"));
 }
 
 /**
  * Sends one real message through the hosted Relatude SMS service with this installation's API key,
- * charged to the license. No database's SMS settings are involved.
+ * charged to the license. No database's SMS settings are involved. An empty sender is the service's
+ * own; any other is checked with the license server first, and refused with its reason when it is
+ * not approved for the license.
  */
 export function sendTestSms(values: { from: string; to: string; message: string }): Promise<SmsReceipt> {
   return send<SmsReceipt>("license-sms-test", values);
 }
 
-/** Whether the rail should draw attention to the Services entry, and in how many words. */
+/**
+ * Whether the license has the credit account the Relatude AI service charges one kind of call to:
+ * "ai_embeddings" for embeddings, "ai_completion" for completions. The account is what licenses the
+ * call; no feature is needed, as with SMS.
+ */
+export function licenseCarriesAi(status: LicenseStatus, kind: "embeddings" | "completions"): boolean {
+  const account = kind === "embeddings" ? "ai_embeddings" : "ai_completion";
+  return status.state === "valid" && !!status.license?.active && status.license.accounts.some((a) => isKey(a.key, account));
+}
+
+/** One text embedded by the AI service: the model, the vector's length, its first values and length (norm), and what it cost. */
+export interface AiEmbeddingResult {
+  model: string;
+  dimensions: number;
+  preview: number[];
+  norm: number;
+  credits: number;
+  creditsLeft: number;
+}
+
+/** One prompt answered by the AI service, and what it cost for the prompt and the answer together. */
+export interface AiCompletionResult {
+  model: string;
+  text: string;
+  credits: number;
+  creditsLeft: number;
+}
+
+/**
+ * Embeds one text through the Relatude AI service with this installation's API key, charged to the
+ * license. An empty model is the service's default, an empty url the hosted service.
+ */
+export function testAiEmbedding(values: { serviceUrl: string; model: string; text: string }): Promise<AiEmbeddingResult> {
+  return send<AiEmbeddingResult>("license-ai-embed-test", values);
+}
+
+/** Answers one prompt through the Relatude AI service, charged to the license like the embedding test. */
+export function testAiCompletion(values: { serviceUrl: string; model: string; text: string }): Promise<AiCompletionResult> {
+  return send<AiCompletionResult>("license-ai-complete-test", values);
+}
+
+/** Whether the rail should draw attention to the Relatude Services entry, and in how many words. */
 export function licenseAttention(status: LicenseStatus | null): { text: string; danger: boolean } | null {
   if (!status) return null;
   if (status.state === "missing") return { text: "none", danger: false };

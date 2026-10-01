@@ -1,12 +1,13 @@
 import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ComponentType,
-  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import {
   IconArchive,
@@ -35,6 +36,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { ColorField } from "./ColorField";
+import { Combo, type PickerLoader } from "./Combo";
 import { sourceColor } from "../server/datamodel";
 import { showConfirm, showError } from "../dialogs";
 import { peekSearchTarget, peekSettingsTarget, takeSearchTarget, takeSettingsTarget, useNavigationRequest } from "../navigate";
@@ -47,7 +49,6 @@ import {
   removeListItem,
   saveDatabaseSettings,
   saveServerSettings,
-  type AiModelChoices,
   type SettingChoice,
   type SettingList,
   type SettingListItem,
@@ -65,9 +66,14 @@ import { Loading } from "./Loading";
 const scrollOffset = 12;
 const spyLine = scrollOffset + 2;
 
-// what the AI model fields offer before anything has been fetched, and for a provider that
-// publishes no list: the same shape, so those fields are never a special case below
-const noAiModels: AiModelChoices = { embeddings: [], completions: [] };
+/**
+ * A runtime list fetched when its drop-down is opened rather than with the page: the models the
+ * configured AI service publishes. The page supplies one per field it applies to, and none for a
+ * field whose `pickerWhen` does not hold, which leaves that field the plain text box a vendor's own
+ * model name needs. A context rather than a prop, so the fields deep in a list or a row reach it
+ * without every component between them carrying it.
+ */
+const LazyPickers = createContext<(setting: SettingView) => PickerLoader | undefined>(() => undefined);
 
 /**
  * The settings pages, server scope and database scope alike. The server sends the whole page -
@@ -132,42 +138,30 @@ export function SettingsSection({
   );
   const byPath = useMemo(() => new Map(all.map((s) => [s.path, s])), [all]);
 
-  // The two model fields in the AI group offer what the configured AI service publishes. Only one
-  // kind of provider publishes anything, so the list is fetched on its own rather than built into
-  // the page, and it follows the provider type and service url as they are edited rather than as
-  // they were saved: choosing the Relatude service fills both drop-downs without saving first.
-  // A provider that publishes nothing answers with two empty lists, which leaves those fields the
-  // plain text boxes a vendor's own model name needs.
-  const [aiModels, setAiModels] = useState<AiModelChoices>(noAiModels);
-  const aiProviderType = asText(edits["AISettings.TypeName"] ?? byPath.get("AISettings.TypeName")?.value);
-  const aiServiceUrl = asText(edits["AISettings.ServiceUrl"] ?? byPath.get("AISettings.ServiceUrl")?.value);
-  useEffect(() => {
-    if (!aiProviderType) {
-      setAiModels(noAiModels);
-      return;
-    }
-    let cancelled = false;
-    // both fields are free text, so this waits for a pause rather than asking on every keystroke
-    const timer = window.setTimeout(() => {
-      fetchAiModels(aiProviderType, aiServiceUrl)
-        .then((models) => !cancelled && setAiModels(models))
-        // the fields work without the list, and the failure is the service's rather than the page's
-        .catch(() => !cancelled && setAiModels(noAiModels));
-    }, 350);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [aiProviderType, aiServiceUrl]);
-
-  const pickers = useMemo(
-    () => ({
-      ...(page?.pickers ?? {}),
-      aiEmbeddingModels: aiModels.embeddings,
-      aiCompletionModels: aiModels.completions,
-    }),
-    [page, aiModels],
+  // The two model fields in the AI group offer what the configured AI service publishes, asked for
+  // each time one of their drop-downs opens, so the list is the service's current one. They follow
+  // the provider type and service url as they are edited rather than as they were saved: choosing
+  // the Relatude service turns both into drop-downs without saving first. For any other provider
+  // pickerWhen does not hold and they stay plain text boxes.
+  const currentValue = useCallback((path: string) => edits[path] ?? byPath.get(path)?.value, [edits, byPath]);
+  const aiProviderType = asText(currentValue("AISettings.TypeName"));
+  const aiServiceUrl = asText(currentValue("AISettings.ServiceUrl"));
+  const lazyPicker = useCallback(
+    (setting: SettingView): PickerLoader | undefined => {
+      if (!setting.picker || !setting.pickerWhen || !holds(setting.pickerWhen, currentValue)) return undefined;
+      const kind = setting.picker === "aiEmbeddingModels" ? "embeddings" : setting.picker === "aiCompletionModels" ? "completions" : undefined;
+      if (!kind) return undefined;
+      return () =>
+        fetchAiModels(aiProviderType, aiServiceUrl).then((models) => {
+          // the fields work without the list; the failure is said in the list rather than instead of it
+          if (models.error) throw new Error(models.error);
+          return models[kind];
+        });
+    },
+    [currentValue, aiProviderType, aiServiceUrl],
   );
+
+  const pickers = useMemo(() => page?.pickers ?? {}, [page]);
 
   const editedPaths = Object.keys(edits);
   // a number field left blank has no value to post, and a required one would silently become zero
@@ -390,6 +384,7 @@ export function SettingsSection({
   }
 
   return (
+    <LazyPickers.Provider value={lazyPicker}>
     <div className="settings">
       <div className="settings-toolbar">
         <div className="settings-search">
@@ -552,6 +547,7 @@ export function SettingsSection({
         </div>
       )}
     </div>
+    </LazyPickers.Provider>
   );
 }
 
@@ -857,6 +853,7 @@ function Editor({
   fallbackColor?: string;
 }) {
   const listId = useRef("dl-" + setting.path.replace(/\W/g, "-")).current;
+  const load = useContext(LazyPickers)(setting);
   if (setting.editor === "color") {
     return <ColorField value={asText(value) || null} fallback={fallbackColor} disabled={disabled} onChange={(v) => onChange(v ?? "")} />;
   }
@@ -868,6 +865,11 @@ function Editor({
       </label>
     );
   }
+  // a list fetched when the drop-down opens: the field is a combo from the start, since what it
+  // will offer is not known until it is asked
+  if (load && setting.allowCustom) {
+    return <Combo label={setting.label} placeholder={setting.placeholder} options={[]} load={load} value={value} disabled={disabled} onChange={onChange} />;
+  }
   const listed = setting.choices ?? (setting.picker ? pickers[setting.picker] : undefined);
   // Suggestions rather than choices: the known values are one click away, but the field is still
   // free text, so a value the server has never heard of can be typed in. A runtime list that came
@@ -875,7 +877,7 @@ function Editor({
   // through to the plain text field the value needs anyway rather than to an empty combo box.
   if (listed && setting.allowCustom) {
     if (listed.length > 0) {
-      return <Combo setting={setting} options={listed} value={value} disabled={disabled} onChange={onChange} />;
+      return <Combo label={setting.label} placeholder={setting.placeholder} options={listed} value={value} disabled={disabled} onChange={onChange} />;
     }
   }
   // a closed list: the value has to be one of these, so an empty one still shows as such
@@ -951,130 +953,6 @@ function Editor({
       spellCheck={false}
       onChange={(e) => onChange(e.target.value)}
     />
-  );
-}
-
-/**
- * A text field that knows the values it usually holds: typing works exactly as it did before, and
- * the arrow opens the known ones. It is not a drop-down with an "other..." entry, because the
- * setting genuinely is free text - the list is a shortcut and a spelling reference, so nothing here
- * ever refuses a value or rewrites one.
- *
- * Typing narrows the list to what matches, and a value that matches nothing simply leaves it empty
- * rather than closing the list on a keystroke; the arrow always shows everything.
- */
-function Combo({
-  setting,
-  options,
-  value,
-  disabled,
-  onChange,
-}: {
-  setting: SettingView;
-  options: SettingChoice[];
-  value: unknown;
-  disabled: boolean;
-  onChange: (value: unknown) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  // set while typing, so the list narrows to what is being typed but reopens whole from the arrow
-  const [filtering, setFiltering] = useState(false);
-  const [active, setActive] = useState(-1);
-  const input = useRef<HTMLInputElement>(null);
-  const current = asText(value);
-  const matches =
-    filtering && current ? options.filter((o) => o.value.toLowerCase().includes(current.toLowerCase())) : options;
-
-  // a list with nothing in it is not shown at all, so "open" on its own is not the state anything
-  // else should key off: a typed value matching no suggestion must still open the whole list
-  const visible = open && matches.length > 0;
-  const show = (filtered: boolean) => {
-    setFiltering(filtered);
-    setActive(-1);
-    setOpen(true);
-    input.current?.focus(); // opening from the arrow still leaves the caret where typing works
-  };
-  const pick = (choice: string) => {
-    onChange(choice);
-    setOpen(false);
-    input.current?.focus();
-  };
-
-  function onKeyDown(e: ReactKeyboardEvent) {
-    if (e.key === "Escape") {
-      setOpen(false);
-      return;
-    }
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      if (!visible) return show(false);
-      const step = e.key === "ArrowDown" ? 1 : -1;
-      setActive((i) => (i < 0 ? (step > 0 ? 0 : matches.length - 1) : (i + step + matches.length) % matches.length));
-      return;
-    }
-    if (e.key === "Enter" && visible && active >= 0 && active < matches.length) {
-      e.preventDefault();
-      pick(matches[active].value);
-    }
-  }
-
-  return (
-    <div
-      className="setting-combo"
-      // closing on blur rather than behind a backdrop: a click straight into the next field should
-      // land there, not be spent dismissing this list
-      onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false);
-      }}
-    >
-      <input
-        ref={input}
-        className="text-input"
-        value={current}
-        placeholder={setting.placeholder ?? ""}
-        disabled={disabled}
-        spellCheck={false}
-        autoComplete="off"
-        role="combobox"
-        aria-expanded={visible}
-        onChange={(e) => {
-          onChange(e.target.value);
-          show(true);
-        }}
-        onKeyDown={onKeyDown}
-      />
-      <button
-        type="button"
-        className="setting-combo-toggle"
-        tabIndex={-1}
-        disabled={disabled}
-        title={"Known values for " + setting.label}
-        aria-label={"Known values for " + setting.label}
-        onClick={() => (visible ? setOpen(false) : show(false))}
-      >
-        <IconChevronDown size={14} />
-      </button>
-      {visible && (
-        <div className="setting-combo-list">
-          {matches.map((o, i) => (
-            <button
-              type="button"
-              key={o.value}
-              className={
-                "setting-combo-option" +
-                (i === active ? " active" : "") +
-                (o.value.toLowerCase() === current.toLowerCase() ? " current" : "")
-              }
-              onMouseEnter={() => setActive(i)}
-              onClick={() => pick(o.value)}
-            >
-              <span>{o.label}</span>
-              {o.hint && <span className="hint">{o.hint}</span>}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }
 

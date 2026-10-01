@@ -47,6 +47,11 @@ export interface SettingView {
   visibleWhen?: SettingVisibility | null;
   /** Hides the field while this holds: a service URL the built-in provider does not need. */
   hiddenWhen?: SettingVisibility | null;
+  /**
+   * Only with `picker`: the list applies only while this holds, and the field is plain text
+   * otherwise - the models the Relatude AI service publishes mean nothing to any other provider.
+   */
+  pickerWhen?: SettingVisibility | null;
   secret: boolean;
   readOnly: boolean;
   applies: SettingApplies;

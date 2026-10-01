@@ -33,7 +33,7 @@ builder.AddRelatudeDB(options => {
         db.RegisterTransactionPlugin(new DemoArticlePlugin());
     };
     options.OnStoreOpenBackground = db => {
-        Website.Simple.Data.ShopSeeder.SeedIfEmpty(db, 300000, 1000); // populates the facet search example (see wwwroot/search.html)
+        Website.Simple.Data.ShopSeeder.SeedIfEmpty(db, 300, 1000); // populates the facet search example (see wwwroot/search.html)
         //Website.Simple.Data.PageSeeder.SeedIfEmpty(db); // populates the dynamic URL example (see the /pages* endpoints)
     };
 });
@@ -50,6 +50,10 @@ builder.Services.AddCors(options => {
 var app = builder.Build();
 
 app.UseCors("AllowALL"); // FOR VS CODE DEVELOPMENT ONLY - NEVER ALLOW ALL CORS
+
+app.MapGet("/sms", (RelatudeDBContext ctx) => {
+    ctx.Database.SMS.SendAsync("+4793423700", "Hello from Relatude.DB!", "test").Wait();
+});
 
 app.MapGet("/", (RelatudeDBContext ctx) => {
     var count = ctx.Database.Count(); //.Query<DemoArticle>().Count();

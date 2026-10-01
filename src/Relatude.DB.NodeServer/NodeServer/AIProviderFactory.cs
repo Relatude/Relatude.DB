@@ -4,7 +4,9 @@ using Relatude.DB.Common;
 namespace Relatude.DB.NodeServer;
 
 public static class AIProviderFactory {
-    public static AIEngine Create(AIProviderSettings settings, string? dataFolder) {
+    /// <param name="licenseApiKey">The installation's license API key, read at every call, for the
+    /// hosted Relatude service to charge, before any key in the settings.</param>
+    public static AIEngine Create(AIProviderSettings settings, string? dataFolder, Func<string?>? licenseApiKey = null) {
         string? filePath = null;
         if (!string.IsNullOrEmpty(dataFolder)) {
             var fileKey = FileKeyUtility.GetAiCacheFileKey(settings.CacheType);
@@ -24,7 +26,7 @@ public static class AIProviderFactory {
             AIProviderCacheType.Native => new NativeKvEmbeddingCache(filePath),
             _ => throw new NotImplementedException(),
         };
-        var provider = LateBindings.CreateAiProvider(settings);
+        var provider = LateBindings.CreateAiProvider(settings, licenseApiKey);
         return new AIEngine(provider, settings, cache);
     }
     /// <summary>
