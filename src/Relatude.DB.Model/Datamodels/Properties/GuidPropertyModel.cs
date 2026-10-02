@@ -14,5 +14,6 @@ public class GuidPropertyModel : PropertyModel, IPropertyModelUniqueContraints {
         if (value is string && Guid.TryParse((string)value, out var g)) return g;
         return Guid.Empty;
     }
-    public override string GetDefaultValueAsCode() => $"new Guid(\"{DefaultValue}\")";
+    public override string GetDefaultValueAsCode() => GetValueAsCode(DefaultValue);
+    public override string GetValueAsCode(object? value) => $"new Guid(\"{(value is Guid g ? g : Guid.Empty)}\")";
 }

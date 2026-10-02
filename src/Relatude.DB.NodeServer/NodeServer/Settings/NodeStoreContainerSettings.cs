@@ -30,5 +30,14 @@ public class NodeStoreContainerSettings : NodeStoreContainerSettingsBase {
     /// <summary>How this database sends text messages, reached from code as <c>NodeStore.SMS</c>. Null on a database that sends none.</summary>
     public SMSProviderSettings? SMSSettings { get; set; }
     public DatamodelSource[]? DatamodelSources { get; set; }
+    /// <summary>
+    /// Where this database keeps its datamodel overrides - the attributes the data model editor sets on
+    /// top of what the sources say (see <see cref="Datamodel.Overrides"/>). Empty keeps them with the
+    /// database: <c>datamodels/datamodel.overrides.json</c> on its storage provider, beside the editor's
+    /// drafts and history, where they survive a redeploy of the site. A path - relative to the folder
+    /// holding the settings file unless rooted - keeps them in that file instead, for a team that wants
+    /// them in source control and deployed with the site.
+    /// </summary>
+    public string? DatamodelOverridesPath { get; set; }
     public SettingsLocal? LocalSettings { get; set; }
 }

@@ -33,6 +33,8 @@ public sealed class DatamodelValidator {
         dm.EnsureInitalization();
         return dm;
     }
+    // the active model before it is initialized, which is when overrides can still be applied to it
+    string activeJson() => _container.DatamodelAsLoadedJson ?? DatamodelJson.Serialize(_container.LoadDatamodelFromSettings());
 
     public DatamodelValidation Validate(string draftJson, bool dryRun) {
         var result = new DatamodelValidation();
@@ -82,6 +84,7 @@ public sealed class DatamodelValidator {
         }
         checkBackingClasses(draft, result.Issues);
         checkDataImpact(active, draft, result.Issues);
+        checkOverridesAndText(draftJson, draft, active, plan, result);
         if (!result.HasErrors && dryRun) {
             try {
                 dryRunCompile(draft, plan, result.Issues);
@@ -210,12 +213,15 @@ public sealed class DatamodelValidator {
 
     // ---- what the stored data feels ----
 
+    // how many nodes a type has (descendants included), -1 when the database is closed or cannot say
+    long countNodes(Guid typeId) {
+        var store = _container.IsOpen() ? _container.Store : null;
+        if (store == null) return -1;
+        try { return store.QueryType(typeId, countContext).Count(); } catch { return -1; }
+    }
     void checkDataImpact(Datamodel active, Datamodel draft, List<DatamodelIssue> issues) {
         var store = _container.IsOpen() ? _container.Store : null;
-        long count(Guid typeId) {
-            if (store == null) return -1;
-            try { return store.QueryType(typeId, countContext).Count(); } catch { return -1; }
-        }
+        long count(Guid typeId) => countNodes(typeId);
         string nodes(long n) => n < 0 ? "nodes" : n == 1 ? "1 node" : n + " nodes";
         foreach (var a in active.NodeTypes.Values.Where(t => t.Id != NodeConstants.BaseNodeTypeId)) {
             if (!draft.NodeTypes.TryGetValue(a.Id, out var d)) {
@@ -253,6 +259,130 @@ public sealed class DatamodelValidator {
         if (draftIndexed != activeIndexed && store != null) {
             issues.Add(DatamodelIssue.Info("indexes-change", "Indexed properties change (" + activeIndexed + " to " + draftIndexed + "). The database rebuilds its state and indexes from the log when it opens with the new model, which takes a while on a large database."));
         }
+    }
+
+    // ---- the database's overrides, and what the text index makes of the draft ----
+
+    void checkOverridesAndText(string draftJson, Datamodel draft, Datamodel active, SourceWritePlan plan, DatamodelValidation result) {
+        var issues = result.Issues;
+        var file = _container.OverridesFile;
+        var planned = file.Plan(_server, active.Overrides, draft.Overrides, draft);
+        if (planned != null) {
+            if (!file.CanWrite) {
+                issues.Add(DatamodelIssue.Error("overrides-nowhere", "The overrides change, but they are kept with the database and the database has no primary storage provider (IoDatabase) to keep them in. "
+                    + "Set one, or name a file for them in the settings (Data model, Overrides). "));
+            } else {
+                plan.Files.Add(planned);
+                plan.OverridesChange = true;
+            }
+        }
+        // both models as the store will see them: overrides applied, inherited switches filled in
+        Datamodel effectiveDraft, effectiveActive;
+        Dictionary<Guid, bool?> ownTextIndex;
+        try {
+            effectiveDraft = effective(draftJson, out ownTextIndex);
+        } catch (Exception error) {
+            issues.Add(DatamodelIssue.Error("overrides", "The draft does not initialize with its overrides applied: " + error.Message));
+            return;
+        }
+        try {
+            effectiveActive = effective(activeJson(), out _);
+        } catch {
+            effectiveActive = effective(DatamodelJson.Serialize(new Datamodel()), out _);
+        }
+        // overrides that cannot apply, base types that disagree: what is said of the active model already
+        // is context, what the draft adds needs accepting
+        var known = effectiveActive.OverrideNotices.ToHashSet();
+        foreach (var notice in effectiveDraft.OverrideNotices) issues.Add(known.Contains(notice) ? DatamodelIssue.Info("override", notice) : DatamodelIssue.Warning("override", notice));
+        checkTextIndexing(effectiveActive, effectiveDraft, result);
+        // a type told not to be text indexed that is all the same: semantic indexing needs the text, and
+        // a type that does not say otherwise has it whenever the database default turns it on
+        foreach (var (typeId, own) in ownTextIndex) {
+            if (own != false || !effectiveDraft.NodeTypes.TryGetValue(typeId, out var t) || t.TextIndex != true || t.Id == NodeConstants.BaseNodeTypeId) continue;
+            issues.Add(DatamodelIssue.Warning("text-index-kept", t.FullName + " is set not to be text indexed, but it is semantically indexed - by itself, a base type or the database default - "
+                + "and semantic indexing needs the text index, so it stays text indexed. Set Semantic index to No as well to take it out. ", nodeType: typeId));
+        }
+        checkDefaults(effectiveActive, effectiveDraft, issues);
+    }
+    // ownTextIndex: what each type itself says for TextIndex once the overrides are in, before the
+    // database's defaults and the rule that semantic indexing needs the text index have had their say
+    Datamodel effective(string json, out Dictionary<Guid, bool?> ownTextIndex) {
+        var dm = DatamodelJson.Deserialize(json);
+        dm.ApplyOverrides();
+        dm.EnsureInitalization();
+        ownTextIndex = dm.NodeTypes.Values.ToDictionary(t => t.Id, t => t.TextIndex);
+        var local = _container.Settings.LocalSettings ?? new DataStores.SettingsLocal();
+        dm.SetIndexDefaults(local.EnableTextIndexByDefault, local.EnableSemanticIndexByDefault, local.EnableInstantTextIndexingByDefault);
+        return dm;
+    }
+    // Nothing indexes the text of stored nodes again by itself, so a change of what goes into a type's
+    // text has to be followed by indexing the type's nodes again, and a type that stops being text
+    // indexed has its text taken out while the index still counts it as indexed.
+    static void checkTextIndexing(Datamodel active, Datamodel draft, DatamodelValidation result) {
+        var reindexed = new List<string>();
+        var off = new List<string>();
+        foreach (var d in draft.NodeTypes.Values) {
+            if (d.Id == NodeConstants.BaseNodeTypeId || d.IsInnerNode) continue;
+            if (!active.NodeTypes.TryGetValue(d.Id, out var a)) continue; // a new type has no nodes yet
+            if (a.TextIndex == true && d.TextIndex != true) {
+                result.TextIndexOffTypes.Add(d.Id);
+                off.Add(d.FullName);
+            }
+            if (a.SemanticIndex == true && d.SemanticIndex != true) result.Issues.Add(DatamodelIssue.Warning("semantic-index-off", "Semantic indexing is turned off for " + d.FullName
+                + ". The embeddings its nodes already have stay in the semantic index, so similarity searches keep finding them until the indexes are rebuilt from scratch. ", nodeType: d.Id));
+            var indexedNow = d.TextIndex == true || d.SemanticIndex == true;
+            if (indexedNow && textSignature(a) != textSignature(d)) {
+                result.TextReindexTypes.Add(d.Id);
+                reindexed.Add(d.FullName);
+            }
+        }
+        if (off.Count > 0) result.Issues.Add(DatamodelIssue.Info("text-index-off", "Text indexing is turned off for " + list(off) + ". " + (off.Count == 1 ? "Its" : "Their")
+            + " nodes' text is taken out of the text index before the database reopens. "));
+        if (reindexed.Count > 0) result.Issues.Add(DatamodelIssue.Info("text-reindex", "What goes into the text index changes for " + list(reindexed) + ". " + (reindexed.Count == 1 ? "Its" : "Their")
+            + " nodes are queued for text indexing once the database opens with the new model; until the queue is through, searches may still find the old text. "));
+    }
+    // what decides the text a node of the type is indexed with
+    static string textSignature(NodeTypeModel t) => (t.TextIndex == true) + "|" + (t.SemanticIndex == true) + "|"
+        + string.Join(",", t.TextIndexProperties.Select(p => p.Id + ":" + t.GetIndexBoost(p) + (p is RelationPropertyModel r ? ":" + r.TextIndexRelatedContent + ":" + r.TextIndexRelatedDisplayName : "")))
+        + "|" + string.Join(",", t.DisplayProperties.Select(p => p.Id));
+    // A default is late bound: a node with no value stored for a property reads whatever the default is
+    // now. That is the point of changing it, but it reaches nodes that already exist.
+    void checkDefaults(Datamodel active, Datamodel draft, List<DatamodelIssue> issues) {
+        var changes = new Dictionary<(Guid property, string from, string to), List<NodeTypeModel>>();
+        foreach (var d in draft.NodeTypes.Values) {
+            if (d.Id == NodeConstants.BaseNodeTypeId || !active.NodeTypes.TryGetValue(d.Id, out var a)) continue;
+            foreach (var p in d.AllProperties.Values) {
+                if (p.Internal || p is RelationPropertyModel || !a.AllProperties.TryGetValue(p.Id, out var ap)) continue;
+                if (ap.PropertyType != p.PropertyType) continue; // reported as a type change
+                object? before, after;
+                try { before = a.GetDefaultValue(ap); after = d.GetDefaultValue(p); } catch { continue; }
+                if (Equals(before, after)) continue;
+                var key = (p.Id, show(before), show(after));
+                if (!changes.TryGetValue(key, out var types)) changes[key] = types = [];
+                types.Add(d);
+            }
+        }
+        foreach (var ((propertyId, from, to), types) in changes) {
+            var withNodes = types.Where(t => countNodes(t.Id) != 0).ToList(); // a count that is not known counts as nodes
+            if (withNodes.Count == 0) continue;
+            var p = draft.Properties[propertyId];
+            issues.Add(DatamodelIssue.Warning("default-changed", "The default value of " + p.CodeName + " changes from " + from + " to " + to + " for " + list(withNodes.Select(t => t.FullName))
+                + ". Nodes with no value stored for it - stored before the property existed, or created without setting it - read the new default; stored values are not changed. "
+                + (p.Indexed || p.UniqueValues ? "The property is indexed, and queries on it may not see the new default for those nodes until the indexes are rebuilt. " : ""),
+                nodeType: withNodes[0].Id, property: propertyId));
+        }
+    }
+    static string show(object? value) => value switch {
+        null => "none",
+        string s => """ + s + """,
+        bool b => b ? "true" : "false",
+        IFormattable f => f.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
+        Array a => a.Length == 0 ? "empty" : "[" + a.Length + " values]",
+        _ => value.ToString() ?? "",
+    };
+    static string list(IEnumerable<string> names) {
+        var all = names.ToList();
+        return all.Count <= 6 ? string.Join(", ", all) : string.Join(", ", all.Take(6)) + " and " + (all.Count - 6) + " more";
     }
 
     // ---- JSON types and the classes behind them ----

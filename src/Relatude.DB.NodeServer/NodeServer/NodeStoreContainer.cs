@@ -455,6 +455,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             // yet - but it is also what a mistyped namespace or path looks like, and a model that
             // quietly lost its types would leave the stored nodes without them. So it is a warning.
             foreach (var notice in Datamodel.SourceNotices) datastore.LogWarning(notice);
+            // an override that no longer fits the model is skipped rather than fatal, and two base types
+            // that disagree fall back to the declaration - both silent unless they are logged
+            foreach (var notice in Datamodel.OverrideNotices) datastore.LogWarning(notice);
             // read from the index folder, or generated and compiled when the model changed - which
             // is most of an open when there is little to replay
             _openingStep = "Preparing the object mappers";
@@ -576,8 +579,13 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 }
             }
         }
+        // the database's overrides ride along unapplied: the store applies them as it opens, while the
+        // model the editor gets keeps them apart from the types it writes back into the sources
+        dm.Overrides = OverridesFile.Read(server);
         return dm;
     }
+    /// <summary>Where this database keeps its datamodel overrides.</summary>
+    public DatamodelOverridesFile OverridesFile => DatamodelOverridesFile.For(server, settings);
     /// <summary>
     /// A fresh model from the configured sources, with the types application code registers
     /// (OnDatamodelInit) - exactly what a (re)open would start from, without opening anything. Used

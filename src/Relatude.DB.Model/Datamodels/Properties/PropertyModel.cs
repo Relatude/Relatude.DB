@@ -28,6 +28,13 @@ public abstract class PropertyModel {
     public abstract bool ExcludeFromTextIndex { get; set; }
     public string CodeName { get; set; } = string.Empty;
     public abstract string GetDefaultValueAsCode();
+    /// <summary>
+    /// C# source for a value of this property's type, the way the generated mapper writes a default: an
+    /// escaped string, a number in the invariant culture with the suffix its type needs. Used for the
+    /// default a node type overrides (<see cref="NodeTypeModel.GetDefaultValue"/>). Types whose default is
+    /// fixed - arrays, files, embedded nodes - ignore the value and give their fixed default.
+    /// </summary>
+    public virtual string GetValueAsCode(object? value) => GetDefaultValueAsCode();
     public abstract PropertyType PropertyType { get; }
     public int IndexBoost { get; set; } = 0;
     public Guid ReadAccess { get; set; }

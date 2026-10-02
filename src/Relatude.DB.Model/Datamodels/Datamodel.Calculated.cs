@@ -95,12 +95,7 @@ public partial class Datamodel {
                     }
                 }
             }
-            foreach (var t in NodeTypes.Values) {
-                foreach (var p in t.AllProperties.Values) {
-                    if (p.DisplayName) t.DisplayProperties.Add(p);
-                    if (!p.ExcludeFromTextIndex) t.TextIndexProperties.Add(p);
-                }
-            }
+            resolvePropertySettingsPerType(); // DisplayProperties, TextIndexProperties and the per type defaults
             identifyNameOfPropertyFromInheritance();
             initializeRelations();
 
@@ -511,6 +506,8 @@ public partial class Datamodel {
     public void AddDatamodel(Datamodel dm, Guid? sourceId = null, string? sourceFilename = null) {
         if (dm == null) return;
         if (dm.HasInitialized()) throw new Exception("Cannot add an already initialized datamodel to another datamodel. Add datamodels together before the store is created. ");
+        if (dm.Overrides != null && !dm.Overrides.IsEmpty) SourceNotices.Add("The datamodel " + (sourceFilename == null ? "added" : "in \"" + sourceFilename + "\"")
+            + " carries overrides. Overrides are kept with the database, not in model files, so these are ignored. ");
         foreach (var nt in dm.NodeTypes.Values) {
             if (nt.Id == NodeConstants.BaseNodeTypeId) continue; // both models contain the built-in base type
             if (NodeTypes.TryGetValue(nt.Id, out var existing)) throw new Exception(

@@ -2626,3 +2626,96 @@ button.dm-source-card {
   color: var(--term-text);
   background: var(--term-bg);
 }
+
+/* ---- overrides ----
+   Beside a field's label, where its value comes from: "overridden" (the database's overrides, which
+   win over the source), "own" (the type's own [PropertyOverride] for a property it inherits), "from X"
+   (inherited from a base type; a click opens it), "bases disagree" (two base types set different
+   values, so the declaration or the database default applies). One colour, teal, for overrides
+   wherever they show, so it is never mistaken for a draft change (accent) or a warning (data). */
+.dm-ochip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 16px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.dm-ochip.overridden {
+  background: var(--override-soft);
+  color: var(--override);
+}
+.dm-ochip.own {
+  background: var(--badge-bg);
+  color: var(--text-soft);
+}
+.dm-ochip.inherited {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.dm-ochip.inherited:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.dm-ochip.conflict {
+  background: var(--data-soft);
+  color: var(--data);
+}
+/* the marks on a property row in a type's lists */
+.dm-ochip.small {
+  height: 14px;
+  padding: 0 4px;
+  font-size: 10px;
+}
+.dm-field.overridden .dm-field-label {
+  color: var(--override);
+}
+.dm-reset.dm-reset-override:hover {
+  color: var(--override);
+}
+.badge.dm-badge-override {
+  background: var(--override-soft);
+  color: var(--override);
+}
+/* the line under the head of a property seen from a type that inherits it */
+.dm-note.dm-via-note {
+  word-break: normal;
+  margin: 2px 0 4px;
+}
+
+/* the overrides, listed under the sources: a panel of the same build as a source card, with the
+   override colour where a source has its own */
+.dm-overrides {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px 12px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 5px solid var(--override);
+  border-radius: 10px;
+}
+.dm-overrides-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dm-overrides-icon {
+  color: var(--override);
+  flex-shrink: 0;
+}
+.dm-table.dm-overrides-table td {
+  vertical-align: middle;
+}
+.dm-override-value {
+  color: var(--override);
+  font-weight: 600;
+}

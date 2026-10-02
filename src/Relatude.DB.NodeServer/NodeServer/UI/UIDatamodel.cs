@@ -77,6 +77,7 @@ sealed class UIDatamodel {
         }
         var overlay = _server.ConfigurationOverlay;
         var sourcesLocked = overlay != null && overlay.IsOverridden(Settings.SettingsOverlay.OverridePath(c.Settings.Id, "DatamodelSources"), out _);
+        var overridesFile = c.OverridesFile;
         return new {
             StoreId = storeId,
             Open = c.IsOpen(),
@@ -93,8 +94,17 @@ sealed class UIDatamodel {
             Sources = describeSources(c, active),
             SourcesLocked = sourcesLocked,
             IoProviders = (c.Settings.IOSettings ?? []).Select(io => new { io.Id, io.Name }),
+            // where the overrides are kept; their content rides in the model (Datamodel.Overrides)
+            Overrides = new {
+                PlanId = DatamodelOverridesFile.PlanId,
+                overridesFile.Location,
+                overridesFile.InDatabase,
+                Writable = overridesFile.CanWrite,
+                Exists = safe(() => overridesFile.Exists(_server)),
+            },
         };
     }
+    static bool safe(Func<bool> f) { try { return f(); } catch { return false; } }
     static JsonElement element(Datamodel model) {
         using var document = JsonDocument.Parse(DatamodelJson.Serialize(model));
         return document.RootElement.Clone();
@@ -220,6 +230,9 @@ sealed class UIDatamodel {
             result.FilesWritten,
             result.FilesDeleted,
             result.ChecksumMatches,
+            result.OverridesChanged,
+            result.TextCleared,
+            result.TextReindexQueued,
             result.Message,
         };
     }
@@ -231,15 +244,18 @@ sealed class UIDatamodel {
         v.RequiresRebuild,
         v.DraftChecksum,
         v.ActiveChecksum,
+        v.TextReindexTypes,
+        v.TextIndexOffTypes,
         Plan = v.Plan == null ? null : new {
             v.Plan.SettingsChange,
+            v.Plan.OverridesChange,
             v.Plan.RequiresRebuild,
             Sources = v.Plan.Sources.Select(s => new {
                 s.SourceId, s.Name, Type = s.Type.ToString(), s.Writable, s.ReadOnlyReason, s.RequiresRebuild, s.Removed, s.Added,
                 s.AddedTypes, s.ChangedTypes, s.RemovedTypes, s.AddedRelations, s.ChangedRelations, s.RemovedRelations, s.HasModelChanges,
             }),
             Files = v.Plan.Files.Select(f => new {
-                f.SourceId, f.Path, f.RelativePath, Action = f.Action.ToString().ToLower(), f.Exists, f.Changed, f.NodeTypeIds, f.RelationIds, f.Content,
+                f.SourceId, f.Path, f.RelativePath, Action = f.Action.ToString().ToLower(), f.Exists, f.Changed, f.HandWritten, f.NodeTypeIds, f.RelationIds, f.Content,
             }),
         },
     };

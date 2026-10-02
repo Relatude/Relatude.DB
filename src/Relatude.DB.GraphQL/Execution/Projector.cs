@@ -46,12 +46,12 @@ internal static class Projector {
             case FieldSource.ChangedUtc: return Iso(node.ChangedUtc);
             case FieldSource.ScalarProperty: {
                     var p = field.Property!;
-                    var value = node.TryGetValue(p.Id, out var raw) ? raw : safeDefault(p);
+                    var value = node.TryGetValue(p.Id, out var raw) ? raw : safeDefault(typeModel, p);
                     return ToJsonValue(value);
                 }
             case FieldSource.EnumProperty: {
                     var p = field.Property!;
-                    var value = node.TryGetValue(p.Id, out var raw) ? raw : safeDefault(p);
+                    var value = node.TryGetValue(p.Id, out var raw) ? raw : safeDefault(typeModel, p);
                     var intValue = value == null ? 0 : Convert.ToInt32(value);
                     var enumType = (GqlEnumType)field.Type.UnwrapNamed();
                     return enumType.TryGetByInt(intValue, out var ev) ? ev.Name : intValue.ToString();
@@ -130,8 +130,8 @@ internal static class Projector {
         try { return file.ContentType; } catch { return null; }
     }
 
-    static object? safeDefault(Datamodels.Properties.PropertyModel p) {
-        try { return p.GetDefaultValue(); } catch { return null; }
+    static object? safeDefault(NodeTypeModel type, Datamodels.Properties.PropertyModel p) {
+        try { return type.GetDefaultValue(p); } catch { return null; } // the node type may override the default
     }
 
     public static string Iso(DateTime dt) {

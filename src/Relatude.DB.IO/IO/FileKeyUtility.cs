@@ -121,6 +121,9 @@ public static class FileKeyUtility {
     // history files are timestamped copies of every model that has been active, newest last.
     static readonly string[] datamodelDraftFileKey = [DatamodelsFolderName, "datamodel.draft.json"];
     static readonly string[] datamodelHistoryFilePattern = [DatamodelsFolderName, "datamodel.*.json"];
+    // the database's datamodel overrides (see Datamodel.Overrides). It fits the history pattern above but
+    // carries no timestamp, which is what Datamodel_IsHistoryFileKey tells them apart by
+    static readonly string[] datamodelOverridesFileKey = [DatamodelsFolderName, "datamodel.overrides.json"];
 
     /// <summary>The key a pattern describes, with the wildcard in its file name filled in.</summary>
     static string[] fill(string[] pattern, string value) => [.. pattern[..^1], pattern[^1].Replace("*", value)];
@@ -315,6 +318,8 @@ public static class FileKeyUtility {
 
     /// <summary>The draft model of the datamodel editor; there is one per database.</summary>
     public static string[] Datamodel_DraftFileKey => datamodelDraftFileKey;
+    /// <summary>The datamodel overrides of the database, when they are kept with it (the default).</summary>
+    public static string[] Datamodel_OverridesFileKey => datamodelOverridesFileKey;
     /// <summary>The history file for a model that was active at the given (UTC) time.</summary>
     public static string[] Datamodel_GetHistoryFileKey(DateTime utc) => fill(datamodelHistoryFilePattern, utc.ToString(dateTimeTemplate));
     /// <summary>Whether the key names a datamodel history file (the draft has the same shape but no timestamp).</summary>

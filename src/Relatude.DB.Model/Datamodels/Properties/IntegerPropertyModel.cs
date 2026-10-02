@@ -30,6 +30,11 @@ public class IntegerPropertyModel : PropertyModel, IPropertyModelUniqueContraint
         if (value is string s && int.TryParse(s, CultureInfo.InvariantCulture, out var v)) return v;
         return default;
     }
-    public override string GetDefaultValueAsCode() => DefaultValue.ToString();
+    public override string GetDefaultValueAsCode() => GetValueAsCode(DefaultValue);
+    public override string GetValueAsCode(object? value) {
+        var literal = CSharpLiteral.Int(value is int i ? i : 0);
+        // the mapper reads an enum member as the enum type, and only the literal 0 converts to an enum by itself
+        return IsEnum && !string.IsNullOrEmpty(FullEnumTypeName) ? "((" + FullEnumTypeName.Replace('+', '.') + ")(" + literal + "))" : literal;
+    }
     public override string? GetTextIndex(object value) => value.ToString();
 }

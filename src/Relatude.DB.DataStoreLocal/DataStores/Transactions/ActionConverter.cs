@@ -464,7 +464,7 @@ internal class ActionConverter {
         var propDef = db._definition.Properties[a.PropertyId];
         var nodes = db._nodes.Get(uints.ToArray());
         foreach (var node in nodes) {
-            var value = node.TryGetValue(a.PropertyId, out var v) ? v : propDef.Model.GetDefaultValue();
+            var value = node.TryGetValue(a.PropertyId, out var v) ? v : db.Datamodel.NodeTypes[node.NodeType].GetDefaultValue(propDef.Model);
             if (!propDef.SatisfyValueRequirement(value, a.Value!, a.Requirement)) {
                 throw new("Node with id " + node.Id + " does not satisfy the requirement for property " + propDef.CodeName + ". ");
             }

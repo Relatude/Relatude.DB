@@ -22,7 +22,7 @@ concept builds on the last.
 
 1. [The mental model](#1-the-mental-model)
 2. [Your first node type — and why interfaces win](#2-your-first-node-type)
-3. [Scalar properties and their attributes](#3-scalar-properties-and-their-attributes)
+3. [Scalar properties and their attributes](#3-scalar-properties-and-their-attributes) · [3.1 overriding attributes](#31-overriding-attributes)
 4. [Marker properties](#4-marker-properties)
 5. [Geo coordinates](#5-geo-coordinates)
 6. [Files](#6-files)
@@ -350,8 +350,10 @@ identity* — and the engine sees a brand-new type with no data. Rename-proof yo
 public interface IOrganizer { /* ... */ }
 ```
 
-`BoolValue` is tri-state: `Default` (let the engine decide), `True`, `False`. `[Node]` also accepts
-`MinNoInstances` / `MaxNoInstances` to constrain how many instances of the type may exist.
+`BoolValue` is tri-state: `Default` (take it from the base types, else the database default), `True`,
+`False`. `TextIndex`, `SemanticIndex` and `InstantTextIndexing` are inherited: see
+[§3.1](#31-overriding-attributes). `[Node]` also accepts `MinNoInstances` / `MaxNoInstances` to
+constrain how many instances of the type may exist.
 
 ---
 
@@ -497,6 +499,117 @@ public AccessibilityFeature[] Accessibility { get; set; } = [];
 `LegalValues`, `RegularExpression`, `MinValue`/`MaxValue`, `MinLength`/`MaxLength`, `UniqueValues`
 and `MinNoInstances`/`MaxNoInstances` are all enforced by the engine at write time. A violating
 transaction fails rather than silently storing bad data.
+
+### 3.1 Overriding attributes
+
+Sometimes the attribute you want to change is not yours to edit: the type comes from an assembly you
+do not build, the property is declared on a base interface other types share, or a default value has
+to change in production without a rebuild. Three layers decide what a type ends up with, and on one
+type a later layer wins over an earlier one:
+
+1. **Declared** - the attributes on the member or type that declares it (or its JSON model file):
+   everything above.
+2. **Overridden in code, on a derived type** - a type sets its own value for a switch it inherits, or
+   for one of the attributes of a property it inherits.
+3. **Overridden at runtime** - the database's overrides, written by the data model editor and applied
+   when the database opens, exactly as if the source said so.
+
+**The text search switches are inherited.** `TextIndex`, `SemanticIndex` and `InstantTextIndexing`
+on `[Node]` go to the types inheriting from the type they are set on: a type that does not set one
+takes it from the most specific base type that does, and only then the database default
+(`EnableTextIndexByDefault` and friends, [§12.1](#121-every-setting-in-relatudedbjson)). Before October
+2026 they applied to the one type they were set on.
+
+```csharp
+[Node(TextIndex = BoolValue.True)]
+public interface IContent { /* ... */ }        // every type implementing IContent is text indexed ...
+
+[Node(TextIndex = BoolValue.False)]
+public class InternalNote : IContent { /* ... */ } // ... except this one
+```
+
+Two base types that are not related and disagree cancel out: the type gets the database default, and
+the database logs a warning naming both. Set the switch on the type to choose. Semantic indexing needs
+the text index, so a type that is semantically indexed - by itself, a base type or the database
+default - stays text indexed whatever its `TextIndex` says.
+
+**An inherited property: `[PropertyOverride]`.** A property has one declaration, but four of its
+attributes may differ between the types that have it - the default value, whether the value is part
+of the text index, its boost there, and whether it is part of the display name. A derived type sets
+its own with `[PropertyOverride]`, which offers those four and nothing else:
+
+```csharp
+[Node]
+[PropertyOverride(nameof(IContent.Title), DefaultValue = "Untitled news", TextIndexBoost = 2)]
+[PropertyOverride(nameof(IContent.Body), ExcludeFromTextIndex = BoolValue.True)]
+public class NewsArticle : IContent {
+    // on a member implementing an interface property the attribute can sit on the member, without a name:
+    [PropertyOverride(DisplayName = BoolValue.True)]
+    public string Summary { get; set; } = "";
+    // ...
+}
+```
+
+The override applies to the type and to every type inheriting from it, unless one of those sets its
+own. Decimals, dates, durations and guids are strings, as on the property attributes. Everything else
+about a property is one setting wherever the property is used - it has one value index, one word
+index, one set of rules - so it stays with the declaration, and only the declaring type's override
+changes it.
+
+| What | Overridable attributes |
+|---|---|
+| Node type, inherited | `TextIndex`, `SemanticIndex`, `InstantTextIndexing` |
+| Node type, that type only | `Hidden`, `DefaultReadAccess`, `DefaultEditViewAccess` |
+| Property, per type (inherited) | `DefaultValue`, `ExcludeFromTextIndex`, `IndexBoost` (`TextIndexBoost` on the attributes), `DisplayName` |
+| Property, on the declaring type | `Indexed`, `NotFacet`, `IndexType`, `IndexedByWords`, `TextIndexType`, `MinLength`, `MaxLength`, `RegularExpression`, `MinValue`, `MaxValue`, `FacetRangePowerBase`, `FacetRangeCount`; on relation properties `Facet`, `TextIndexRelatedContent`, `TextIndexRelatedDisplayName` |
+| Never | ids and names, the property type, `UniqueValues`, culture settings, enum metadata, what a relation, reference or embedded property points at |
+
+`TextIndexBoost` on `[Node]` is not in the list: the engine does not use it yet.
+
+**At runtime: the data model editor.** The editor (admin UI, **Models**) writes a change into the
+source that defines it. Where that source cannot be written - classes compiled into an assembly
+without a source code folder, types registered in `OnDatamodelInit` - the fields that can be
+overridden stay open, and what is set in them is saved as an override. Each field says where its
+value comes from (*overridden*, *own*, *from IContent*), and the arrow beside an override takes it
+away. An inherited property opens as the derived type sees it, with its four per-type attributes open
+for that type. The **Sources** view lists every override beside what the source says. Activating saves
+them and reopens the database; the nodes of a type whose indexed text changed are queued for text
+indexing, and a type whose text indexing is turned off has its text taken out of the index first.
+
+The overrides are kept with the database - `datamodels/datamodel.overrides.json` on its storage
+provider - so they survive a redeploy. `DatamodelOverridesPath` (**Settings → Data model →
+Overrides**) keeps them in a file of the site instead, to have them in source control. The file is
+plain JSON, keyed by ids, with names beside them for reading:
+
+```jsonc
+{
+  "NodeTypes": {
+    "3ad77060-788d-21b2-31c1-4305dcae3437": {
+      "Name": "Shop.Models.Product",
+      "TextIndex": false,
+      "Properties": {
+        "8b1aa6c4-205e-740c-73ca-26d1e39111dc": { "Name": "Price", "Indexed": true, "DefaultValue": 0 }
+      }
+    }
+  }
+}
+```
+
+An override whose type or property is gone, a value that does not parse, an attribute that cannot be
+overridden: each is skipped with a warning in the log and in the editor, never a reason for the
+database not to open. From code, set `Datamodel.Overrides` before the store is created - the store
+applies them as it opens.
+
+Two things worth knowing before changing a value at runtime:
+
+- **A default is late bound.** A node with no value stored for a property reads the current default,
+  so a new default reaches nodes that never had a value - stored before the property existed, or
+  created without setting it. Stored values are never touched. The editor warns when the type has
+  nodes; if the property is indexed, queries on it may not see the new default for those nodes until
+  the indexes are rebuilt.
+- **Rules apply to new writes.** A tighter `MaxLength` or `MinValue` does not check the values
+  already stored. Turning `Indexed` or `IndexedByWords` on builds the index from the log at the next
+  open.
 
 ---
 
@@ -3087,7 +3200,8 @@ A property participates in search only if it opted in:
 
 - `IndexedByWords = true` → BM25 keyword index
 - `IndexedBySemantic = true` → vector index
-- `TextIndexBoost` on the property, or `TextIndexBoost` on `[Node]`, weights it
+- `TextIndexBoost` on the property weights it (its text goes into the index that many extra times);
+  `TextIndexBoost` on `[Node]` is not used yet
 - `ExcludeFromTextIndex = true` keeps a property out
 - `[RelationProperty(TextIndexRelatedDisplayName = true)]` pulls related nodes' display names into
   this node's text index — so a venue becomes findable by the events held there

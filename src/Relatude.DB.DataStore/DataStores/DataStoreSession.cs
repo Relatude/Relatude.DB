@@ -182,6 +182,8 @@ public class DataStoreSession : IDataStore {
     public TextExtract[] GetTextExtract(IEnumerable<int> ids, TextIndexType indexType)
         => _datastore.GetTextExtract(ids, indexType);
     public int ReIndexAllText() => _datastore.ReIndexAllText();
+    public int ReIndexText(IEnumerable<Guid> nodeTypeIds) => _datastore.ReIndexText(nodeTypeIds);
+    public int ClearIndexedText(IEnumerable<Guid> nodeTypeIds) => _datastore.ClearIndexedText(nodeTypeIds);
     public StoreCounters PeekCounters() => _datastore.PeekCounters();
     public MemoryBudget[] GetMemoryBudgets() => _datastore.GetMemoryBudgets();
     public bool TrySetMemoryBudget(MemoryBudgetKind kind, Guid engineId, long bytes) => _datastore.TrySetMemoryBudget(kind, engineId, bytes);

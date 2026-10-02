@@ -1743,7 +1743,7 @@ sealed class UIQuery {
                 object? value = null;
                 if (wanted.Values != null && wanted.Values.TryGetValue(property.Id.ToString(), out var json) && json.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
                     value = parse(property, json);
-                value ??= property.GetDefaultValue();
+                value ??= innerType.GetDefaultValue(property);
                 if (value != null) values.Add(property.Id, value);
             }
             nodes.Add(new NodeData(wanted.Id is Guid g && g != Guid.Empty ? g : Guid.NewGuid(), 0, wanted.TypeId, nowUtc, nowUtc, values, null));

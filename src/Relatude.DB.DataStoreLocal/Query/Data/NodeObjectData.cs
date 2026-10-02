@@ -39,7 +39,8 @@ internal class NodeObjectData : IStoreNodeData {
             } else {
                 var prop = _def.Datamodel.Properties[propertyId];
                 if (prop is RelationPropertyModel rp) return getRelated(rp);
-                return prop.GetDefaultValue(); // values equal to the default are not stored
+                // a value never stored reads as the default of the node's own type, which may override the property's
+                return _def.Datamodel.NodeTypes.TryGetValue(_nodeData.NodeType, out var nodeType) ? nodeType.GetDefaultValue(prop) : prop.GetDefaultValue();
             }
         } else {
             // the node's own dates under the names its class maps them to: x.Created, x.Meta.ChangedUtc

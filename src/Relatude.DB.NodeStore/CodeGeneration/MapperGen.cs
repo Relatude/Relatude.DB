@@ -372,17 +372,21 @@ internal static class MapperGen {
                     // HTML/Markdown values are stored with internal rdb: link tokens; reads emit current public URLs
                     sb.Append("{ obj." + p.CodeName + " = nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v) ? ");
                     sb.Append("store." + nameof(NodeStore.ExternalizeContentLinks) + "((string)v)!");
-                    sb.AppendLine(" : " + p.GetDefaultValueAsCode() + "; }");
+                    sb.AppendLine(" : " + defaultAsCode(nodeDef, p) + "; }");
                 } else {
                     sb.Append("{ obj." + p.CodeName + " = nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v) ? ");
                     sb.Append("(" + CodeUtils.GetTypeName(p, dm) + ")v");
-                    sb.AppendLine(" : " + p.GetDefaultValueAsCode() + "; }");
+                    sb.AppendLine(" : " + defaultAsCode(nodeDef, p) + "; }");
                 }
             }
         }
         sb.AppendLine("return obj;");
         sb.AppendLine("}"); // end method
     }
+    // what a node of this type reads for a property it has no value stored for: the default the type, or
+    // one of its base types, overrides, else the property's own (see NodeTypeModel.GetDefaultValue)
+    static string defaultAsCode(NodeTypeModel nodeDef, PropertyModel p)
+        => nodeDef.TryGetOverriddenDefaultValue(p.Id, out var value) ? p.GetValueAsCode(value) : p.GetDefaultValueAsCode();
     static void generate_TryGetId(StringBuilder sb, NodeTypeModel nodeDef, Datamodel datamodel) {
         var nsp = nodeDef.Namespace ?? string.Empty;
         var classTypeName = string.IsNullOrEmpty(nsp) ? nodeDef.CodeName : nsp + "." + nodeDef.CodeName;

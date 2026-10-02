@@ -47,7 +47,8 @@ public class StringPropertyModel : PropertyModel, IPropertyModelUniqueContraints
         changed = true;
         return value.ToString() ?? string.Empty;
     }
-    public override string GetDefaultValueAsCode() => $"\"{DefaultValue}\"";
+    public override string GetDefaultValueAsCode() => GetValueAsCode(DefaultValue);
+    public override string GetValueAsCode(object? value) => CSharpLiteral.String(value as string);
     public override string? GetTextIndex(object value) {
         return value.ToString();
     }

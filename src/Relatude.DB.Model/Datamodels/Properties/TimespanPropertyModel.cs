@@ -20,6 +20,7 @@ namespace Relatude.DB.Datamodels.Properties {
             if (value is string s && TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out var v)) return v;
             return default;
         }
-        public override string GetDefaultValueAsCode() => $"new TimeSpan({DefaultValue.Ticks})";
+        public override string GetDefaultValueAsCode() => GetValueAsCode(DefaultValue);
+        public override string GetValueAsCode(object? value) => $"new TimeSpan({(value is TimeSpan t ? t.Ticks : 0)})";
     }
 }

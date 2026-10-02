@@ -33,8 +33,11 @@ public class DateTimeOffsetPropertyModel : PropertyModel, IPropertyModelUniqueCo
         }
         return default;
     }
-    public override string GetDefaultValueAsCode() =>
-        $"new DateTimeOffset({DefaultValue.Ticks}, new TimeSpan({DefaultValue.Offset.Ticks}))";
+    public override string GetDefaultValueAsCode() => GetValueAsCode(DefaultValue);
+    public override string GetValueAsCode(object? value) {
+        var v = value is DateTimeOffset d ? d : default;
+        return $"new DateTimeOffset({v.Ticks}, new TimeSpan({v.Offset.Ticks}))";
+    }
     // node data codec: 8 bytes utc ticks + 2 bytes offset in minutes (offsets are whole minutes, range ±14h)
     public static byte[] GetBytes(DateTimeOffset value) {
         var bytes = new byte[10];

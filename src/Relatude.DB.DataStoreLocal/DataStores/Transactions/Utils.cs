@@ -47,7 +47,7 @@ internal static class Utils {
                         if (oldNode.TryGetValue(prop.Id, out var oldValue)) {
                             node.Add(prop.Id, oldValue);
                         } else {
-                            var value = prop.Model.GetDefaultValue();
+                            var value = nodeType.Model.GetDefaultValue(prop.Model); // the type may override the default of a property it inherits
                             if (value != null) node.Add(prop.Id, value);
                         }
                     }

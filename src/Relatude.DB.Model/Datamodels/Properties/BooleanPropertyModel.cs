@@ -20,5 +20,6 @@ public class BooleanPropertyModel : PropertyModel {
         if (value is string s) return s.Equals("true", StringComparison.OrdinalIgnoreCase) || s == "1" || s == "-1";
         return default;
     }
-    public override string GetDefaultValueAsCode() => DefaultValue.ToString().ToLower();
+    public override string GetDefaultValueAsCode() => GetValueAsCode(DefaultValue);
+    public override string GetValueAsCode(object? value) => value is true ? "true" : "false";
 }

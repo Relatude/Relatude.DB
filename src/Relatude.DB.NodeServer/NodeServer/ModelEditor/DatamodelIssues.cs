@@ -92,6 +92,8 @@ public sealed class SourceWritePlan {
     public bool HasErrors => Issues.Any(i => i.Severity == IssueSeverity.Error);
     /// <summary>Whether the sources listed in the settings change: a source added, removed or edited.</summary>
     public bool SettingsChange { get; set; }
+    /// <summary>Whether the database's overrides change; the file holding them is among <see cref="Files"/>, filed under <see cref="DatamodelOverridesFile.PlanId"/>.</summary>
+    public bool OverridesChange { get; set; }
 }
 
 /// <summary>The outcome of validating a draft, with the write plan when the draft is structurally sound.</summary>
@@ -105,6 +107,14 @@ public sealed class DatamodelValidation {
     public bool Compiled { get; set; }
     public Guid DraftChecksum { get; set; }
     public Guid ActiveChecksum { get; set; }
+    /// <summary>
+    /// Node types whose text changes with the draft - text indexing turned on, a property put into or
+    /// left out of the text, a boost, a display name - so their nodes are queued for text indexing once
+    /// the database opens with the new model. Nothing else would index them again.
+    /// </summary>
+    public List<Guid> TextReindexTypes { get; } = [];
+    /// <summary>Node types the draft turns text indexing off for: their indexed text is emptied before the database reopens.</summary>
+    public List<Guid> TextIndexOffTypes { get; } = [];
     /// <summary>The initialized draft, when it initialized; what the writer and the activator work on.</summary>
     internal Datamodel? Draft { get; set; }
     /// <summary>The model the draft is compared against: what the configured sources say right now.</summary>

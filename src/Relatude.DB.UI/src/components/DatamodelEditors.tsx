@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { IconArrowLeft, IconChevronDown, IconChevronRight, IconLoader2, IconPlus, IconRefreshAlert, IconSearch, IconTrash, IconWand, IconX } from "@tabler/icons-react";
+import { IconAdjustments, IconAlertTriangle, IconArrowBackUp, IconArrowLeft, IconChevronDown, IconChevronRight, IconLoader2, IconPlus, IconRefreshAlert, IconSearch, IconTrash, IconWand, IconX } from "@tabler/icons-react";
 import { IndexMarks, KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, relationMeta, sourceKindMeta } from "./DatamodelIcons";
 import { Combobox, type ComboOption } from "./Combobox";
 import { DialogTools } from "./DialogTools";
@@ -30,6 +30,17 @@ import {
   type TypeProbe,
 } from "../server/datamodel";
 import type { ModelKind, RelationKind } from "../server/datamodel";
+import {
+  inheritedPropertySetting,
+  ownTypeSetting,
+  propertyHasOverrides,
+  propertyOverride,
+  resolvePropertySetting,
+  resolveTypeSetting,
+  typeSettingFromBases,
+  setOverride,
+  setOwnPropertyOverride,
+} from "../server/overrides";
 
 const emptyGuid = "00000000-0000-0000-0000-000000000000";
 
@@ -47,6 +58,8 @@ export interface EditorContext {
   /** whether the source the item belongs to can be written; false makes the editor read only */
   writableSource: (sourceId: string) => boolean;
   readOnlyReason: (sourceId: string) => string | null;
+  /** where the database keeps its overrides, as a phrase: "with the database", "in Models/overrides.json" */
+  overridesWhere: string;
   update: (mutate: (model: ModelJson) => void) => void;
   select: (selection: Selection | null) => void;
 }
@@ -62,7 +75,8 @@ export type TypeTab = "type" | "properties" | "code";
  */
 export type Selection =
   | { kind: "type"; id: string; focusField?: string; tab?: TypeTab }
-  | { kind: "property"; id: string; typeId: string; focusField?: string }
+  /** typeId is the type declaring the property; viaTypeId a type inheriting it, when the property is seen from there */
+  | { kind: "property"; id: string; typeId: string; viaTypeId?: string; focusField?: string }
   | { kind: "relation"; id: string; focusField?: string }
   | { kind: "source"; id: string; focusField?: string };
 
@@ -71,7 +85,10 @@ export type Selection =
  * a badge; the forms themselves say nothing, so a read-only form reads the same as a writable one.
  */
 export function readOnlyNote(selection: Selection, ctx: EditorContext, sourcesLocked: boolean): string | null {
-  const bySource = (sourceId: string) => (ctx.writableSource(sourceId) ? null : (ctx.readOnlyReason(sourceId) ?? "This source cannot be written from here."));
+  const overridable = " What can be overridden still can be: those fields stay open, and what is set in them is saved as overrides with the database.";
+  const bySource = (sourceId: string) => (ctx.writableSource(sourceId) ? null : (ctx.readOnlyReason(sourceId) ?? "This source cannot be written from here.") + (selection.kind === "source" || selection.kind === "relation" ? "" : overridable));
+  // an inherited property seen from a type: that type's own attributes are what the form edits
+  if (selection.kind === "property" && selection.viaTypeId && selection.viaTypeId !== selection.typeId) return null;
   if (selection.kind === "type") {
     const t = ctx.model.NodeTypes[selection.id];
     return t ? bySource(t.DatamodelSourceId) : null;
@@ -111,10 +128,24 @@ interface FieldProps {
 }
 
 /**
+ * How a field shows once overrides are taken into account (see FieldOverride): chips saying where the
+ * value comes from, and the button that takes an override away, in place of the usual back-to-default.
+ */
+interface FrameOverride {
+  chips: React.ReactNode;
+  reset: { title: string; onClick: () => void } | null;
+  overridden: boolean;
+  /** what the empty choice of a tristate means here: inherit, or the database default */
+  unsetLabel?: string;
+  /** the value is not the source's to be reset to its default from here: no back-to-default button, no "changed" mark */
+  quiet?: boolean;
+}
+
+/**
  * Renders one schema field. The value lives in the model object under field.path; an unset value
  * shows the default the server read off a fresh model object, which is what the engine will use.
  */
-export function FieldEditor({ field, value, onChange, disabled, ctx, typeId, fallbackColor, autoFocus, onFocused }: FieldProps) {
+export function FieldEditor({ field, value, onChange, disabled, ctx, typeId, fallbackColor, autoFocus, onFocused, frame }: FieldProps & { frame?: FrameOverride }) {
   const focusRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   // only text fields carry the ref; asking a select or a checkbox for the keyboard would be noise
   useEffect(() => {
@@ -141,7 +172,7 @@ export function FieldEditor({ field, value, onChange, disabled, ctx, typeId, fal
     case "tristate":
       control = (
         <select className="select" value={current === true ? "true" : current === false ? "false" : ""} disabled={off} onChange={(e) => onChange(e.target.value === "" ? null : e.target.value === "true")}>
-          <option value="">Database default</option>
+          <option value="">{frame?.unsetLabel ?? "Database default"}</option>
           <option value="true">Yes</option>
           <option value="false">No</option>
         </select>
@@ -302,18 +333,24 @@ export function FieldEditor({ field, value, onChange, disabled, ctx, typeId, fal
       );
   }
   return (
-    <FieldFrame label={field.label} help={field.help} isDefault={isDefault} canReset={!off} onReset={() => onChange(undefined)}>
+    <FieldFrame label={field.label} help={field.help} isDefault={isDefault || !!frame?.quiet} canReset={!off && !frame?.overridden && !frame?.quiet} onReset={() => onChange(undefined)} frame={frame}>
       {control}
     </FieldFrame>
   );
 }
 
 /** The chrome around one field: label, the back-to-default button, the control, the help line. */
-function FieldFrame({ label, help, isDefault, canReset, onReset, children }: { label: string; help: string; isDefault: boolean; canReset: boolean; onReset: () => void; children: React.ReactNode }) {
+function FieldFrame({ label, help, isDefault, canReset, onReset, frame, children }: { label: string; help: string; isDefault: boolean; canReset: boolean; onReset: () => void; frame?: FrameOverride; children: React.ReactNode }) {
   return (
-    <div className={"dm-field" + (isDefault ? "" : " changed")} title={help}>
+    <div className={"dm-field" + (isDefault || frame?.overridden ? "" : " changed") + (frame?.overridden ? " overridden" : "")} title={help}>
       <div className="dm-field-label">
         <span>{label}</span>
+        {frame?.chips}
+        {frame?.reset && (
+          <button className="dm-reset dm-reset-override" title={frame.reset.title} onClick={frame.reset.onClick}>
+            <IconArrowBackUp size={12} stroke={2} />
+          </button>
+        )}
         {!isDefault && canReset && (
           <button className="dm-reset" title="Back to the default" onClick={onReset}>
             <IconX size={11} stroke={2} />
@@ -370,7 +407,18 @@ function TypeRefs({ value, onChange, disabled, ctx }: { value: string[]; onChang
 
 // ---- field groups ----
 
-function Groups({ fields, target, onChange, disabled, ctx, typeId, open, focusPath, onFocused }: { fields: FieldDef[]; target: Record<string, unknown>; onChange: (path: string, value: unknown) => void; disabled: boolean; ctx: EditorContext; typeId?: string; open: string[]; focusPath?: string | null; onFocused?: () => void }) {
+/**
+ * What overrides make of one field of a form: the value shown, whether it can be edited, where an edit
+ * goes, and how its frame says so. Null leaves the field to the form's plain rules.
+ */
+interface FieldOverride {
+  value: unknown;
+  disabled: boolean;
+  onChange: (value: unknown) => void;
+  frame: FrameOverride;
+}
+
+function Groups({ fields, target, onChange, disabled, ctx, typeId, open, focusPath, onFocused, overrideOf }: { fields: FieldDef[]; target: Record<string, unknown>; onChange: (path: string, value: unknown) => void; disabled: boolean; ctx: EditorContext; typeId?: string; open: string[]; focusPath?: string | null; onFocused?: () => void; overrideOf?: (field: FieldDef) => FieldOverride | null }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(ctx.schema.groups.filter((g) => !open.includes(g))));
   const groups = ctx.schema.groups.filter((g) => fields.some((f) => f.group === g));
   // a field that is to be focused has to be on screen first: its group opens, collapsed or not
@@ -389,6 +437,7 @@ function Groups({ fields, target, onChange, disabled, ctx, typeId, open, focusPa
       {groups.map((g) => {
         const isCollapsed = collapsed.has(g);
         const changed = fields.filter((f) => f.group === g && target[f.path] !== undefined && JSON.stringify(target[f.path]) !== JSON.stringify(f.default)).length;
+        const overridden = overrideOf ? fields.filter((f) => f.group === g && overrideOf(f)?.frame.overridden).length : 0;
         return (
           <div key={g} className="dm-group">
             <button
@@ -405,14 +454,17 @@ function Groups({ fields, target, onChange, disabled, ctx, typeId, open, focusPa
               {isCollapsed ? <IconChevronRight size={13} stroke={2} /> : <IconChevronDown size={13} stroke={2} />}
               <span>{g}</span>
               {changed > 0 && <span className="badge">{changed} set</span>}
+              {overridden > 0 && <span className="badge dm-badge-override">{overridden} overridden</span>}
             </button>
             {!isCollapsed && (
               <div className="dm-group-body">
                 {fields
                   .filter((f) => f.group === g)
-                  .map((f) => (
-                    <FieldEditor key={f.path} field={f} value={target[f.path]} onChange={(v) => onChange(f.path, v)} disabled={disabled} ctx={ctx} typeId={typeId} autoFocus={f.path === focusPath} onFocused={onFocused} />
-                  ))}
+                  .map((f) => {
+                    const o = overrideOf?.(f);
+                    if (o) return <FieldEditor key={f.path} field={f} value={o.value} onChange={o.onChange} disabled={o.disabled} ctx={ctx} typeId={typeId} autoFocus={f.path === focusPath} onFocused={onFocused} frame={o.frame} />;
+                    return <FieldEditor key={f.path} field={f} value={target[f.path]} onChange={(v) => onChange(f.path, v)} disabled={disabled} ctx={ctx} typeId={typeId} autoFocus={f.path === focusPath} onFocused={onFocused} />;
+                  })}
               </div>
             )}
           </div>
@@ -425,6 +477,186 @@ function Groups({ fields, target, onChange, disabled, ctx, typeId, open, focusPa
 function setField(target: Record<string, unknown>, path: string, value: unknown) {
   if (value === undefined) delete target[path];
   else target[path] = value;
+}
+
+// ---- overrides in the forms ----
+
+const sameValue = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+/** A value as a form's chips and buttons say it. */
+export function showValue(v: unknown): string {
+  if (v === undefined || v === null) return "not set";
+  if (v === true) return "yes";
+  if (v === false) return "no";
+  if (typeof v === "string") return v === "" ? "empty" : '"' + v + '"';
+  return String(v);
+}
+
+function OverriddenChip({ title }: { title: string }) {
+  return (
+    <span className="dm-ochip overridden" title={title}>
+      <IconAdjustments size={11} stroke={2.2} /> overridden
+    </span>
+  );
+}
+/** The base type a value comes from; a click opens it. */
+function FromChip({ ctx, typeId, value, fromOverride }: { ctx: EditorContext; typeId: string; value: unknown; fromOverride?: boolean }) {
+  const t = ctx.model.NodeTypes[typeId];
+  return (
+    <button className="dm-ochip inherited" title={showValue(value) + ", inherited from " + (t ? fullName(t) : typeId) + (fromOverride ? ", where it is overridden" : "") + ". Click to open it."} onClick={() => ctx.select({ kind: "type", id: typeId })}>
+      from {t?.CodeName ?? "?"}
+    </button>
+  );
+}
+function ConflictChip({ ctx, ids, fallback }: { ctx: EditorContext; ids: string[]; fallback: string }) {
+  const names = ids.map((id) => ctx.model.NodeTypes[id]?.CodeName ?? id).join(" and ");
+  return (
+    <span className="dm-ochip conflict" title={names + " set different values, so " + fallback + ". Set it here to choose."}>
+      <IconAlertTriangle size={11} stroke={2.2} /> bases disagree
+    </span>
+  );
+}
+
+/**
+ * The fields of a node type that can be overridden. On a type whose source can be written an edit goes
+ * into the source, the way every other field does; on one whose source cannot, it becomes one of the
+ * database's overrides. A field that is overridden already edits its override either way, since that is
+ * what the database uses.
+ */
+function typeOverrides(ctx: EditorContext, type: NodeTypeJson, writable: boolean) {
+  return (field: FieldDef): FieldOverride | null => {
+    const scope = field.overridable;
+    if (!scope || field.readOnly) return null;
+    const own = ownTypeSetting(ctx.model, type.Id, field.path);
+    const declared = (type as Record<string, unknown>)[field.path];
+    const resolved = resolveTypeSetting(ctx.model, type.Id, field.path, scope);
+    const bases = scope === "inherited" ? typeSettingFromBases(ctx.model, type.Id, field.path) : null;
+    const toOverride = own.overridden || !writable;
+    return {
+      value: own.value,
+      disabled: false,
+      onChange: (v) =>
+        ctx.update((m) => {
+          if (toOverride) setOverride(m, type.Id, null, field.path, v === undefined || sameValue(v, declared) ? undefined : v);
+          else setField(m.NodeTypes[type.Id] as unknown as Record<string, unknown>, field.path, v);
+        }),
+      frame: {
+        overridden: own.overridden,
+        quiet: !writable,
+        chips: (
+          <>
+            {own.overridden && <OverriddenChip title={"Overridden " + ctx.overridesWhere + ". The source says " + showValue(declared) + "."} />}
+            {resolved.kind === "inherited" && resolved.typeId && <FromChip ctx={ctx} typeId={resolved.typeId} value={resolved.value} fromOverride={resolved.fromOverride} />}
+            {resolved.conflict && <ConflictChip ctx={ctx} ids={resolved.conflict} fallback="the database default applies" />}
+          </>
+        ),
+        reset: own.overridden ? { title: "Remove the override: back to " + showValue(declared) + ", what the source says", onClick: () => ctx.update((m) => setOverride(m, type.Id, null, field.path, undefined)) } : null,
+        unsetLabel: bases ? (bases.kind === "inherited" && bases.typeId ? "Inherit: " + showValue(bases.value) + " from " + (ctx.model.NodeTypes[bases.typeId]?.CodeName ?? "?") : "Database default") : undefined,
+      },
+    };
+  };
+}
+
+/**
+ * The fields of a property that can be overridden, seen from view: the type declaring the property, or
+ * one inheriting it. From the declaring type every overridable field is open, under the same rule as a
+ * type's (the source when it can be written, an override when not). From an inheriting type only the
+ * attributes that may differ between types are: what the type sets goes into its own definition when its
+ * source can be written ([PropertyOverride]), into the database's overrides when not; the rest of the
+ * property is the declaring type's and is shown, not edited.
+ */
+function propertyOverrides(ctx: EditorContext, owner: NodeTypeJson, view: NodeTypeJson, property: PropertyJson) {
+  const via = view.Id !== owner.Id;
+  const ownerWritable = ctx.writableSource(owner.DatamodelSourceId) && !property.Internal;
+  const viewWritable = ctx.writableSource(view.DatamodelSourceId);
+  return (field: FieldDef): FieldOverride | null => {
+    const scope = field.overridable;
+    if (field.readOnly || property.Internal) return null;
+    if (!via) {
+      if (!scope) return null;
+      const o = propertyOverride(ctx.model, owner.Id, property.Id)?.[field.path];
+      const overridden = o !== undefined && o !== null;
+      const declared = (property as Record<string, unknown>)[field.path];
+      const toOverride = overridden || !ownerWritable;
+      return {
+        value: overridden ? o : declared,
+        disabled: false,
+        onChange: (v) =>
+          ctx.update((m) => {
+            if (toOverride) setOverride(m, owner.Id, property.Id, field.path, v === undefined || sameValue(v, declared) ? undefined : v);
+            else setField(m.NodeTypes[owner.Id].Properties[property.Id] as unknown as Record<string, unknown>, field.path, v);
+          }),
+        frame: {
+          overridden,
+          quiet: !ownerWritable,
+          chips: overridden ? <OverriddenChip title={"Overridden " + ctx.overridesWhere + ". The source says " + showValue(declared) + "."} /> : null,
+          reset: overridden ? { title: "Remove the override: back to " + showValue(declared) + ", what the source says", onClick: () => ctx.update((m) => setOverride(m, owner.Id, property.Id, field.path, undefined)) } : null,
+        },
+      };
+    }
+    if (scope !== "inherited") {
+      const r = resolvePropertySetting(ctx.model, view.Id, property, owner.Id, field.path, scope);
+      return { value: r.value, disabled: true, onChange: () => {}, frame: { overridden: false, quiet: true, chips: null, reset: null } };
+    }
+    const r = resolvePropertySetting(ctx.model, view.Id, property, owner.Id, field.path, "inherited");
+    const dbHere = propertyOverride(ctx.model, view.Id, property.Id)?.[field.path];
+    const overriddenHere = dbHere !== undefined && dbHere !== null;
+    const ownHere = view.PropertyOverrides?.[property.Id]?.[field.path];
+    const setHere = ownHere !== undefined && ownHere !== null;
+    const toOverride = overriddenHere || !viewWritable;
+    const without = () => showValue(inheritedPropertySetting(ctx.model, view.Id, property, owner.Id, field.path));
+    return {
+      value: r.value,
+      disabled: false,
+      onChange: (v) =>
+        ctx.update((m) => {
+          // the value the type would have without saying anything itself: setting that is saying nothing
+          const back = inheritedPropertySetting(m, view.Id, property, owner.Id, field.path);
+          const value = v === undefined || sameValue(v, back) ? undefined : v;
+          if (toOverride) setOverride(m, view.Id, property.Id, field.path, value);
+          else setOwnPropertyOverride(m, view.Id, property.Id, field.path, value);
+        }),
+      frame: {
+        overridden: overriddenHere,
+        quiet: true,
+        chips: (
+          <>
+            {overriddenHere && <OverriddenChip title={"Overridden for " + view.CodeName + " " + ctx.overridesWhere + "."} />}
+            {!overriddenHere && setHere && (
+              <span className="dm-ochip own" title={"Set by " + view.CodeName + " itself, in its definition ([PropertyOverride] in code)."}>
+                own
+              </span>
+            )}
+            {r.kind === "inherited" && r.typeId && <FromChip ctx={ctx} typeId={r.typeId} value={r.value} fromOverride={r.fromOverride} />}
+            {r.conflict && <ConflictChip ctx={ctx} ids={r.conflict} fallback={"what " + owner.CodeName + " declares applies"} />}
+          </>
+        ),
+        reset: overriddenHere
+          ? { title: "Remove the override: back to " + without(), onClick: () => ctx.update((m) => setOverride(m, view.Id, property.Id, field.path, undefined)) }
+          : setHere && viewWritable
+            ? { title: "Stop " + view.CodeName + " setting its own: back to " + without(), onClick: () => ctx.update((m) => setOwnPropertyOverride(m, view.Id, property.Id, field.path, undefined)) }
+            : null,
+      },
+    };
+  };
+}
+
+/** The small marks on a property row saying the type sees it overridden. */
+export function OverrideMarks({ ctx, typeId, propertyId }: { ctx: EditorContext; typeId: string; propertyId: string }) {
+  const marks = propertyHasOverrides(ctx.model, typeId, propertyId);
+  return (
+    <>
+      {marks.database && (
+        <span className="dm-ochip overridden small" title={"Overridden " + ctx.overridesWhere}>
+          <IconAdjustments size={10} stroke={2.2} />
+        </span>
+      )}
+      {marks.own && (
+        <span className="dm-ochip own small" title="The type sets its own value for an attribute of this property ([PropertyOverride])">
+          own
+        </span>
+      )}
+    </>
+  );
 }
 
 // ---- the two model dialogs ----
@@ -665,6 +897,7 @@ export function TypeEditor({ type, ctx, onDelete, focusField, onFocused, tab: wa
             focusPath={focusField}
             onFocused={onFocused}
             onChange={(path, value) => ctx.update((m) => setField(m.NodeTypes[type.Id] as unknown as Record<string, unknown>, path, value))}
+            overrideOf={typeOverrides(ctx, type, writable)}
           />
           {relations.length > 0 && (
             <div className="dm-group">
@@ -725,6 +958,7 @@ export function TypeEditor({ type, ctx, onDelete, focusField, onFocused, tab: wa
                   <PropertyIcon propertyType={p.PropertyType} />
                   <span className="dm-propname">{p.CodeName}</span>
                   <IndexMarks flags={{ indexed: p.Indexed, wordIndex: p.IndexedByWords, semanticIndex: p.IndexedBySemantic }} />
+                  <OverrideMarks ctx={ctx} typeId={type.Id} propertyId={p.Id} />
                   <span className="muted">{p.PropertyType}</span>
                   {p.UniqueValues && <span className="badge">unique</span>}
                 </button>
@@ -738,11 +972,19 @@ export function TypeEditor({ type, ctx, onDelete, focusField, onFocused, tab: wa
                   <span className="badge">{inherited.length}</span>
                 </div>
                 <div className="dm-proplist">
+                  {/* an inherited property opens as this type sees it, where the type can give it a default and a
+                      text index setting of its own; the declaring type's form is a click further */}
                   {inherited.map((p) => (
-                    <button key={p.property.Id} className="dm-proprow inherited" onClick={() => ctx.select({ kind: "property", id: p.property.Id, typeId: p.owner.Id })}>
+                    <button
+                      key={p.property.Id}
+                      className="dm-proprow inherited"
+                      onClick={() => ctx.select({ kind: "property", id: p.property.Id, typeId: p.owner.Id, viaTypeId: type.Id })}
+                      title={"How " + type.CodeName + " sees " + p.property.CodeName + ", declared on " + p.owner.CodeName}
+                    >
                       <PropertyIcon propertyType={p.property.PropertyType} />
                       <span className="dm-propname">{p.property.CodeName}</span>
                       <IndexMarks flags={{ indexed: p.property.Indexed, wordIndex: p.property.IndexedByWords, semanticIndex: p.property.IndexedBySemantic }} />
+                      <OverrideMarks ctx={ctx} typeId={type.Id} propertyId={p.property.Id} />
                       <span className="muted">from {p.owner.CodeName}</span>
                     </button>
                   ))}
@@ -758,8 +1000,11 @@ export function TypeEditor({ type, ctx, onDelete, focusField, onFocused, tab: wa
 
 // ---- a property ----
 
-export function PropertyEditor({ type, property, ctx, onDelete, focusField, onFocused }: { type: NodeTypeJson; property: PropertyJson; ctx: EditorContext; onDelete: () => void; focusField?: string | null; onFocused?: () => void }) {
-  const writable = ctx.writableSource(type.DatamodelSourceId) && !property.Internal;
+export function PropertyEditor({ type, property, ctx, onDelete, focusField, onFocused, view: viewType }: { type: NodeTypeJson; property: PropertyJson; ctx: EditorContext; onDelete: () => void; focusField?: string | null; onFocused?: () => void; view?: NodeTypeJson }) {
+  // view: a type inheriting the property, when it is seen from there rather than from its declaration
+  const view = viewType ?? type;
+  const via = view.Id !== type.Id;
+  const writable = !via && ctx.writableSource(type.DatamodelSourceId) && !property.Internal;
   const [tab, setTab] = useState<"property" | "code">("property");
   const typeDef = ctx.schema.propertyTypes.find((p) => p.value === property.PropertyType);
   const fields = [...ctx.schema.propertyCommon, ...(ctx.schema.propertyByType[property.PropertyType] ?? [])];
@@ -769,22 +1014,30 @@ export function PropertyEditor({ type, property, ctx, onDelete, focusField, onFo
   return (
     <div className="dm-editor">
       {/* the way back up: a property is only ever reached through its type */}
-      <button className="link-button dm-editor-back" onClick={() => ctx.select({ kind: "type", id: type.Id, tab: "properties" })} title={`Back to the properties of ${fullName(type)}`}>
-        <IconArrowLeft size={13} stroke={2} /> Back to {type.CodeName}
+      <button className="link-button dm-editor-back" onClick={() => ctx.select({ kind: "type", id: view.Id, tab: "properties" })} title={`Back to the properties of ${fullName(view)}`}>
+        <IconArrowLeft size={13} stroke={2} /> Back to {view.CodeName}
       </button>
       <div className="dm-editor-head">
         <PropertyIcon propertyType={property.PropertyType} size={20} />
         <div className="dm-editor-title">
           <div className="dm-editor-name">
-            <span className="dm-crumb">{type.CodeName}</span>.{property.CodeName}
+            <span className="dm-crumb">{view.CodeName}</span>.{property.CodeName}
             <IndexMarks flags={{ indexed: property.Indexed, wordIndex: property.IndexedByWords, semanticIndex: property.IndexedBySemantic }} size={13} />
           </div>
           <div className="dm-editor-sub" title={typeDef?.help}>
             {typeDef?.label ?? property.PropertyType} property{property.Internal ? " · internal" : ""}
             {property.AutoAssigned ? " · assigned by the relation" : ""}
+            {via && (
+              <>
+                {" · declared on "}
+                <button className="link-button" onClick={() => ctx.select({ kind: "property", id: property.Id, typeId: type.Id })} title={`Open ${property.CodeName} on ${fullName(type)}, which declares it`}>
+                  {type.CodeName}
+                </button>
+              </>
+            )}
           </div>
         </div>
-        {writable && (
+        {writable && !via && (
           <button className="icon-button danger" title="Delete this property" onClick={onDelete}>
             <IconTrash size={16} stroke={1.9} />
           </button>
@@ -801,6 +1054,12 @@ export function PropertyEditor({ type, property, ctx, onDelete, focusField, onFo
       {tab === "code" && <CodeTab storeId={ctx.storeId} model={ctx.model} scope="property" id={property.Id} typeId={type.Id} name={type.CodeName + "." + property.CodeName} />}
       {tab === "property" && (
         <>
+          {via && (
+            <div className="dm-note dm-help-text dm-via-note">
+              This is {property.CodeName} as {view.CodeName} sees it. {view.CodeName} can give it a default value, a text index setting and a display name of its own, which the types
+              inheriting from {view.CodeName} take too; everything else is one setting for the property wherever it is used, kept on {type.CodeName}.
+            </div>
+          )}
           {relation && (
             <div className="dm-editor-actions">
               <button className="action-button dm-button" onClick={() => ctx.select({ kind: "relation", id: relation.Id })} title={`Open ${relation.CodeName}, the relation this property is one end of`}>
@@ -818,6 +1077,7 @@ export function PropertyEditor({ type, property, ctx, onDelete, focusField, onFo
             focusPath={focusField}
             onFocused={onFocused}
             onChange={(path, value) => ctx.update((m) => setField(m.NodeTypes[type.Id].Properties[property.Id] as unknown as Record<string, unknown>, path, value))}
+            overrideOf={propertyOverrides(ctx, type, view, property)}
           />
         </>
       )}

@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Common;
+﻿using System.Globalization;
+using Relatude.DB.Common;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Relatude.DB.Nodes;
@@ -156,7 +157,81 @@ internal static class BuildUtils {
                     + "Property ids must be unique - this usually comes from a copy-pasted Id in a property attribute. Give one of them a new id. ");
             }
         }
+        readPropertyOverrides(c, type, all);
         return c;
+    }
+    // [PropertyOverride]: attributes this type gives properties it inherits. On the type the attribute
+    // names the property; on a member - one implementing an interface property, in this type's own code
+    // - it overrides that member's property.
+    static void readPropertyOverrides(NodeTypeModel c, Type type, List<MemberInfo> all) {
+        var found = new List<(PropertyOverrideAttribute attribute, string name, string where)>();
+        foreach (var a in type.GetCustomAttributes<PropertyOverrideAttribute>(false)) {
+            if (string.IsNullOrEmpty(a.Property)) throw new Exception("The [PropertyOverride] on " + type.FullName + " does not say which property it overrides. "
+                + "On a type it must name the inherited property, e.g. [PropertyOverride(nameof(IContent.Title), DefaultValue = \"...\")]. ");
+            found.Add((a, a.Property, "on " + type.FullName));
+        }
+        foreach (var m in all) {
+            if (m.DeclaringType != type) continue; // a member inherited from a base class carries the base class's attributes
+            foreach (var a in m.GetCustomAttributes<PropertyOverrideAttribute>(false)) {
+                if (!string.IsNullOrEmpty(a.Property) && a.Property != m.Name) throw new Exception("The [PropertyOverride] on the member " + type.FullName + "." + m.Name
+                    + " names another property, " + a.Property + ". On a member it overrides the member's own property: leave the name out, or move the attribute to the type. ");
+                found.Add((a, m.Name, "on " + type.FullName + "." + m.Name));
+            }
+        }
+        foreach (var (a, name, where) in found) {
+            var member = findMember(type, name) ?? throw new Exception("The [PropertyOverride] " + where + " names \"" + name + "\", but " + type.FullName + " has no member of that name. ");
+            if (member.GetCustomAttribute<ExcludeAttribute>() != null) throw new Exception("The [PropertyOverride] " + where + " names " + name + ", which is marked [Exclude] and so is not a property of the model. ");
+            var declaring = GetBaseDeclaringType(member);
+            if (declaring == type) throw new Exception("The [PropertyOverride] " + where + " names " + name + ", which " + type.FullName + " declares itself. "
+                + "A type overrides properties it inherits; set the attributes of its own property on the property attribute instead. ");
+            var declaringMember = findMember(declaring, name) ?? member;
+            var valueType = declaringMember is PropertyInfo pi ? pi.PropertyType : ((FieldInfo)declaringMember).FieldType;
+            if (isSystemMember(declaringMember, valueType)) throw new Exception("The [PropertyOverride] " + where + " names " + name
+                + ", which is a system member of the node (its id, meta, dates, display name or address) rather than a property, so it has no attributes to override. ");
+            var propertyId = BuildUtilsProperties.GetPropertyId(declaringMember);
+            c.PropertyOverrides ??= new();
+            if (c.PropertyOverrides.ContainsKey(propertyId)) throw new Exception("There is more than one [PropertyOverride] for " + name + " on " + type.FullName + ". Combine them into one. ");
+            var o = new PropertyOverride { Name = name };
+            if (a.DefaultValue != null) o.DefaultValue = overriddenDefault(a.DefaultValue, valueType, where, name);
+            if (a.ExcludeFromTextIndex != BoolValue.Default) o.ExcludeFromTextIndex = a.ExcludeFromTextIndex == BoolValue.True;
+            if (a.TextIndexBoost != PropertyOverrideAttribute.NotSet) o.IndexBoost = a.TextIndexBoost;
+            if (a.DisplayName != BoolValue.Default) o.DisplayName = a.DisplayName == BoolValue.True;
+            c.PropertyOverrides[propertyId] = o;
+        }
+    }
+    // a public property or field of the type, its base classes or (for an interface) the interfaces it extends
+    static MemberInfo? findMember(Type type, string name) {
+        static MemberInfo? on(Type t, string name) {
+            var matches = t.GetMember(name, MemberTypes.Property | MemberTypes.Field, BindingFlags.Public | BindingFlags.Instance);
+            return matches.Length > 0 ? matches[0] : null;
+        }
+        var member = on(type, name);
+        if (member != null) return member;
+        foreach (var i in type.GetInterfaces()) {
+            member = on(i, name);
+            if (member != null) return member;
+        }
+        return null;
+    }
+    static bool isSystemMember(MemberInfo member, Type valueType) {
+        if (valueType == typeof(NodeMeta)) return true;
+        if (hasAttr<PublicIdPropertyAttribute>(member) || hasAttr<InternalIdPropertyAttribute>(member) || hasAttr<ChangedUtcPropertyAttribute>(member)
+            || hasAttr<CreatedUtcPropertyAttribute>(member) || hasAttr<DisplayNamePropertyAttribute>(member) || hasAttr<AddressPropertyAttribute>(member)) return true;
+        // the default id members, the way isIdPropertyThenAssignIt recognises them
+        return member.Name == NodeTypeModel.DefaultPublicIdPropertyName
+            && (valueType == typeof(Guid) || valueType == typeof(string) || valueType == typeof(int) || valueType == typeof(long));
+    }
+    static readonly Type[] overridableDefaultTypes = [typeof(string), typeof(bool), typeof(int), typeof(long), typeof(double), typeof(float), typeof(decimal),
+        typeof(DateTime), typeof(DateTimeOffset), typeof(TimeSpan), typeof(Guid)];
+    // the attribute's DefaultValue as a value of the property's type; an enum property stores its integer
+    static object overriddenDefault(object raw, Type valueType, string where, string name) {
+        var target = valueType.IsEnum ? typeof(int) : valueType;
+        if (!overridableDefaultTypes.Contains(target)) throw new Exception("The [PropertyOverride] " + where + " gives " + name + " a default value, but a property of type "
+            + valueType.GetCSharpName() + " has no default value that can be set. ");
+        if (valueType.IsEnum && raw.GetType() == valueType) raw = Convert.ToInt32(raw, CultureInfo.InvariantCulture);
+        if (!OverrideValues.TryConvert(raw, target, out var value, out var error) || value == null) throw new Exception("The default value the [PropertyOverride] " + where
+            + " gives " + name + " could not be read: " + error + " Decimals, dates, durations and guids are given as strings (invariant culture, \"O\" for dates, \"c\" for durations). ");
+        return value;
     }
     public static RelationAttribute GetOrCreateRelationAttributeWithId(Type type) {
         if (!tryGetAttribute<RelationAttribute>(type, out var attr)) attr = new RelationAttribute();

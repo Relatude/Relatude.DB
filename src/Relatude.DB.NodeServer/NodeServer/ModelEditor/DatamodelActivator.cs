@@ -18,6 +18,12 @@ public sealed class DatamodelActivationResult {
     /// <summary>Whether reloading the written sources gives exactly the draft; null when not checked.</summary>
     public bool? ChecksumMatches { get; set; }
     public string? Message { get; set; }
+    /// <summary>The database's overrides file was written (or removed).</summary>
+    public bool OverridesChanged { get; set; }
+    /// <summary>How many nodes had their indexed text emptied because their type stopped being text indexed.</summary>
+    public int TextCleared { get; set; }
+    /// <summary>How many text indexing tasks were queued because what goes into a type's text changed.</summary>
+    public int TextReindexQueued { get; set; }
 }
 
 /// <summary>
@@ -76,6 +82,8 @@ public sealed class DatamodelActivator {
             result.SettingsChanged = true;
         }
 
+        result.OverridesChanged = plan.OverridesChange;
+
         // 4. compiled sources: the model is on disk, the running application still has the old one
         if (plan.RequiresRebuild) {
             var existing = _drafts.PeekDraft();
@@ -112,15 +120,38 @@ public sealed class DatamodelActivator {
             result.Message = "The files were written, but the sources load as a model that differs from the draft (see the round trip warnings). The database uses what the sources say; the draft is kept for comparison. ";
         }
 
-        // 6. the running database picks the new model up by reopening
+        // 6. a type that stops being text indexed has its text taken out first: the index only removes
+        // the text of a node whose type it indexes, which after the reopen this type no longer is
+        if (validation.TextIndexOffTypes.Count > 0 && _container.IsOpen() && _container.Store != null) {
+            try {
+                result.TextCleared = _container.Store.Datastore.ClearIndexedText(validation.TextIndexOffTypes);
+            } catch (Exception error) {
+                result.Message = "The model is written, but the text of the types no longer text indexed could not be taken out of the text index: " + error.Message
+                    + " Their nodes stay findable by text search until the indexes are rebuilt. ";
+            }
+        }
+
+        // 7. the running database picks the new model up by reopening
         if (_container.IsOpenOrOpening()) {
             _container.ApplyNewSettings(_container.Settings, reopenIfOpen: true);
             result.Reopened = true;
         }
+
+        // 8. and nodes whose text is made differently now are indexed again
+        if (validation.TextReindexTypes.Count > 0 && _container.IsOpen() && _container.Store != null) {
+            try {
+                result.TextReindexQueued = _container.Store.Datastore.ReIndexText(validation.TextReindexTypes);
+            } catch (Exception error) {
+                result.Message ??= "The model is active, but its nodes could not be queued for text indexing: " + error.Message + " Rebuild the text index from the database's page. ";
+            }
+        }
         result.Activated = true;
         result.Message ??= _container.IsOpen()
             ? "The model is active. "
-            : "The sources are written; the database is closed and will use the new model when it opens. ";
+                + (result.TextCleared > 0 ? "The text of " + result.TextCleared + " nodes was taken out of the text index. " : "")
+                + (result.TextReindexQueued > 0 ? result.TextReindexQueued + " indexing task" + (result.TextReindexQueued == 1 ? " is" : "s are") + " queued for the types whose text changed. " : "")
+            : "The sources are written; the database is closed and will use the new model when it opens. "
+                + (validation.TextReindexTypes.Count > 0 || validation.TextIndexOffTypes.Count > 0 ? "What goes into the text index changes: rebuild the text index once it is open. " : "");
         return result;
     }
 

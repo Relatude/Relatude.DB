@@ -271,6 +271,22 @@ public interface IDataStore : IDisposable {
     /// turned on for more types or properties, or after a change of text index engine.
     /// </summary>
     int ReIndexAllText();
+    /// <summary>
+    /// Queues text indexing - and semantic indexing, where the type has it - for every node of the
+    /// given types (each type exactly, not its descendants), and returns how many tasks were queued.
+    /// What a change of what goes into a type's text needs: a property put into or left out of the text
+    /// index, a boost, a display name, text indexing turned on. The nodes already stored keep the text
+    /// they were indexed with until they are indexed again.
+    /// </summary>
+    int ReIndexText(IEnumerable<Guid> nodeTypeIds);
+    /// <summary>
+    /// Empties the indexed text of every node of the given types (each type exactly), and returns how
+    /// many nodes - or published revisions - were cleared. What turning text indexing off for a type needs
+    /// first, while the type is still text indexed: an index only takes out the text of a node whose type
+    /// it indexes, so once the type is off the nodes would stay findable by text search until the indexes
+    /// are rebuilt from scratch.
+    /// </summary>
+    int ClearIndexedText(IEnumerable<Guid> nodeTypeIds);
 }
 
 public static class IDataStoreExtensions {

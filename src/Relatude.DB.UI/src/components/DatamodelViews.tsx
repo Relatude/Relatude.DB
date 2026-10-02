@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { IconChevronDown, IconChevronRight, IconChevronUp, IconEye, IconEyeOff, IconList, IconListDetails, IconLock, IconPlus, IconRefreshAlert, IconRestore, IconSitemap, IconTrash } from "@tabler/icons-react";
+import { IconAdjustments, IconArrowBackUp, IconChevronDown, IconChevronRight, IconChevronUp, IconEye, IconEyeOff, IconList, IconListDetails, IconLock, IconPlus, IconRefreshAlert, IconRestore, IconSitemap, IconTrash } from "@tabler/icons-react";
 import { IndexMarks, KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, kindMeta, relationMeta, sourceKindMeta, type IndexFlags } from "./DatamodelIcons";
-import type { EditorContext, Selection } from "./DatamodelEditors";
-import { allProperties, fullName, type HistoryEntry, type ModelDiff, type NodeTypeJson, type PropertyJson, type SourceInfo } from "../server/datamodel";
+import { OverrideMarks, showValue, type EditorContext, type Selection } from "./DatamodelEditors";
+import { allProperties, fullName, type HistoryEntry, type ModelDiff, type NodeTypeJson, type OverridesFileInfo, type PropertyJson, type SourceInfo } from "../server/datamodel";
+import { declaringType, hasOverrides, inheritedPropertySetting, listOverrides, setOverride } from "../server/overrides";
 import { formatBytes, formatTime } from "../format";
 
 export interface ViewProps {
@@ -235,6 +236,11 @@ function TypesTable({ ctx, visibleTypes, ghostTypes, query, selection, diff, jus
                     {changeBadge(diff, t.Id, "type")}
                     {t.Hidden && <span className="badge">hidden</span>}
                     {t.IsInnerNode && <span className="badge">inner</span>}
+                    {hasOverrides(ctx.model, t.Id) && (
+                      <span className="badge dm-badge-override" title={"The type, or a property seen from it, is overridden " + ctx.overridesWhere}>
+                        overridden
+                      </span>
+                    )}
                   </td>
                   <td className="muted">{t.Namespace}</td>
                   <td>
@@ -256,6 +262,7 @@ function TypesTable({ ctx, visibleTypes, ghostTypes, query, selection, diff, jus
                       <td className="dm-cell-name">
                         {p.CodeName}
                         <IndexMarks flags={{ indexed: p.Indexed, wordIndex: p.IndexedByWords, semanticIndex: p.IndexedBySemantic }} />
+                        <OverrideMarks ctx={ctx} typeId={t.Id} propertyId={p.Id} />
                       </td>
                       <td className="muted" colSpan={2}>
                         {propertyDetail(ctx, p)}
@@ -525,7 +532,7 @@ export function MatrixView({ ctx, visibleTypes, ghostTypes, query, selection }: 
 
 // ---- sources ----
 
-export function SourcesView({ ctx, selection, hiddenSources, onToggleVisible, onAdd, locked }: { ctx: EditorContext; selection: Selection | null; hiddenSources: Set<string>; onToggleVisible: (id: string) => void; onAdd: () => void; locked: boolean }) {
+export function SourcesView({ ctx, selection, hiddenSources, onToggleVisible, onAdd, locked, overridesFile }: { ctx: EditorContext; selection: Selection | null; hiddenSources: Set<string>; onToggleVisible: (id: string) => void; onAdd: () => void; locked: boolean; overridesFile: OverridesFileInfo }) {
   return (
     <div className="dm-sources">
       <div className="dm-sources-head">
@@ -626,6 +633,100 @@ export function SourcesView({ ctx, selection, hiddenSources, onToggleVisible, on
           );
         })}
       </div>
+      <OverridesPanel ctx={ctx} file={overridesFile} />
+    </div>
+  );
+}
+
+/**
+ * Every override the draft carries: what it sets, what the source says instead, and the way to take it
+ * away. Overrides are not a source - they add no types - but they are where the model's values come
+ * from as much as the sources are, so they are listed under them. A row opens the form the override
+ * belongs to; one whose type or property is gone from the model can only be removed.
+ */
+function OverridesPanel({ ctx, file }: { ctx: EditorContext; file: OverridesFileInfo }) {
+  const entries = listOverrides(ctx.model);
+  const label = (path: string, propertyType: string | null) => {
+    const fields = propertyType ? [...ctx.schema.propertyCommon, ...(ctx.schema.propertyByType[propertyType] ?? [])] : ctx.schema.nodeType;
+    return fields.find((f) => f.path === path)?.label ?? path;
+  };
+  return (
+    <div className="dm-overrides">
+      <div className="dm-overrides-head">
+        <IconAdjustments size={20} stroke={1.8} className="dm-overrides-icon" />
+        <div className="dm-source-card-title">
+          <div className="dm-source-card-name">Overrides</div>
+          <div className="muted">
+            {file.inDatabase ? "Kept with the database" : "Kept in a file of the site"} · <span className="dm-mono">{file.location}</span>
+          </div>
+        </div>
+        <span className="badge dm-badge-override">{entries.length}</span>
+      </div>
+      <div className="muted dm-help-text">
+        Attributes set on top of what the sources say, where a source cannot be written: a default value, whether a type or a property is in the text index, a property&apos;s index or
+        rules. The database applies them when it opens, as if the source said so; they are saved when the model is activated.
+        {!file.writable && " The database has no storage provider to keep them in, so they cannot be saved until it has one or the settings name a file for them."}
+      </div>
+      {entries.length === 0 ? (
+        <div className="muted dm-empty">Nothing is overridden. Open a type or a property whose source cannot be written: the fields that can be overridden stay open.</div>
+      ) : (
+        <table className="dm-table dm-overrides-table">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Property</th>
+              <th>Attribute</th>
+              <th>Overridden to</th>
+              <th>The source says</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((e) => {
+              const type = ctx.model.NodeTypes[e.typeId];
+              const owner = e.propertyId ? declaringType(ctx.model, e.propertyId) : undefined;
+              const property = e.propertyId ? owner?.Properties[e.propertyId] : undefined;
+              const gone = !type || (e.propertyId !== null && !property);
+              const typeOverride = ctx.model.Overrides?.NodeTypes[e.typeId];
+              const name = type ? type.CodeName : (typeOverride?.Name ?? e.typeId);
+              const propertyName = e.propertyId ? (property?.CodeName ?? typeOverride?.Properties?.[e.propertyId]?.Name ?? e.propertyId) : "";
+              const declared = gone
+                ? undefined
+                : e.propertyId === null
+                  ? (type as Record<string, unknown>)[e.path]
+                  : owner!.Id === e.typeId
+                    ? (property as Record<string, unknown>)[e.path]
+                    : inheritedPropertySetting(ctx.model, e.typeId, property!, owner!.Id, e.path);
+              const open = () => {
+                if (gone) return;
+                if (e.propertyId === null) ctx.select({ kind: "type", id: e.typeId });
+                else ctx.select({ kind: "property", id: e.propertyId, typeId: owner!.Id, viaTypeId: owner!.Id === e.typeId ? undefined : e.typeId });
+              };
+              return (
+                <tr key={e.typeId + "/" + (e.propertyId ?? "") + "/" + e.path} className={"dm-row" + (gone ? " dm-ghost" : "")} onClick={open} title={gone ? "Not in the model any more: the database skips it" : "Open the form"}>
+                  <td>{name}</td>
+                  <td>{propertyName}</td>
+                  <td>{label(e.path, property?.PropertyType ?? null)}</td>
+                  <td className="dm-override-value">{showValue(e.value)}</td>
+                  <td className="muted">{gone ? "(not in the model)" : showValue(declared)}</td>
+                  <td className="dm-cell-flags">
+                    <button
+                      className="icon-button"
+                      title="Remove the override"
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        ctx.update((m) => setOverride(m, e.typeId, e.propertyId, e.path, undefined));
+                      }}
+                    >
+                      <IconArrowBackUp size={15} stroke={1.9} />
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

@@ -25,6 +25,7 @@ public class LongPropertyModel : PropertyModel, IPropertyModelUniqueContraints, 
         if (value is string s && long.TryParse(s, CultureInfo.InvariantCulture, out var v)) return v;
         return default;
     }
-    public override string GetDefaultValueAsCode() => DefaultValue.ToString();
+    public override string GetDefaultValueAsCode() => GetValueAsCode(DefaultValue);
+    public override string GetValueAsCode(object? value) => CSharpLiteral.Long(value is long l ? l : 0);
     public override string? GetTextIndex(object value) => value.ToString();
 }

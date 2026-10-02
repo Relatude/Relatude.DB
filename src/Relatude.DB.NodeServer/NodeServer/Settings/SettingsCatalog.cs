@@ -497,6 +497,21 @@ public static class SettingsCatalog {
                         ],
                     },
                 },
+                new() {
+                    Id = "datamodel-overrides",
+                    Title = "Overrides",
+                    Help = "Attributes of node types and properties set on top of what the sources say: a default value, whether a type or a property is in the text index, "
+                        + "a property's index or rules. The data model editor writes them - for types whose source it cannot write, such as classes compiled into an assembly - "
+                        + "and the database applies them when it opens, as if the source said so.",
+                    Settings = [
+                        new() {
+                            Path = "DatamodelOverridesPath", Label = "Overrides file", Placeholder = "With the database",
+                            Help = "Empty keeps the overrides with the database, in datamodels/datamodel.overrides.json on its storage provider, where they survive a redeploy of the site. "
+                                + "A path keeps them in that file instead - relative to the folder holding this settings file unless rooted - so they can be kept in source control and deployed with the site; "
+                                + "a change made in production is then overwritten by the next deploy unless it is committed back. Moving them does not move the file: copy it across first.",
+                        },
+                    ],
+                },
             ],
         },
         new() {

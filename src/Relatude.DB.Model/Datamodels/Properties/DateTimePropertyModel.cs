@@ -34,5 +34,6 @@ public class DateTimePropertyModel : PropertyModel, IPropertyModelUniqueContrain
         }
         return default;
     }
-    public override string GetDefaultValueAsCode() => $"new DateTime({DefaultValue.Ticks}, DateTimeKind.Utc)";
+    public override string GetDefaultValueAsCode() => GetValueAsCode(DefaultValue);
+    public override string GetValueAsCode(object? value) => $"new DateTime({(value is DateTime d ? d.Ticks : 0)}, DateTimeKind.Utc)";
 }

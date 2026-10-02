@@ -25,6 +25,7 @@ public class FloatPropertyModel : PropertyModel, IScalarProperty {
         if (value is string && float.TryParse((string)value, CultureInfo.InvariantCulture, out var v)) return v;
         return default;
     }
-    public override string GetDefaultValueAsCode() => DefaultValue.ToString();
+    public override string GetDefaultValueAsCode() => GetValueAsCode(DefaultValue);
+    public override string GetValueAsCode(object? value) => CSharpLiteral.Float(value is float f ? f : 0);
     public override string? GetTextIndex(object value) => value.ToString();
 }

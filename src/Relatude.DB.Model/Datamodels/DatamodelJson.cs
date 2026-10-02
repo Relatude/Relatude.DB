@@ -36,6 +36,8 @@ public static class DatamodelJson {
         };
         options.Converters.Add(new JsonStringEnumConverter());
         options.Converters.Add(new PropertyModelJsonConverter());
+        options.Converters.Add(new BrowserSafeInt64Converter());
+        options.Converters.Add(new BrowserSafeDecimalConverter());
         if (stripProvenance || stripDerived) {
             var resolver = new DefaultJsonTypeInfoResolver();
             if (stripProvenance) resolver.Modifiers.Add(stripProvenanceProperties);
@@ -44,12 +46,42 @@ public static class DatamodelJson {
         }
         return options;
     }
+    // The model travels through the admin UI, whose JavaScript numbers are doubles: long.MinValue (the
+    // default MinValue of every long property) comes back as -9223372036854776000 and decimal.MaxValue as
+    // 7.922816251426434E+28, each just outside the type's range, and a draft holding a long or a decimal
+    // property could not be read back at all. A number past the range is read as the limit it stands for;
+    // anything else reads as before. Written values are untouched.
+    sealed class BrowserSafeInt64Converter : JsonConverter<long> {
+        public override long Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) {
+            if (reader.TokenType == JsonTokenType.String) return long.Parse(reader.GetString()!, System.Globalization.CultureInfo.InvariantCulture);
+            if (reader.TryGetInt64(out var value)) return value;
+            var d = reader.GetDouble();
+            if (d <= long.MinValue) return long.MinValue;
+            if (d >= long.MaxValue) return long.MaxValue;
+            return (long)Math.Round(d);
+        }
+        public override void Write(Utf8JsonWriter writer, long value, JsonSerializerOptions options) => writer.WriteNumberValue(value);
+    }
+    sealed class BrowserSafeDecimalConverter : JsonConverter<decimal> {
+        public override decimal Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) {
+            if (reader.TokenType == JsonTokenType.String) return decimal.Parse(reader.GetString()!, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture);
+            if (reader.TryGetDecimal(out var value)) return value;
+            var d = reader.GetDouble();
+            if (d <= (double)decimal.MinValue) return decimal.MinValue;
+            if (d >= (double)decimal.MaxValue) return decimal.MaxValue;
+            return (decimal)d;
+        }
+        public override void Write(Utf8JsonWriter writer, decimal value, JsonSerializerOptions options) => writer.WriteNumberValue(value);
+    }
     static void stripDerivedProperties(JsonTypeInfo typeInfo) {
         if (typeInfo.Type == typeof(ReferencePropertyModel) || typeInfo.Type == typeof(ReferencesPropertyModel)) {
             removeProperty(typeInfo, "NodeTypesNames");
         } else if (typeInfo.Type == typeof(EmbeddedPropertyModel)) {
             removeProperty(typeInfo, nameof(EmbeddedPropertyModel.InnerNodeTypesNames));
             removeProperty(typeInfo, nameof(EmbeddedPropertyModel.KeyPropertyName));
+        } else if (typeInfo.Type == typeof(NodeTypeOverride) || typeInfo.Type == typeof(PropertyOverride)) {
+            // the names next to the ids are for people reading the file, and follow the model when written
+            removeProperty(typeInfo, nameof(NodeTypeOverride.Name));
         }
     }
     static void stripProvenanceProperties(JsonTypeInfo typeInfo) {
@@ -89,8 +121,14 @@ public static class DatamodelJson {
     /// </summary>
     public static string CanonicalJson<T>(T value, JsonSerializerOptions options) {
         var node = JsonSerializer.SerializeToNode(value, options);
-        return canonical(node, null)?.ToJsonString() ?? "null";
+        return canonical(node, null, false)?.ToJsonString() ?? "null";
     }
+    /// <summary>
+    /// The members holding overrides (<see cref="Datamodel.Overrides"/>, <see cref="NodeTypeModel.PropertyOverrides"/>).
+    /// Inside them an object that is empty overrides nothing - what is left of an override that was reset -
+    /// so it is left out of the canonical form, and no overrides, null and empty ones all read the same.
+    /// </summary>
+    static readonly HashSet<string> overrideMembers = new(StringComparer.OrdinalIgnoreCase) { nameof(Datamodel.Overrides), nameof(NodeTypeModel.PropertyOverrides) };
     /// <summary>
     /// The lists of type ids in the model classes. They are sets - the types a type inherits, the
     /// types a relation or a reference property points to - so their order carries no meaning, and
@@ -102,15 +140,20 @@ public static class DatamodelJson {
         nameof(NodeTypeModel.Parents), nameof(RelationModel.SourceTypes), nameof(RelationModel.TargetTypes),
         nameof(ReferencePropertyModel.NodeTypes), nameof(EmbeddedPropertyModel.InnerNodeTypes),
     };
-    static JsonNode? canonical(JsonNode? node, string? name) {
+    static JsonNode? canonical(JsonNode? node, string? name, bool inOverrides) {
         switch (node) {
             case JsonObject obj: {
                     var sorted = new JsonObject();
-                    foreach (var member in obj.OrderBy(m => m.Key, StringComparer.Ordinal)) sorted[member.Key] = canonical(member.Value, member.Key);
+                    foreach (var member in obj.OrderBy(m => m.Key, StringComparer.Ordinal)) {
+                        var overrides = inOverrides || overrideMembers.Contains(member.Key);
+                        var value = canonical(member.Value, member.Key, overrides);
+                        if (overrides && value is null or JsonObject { Count: 0 }) continue;
+                        sorted[member.Key] = value;
+                    }
                     return sorted;
                 }
             case JsonArray array: {
-                    var items = array.Select(item => canonical(item, null)).ToList();
+                    var items = array.Select(item => canonical(item, null, inOverrides)).ToList();
                     if (name != null && idSetLists.Contains(name) && items.All(i => i is JsonValue v && v.GetValueKind() == JsonValueKind.String))
                         items.Sort((a, b) => string.CompareOrdinal(a!.GetValue<string>(), b!.GetValue<string>()));
                     return new JsonArray(items.ToArray());

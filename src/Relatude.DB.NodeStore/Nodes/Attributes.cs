@@ -34,6 +34,45 @@ public class NodeAttribute : Attribute {
     public BoolValue SemanticIndex { get; set; }
     public double TextIndexBoost { get; set; } = 0;
 }
+/// <summary>
+/// Overrides attributes of a property this type inherits, for this type and the types inheriting from
+/// it, without touching the type that declares the property - which may be in an assembly you cannot
+/// change:
+/// <code>
+/// [Node]
+/// [PropertyOverride(nameof(IContent.Title), DefaultValue = "Untitled news", TextIndexBoost = 2)]
+/// public class NewsArticle : IContent { ... }
+/// </code>
+/// Only the attributes that may differ between the types that have a property can be overridden here:
+/// the default value, whether the value is in the text index and with what boost, and whether it is
+/// part of the display name. Everything else about a property - whether it is indexed, its rules - is
+/// one setting for the property wherever it is used, and stays with its declaration. A type that sets
+/// its own value wins over its base types; a node type's own switches (TextIndex and the like) are set
+/// with <see cref="NodeAttribute"/> on the derived type, as they are inherited too.
+/// <para>
+/// On a member that implements an interface property, the name can be left out:
+/// <c>[PropertyOverride(DefaultValue = "Untitled news")] public string Title { get; set; }</c>.
+/// </para>
+/// </summary>
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Interface | AttributeTargets.Struct | AttributeTargets.Property | AttributeTargets.Field, AllowMultiple = true, Inherited = false)]
+public class PropertyOverrideAttribute : Attribute {
+    /// <summary>The value of <see cref="TextIndexBoost"/> when it is not overridden.</summary>
+    public const int NotSet = int.MinValue;
+    public PropertyOverrideAttribute() { }
+    /// <param name="property">The name of the inherited property, best given with nameof.</param>
+    public PropertyOverrideAttribute(string property) => Property = property;
+    /// <summary>The name of the inherited property. Left out on a member, which overrides itself.</summary>
+    public string? Property { get; }
+    /// <summary>
+    /// The default for this type: a constant of the property's type. Decimals, dates, durations and guids
+    /// are given as strings in the formats the property attributes use (invariant culture, round-trip "O"
+    /// for dates, constant "c" for durations).
+    /// </summary>
+    public object? DefaultValue { get; set; }
+    public BoolValue ExcludeFromTextIndex { get; set; }
+    public int TextIndexBoost { get; set; } = NotSet;
+    public BoolValue DisplayName { get; set; }
+}
 [AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
 public class ChangedUtcPropertyAttribute : Attribute {
 }
@@ -189,7 +228,6 @@ public class StringPropertyAttribute : PropertyAttribute, IAttrWithUniqueContrai
     public bool NotFacet { get; set; } // excluded from faceting even when indexed
     public bool IndexedByWords { get; set; }
     public bool IndexedBySemantic { get; set; }
-    public bool PreloadWordIndex { get; set; }
     public int MinWordLength { get; set; } = 3;
     public int MaxWordLength { get; set; } = 30;
     public string[]? LegalValues;

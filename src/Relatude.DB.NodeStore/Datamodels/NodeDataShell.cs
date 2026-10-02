@@ -44,7 +44,9 @@ public class NodeDataShell {
             if (typeof(T).IsEnum && value is int i) return (T)(object)i;
         }
         var prop = _dm.Properties[propertyId];
-        return (T?)prop.GetDefaultValue();
+        // the node's own type decides: it may override the default of a property it inherits
+        var defaultValue = _dm.NodeTypes.TryGetValue(NodeData.NodeType, out var nodeType) ? nodeType.GetDefaultValue(prop) : prop.GetDefaultValue();
+        return (T?)defaultValue;
     }
     public void SetValue(Guid propertyId, object newValue) {
         if (newValue is Enum e) newValue = Convert.ToInt32(e); // stored as int, like IntegerPropertyModel.ForceValueType

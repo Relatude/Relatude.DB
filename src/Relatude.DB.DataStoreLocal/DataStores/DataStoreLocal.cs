@@ -152,6 +152,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         TaskQueuePersisted = new(this, queueStore, _taskRunners, configuredConcurrency);
         Datamodel = datamodel;
+        // the database's overrides go into the types before anything reads them (see Datamodel.Overrides)
+        datamodel.ApplyOverrides();
         datamodel.EnsureInitalization();
         datamodel.SetIndexDefaults(_settings.EnableTextIndexByDefault, _settings.EnableSemanticIndexByDefault, _settings.EnableInstantTextIndexingByDefault);
         urlManager.Initialize(this); // after the datamodel is set, so managers can resolve relations and types

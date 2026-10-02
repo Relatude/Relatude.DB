@@ -94,6 +94,7 @@ public static class ModelGen {
             if (nodeDef.MinNoInstances != int.MinValue && nodeDef.MinNoInstances != 0) sb.Append(", " + nameof(NodeAttribute.MinNoInstances) + " = " + nodeDef.MinNoInstances.ToString(CultureInfo.InvariantCulture));
             if (nodeDef.MaxNoInstances != int.MaxValue) sb.Append(", " + nameof(NodeAttribute.MaxNoInstances) + " = " + nodeDef.MaxNoInstances.ToString(CultureInfo.InvariantCulture));
             sb.AppendLine(")]");
+            appendPropertyOverrides(nodeDef, datamodel, sb);
         }
         var inheritance = string.Join(", ", nodeDef.Parents
             .Where(id => id != NodeConstants.BaseNodeTypeId)
@@ -160,6 +161,47 @@ public static class ModelGen {
             }
         }
         sb.AppendLine("    }"); // end class
+    }
+    // what the type overrides on properties it inherits, one [PropertyOverride] per property, in name order
+    static void appendPropertyOverrides(NodeTypeModel nodeDef, Datamodel datamodel, StringBuilder sb) {
+        if (nodeDef.PropertyOverrides == null) return;
+        var overrides = nodeDef.PropertyOverrides
+            .Where(kv => datamodel.Properties.ContainsKey(kv.Key) && !datamodel.Properties[kv.Key].Internal && !kv.Value.IsEmpty)
+            .Select(kv => (property: datamodel.Properties[kv.Key], o: kv.Value))
+            .OrderBy(x => x.property.CodeName, StringComparer.Ordinal);
+        foreach (var (p, o) in overrides) {
+            var target = datamodel.NodeTypes.TryGetValue(p.NodeType, out var declaring)
+                ? "nameof(" + typeAndNamespace(nodeDef.Namespace, declaring.FullName) + "." + p.CodeName + ")"
+                : stringLiteral(p.CodeName);
+            var args = new List<string> { target };
+            if (o.DefaultValue != null) args.Add(nameof(PropertyOverrideAttribute.DefaultValue) + " = " + attributeConstant(p, o.DefaultValue));
+            if (o.ExcludeFromTextIndex.HasValue) args.Add(nameof(PropertyOverrideAttribute.ExcludeFromTextIndex) + " = " + addAttributeBool(o.ExcludeFromTextIndex.Value ? BoolValue.True : BoolValue.False));
+            if (o.IndexBoost.HasValue) args.Add(nameof(PropertyOverrideAttribute.TextIndexBoost) + " = " + o.IndexBoost.Value.ToString(CultureInfo.InvariantCulture));
+            if (o.DisplayName.HasValue) args.Add(nameof(PropertyOverrideAttribute.DisplayName) + " = " + addAttributeBool(o.DisplayName.Value ? BoolValue.True : BoolValue.False));
+            sb.AppendLine("    [" + nameAtt<PropertyOverrideAttribute>() + "(" + string.Join(", ", args) + ")]");
+        }
+    }
+    // a default value as an attribute argument: attributes cannot hold decimals, dates, durations or
+    // guids, so those are strings in the formats [PropertyOverride] reads them back in
+    static string attributeConstant(PropertyModel p, object raw) {
+        var member = p.GetType().GetProperty(nameof(StringPropertyModel.DefaultValue));
+        object? value = raw;
+        if (member != null && OverrideValues.TryConvert(raw, member.PropertyType, out var converted, out _)) value = converted;
+        return value switch {
+            null => "null",
+            string s => stringLiteral(s),
+            bool b => b ? "true" : "false",
+            int i => i.ToString(CultureInfo.InvariantCulture),
+            long l => l.ToString(CultureInfo.InvariantCulture) + "L",
+            double d => d.ToString("R", CultureInfo.InvariantCulture) + "d",
+            float f => f.ToString("R", CultureInfo.InvariantCulture) + "f",
+            decimal m => stringLiteral(m.ToString(CultureInfo.InvariantCulture)),
+            DateTime dt => stringLiteral(dt.ToString("O", CultureInfo.InvariantCulture)),
+            DateTimeOffset dto => stringLiteral(dto.ToString("O", CultureInfo.InvariantCulture)),
+            TimeSpan ts => stringLiteral(ts.ToString("c", CultureInfo.InvariantCulture)),
+            Guid g => stringLiteral(g.ToString()),
+            _ => stringLiteral(Convert.ToString(value, CultureInfo.InvariantCulture) ?? ""),
+        };
     }
     /// <summary>
     /// One property as it is declared inside its type: the attributes that carry its settings, then the

@@ -47,7 +47,24 @@ public partial class Datamodel {
     [JsonIgnore]
     public readonly Dictionary<string, byte[]> AssemblyImages = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Fills in the text search switches of every node type (TextIndex, SemanticIndex,
+    /// InstantTextIndexing). A type that does not set one takes it from its base types - the most specific
+    /// base that sets it, the way an overridden member is found in C# - and what is still unset after that
+    /// is the database default given here. Changes the types in place, which is why only the store calls
+    /// it: a model written back into its sources must keep a switch it inherits unset.
+    /// </summary>
     public void SetIndexDefaults(bool enableTextIndexByDefault, bool enableSemanticIndexByDefault, bool enableInstantIndexing) {
+        EnsureInitalization(); // the inheritance closures are needed
+        var text = inheritedSwitches(t => t.TextIndex, nameof(NodeTypeModel.TextIndex));
+        var semantic = inheritedSwitches(t => t.SemanticIndex, nameof(NodeTypeModel.SemanticIndex));
+        var instant = inheritedSwitches(t => t.InstantTextIndexing, nameof(NodeTypeModel.InstantTextIndexing));
+        foreach (var n in NodeTypes.Values) {
+            n.TextIndex = text[n.Id];
+            n.SemanticIndex = semantic[n.Id];
+            n.InstantTextIndexing = instant[n.Id];
+            if (n.SemanticIndex == true) n.TextIndex = true; // as for a type that sets it itself (see EnsureInitalization)
+        }
         foreach (var n in NodeTypes.Values) {
             if (!n.TextIndex.HasValue)
                 n.TextIndex = enableTextIndexByDefault;

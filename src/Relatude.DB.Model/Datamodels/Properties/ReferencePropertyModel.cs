@@ -40,7 +40,8 @@ public class ReferencePropertyModel : PropertyModel {
     // existing instance and would NRE on an uninitialized property. Plain object-shaped
     // references stay null until preloaded, so they get no initializer.
     public override string? GetDefaultDeclaration() => ReferenceValueType == ReferenceValueType.Wrapper ? "new()" : null;
-    public override string GetDefaultValueAsCode() =>
-        DefaultValue == Guid.Empty ? "Guid.Empty" : "new Guid(\"" + DefaultValue + "\")";
+    public override string GetDefaultValueAsCode() => GetValueAsCode(DefaultValue);
+    public override string GetValueAsCode(object? value) =>
+        value is not Guid g || g == Guid.Empty ? "Guid.Empty" : "new Guid(\"" + g + "\")";
 
 }

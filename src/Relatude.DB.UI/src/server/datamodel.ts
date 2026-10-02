@@ -49,7 +49,26 @@ export interface NodeTypeJson {
   IsInnerNode?: boolean;
   TextIndex?: boolean | null;
   SemanticIndex?: boolean | null;
+  /** attributes the type gives properties it inherits, in its own definition ([PropertyOverride] in code), by property id */
+  PropertyOverrides?: Record<string, PropertyOverrideJson> | null;
   [key: string]: unknown;
+}
+
+/** Overridden attributes of a property, by the model's own field names. A missing field is not overridden. */
+export interface PropertyOverrideJson {
+  /** the property's name when the override was written, for people reading the file */
+  Name?: string | null;
+  [key: string]: unknown;
+}
+/** Overridden attributes of a node type, and the overrides of the properties seen from it. */
+export interface NodeTypeOverrideJson {
+  Name?: string | null;
+  Properties?: Record<string, PropertyOverrideJson> | null;
+  [key: string]: unknown;
+}
+/** The database's overrides (Datamodel.Overrides): attribute values set on top of what the sources say. */
+export interface OverridesJson {
+  NodeTypes: Record<string, NodeTypeOverrideJson>;
 }
 
 export interface RelationJson {
@@ -88,6 +107,8 @@ export interface ModelJson {
   NodeTypes: Record<string, NodeTypeJson>;
   Relations: Record<string, RelationJson>;
   Sources: SourceJson[];
+  /** the database's overrides; they ride with the model, and activating writes them to their own file */
+  Overrides?: OverridesJson | null;
   [key: string]: unknown;
 }
 
@@ -165,6 +186,20 @@ export interface DatamodelPage {
   /** the source list is set by the configuration overlay and cannot be changed from here */
   sourcesLocked: boolean;
   ioProviders: { id: string; name: string | null }[];
+  /** where the database keeps its overrides (their content is in the model) */
+  overrides: OverridesFileInfo;
+}
+
+export interface OverridesFileInfo {
+  /** the source id the write plan files the overrides file under */
+  planId: string;
+  /** where they are, for people */
+  location: string;
+  /** kept with the database rather than in a file of the site */
+  inDatabase: boolean;
+  /** false when they are to be kept with a database that has no storage provider for them */
+  writable: boolean;
+  exists: boolean;
 }
 
 // ---- the schema of the editors ----
@@ -198,7 +233,16 @@ export interface FieldDef {
   default: unknown;
   optional: boolean;
   readOnly: boolean;
+  /** whether, and how far, the field can be overridden; null when it cannot */
+  overridable: OverrideScope | null;
 }
+
+/**
+ * How far an override reaches. inherited: a type can set its own value, and the types inheriting from it
+ * take it. thisType: a node type setting that is not inherited. wholeProperty: one value for the property
+ * wherever it is used, set on the type that declares it.
+ */
+export type OverrideScope = "inherited" | "thisType" | "wholeProperty";
 
 export interface PropertyTypeDef {
   value: string;
@@ -268,6 +312,8 @@ export interface PlannedFile {
 
 export interface Plan {
   settingsChange: boolean;
+  /** the database's overrides change; the file is among the files, under the overrides plan id */
+  overridesChange: boolean;
   requiresRebuild: boolean;
   sources: SourceChange[];
   files: PlannedFile[];
@@ -281,6 +327,10 @@ export interface Validation {
   requiresRebuild: boolean;
   draftChecksum: string;
   activeChecksum: string;
+  /** types whose text changes, queued for text indexing after the activation */
+  textReindexTypes: string[];
+  /** types the draft turns text indexing off for: their text is taken out of the index first */
+  textIndexOffTypes: string[];
   plan: Plan | null;
 }
 
@@ -294,6 +344,9 @@ export interface ActivationResult {
   filesWritten: string[];
   filesDeleted: string[];
   checksumMatches: boolean | null;
+  overridesChanged: boolean;
+  textCleared: number;
+  textReindexQueued: number;
   message: string | null;
 }
 
@@ -654,19 +707,30 @@ export interface ModelDiff {
   removedRelations: string[];
   changedRelations: string[];
   sourcesChanged: boolean;
+  /** the database's overrides differ */
+  overridesChanged: boolean;
   /** true when nothing differs */
   same: boolean;
 }
 
+/** JSON with the keys of every object sorted, so two objects saying the same compare equal however they were built. */
+export function stableJson(value: unknown): string {
+  return JSON.stringify(value, (_key, v) =>
+    v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, (v as Record<string, unknown>)[k]])) : v,
+  );
+}
+
 /** Compares two models by id and content, ignoring where things came from (source id and file). */
 export function diffModels(a: ModelJson, b: ModelJson, baseTypeId: string): ModelDiff {
+  // every level sorted: a replacer list of the top level keys would also filter the keys of nested
+  // objects, which used to leave Properties as {} and property edits invisible here
   const fp = (o: object): string => {
     const copy = { ...(o as Record<string, unknown>) };
     delete copy.DatamodelSourceId;
     delete copy.DatamodelSourceFilename;
-    return JSON.stringify(copy, Object.keys(copy).sort());
+    return stableJson(copy);
   };
-  const diff: ModelDiff = { addedTypes: [], removedTypes: [], changedTypes: [], addedRelations: [], removedRelations: [], changedRelations: [], sourcesChanged: false, same: true };
+  const diff: ModelDiff = { addedTypes: [], removedTypes: [], changedTypes: [], addedRelations: [], removedRelations: [], changedRelations: [], sourcesChanged: false, overridesChanged: false, same: true };
   for (const id of Object.keys(b.NodeTypes)) {
     if (id === baseTypeId) continue;
     if (!a.NodeTypes[id]) diff.addedTypes.push(id);
@@ -679,6 +743,7 @@ export function diffModels(a: ModelJson, b: ModelJson, baseTypeId: string): Mode
   }
   for (const id of Object.keys(a.Relations)) if (!b.Relations[id]) diff.removedRelations.push(id);
   diff.sourcesChanged = JSON.stringify(a.Sources ?? []) !== JSON.stringify(b.Sources ?? []);
+  diff.overridesChanged = overridesKey(a.Overrides) !== overridesKey(b.Overrides);
   // a type whose only difference is its source or file still has to count as changed for the page,
   // since that is what decides which file it is written to
   for (const id of Object.keys(b.NodeTypes)) {
@@ -689,6 +754,24 @@ export function diffModels(a: ModelJson, b: ModelJson, baseTypeId: string): Mode
   }
   diff.same =
     diff.addedTypes.length + diff.removedTypes.length + diff.changedTypes.length + diff.addedRelations.length + diff.removedRelations.length + diff.changedRelations.length === 0 &&
-    !diff.sourcesChanged;
+    !diff.sourcesChanged &&
+    !diff.overridesChanged;
   return diff;
+}
+
+/** The overrides in a form where two that say the same compare equal: names (which are for people) and empty entries left out. */
+export function overridesKey(overrides: OverridesJson | null | undefined): string {
+  const types: Record<string, unknown> = {};
+  for (const [typeId, t] of Object.entries(overrides?.NodeTypes ?? {})) {
+    const { Name: _n, Properties, ...own } = t;
+    const props: Record<string, unknown> = {};
+    for (const [pid, p] of Object.entries(Properties ?? {})) {
+      const { Name: _pn, ...set } = p;
+      const kept = Object.fromEntries(Object.entries(set).filter(([, v]) => v !== undefined && v !== null));
+      if (Object.keys(kept).length > 0) props[pid] = kept;
+    }
+    const keptOwn = Object.fromEntries(Object.entries(own).filter(([, v]) => v !== undefined && v !== null));
+    if (Object.keys(keptOwn).length > 0 || Object.keys(props).length > 0) types[typeId] = { ...keptOwn, ...(Object.keys(props).length > 0 ? { Properties: props } : {}) };
+  }
+  return Object.keys(types).length === 0 ? "" : stableJson(types);
 }

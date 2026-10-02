@@ -211,6 +211,17 @@ internal static class BuildUtilsProperties {
         }
         return attr;
     }
+    /// <summary>
+    /// The id of the property a member declares, as <see cref="CreatePropertyFromMember"/> gives it: the
+    /// attribute's Id, else a hash of the declaring type's id and the member name. The member must be the
+    /// declaring one (on the interface or base class), not an implementation of it.
+    /// </summary>
+    public static Guid GetPropertyId(MemberInfo declaringMember) {
+        if (BuildUtils.tryGetAttribute<PropertyAttribute>(declaringMember, out var attr) && !string.IsNullOrEmpty(attr.Id)) return Guid.Parse(attr.Id);
+        var rootType = BuildUtils.GetBaseDeclaringType(declaringMember);
+        var nodeTypeAttr = BuildUtils.GetOrCreateNodeAttributeWithId(rootType);
+        return (nodeTypeAttr.Id + "." + declaringMember.Name).GenerateHashGuid();
+    }
     static bool isEnumArray(Type valueType) => valueType.IsArray && valueType.GetElementType()!.IsEnum;
     // the generic collection interfaces do not implement their non-generic counterparts
     // (only IEnumerable<T> : IEnumerable), so members declared as ICollection<T>/IList<T> etc.

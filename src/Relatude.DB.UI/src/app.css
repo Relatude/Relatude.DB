@@ -51,6 +51,9 @@
   /* an open revert window: neither an error nor data, and it must not be mistaken for either */
   --revert: #7a3fb0;
   --revert-soft: rgba(122, 63, 176, 0.12);
+  /* an attribute of the data model set by the database's overrides rather than by its source */
+  --override: #0b7a75;
+  --override-soft: rgba(11, 122, 117, 0.12);
   --badge-bg: rgba(0, 0, 0, 0.07);
   /* a word a search matched, marked in the text it was found in; the strong one is the bar beside a
      row the search text named by its id */
@@ -115,6 +118,8 @@
   --data-soft: rgba(224, 164, 92, 0.14);
   --revert: #c49bf0;
   --revert-soft: rgba(196, 155, 240, 0.16);
+  --override: #5fc9c2;
+  --override-soft: rgba(95, 201, 194, 0.16);
   --badge-bg: rgba(255, 255, 255, 0.09);
   --mark-soft: rgba(226, 178, 42, 0.30);
   --mark-strong: #e2b22a;

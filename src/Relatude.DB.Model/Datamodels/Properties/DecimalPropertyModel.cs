@@ -65,6 +65,7 @@ public class DecimalPropertyModel : PropertyModel, IPropertyModelUniqueContraint
 
         return decimalBuffer;
     }
-    public override string GetDefaultValueAsCode() => DefaultValue.ToString();
+    public override string GetDefaultValueAsCode() => GetValueAsCode(DefaultValue);
+    public override string GetValueAsCode(object? value) => CSharpLiteral.Decimal(value is decimal d ? d : 0);
     public override string? GetTextIndex(object value) => value.ToString();
 }

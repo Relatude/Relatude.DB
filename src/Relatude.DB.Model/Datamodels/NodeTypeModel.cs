@@ -69,5 +69,16 @@ public partial class NodeTypeModel { // with default values
     // get-only: System.Text.Json must populate the existing dictionary on deserialization
     [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
     public Dictionary<Guid, PropertyModel> Properties { get; } = new();
+    /// <summary>
+    /// Attributes this type gives properties it inherits, by property id: what [PropertyOverride] says in
+    /// code, or the same in a JSON model file. Only the attributes that may differ between the types that
+    /// have a property count here (<see cref="OverrideScope.Inherited"/>: the default value, whether the
+    /// value is in the text index and with what boost, whether it is part of the display name). They apply
+    /// to this type and the types inheriting from it, unless one of those sets its own; what the engine
+    /// then reads for each type is resolved when the model initializes (see <see cref="GetDefaultValue"/>,
+    /// <see cref="TextIndexProperties"/>). Null when the type overrides nothing.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<Guid, PropertyOverride>? PropertyOverrides { get; set; }
     public string FullName => String.IsNullOrEmpty(Namespace) ? CodeName : $"{Namespace}.{CodeName}";
 }
