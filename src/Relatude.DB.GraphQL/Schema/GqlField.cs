@@ -15,14 +15,20 @@ public enum FieldSource {
     EnumProperty,        // int -> enum value name
     EnumArrayProperty,   // int[] -> enum value names
     FileProperty,        // FileValue -> FileInfo object (null when empty)
+    GeoProperty,         // GeoCoordinate -> { latitude, longitude }
     RelationOne, RelationMany,     // IRelations.TryGetOneRelation / TryGetManyRelation
     ReferenceOne, ReferenceMany,   // IRelations.TryGetReference / TryGetReferences
     // root Query fields
     RootSingle, RootList,
+    RootView,            // a list root field whose base query is defined by the endpoint
+    // root Mutation fields
+    MutationCreate, MutationUpdate, MutationDelete,
     // fields of the generated <Type>Result wrapper
     WrapperItems, WrapperTotalCount, WrapperPageIndex, WrapperPageSize, WrapperExecutionTimeMs,
     // fields of the shared FileInfo type (source value is a FileValue)
     FileName, FileSize, FileWidth, FileHeight, FileContentType,
+    // fields of the shared GeoCoordinate type
+    GeoLatitude, GeoLongitude,
 }
 
 public sealed class GqlField {
@@ -34,6 +40,8 @@ public sealed class GqlField {
     public PropertyModel? Property { get; init; }
     /// <summary>Target node type for relation/reference/root fields.</summary>
     public NodeTypeModel? TargetNodeType { get; init; }
+    /// <summary>Root view fields: the Relatude query the field starts from, e.g. "Article.Where(a => a.Published)".</summary>
+    public string? ViewQuery { get; init; }
     public List<GqlArgument> Arguments { get; } = [];
     public GqlArgument? GetArgument(string name) {
         foreach (var a in Arguments) if (a.Name == name) return a;

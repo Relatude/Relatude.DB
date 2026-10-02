@@ -1,5 +1,5 @@
-using GraphQLParser.AST;
 using Relatude.DB.Datamodels;
+using Relatude.DB.GraphQL.Language;
 using Relatude.DB.GraphQL.Schema;
 
 namespace Relatude.DB.GraphQL.Execution;
@@ -19,7 +19,7 @@ internal static class IncludePlanner {
     }
 
     /// <summary>Union of relation paths across all type conditions in the selection.</summary>
-    public static List<string> Plan(ExecutionContext ctx, GqlNamedType declaredType, IEnumerable<GraphQLSelectionSet> sets) {
+    public static List<string> Plan(ExecutionContext ctx, GqlNamedType declaredType, IEnumerable<SelectionSet> sets) {
         var roots = new Dictionary<Guid, Branch>();
         walk(ctx, declaredType as IGqlCompositeType, sets, roots, 1);
         var paths = new List<string>();
@@ -27,22 +27,22 @@ internal static class IncludePlanner {
         return paths;
     }
 
-    static void walk(ExecutionContext ctx, IGqlCompositeType? composite, IEnumerable<GraphQLSelectionSet> sets, Dictionary<Guid, Branch> branches, int depth) {
+    static void walk(ExecutionContext ctx, IGqlCompositeType? composite, IEnumerable<SelectionSet> sets, Dictionary<Guid, Branch> branches, int depth) {
         if (composite == null) return;
         foreach (var set in sets) walkSet(ctx, composite, set, branches, depth);
     }
 
-    static void walkSet(ExecutionContext ctx, IGqlCompositeType composite, GraphQLSelectionSet set, Dictionary<Guid, Branch> branches, int depth) {
+    static void walkSet(ExecutionContext ctx, IGqlCompositeType composite, SelectionSet set, Dictionary<Guid, Branch> branches, int depth) {
         foreach (var sel in set.Selections) {
             switch (sel) {
-                case GraphQLField f: {
+                case FieldNode f: {
                         if (!DocumentWalker.DirectivesPass(ctx, f.Directives)) continue;
-                        var name = f.Name.StringValue;
+                        var name = f.Name;
                         if (name.StartsWith("__", StringComparison.Ordinal)) continue;
                         if (!composite.TryGetField(name, out var fieldDef)) continue; // belongs to a sibling type condition
                         if (fieldDef.Source is not (FieldSource.RelationOne or FieldSource.RelationMany or FieldSource.ReferenceOne or FieldSource.ReferenceMany)) continue;
-                        if (depth > ctx.Options.MaxIncludeDepth) {
-                            throw ctx.RequestError($"The selection exceeds the maximum relation depth of {ctx.Options.MaxIncludeDepth} (at field \"{name}\").", f);
+                        if (depth > ctx.Endpoint.MaxIncludeDepth) {
+                            throw ctx.RequestError($"The selection exceeds the maximum relation depth of {ctx.Endpoint.MaxIncludeDepth} (at field \"{name}\").", f);
                         }
                         var propId = fieldDef.Property!.Id;
                         if (!branches.TryGetValue(propId, out var branch)) {
@@ -56,32 +56,29 @@ internal static class IncludePlanner {
                         }
                         break;
                     }
-                case GraphQLInlineFragment inf: {
+                case InlineFragment inf: {
                         if (!DocumentWalker.DirectivesPass(ctx, inf.Directives)) continue;
                         var target = composite;
-                        var condition = inf.TypeCondition?.Type.Name.StringValue;
-                        if (condition != null && ctx.Schema.TryGetType(condition, out var t) && t is IGqlCompositeType c) target = c;
-                        if (inf.SelectionSet != null) walkSet(ctx, target, inf.SelectionSet, branches, depth);
+                        if (inf.TypeCondition != null && ctx.Schema.TryGetType(inf.TypeCondition, out var t) && t is IGqlCompositeType c) target = c;
+                        walkSet(ctx, target, inf.SelectionSet, branches, depth);
                         break;
                     }
-                case GraphQLFragmentSpread sp: {
+                case FragmentSpread sp: {
                         if (!DocumentWalker.DirectivesPass(ctx, sp.Directives)) continue;
-                        if (!ctx.Fragments.TryGetValue(sp.FragmentName.Name.StringValue, out var frag)) continue;
+                        if (!ctx.Fragments.TryGetValue(sp.Name, out var frag)) continue;
                         var target = composite;
-                        var condition = frag.TypeCondition.Type.Name.StringValue;
-                        if (ctx.Schema.TryGetType(condition, out var t) && t is IGqlCompositeType c) target = c;
-                        if (frag.SelectionSet != null) walkSet(ctx, target, frag.SelectionSet, branches, depth);
+                        if (ctx.Schema.TryGetType(frag.TypeCondition, out var t) && t is IGqlCompositeType c) target = c;
+                        walkSet(ctx, target, frag.SelectionSet, branches, depth);
                         break;
                     }
             }
         }
     }
 
-    static void mergeTop(ExecutionContext ctx, Branch branch, GqlField fieldDef, GraphQLField f) {
+    static void mergeTop(ExecutionContext ctx, Branch branch, GqlField fieldDef, FieldNode f) {
         if (fieldDef.Source is FieldSource.RelationOne or FieldSource.ReferenceOne) { branch.Unbounded = true; return; }
         int? top = null;
-        var topArgDef = fieldDef.GetArgument("top");
-        if (topArgDef != null) {
+        if (fieldDef.GetArgument("top") != null) {
             var args = Arguments.Resolve(ctx, fieldDef, f);
             top = Arguments.GetInt(args, "top");
             if (top is < 0) top = null;

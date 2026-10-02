@@ -1,7 +1,7 @@
 using System.Collections;
-using GraphQLParser.AST;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
+using Relatude.DB.GraphQL.Language;
 using Relatude.DB.GraphQL.Schema;
 
 namespace Relatude.DB.GraphQL.Execution;
@@ -12,13 +12,13 @@ namespace Relatude.DB.GraphQL.Execution;
 /// </summary>
 internal static class Projector {
 
-    public static object? ProjectNode(ExecutionContext ctx, INodeData node, IEnumerable<GraphQLSelectionSet> sets, List<object> path) {
+    public static object? ProjectNode(ExecutionContext ctx, INodeData node, IEnumerable<SelectionSet> sets, List<object> path) {
         if (!ctx.Schema.TryGetObjectType(node.NodeType, out var runtime)) return null; // runtime type is not exposed in the schema
         var typeModel = ctx.Schema.Datamodel.NodeTypes[node.NodeType];
         var collected = DocumentWalker.CollectFields(ctx, name => GqlSchema.TypeConditionMatches(runtime, name), sets);
         var result = new Dictionary<string, object?>(collected.Count);
         foreach (var cf in collected) {
-            var fieldName = cf.First.Name.StringValue;
+            var fieldName = cf.First.Name;
             if (fieldName == "__typename") { result[cf.Key] = runtime.Name; continue; }
             if (!runtime.TryGetField(fieldName, out var field)) { result[cf.Key] = null; continue; }
             var fieldPath = new List<object>(path) { cf.Key };
@@ -75,6 +75,12 @@ internal static class Projector {
                     if (value is not FileValue file || file.IsEmpty) return null;
                     return projectFile(ctx, file, field, cf);
                 }
+            case FieldSource.GeoProperty: {
+                    var p = field.Property!;
+                    var value = node.TryGetValue(p.Id, out var raw) ? raw : null;
+                    if (value is not GeoCoordinate geo || geo.IsEmpty) return null;
+                    return projectGeo(ctx, geo, field, cf);
+                }
             case FieldSource.RelationOne: {
                     node.Relations.TryGetOneRelation(field.Property!.Id, out var related);
                     return related == null ? null : ProjectNode(ctx, related, cf.SelectionSets, path);
@@ -111,7 +117,7 @@ internal static class Projector {
         var collected = DocumentWalker.CollectFields(ctx, name => name == fileType.Name, cf.SelectionSets);
         var result = new Dictionary<string, object?>(collected.Count);
         foreach (var c in collected) {
-            var name = c.First.Name.StringValue;
+            var name = c.First.Name;
             if (name == "__typename") { result[c.Key] = fileType.Name; continue; }
             if (!fileType.TryGetField(name, out var fd)) { result[c.Key] = null; continue; }
             result[c.Key] = fd.Source switch {
@@ -120,6 +126,23 @@ internal static class Projector {
                 FieldSource.FileWidth => file.Width,
                 FieldSource.FileHeight => file.Height,
                 FieldSource.FileContentType => safeContentType(file),
+                _ => null,
+            };
+        }
+        return result;
+    }
+
+    static object projectGeo(ExecutionContext ctx, GeoCoordinate geo, GqlField field, CollectedField cf) {
+        var geoType = (GqlObjectType)field.Type.UnwrapNamed();
+        var collected = DocumentWalker.CollectFields(ctx, name => name == geoType.Name, cf.SelectionSets);
+        var result = new Dictionary<string, object?>(collected.Count);
+        foreach (var c in collected) {
+            var name = c.First.Name;
+            if (name == "__typename") { result[c.Key] = geoType.Name; continue; }
+            if (!geoType.TryGetField(name, out var fd)) { result[c.Key] = null; continue; }
+            result[c.Key] = fd.Source switch {
+                FieldSource.GeoLatitude => geo.Latitude,
+                FieldSource.GeoLongitude => geo.Longitude,
                 _ => null,
             };
         }

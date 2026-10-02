@@ -28,6 +28,8 @@ export function lint(text: string, language: Language): LintIssue[] {
       return lintBrackets(text, "js");
     case "csharp":
       return lintBrackets(text, "cs");
+    case "graphql":
+      return lintBrackets(text, "js");
     default:
       return [];
   }

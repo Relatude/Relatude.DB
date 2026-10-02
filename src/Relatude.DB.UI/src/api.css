@@ -1,0 +1,237 @@
+/* The API section: GraphQL endpoints. Builds on the logs/custom-logs layout classes (tabs, editor bar, fields). */
+
+.api-empty {
+  max-width: 80ch;
+  line-height: 1.5;
+}
+
+.api-help {
+  max-width: 90ch;
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+
+.api-help code,
+.api-empty code {
+  font: var(--code-font);
+  font-size: 12px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--term-bg);
+  color: var(--term-text);
+}
+
+.api-table .log-table-row {
+  grid-template-columns: minmax(160px, 1.2fr) minmax(160px, 1.4fr) minmax(140px, 1fr) 60px 60px 90px minmax(120px, 1fr);
+}
+
+.api-table .mono,
+.api-props .mono,
+.mono {
+  font: var(--code-font);
+  font-size: 12px;
+}
+
+.api-table a {
+  color: inherit;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.api-table a:hover {
+  text-decoration: underline;
+}
+
+.api-badge-error {
+  color: var(--danger);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.api-editor .clog-editor-bar .logs-switch {
+  margin-left: 8px;
+}
+
+.api-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.api-warnings svg {
+  vertical-align: -2px;
+  margin-right: 2px;
+  color: var(--warning, #b7791f);
+}
+
+.api-switches {
+  gap: 8px;
+}
+
+.api-key-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.api-key-row .text-input {
+  flex: 1;
+}
+
+/* types: the list of node types and the detail of one */
+.api-types {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+@container (max-width: 760px) {
+  .api-types {
+    grid-template-columns: 1fr;
+  }
+}
+
+.api-type-list .text-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+}
+
+.api-type-rows {
+  display: flex;
+  flex-direction: column;
+  max-height: min(60vh, 640px);
+  overflow: auto;
+  margin: 0 -6px;
+}
+
+.api-type-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.api-type-row:hover {
+  background: var(--hover);
+}
+
+.api-type-row.selected {
+  background: var(--section-tone-soft);
+  color: var(--section-tone);
+}
+
+.api-type-row.off .api-type-name {
+  color: var(--text-muted);
+}
+
+.api-type-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.api-type-meta {
+  font-size: 11px;
+}
+
+.api-type-fields {
+  margin-bottom: 14px;
+}
+
+.api-props .log-table-row {
+  grid-template-columns: 28px minmax(140px, 1fr) minmax(160px, 1.2fr) minmax(160px, 1fr);
+  align-items: center;
+}
+
+.api-props .log-table-row.off {
+  color: var(--text-muted);
+}
+
+.api-props .text-input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 26px;
+  font-size: 12px;
+}
+
+/* views */
+.api-view-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.8fr) minmax(240px, 2fr) minmax(140px, 1fr) 30px;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.api-view-row .text-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* code windows */
+.api-code-panel h3 .api-bad {
+  color: var(--danger);
+}
+
+.api-code-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.api-code-meta {
+  flex: 1;
+  font-size: 12px;
+}
+
+.api-code {
+  display: flex;
+  height: min(65vh, 680px);
+  min-height: 240px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.api-code.small {
+  height: min(32vh, 320px);
+  min-height: 160px;
+}
+
+.api-code .code-editor {
+  flex: 1;
+}
+
+.panel > .api-code .code-editor,
+.panel .api-code .code-editor {
+  max-height: none;
+}
+
+/* try it */
+.api-try .clog-field-label {
+  display: block;
+  margin: 10px 0 4px;
+}
+
+.api-try-inputs {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+@container (max-width: 760px) {
+  .api-try-inputs {
+    grid-template-columns: 1fr;
+  }
+}

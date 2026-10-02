@@ -1,10 +1,8 @@
 using System.Diagnostics;
 using System.Text;
-using GraphQLParser;
-using GraphQLParser.AST;
-using GraphQLParser.Exceptions;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
+using Relatude.DB.GraphQL.Language;
 using Relatude.DB.GraphQL.Schema;
 using Relatude.DB.Query.Data;
 
@@ -13,6 +11,7 @@ namespace Relatude.DB.GraphQL.Execution;
 /// <summary>
 /// Orchestrates a GraphQL request: parse → operation selection → variables → validation →
 /// per-root-field translation into one Relatude query (filter/search/orderBy/paging + merged includes) → projection.
+/// Mutation root fields run serially through <see cref="MutationExecutor"/>.
 /// </summary>
 internal static class QueryExecutor {
 
@@ -22,47 +21,50 @@ internal static class QueryExecutor {
             if (string.IsNullOrWhiteSpace(request.Query)) {
                 throw new GraphQLRequestException(new GraphQLError { Message = "No query provided." });
             }
-            GraphQLDocument document;
+            Document document;
             try {
                 document = Parser.Parse(request.Query);
-            } catch (GraphQLSyntaxErrorException ex) {
-                throw new GraphQLRequestException(new GraphQLError { Message = ex.Message });
+            } catch (GraphQLSyntaxException ex) {
+                throw new GraphQLRequestException(new GraphQLError { Message = ex.Message, Locations = [new ErrorLocation { Line = ex.Line, Column = ex.Column }] });
             }
             var fragments = DocumentWalker.CollectFragments(document);
             var op = selectOperation(document, request.OperationName);
-            if (op.Operation == OperationType.Mutation) {
-                throw new GraphQLRequestException(new GraphQLError { Message = "Mutations are not supported: this endpoint is read-only." });
-            }
-            if (op.Operation == OperationType.Subscription) {
+            if (op.Operation == OperationKind.Subscription) {
                 throw new GraphQLRequestException(new GraphQLError { Message = "Subscriptions are not supported by this endpoint." });
             }
+            var isMutation = op.Operation == OperationKind.Mutation;
+            if (isMutation && host.Schema.MutationType == null) {
+                throw new GraphQLRequestException(new GraphQLError { Message = "Mutations are not supported: this endpoint is read-only." });
+            }
             var ctx = new ExecutionContext {
-                Schema = host.Schema, Options = host.Options, Store = store,
+                Host = host, Schema = host.Schema, Endpoint = host.Definition, Store = store,
                 Document = document, Fragments = fragments, QueryContext = queryContext,
             };
-            if (op.SelectionSet == null) throw ctx.RequestError("The operation has no selection set.");
             DocumentWalker.EnsureNoFragmentCycles(ctx);
             var depth = DocumentWalker.MaxDepth(ctx, op.SelectionSet);
-            if (depth > host.Options.MaxQueryDepth) {
-                throw ctx.RequestError($"Query depth {depth} exceeds the maximum of {host.Options.MaxQueryDepth}.");
+            if (depth > host.Definition.MaxQueryDepth) {
+                throw ctx.RequestError($"Query depth {depth} exceeds the maximum of {host.Definition.MaxQueryDepth}.");
             }
             ctx.Variables = VariableCoercer.Coerce(ctx, op, request.Variables);
-            DocumentWalker.Validate(ctx, op);
+            var root = isMutation ? host.Schema.MutationType! : host.Schema.QueryType;
+            DocumentWalker.Validate(ctx, op, root);
 
             var data = new Dictionary<string, object?>();
-            var rootFields = DocumentWalker.CollectFields(ctx, name => name == host.Schema.QueryType.Name, [op.SelectionSet]);
+            var rootFields = DocumentWalker.CollectFields(ctx, name => name == root.Name, [op.SelectionSet]);
             foreach (var cf in rootFields) {
-                var name = cf.First.Name.StringValue;
+                var name = cf.First.Name;
                 var path = new List<object> { cf.Key };
                 try {
                     if (name == "__typename") {
-                        data[cf.Key] = host.Schema.QueryType.Name;
-                    } else if (name == "__schema") {
+                        data[cf.Key] = root.Name;
+                    } else if (!isMutation && name == "__schema") {
                         data[cf.Key] = TreeProjector.Project(ctx, host.Introspection.SchemaData, cf.SelectionSets);
-                    } else if (name == "__type") {
+                    } else if (!isMutation && name == "__type") {
                         data[cf.Key] = resolveTypeIntrospection(ctx, host, cf);
-                    } else if (host.Schema.QueryType.TryGetField(name, out var fieldDef)) {
-                        data[cf.Key] = executeRootField(ctx, fieldDef, cf, path);
+                    } else if (root.TryGetField(name, out var fieldDef)) {
+                        data[cf.Key] = isMutation
+                            ? MutationExecutor.Execute(ctx, fieldDef, cf, path)
+                            : executeRootField(ctx, fieldDef, cf, path);
                     } else {
                         data[cf.Key] = null; // unreachable after validation
                     }
@@ -93,13 +95,13 @@ internal static class QueryExecutor {
     /// <summary>Microsecond resolution is plenty and keeps float noise out of the response.</summary>
     static double Round(double ms) => Math.Round(ms, 3);
 
-    static GraphQLOperationDefinition selectOperation(GraphQLDocument document, string? operationName) {
-        var operations = document.Definitions.OfType<GraphQLOperationDefinition>().ToList();
+    static OperationDefinition selectOperation(Document document, string? operationName) {
+        var operations = document.Definitions.OfType<OperationDefinition>().ToList();
         if (operations.Count == 0) {
             throw new GraphQLRequestException(new GraphQLError { Message = "The document contains no operations." });
         }
         if (!string.IsNullOrEmpty(operationName)) {
-            var named = operations.FirstOrDefault(o => o.Name?.StringValue == operationName);
+            var named = operations.FirstOrDefault(o => o.Name == operationName);
             return named ?? throw new GraphQLRequestException(new GraphQLError { Message = $"Operation \"{operationName}\" was not found in the document." });
         }
         if (operations.Count > 1) {
@@ -110,12 +112,10 @@ internal static class QueryExecutor {
 
     static object? resolveTypeIntrospection(ExecutionContext ctx, RelatudeGraphQL host, CollectedField cf) {
         string? typeName = null;
-        if (cf.First.Arguments != null) {
-            foreach (var a in cf.First.Arguments.Items) {
-                if (a.Name.StringValue == "name") {
-                    typeName = ValueResolver.Resolve(ctx, a.Value, new GqlNonNullType(ctx.Schema.Scalars.String)) as string;
-                    break;
-                }
+        foreach (var a in cf.First.Arguments) {
+            if (a.Name == "name") {
+                typeName = ValueResolver.Resolve(ctx, a.Value, new GqlNonNullType(ctx.Schema.Scalars.String)) as string;
+                break;
             }
         }
         if (typeName == null) return null;
@@ -127,22 +127,26 @@ internal static class QueryExecutor {
     static object? executeRootField(ExecutionContext ctx, GqlField field, CollectedField cf, List<object> path) {
         var nodeType = field.TargetNodeType!;
         var args = Arguments.Resolve(ctx, field, cf.First);
-        if (field.Source == FieldSource.RootSingle) return executeSingle(ctx, field, cf, nodeType, args, path);
+        if (field.Source == FieldSource.RootSingle) {
+            var idText = Arguments.GetString(args, "id");
+            if (idText == null || !Guid.TryParse(idText, out var id)) {
+                throw new GraphQLFieldException($"\"{idText}\" is not a valid node id.");
+            }
+            return FetchAndProjectNode(ctx, nodeType, id, (GqlNamedType)field.Type.UnwrapNamed(), cf.SelectionSets, path);
+        }
         return executeList(ctx, field, cf, nodeType, args, path);
     }
 
-    static object? executeSingle(ExecutionContext ctx, GqlField field, CollectedField cf, NodeTypeModel nodeType, Dictionary<string, object?> args, List<object> path) {
-        var idText = Arguments.GetString(args, "id");
-        if (idText == null || !Guid.TryParse(idText, out var id)) {
-            throw new GraphQLFieldException($"\"{idText}\" is not a valid node id.");
-        }
+    /// <summary>Loads one node with the relations the selection asks for and projects it; null when it does not exist (or is not visible).</summary>
+    public static object? FetchAndProjectNode(ExecutionContext ctx, NodeTypeModel nodeType, Guid id, GqlNamedType declaredType, IEnumerable<SelectionSet> sets, List<object> path) {
         var parameters = new ParameterBag();
         var sb = new StringBuilder(nodeType.CodeName);
         sb.Append($".WhereInIds({parameters.Add(new[] { id })})");
-        appendIncludes(ctx, sb, (GqlNamedType)field.Type.UnwrapNamed(), cf.SelectionSets);
-        var collection = runQuery(ctx, sb.ToString(), parameters);
+        var selections = sets.ToList();
+        appendIncludes(ctx, sb, declaredType, selections);
+        var collection = RunQuery(ctx, sb.ToString(), parameters);
         var node = collection.NodeValues.FirstOrDefault();
-        return node == null ? null : Projector.ProjectNode(ctx, node, cf.SelectionSets, path);
+        return node == null ? null : Projector.ProjectNode(ctx, node, selections, path);
     }
 
     static object executeList(ExecutionContext ctx, GqlField field, CollectedField cf, NodeTypeModel nodeType, Dictionary<string, object?> args, List<object> path) {
@@ -150,7 +154,8 @@ internal static class QueryExecutor {
         var wrapperFields = DocumentWalker.CollectFields(ctx, name => name == wrapper.Name, cf.SelectionSets);
 
         var parameters = new ParameterBag();
-        var sb = new StringBuilder(nodeType.CodeName);
+        // a view starts from the query its definition gives it; a plain list from the type itself
+        var sb = new StringBuilder(field.Source == FieldSource.RootView ? field.ViewQuery! : nodeType.CodeName);
         if (args.TryGetValue("search", out var searchValue) && searchValue is string search && search.Length > 0) {
             sb.Append($".WhereSearch({parameters.Add(search)})");
         }
@@ -169,13 +174,13 @@ internal static class QueryExecutor {
             sb.Append($".OrderBy(n => n.{order.Property.CodeName}, {(descending ? "true" : "false")})");
         }
         var page = Math.Max(0, Arguments.GetInt(args, "page") ?? 0);
-        var pageSize = Math.Clamp(Arguments.GetInt(args, "pageSize") ?? ctx.Options.DefaultPageSize, 1, ctx.Options.MaxPageSize);
+        var pageSize = Math.Clamp(Arguments.GetInt(args, "pageSize") ?? ctx.Endpoint.DefaultPageSize, 1, Math.Max(1, ctx.Endpoint.MaxPageSize));
         sb.Append($".Page({page}, {pageSize})");
 
         // includes come from the union of all items selections
-        var itemsSelections = new List<GraphQLSelectionSet>();
+        var itemsSelections = new List<SelectionSet>();
         foreach (var wf in wrapperFields) {
-            if (wrapper.TryGetField(wf.First.Name.StringValue, out var wfd) && wfd.Source == FieldSource.WrapperItems) {
+            if (wrapper.TryGetField(wf.First.Name, out var wfd) && wfd.Source == FieldSource.WrapperItems) {
                 itemsSelections.AddRange(wf.SelectionSets);
             }
         }
@@ -184,13 +189,13 @@ internal static class QueryExecutor {
         }
 
         var fetchTimer = Stopwatch.StartNew();
-        var collection = runQuery(ctx, sb.ToString(), parameters);
+        var collection = RunQuery(ctx, sb.ToString(), parameters);
         var nodes = collection.NodeValues.ToList();
         fetchTimer.Stop();
 
         var result = new Dictionary<string, object?>(wrapperFields.Count);
         foreach (var wf in wrapperFields) {
-            var wrapperFieldName = wf.First.Name.StringValue;
+            var wrapperFieldName = wf.First.Name;
             if (wrapperFieldName == "__typename") { result[wf.Key] = wrapper.Name; continue; }
             if (!wrapper.TryGetField(wrapperFieldName, out var wfd)) { result[wf.Key] = null; continue; }
             switch (wfd.Source) {
@@ -214,13 +219,13 @@ internal static class QueryExecutor {
         return result;
     }
 
-    static void appendIncludes(ExecutionContext ctx, StringBuilder sb, GqlNamedType declaredType, IEnumerable<GraphQLSelectionSet> sets) {
+    static void appendIncludes(ExecutionContext ctx, StringBuilder sb, GqlNamedType declaredType, IEnumerable<SelectionSet> sets) {
         foreach (var includePath in IncludePlanner.Plan(ctx, declaredType, sets)) {
             sb.Append($".Include(\"{includePath}\")"); // paths contain only Guids and ints
         }
     }
 
-    static IStoreNodeDataCollection runQuery(ExecutionContext ctx, string queryText, ParameterBag parameters) {
+    public static IStoreNodeDataCollection RunQuery(ExecutionContext ctx, string queryText, ParameterBag parameters) {
         object? result;
         try {
             result = ctx.Store.Query(queryText, parameters.Parameters, ctx.QueryContext);

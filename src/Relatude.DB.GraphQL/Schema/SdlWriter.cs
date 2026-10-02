@@ -3,12 +3,13 @@ using System.Text;
 namespace Relatude.DB.GraphQL.Schema;
 
 /// <summary>Prints a <see cref="GqlSchema"/> as GraphQL SDL.</summary>
-internal static class SdlWriter {
+public static class SdlWriter {
     public static string Write(GqlSchema schema) {
         var sb = new StringBuilder();
         writeType(sb, schema.QueryType);
+        if (schema.MutationType != null) writeType(sb, schema.MutationType);
         var rest = schema.Types.Values
-            .Where(t => t != schema.QueryType && t is not GqlScalarType { IsBuiltIn: true })
+            .Where(t => t != schema.QueryType && t != schema.MutationType && t is not GqlScalarType { IsBuiltIn: true })
             .OrderBy(rank)
             .ThenBy(t => t.Name, StringComparer.Ordinal);
         foreach (var t in rest) writeType(sb, t);

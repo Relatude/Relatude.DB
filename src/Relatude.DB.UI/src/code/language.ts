@@ -2,7 +2,7 @@
 // linter apply. Every list here is a plain lookup - nothing is sniffed from the content, except
 // that the viewer refuses to edit text that turns out to hold NUL bytes.
 
-export type Language = "json" | "xml" | "html" | "css" | "javascript" | "typescript" | "csharp" | "markdown" | "plain";
+export type Language = "json" | "xml" | "html" | "css" | "javascript" | "typescript" | "csharp" | "graphql" | "markdown" | "plain";
 
 export type FileKind = "image" | "video" | "audio" | "pdf" | "text" | "other";
 
@@ -38,6 +38,8 @@ const languageByExtension: Record<string, Language> = {
   ts: "typescript",
   tsx: "typescript",
   cs: "csharp",
+  graphql: "graphql",
+  gql: "graphql",
   md: "markdown",
   markdown: "markdown",
   txt: "plain",
@@ -75,6 +77,7 @@ const typeNames: Record<string, string> = {
   javascript: "JavaScript",
   typescript: "TypeScript",
   csharp: "C#",
+  graphql: "GraphQL",
   markdown: "Markdown",
 };
 

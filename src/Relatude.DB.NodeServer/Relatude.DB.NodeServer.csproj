@@ -23,6 +23,7 @@
 	<ItemGroup>
 		<ProjectReference Include="..\Relatude.DB.DataStoreLocal\Relatude.DB.DataStoreLocal.csproj" />
 		<ProjectReference Include="..\Relatude.DB.DataStoreRemote\Relatude.DB.DataStoreRemote.csproj" />
+		<ProjectReference Include="..\Relatude.DB.GraphQL\Relatude.DB.GraphQL.csproj" />
 		<ProjectReference Include="..\Relatude.DB.NodeStore\Relatude.DB.NodeStore.csproj" />
 		<ProjectReference Include="..\Relatude.DB.Providers\Relatude.DB.Providers.csproj" />
 		<ProjectReference Include="..\Relatude.DB.TextIndex\Relatude.DB.TextIndex.csproj" />

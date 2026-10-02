@@ -1,6 +1,5 @@
-using System.Globalization;
 using System.Text.Json;
-using GraphQLParser.AST;
+using Relatude.DB.GraphQL.Language;
 using Relatude.DB.GraphQL.Schema;
 
 namespace Relatude.DB.GraphQL.Execution;
@@ -8,11 +7,10 @@ namespace Relatude.DB.GraphQL.Execution;
 /// <summary>Coerces the request's JSON variables against the operation's variable definitions.</summary>
 internal static class VariableCoercer {
 
-    public static Dictionary<string, object?> Coerce(ExecutionContext ctx, GraphQLOperationDefinition op, JsonElement? variablesJson) {
+    public static Dictionary<string, object?> Coerce(ExecutionContext ctx, OperationDefinition op, JsonElement? variablesJson) {
         var result = new Dictionary<string, object?>(StringComparer.Ordinal);
-        if (op.Variables == null) return result;
-        foreach (var def in op.Variables.Items) {
-            var name = def.Variable.Name.StringValue;
+        foreach (var def in op.Variables) {
+            var name = def.Name;
             var type = ResolveTypeNode(ctx, def.Type);
             JsonElement provided = default;
             var hasValue = variablesJson.HasValue
@@ -39,13 +37,12 @@ internal static class VariableCoercer {
         return result;
     }
 
-    public static GqlType ResolveTypeNode(ExecutionContext ctx, GraphQLType typeNode) {
+    public static GqlType ResolveTypeNode(ExecutionContext ctx, TypeNode typeNode) {
         switch (typeNode) {
-            case GraphQLNonNullType nn: return new GqlNonNullType(ResolveTypeNode(ctx, nn.Type));
-            case GraphQLListType list: return new GqlListType(ResolveTypeNode(ctx, list.Type));
-            case GraphQLNamedType named: {
-                    var name = named.Name.StringValue;
-                    if (!ctx.Schema.TryGetType(name, out var type)) throw ctx.RequestError($"Unknown type \"{name}\".", typeNode);
+            case NonNullTypeNode nn: return new GqlNonNullType(ResolveTypeNode(ctx, nn.Type));
+            case ListTypeNode list: return new GqlListType(ResolveTypeNode(ctx, list.Type));
+            case NamedTypeNode named: {
+                    if (!ctx.Schema.TryGetType(named.Name, out var type)) throw ctx.RequestError($"Unknown type \"{named.Name}\".", typeNode);
                     return type;
                 }
             default:

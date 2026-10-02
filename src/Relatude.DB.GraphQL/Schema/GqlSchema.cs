@@ -21,7 +21,12 @@ public sealed class GqlScalars {
 /// </summary>
 public sealed class GqlSchema {
     public required Datamodel Datamodel { get; init; }
+    public required GraphQLEndpointDefinition Definition { get; init; }
     public required GqlObjectType QueryType { get; init; }
+    /// <summary>The Mutation root; null when the endpoint does not allow mutations or nothing is writable.</summary>
+    public GqlObjectType? MutationType { get; init; }
+    /// <summary>What the builder had to leave out or rename, in plain words for the endpoint editor.</summary>
+    public List<string> Warnings { get; } = [];
     public required GqlInterfaceType NodeInterface { get; init; }
     public required GqlScalars Scalars { get; init; }
     /// <summary>All named types by GraphQL name (excluding introspection meta types).</summary>

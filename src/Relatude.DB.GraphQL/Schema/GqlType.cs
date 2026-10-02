@@ -125,9 +125,11 @@ public sealed class GqlInputField {
     public required string Name { get; init; }
     public required GqlType Type { get; init; }
     public string? Description { get; set; }
-    /// <summary>For per-type filter inputs: the property this field filters on.</summary>
+    /// <summary>For per-type filter and mutation inputs: the property this field filters on or writes.</summary>
     public PropertyModel? Property { get; init; }
     public FilterOp Op { get; init; }
+    /// <summary>For mutation inputs: how the written property is shaped (scalar, enum, relation, reference...).</summary>
+    public FieldSource Source { get; init; }
 }
 
 public sealed class GqlInputObjectType : GqlNamedType {

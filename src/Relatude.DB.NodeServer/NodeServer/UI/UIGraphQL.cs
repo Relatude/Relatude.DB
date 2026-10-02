@@ -1,0 +1,183 @@
+using System.Text.Json;
+using Relatude.DB.Datamodels;
+using Relatude.DB.Datamodels.Properties;
+using Relatude.DB.DataStores;
+using Relatude.DB.GraphQL;
+using Relatude.DB.GraphQL.Endpoints;
+using Relatude.DB.GraphQL.Schema;
+
+namespace Relatude.DB.NodeServer.UI;
+
+/// <summary>The GraphQL endpoints page: list, edit, preview (schema + TypeScript), save, delete and try out endpoints.</summary>
+sealed class UIGraphQL(RelatudeDBServer server) {
+    sealed record StorePayload(Guid StoreId);
+    sealed record EndpointPayload(Guid StoreId, Guid Id);
+    sealed record DefinitionPayload(Guid StoreId, JsonElement Definition);
+    sealed record ExecutePayload(Guid StoreId, Guid? Id, JsonElement? Definition, string Query, JsonElement? Variables, string? OperationName);
+
+    internal void Register(UICommands commands) {
+        commands.Register("graphql-endpoints", ctx => (object?)list(ctx.Payload<StorePayload>().StoreId));
+        commands.Register("graphql-endpoint", ctx => {
+            var p = ctx.Payload<EndpointPayload>();
+            var c = container(p.StoreId);
+            var file = server.GraphQL.Find(c.Settings.Id, p.Id) ?? throw new Exception("The endpoint was not found.");
+            return (object?)new { definition = definitionJson(file.Definition!), file = file.FileName, preview = preview(c, file.Definition!) };
+        });
+        commands.Register("graphql-preview", ctx => {
+            var p = ctx.Payload<DefinitionPayload>();
+            var c = container(p.StoreId);
+            return (object?)preview(c, parse(p.Definition));
+        });
+        commands.Register("graphql-save", ctx => {
+            var p = ctx.Payload<DefinitionPayload>();
+            var c = container(p.StoreId);
+            var def = parse(p.Definition);
+            def.Name = def.Name.Trim();
+            def.Url = GraphQLEndpointDefinition.NormalizeUrl(def.Url) ?? def.Url;
+            if (string.IsNullOrWhiteSpace(def.ApiKey)) def.ApiKey = null;
+            var issues = validate(c, def);
+            var errors = issues.Where(i => i.IsError).Select(i => i.Message).ToList();
+            if (errors.Count > 0) throw new Exception(string.Join(" ", errors));
+            var saved = server.GraphQL.Save(c, def);
+            return (object?)new { id = def.Id, file = saved.FileName };
+        });
+        commands.Register("graphql-delete", ctx => {
+            var p = ctx.Payload<EndpointPayload>();
+            server.GraphQL.Delete(container(p.StoreId), p.Id);
+            return (object?)new { deleted = true };
+        });
+        commands.Register("graphql-reload", ctx => {
+            server.GraphQL.Invalidate();
+            return (object?)list(ctx.Payload<StorePayload>().StoreId);
+        });
+        commands.Register("graphql-execute", ctx => {
+            var p = ctx.Payload<ExecutePayload>();
+            var c = container(p.StoreId);
+            if (!c.IsOpen() || c.Store == null) throw new Exception("The database is not open.");
+            RelatudeGraphQL executor;
+            if (p.Definition is JsonElement e && e.ValueKind == JsonValueKind.Object) {
+                executor = new RelatudeGraphQL(c.Store.Datastore, parse(e), GraphQL.GraphQLEndpointServer.OptionsFor(c.Store));
+            } else if (p.Id is Guid id) {
+                var file = server.GraphQL.Find(c.Settings.Id, id) ?? throw new Exception("The endpoint was not found.");
+                executor = server.GraphQL.GetExecutor(c, file.Definition!);
+            } else throw new Exception("Pass the endpoint id or a definition.");
+            var result = executor.Execute(new GraphQLRequest { Query = p.Query, Variables = p.Variables, OperationName = p.OperationName });
+            return (object?)new { result = JsonDocument.Parse(result.ToJson()).RootElement.Clone() };
+        });
+    }
+
+    NodeStoreContainer container(Guid storeId) {
+        if (!server.Containers.TryGetValue(storeId, out var c)) throw new Exception("Container not found. ");
+        return c;
+    }
+
+    static GraphQLEndpointDefinition parse(JsonElement e) => GraphQLEndpointDefinition.FromJson(e.GetRawText());
+
+    // the definition's own json shape (camelCase, enums by name), the same as in its file
+    static JsonElement definitionJson(GraphQLEndpointDefinition def) => JsonDocument.Parse(def.ToJson()).RootElement.Clone();
+
+    static Datamodel? datamodelOf(NodeStoreContainer c) => c.IsOpen() && c.Store != null ? c.Store.Datastore.Datamodel : c.Datamodel;
+
+    List<GraphQLEndpointIssue> validate(NodeStoreContainer c, GraphQLEndpointDefinition def) {
+        var issues = GraphQLEndpointValidator.Validate(def, datamodelOf(c), server.GraphQL.AllDefinitions());
+        var url = GraphQLEndpointDefinition.NormalizeUrl(def.Url);
+        if (url != null && !string.IsNullOrEmpty(server.ApiUrlRoot)) {
+            var root = GraphQLEndpointDefinition.NormalizeUrl(server.ApiUrlRoot);
+            if (root != null && (url.Equals(root, StringComparison.OrdinalIgnoreCase) || url.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase))) {
+                issues.Add(new GraphQLEndpointIssue { Severity = "error", Message = $"The url is inside the admin API root {root}." });
+            }
+        }
+        return issues;
+    }
+
+    object list(Guid storeId) {
+        var c = container(storeId);
+        var files = server.GraphQL.Files(c.Settings.Id);
+        var dm = datamodelOf(c);
+        return new {
+            open = c.IsOpen(),
+            state = c.StateName,
+            adminRoot = server.ApiUrlRoot,
+            endpoints = files.Select(f => f.Definition == null
+                ? new EndpointSummary(null, f.FileName, f.FileName, null, false, "Selected", false, false, 0, 0, f.Error)
+                : new EndpointSummary(f.Definition.Id, f.Definition.Name, f.FileName, f.Definition.Url, f.Definition.Enabled, f.Definition.Mode.ToString(),
+                    f.Definition.ExactNames, f.Definition.AllowMutations,
+                    f.Definition.Mode == GraphQLEndpointMode.WholeDatamodel ? (dm == null ? 0 : exposableTypes(dm, f.Definition.IncludeSystemTypes).Count()) : f.Definition.Types.Count,
+                    f.Definition.Views.Count, null)).ToList(),
+            catalog = dm == null ? null : catalog(dm),
+        };
+    }
+
+    sealed record EndpointSummary(Guid? Id, string Name, string File, string? Url, bool Enabled, string Mode, bool ExactNames, bool AllowMutations, int TypeCount, int ViewCount, string? Error);
+
+    static IEnumerable<NodeTypeModel> exposableTypes(Datamodel dm, bool includeSystem)
+        => dm.NodeTypes.Values.Where(t => t.Id != NodeConstants.BaseNodeTypeId && !t.Hidden && !t.IsInnerNode && (includeSystem || t.Namespace != "Relatude.DB.Native.Models"));
+
+    /// <summary>The datamodel as the editor shows it: every exposable type with its properties, by id.</summary>
+    static object catalog(Datamodel dm) {
+        dm.EnsureInitalization();
+        return new {
+            types = exposableTypes(dm, true).OrderBy(t => t.CodeName, StringComparer.Ordinal).Select(t => new {
+                id = t.Id,
+                name = t.CodeName,
+                fullName = t.FullName,
+                isInterface = t.IsInterface,
+                isSystem = t.Namespace == "Relatude.DB.Native.Models",
+                parents = t.Parents,
+                properties = t.AllProperties.Values.Where(p => !p.Internal).OrderBy(p => p.CodeName, StringComparer.Ordinal).Select(p => new {
+                    id = p.Id,
+                    name = p.CodeName,
+                    kind = kindOf(p),
+                    inherited = p.NodeType != t.Id,
+                    target = targetOf(dm, p),
+                    supported = p.PropertyType is not (PropertyType.Any or PropertyType.ByteArray or PropertyType.FloatArray or PropertyType.Embedded),
+                    writable = p.PropertyType is not (PropertyType.Any or PropertyType.ByteArray or PropertyType.FloatArray or PropertyType.Embedded or PropertyType.File),
+                }).ToList(),
+            }).ToList(),
+        };
+    }
+
+    static string kindOf(PropertyModel p) => p switch {
+        RelationPropertyModel r => r.IsMany ? "Relation (many)" : "Relation",
+        ReferencePropertyModel => "Reference",
+        ReferencesPropertyModel => "References",
+        IntegerPropertyModel { IsEnum: true } => "Enum",
+        EnumArrayPropertyModel => "Enum array",
+        _ => p.PropertyType.ToString(),
+    };
+
+    static string? targetOf(Datamodel dm, PropertyModel p) {
+        List<Guid>? ids = p switch {
+            RelationPropertyModel r when dm.Relations.TryGetValue(r.RelationId, out var rel) => r.FromTargetToSource ? rel.SourceTypes : rel.TargetTypes,
+            ReferencePropertyModel rp => rp.NodeTypes,
+            ReferencesPropertyModel rsp => rsp.NodeTypes,
+            _ => null,
+        };
+        if (ids == null || ids.Count == 0) return null;
+        return string.Join(", ", ids.Select(id => dm.NodeTypes.TryGetValue(id, out var t) ? t.CodeName : id.ToString()));
+    }
+
+    /// <summary>What the definition gives: validation issues, builder warnings, the schema and the TypeScript code.</summary>
+    object preview(NodeStoreContainer c, GraphQLEndpointDefinition def) {
+        var issues = validate(c, def);
+        var dm = datamodelOf(c);
+        if (dm == null) return new { issues, warnings = Array.Empty<string>(), sdl = (string?)null, types = (string?)null, sample = (string?)null, sampleQuery = (string?)null, typeCount = 0, mutationCount = 0 };
+        GqlSchema schema;
+        try {
+            schema = RelatudeGraphQL.BuildSchema(dm, def);
+        } catch (Exception ex) {
+            issues.Add(new GraphQLEndpointIssue { Severity = "error", Message = "The schema could not be built: " + ex.Message });
+            return new { issues, warnings = Array.Empty<string>(), sdl = (string?)null, types = (string?)null, sample = (string?)null, sampleQuery = (string?)null, typeCount = 0, mutationCount = 0 };
+        }
+        return new {
+            issues,
+            warnings = schema.Warnings,
+            sdl = SdlWriter.Write(schema),
+            types = TypeScriptWriter.WriteTypes(schema),
+            sample = TypeScriptWriter.WriteSample(schema),
+            sampleQuery = TypeScriptWriter.WriteSampleQuery(schema),
+            typeCount = schema.ObjectTypesByNodeTypeId.Count,
+            mutationCount = schema.MutationType?.Fields.Count ?? 0,
+        };
+    }
+}

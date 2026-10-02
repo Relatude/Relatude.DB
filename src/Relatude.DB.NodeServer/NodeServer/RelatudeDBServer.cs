@@ -554,6 +554,9 @@ public partial class RelatudeDBServer {
         UI.Map(app);
     }
     public UIServer? UI { get; private set; }
+    GraphQL.GraphQLEndpointServer? _graphQL;
+    /// <summary>The GraphQL endpoints defined per database (graphql/*.json), served by <see cref="GraphQL.GraphQLEndpointServer.Middleware"/>.</summary>
+    public GraphQL.GraphQLEndpointServer GraphQL => _graphQL ??= new GraphQL.GraphQLEndpointServer(this);
 }
 public class ServerOptions {
     public static string DefaultFileRootUrl => "/files";

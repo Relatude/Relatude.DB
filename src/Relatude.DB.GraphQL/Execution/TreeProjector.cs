@@ -1,4 +1,4 @@
-using GraphQLParser.AST;
+using Relatude.DB.GraphQL.Language;
 
 namespace Relatude.DB.GraphQL.Execution;
 
@@ -8,7 +8,7 @@ namespace Relatude.DB.GraphQL.Execution;
 /// </summary>
 internal static class TreeProjector {
 
-    public static object? Project(ExecutionContext ctx, object? value, IEnumerable<GraphQLSelectionSet> sets) {
+    public static object? Project(ExecutionContext ctx, object? value, IEnumerable<SelectionSet> sets) {
         switch (value) {
             case null:
                 return null;
@@ -19,7 +19,7 @@ internal static class TreeProjector {
                     var collected = DocumentWalker.CollectFields(ctx, name => name == typeName, sets);
                     var result = new Dictionary<string, object?>(collected.Count);
                     foreach (var cf in collected) {
-                        var fieldName = cf.First.Name.StringValue;
+                        var fieldName = cf.First.Name;
                         if (fieldName == "__typename") { result[cf.Key] = typeName; continue; }
                         dict.TryGetValue(fieldName, out var child);
                         var hasSelection = cf.Fields.Any(f => f.SelectionSet != null);

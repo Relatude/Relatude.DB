@@ -32,9 +32,9 @@ internal sealed class IntrospectionData {
 
         var schemaData = new Dictionary<string, object?> {
             ["__typename"] = "__Schema",
-            ["description"] = "GraphQL schema generated from the Relatude.DB datamodel.",
+            ["description"] = string.IsNullOrWhiteSpace(schema.Definition.Description) ? "GraphQL schema generated from the Relatude.DB datamodel." : schema.Definition.Description,
             ["queryType"] = byName(schema.QueryType.Name),
-            ["mutationType"] = null,
+            ["mutationType"] = schema.MutationType == null ? null : byName(schema.MutationType.Name),
             ["subscriptionType"] = null,
             ["types"] = types.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => (object?)kv.Value).ToList(),
             ["directives"] = buildDirectives(byName, nonNull),

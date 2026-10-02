@@ -83,6 +83,21 @@ const csRules: Rule[] = [
   whitespace,
 ];
 
+const graphqlRules: Rule[] = [
+  rule(/#[^\n]*/y, "c"),
+  rule(/"""[\s\S]*?"""|"(?:[^"\\\n]|\\.)*"/y, "s"),
+  rule(/-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b/y, "n"),
+  rule(/\b(?:query|mutation|subscription|fragment|on|type|interface|enum|input|scalar|union|implements|schema|directive|extend|repeatable)\b/y, "k"),
+  rule(/\b(?:true|false|null)\b/y, "v"),
+  rule(/\$[A-Za-z_]\w*/y, "v"),
+  rule(/@[A-Za-z_]\w*/y, "a"),
+  rule(/\b[A-Z][A-Za-z0-9_]*\b(?!\s*[(:])/y, "t"),
+  rule(/[A-Za-z_]\w*(?=\s*[(:])/y, "p"),
+  identifier,
+  rule(/[{}()[\]:=!|&.,]+/y, "o"),
+  whitespace,
+];
+
 // the inside of a tag: name, attributes, their values
 const attribute = /([^\s=>/]+)(\s*=\s*)?("[^"]*"|'[^']*'|[^\s"'>]+)?/g;
 function renderTag(tag: string): string {
@@ -141,6 +156,8 @@ function rulesFor(language: Language): Rule[] | null {
       return jsRules;
     case "csharp":
       return csRules;
+    case "graphql":
+      return graphqlRules;
     case "xml":
     case "html":
       return markupRules;

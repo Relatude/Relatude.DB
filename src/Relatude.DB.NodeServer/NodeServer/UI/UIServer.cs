@@ -49,6 +49,7 @@ public sealed class UIServer {
         new UIRevert(server).Register(Commands);
         new UIDatamodel(server).Register(Commands);
         new UIDatabases(server).Register(Commands);
+        new UIGraphQL(server).Register(Commands);
         _query = new UIQuery(server);
         _query.Register(Commands);
         new UISearch(server, _query).Register(Commands);

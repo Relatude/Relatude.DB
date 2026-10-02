@@ -28,6 +28,7 @@
 		<file src="..\src\Relatude.DB.DataStoreLocal\bin\Release\net10.0\Relatude.DB.DataStoreLocal.dll" target="lib\net10.0" />
 		<file src="..\src\Relatude.DB.DataStoreRemote\bin\Release\net10.0\Relatude.DB.DataStoreRemote.dll" target="lib\net10.0" />
 		<file src="..\src\Relatude.DB.NodeServer\bin\Release\net10.0\Relatude.DB.NodeServer.dll" target="lib\net10.0" />
+		<file src="..\src\Relatude.DB.GraphQL\bin\Release\net10.0\Relatude.DB.GraphQL.dll" target="lib\net10.0" />
 		<file src="..\src\Relatude.DB.FileStorage\bin\Release\net10.0\Relatude.DB.FileStorage.dll" target="lib\net10.0" />
 		<file src="..\src\Relatude.DB.IO\bin\Release\net10.0\Relatude.DB.IO.dll" target="lib\net10.0" />
 		<file src="..\src\Relatude.DB.Logger\bin\Release\net10.0\Relatude.DB.Logger.dll" target="lib\net10.0" />

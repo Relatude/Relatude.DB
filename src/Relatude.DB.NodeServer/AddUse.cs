@@ -45,6 +45,7 @@ public static class AddUse {
         await server.StartAsync(app, options);
         app.Use(server.Authentication.StartupProgressBarMiddleware); // middleware to show opening progress page
         app.Use(server.Authentication.AuthorizationMiddleware); // authentication middleware for server admin UI and API
+        app.Use(server.GraphQL.Middleware); // the GraphQL endpoints defined per database in the admin UI
         return app;
     }
     public static IEndpointRouteBuilder MapRelatudeDBAdmin(this WebApplication app, string? urlPath = null) {

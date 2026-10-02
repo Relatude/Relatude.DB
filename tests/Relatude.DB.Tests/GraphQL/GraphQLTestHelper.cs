@@ -69,7 +69,7 @@ internal static class GraphQLTestHelper {
 
     public static Dictionary<string, object?> RequireData(GraphQLResult result) {
         if (result.Errors != null && result.Errors.Count > 0) {
-            Assert.Fail("Unexpected GraphQL errors: " + string.Join(" | ", result.Errors.Select(e => e.Message)));
+            Assert.Fail("Unexpected GraphQL errors: " + string.Join(" | ", result.Errors.Select(e => (e.Path == null ? "" : string.Join(".", e.Path) + ": ") + e.Message)));
         }
         Assert.IsNotNull(result.Data, "Expected data in the GraphQL result.");
         return result.Data!;

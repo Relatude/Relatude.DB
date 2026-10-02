@@ -995,6 +995,11 @@ public class NodeStore : IDisposable {
     /// Commits a transaction: all of its operations are applied together or none of them are. Registered
     /// transaction plugins are notified before and after, and on failure. An empty transaction is a no-op.
     /// </summary>
+    /// <summary>Commits raw transaction data the way <see cref="Execute(Transaction, bool)"/> does, transaction plugins included.</summary>
+    public TransactionResult Execute(TransactionData transactionData, bool flushToDisk = false) {
+        var transaction = new Transaction(this) { _transactionData = transactionData };
+        return Execute(transaction, flushToDisk);
+    }
     public TransactionResult Execute(Transaction transaction, bool flushToDisk = false) {
         if (transaction.Count == 0) return TransactionResult.Empty;
         try {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ApiSection } from "./components/ApiSection";
 import { DashboardSection } from "./components/DashboardSection";
 import { DatabasesSection } from "./components/DatabasesSection";
 import { DatamodelSection } from "./components/DatamodelSection";
@@ -214,6 +215,8 @@ export function App() {
             <FilesStorageSection db={activeDb} view={activeSectionId} onSelectView={setActiveSectionId} />
           ) : activeSectionId === "tasks" && activeDb ? (
             <TasksSection key={activeDb.id} db={activeDb} />
+          ) : activeSectionId === "api" && activeDb ? (
+            <ApiSection key={activeDb.id} db={activeDb} />
           ) : section.scope === "database" && !activeDb ? (
             // a database page has no database until the server has said which there are
             serverInfo !== null ? (

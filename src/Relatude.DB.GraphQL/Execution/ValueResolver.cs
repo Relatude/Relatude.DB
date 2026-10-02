@@ -1,5 +1,5 @@
 using System.Globalization;
-using GraphQLParser.AST;
+using Relatude.DB.GraphQL.Language;
 using Relatude.DB.GraphQL.Schema;
 
 namespace Relatude.DB.GraphQL.Execution;
@@ -11,23 +11,23 @@ namespace Relatude.DB.GraphQL.Execution;
 /// </summary>
 internal static class ValueResolver {
 
-    public static object? Resolve(ExecutionContext ctx, GraphQLValue value, GqlType expectedType) {
-        if (value is GraphQLVariable variable) {
-            ctx.Variables.TryGetValue(variable.Name.StringValue, out var varValue);
+    public static object? Resolve(ExecutionContext ctx, ValueNode value, GqlType expectedType) {
+        if (value is VariableValue variable) {
+            ctx.Variables.TryGetValue(variable.Name, out var varValue);
             if (varValue == null && expectedType is GqlNonNullType) {
-                throw new GraphQLFieldException($"Variable \"${variable.Name.StringValue}\" of a non-null type has no value.");
+                throw new GraphQLFieldException($"Variable \"${variable.Name}\" of a non-null type has no value.");
             }
             return varValue; // already coerced by VariableCoercer
         }
         if (expectedType is GqlNonNullType nonNull) {
-            if (value is GraphQLNullValue) throw new GraphQLFieldException($"Null passed where type \"{expectedType.ToTypeReference()}\" is expected.");
+            if (value is NullValue) throw new GraphQLFieldException($"Null passed where type \"{expectedType.ToTypeReference()}\" is expected.");
             return Resolve(ctx, value, nonNull.OfType);
         }
-        if (value is GraphQLNullValue) return null;
+        if (value is NullValue) return null;
         if (expectedType is GqlListType listType) {
-            if (value is GraphQLListValue listValue) {
+            if (value is ListValue listValue) {
                 var items = new List<object?>();
-                foreach (var item in listValue.Values ?? []) items.Add(Resolve(ctx, item, listType.OfType));
+                foreach (var item in listValue.Values) items.Add(Resolve(ctx, item, listType.OfType));
                 return items;
             }
             return new List<object?> { Resolve(ctx, value, listType.OfType) }; // single value list coercion
@@ -35,21 +35,20 @@ internal static class ValueResolver {
         switch (expectedType) {
             case GqlScalarType scalar: return resolveScalar(value, scalar);
             case GqlEnumType enumType: {
-                    if (value is not GraphQLEnumValue ev) throw new GraphQLFieldException($"Expected an enum value of type \"{enumType.Name}\".");
-                    if (!enumType.TryGetByName(ev.Name.StringValue, out var enumValue)) {
-                        throw new GraphQLFieldException($"\"{ev.Name.StringValue}\" is not a value of enum \"{enumType.Name}\".");
+                    if (value is not EnumValue ev) throw new GraphQLFieldException($"Expected an enum value of type \"{enumType.Name}\".");
+                    if (!enumType.TryGetByName(ev.Name, out var enumValue)) {
+                        throw new GraphQLFieldException($"\"{ev.Name}\" is not a value of enum \"{enumType.Name}\".");
                     }
                     return enumValue;
                 }
             case GqlInputObjectType inputType: {
-                    if (value is not GraphQLObjectValue ov) throw new GraphQLFieldException($"Expected an input object of type \"{inputType.Name}\".");
+                    if (value is not ObjectValue ov) throw new GraphQLFieldException($"Expected an input object of type \"{inputType.Name}\".");
                     var dict = new Dictionary<string, object?>(StringComparer.Ordinal);
-                    foreach (var field in ov.Fields ?? []) {
-                        var name = field.Name.StringValue;
-                        if (!inputType.TryGetInputField(name, out var fieldDef)) {
-                            throw new GraphQLFieldException($"Unknown field \"{name}\" on input type \"{inputType.Name}\".");
+                    foreach (var field in ov.Fields) {
+                        if (!inputType.TryGetInputField(field.Name, out var fieldDef)) {
+                            throw new GraphQLFieldException($"Unknown field \"{field.Name}\" on input type \"{inputType.Name}\".");
                         }
-                        dict[name] = Resolve(ctx, field.Value, fieldDef.Type);
+                        dict[field.Name] = Resolve(ctx, field.Value, fieldDef.Type);
                     }
                     return dict;
                 }
@@ -58,39 +57,39 @@ internal static class ValueResolver {
         }
     }
 
-    static object? resolveScalar(GraphQLValue value, GqlScalarType scalar) {
+    static object? resolveScalar(ValueNode value, GqlScalarType scalar) {
         try {
             switch (scalar.Name) {
                 case "Int":
-                    if (value is GraphQLIntValue iv) return int.Parse(iv.Value.ToString(), CultureInfo.InvariantCulture);
+                    if (value is IntValue iv) return int.Parse(iv.Text, CultureInfo.InvariantCulture);
                     break;
                 case "Long":
-                    if (value is GraphQLIntValue lv) return long.Parse(lv.Value.ToString(), CultureInfo.InvariantCulture);
+                    if (value is IntValue lv) return long.Parse(lv.Text, CultureInfo.InvariantCulture);
                     break;
                 case "Float":
-                    if (value is GraphQLFloatValue fv) return double.Parse(fv.Value.ToString(), CultureInfo.InvariantCulture);
-                    if (value is GraphQLIntValue fiv) return double.Parse(fiv.Value.ToString(), CultureInfo.InvariantCulture);
+                    if (value is FloatValue fv) return double.Parse(fv.Text, CultureInfo.InvariantCulture);
+                    if (value is IntValue fiv) return double.Parse(fiv.Text, CultureInfo.InvariantCulture);
                     break;
                 case "Decimal":
-                    if (value is GraphQLFloatValue dv) return decimal.Parse(dv.Value.ToString(), CultureInfo.InvariantCulture);
-                    if (value is GraphQLIntValue div) return decimal.Parse(div.Value.ToString(), CultureInfo.InvariantCulture);
+                    if (value is FloatValue dv) return decimal.Parse(dv.Text, CultureInfo.InvariantCulture);
+                    if (value is IntValue div) return decimal.Parse(div.Text, CultureInfo.InvariantCulture);
                     break;
                 case "String":
-                    if (value is GraphQLStringValue sv) return sv.Value.ToString();
+                    if (value is StringValue sv) return sv.Value;
                     break;
                 case "ID":
-                    if (value is GraphQLStringValue idv) return idv.Value.ToString();
-                    if (value is GraphQLIntValue idi) return idi.Value.ToString();
+                    if (value is StringValue idv) return idv.Value;
+                    if (value is IntValue idi) return idi.Text;
                     break;
                 case "Boolean":
-                    if (value is GraphQLBooleanValue bv) return bv.BoolValue;
+                    if (value is BooleanValue bv) return bv.Value;
                     break;
                 case "DateTime":
-                    if (value is GraphQLStringValue dtv) return ParseDateTime(dtv.Value.ToString());
+                    if (value is StringValue dtv) return ParseDateTime(dtv.Value);
                     break;
                 default:
                     // unknown custom scalar: pass the raw literal text through
-                    if (value is GraphQLStringValue anyString) return anyString.Value.ToString();
+                    if (value is StringValue anyString) return anyString.Value;
                     break;
             }
         } catch (GraphQLFieldException) {
