@@ -36,10 +36,13 @@ public static class DatamodelCatalog {
         /// Whether, and how far, the field can be overridden (see <see cref="DatamodelOverrides"/>):
         /// "inherited" (a type can set its own value, and the types inheriting from it take it), "thisType"
         /// (a node type setting that is not inherited), "wholeProperty" (one value for the property wherever
-        /// it is used, set on the type that declares it), or null when it cannot be overridden. Read off
+        /// it is used, set on the type that declares it), "anyType" (one value for the property that any
+        /// type having it can ask for: its value index, being a facet), or null when it cannot be overridden. Read off
         /// <see cref="NodeTypeOverride"/> and <see cref="PropertyOverride"/>, so the two cannot disagree.
         /// </summary>
         public string? Overridable { get; init; }
+        /// <summary>For an "anyType" field, the value with which a type asks for it (true for Indexed, false for NotFacet); null otherwise.</summary>
+        public bool? OverrideAsks { get; init; }
     }
     sealed class Entry {
         public required string Label { get; init; }
@@ -85,8 +88,8 @@ public static class DatamodelCatalog {
         ["NameOfChangedUtcProperty"] = new() { Label = "Changed member", Help = "The DateTime member the engine stamps with the last change.", Group = "System members", Order = 7 },
         ["NameOfDisplayNameProperty"] = new() { Label = "Display name member", Help = "The string member that receives the node's display name.", Group = "System members", Order = 8 },
         ["NameOfAddressProperty"] = new() { Label = "Address member", Help = "The string member holding the node's address (its URL path segment).", Group = "System members", Order = 9 },
-        ["MinNoInstances"] = new() { Label = "Minimum instances", Help = "How many nodes of the type there have to be. Leave at the minimum value for no limit.", Group = "Constraints", Order = 1 },
-        ["MaxNoInstances"] = new() { Label = "Maximum instances", Help = "How many nodes of the type there can be. Leave at the maximum value for no limit.", Group = "Constraints", Order = 2 },
+        ["MinNoInstances"] = new() { Label = "Minimum instances", Help = "How few nodes of the type, its descendants included, there may be: a transaction that takes the count below it fails. The count may start below it, so 1 keeps the last node from being deleted. Leave at 0 or the minimum value for no limit.", Group = "Constraints", Order = 1 },
+        ["MaxNoInstances"] = new() { Label = "Maximum instances", Help = "How many nodes of the type, its descendants included, there may be: a transaction that takes the count above it fails. Leave at the maximum value for no limit.", Group = "Constraints", Order = 2 },
         ["DefaultReadAccess"] = new() { Label = "Default read access", Help = "The user group new nodes of this type are readable by, as a group id. The unspecified group leaves it to the node.", Group = "Access", Order = 1 },
         ["DefaultEditAccess"] = new() { Label = "Default edit access", Help = "The user group new nodes of this type are editable by.", Group = "Access", Order = 2 },
         ["DefaultEditViewAccess"] = new() { Label = "Default edit view access", Help = "The user group that may view the edit form of new nodes of this type.", Group = "Access", Order = 3 },
@@ -109,8 +112,8 @@ public static class DatamodelCatalog {
     };
     static readonly Dictionary<string, Entry> property = new(StringComparer.Ordinal) {
         ["CodeName"] = new() { Label = "Name", Help = "The member name, as it appears in code and in queries.", Order = 1 },
-        ["Indexed"] = new() { Label = "Indexed", Help = "Keeps a value index for the property, so filtering and sorting on it do not scan. Indexed properties are also facets unless \"No facet\" is set.", Group = "Indexing", Order = 1 },
-        ["NotFacet"] = new() { Label = "No facet", Help = "Keeps an indexed property out of the facet counts.", Group = "Indexing", Order = 2 },
+        ["Indexed"] = new() { Label = "Indexed", Help = "Keeps a value index for the property, so filtering and sorting on it do not scan. Indexed properties are also facets unless \"No facet\" is set. A type inheriting the property can ask for the index too: there is one, shared by every type that has the property, and it is kept when any of them asks.", Group = "Indexing", Order = 1 },
+        ["NotFacet"] = new() { Label = "No facet", Help = "Keeps an indexed property out of the facet counts. A type inheriting the property can ask for it to be a facet all the same: its facet counts are one, shared by every type that has the property, and it stays a facet while any of them asks.", Group = "Indexing", Order = 2 },
         ["IndexType"] = new() { Label = "Index storage", Help = "Where the value index lives: in memory or in the persisted value index engine. Default follows the database's setting.", Group = "Indexing", Order = 3 },
         ["IndexBoost"] = new() { Label = "Index boost", Help = "Weights hits on this property up or down in text search.", Group = "Text search", Order = 9 },
         ["UniqueValues"] = new() { Label = "Unique values", Help = "No two nodes may hold the same value. Needs the property to be indexed.", Group = "Constraints", Order = 1 },
@@ -143,7 +146,8 @@ public static class DatamodelCatalog {
         ["FacetRangeCount"] = new() { Label = "Facet range count", Help = "How many ranges to split the values into. 0 uses each value as its own facet.", Group = "Indexing", Order = 6 },
         ["IsEnum"] = new() { Label = "Enum", Help = "The value is an enum member stored as its integer.", Group = "Constraints", Order = 7 },
         ["FullEnumTypeName"] = new() { Label = "Enum type", Help = "The full name of the enum type in the application.", Group = "Constraints", Order = 8 },
-        ["LegalValues"] = new() { Label = "Legal values", Help = "The integer values allowed, in the same order as the names below.", Editor = "intList", Group = "Constraints", Order = 9 },
+        // a list of integers on an integer, of strings on a string: the editor follows the member's type
+        ["LegalValues"] = new() { Label = "Legal values", Help = "The values allowed; any other value is refused on write. On text an empty value is allowed too (set a minimum length to require one). On an integer they line up with the names below; an enum is not held to them.", Group = "Constraints", Order = 9 },
         ["LegalValueNames"] = new() { Label = "Value names", Help = "The name of each legal value, in the same order.", Editor = "stringList", Group = "Constraints", Order = 10 },
         // references and embedded
         ["NodeTypes"] = new() { Label = "Node types", Help = "The node types the reference may point at.", Editor = "typeRefs", Order = 4 },
@@ -245,7 +249,8 @@ public static class DatamodelCatalog {
             if (hidden.Contains(p.Name) || exclude != null && exclude.Contains(p.Name)) continue;
             if (p.GetIndexParameters().Length > 0) continue;
             if (p.SetMethod == null || !p.SetMethod.IsPublic) continue;
-            if (p.GetCustomAttribute<System.Text.Json.Serialization.JsonIgnoreAttribute>() != null) continue;
+            // a member left out only while it is null (StringPropertyModel.LegalValues) is still a field
+            if (p.GetCustomAttribute<System.Text.Json.Serialization.JsonIgnoreAttribute>() is { Condition: System.Text.Json.Serialization.JsonIgnoreCondition.Always }) continue;
             var valueType = Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType;
             var isNullable = Nullable.GetUnderlyingType(p.PropertyType) != null || !p.PropertyType.IsValueType;
             entries.TryGetValue(p.Name, out var entry);
@@ -266,6 +271,8 @@ public static class DatamodelCatalog {
                 Optional = isNullable,
                 ReadOnly = entry?.ReadOnly ?? false,
                 Overridable = overridable != null && overridable.TryGetValue(p.Name, out var scope) ? scopeName(scope) : null,
+                OverrideAsks = overridable != null && overridable.TryGetValue(p.Name, out var anyScope) && anyScope == OverrideScope.AnyType
+                    ? DatamodelOverrides.Requests.First(r => r.name == p.Name).asks : null,
             });
         }
         return list.OrderBy(f => Array.IndexOf(groupOrder, f.Group) is var i && i < 0 ? 99 : i).ThenBy(f => f.Order).ThenBy(f => f.Label).ToArray();
@@ -274,6 +281,7 @@ public static class DatamodelCatalog {
     static string scopeName(OverrideScope scope) => scope switch {
         OverrideScope.Inherited => "inherited",
         OverrideScope.ThisType => "thisType",
+        OverrideScope.AnyType => "anyType",
         _ => "wholeProperty",
     };
     static string editorFor(Type declared, Type valueType) {

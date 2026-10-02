@@ -8,6 +8,7 @@ import type { NodeTypeJson } from "../../server/datamodel";
 import type { EdgeKind } from "./layouts";
 import type { EditorContext } from "../DatamodelEditors";
 import { indexMarks, relationMeta } from "../DatamodelIcons";
+import { isIndexed } from "../../server/overrides";
 
 export const nodeWidth = 210;
 export const headerHeight = 28;
@@ -60,7 +61,7 @@ export function buildDiagram(ctx: EditorContext, visibleTypes: Set<string>, ghos
       id: p.Id,
       name: p.CodeName,
       propertyType: p.PropertyType,
-      marks: indexMarks.filter((m) => (m.key === "indexed" ? p.Indexed : m.key === "wordIndex" ? p.IndexedByWords : p.IndexedBySemantic)).map((m) => m.key),
+      marks: indexMarks.filter((m) => (m.key === "indexed" ? isIndexed(ctx.model, p) : m.key === "wordIndex" ? p.IndexedByWords : p.IndexedBySemantic)).map((m) => m.key),
     }));
     const more = props.length - rows.length;
     return {

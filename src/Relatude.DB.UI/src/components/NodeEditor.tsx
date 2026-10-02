@@ -959,6 +959,27 @@ function Editor({
         />
       );
     case "text":
+      if (property.choices && property.choices.length > 0) {
+        // legal values: the empty value is always one of them, and a stored value outside the list is
+        // still shown, so opening a node never changes it
+        const current = String(value ?? "");
+        return (
+          <select className="select" value={mixed ? "\u0000" : current} onChange={(e) => onChange(e.target.value)}>
+            {mixed && (
+              <option value={"\u0000"} disabled>
+                (differs)
+              </option>
+            )}
+            <option value="">(none)</option>
+            {!mixed && current !== "" && !property.choices.includes(current) && <option value={current}>{current}</option>}
+            {property.choices.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        );
+      }
       return property.multiline ? (
         <textarea className="text-input" rows={6} value={String(value ?? "")} maxLength={property.maxLength ?? undefined} placeholder={differs} onChange={(e) => onChange(e.target.value)} />
       ) : (

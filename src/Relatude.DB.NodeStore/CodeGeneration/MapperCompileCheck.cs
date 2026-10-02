@@ -12,8 +12,17 @@ namespace Relatude.DB.CodeGeneration;
 public static class MapperCompileCheck {
     /// <summary>Throws with the compiler diagnostics when the generated code does not compile.</summary>
     public static void Verify(Datamodel datamodel) {
+        Compiler.BuildDll(GenerateCode(datamodel), datamodel);
+    }
+    /// <summary>
+    /// Everything a store compiles when it opens: the classes of runtime types the application has none
+    /// for, the implementations of model interfaces, and a value mapper per node type.
+    /// </summary>
+    internal static List<(string className, string code)> GenerateCode(Datamodel datamodel) {
         datamodel.EnsureInitalization();
-        var code = InterfaceGen.GetImplementations(datamodel).Concat(MapperGen.GenerateValueMappers(datamodel)).ToList();
-        Compiler.BuildDll(code, datamodel);
+        return RuntimeTypeGen.Generate(datamodel)
+            .Concat(InterfaceGen.GetImplementations(datamodel))
+            .Concat(MapperGen.GenerateValueMappers(datamodel))
+            .ToList();
     }
 }

@@ -165,20 +165,31 @@ public static class DatamodelSourceLoader {
             "the file" + (files.Count == 1 ? "" : "s") + " " + string.Join(", ", files.Select(Path.GetFileName))
             + " define no types, so it is loaded as an empty source. ");
     }
-    // A JSON file only defines the model; at runtime each node type still needs a backing CLR type
-    // (a plain class, no attributes needed) for the mapper to compile against. Reflection sources
-    // record their assemblies as they add types - for JSON types the assemblies are found here.
+    // A JSON file only defines the model; a node type the application has a plain class for (no
+    // attributes needed) is mapped onto that class, so the mapper must compile against its assembly.
+    // Reflection sources record their assemblies as they add types - for JSON types they are found
+    // here. A type with no class gets one generated when the store opens (RuntimeTypeGen).
     static void registerAssembliesOfBackingClrTypes(Datamodel dm, Datamodel imported) {
         foreach (var nt in imported.NodeTypes.Values) {
             if (nt.Id == NodeConstants.BaseNodeTypeId) continue;
-            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies()) {
-                if (assembly.IsDynamic || assembly.Location.Length == 0) continue;
-                if (assembly.GetType(nt.FullName, throwOnError: false) != null) {
-                    dm.Assemblies.Add(assembly);
-                    break;
-                }
-            }
+            var clr = FindBackingClrType(nt.FullName);
+            if (clr != null) dm.Assemblies.Add(clr.Assembly);
         }
+    }
+    /// <summary>
+    /// The application's own class for a type of a runtime types source: a class with the type's full name in
+    /// an assembly loaded from a file, or null. Assemblies loaded from memory are left out, and with them the
+    /// mapper assemblies, which hold the classes a store generated for types without one - those must never
+    /// pass for the application's class.
+    /// </summary>
+    public static Type? FindBackingClrType(string fullName) {
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies()) {
+            if (assembly.IsDynamic || assembly.Location.Length == 0) continue;
+            Type? clr = null;
+            try { clr = assembly.GetType(fullName, throwOnError: false); } catch { }
+            if (clr != null) return clr;
+        }
+        return null;
     }
     static Datamodel deserialize(string json, string file) {
         try {

@@ -41,7 +41,18 @@ internal sealed class Definition {
         }
         PropertyGuidBy__Id = Properties.Values.ToDictionary(p => p.__Id_transient, p => p.Id);
         _nodeTypeIndex = new(this, store._nativeModelStore, store.Settings);
+        foreach (var cm in datamodel.NodeTypes.Values) {
+            var limited = cm.ThisAndAllInheritedTypes.Values.Where(hasInstanceLimits).Select(t => t.Id).ToArray();
+            if (limited.Length > 0) _instanceLimitedTypes.Add(cm.Id, limited);
+        }
     }
+    static bool hasInstanceLimits(NodeTypeModel t) => t.MinNoInstances > 0 || t.MaxNoInstances != int.MaxValue;
+    readonly Dictionary<Guid, Guid[]> _instanceLimitedTypes = [];
+    /// <summary>Whether any node type has a MinNoInstances or MaxNoInstances, so a transaction has counts to check.</summary>
+    public bool AnyInstanceLimits => _instanceLimitedTypes.Count > 0;
+    /// <summary>The types whose instance limits a node of this type counts towards: the type itself and the
+    /// types it inherits from, those of them with a limit.</summary>
+    public Guid[] InstanceLimitedTypesOf(Guid nodeTypeId) => _instanceLimitedTypes.TryGetValue(nodeTypeId, out var types) ? types : [];
     // A class can map the node's own dates to members of its own - [CreatedUtcProperty] members, or the
     // members of its NodeMeta - and a query over it names them by those: x.Created, x.Meta.CreatedUtc.
     // They are the system properties under other names, so they resolve to them.

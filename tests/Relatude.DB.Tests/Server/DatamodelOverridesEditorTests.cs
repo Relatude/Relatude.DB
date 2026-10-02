@@ -126,6 +126,39 @@ public class DatamodelOverridesEditorTests {
     }
 
     [TestMethod]
+    public async Task AnInheritingType_AsksForAnIndex_AndTheReopenedDatabaseHasIt() {
+        var host = start(_root);
+        try {
+            var c = container(host);
+            var drafts = new DatamodelDrafts(host.Server.GetIO(c.Settings.IoDatabase!.Value));
+            var page = c.Store!.Create<OvPage>();
+            page.Body = "zebra";
+            c.Store.Insert(page);
+            Guid body = Guid.Empty;
+            var json = draftWith(c, dm => {
+                body = property(dm, "Body").Id;
+                dm.Overrides = new DatamodelOverrides();
+                dm.Overrides.ForProperty(dm.NodeTypes[typeId<OvPage>()], property(dm, "Body")).Indexed = true;
+            });
+            var validation = new DatamodelValidator(host.Server, c).Validate(json, dryRun: false);
+            var said = string.Join(Environment.NewLine, validation.Issues.Select(i => i.Code + ": " + i.Message));
+            Assert.IsFalse(validation.HasErrors, said);
+            Assert.IsFalse(validation.Issues.Any(i => i.Code == "override" && i.Message.Contains("OvPage")), "asking for an index is not a problem: " + said);
+            Assert.IsTrue(validation.Issues.Any(i => i.Code == "indexes-change"), "the index is new, so the database rebuilds");
+            Assert.IsFalse(c.Datamodel!.Properties[body].Indexed);
+
+            var result = new DatamodelActivator(host.Server, c, drafts).Activate(json, acceptWarnings: true, note: null);
+            Assert.IsTrue(result.Activated, result.Message);
+            Assert.IsTrue(c.Datamodel!.Properties[body].Indexed, "the reopened database gives Body the index OvPage asks for");
+            Assert.IsTrue(((DataStoreLocal)c.Store!.Datastore)._definition.Properties[body].Indexed);
+            var facet = c.Store.Query<IOvContent>().Facets().AddValueFacet(nameof(IOvContent.Body)).Execute().Facets.First(f => f.CodeName == nameof(IOvContent.Body));
+            Assert.AreEqual(1, facet.Values.First(v => Equals(v.Value, "zebra")).Count, "built over the nodes already stored");
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
     public async Task ChangingTheSource_IsStillRefused_WhenItCannotBeWritten() {
         var host = start(_root);
         try {
@@ -194,6 +227,13 @@ public class DatamodelOverridesEditorTests {
         var unique = schema["PropertyCommon"]!.AsArray().First(f => (string)f!["Path"]! == "UniqueValues")!;
         Assert.IsNull((string?)unique["Overridable"]);
         var indexed = schema["PropertyCommon"]!.AsArray().First(f => (string)f!["Path"]! == "Indexed")!;
-        Assert.AreEqual("wholeProperty", (string?)indexed["Overridable"]);
+        Assert.AreEqual("anyType", (string?)indexed["Overridable"], "any type that has the property can ask for its index");
+        Assert.AreEqual(true, (bool?)indexed["OverrideAsks"]);
+        var notFacet = schema["PropertyCommon"]!.AsArray().First(f => (string)f!["Path"]! == "NotFacet")!;
+        Assert.AreEqual("anyType", (string?)notFacet["Overridable"], "and for it to be a facet");
+        Assert.AreEqual(false, (bool?)notFacet["OverrideAsks"], "NotFacet is an opt-out: false asks");
+        var indexType = schema["PropertyCommon"]!.AsArray().First(f => (string)f!["Path"]! == "IndexType")!;
+        Assert.AreEqual("wholeProperty", (string?)indexType["Overridable"]);
+        Assert.IsNull((bool?)indexType["OverrideAsks"]);
     }
 }

@@ -73,7 +73,7 @@ public partial class Datamodel {
                 if (declaring == type) {
                     // the type that declares the property: the override is what the declaration says
                     setOverridden(property, name, value, where);
-                } else if (scope == OverrideScope.Inherited) {
+                } else if (scope is OverrideScope.Inherited or OverrideScope.AnyType) {
                     var member = property.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
                     if (member == null) {
                         notice(name + " does not apply to " + where + ", a " + property.PropertyType + " property; the override is skipped. ");
@@ -159,8 +159,9 @@ public partial class Datamodel {
                 continue;
             }
             foreach (var (name, scope, _) in DatamodelOverrides.SetMembers(o)) {
-                if (scope != OverrideScope.Inherited) notice(t.FullName + " overrides " + name + " of " + p.CodeName + ", which is one setting for the property wherever it is used. "
-                    + "A type can only override the attributes of an inherited property that may differ between types (the default value, the text index and the display name); it is ignored. ");
+                if (scope is not (OverrideScope.Inherited or OverrideScope.AnyType)) notice(t.FullName + " overrides " + name + " of " + p.CodeName + ", which is one setting for the property wherever it is used. "
+                    + "A type can only override the attributes of an inherited property that may differ between types (the default value, the text index and the display name), "
+                    + "and ask for its value index (Indexed) and for it to be a facet (NotFacet); it is ignored. ");
             }
         }
     }
@@ -194,6 +195,69 @@ public partial class Datamodel {
         notice(t.FullName + " gets different values for " + name + " of " + p.CodeName + " from "
             + string.Join(" and ", mostSpecific.Select(c => c.type.FullName)) + ", so it uses what " + declaring + " declares. Override it on " + t.FullName + " to choose. ");
         return false;
+    }
+
+    // The settings of a property as a whole that any type having it can ask for (OverrideScope.AnyType):
+    // its value index (Indexed) and being a facet (NotFacet = false). A property has one index and one set
+    // of facet counts, shared by every type that has it, so a type that sets one of them for a property it
+    // inherits does not get it to itself: it asks for the property's, and the property has it when its
+    // declaration says so or any type asks. Changes the shared property objects, so it is one of the
+    // things only the store does (SetIndexDefaults): a model written back into its sources keeps the
+    // request with the type that makes it.
+    readonly HashSet<(Guid property, string setting)> _grantedOnRequest = new(); // so a second call still knows what was declared
+    void keepRequests() {
+        // in declaration order, Indexed first: whether a property can be a facet depends on its index
+        foreach (var (name, asks) in DatamodelOverrides.Requests) keepRequests(name, asks);
+    }
+    void keepRequests(string name, bool asks) {
+        var setting = typeof(PropertyModel).GetProperty(name)!;
+        var request = typeof(PropertyOverride).GetProperty(name)!;
+        var (kept, declared, shared) = name switch {
+            nameof(PropertyModel.Indexed) => ("keeps its value index", "indexed", "one index"),
+            nameof(PropertyModel.NotFacet) => ("stays a facet", "a facet", "one set of facet counts"),
+            _ => ("keeps " + name + " " + asks, name + " " + asks, "one " + name + " setting"),
+        };
+        bool has(PropertyModel p) => (bool)setting.GetValue(p)! == asks;
+        bool indexed(PropertyModel p) => p.Indexed || p.UniqueValues; // what the store indexes
+        var asking = new Dictionary<Guid, List<NodeTypeModel>>();
+        var declining = new List<(NodeTypeModel type, PropertyModel property)>();
+        foreach (var t in NodeTypes.Values) {
+            if (t.PropertyOverrides == null) continue;
+            foreach (var (propertyId, o) in t.PropertyOverrides) {
+                if (request.GetValue(o) is not bool value || !t.AllProperties.ContainsKey(propertyId) || !Properties.TryGetValue(propertyId, out var p) || p.Internal) continue;
+                if (value == asks) {
+                    if (!asking.TryGetValue(propertyId, out var list)) asking[propertyId] = list = new();
+                    list.Add(t);
+                } else {
+                    declining.Add((t, p));
+                }
+            }
+        }
+        // a type that says no while the property has it all the same: it may expect it to be per type
+        foreach (var (t, p) in declining) {
+            if (name == nameof(PropertyModel.NotFacet) && !indexed(p)) continue; // no facet without the index anyway
+            var reasons = new List<string>();
+            if (has(p) && !_grantedOnRequest.Contains((p.Id, name))) reasons.Add((NodeTypes.TryGetValue(p.NodeType, out var d) ? d.FullName : "the declaring type") + " declares it " + declared);
+            if (name == nameof(PropertyModel.Indexed) && p.UniqueValues) reasons.Add("its values are unique, which takes the index");
+            if (asking.TryGetValue(p.Id, out var others)) reasons.Add(string.Join(" and ", others.Select(o => o.FullName)) + (others.Count == 1 ? " asks" : " ask") + " for it");
+            if (reasons.Count == 0) continue;
+            notice(t.FullName + " sets " + name + " of " + p.CodeName + " to " + (!asks).ToString().ToLowerInvariant() + ", but the property " + kept + ": " + string.Join(", and ", reasons) + ". "
+                + "A property has " + shared + ", shared by every type that has it, so a type can ask for it but not take it away from the others. ");
+        }
+        foreach (var (propertyId, types) in asking) {
+            var p = Properties[propertyId];
+            var who = string.Join(" and ", types.Select(t => t.FullName)) + (types.Count == 1 ? " asks" : " ask");
+            if (name == nameof(PropertyModel.NotFacet) && p is RelationPropertyModel) {
+                notice(who + " for the relation property " + p.CodeName + " to be a facet with NotFacet, which relation properties do not use: "
+                    + "they are facets when Facet is set on the type that declares them. It is ignored. ");
+                continue;
+            }
+            if (!has(p)) _grantedOnRequest.Add((propertyId, name));
+            setting.SetValue(p, asks);
+            if (name == nameof(PropertyModel.NotFacet) && !indexed(p)) {
+                notice(who + " for " + p.CodeName + " to be a facet, but the property has no value index, and a facet needs one. Ask for the index too (Indexed). ");
+            }
+        }
     }
 
     // The node type switches a type does not set itself it takes from its base types: the most specific

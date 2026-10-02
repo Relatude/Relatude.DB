@@ -173,10 +173,7 @@ public class NodeStore : IDisposable {
         var sw = Stopwatch.StartNew();
         datastore.Datamodel.EnsureInitalization();
         if (_transactionPlugins != null) foreach (var plugin in _transactionPlugins) plugin.Database = this;
-        var interfaceClasses = InterfaceGen.GetImplementations(datastore.Datamodel);
-        var mappers = MapperGen.GenerateValueMappers(datastore.Datamodel);
-        var code = interfaceClasses.Concat(mappers).ToList();
-        var totalCode = string.Join("\n", code.Select(c => c.code));
+        var code = MapperCompileCheck.GenerateCode(datastore.Datamodel);
         ulong codeHash = 0;
         foreach (var c in code) codeHash ^= c.code.XXH64Hash();
         codeHash ^= modelAssemblyNamesHash(datastore.Datamodel);

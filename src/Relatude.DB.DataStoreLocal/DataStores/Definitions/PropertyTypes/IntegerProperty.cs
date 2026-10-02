@@ -5,6 +5,7 @@ using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 internal class IntegerProperty : ValueProperty<int>, IPropertyContainsValue {
     readonly bool _isEnum;
+    readonly HashSet<int>? _legalValues;
     readonly Dictionary<int, string> _nameByValue = new();
     readonly Dictionary<string, int> _valueByName = new();
     public IntegerProperty(IntegerPropertyModel pm, Definition def) : base(pm, def) {
@@ -12,6 +13,9 @@ internal class IntegerProperty : ValueProperty<int>, IPropertyContainsValue {
         MaxValue = pm.MaxValue;
         DefaultValue = pm.DefaultValue;
         _isEnum = pm.IsEnum;
+        // an enum's legal values are its members, for display; a [Flags] combination or a member added in a
+        // newer version of the application is still a value of it, so only a plain integer is held to them
+        if (!pm.IsEnum && pm.LegalValues != null) _legalValues = [.. pm.LegalValues];
         if (pm.LegalValues != null && pm.LegalValueNames != null) {
             for (var i = 0; i < pm.LegalValues.Length && i < pm.LegalValueNames.Length; i++) {
                 _nameByValue[pm.LegalValues[i]] = pm.LegalValueNames[i];
@@ -52,6 +56,7 @@ internal class IntegerProperty : ValueProperty<int>, IPropertyContainsValue {
         var v = (int)value;
         if (v > MaxValue) throw new Exception("Value is more than maximum value allowed. ");
         if (v < MinValue) throw new Exception("Value is less than minimum value allowed. ");
+        if (_legalValues != null && !_legalValues.Contains(v)) throw new Exception("The value " + v + " of " + CodeName + " is not one of its legal values. ");
     }
     public static object GetValue(byte[] bytes) => BitConverter.ToInt32(bytes, 0);
     public override bool SatisfyValueRequirement(object? value1, object? value2, ValueRequirement requirement) {

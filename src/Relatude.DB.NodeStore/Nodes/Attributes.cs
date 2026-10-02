@@ -27,7 +27,13 @@ public class ExcludeAttribute : Attribute { }
 [AttributeUsage(AttributeTargets.Interface | AttributeTargets.Class | AttributeTargets.Struct, Inherited = false)]
 public class NodeAttribute : Attribute {
     public string? Id { get; set; }
+    /// <summary>
+    /// How few nodes of this type, its descendants included, there may be: a transaction that takes the
+    /// count below it fails. The count may start below it - with 1, the last node cannot be deleted.
+    /// </summary>
     public int MinNoInstances { get; set; } = 0;
+    /// <summary>How many nodes of this type, its descendants included, there may be: a transaction that
+    /// takes the count above it fails.</summary>
     public int MaxNoInstances { get; set; } = int.MaxValue;
     public BoolValue InstantTextIndexing { get; set; } = BoolValue.Default;
     public BoolValue TextIndex { get; set; }
@@ -45,10 +51,18 @@ public class NodeAttribute : Attribute {
 /// </code>
 /// Only the attributes that may differ between the types that have a property can be overridden here:
 /// the default value, whether the value is in the text index and with what boost, and whether it is
-/// part of the display name. Everything else about a property - whether it is indexed, its rules - is
-/// one setting for the property wherever it is used, and stays with its declaration. A type that sets
-/// its own value wins over its base types; a node type's own switches (TextIndex and the like) are set
-/// with <see cref="NodeAttribute"/> on the derived type, as they are inherited too.
+/// part of the display name. A type that sets its own value wins over its base types; a node type's own
+/// switches (TextIndex and the like) are set with <see cref="NodeAttribute"/> on the derived type, as
+/// they are inherited too.
+/// <para>
+/// A type can also ask for the property's value index with <see cref="Indexed"/>, so it can filter,
+/// sort and facet on it, and for the property to be a facet with <see cref="NotFacet"/> set to
+/// <see cref="BoolValue.False"/> where the declaration leaves it out of the facets. There is one index
+/// and one set of facet counts, shared by every type that has the property: the property has them when
+/// its declaration says so or any type asks, and they hold the values of every node that has the
+/// property. Everything else about a property - its other index settings, its rules - is one setting
+/// for the property wherever it is used, and stays with its declaration.
+/// </para>
 /// <para>
 /// On a member that implements an interface property, the name can be left out:
 /// <c>[PropertyOverride(DefaultValue = "Untitled news")] public string Title { get; set; }</c>.
@@ -72,6 +86,17 @@ public class PropertyOverrideAttribute : Attribute {
     public BoolValue ExcludeFromTextIndex { get; set; }
     public int TextIndexBoost { get; set; } = NotSet;
     public BoolValue DisplayName { get; set; }
+    /// <summary>
+    /// True asks for the property's value index (see the class remarks: one index, kept when any type
+    /// asks). False asks for nothing; it cannot take the index away from a declaration that has one.
+    /// </summary>
+    public BoolValue Indexed { get; set; }
+    /// <summary>
+    /// False asks for the property to be a facet where its declaration says NotFacet (see the class
+    /// remarks: one set of facet counts, kept when any type asks; a facet needs the value index too).
+    /// True asks for nothing; it cannot take the facet away from a declaration that has one.
+    /// </summary>
+    public BoolValue NotFacet { get; set; }
 }
 [AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
 public class ChangedUtcPropertyAttribute : Attribute {
@@ -230,7 +255,10 @@ public class StringPropertyAttribute : PropertyAttribute, IAttrWithUniqueContrai
     public bool IndexedBySemantic { get; set; }
     public int MinWordLength { get; set; } = 3;
     public int MaxWordLength { get; set; } = 30;
+    /// <summary>The values allowed (compared ordinally). An empty value is always allowed; require a value with MinLength = 1.</summary>
     public string[]? LegalValues;
+    /// <summary>A pattern every value written must match - the empty value too, so allow that in the pattern
+    /// when the value is optional: ^([a-z]+)?$. It is a match anywhere in the value unless anchored with ^ and $.</summary>
     public string? RegularExpression { get; set; }
     public bool IgnoreDuplicateEmptyValues { get; set; }
     public bool UniqueValues { get; set; }

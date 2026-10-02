@@ -160,7 +160,9 @@ Three rules for interface node types:
 2. **Leave `Id` as `Guid.Empty` on insert** and the store assigns one, or set it yourself first.
 3. **Put your attributes on the interface.** Property *definitions* live on the type that first
    declares them, so an attribute on a class that merely implements an interface member is ignored.
-   The interface is the single source of truth for the property model.
+   The interface is the single source of truth for the property model. The one exception is
+   `[PropertyOverride]`, which gives that class its own default, text index or display name setting
+   for the property, or asks for its value index or a facet ([§3.1](#31-overriding-attributes)).
 
 Add `[Exclude]` to any type or property the datamodel should skip.
 
@@ -353,7 +355,8 @@ public interface IOrganizer { /* ... */ }
 `BoolValue` is tri-state: `Default` (take it from the base types, else the database default), `True`,
 `False`. `TextIndex`, `SemanticIndex` and `InstantTextIndexing` are inherited: see
 [§3.1](#31-overriding-attributes). `[Node]` also accepts `MinNoInstances` / `MaxNoInstances` to
-constrain how many instances of the type may exist.
+constrain how many nodes of the type, its descendants included, may exist - see
+[Validation happens on write](#validation-happens-on-write).
 
 ---
 
@@ -498,7 +501,26 @@ public AccessibilityFeature[] Accessibility { get; set; } = [];
 
 `LegalValues`, `RegularExpression`, `MinValue`/`MaxValue`, `MinLength`/`MaxLength`, `UniqueValues`
 and `MinNoInstances`/`MaxNoInstances` are all enforced by the engine at write time. A violating
-transaction fails rather than silently storing bad data.
+transaction fails as a whole and is rolled back, rather than silently storing bad data. The values
+already stored are never checked again: tightening a rule does not stop the database from opening,
+but a node whose value breaks the new rule cannot be saved until the value is changed.
+
+- **`RegularExpression`** must match every value written, the empty value too - a pattern such as
+  `^[a-z0-9-]+$` therefore makes the value required. Allow the empty value in the pattern when it is
+  optional (`^([a-z0-9-]+)?$`). It is a match anywhere in the value unless anchored with `^` and `$`.
+- **`LegalValues`** on a string is compared ordinally. The empty value is always allowed - it is what a
+  node holds before the value is set - so add `MinLength = 1` to require one. The admin UI edits such a
+  property with a list of the values.
+- **`LegalValues`** on an integer holds a plain `int` to the listed values. An enum is not held to its
+  members, which the engine fills in for display: a `[Flags]` combination, or a member added in a newer
+  version of the application, is still a value of it.
+- **`MinNoInstances` / `MaxNoInstances`** on `[Node]` count the nodes of the type and of every type
+  inheriting from it, whatever their meta says (unpublished, hidden or marked deleted). The counts are
+  checked on what the whole transaction leaves, so one that deletes a node and inserts its replacement
+  passes at the limit, and only in the direction the transaction moves them: a type may start below its
+  minimum (with `MinNoInstances = 1` the last node cannot be deleted, while the first can always be
+  inserted), and a type with more nodes than a maximum set later keeps them and can still be updated
+  and deleted from - it only refuses inserts.
 
 ### 3.1 Overriding attributes
 
@@ -534,34 +556,202 @@ the text index, so a type that is semantically indexed - by itself, a base type 
 default - stays text indexed whatever its `TextIndex` says.
 
 **An inherited property: `[PropertyOverride]`.** A property has one declaration, but four of its
-attributes may differ between the types that have it - the default value, whether the value is part
-of the text index, its boost there, and whether it is part of the display name. A derived type sets
-its own with `[PropertyOverride]`, which offers those four and nothing else:
+attributes may differ between the types that have it, and a type can ask for its value index and for
+it to be a facet. A derived type sets these with `[PropertyOverride]`, which offers those six and
+nothing else:
+
+| On `[PropertyOverride]` | What it sets for the type |
+|---|---|
+| `DefaultValue` | The value a node of the type starts with, and what a stored node reads while it has no value for the property |
+| `ExcludeFromTextIndex` | `BoolValue.True` leaves the property out of the type's text index; `BoolValue.False` puts back one the declaration leaves out |
+| `TextIndexBoost` | How many extra times the value goes into the type's text index; `0` cancels a boost the type inherits |
+| `DisplayName` | `BoolValue.True` makes the property part of the type's display name; `BoolValue.False` takes it out |
+| `Indexed` | `BoolValue.True` asks for the property's value index, so the type can filter, sort and facet on it. The index is shared by every type that has the property ([below](#asking-for-the-value-index)) |
+| `NotFacet` | `BoolValue.False` asks for the property to be a facet where the declaration says `NotFacet`. The facet is shared by every type that has the property, like the index |
+
+Anything left out - a switch left at `BoolValue.Default`, no `DefaultValue`, no `TextIndexBoost` -
+is what the base types say. The examples below share this base interface:
+
+```csharp
+public enum ContentStatus { Draft = 0, Published = 1, Archived = 2 }
+
+[Node(TextIndex = BoolValue.True)]
+public interface IContent {
+    Guid Id { get; set; }
+    [StringProperty(DefaultValue = "Untitled", DisplayName = true)] string Title { get; set; }
+    [StringProperty] string Subtitle { get; set; }
+    [HtmlProperty] string Body { get; set; }
+    [IntegerProperty(Indexed = true)] ContentStatus Status { get; set; }
+}
+```
+
+*On the type, naming the property.* Name the inherited property with `nameof`, one attribute per
+property, each with as many of the four as you need:
 
 ```csharp
 [Node]
 [PropertyOverride(nameof(IContent.Title), DefaultValue = "Untitled news", TextIndexBoost = 2)]
-[PropertyOverride(nameof(IContent.Body), ExcludeFromTextIndex = BoolValue.True)]
+[PropertyOverride(nameof(IContent.Status), DefaultValue = ContentStatus.Published)]
 public class NewsArticle : IContent {
-    // on a member implementing an interface property the attribute can sit on the member, without a name:
-    [PropertyOverride(DisplayName = BoolValue.True)]
-    public string Summary { get; set; } = "";
-    // ...
+    public Guid Id { get; set; }
+    public string Title { get; set; } = "";
+    public string Subtitle { get; set; } = "";
+    public string Body { get; set; } = "";
+    public ContentStatus Status { get; set; }
 }
 ```
 
-The override applies to the type and to every type inheriting from it, unless one of those sets its
-own. Decimals, dates, durations and guids are strings, as on the property attributes. Everything else
-about a property is one setting wherever the property is used - it has one value index, one word
-index, one set of rules - so it stays with the declaration, and only the declaring type's override
-changes it.
+```csharp
+var news = db.Create<NewsArticle>();   // Title "Untitled news", Status Published
+```
+
+Every other type implementing `IContent` keeps `"Untitled"` and `Draft`. A news title also weighs
+more in search: it goes into the text index two extra times, while other types' titles go in once.
+An enum default is given as the enum value. A default is what `db.Create<T>()` starts a node with,
+and what a stored node reads for a property it has no value for. `new NewsArticle()` is plain C#,
+so it starts with the property initializers instead.
+
+*On the implementing member.* A class that implements an interface property can put the attribute
+on its member and leave out the name. This is the one property attribute such a member can carry:
+other attributes there are ignored, since the interface defines the property
+([§2](#2-your-first-node-type)).
+
+```csharp
+[Node]
+public class Book : IContent {
+    public Guid Id { get; set; }
+    public string Title { get; set; } = "";
+    [PropertyOverride(DisplayName = BoolValue.True)]   // a book shows as "Title Subtitle"
+    public string Subtitle { get; set; } = "";
+    public string Body { get; set; } = "";
+    public ContentStatus Status { get; set; }
+}
+```
+
+The display name joins the values of the display-name properties with spaces, so `Book` shows both
+values while other types show the title alone.
+
+*Turning one off.* `BoolValue.False` and `BoolValue.True` work in both directions, so a type can
+also take back what its base types turn on:
+
+```csharp
+// tickets are found by their title, but the body - customer details - stays out of search
+[Node]
+[PropertyOverride(nameof(IContent.Body), ExcludeFromTextIndex = BoolValue.True)]
+public class SupportTicket : IContent { /* ... */ }
+```
+
+*Down a class chain, and on interfaces.* An override reaches every type that inherits from the type
+it is set on, and a more specific type can override it again. Decimals, dates, durations and guids
+are given as strings, in the formats the property attributes use
+([Numbers](#numbers)):
+
+```csharp
+[Node]
+public class Product {
+    public Guid Id { get; set; }
+    [StringProperty(DisplayName = true)] public string Name { get; set; } = "";
+    [DecimalProperty(DefaultValue = "0", Indexed = true)] public decimal Price { get; set; }
+}
+
+[Node]
+[PropertyOverride(nameof(Product.Price), DefaultValue = "25")]
+public class GiftCard : Product { }
+
+[Node]
+public class DigitalGiftCard : GiftCard { }       // 25, from GiftCard
+
+[Node]
+[PropertyOverride(nameof(Product.Price), DefaultValue = "50")]
+public class PremiumGiftCard : GiftCard { }       // 50: the more specific type wins
+
+// an interface carries overrides too: every type implementing it starts published
+[Node]
+[PropertyOverride(nameof(IContent.Status), DefaultValue = ContentStatus.Published)]
+public interface IPublishedOnCreate : IContent { }
+```
+
+Two base types that are not related and disagree cancel out, as with the switches above. The type
+gets what the declaration says, and the database logs a warning naming both. To choose, set the value
+on the type itself. Everything else about a property is one setting wherever the property is used:
+it has one value index, one word index and one set of rules. A type can ask for the value index and
+for a facet, but the rest stays with the declaration, and only an override on the declaring type
+changes it (the table below).
+
+<a id="asking-for-the-value-index"></a>*Asking for the value index, or a facet.* A type that
+filters, sorts or facets on a property its base type does not index asks for the index with
+`Indexed`. A property its base type keeps out of the facets (`NotFacet`) it asks to make a facet with
+`NotFacet = BoolValue.False` - `NotFacet` is an opt-out, so false is the value that asks:
+
+```csharp
+// declared in a package: the part number is not indexed there, and the maker is no facet
+[Node]
+public class Part {
+    public Guid Id { get; set; }
+    [StringProperty] public string PartNumber { get; set; } = "";
+    [StringProperty(Indexed = true, NotFacet = true)] public string Maker { get; set; } = "";
+}
+
+// the workshop looks spare parts up by number and narrows them down by maker
+[Node]
+[PropertyOverride(nameof(Part.PartNumber), Indexed = BoolValue.True)]
+[PropertyOverride(nameof(Part.Maker), NotFacet = BoolValue.False)]
+public class SparePart : Part { }
+```
+
+```csharp
+var part = db.Query<SparePart>().Where(p => p.PartNumber == "A-1001").Execute(); // uses the index
+var makers = db.Query<SparePart>().Facets().AddValueFacet(nameof(Part.Maker)).Execute();
+```
+
+A facet counts the values in the value index, so it needs one: asking for a facet on a property
+without an index does nothing, and the database logs a warning. Ask for both when the base type has
+neither.
+
+A property has one value index, so the type gets the property's index, not one of its own. That index
+holds the part number of every node that has the property, `Part` and the other types inheriting it
+included. A property is indexed when its declaration says so or any type that has it asks. A type
+that sets `BoolValue.False` only takes back its own request: it cannot take away an index the
+declaration or another type wants, and the database logs a warning when a type says no to an index
+that stays. To drop an index, override `Indexed` on the declaring type (the table below). Asking for
+an index, or no longer asking, changes the model, so the database rebuilds its state and indexes
+from the log at the next open.
+
+A facet works the same way, with the values turned around. The property has one set of facet counts,
+so `Maker` becomes a facet for `Part` and every other type that has it, not only for `SparePart`. A
+type that sets `NotFacet = BoolValue.True` only takes back its own request, and a facet the
+declaration has stays a facet.
+
+*Mistakes stop the build.* A `[PropertyOverride]` that cannot apply fails the model build at
+startup. The message names the type and the property. The build fails when the attribute:
+
+- names a property the type declares itself. Set that property's attributes on its own property
+  attribute instead.
+- names no member of the type (a typo: use `nameof`), or names a member marked `[Exclude]`.
+- names a system member: the id, `NodeMeta`, the created/changed dates, or the display-name or address
+  marker. None of these has attributes to override.
+- gives a `DefaultValue` that does not convert to the property's type (`"a lot"` for a decimal), or
+  gives a default to a property that has none to set (arrays, files, references and the like).
+- sits on a type without naming the property, or sits on a member and names a different property.
+- is one of two `[PropertyOverride]`s for the same property on one type. Combine them into one.
+
+```csharp
+[Node]
+[PropertyOverride(nameof(Product.Id), DefaultValue = "x")]        // fails: Id is a system member
+[PropertyOverride(nameof(Product.Price), DefaultValue = "a lot")] // fails: not a decimal
+public class BrokenGiftCard : Product { }
+```
+
+Overrides in the database are more forgiving (below): one that cannot apply is skipped with a
+warning, so it never stops the database from opening.
 
 | What | Overridable attributes |
 |---|---|
 | Node type, inherited | `TextIndex`, `SemanticIndex`, `InstantTextIndexing` |
 | Node type, that type only | `Hidden`, `DefaultReadAccess`, `DefaultEditViewAccess` |
 | Property, per type (inherited) | `DefaultValue`, `ExcludeFromTextIndex`, `IndexBoost` (`TextIndexBoost` on the attributes), `DisplayName` |
-| Property, on the declaring type | `Indexed`, `NotFacet`, `IndexType`, `IndexedByWords`, `TextIndexType`, `MinLength`, `MaxLength`, `RegularExpression`, `MinValue`, `MaxValue`, `FacetRangePowerBase`, `FacetRangeCount`; on relation properties `Facet`, `TextIndexRelatedContent`, `TextIndexRelatedDisplayName` |
+| Property, any type that has it | `Indexed`, `NotFacet`: on the declaring type it is what the declaration says; on a type inheriting the property `Indexed = true` asks for the shared index and `NotFacet = false` for the shared facet, which the property keeps while any type asks |
+| Property, on the declaring type | `IndexType`, `IndexedByWords`, `TextIndexType`, `MinLength`, `MaxLength`, `RegularExpression`, `MinValue`, `MaxValue`, `FacetRangePowerBase`, `FacetRangeCount`; on relation properties `Facet`, `TextIndexRelatedContent`, `TextIndexRelatedDisplayName` |
 | Never | ids and names, the property type, `UniqueValues`, culture settings, enum metadata, what a relation, reference or embedded property points at |
 
 `TextIndexBoost` on `[Node]` is not in the list: the engine does not use it yet.
@@ -572,7 +762,8 @@ without a source code folder, types registered in `OnDatamodelInit` - the fields
 overridden stay open, and what is set in them is saved as an override. Each field says where its
 value comes from (*overridden*, *own*, *from IContent*), and the arrow beside an override takes it
 away. An inherited property opens as the derived type sees it, with its four per-type attributes open
-for that type. The **Sources** view lists every override beside what the source says. Activating saves
+for that type, and *Indexed* and *No facet* to ask for the property's value index and facet (*asked
+by* names the other types that do). The **Sources** view lists every override beside what the source says. Activating saves
 them and reopens the database; the nodes of a type whose indexed text changed are queued for text
 indexing, and a type whose text indexing is turned off has its text taken out of the index first.
 
@@ -2206,7 +2397,12 @@ At **build time** (you find out on startup):
 
 - Non-interface node types must have a parameterless constructor.
 - Two parent interfaces may not declare the same property name.
-- Two classes may not declare the same property name — overriding is not supported.
+- Two classes may not declare the same property name. Re-declaring an inherited property with
+  `override` or `new` is not supported. To give a derived type its own default, text index or
+  display name setting for an inherited property, or to ask for its value index or a facet, use
+  `[PropertyOverride]` ([§3.1](#31-overriding-attributes)).
+- A `[PropertyOverride]` must name a property the type inherits, not a system member, and give a
+  default the property's type can hold ([§3.1](#31-overriding-attributes) lists each error).
 - Nullable value types (`int?`, `DateTime?`, `GeoCoordinate?`) are not supported.
 - Only these value types are allowed: `bool`, `byte`, `int`, `long`, `double`, `float`, `decimal`,
   `DateTime`, `DateTimeOffset`, `Guid`, `TimeSpan`, `GeoCoordinate` and any enum.
@@ -2215,11 +2411,15 @@ At **build time** (you find out on startup):
   `[AddressProperty]` on `string`, `[CreatedUtcProperty]` and `[ChangedUtcProperty]` on `DateTime`.
 - Two types with the same `[Node(Id = …)]` Guid but different full names → error.
 - A relation class must have the right number of nested side classes for its shape.
+- A `RegularExpression` must be a valid regular expression, and a `[Node]`'s `MaxNoInstances` can be
+  neither negative nor below its `MinNoInstances`.
 
 At **write time** (the transaction fails):
 
-- `LegalValues` / `RegularExpression` / min/max / length bounds.
-- `MinNoInstances` / `MaxNoInstances` per type.
+- `LegalValues` / `RegularExpression` / min/max / length bounds (the empty string always passes
+  `LegalValues`; enums are not held to theirs).
+- `MinNoInstances` / `MaxNoInstances` per type, descendants included, on the counts the transaction
+  leaves.
 - `UniqueValues = true` uniqueness across the type.
 - `DisallowCircularReferences = true` acyclicity on self-referential relations.
 

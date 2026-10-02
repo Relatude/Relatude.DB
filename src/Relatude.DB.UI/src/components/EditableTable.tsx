@@ -310,7 +310,7 @@ export function EditableTable({ storeId, columns, columnsUi, hits, selected, all
   );
 }
 
-/** The control a cell is edited with. A select for an enum, otherwise a plain typed input. */
+/** The control a cell is edited with. A select for an enum or text with legal values, otherwise a plain typed input. */
 function CellInput({
   column,
   value,
@@ -341,6 +341,30 @@ function CellInput({
         {column.options.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  if (column.editor === "text" && column.choices && column.choices.length > 0) {
+    // the legal values of a text column, the empty value among them
+    return (
+      <select
+        className="grid-input"
+        ref={(el) => {
+          inputRef.current = el;
+        }}
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value);
+          onCommit(e.target.value);
+        }}
+      >
+        <option value="">(none)</option>
+        {value === "" || column.choices.includes(value) ? null : <option value={value}>{value}</option>}
+        {column.choices.map((c) => (
+          <option key={c} value={c}>
+            {c}
           </option>
         ))}
       </select>

@@ -51,8 +51,11 @@ public partial class Datamodel {
     /// Fills in the text search switches of every node type (TextIndex, SemanticIndex,
     /// InstantTextIndexing). A type that does not set one takes it from its base types - the most specific
     /// base that sets it, the way an overridden member is found in C# - and what is still unset after that
-    /// is the database default given here. Changes the types in place, which is why only the store calls
-    /// it: a model written back into its sources must keep a switch it inherits unset.
+    /// is the database default given here. Also gives the properties a type asks a value index or a facet
+    /// for (Indexed and NotFacet in its <see cref="NodeTypeModel.PropertyOverrides"/>) what it asks for.
+    /// Changes the types and properties in place, which is why only the store calls it: a model written
+    /// back into its sources must keep a switch it inherits unset, and a request with the type that
+    /// makes it.
     /// </summary>
     public void SetIndexDefaults(bool enableTextIndexByDefault, bool enableSemanticIndexByDefault, bool enableInstantIndexing) {
         EnsureInitalization(); // the inheritance closures are needed
@@ -76,5 +79,6 @@ public partial class Datamodel {
             if(!n.InstantTextIndexing.HasValue)
                 n.InstantTextIndexing = enableInstantIndexing;
         }
+        keepRequests();
     }
 }

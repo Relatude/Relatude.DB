@@ -235,14 +235,18 @@ export interface FieldDef {
   readOnly: boolean;
   /** whether, and how far, the field can be overridden; null when it cannot */
   overridable: OverrideScope | null;
+  /** for an anyType field, the value with which a type asks for it (true for Indexed, false for NotFacet) */
+  overrideAsks?: boolean | null;
 }
 
 /**
  * How far an override reaches. inherited: a type can set its own value, and the types inheriting from it
  * take it. thisType: a node type setting that is not inherited. wholeProperty: one value for the property
- * wherever it is used, set on the type that declares it.
+ * wherever it is used, set on the type that declares it. anyType: one value for the property that any type
+ * having it can ask for (its value index, being a facet): granted when the declaration or any of those types
+ * asks, with the value FieldDef.overrideAsks.
  */
-export type OverrideScope = "inherited" | "thisType" | "wholeProperty";
+export type OverrideScope = "inherited" | "thisType" | "wholeProperty" | "anyType";
 
 export interface PropertyTypeDef {
   value: string;

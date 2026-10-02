@@ -178,6 +178,8 @@ public static class ModelGen {
             if (o.ExcludeFromTextIndex.HasValue) args.Add(nameof(PropertyOverrideAttribute.ExcludeFromTextIndex) + " = " + addAttributeBool(o.ExcludeFromTextIndex.Value ? BoolValue.True : BoolValue.False));
             if (o.IndexBoost.HasValue) args.Add(nameof(PropertyOverrideAttribute.TextIndexBoost) + " = " + o.IndexBoost.Value.ToString(CultureInfo.InvariantCulture));
             if (o.DisplayName.HasValue) args.Add(nameof(PropertyOverrideAttribute.DisplayName) + " = " + addAttributeBool(o.DisplayName.Value ? BoolValue.True : BoolValue.False));
+            if (o.Indexed.HasValue) args.Add(nameof(PropertyOverrideAttribute.Indexed) + " = " + addAttributeBool(o.Indexed.Value ? BoolValue.True : BoolValue.False));
+            if (o.NotFacet.HasValue) args.Add(nameof(PropertyOverrideAttribute.NotFacet) + " = " + addAttributeBool(o.NotFacet.Value ? BoolValue.True : BoolValue.False));
             sb.AppendLine("    [" + nameAtt<PropertyOverrideAttribute>() + "(" + string.Join(", ", args) + ")]");
         }
     }
@@ -430,6 +432,8 @@ public static class ModelGen {
                     if (s.IgnoreDuplicateEmptyValues) sb.Append(", " + nameof(StringPropertyAttribute.IgnoreDuplicateEmptyValues) + " = true");
                     if (s.DefaultValue != null) sb.Append(", " + nameof(StringPropertyAttribute.DefaultValue) + " = " + stringLiteral(s.DefaultValue));
                     if (s.StringType != StringValueType.AnyString) sb.Append(", " + nameof(StringPropertyAttribute.StringType) + " = " + typeof(StringValueType).Namespace + "." + nameof(StringValueType) + "." + s.StringType);
+                    if (!string.IsNullOrEmpty(s.RegularExpression)) sb.Append(", " + nameof(StringPropertyAttribute.RegularExpression) + " = " + stringLiteral(s.RegularExpression));
+                    if (s.LegalValues != null) sb.Append(", " + nameof(StringPropertyAttribute.LegalValues) + " = " + stringArrayArg(s.LegalValues.Select(stringLiteral)));
                     sb.AppendLine(")]");
                 }
                 break;
@@ -634,8 +638,8 @@ public static class ModelGen {
     static string typeAndNamespace(string? currentNameSpace, string? typeNamespace, string typeName) {
         if (string.IsNullOrEmpty(typeNamespace)) return typeName; // no namespace, just the type name
         if (string.IsNullOrEmpty(currentNameSpace)) return typeNamespace + "." + typeName; // no current namespace, use the type namespace
-        //use relative namespace:
-        if (typeNamespace.StartsWith(currentNameSpace)) {
+        //use relative namespace (a child namespace, not just a longer name: "A.BC" is not inside "A.B"):
+        if (typeNamespace == currentNameSpace || typeNamespace.StartsWith(currentNameSpace + ".")) {
             var relativeNamespace = typeNamespace == currentNameSpace ? "" : typeNamespace.Substring(currentNameSpace.Length + 1);
             return relativeNamespace.Length > 0 ? relativeNamespace + "." + typeName : typeName;
         }

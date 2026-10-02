@@ -28,11 +28,26 @@ public enum OverrideScope {
     /// value applies wherever the property is used.
     /// </summary>
     WholeProperty,
+    /// <summary>
+    /// A setting of the property as a whole that any type having the property can ask for: whether it
+    /// has a value index, and whether it is a facet. The property has one index and one set of facet
+    /// counts, shared by every type that has it, so a type that inherits the property cannot have them
+    /// to itself - it asks for the property's, and the property has them when its declaration says so or
+    /// any type that has it asks (<see cref="OverrideScopeAttribute.Asks"/> is the value that asks). A
+    /// type that says the opposite takes back only its own request (the one in its code, say); it cannot
+    /// take the setting away from the declaration or the other types.
+    /// </summary>
+    AnyType,
 }
 /// <summary>Marks a member of <see cref="NodeTypeOverride"/> or <see cref="PropertyOverride"/> with how far it reaches.</summary>
 [AttributeUsage(AttributeTargets.Property)]
 public sealed class OverrideScopeAttribute(OverrideScope scope) : Attribute {
     public OverrideScope Scope { get; } = scope;
+    /// <summary>
+    /// For <see cref="OverrideScope.AnyType"/>: the value with which a type asks for the setting - true
+    /// for Indexed, false for NotFacet, which is an opt-out.
+    /// </summary>
+    public bool Asks { get; set; } = true;
 }
 
 /// <summary>
@@ -91,6 +106,14 @@ public sealed class DatamodelOverrides {
     static Dictionary<string, OverrideScope> scopesOf(Type type) => type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
         .Select(p => (p.Name, attribute: p.GetCustomAttribute<OverrideScopeAttribute>()))
         .Where(x => x.attribute != null).ToDictionary(x => x.Name, x => x.attribute!.Scope, StringComparer.Ordinal);
+    /// <summary>
+    /// The <see cref="OverrideScope.AnyType"/> members of <see cref="PropertyOverride"/>, with the value
+    /// each asks with (<see cref="OverrideScopeAttribute.Asks"/>), in declaration order.
+    /// </summary>
+    public static IReadOnlyList<(string name, bool asks)> Requests => requests.Value;
+    static readonly Lazy<List<(string name, bool asks)>> requests = new(() => typeof(PropertyOverride).GetProperties(BindingFlags.Public | BindingFlags.Instance)
+        .Select(p => (p.Name, attribute: p.GetCustomAttribute<OverrideScopeAttribute>()))
+        .Where(x => x.attribute?.Scope == OverrideScope.AnyType).Select(x => (x.Name, x.attribute!.Asks)).ToList());
     /// <summary>The overridden members of an override, with the value each is given.</summary>
     internal static IEnumerable<(string name, OverrideScope scope, object value)> SetMembers(object o) {
         foreach (var (name, scope) in Scopes(o.GetType())) {
@@ -151,7 +174,9 @@ public sealed class NodeTypeOverride {
 /// Used in two places: in <see cref="NodeTypeOverride.Properties"/>, the database's runtime overrides,
 /// and in <see cref="NodeTypeModel.PropertyOverrides"/>, where a type overrides attributes of a property
 /// it inherits in its own definition ([PropertyOverride] in code). There only the
-/// <see cref="OverrideScope.Inherited"/> attributes apply.
+/// <see cref="OverrideScope.Inherited"/> attributes apply, and <see cref="Indexed"/> and
+/// <see cref="NotFacet"/> (<see cref="OverrideScope.AnyType"/>), with which the type asks for the
+/// property's index and for it to be a facet.
 /// </summary>
 public sealed class PropertyOverride {
     /// <summary>The name of the property when the override was written; for people reading the file.</summary>
@@ -169,11 +194,24 @@ public sealed class PropertyOverride {
     [OverrideScope(OverrideScope.Inherited), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? DisplayName { get; set; }
 
-    // the property as a whole (one index, one set of rules):
-    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    // the property as a whole, but any type that has it can ask for them:
+    /// <summary>
+    /// Whether the property has a value index. On the type that declares the property it is what the
+    /// declaration says; on a type that inherits it, true asks for the property's index - there is one,
+    /// shared by every type that has the property - and false takes back the type's own request.
+    /// </summary>
+    [OverrideScope(OverrideScope.AnyType, Asks = true), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? Indexed { get; set; }
-    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    /// <summary>
+    /// Whether the property is kept out of the facets. On the type that declares the property it is what
+    /// the declaration says; on a type that inherits it, false asks for the property to be a facet - its
+    /// facet counts are one, shared by every type that has the property - and true takes back the type's
+    /// own request. A facet needs the value index, so a property without one is no facet either way.
+    /// </summary>
+    [OverrideScope(OverrideScope.AnyType, Asks = false), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? NotFacet { get; set; }
+
+    // the property as a whole (one index, one set of rules):
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IndexStorageType? IndexType { get; set; }
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

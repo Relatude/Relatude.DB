@@ -123,6 +123,8 @@ export interface Column {
   editor: EditorKind | null;
   /** the members of an enum column, for the cell's select */
   options: { value: number; label: string }[] | null;
+  /** the legal values of a text column, for the cell's select (an empty value is always allowed) */
+  choices?: string[] | null;
 }
 
 export interface SearchResult {
@@ -314,6 +316,8 @@ export interface PropertyView {
   readOnly: boolean;
   value: unknown;
   options: { value: number; label: string }[] | null;
+  /** the legal values of a text property, edited with a select (an empty value is always allowed) */
+  choices?: string[] | null;
   targets: NodeRef[] | null;
   targetTypes: TypeRef[] | null;
   isMany: boolean | null;

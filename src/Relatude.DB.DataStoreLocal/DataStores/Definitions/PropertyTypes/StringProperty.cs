@@ -38,10 +38,16 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue, I
         MaxLength = pm.MaxLength;
         MinWordLength = pm.MinWordLength;
         MaxWordLength = pm.MaxWordLength;
-        RegularExpression = pm.RegularExpression;
+        try {
+            RegularExpression = pm.RegularExpression;
+        } catch (ArgumentException ex) {
+            throw new Exception("The RegularExpression of the property " + pm.CodeName + " is not a valid regular expression: " + ex.Message, ex);
+        }
+        if (pm.LegalValues != null) _legalValues = new(pm.LegalValues, StringComparer.Ordinal);
         IgnoreDuplicateEmptyValues = pm.IgnoreDuplicateEmptyValues;
         StringType = pm.StringType;
     }
+    readonly HashSet<string>? _legalValues;
     IndexUtil<IWordIndex> _indexUtil = new();
     public IWordIndex GetWordIndex(QueryContext ctx) => _indexUtil.GetIndex(ctx);
     internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
@@ -86,7 +92,9 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue, I
         get => _regularExpression;
         private set {
             _regularExpression = value;
-            _regEx = string.IsNullOrEmpty(_regularExpression) ? null : new Regex(_regularExpression);
+            // matched on every write, inside the write lock: a pattern that backtracks without end must
+            // fail the write (RegexMatchTimeoutException) rather than hold the lock
+            _regEx = string.IsNullOrEmpty(_regularExpression) ? null : new Regex(_regularExpression, RegexOptions.None, TimeSpan.FromSeconds(1));
         }
     }
     public override PropertyType PropertyType => PropertyType.String;
@@ -94,8 +102,11 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue, I
         var v = (string)value;
         if (v.Length > MaxLength) throw new Exception("String value is longer than maximum value allowed. ");
         if (v.Length < MinLength) throw new Exception("String value is shorter than minimum value allowed. ");
-        if (_regEx != null && !_regEx.Match(v).Success) throw new Exception("Value does not match regular expression. ");
+        if (_regEx != null && !_regEx.IsMatch(v)) throw new Exception("The value " + quoted(v) + " of " + CodeName + " does not match the pattern " + _regularExpression + ". ");
+        // empty is what a node holds before the value is set; MinLength is what requires one
+        if (_legalValues != null && v.Length > 0 && !_legalValues.Contains(v)) throw new Exception("The value " + quoted(v) + " of " + CodeName + " is not one of its legal values. ");
     }
+    static string quoted(string v) => "\"" + (v.Length > 100 ? v[..100] + "..." : v) + "\"";
     ISemanticIndex? tryGetSemanticIndex(DataStoreLocal db, QueryContext ctx) {
         if (db._ai != null && IndexedBySemantic) {
             if (!db._definition.Properties.TryGetValue(this.PropertyIdForVectors, out var semProp))

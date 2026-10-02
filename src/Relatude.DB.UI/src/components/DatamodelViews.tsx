@@ -3,7 +3,7 @@ import { IconAdjustments, IconArrowBackUp, IconChevronDown, IconChevronRight, Ic
 import { IndexMarks, KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, kindMeta, relationMeta, sourceKindMeta, type IndexFlags } from "./DatamodelIcons";
 import { OverrideMarks, showValue, type EditorContext, type Selection } from "./DatamodelEditors";
 import { allProperties, fullName, type HistoryEntry, type ModelDiff, type NodeTypeJson, type OverridesFileInfo, type PropertyJson, type SourceInfo } from "../server/datamodel";
-import { declaringType, hasOverrides, inheritedPropertySetting, listOverrides, setOverride } from "../server/overrides";
+import { declaringType, hasOverrides, inheritedPropertySetting, isIndexed, listOverrides, setOverride } from "../server/overrides";
 import { formatBytes, formatTime } from "../format";
 
 export interface ViewProps {
@@ -261,7 +261,7 @@ function TypesTable({ ctx, visibleTypes, ghostTypes, query, selection, diff, jus
                       </td>
                       <td className="dm-cell-name">
                         {p.CodeName}
-                        <IndexMarks flags={{ indexed: p.Indexed, wordIndex: p.IndexedByWords, semanticIndex: p.IndexedBySemantic }} />
+                        <IndexMarks flags={{ indexed: isIndexed(ctx.model, p), wordIndex: p.IndexedByWords, semanticIndex: p.IndexedBySemantic }} />
                         <OverrideMarks ctx={ctx} typeId={t.Id} propertyId={p.Id} />
                       </td>
                       <td className="muted" colSpan={2}>
@@ -440,7 +440,7 @@ function TypeTree({ ctx, visibleTypes, ghostTypes, query, selection, diff, showP
               <span className="dm-tree-spacer" />
               <PropertyIcon propertyType={p.PropertyType} />
               <span className="dm-tree-propname">{p.CodeName}</span>
-              <IndexMarks flags={{ indexed: p.Indexed, wordIndex: p.IndexedByWords, semanticIndex: p.IndexedBySemantic }} />
+              <IndexMarks flags={{ indexed: isIndexed(ctx.model, p), wordIndex: p.IndexedByWords, semanticIndex: p.IndexedBySemantic }} />
               <span className="muted dm-tree-meta">{propertyDetail(ctx, p)}</span>
             </div>
           ))}
@@ -471,7 +471,7 @@ export function MatrixView({ ctx, visibleTypes, ghostTypes, query, selection }: 
         const key = p.property.CodeName.toLowerCase();
         let row = byName.get(key);
         if (!row) byName.set(key, (row = { name: p.property.CodeName, propertyType: p.property.PropertyType, flags: {}, own: new Set(), inherited: new Set() }));
-        if (p.property.Indexed) row.flags.indexed = true;
+        if (isIndexed(ctx.model, p.property)) row.flags.indexed = true;
         if (p.property.IndexedByWords) row.flags.wordIndex = true;
         if (p.property.IndexedBySemantic) row.flags.semanticIndex = true;
         (p.inherited ? row.inherited : row.own).add(t.Id);
@@ -646,10 +646,11 @@ export function SourcesView({ ctx, selection, hiddenSources, onToggleVisible, on
  */
 function OverridesPanel({ ctx, file }: { ctx: EditorContext; file: OverridesFileInfo }) {
   const entries = listOverrides(ctx.model);
-  const label = (path: string, propertyType: string | null) => {
+  const field = (path: string, propertyType: string | null) => {
     const fields = propertyType ? [...ctx.schema.propertyCommon, ...(ctx.schema.propertyByType[propertyType] ?? [])] : ctx.schema.nodeType;
-    return fields.find((f) => f.path === path)?.label ?? path;
+    return fields.find((f) => f.path === path);
   };
+  const label = (path: string, propertyType: string | null) => field(path, propertyType)?.label ?? path;
   return (
     <div className="dm-overrides">
       <div className="dm-overrides-head">
@@ -696,7 +697,10 @@ function OverridesPanel({ ctx, file }: { ctx: EditorContext; file: OverridesFile
                   ? (type as Record<string, unknown>)[e.path]
                   : owner!.Id === e.typeId
                     ? (property as Record<string, unknown>)[e.path]
-                    : inheritedPropertySetting(ctx.model, e.typeId, property!, owner!.Id, e.path);
+                    : field(e.path, property!.PropertyType)?.overridable === "anyType"
+                      ? // the type asking for the property's index, or not, in its own definition
+                        type.PropertyOverrides?.[e.propertyId]?.[e.path]
+                      : inheritedPropertySetting(ctx.model, e.typeId, property!, owner!.Id, e.path, true);
               const open = () => {
                 if (gone) return;
                 if (e.propertyId === null) ctx.select({ kind: "type", id: e.typeId });

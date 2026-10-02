@@ -123,6 +123,14 @@ internal static class BuildUtils {
         c.TextIndexBoost = nodeAttr.TextIndexBoost;
         if (nodeAttr.InstantTextIndexing != BoolValue.Default) c.InstantTextIndexing = nodeAttr.InstantTextIndexing == BoolValue.True;
         if (nodeAttr.SemanticIndex != BoolValue.Default) c.SemanticIndex = nodeAttr.SemanticIndex == BoolValue.True;
+        // no limit stays at the model's int.MinValue/int.MaxValue (a count is never negative, so a minimum
+        // of 0 is no limit), keeping the checksum of every model that sets neither as it was:
+        if (nodeAttr.MinNoInstances > 0) c.MinNoInstances = nodeAttr.MinNoInstances;
+        if (nodeAttr.MaxNoInstances != int.MaxValue) c.MaxNoInstances = nodeAttr.MaxNoInstances;
+        if (c.MaxNoInstances < 0 || c.MinNoInstances > c.MaxNoInstances) {
+            throw new Exception("The [Node] attribute of " + type.FullName + " has MinNoInstances = " + nodeAttr.MinNoInstances + " and MaxNoInstances = " + nodeAttr.MaxNoInstances
+                + ". The maximum cannot be negative or below the minimum. ");
+        }
         List<Type> types = [.. type.GetInterfaces()];
         if (type.BaseType != null) types.Add(type.BaseType);
         c.Parents = types.Where(t => isTypeRelevant(t)).Select(t => getNodeTypeId(t)).ToList();
@@ -196,6 +204,8 @@ internal static class BuildUtils {
             if (a.ExcludeFromTextIndex != BoolValue.Default) o.ExcludeFromTextIndex = a.ExcludeFromTextIndex == BoolValue.True;
             if (a.TextIndexBoost != PropertyOverrideAttribute.NotSet) o.IndexBoost = a.TextIndexBoost;
             if (a.DisplayName != BoolValue.Default) o.DisplayName = a.DisplayName == BoolValue.True;
+            if (a.Indexed != BoolValue.Default) o.Indexed = a.Indexed == BoolValue.True;
+            if (a.NotFacet != BoolValue.Default) o.NotFacet = a.NotFacet == BoolValue.True;
             c.PropertyOverrides[propertyId] = o;
         }
     }

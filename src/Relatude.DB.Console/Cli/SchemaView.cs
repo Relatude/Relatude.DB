@@ -270,6 +270,7 @@ public static class SchemaView {
                 if (s.MaxLength != int.MaxValue) notes.Add("max length " + s.MaxLength);
                 if (s.MinLength != 0) notes.Add("min length " + s.MinLength);
                 if (!string.IsNullOrEmpty(s.RegularExpression)) notes.Add("pattern " + s.RegularExpression);
+                if (s.LegalValues != null) notes.Add("legal values " + string.Join("/", s.LegalValues));
                 if (!string.IsNullOrEmpty(s.DefaultValue)) notes.Add("default \"" + s.DefaultValue + "\"");
                 break;
             case IntegerPropertyModel i:

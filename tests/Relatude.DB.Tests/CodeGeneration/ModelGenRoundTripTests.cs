@@ -25,13 +25,13 @@ namespace Relatude.RoundTripModels {
         [StringProperty]
         public string VIN { get; set; } = "";
     }
-    [Node(Id = RtIds.CarNodeId)]
+    [Node(Id = RtIds.CarNodeId, MinNoInstances = 1, MaxNoInstances = 1000)]
     public class RtCar : RtVehicle {
         [IntegerProperty(Indexed = true)]
         public int Wheels { get; set; }
         public RtCarsRel.OwnerOf Owner { get; set; } = new();
     }
-    [Node(Id = RtIds.BoatNodeId)]
+    [Node(Id = RtIds.BoatNodeId, MaxNoInstances = 0)] // zero is a limit, not "unset"
     public class RtBoat : RtVehicle {
         [DoubleProperty]
         public double Draft { get; set; }
@@ -83,6 +83,11 @@ namespace Relatude.RoundTripModels {
         public string Label { get; set; } = "";
         [StringProperty(ReadAccess = "99999999-1111-2222-3333-444444444444", WriteAccess = "88888888-1111-2222-3333-444444444444")]
         public string Restricted { get; set; } = "";
+        // value rules, with quotes and backslashes that must be escaped in generated code:
+        [StringProperty(RegularExpression = @"^[a-z0-9\-""]+$", LegalValues = new[] { "draft", "say \"hi\"", @"C:\temp" })]
+        public string Status { get; set; } = "";
+        [IntegerProperty(LegalValues = new[] { -1, 0, 5 }, DefaultValue = 5)]
+        public int Grade { get; set; } = 5;
         [StringArrayProperty(Indexed = true, UniqueValues = true, NotFacet = true)]
         public string[] Tags { get; set; } = [];
         [GuidArrayProperty(Indexed = true, NotFacet = true)]
@@ -299,6 +304,8 @@ namespace Relatude.Querying {
             t.SemanticIndex,
             t.InstantTextIndexing,
             t.TextIndexBoost,
+            t.MinNoInstances,
+            t.MaxNoInstances,
             Parents = t.Parents.OrderBy(x => x).ToArray(),
             PropertyIds = t.Properties.Keys.OrderBy(x => x).ToArray(),
         });

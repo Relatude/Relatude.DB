@@ -79,6 +79,19 @@ public class NodeMapper {
             return true;
         }
     }
+    /// <summary>
+    /// The class the store makes for a node type: the model class, the implementation generated for a model
+    /// interface, or the class generated for a runtime type the application has no class for. False for a type
+    /// that is not in the datamodel.
+    /// </summary>
+    public bool TryGetNodeType(Guid nodeTypeId, [MaybeNullWhen(false)] out Type type) {
+        if (_nodeValueMapperByTypeId.TryGetValue(nodeTypeId, out var mapper)) {
+            type = mapper.GetCreatedType();
+            return true;
+        }
+        type = null;
+        return false;
+    }
     public PropertyModel GetProperty<T>(string propertyName) {
         return _store.Datastore.Datamodel.NodeTypes[GetNodeTypeId(typeof(T))].AllPropertiesByName[propertyName];
     }
@@ -102,6 +115,12 @@ public class NodeMapper {
                         // e.g. when the model is defined in a JSON datamodel source; retry with it:
                         typeId = typeDef.Id;
                         _nodeValueMapperByTypeId.TryGetValue(typeId, out mapper); // null when no mapper is defined for the type
+                        // a runtime type whose class was not loaded when the database opened got a class of
+                        // its own then, and the mapper casts to that one: say so, not "invalid cast"
+                        if (mapper != null && !mapper.GetCreatedType().IsAssignableFrom(orgType)) throw new Exception(
+                            "The class " + objectType.FullName + " (" + objectType.Assembly.GetName().Name + ") is not the class the database maps the node type "
+                            + typeDef.FullName + " to. No assembly with that class was loaded when the database opened, so the class was generated from the datamodel. "
+                            + "Make sure the assembly is loaded before the database opens. ");
                     } else {
                         throw new Exception(objectType.FullName + " is not part of the datamodel. ");
                     }

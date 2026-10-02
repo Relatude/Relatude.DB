@@ -193,7 +193,7 @@ Two details that trip people up, both in `references/datamodels.md`:
 - **`decimal`, `DateTime`, `DateTimeOffset`, `TimeSpan` and `Guid` bounds are passed as strings**, because those are not legal C# attribute parameter types. `MinValue = "0"` (invariant culture), `MinValue = "2000-01-01T00:00:00.0000000Z"` (round-trip "O"), `MaxValue = "1.00:00:00"` (constant "c").
 - **Enums use `[IntegerProperty]`** (and `[EnumArrayProperty]` for arrays). The engine stores an int and auto-populates the enum metadata so the admin UI and facets show names, not numbers.
 
-`LegalValues`, `RegularExpression`, min/max, length bounds, `UniqueValues` and `MinNoInstances`/`MaxNoInstances` are all **enforced at write time** — a violating transaction fails rather than silently storing bad data.
+`LegalValues`, `RegularExpression`, min/max, length bounds, `UniqueValues` and `MinNoInstances`/`MaxNoInstances` are all **enforced at write time** — a violating transaction fails rather than silently storing bad data. A `RegularExpression` also has to match the empty string, so the `Slug` above is required; write `^([a-z0-9-]+)?$` for an optional value. String `LegalValues` always let the empty string through, and enums are not held to their `LegalValues`.
 
 Six marker attributes tag structural roles, at most one property per type per role: `[DisplayNameProperty]`, `[AddressProperty]`, `[PublicIdProperty]`, `[InternalIdProperty]`, `[CreatedUtcProperty]`, `[ChangedUtcProperty]`.
 

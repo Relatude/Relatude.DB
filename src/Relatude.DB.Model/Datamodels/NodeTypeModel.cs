@@ -76,7 +76,9 @@ public partial class NodeTypeModel { // with default values
     /// value is in the text index and with what boost, whether it is part of the display name). They apply
     /// to this type and the types inheriting from it, unless one of those sets its own; what the engine
     /// then reads for each type is resolved when the model initializes (see <see cref="GetDefaultValue"/>,
-    /// <see cref="TextIndexProperties"/>). Null when the type overrides nothing.
+    /// <see cref="TextIndexProperties"/>). Besides those, Indexed asks for the property's value index and
+    /// NotFacet = false for it to be a facet (<see cref="OverrideScope.AnyType"/>), which the store grants
+    /// when any type asks. Null when the type overrides nothing.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Dictionary<Guid, PropertyOverride>? PropertyOverrides { get; set; }

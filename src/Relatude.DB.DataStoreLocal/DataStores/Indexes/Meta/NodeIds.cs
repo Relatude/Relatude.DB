@@ -336,16 +336,23 @@ internal class NodeTypesByIds {
         return false; // the users memberships does not include the required group
 
     }
-    public IdSet GetAllNodeIdsForTypeFilteredByContext(Guid typeId, QueryContext ctx) {
+    public IdSet GetAllNodeIdsForTypeFilteredByContext(Guid typeId, QueryContext ctx) => getIds(typeId, ctx).AsUnmutableIdSet();
+    idSet getIds(Guid typeId, QueryContext ctx) {
         var ctxKey = _nativeModelStore.GetQueryContextKey(ctx, out var nowUtc);
         var ctxAndTypeKey = new ctxAndType(typeId, ctxKey);
         if (_cachedNodeIdsByCtx.TryGet(ctxAndTypeKey, out var ids)) {
-            if (ids.IsWithinTimeConstraints(nowUtc)) return ids.AsUnmutableIdSet();
+            if (ids.IsWithinTimeConstraints(nowUtc)) return ids;
         }
         ids = evaluateRelevantIds(typeId, ctxKey, nowUtc); // takes time! // could consider lock here to avoid double eval
         _cachedNodeIdsByCtx.Set(ctxAndTypeKey, ids, 1);
-        return ids.AsUnmutableIdSet();
+        return ids;
     }
+    /// <summary>
+    /// How many nodes of the type and its descendants are stored, whatever their meta says (unpublished,
+    /// hidden, marked deleted); a node with several revisions counts once. Read off the cached set without
+    /// copying it, which the set kept up to date by every add and remove makes cheap after the first call.
+    /// </summary>
+    public int CountAllNodesIncludingDescendants(Guid typeId) => getIds(typeId, QueryContext.AllIncludingDescendants).Count;
     public IdSet GetAllNodeIdsForTypeNoFilter(Guid typeId, bool includeDescendants) {
         return GetAllNodeIdsForTypeFilteredByContext(typeId, includeDescendants ? QueryContext.AllIncludingDescendants : QueryContext.AllExcludingDescendants);
     }

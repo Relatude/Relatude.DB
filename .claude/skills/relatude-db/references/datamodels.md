@@ -42,7 +42,7 @@ public interface IOrganizer { /* ... */ }
 ```
 
 - `BoolValue` is tri-state: `Default` (engine decides), `True`, `False`.
-- Also accepts `MinNoInstances` / `MaxNoInstances`, enforced at write time.
+- Also accepts `MinNoInstances` / `MaxNoInstances`, enforced at write time on the count of nodes of the type *and its descendants* (see "Validation happens on write").
 - **Without `Id`, the type id is a hash of the full type name.** Rename the type or move its namespace and the engine sees a brand-new type with no data. Pin ids at project start.
 
 ### `[Relation]`
@@ -189,7 +189,12 @@ public AccessibilityFeature[] Accessibility { get; set; } = [];
 
 ### Validation happens on write
 
-`LegalValues`, `RegularExpression`, `MinValue`/`MaxValue`, `MinLength`/`MaxLength`, `UniqueValues` and `MinNoInstances`/`MaxNoInstances` are all enforced by the engine at write time. A violating transaction **fails** rather than silently storing bad data.
+`LegalValues`, `RegularExpression`, `MinValue`/`MaxValue`, `MinLength`/`MaxLength`, `UniqueValues` and `MinNoInstances`/`MaxNoInstances` are all enforced by the engine at write time. A violating transaction **fails** as a whole (rolled back) rather than silently storing bad data. Stored values are never re-checked: a tightened rule only bites when a node is saved again.
+
+- `RegularExpression` is matched against every value written, **the empty string too** — `^[a-z0-9-]+$` makes the property required (an insert that leaves it at `""` fails). For an optional value allow empty in the pattern: `^([a-z0-9-]+)?$`. Unanchored patterns match anywhere in the value.
+- String `LegalValues` are compared ordinally, and **the empty string always passes**; add `MinLength = 1` to require a value.
+- Integer `LegalValues` hold a plain `int` to the list. **Enums are not held to theirs** (the engine fills them in for display), so `[Flags]` combinations and unknown members are accepted.
+- `MinNoInstances` / `MaxNoInstances` count the type plus every type inheriting from it, on what the whole transaction leaves (delete + insert of a replacement passes at the limit). A type may start below its minimum — `MinNoInstances = 1` means "the last one cannot be deleted" — and a maximum lowered below the current count only refuses inserts.
 
 ## Marker properties
 
@@ -603,8 +608,8 @@ Relation properties need `Facet = true` to be facetable.
 
 **At write time** — the transaction fails:
 
-- `LegalValues` / `RegularExpression` / min/max / length bounds.
-- `MinNoInstances` / `MaxNoInstances` per type.
+- `LegalValues` / `RegularExpression` / min/max / length bounds (empty string always passes `LegalValues`; enums are exempt).
+- `MinNoInstances` / `MaxNoInstances` per type, descendants included.
 - `UniqueValues = true` uniqueness across the type.
 - `DisallowCircularReferences = true` acyclicity on self-referential relations.
 

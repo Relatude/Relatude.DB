@@ -173,6 +173,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 resultingOperations[i - 1] = _converter.LastResultingOperation; // must be read after enumeration, as it is set during enumeration
 
             }
+            validateInstanceCounts(executed);
             if (transaction.InnerCallbackBeforeCommitting != null) {
                 try {
                     transaction.InnerCallbackBeforeCommitting();
@@ -193,6 +194,37 @@ public sealed partial class DataStoreLocal : IDataStore {
         } finally {
             _guids.RollbackIfUncommited();
             _addresses.RollbackIfUncommited();
+        }
+    }
+    // MinNoInstances/MaxNoInstances, checked on the counts the whole transaction leaves, so one that deletes
+    // a node and inserts its replacement passes at the limit. Only a type whose count the transaction moves
+    // is checked, and only in the direction it moves it: a count already past a limit (the limit set after
+    // the nodes were) does not block the updates or the deletes that bring it back.
+    void validateInstanceCounts(List<PrimitiveActionBase> executed) {
+        if (!_definition.AnyInstanceLimits) return;
+        Dictionary<Guid, int>? change = null;
+        foreach (var a in executed) {
+            if (a is not PrimitiveNodeAction na) continue;
+            var d = na.Operation switch { PrimitiveOperation.Add => 1, PrimitiveOperation.Remove => -1, _ => 0 };
+            if (d == 0) continue;
+            foreach (var typeId in _definition.InstanceLimitedTypesOf(na.Node.NodeType)) {
+                change ??= [];
+                change[typeId] = change.GetValueOrDefault(typeId) + d;
+            }
+        }
+        if (change == null) return;
+        foreach (var (typeId, d) in change) {
+            if (d == 0) continue;
+            var type = _definition.NodeTypes[typeId].Model;
+            var count = _definition.NodeTypeIndex.CountAllNodesIncludingDescendants(typeId);
+            if (d > 0 && count > type.MaxNoInstances) {
+                throw new NodeTypeConstraintException("There can be at most " + type.MaxNoInstances + " node" + (type.MaxNoInstances == 1 ? "" : "s") + " of the type "
+                    + type.FullName + " (MaxNoInstances), and the transaction would leave " + count + ". ", typeId);
+            }
+            if (d < 0 && count < type.MinNoInstances) {
+                throw new NodeTypeConstraintException("There must be at least " + type.MinNoInstances + " node" + (type.MinNoInstances == 1 ? "" : "s") + " of the type "
+                    + type.FullName + " (MinNoInstances), and the transaction would leave " + count + ". ", typeId);
+            }
         }
     }
     void validateLocks(PrimitiveActionBase a, HashSet<Guid>? transactionLocks) {

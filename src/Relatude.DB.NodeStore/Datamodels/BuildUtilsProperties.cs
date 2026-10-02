@@ -84,6 +84,9 @@ internal static class BuildUtilsProperties {
             throw new NotSupportedException("The type " + valueType.GetCSharpName() + " of member \"" + m.DeclaringType?.FullName + "." + m.Name
                 + "\" is not supported as a stored property. Mark the member with [Exclude] if it should not be stored. ");
         }
+        if (p is StringPropertyModel sp && sp.RegularExpression != null && !isValidRegularExpression(sp.RegularExpression, out var regexError)) {
+            throw new Exception("The RegularExpression of the member \"" + m.DeclaringType?.FullName + "." + m.Name + "\" is not a valid regular expression: " + regexError);
+        }
         p.Id = string.IsNullOrEmpty(a.Id) ? Guid.Empty : Guid.Parse(a.Id);
         p.CodeName = m.Name;
         p.ReadAccess = string.IsNullOrEmpty(a.ReadAccess) ? Guid.Empty : Guid.Parse(a.ReadAccess);
@@ -110,6 +113,16 @@ internal static class BuildUtilsProperties {
             }
         }
         return p;
+    }
+    static bool isValidRegularExpression(string pattern, [NotNullWhen(false)] out string? error) {
+        try {
+            _ = new System.Text.RegularExpressions.Regex(pattern);
+            error = null;
+            return true;
+        } catch (ArgumentException ex) {
+            error = ex.Message;
+            return false;
+        }
     }
     static T cast<T>(PropertyAttribute a, MemberInfo m) where T : PropertyAttribute {
         if (a is T aT) return aT;
@@ -251,6 +264,8 @@ internal static class BuildUtilsProperties {
         p.MinWordLength = a.MinWordLength;
         p.PrefixSearch = a.PrefixSearch;
         p.StringType = a.StringType;
+        p.RegularExpression = string.IsNullOrEmpty(a.RegularExpression) ? null : a.RegularExpression;
+        p.LegalValues = a.LegalValues;
         return p;
     }
     static IntegerPropertyModel getIntegerPropertyModel(IntegerPropertyAttribute a) {

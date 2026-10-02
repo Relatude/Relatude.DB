@@ -21,6 +21,14 @@ public class StringPropertyModel : PropertyModel, IPropertyModelUniqueContraints
     public static readonly int DefaultMaxWordLength = 30;
 
     public string? RegularExpression { get; set; }
+    /// <summary>
+    /// The values allowed, compared ordinally; null allows any. An empty value is always allowed - it
+    /// is what a node holds before the value is set - so a value is required with <see cref="MinLength"/>.
+    /// Left out of the JSON when null, so a model that does not use it has the checksum it had before
+    /// the member existed (a changed checksum rebuilds the state and every index).
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string[]? LegalValues { get; set; }
     public override string? GetDefaultDeclaration() => "string.Empty";
     public override object? GetDefaultValue() => DefaultValue;
     public static string ForceValueType(object? value, out bool changed) {

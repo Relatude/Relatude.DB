@@ -523,7 +523,9 @@ is no class, and none is needed:</strong></p>
 <li><strong>Leave <code>Id</code> as <code>Guid.Empty</code> on insert</strong> and the store assigns one, or set it yourself first.</li>
 <li><strong>Put your attributes on the interface.</strong> Property <em>definitions</em> live on the type that first
    declares them, so an attribute on a class that merely implements an interface member is ignored.
-   The interface is the single source of truth for the property model.</li>
+   The interface is the single source of truth for the property model. The one exception is
+   <code>[PropertyOverride]</code>, which gives that class its own default, text index or display name setting
+   for the property, or asks for its value index or a facet (<a href="#31-overriding-attributes">§3.1</a>).</li>
 </ol>
 <p>Add <code>[Exclude]</code> to any type or property the datamodel should skip.</p>
 <h3 id="why-interfaces-are-the-better-default">Why interfaces are the better default<a class="anchor" href="#why-interfaces-are-the-better-default" aria-label="Link to this section">#</a></h3>
@@ -730,7 +732,8 @@ identity</em> — and the engine sees a brand-new type with no data. Rename-proo
 <p><code>BoolValue</code> is tri-state: <code>Default</code> (take it from the base types, else the database default), <code>True</code>,
 <code>False</code>. <code>TextIndex</code>, <code>SemanticIndex</code> and <code>InstantTextIndexing</code> are inherited: see
 <a href="#31-overriding-attributes">§3.1</a>. <code>[Node]</code> also accepts <code>MinNoInstances</code> / <code>MaxNoInstances</code> to
-constrain how many instances of the type may exist.</p>
+constrain how many nodes of the type, its descendants included, may exist - see
+<a href="#validation-happens-on-write">Validation happens on write</a>.</p>
 <hr />
 <h2 id="3-scalar-properties-and-their-attributes">3. Scalar properties and their attributes<a class="anchor" href="#3-scalar-properties-and-their-attributes" aria-label="Link to this section">#</a></h2>
 <p>You can declare a plain property with no attribute at all and the engine infers a sensible
@@ -914,7 +917,27 @@ show names rather than numbers:</p>
 <h3 id="validation-happens-on-write">Validation happens on write<a class="anchor" href="#validation-happens-on-write" aria-label="Link to this section">#</a></h3>
 <p><code>LegalValues</code>, <code>RegularExpression</code>, <code>MinValue</code>/<code>MaxValue</code>, <code>MinLength</code>/<code>MaxLength</code>, <code>UniqueValues</code>
 and <code>MinNoInstances</code>/<code>MaxNoInstances</code> are all enforced by the engine at write time. A violating
-transaction fails rather than silently storing bad data.</p>
+transaction fails as a whole and is rolled back, rather than silently storing bad data. The values
+already stored are never checked again: tightening a rule does not stop the database from opening,
+but a node whose value breaks the new rule cannot be saved until the value is changed.</p>
+<ul>
+<li><strong><code>RegularExpression</code></strong> must match every value written, the empty value too - a pattern such as
+  <code>^[a-z0-9-]+$</code> therefore makes the value required. Allow the empty value in the pattern when it is
+  optional (<code>^([a-z0-9-]+)?$</code>). It is a match anywhere in the value unless anchored with <code>^</code> and <code>$</code>.</li>
+<li><strong><code>LegalValues</code></strong> on a string is compared ordinally. The empty value is always allowed - it is what a
+  node holds before the value is set - so add <code>MinLength = 1</code> to require one. The admin UI edits such a
+  property with a list of the values.</li>
+<li><strong><code>LegalValues</code></strong> on an integer holds a plain <code>int</code> to the listed values. An enum is not held to its
+  members, which the engine fills in for display: a <code>[Flags]</code> combination, or a member added in a newer
+  version of the application, is still a value of it.</li>
+<li><strong><code>MinNoInstances</code> / <code>MaxNoInstances</code></strong> on <code>[Node]</code> count the nodes of the type and of every type
+  inheriting from it, whatever their meta says (unpublished, hidden or marked deleted). The counts are
+  checked on what the whole transaction leaves, so one that deletes a node and inserts its replacement
+  passes at the limit, and only in the direction the transaction moves them: a type may start below its
+  minimum (with <code>MinNoInstances = 1</code> the last node cannot be deleted, while the first can always be
+  inserted), and a type with more nodes than a maximum set later keeps them and can still be updated
+  and deleted from - it only refuses inserts.</li>
+</ul>
 <h3 id="31-overriding-attributes">3.1 Overriding attributes<a class="anchor" href="#31-overriding-attributes" aria-label="Link to this section">#</a></h3>
 <p>Sometimes the attribute you want to change is not yours to edit: the type comes from an assembly you
 do not build, the property is declared on a base interface other types share, or a default value has
@@ -945,25 +968,197 @@ the database logs a warning naming both. Set the switch on the type to choose. S
 the text index, so a type that is semantically indexed - by itself, a base type or the database
 default - stays text indexed whatever its <code>TextIndex</code> says.</p>
 <p><strong>An inherited property: <code>[PropertyOverride]</code>.</strong> A property has one declaration, but four of its
-attributes may differ between the types that have it - the default value, whether the value is part
-of the text index, its boost there, and whether it is part of the display name. A derived type sets
-its own with <code>[PropertyOverride]</code>, which offers those four and nothing else:</p>
-<div class="codehilite"><pre><span></span><code><span class="na">[Node]</span>
-<span class="na">[PropertyOverride(nameof(IContent.Title), DefaultValue = &quot;Untitled news&quot;, TextIndexBoost = 2)]</span>
-<span class="na">[PropertyOverride(nameof(IContent.Body), ExcludeFromTextIndex = BoolValue.True)]</span>
-<span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">NewsArticle</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">IContent</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="c1">// on a member implementing an interface property the attribute can sit on the member, without a name:</span>
-<span class="w">    </span><span class="na">[PropertyOverride(DisplayName = BoolValue.True)]</span>
-<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Summary</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span>
-<span class="w">    </span><span class="c1">// ...</span>
+attributes may differ between the types that have it, and a type can ask for its value index and for
+it to be a facet. A derived type sets these with <code>[PropertyOverride]</code>, which offers those six and
+nothing else:</p>
+<table>
+<thead>
+<tr>
+<th>On <code>[PropertyOverride]</code></th>
+<th>What it sets for the type</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DefaultValue</code></td>
+<td>The value a node of the type starts with, and what a stored node reads while it has no value for the property</td>
+</tr>
+<tr>
+<td><code>ExcludeFromTextIndex</code></td>
+<td><code>BoolValue.True</code> leaves the property out of the type's text index; <code>BoolValue.False</code> puts back one the declaration leaves out</td>
+</tr>
+<tr>
+<td><code>TextIndexBoost</code></td>
+<td>How many extra times the value goes into the type's text index; <code>0</code> cancels a boost the type inherits</td>
+</tr>
+<tr>
+<td><code>DisplayName</code></td>
+<td><code>BoolValue.True</code> makes the property part of the type's display name; <code>BoolValue.False</code> takes it out</td>
+</tr>
+<tr>
+<td><code>Indexed</code></td>
+<td><code>BoolValue.True</code> asks for the property's value index, so the type can filter, sort and facet on it. The index is shared by every type that has the property (<a href="#asking-for-the-value-index">below</a>)</td>
+</tr>
+<tr>
+<td><code>NotFacet</code></td>
+<td><code>BoolValue.False</code> asks for the property to be a facet where the declaration says <code>NotFacet</code>. The facet is shared by every type that has the property, like the index</td>
+</tr>
+</tbody>
+</table>
+<p>Anything left out - a switch left at <code>BoolValue.Default</code>, no <code>DefaultValue</code>, no <code>TextIndexBoost</code> -
+is what the base types say. The examples below share this base interface:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">public</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="n">ContentStatus</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">Draft</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="n">Published</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">Archived</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="w"> </span><span class="p">}</span>
+
+<span class="na">[Node(TextIndex = BoolValue.True)]</span>
+<span class="k">public</span><span class="w"> </span><span class="k">interface</span><span class="w"> </span><span class="n">IContent</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="na">[StringProperty(DefaultValue = &quot;Untitled&quot;, DisplayName = true)]</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Title</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="na">[StringProperty]</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Subtitle</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="na">[HtmlProperty]</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Body</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="na">[IntegerProperty(Indexed = true)]</span><span class="w"> </span><span class="n">ContentStatus</span><span class="w"> </span><span class="n">Status</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
 
-<p>The override applies to the type and to every type inheriting from it, unless one of those sets its
-own. Decimals, dates, durations and guids are strings, as on the property attributes. Everything else
-about a property is one setting wherever the property is used - it has one value index, one word
-index, one set of rules - so it stays with the declaration, and only the declaring type's override
-changes it.</p>
+<p><em>On the type, naming the property.</em> Name the inherited property with <code>nameof</code>, one attribute per
+property, each with as many of the four as you need:</p>
+<div class="codehilite"><pre><span></span><code><span class="na">[Node]</span>
+<span class="na">[PropertyOverride(nameof(IContent.Title), DefaultValue = &quot;Untitled news&quot;, TextIndexBoost = 2)]</span>
+<span class="na">[PropertyOverride(nameof(IContent.Status), DefaultValue = ContentStatus.Published)]</span>
+<span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">NewsArticle</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">IContent</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Title</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Subtitle</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Body</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="n">ContentStatus</span><span class="w"> </span><span class="n">Status</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">news</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Create</span><span class="o">&lt;</span><span class="n">NewsArticle</span><span class="o">&gt;</span><span class="p">();</span><span class="w">   </span><span class="c1">// Title &quot;Untitled news&quot;, Status Published</span>
+</code></pre></div>
+
+<p>Every other type implementing <code>IContent</code> keeps <code>"Untitled"</code> and <code>Draft</code>. A news title also weighs
+more in search: it goes into the text index two extra times, while other types' titles go in once.
+An enum default is given as the enum value. A default is what <code>db.Create&lt;T&gt;()</code> starts a node with,
+and what a stored node reads for a property it has no value for. <code>new NewsArticle()</code> is plain C#,
+so it starts with the property initializers instead.</p>
+<p><em>On the implementing member.</em> A class that implements an interface property can put the attribute
+on its member and leave out the name. This is the one property attribute such a member can carry:
+other attributes there are ignored, since the interface defines the property
+(<a href="#2-your-first-node-type">§2</a>).</p>
+<div class="codehilite"><pre><span></span><code><span class="na">[Node]</span>
+<span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">Book</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">IContent</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Title</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span>
+<span class="w">    </span><span class="na">[PropertyOverride(DisplayName = BoolValue.True)]</span><span class="w">   </span><span class="c1">// a book shows as &quot;Title Subtitle&quot;</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Subtitle</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Body</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="n">ContentStatus</span><span class="w"> </span><span class="n">Status</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>The display name joins the values of the display-name properties with spaces, so <code>Book</code> shows both
+values while other types show the title alone.</p>
+<p><em>Turning one off.</em> <code>BoolValue.False</code> and <code>BoolValue.True</code> work in both directions, so a type can
+also take back what its base types turn on:</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">// tickets are found by their title, but the body - customer details - stays out of search</span>
+<span class="na">[Node]</span>
+<span class="na">[PropertyOverride(nameof(IContent.Body), ExcludeFromTextIndex = BoolValue.True)]</span>
+<span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">SupportTicket</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">IContent</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="cm">/* ... */</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+
+<p><em>Down a class chain, and on interfaces.</em> An override reaches every type that inherits from the type
+it is set on, and a more specific type can override it again. Decimals, dates, durations and guids
+are given as strings, in the formats the property attributes use
+(<a href="#numbers">Numbers</a>):</p>
+<div class="codehilite"><pre><span></span><code><span class="na">[Node]</span>
+<span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">Product</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="na">[StringProperty(DisplayName = true)]</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span>
+<span class="w">    </span><span class="na">[DecimalProperty(DefaultValue = &quot;0&quot;, Indexed = true)]</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="kt">decimal</span><span class="w"> </span><span class="n">Price</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="p">}</span>
+
+<span class="na">[Node]</span>
+<span class="na">[PropertyOverride(nameof(Product.Price), DefaultValue = &quot;25&quot;)]</span>
+<span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">GiftCard</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">Product</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">}</span>
+
+<span class="na">[Node]</span>
+<span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">DigitalGiftCard</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">GiftCard</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">}</span><span class="w">       </span><span class="c1">// 25, from GiftCard</span>
+
+<span class="na">[Node]</span>
+<span class="na">[PropertyOverride(nameof(Product.Price), DefaultValue = &quot;50&quot;)]</span>
+<span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">PremiumGiftCard</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">GiftCard</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">}</span><span class="w">       </span><span class="c1">// 50: the more specific type wins</span>
+
+<span class="c1">// an interface carries overrides too: every type implementing it starts published</span>
+<span class="na">[Node]</span>
+<span class="na">[PropertyOverride(nameof(IContent.Status), DefaultValue = ContentStatus.Published)]</span>
+<span class="k">public</span><span class="w"> </span><span class="k">interface</span><span class="w"> </span><span class="n">IPublishedOnCreate</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">IContent</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+
+<p>Two base types that are not related and disagree cancel out, as with the switches above. The type
+gets what the declaration says, and the database logs a warning naming both. To choose, set the value
+on the type itself. Everything else about a property is one setting wherever the property is used:
+it has one value index, one word index and one set of rules. A type can ask for the value index and
+for a facet, but the rest stays with the declaration, and only an override on the declaring type
+changes it (the table below).</p>
+<p><a id="asking-for-the-value-index"></a><em>Asking for the value index, or a facet.</em> A type that
+filters, sorts or facets on a property its base type does not index asks for the index with
+<code>Indexed</code>. A property its base type keeps out of the facets (<code>NotFacet</code>) it asks to make a facet with
+<code>NotFacet = BoolValue.False</code> - <code>NotFacet</code> is an opt-out, so false is the value that asks:</p>
+<div class="codehilite"><pre><span></span><code><span class="c1">// declared in a package: the part number is not indexed there, and the maker is no facet</span>
+<span class="na">[Node]</span>
+<span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">Part</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="na">[StringProperty]</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">PartNumber</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span>
+<span class="w">    </span><span class="na">[StringProperty(Indexed = true, NotFacet = true)]</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Maker</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="c1">// the workshop looks spare parts up by number and narrows them down by maker</span>
+<span class="na">[Node]</span>
+<span class="na">[PropertyOverride(nameof(Part.PartNumber), Indexed = BoolValue.True)]</span>
+<span class="na">[PropertyOverride(nameof(Part.Maker), NotFacet = BoolValue.False)]</span>
+<span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">SparePart</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">Part</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">part</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">SparePart</span><span class="o">&gt;</span><span class="p">().</span><span class="n">Where</span><span class="p">(</span><span class="n">p</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">PartNumber</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;A-1001&quot;</span><span class="p">).</span><span class="n">Execute</span><span class="p">();</span><span class="w"> </span><span class="c1">// uses the index</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">makers</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">SparePart</span><span class="o">&gt;</span><span class="p">().</span><span class="n">Facets</span><span class="p">().</span><span class="n">AddValueFacet</span><span class="p">(</span><span class="k">nameof</span><span class="p">(</span><span class="n">Part</span><span class="p">.</span><span class="n">Maker</span><span class="p">)).</span><span class="n">Execute</span><span class="p">();</span>
+</code></pre></div>
+
+<p>A facet counts the values in the value index, so it needs one: asking for a facet on a property
+without an index does nothing, and the database logs a warning. Ask for both when the base type has
+neither.</p>
+<p>A property has one value index, so the type gets the property's index, not one of its own. That index
+holds the part number of every node that has the property, <code>Part</code> and the other types inheriting it
+included. A property is indexed when its declaration says so or any type that has it asks. A type
+that sets <code>BoolValue.False</code> only takes back its own request: it cannot take away an index the
+declaration or another type wants, and the database logs a warning when a type says no to an index
+that stays. To drop an index, override <code>Indexed</code> on the declaring type (the table below). Asking for
+an index, or no longer asking, changes the model, so the database rebuilds its state and indexes
+from the log at the next open.</p>
+<p>A facet works the same way, with the values turned around. The property has one set of facet counts,
+so <code>Maker</code> becomes a facet for <code>Part</code> and every other type that has it, not only for <code>SparePart</code>. A
+type that sets <code>NotFacet = BoolValue.True</code> only takes back its own request, and a facet the
+declaration has stays a facet.</p>
+<p><em>Mistakes stop the build.</em> A <code>[PropertyOverride]</code> that cannot apply fails the model build at
+startup. The message names the type and the property. The build fails when the attribute:</p>
+<ul>
+<li>names a property the type declares itself. Set that property's attributes on its own property
+  attribute instead.</li>
+<li>names no member of the type (a typo: use <code>nameof</code>), or names a member marked <code>[Exclude]</code>.</li>
+<li>names a system member: the id, <code>NodeMeta</code>, the created/changed dates, or the display-name or address
+  marker. None of these has attributes to override.</li>
+<li>gives a <code>DefaultValue</code> that does not convert to the property's type (<code>"a lot"</code> for a decimal), or
+  gives a default to a property that has none to set (arrays, files, references and the like).</li>
+<li>sits on a type without naming the property, or sits on a member and names a different property.</li>
+<li>is one of two <code>[PropertyOverride]</code>s for the same property on one type. Combine them into one.</li>
+</ul>
+<div class="codehilite"><pre><span></span><code><span class="na">[Node]</span>
+<span class="na">[PropertyOverride(nameof(Product.Id), DefaultValue = &quot;x&quot;)]</span><span class="w">        </span><span class="c1">// fails: Id is a system member</span>
+<span class="na">[PropertyOverride(nameof(Product.Price), DefaultValue = &quot;a lot&quot;)]</span><span class="w"> </span><span class="c1">// fails: not a decimal</span>
+<span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">BrokenGiftCard</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">Product</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+
+<p>Overrides in the database are more forgiving (below): one that cannot apply is skipped with a
+warning, so it never stops the database from opening.</p>
 <table>
 <thead>
 <tr>
@@ -985,8 +1180,12 @@ changes it.</p>
 <td><code>DefaultValue</code>, <code>ExcludeFromTextIndex</code>, <code>IndexBoost</code> (<code>TextIndexBoost</code> on the attributes), <code>DisplayName</code></td>
 </tr>
 <tr>
+<td>Property, any type that has it</td>
+<td><code>Indexed</code>, <code>NotFacet</code>: on the declaring type it is what the declaration says; on a type inheriting the property <code>Indexed = true</code> asks for the shared index and <code>NotFacet = false</code> for the shared facet, which the property keeps while any type asks</td>
+</tr>
+<tr>
 <td>Property, on the declaring type</td>
-<td><code>Indexed</code>, <code>NotFacet</code>, <code>IndexType</code>, <code>IndexedByWords</code>, <code>TextIndexType</code>, <code>MinLength</code>, <code>MaxLength</code>, <code>RegularExpression</code>, <code>MinValue</code>, <code>MaxValue</code>, <code>FacetRangePowerBase</code>, <code>FacetRangeCount</code>; on relation properties <code>Facet</code>, <code>TextIndexRelatedContent</code>, <code>TextIndexRelatedDisplayName</code></td>
+<td><code>IndexType</code>, <code>IndexedByWords</code>, <code>TextIndexType</code>, <code>MinLength</code>, <code>MaxLength</code>, <code>RegularExpression</code>, <code>MinValue</code>, <code>MaxValue</code>, <code>FacetRangePowerBase</code>, <code>FacetRangeCount</code>; on relation properties <code>Facet</code>, <code>TextIndexRelatedContent</code>, <code>TextIndexRelatedDisplayName</code></td>
 </tr>
 <tr>
 <td>Never</td>
@@ -1001,7 +1200,8 @@ without a source code folder, types registered in <code>OnDatamodelInit</code> -
 overridden stay open, and what is set in them is saved as an override. Each field says where its
 value comes from (<em>overridden</em>, <em>own</em>, <em>from IContent</em>), and the arrow beside an override takes it
 away. An inherited property opens as the derived type sees it, with its four per-type attributes open
-for that type. The <strong>Sources</strong> view lists every override beside what the source says. Activating saves
+for that type, and <em>Indexed</em> and <em>No facet</em> to ask for the property's value index and facet (<em>asked
+by</em> names the other types that do). The <strong>Sources</strong> view lists every override beside what the source says. Activating saves
 them and reopens the database; the nodes of a type whose indexed text changed are queued for text
 indexing, and a type whose text indexing is turned off has its text taken out of the index first.</p>
 <p>The overrides are kept with the database - <code>datamodels/datamodel.overrides.json</code> on its storage
@@ -3281,7 +3481,12 @@ this when you are running under the server.</p>
 <ul>
 <li>Non-interface node types must have a parameterless constructor.</li>
 <li>Two parent interfaces may not declare the same property name.</li>
-<li>Two classes may not declare the same property name — overriding is not supported.</li>
+<li>Two classes may not declare the same property name. Re-declaring an inherited property with
+  <code>override</code> or <code>new</code> is not supported. To give a derived type its own default, text index or
+  display name setting for an inherited property, or to ask for its value index or a facet, use
+  <code>[PropertyOverride]</code> (<a href="#31-overriding-attributes">§3.1</a>).</li>
+<li>A <code>[PropertyOverride]</code> must name a property the type inherits, not a system member, and give a
+  default the property's type can hold (<a href="#31-overriding-attributes">§3.1</a> lists each error).</li>
 <li>Nullable value types (<code>int?</code>, <code>DateTime?</code>, <code>GeoCoordinate?</code>) are not supported.</li>
 <li>Only these value types are allowed: <code>bool</code>, <code>byte</code>, <code>int</code>, <code>long</code>, <code>double</code>, <code>float</code>, <code>decimal</code>,
   <code>DateTime</code>, <code>DateTimeOffset</code>, <code>Guid</code>, <code>TimeSpan</code>, <code>GeoCoordinate</code> and any enum.</li>
@@ -3290,11 +3495,15 @@ this when you are running under the server.</p>
   <code>[AddressProperty]</code> on <code>string</code>, <code>[CreatedUtcProperty]</code> and <code>[ChangedUtcProperty]</code> on <code>DateTime</code>.</li>
 <li>Two types with the same <code>[Node(Id = …)]</code> Guid but different full names → error.</li>
 <li>A relation class must have the right number of nested side classes for its shape.</li>
+<li>A <code>RegularExpression</code> must be a valid regular expression, and a <code>[Node]</code>'s <code>MaxNoInstances</code> can be
+  neither negative nor below its <code>MinNoInstances</code>.</li>
 </ul>
 <p>At <strong>write time</strong> (the transaction fails):</p>
 <ul>
-<li><code>LegalValues</code> / <code>RegularExpression</code> / min/max / length bounds.</li>
-<li><code>MinNoInstances</code> / <code>MaxNoInstances</code> per type.</li>
+<li><code>LegalValues</code> / <code>RegularExpression</code> / min/max / length bounds (the empty string always passes
+  <code>LegalValues</code>; enums are not held to theirs).</li>
+<li><code>MinNoInstances</code> / <code>MaxNoInstances</code> per type, descendants included, on the counts the transaction
+  leaves.</li>
 <li><code>UniqueValues = true</code> uniqueness across the type.</li>
 <li><code>DisallowCircularReferences = true</code> acyclicity on self-referential relations.</li>
 </ul>

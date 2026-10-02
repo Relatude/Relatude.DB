@@ -119,6 +119,7 @@ public sealed class DatamodelValidator {
             if (!isValidNamespace(t.Namespace)) issues.Add(DatamodelIssue.Error("invalid-namespace", "The namespace \"" + t.Namespace + "\" of " + t.CodeName + " is not valid.", nodeType: t.Id));
             if (!byFullName.TryGetValue(t.FullName, out var list)) byFullName[t.FullName] = list = [];
             list.Add(t);
+            if (t.MaxNoInstances < 0 || t.MaxNoInstances < t.MinNoInstances) issues.Add(DatamodelIssue.Error("bad-range", t.FullName + ": the maximum number of instances cannot be negative or below the minimum.", nodeType: t.Id));
         }
         foreach (var (name, list) in byFullName.Where(kv => kv.Value.Count > 1)) {
             foreach (var t in list) issues.Add(DatamodelIssue.Error("duplicate-type", "Two node types have the full name " + name + ". Rename one of them or give them different namespaces.", nodeType: t.Id));
@@ -192,10 +193,24 @@ public sealed class DatamodelValidator {
             case StringPropertyModel sp:
                 if (sp.MinLength < 0 || sp.MaxLength < sp.MinLength) issues.Add(DatamodelIssue.Error("bad-range", where + ": the length range is not valid.", nodeType: t.Id, property: p.Id));
                 if (sp.IndexedBySemantic && !sp.IndexedByWords) issues.Add(DatamodelIssue.Warning("semantic-without-words", where + " is in the semantic index but not the word index; searches will only find it through similarity.", nodeType: t.Id, property: p.Id));
+                if (!string.IsNullOrEmpty(sp.RegularExpression)) {
+                    try {
+                        _ = new System.Text.RegularExpressions.Regex(sp.RegularExpression);
+                        // often meant (a pattern that refuses the empty default makes the value required), so not a warning
+                        if (!System.Text.RegularExpressions.Regex.IsMatch(sp.DefaultValue ?? "", sp.RegularExpression))
+                            issues.Add(DatamodelIssue.Info("default-not-legal", where + ": the default value does not match the pattern, so a node has to be given a value before it can be saved.", nodeType: t.Id, property: p.Id));
+                    } catch (ArgumentException error) {
+                        issues.Add(DatamodelIssue.Error("bad-pattern", where + ": the pattern is not a valid regular expression: " + error.Message, nodeType: t.Id, property: p.Id));
+                    }
+                }
+                if (sp.LegalValues != null && !string.IsNullOrEmpty(sp.DefaultValue) && !sp.LegalValues.Contains(sp.DefaultValue, StringComparer.Ordinal))
+                    issues.Add(DatamodelIssue.Warning("default-not-legal", where + ": the default value is not one of the legal values, so a node that keeps it cannot be saved.", nodeType: t.Id, property: p.Id));
                 break;
             case IntegerPropertyModel ip:
                 if (ip.MinValue > ip.MaxValue) issues.Add(DatamodelIssue.Error("bad-range", where + ": the minimum is above the maximum.", nodeType: t.Id, property: p.Id));
                 if (ip.IsEnum && string.IsNullOrEmpty(ip.FullEnumTypeName) && (ip.LegalValues == null || ip.LegalValues.Length == 0)) issues.Add(DatamodelIssue.Warning("enum-without-values", where + " is an enum without an enum type or a list of legal values.", nodeType: t.Id, property: p.Id));
+                if (!ip.IsEnum && ip.LegalValues != null && !ip.LegalValues.Contains(ip.DefaultValue))
+                    issues.Add(DatamodelIssue.Warning("default-not-legal", where + ": the default value is not one of the legal values, so a node that keeps it cannot be saved.", nodeType: t.Id, property: p.Id));
                 break;
         }
     }
@@ -213,6 +228,16 @@ public sealed class DatamodelValidator {
 
     // ---- what the stored data feels ----
 
+    // whether the draft holds the values to a pattern or a list they were not held to before (a rule taken away is no news)
+    static bool valueRulesChange(PropertyModel a, PropertyModel d) => (a, d) switch {
+        (StringPropertyModel sa, StringPropertyModel sd) =>
+            !string.IsNullOrEmpty(sd.RegularExpression) && !string.Equals(sa.RegularExpression, sd.RegularExpression, StringComparison.Ordinal)
+            || sd.LegalValues != null && !sameList(sa.LegalValues, sd.LegalValues),
+        (IntegerPropertyModel ia, IntegerPropertyModel id) => !id.IsEnum && id.LegalValues != null && (ia.IsEnum || !sameList(ia.LegalValues, id.LegalValues)),
+        _ => false,
+    };
+    static bool sameList<T>(T[]? a, T[]? b) => a == null ? b == null : b != null && a.SequenceEqual(b);
+
     // how many nodes a type has (descendants included), -1 when the database is closed or cannot say
     long countNodes(Guid typeId) {
         var store = _container.IsOpen() ? _container.Store : null;
@@ -220,7 +245,6 @@ public sealed class DatamodelValidator {
         try { return store.QueryType(typeId, countContext).Count(); } catch { return -1; }
     }
     void checkDataImpact(Datamodel active, Datamodel draft, List<DatamodelIssue> issues) {
-        var store = _container.IsOpen() ? _container.Store : null;
         long count(Guid typeId) => countNodes(typeId);
         string nodes(long n) => n < 0 ? "nodes" : n == 1 ? "1 node" : n + " nodes";
         foreach (var a in active.NodeTypes.Values.Where(t => t.Id != NodeConstants.BaseNodeTypeId)) {
@@ -233,6 +257,14 @@ public sealed class DatamodelValidator {
             if (!string.Equals(a.FullName, d.FullName, StringComparison.Ordinal)) issues.Add(DatamodelIssue.Info("type-renamed", a.FullName + " is renamed to " + d.FullName + ". The id is kept, so its nodes follow.", nodeType: a.Id));
             if (a.ModelType != d.ModelType) issues.Add(DatamodelIssue.Warning("type-kind-changed", d.FullName + " changes from " + a.ModelType.ToString().ToLower() + " to " + d.ModelType.ToString().ToLower() + "; application code that uses the type has to follow.", nodeType: a.Id));
             long typeCount = -2; // counted on first need
+            // instance limits are checked when a transaction moves the count, never on the nodes already there
+            if (d.MaxNoInstances < a.MaxNoInstances || d.MinNoInstances > a.MinNoInstances) {
+                if (typeCount == -2) typeCount = count(a.Id);
+                if (typeCount > d.MaxNoInstances) issues.Add(DatamodelIssue.Warning("over-max-instances", d.FullName + " has " + nodes(typeCount) + ", more than the new maximum of " + d.MaxNoInstances
+                    + ". They stay, but no node of the type can be added until there are fewer.", nodeType: a.Id));
+                else if (typeCount >= 0 && typeCount < d.MinNoInstances) issues.Add(DatamodelIssue.Info("under-min-instances", d.FullName + " has " + nodes(typeCount) + ", fewer than the new minimum of " + d.MinNoInstances
+                    + ". Nodes can still be added, but none can be deleted until there are at least that many.", nodeType: a.Id));
+            }
             foreach (var ap in a.Properties.Values) {
                 if (!d.Properties.TryGetValue(ap.Id, out var dp)) {
                     if (draft.Properties.ContainsKey(ap.Id)) continue; // moved to another type: the owner check below reports if that is a problem
@@ -247,18 +279,39 @@ public sealed class DatamodelValidator {
                 } else if (!string.Equals(ap.CodeName, dp.CodeName, StringComparison.Ordinal)) {
                     issues.Add(DatamodelIssue.Info("property-renamed", a.CodeName + "." + ap.CodeName + " is renamed to " + dp.CodeName + ". The id is kept, so the values follow.", nodeType: a.Id, property: ap.Id));
                 }
+                if (ap.PropertyType == dp.PropertyType && valueRulesChange(ap, dp)) {
+                    if (typeCount == -2) typeCount = count(a.Id);
+                    if (typeCount != 0) issues.Add(DatamodelIssue.Info("rules-change", "The pattern or the legal values of " + d.CodeName + "." + dp.CodeName + " change. The values already stored"
+                        + (typeCount > 0 ? " on " + nodes(typeCount) : "") + " are not checked again, but a node whose value breaks the new rule cannot be saved until the value is changed.", nodeType: a.Id, property: ap.Id));
+                }
             }
         }
         foreach (var ar in active.Relations.Values) {
             if (!draft.Relations.ContainsKey(ar.Id)) issues.Add(DatamodelIssue.Warning("relation-removed", "The relation " + ar.FullName() + " is removed; every link it holds is dropped.", relation: ar.Id));
             else if (draft.Relations[ar.Id].RelationType != ar.RelationType) issues.Add(DatamodelIssue.Warning("relation-kind-changed", "The relation " + ar.FullName() + " changes from " + ar.RelationType + " to " + draft.Relations[ar.Id].RelationType + "; links that break the new cardinality are dropped.", relation: ar.Id));
         }
-        // index settings that force a rebuild of the state and indexes at the next open
-        var draftIndexed = draft.Properties.Values.Count(p => p.Indexed) + draft.Properties.Values.Count(p => p is StringPropertyModel s && (s.IndexedByWords || s.IndexedBySemantic));
-        var activeIndexed = active.Properties.Values.Count(p => p.Indexed) + active.Properties.Values.Count(p => p is StringPropertyModel s && (s.IndexedByWords || s.IndexedBySemantic));
-        if (draftIndexed != activeIndexed && store != null) {
-            issues.Add(DatamodelIssue.Info("indexes-change", "Indexed properties change (" + activeIndexed + " to " + draftIndexed + "). The database rebuilds its state and indexes from the log when it opens with the new model, which takes a while on a large database."));
+    }
+    // index settings that force a rebuild of the state and indexes at the next open, compared as the
+    // store sees them: an override, or a type asking for the index of a property it inherits, counts as
+    // much as the source
+    void checkIndexChanges(Datamodel effectiveActive, Datamodel effectiveDraft, List<DatamodelIssue> issues) {
+        if (!_container.IsOpen()) return;
+        static HashSet<string> indexes(Datamodel dm) {
+            var set = new HashSet<string>();
+            foreach (var p in dm.Properties.Values) {
+                if (p.Indexed || p.UniqueValues) set.Add(p.Id + ":value");
+                if (p is StringPropertyModel s && s.IndexedByWords) set.Add(p.Id + ":words");
+                if (p is StringPropertyModel t && t.IndexedBySemantic) set.Add(p.Id + ":semantic");
+            }
+            return set;
         }
+        var before = indexes(effectiveActive);
+        var after = indexes(effectiveDraft);
+        if (before.SetEquals(after)) return;
+        var added = after.Count(i => !before.Contains(i));
+        var removed = before.Count(i => !after.Contains(i));
+        issues.Add(DatamodelIssue.Info("indexes-change", "The property indexes change (" + (added > 0 ? added + " added" : "") + (added > 0 && removed > 0 ? ", " : "") + (removed > 0 ? removed + " removed" : "") + "). "
+            + "The database rebuilds its state and indexes from the log when it opens with the new model, which takes a while on a large database."));
     }
 
     // ---- the database's overrides, and what the text index makes of the draft ----
@@ -294,6 +347,7 @@ public sealed class DatamodelValidator {
         // is context, what the draft adds needs accepting
         var known = effectiveActive.OverrideNotices.ToHashSet();
         foreach (var notice in effectiveDraft.OverrideNotices) issues.Add(known.Contains(notice) ? DatamodelIssue.Info("override", notice) : DatamodelIssue.Warning("override", notice));
+        checkIndexChanges(effectiveActive, effectiveDraft, issues);
         checkTextIndexing(effectiveActive, effectiveDraft, result);
         // a type told not to be text indexed that is all the same: semantic indexing needs the text, and
         // a type that does not say otherwise has it whenever the database default turns it on
@@ -390,15 +444,15 @@ public sealed class DatamodelValidator {
     static void checkBackingClasses(Datamodel draft, List<DatamodelIssue> issues) {
         var jsonSources = draft.Sources.Where(s => s.IsJsonFiles && s.Enabled).Select(s => s.Id).ToHashSet();
         if (jsonSources.Count == 0) return;
-        var assemblies = AppDomain.CurrentDomain.GetAssemblies().Where(a => !a.IsDynamic).ToList();
         foreach (var t in draft.NodeTypes.Values.Where(t => jsonSources.Contains(t.DatamodelSourceId) && t.ModelType != ModelType.Interface)) {
-            Type? clr = null;
-            foreach (var assembly in assemblies) {
-                try { clr = assembly.GetType(t.FullName, throwOnError: false); } catch { }
-                if (clr != null) break;
-            }
+            // the loader's rule, so the class the open database generated for the type is not taken for one
+            // the application has: it would lack every property the draft adds
+            var clr = DatamodelSourceLoader.FindBackingClrType(t.FullName);
             if (clr == null) {
-                issues.Add(DatamodelIssue.Warning("no-backing-class", "No class named " + t.FullName + " is loaded. A JSON-defined class needs a plain class with that name and the same property names in the application for queries to map onto; without one the type is only reachable as untyped nodes.", nodeType: t.Id));
+                // not a problem: the database generates the class when it opens (RuntimeTypeGen)
+                issues.Add(DatamodelIssue.Info("no-backing-class", "The application has no class named " + t.FullName + ", so the database generates one from the model when it opens. "
+                    + "The type works by name - in the admin UI, untyped queries and Create(\"" + t.CodeName + "\") - but compiled code cannot name it. "
+                    + "To use it from code as a typed class, add a plain class with that full name and the same property names to the application.", nodeType: t.Id));
                 continue;
             }
             var members = clr.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance).Select(p => p.Name)

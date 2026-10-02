@@ -39,6 +39,36 @@ namespace Relatude.SourceLoaderModels.JsonGen {
         public int Rating { get; set; }
     }
 }
+namespace Relatude.SourceLoaderModels.RuntimeGen {
+    // attributed twins used only to produce a JSON model file whose types have NO class anywhere once the
+    // namespace is renamed to ...RuntimeOnly: an interface, a class implementing it, and a relation
+    [Node]
+    public interface IRtThing {
+        [StringProperty]
+        string Name { get; set; }
+    }
+    [Node]
+    public class RtFolder : IRtThing {
+        [PublicIdProperty]
+        public Guid Id { get; set; }
+        public string Name { get; set; } = "";
+        public RtFolderNotes.Notes Notes { get; set; } = new();
+    }
+    [Node]
+    public class RtNote {
+        [PublicIdProperty]
+        public Guid Id { get; set; }
+        [StringProperty]
+        public string Title { get; set; } = "";
+        [IntegerProperty]
+        public int Count { get; set; }
+        public RtFolderNotes.Folder Folder { get; set; } = new();
+    }
+    public class RtFolderNotes : OneToMany<RtFolder, RtNote> {
+        public class Notes : Many { }
+        public class Folder : One { }
+    }
+}
 namespace Relatude.SourceLoaderModels.JsonPoco {
     // the class backing a JSON-defined model carries no Relatude attributes - the JSON file is
     // the model definition, the class only has to match it by full name and property names:
@@ -288,6 +318,66 @@ namespace Relatude.Datamodels {
             Assert.AreEqual("Ada", read.Author);
             Assert.AreEqual(5, read.Rating);
             Assert.AreEqual("review.json", dm.NodeTypesByFullName["Relatude.SourceLoaderModels.JsonPoco.SlReview"].DatamodelSourceFilename);
+        }
+
+        /// <summary>
+        /// A runtime types source may define types the application has no class for at all. The store
+        /// generates them (classes, an interface, a relation class) with its mappers and opens; the
+        /// types are then used by name.
+        /// </summary>
+        [TestMethod]
+        public void JsonFileSource_TypesWithoutAnyClass_AreGeneratedAndStoreOpens() {
+            const string ns = "Relatude.SourceLoaderModels.RuntimeOnly";
+            var gen = new Datamodel();
+            gen.Add<Relatude.SourceLoaderModels.RuntimeGen.IRtThing>();
+            gen.Add<Relatude.SourceLoaderModels.RuntimeGen.RtFolder>();
+            gen.Add<Relatude.SourceLoaderModels.RuntimeGen.RtNote>();
+            gen.Add<Relatude.SourceLoaderModels.RuntimeGen.RtFolderNotes>();
+            var json = DatamodelJson.Serialize(gen).Replace("Relatude.SourceLoaderModels.RuntimeGen", ns);
+            var folder = Path.Combine(_root, DatamodelSourceLoader.DefaultJsonFolder);
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder, "notes.json"), json);
+
+            var dm = new Datamodel();
+            DatamodelSourceLoader.Load(dm, jsonSource(null), _root);
+            Assert.IsFalse(AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetType(ns + ".RtNote", false) != null),
+                "the test needs a type no loaded assembly declares");
+            Relatude.DB.CodeGeneration.MapperCompileCheck.Verify(dm); // what the model editor's dry run calls
+
+            var dataFolder = Path.Combine(_root, "data");
+            Directory.CreateDirectory(dataFolder);
+            var storeData = DataStoreLocal.Open(dm, new SettingsLocal(), new IOProviderDisk(dataFolder));
+            using var store = new NodeStore(storeData);
+
+            var note = store.Create("RtNote");
+            Assert.AreEqual(ns + ".RtNote", note.GetType().FullName);
+            note.GetType().GetProperty("Title")!.SetValue(note, "Hello");
+            note.GetType().GetProperty("Count")!.SetValue(note, 3);
+            var folderNode = store.Create("RtFolder");
+            folderNode.GetType().GetProperty("Name")!.SetValue(folderNode, "Inbox");
+            Assert.IsTrue(folderNode.GetType().GetInterfaces().Any(i => i.FullName == ns + ".IRtThing"), "the generated class implements the generated interface");
+            store.Insert(note, out Guid noteId);
+            store.Insert(folderNode, out Guid folderId);
+            var notesProperty = dm.NodeTypesByFullName[ns + ".RtFolder"].AllPropertiesByName["Notes"];
+            store.CreateTransaction().AddRelation(folderId, notesProperty.Id, noteId).Execute();
+
+            var read = store.Get(noteId);
+            Assert.AreSame(note.GetType(), read.GetType());
+            Assert.AreEqual("Hello", read.GetType().GetProperty("Title")!.GetValue(read));
+            Assert.AreEqual(3, read.GetType().GetProperty("Count")!.GetValue(read));
+            Assert.AreEqual(1, store.QueryType("RtNote").Execute().Count());
+            Assert.AreEqual(1, store.QueryType("IRtThing").Execute().Count(), "only the folder is an IRtThing");
+            // the generated relation class works like a compiled one: the related notes load on demand
+            var readFolder = store.Get(folderId);
+            var notes = readFolder.GetType().GetProperty("Notes")!.GetValue(readFolder)!;
+            var related = ((System.Collections.IEnumerable)notes).Cast<object>().Single();
+            Assert.AreEqual("Hello", related.GetType().GetProperty("Title")!.GetValue(related));
+
+            // the generated class is now loaded (in the mapper assembly), but it is not the application's own:
+            // the loader and the model editor's validator must keep treating the type as one without a class,
+            // or a property added in the editor would be reported missing from the generated class
+            Assert.IsTrue(AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetType(ns + ".RtNote", false) != null));
+            Assert.IsNull(DatamodelSourceLoader.FindBackingClrType(ns + ".RtNote"));
         }
 
         [TestMethod]

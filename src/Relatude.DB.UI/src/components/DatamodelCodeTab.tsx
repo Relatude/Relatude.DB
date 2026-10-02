@@ -106,7 +106,8 @@ export function CodeTab({ storeId, model, scope, id, typeId, name }: { storeId: 
       </div>
       {error && <div className="dm-note dm-code-error">{error}</div>}
       {code !== null && code.length === 0 && !error && <div className="muted dm-empty">Nothing to generate: this is empty.</div>}
-      {code && <pre className="dm-code" dangerouslySetInnerHTML={{ __html: html }} />}
+      {/* the box is there while the first answer is on its way too, so the tab does not jump when it lands */}
+      {(code || (code === null && !error)) && <pre className="dm-code" dangerouslySetInnerHTML={{ __html: html }} />}
     </div>
   );
 }

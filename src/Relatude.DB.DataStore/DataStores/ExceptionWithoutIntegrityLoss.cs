@@ -27,4 +27,11 @@ namespace Relatude.DB.DataStores {
         }
         public Guid NodeId { get; }
     }
+    /// <summary>A transaction would leave a node type with fewer nodes than its MinNoInstances or more than its MaxNoInstances.</summary>
+    public class NodeTypeConstraintException : ExceptionWithoutIntegrityLoss {
+        public NodeTypeConstraintException(string message, Guid nodeTypeId) : base(message) {
+            NodeTypeId = nodeTypeId;
+        }
+        public Guid NodeTypeId { get; }
+    }
 }

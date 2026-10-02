@@ -3,7 +3,7 @@
 // being changed. It mirrors the server: Datamodel.ApplyOverrides (the database's overrides go into the
 // types as if the sources said so), Datamodel.resolvePropertySettingsPerType and inheritedSwitches (the
 // most specific type that sets a value wins; base types that disagree fall back to the declaration, or
-// the database default). The server is the authority - validation reports what it makes of a draft -
+// the database default), and keepRequests (a property is indexed, or a facet, when any type that has it asks). The server is the authority - validation reports what it makes of a draft -
 // so a difference here only misleads a label, never what is written.
 
 import type { ModelJson, NodeTypeJson, NodeTypeOverrideJson, OverrideScope, PropertyJson, PropertyOverrideJson } from "./datamodel";
@@ -122,14 +122,52 @@ export function resolvePropertySetting(model: ModelJson, viewTypeId: string, pro
   return { value: declared.value, kind: "default", typeId: declaringId, conflict: values.length > 1 ? best : undefined };
 }
 
-/** What a field resolves to for viewTypeId when that type's own override and definition are left out: what removing them goes back to. */
-export function inheritedPropertySetting(model: ModelJson, viewTypeId: string, property: PropertyJson, declaringId: string, path: string): unknown {
+/**
+ * What a field resolves to for viewTypeId when that type's override, and unless keepOwn its own
+ * definition too, are left out: what removing them goes back to. An override is removed on top of the
+ * type's definition, so what removing it goes back to keeps what the definition says.
+ */
+export function inheritedPropertySetting(model: ModelJson, viewTypeId: string, property: PropertyJson, declaringId: string, path: string, keepOwn = false): unknown {
   const copy = JSON.parse(JSON.stringify(model)) as ModelJson;
   const t = copy.NodeTypes[viewTypeId];
-  if (t?.PropertyOverrides?.[property.Id]) delete t.PropertyOverrides[property.Id][path];
+  if (!keepOwn && t?.PropertyOverrides?.[property.Id]) delete t.PropertyOverrides[property.Id][path];
   const o = copy.Overrides?.NodeTypes?.[viewTypeId]?.Properties?.[property.Id];
   if (o) delete o[path];
   return resolvePropertySetting(copy, viewTypeId, property, declaringId, path, "inherited").value;
+}
+
+// ---- a setting any type that has the property can ask for (anyType: the value index) ----
+
+/** What one type itself says for a field of a property: its override, else its own definition. */
+export function ownPropertySetting(model: ModelJson, typeId: string, property: PropertyJson, declaringId: string, path: string): { value: unknown; overridden: boolean } {
+  return atType(model, typeId, property, declaringId, path);
+}
+
+/**
+ * The types asking for an anyType field of a property - with asks, the value that asks (true for
+ * Indexed, false for NotFacet) - the declaring type first, when its declaration or the database's
+ * override of it says so. The property has it when any type does: there is one value index and one set
+ * of facet counts, shared by every type that has the property. Mirrors Datamodel.keepRequests.
+ */
+export function requestsOf(model: ModelJson, property: PropertyJson, declaringId: string, path: string, asks = true): string[] {
+  const out: string[] = [];
+  // a declaration that leaves the field out says false
+  if ((atType(model, declaringId, property, declaringId, path).value ?? false) === asks) out.push(declaringId);
+  for (const [id, t] of Object.entries(model.NodeTypes)) {
+    if (id === declaringId) continue;
+    // cheap checks first: most types say nothing about most properties
+    if (!isSet(t.PropertyOverrides?.[property.Id]?.[path]) && !isSet(propertyOverride(model, id, property.Id)?.[path])) continue;
+    if (atType(model, id, property, declaringId, path).value === asks && lineage(model, id).has(declaringId)) out.push(id);
+  }
+  return out;
+}
+
+/** Whether a property has a value index as the store will see it: declared or overridden, unique values, or asked for by a type that has it. */
+export function isIndexed(model: ModelJson, property: PropertyJson): boolean {
+  if (property.UniqueValues) return true;
+  const declaringId = property.NodeType && model.NodeTypes[property.NodeType]?.Properties[property.Id] ? property.NodeType : declaringType(model, property.Id)?.Id;
+  if (!declaringId) return !!property.Indexed;
+  return requestsOf(model, property, declaringId, "Indexed", true).length > 0;
 }
 
 // ---- writing ----

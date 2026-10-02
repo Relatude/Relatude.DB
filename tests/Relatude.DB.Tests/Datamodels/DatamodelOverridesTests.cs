@@ -67,6 +67,24 @@ namespace Relatude.OverrideModels {
     [Node]
     public class OvGrandchild : OvDerived { }
 
+    // asking for the value index of an inherited property, and for it to be a facet: there is one index
+    // and one set of facet counts, shared by every type that has the property
+    [Node]
+    public class OvItem {
+        [PublicIdProperty] public Guid Id { get; set; }
+        [StringProperty] public string Code { get; set; } = "";
+        [IntegerProperty(Indexed = true)] public int Weight { get; set; }
+        [StringProperty(Indexed = true, NotFacet = true)] public string Sku { get; set; } = "";
+    }
+    [Node]
+    [PropertyOverride(nameof(OvItem.Code), Indexed = BoolValue.True)]
+    [PropertyOverride(nameof(OvItem.Sku), NotFacet = BoolValue.False)]
+    public class OvProduct : OvItem { }
+    // saying no cannot take away the index or the facet the declaration has
+    [Node]
+    [PropertyOverride(nameof(OvItem.Weight), Indexed = BoolValue.False, NotFacet = BoolValue.True)]
+    public class OvService : OvItem { }
+
     // two unrelated bases that disagree
     [Node(TextIndex = BoolValue.True)]
     [PropertyOverride(nameof(IOvContent.Title), DefaultValue = "from A")]
@@ -114,6 +132,9 @@ namespace Relatude.Datamodels {
             dm.Add<OvBase>();
             dm.Add<OvDerived>();
             dm.Add<OvGrandchild>();
+            dm.Add<OvItem>();
+            dm.Add<OvProduct>();
+            dm.Add<OvService>();
             return dm;
         }
         static Datamodel withConflict() {
@@ -201,6 +222,56 @@ namespace Relatude.Datamodels {
             Assert.IsTrue(dm.OverrideNotices.Any(n => n.Contains("OvBoth") && n.Contains("TextIndex")), string.Join("\n", dm.OverrideNotices));
         }
 
+        [TestMethod]
+        public void Indexed_ATypeAsksForTheIndex_WhichEveryTypeThatHasThePropertyShares() {
+            var dm = model();
+            dm.EnsureInitalization();
+            var code = prop(dm, "OvItem.Code");
+            var weight = prop(dm, "OvItem.Weight");
+            Assert.AreEqual(true, type<OvProduct>(dm).PropertyOverrides![code.Id].Indexed, "the request is kept with the type asking");
+            Assert.AreEqual(false, type<OvService>(dm).PropertyOverrides![weight.Id].Indexed);
+            Assert.IsFalse(code.Indexed, "initializing leaves the declaration alone: the editor writes initialized models back");
+            dm.SetIndexDefaults(false, false, false);
+            Assert.IsTrue(code.Indexed, "OvProduct asks for it");
+            Assert.IsTrue(weight.Indexed, "a type saying no cannot take away the index the declaration has");
+            var notices = string.Join("\n", dm.OverrideNotices);
+            Assert.IsTrue(dm.OverrideNotices.Any(n => n.Contains("OvService") && n.Contains("Weight") && n.Contains("OvItem declares it indexed")), notices);
+            Assert.IsFalse(dm.OverrideNotices.Any(n => n.Contains("OvProduct")), "asking is not worth a notice: " + notices);
+            dm.SetIndexDefaults(false, false, false);
+            Assert.AreEqual(1, dm.OverrideNotices.Count(n => n.Contains("OvService") && n.Contains("Indexed")), "a second call says the same once: " + notices);
+            Assert.IsFalse(dm.OverrideNotices.Any(n => n.Contains("Code") && n.Contains("declares it indexed")), "the index it was given on request is not mistaken for a declared one");
+        }
+
+        [TestMethod]
+        public void NotFacet_ATypeAsksForAFacet_WhichEveryTypeThatHasThePropertyShares() {
+            var dm = model();
+            dm.EnsureInitalization();
+            var sku = prop(dm, "OvItem.Sku");
+            var weight = prop(dm, "OvItem.Weight");
+            Assert.AreEqual(false, type<OvProduct>(dm).PropertyOverrides![sku.Id].NotFacet, "false asks: NotFacet is an opt-out");
+            Assert.IsTrue(sku.NotFacet, "initializing leaves the declaration alone");
+            dm.SetIndexDefaults(false, false, false);
+            Assert.IsFalse(sku.NotFacet, "OvProduct asks for it to be a facet");
+            Assert.IsFalse(weight.NotFacet, "a type saying no cannot take away the facet the declaration has");
+            var notices = string.Join("\n", dm.OverrideNotices);
+            Assert.IsTrue(dm.OverrideNotices.Any(n => n.Contains("OvService") && n.Contains("NotFacet of Weight to true") && n.Contains("stays a facet") && n.Contains("OvItem declares it a facet")), notices);
+            Assert.IsFalse(dm.OverrideNotices.Any(n => n.Contains("OvProduct")), "asking is not worth a notice: " + notices);
+            dm.SetIndexDefaults(false, false, false);
+            Assert.IsFalse(dm.OverrideNotices.Any(n => n.Contains("Sku") && n.Contains("declares it a facet")), "the facet it was given on request is not mistaken for a declared one");
+        }
+
+        [TestMethod]
+        public void NotFacet_AFacetNeedsTheIndex_AndSaysSo() {
+            var dm = model();
+            var status = propertyId("Relatude.OverrideModels.IOvContent", "Status");
+            dm.Overrides = new DatamodelOverrides();
+            dm.Overrides.NodeTypes[id<OvPage>()] = new NodeTypeOverride { Properties = new() { [status] = new PropertyOverride { NotFacet = false } } };
+            dm.ApplyOverrides();
+            dm.EnsureInitalization();
+            dm.SetIndexDefaults(false, false, false);
+            Assert.IsTrue(dm.OverrideNotices.Any(n => n.Contains("OvPage") && n.Contains("Status") && n.Contains("no value index")), string.Join("\n", dm.OverrideNotices));
+        }
+
         // ---- the database's overrides ----
 
         static DatamodelOverrides overrides(Datamodel dm, Action<DatamodelOverrides> fill) {
@@ -225,7 +296,7 @@ namespace Relatude.Datamodels {
             var content = dm.Overrides.NodeTypes[id<IOvContent>()] = new NodeTypeOverride();
             content.Properties = new() { [title] = new PropertyOverride { DefaultValue = "Fresh" }, [rank] = new PropertyOverride { Indexed = false, MinValue = "0" } };
             var news = dm.Overrides.NodeTypes[id<OvNews>()] = new NodeTypeOverride();
-            news.Properties = new() { [title] = new PropertyOverride { DefaultValue = "Breaking" }, [rank] = new PropertyOverride { Indexed = true } };
+            news.Properties = new() { [title] = new PropertyOverride { DefaultValue = "Breaking" }, [rank] = new PropertyOverride { MaxValue = "5" } };
             dm.ApplyOverrides();
             dm.EnsureInitalization();
             dm.SetIndexDefaults(false, false, false);
@@ -234,9 +305,27 @@ namespace Relatude.Datamodels {
             Assert.AreEqual("Fresh", type<OvPage>(dm).GetDefaultValue(titleProp), "the declaring type's override is what the declaration says");
             Assert.AreEqual("Breaking", type<OvNews>(dm).GetDefaultValue(titleProp), "on one type the runtime value replaces what the code says");
             var rankProp = (IntegerPropertyModel)prop(dm, "IOvContent.Rank");
-            Assert.IsFalse(rankProp.Indexed, "a whole property setting, on the declaring type");
+            Assert.IsFalse(rankProp.Indexed, "the declaring type's override is what the declaration says");
             Assert.AreEqual(0, rankProp.MinValue);
-            Assert.IsTrue(dm.OverrideNotices.Any(n => n.Contains("Indexed") && n.Contains("OvNews") && n.Contains("can only be overridden on")), string.Join("\n", dm.OverrideNotices));
+            Assert.AreEqual(int.MaxValue, rankProp.MaxValue);
+            Assert.IsTrue(dm.OverrideNotices.Any(n => n.Contains("MaxValue") && n.Contains("OvNews") && n.Contains("can only be overridden on")), string.Join("\n", dm.OverrideNotices));
+        }
+
+        [TestMethod]
+        public void Overrides_AnInheritingType_AsksForTheIndex_OrTakesBackTheRequestInItsCode() {
+            var dm = model();
+            var body = propertyId("Relatude.OverrideModels.IOvContent", "Body");
+            var code = propertyId("Relatude.OverrideModels.OvItem", "Code");
+            dm.Overrides = new DatamodelOverrides();
+            dm.Overrides.NodeTypes[id<OvPage>()] = new NodeTypeOverride { Properties = new() { [body] = new PropertyOverride { Indexed = true } } };
+            dm.Overrides.NodeTypes[id<OvProduct>()] = new NodeTypeOverride { Properties = new() { [code] = new PropertyOverride { Indexed = false } } };
+            dm.ApplyOverrides();
+            dm.EnsureInitalization();
+            Assert.AreEqual(true, type<OvPage>(dm).PropertyOverrides![body].Indexed, "an inheriting type's request goes with the type, as one in its code would");
+            dm.SetIndexDefaults(false, false, false);
+            Assert.IsTrue(prop(dm, "IOvContent.Body").Indexed, "OvPage asks for it");
+            Assert.IsFalse(prop(dm, "OvItem.Code").Indexed, "the runtime value replaces the request in OvProduct's code, and nobody else asks");
+            Assert.IsFalse(dm.OverrideNotices.Any(n => n.Contains("OvPage") || n.Contains("OvProduct")), string.Join("\n", dm.OverrideNotices));
         }
 
         [TestMethod]
@@ -318,6 +407,9 @@ namespace Relatude.Datamodels {
             dm1.EnsureInitalization();
             var code = DB.CodeGeneration.ModelGen.GenerateCSharpModelCode(dm1);
             StringAssert.Contains(code, "[Relatude.DB.Nodes.PropertyOverride(nameof(IOvContent.Title), DefaultValue = \"News\", TextIndexBoost = 2)]");
+            StringAssert.Contains(code, "[Relatude.DB.Nodes.PropertyOverride(nameof(OvItem.Code), Indexed = Relatude.DB.Nodes.BoolValue.True)]");
+            StringAssert.Contains(code, "[Relatude.DB.Nodes.PropertyOverride(nameof(OvItem.Weight), Indexed = Relatude.DB.Nodes.BoolValue.False, NotFacet = Relatude.DB.Nodes.BoolValue.True)]");
+            StringAssert.Contains(code, "[Relatude.DB.Nodes.PropertyOverride(nameof(OvItem.Sku), NotFacet = Relatude.DB.Nodes.BoolValue.False)]");
             byte[] dll;
             try {
                 dll = DB.Nodes.Compiler.BuildDll([("OverrideModels", code)], dm1);
@@ -333,6 +425,8 @@ namespace Relatude.Datamodels {
                 var t2 = dm2.NodeTypes[t1.Id];
                 Assert.AreEqual(DatamodelJson.CanonicalJson(t1.PropertyOverrides, DatamodelJson.CompareOptions), DatamodelJson.CanonicalJson(t2.PropertyOverrides, DatamodelJson.CompareOptions), t1.FullName + " did not round-trip its overrides");
             }
+            Assert.IsFalse(dm2.PropertiesByFullName["OvItem.Code"].Indexed, "the request stays with the type asking; the declaration is not changed");
+            Assert.IsTrue(dm2.PropertiesByFullName["OvItem.Sku"].NotFacet);
         }
 
         // ---- literals the mapper compiles ----
@@ -386,6 +480,43 @@ namespace Relatude.Datamodels {
             stored.Title = "Kept";
             db.Insert(stored);
             Assert.AreEqual("Kept", db.Query<OvPage>().Execute().Single().Title);
+        }
+
+        [TestMethod]
+        public void Store_BuildsTheIndexATypeAsksFor_OverEveryNodeThatHasTheProperty() {
+            var dm = model();
+            using var db = open(dm);
+            var code = prop(dm, "OvItem.Code");
+            Assert.IsTrue(((DataStoreLocal)db.Datastore)._definition.Properties[code.Id].Indexed);
+            var product = db.Create<OvProduct>();
+            product.Code = "A";
+            db.Insert(product);
+            foreach (var value in new[] { "A", "B" }) {
+                var service = db.Create<OvService>();
+                service.Code = value;
+                db.Insert(service);
+            }
+            // a facet needs the value index: it fails on a property that has none
+            var facet = db.Query<OvItem>().Facets().AddValueFacet(nameof(OvItem.Code)).Execute().Facets.First(f => f.CodeName == nameof(OvItem.Code));
+            Assert.AreEqual(2, facet.Values.First(v => Equals(v.Value, "A")).Count, "one index, holding OvService's values too");
+            Assert.AreEqual(1, facet.Values.First(v => Equals(v.Value, "B")).Count);
+            Assert.AreEqual(1, db.Query<OvService>().Where(x => x.Code == "B").Count());
+        }
+
+        [TestMethod]
+        public void Store_MakesThePropertyAFacet_WhenATypeAsks() {
+            var dm = model();
+            using var db = open(dm);
+            var sku = prop(dm, "OvItem.Sku");
+            Assert.IsTrue(((DataStoreLocal)db.Datastore)._definition.Properties[sku.Id].CanBeFacet());
+            foreach (var value in new[] { "S1", "S1", "S2" }) {
+                var service = db.Create<OvService>();
+                service.Sku = value;
+                db.Insert(service);
+            }
+            // the declaration says NotFacet, which refuses the facet: OvProduct's request lifts it for every type
+            var facet = db.Query<OvItem>().Facets().AddValueFacet(nameof(OvItem.Sku)).Execute().Facets.First(f => f.CodeName == nameof(OvItem.Sku));
+            Assert.AreEqual(2, facet.Values.First(v => Equals(v.Value, "S1")).Count);
         }
 
         [TestMethod]

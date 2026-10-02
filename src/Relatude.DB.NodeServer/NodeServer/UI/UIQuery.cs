@@ -132,7 +132,7 @@ sealed class UIQuery {
                 SourceId = t.DatamodelSourceId,
                 // whether "New node" can make one: the base type stands for all types at once, and a
                 // type the model knows but no loaded assembly implements has nothing to instantiate
-                CanCreate = t.Id != NodeConstants.BaseNodeTypeId && findClrType(dm, t) != null,
+                CanCreate = t.Id != NodeConstants.BaseNodeTypeId && findClrType(s, t) != null,
                 // the id set per type is maintained, so counting it is a lookup and not a scan
                 Count = count(s, t.Id),
             })
@@ -222,6 +222,7 @@ sealed class UIQuery {
                 // what a cell of this column is edited with, when it can be edited at all
                 Editor = cellEditor(c.Property),
                 Options = c.Property is IntegerPropertyModel ic ? choices(ic.LegalValues, ic.LegalValueNames) : null,
+                Choices = c.Property is StringPropertyModel sc ? sc.LegalValues : null,
             }).ToArray(),
             // false when a sort was asked for and could not be given, so the page never claims an order it has not got
             SortApplied = string.IsNullOrEmpty(p.SortBy) || queryString.Contains(".OrderBy(", StringComparison.Ordinal),
@@ -1259,6 +1260,7 @@ sealed class UIQuery {
                         || (!str.Indexed && str.MaxLength > 255);
                     view.MaxLength = str.MaxLength == int.MaxValue ? null : str.MaxLength;
                     view.Pattern = str.RegularExpression;
+                    view.Choices = str.LegalValues;
                     view.Value = text;
                     break;
                 }
@@ -1347,6 +1349,8 @@ sealed class UIQuery {
         public bool ReadOnly { get; set; }
         public object? Value { get; set; }
         public object[]? Options { get; set; }
+        /// <summary>The legal values of a text property, for a select instead of a free text field.</summary>
+        public string[]? Choices { get; set; }
         public object[]? Targets { get; set; }
         public object[]? TargetTypes { get; set; }
         public bool? IsMany { get; set; }
@@ -1633,16 +1637,17 @@ sealed class UIQuery {
     // ---- making nodes ----
 
     /// <summary>
-    /// The CLR type behind a node type, or null when no loaded assembly has it. An interface model
-    /// resolves to the interface: the mapper makes the implementation it generated at start up.
+    /// The CLR type behind a node type, or null when there is none. An interface model resolves to the
+    /// interface: the mapper makes the implementation it generated at start up. A runtime type the
+    /// application has no class for resolves to the class the store generated for it.
     /// </summary>
-    static Type? findClrType(Datamodel dm, NodeTypeModel type) {
+    static Type? findClrType(NodeStore s, NodeTypeModel type) {
         if (string.IsNullOrEmpty(type.FullName)) return null;
-        foreach (var assembly in dm.Assemblies) {
+        foreach (var assembly in s.Datastore.Datamodel.Assemblies) {
             var clr = assembly.GetType(type.FullName, false, false);
             if (clr != null) return clr;
         }
-        return null;
+        return s.Mapper.TryGetNodeType(type.Id, out var generated) ? generated : null;
     }
 
     /// <summary>
@@ -1656,7 +1661,7 @@ sealed class UIQuery {
         if (!dm.NodeTypes.TryGetValue(p.TypeId, out var type)) throw new Exception("No node type with id " + p.TypeId + " in the data model. ");
         if (p.TypeId == NodeConstants.BaseNodeTypeId) throw new Exception("Pick a type: the base type stands for every node at once. ");
         if (type.IsInnerNode) throw new Exception(type.CodeName + " is an embedded type: it only exists inside another node's property. ");
-        var clr = findClrType(dm, type) ?? throw new Exception("The type " + type.FullName + " is in the data model, but no assembly loaded here implements it. ");
+        var clr = findClrType(s, type) ?? throw new Exception("The type " + type.FullName + " is in the data model, but no assembly loaded here implements it. ");
         var node = newNode(s, clr);
         var transaction = s.CreateTransaction();
         transaction.Insert(node, out var id);

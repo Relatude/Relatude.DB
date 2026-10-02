@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { IconAdjustments, IconAlertTriangle, IconArrowBackUp, IconArrowLeft, IconChevronDown, IconChevronRight, IconLoader2, IconPlus, IconRefreshAlert, IconSearch, IconTrash, IconWand, IconX } from "@tabler/icons-react";
 import { IndexMarks, KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, relationMeta, sourceKindMeta } from "./DatamodelIcons";
 import { Combobox, type ComboOption } from "./Combobox";
@@ -32,9 +33,12 @@ import {
 import type { ModelKind, RelationKind } from "../server/datamodel";
 import {
   inheritedPropertySetting,
+  isIndexed,
+  ownPropertySetting,
   ownTypeSetting,
   propertyHasOverrides,
   propertyOverride,
+  requestsOf,
   resolvePropertySetting,
   resolveTypeSetting,
   typeSettingFromBases,
@@ -390,18 +394,144 @@ function TypeRefs({ value, onChange, disabled, ctx }: { value: string[]; onChang
           </span>
         );
       })}
-      {!disabled && remaining.length > 0 && (
-        <select className="select dm-chip-add" value="" onChange={(e) => e.target.value && onChange([...chosen, e.target.value])}>
-          <option value="">+ add…</option>
-          {remaining.map((t) => (
-            <option key={t.Id} value={t.Id}>
-              {fullName(t)}
-            </option>
-          ))}
-        </select>
-      )}
+      {!disabled && remaining.length > 0 && <TypeAdd options={remaining} ctx={ctx} onPick={(id) => onChange([...chosen, id])} />}
       {chosen.length === 0 && disabled && <span className="muted">none</span>}
     </div>
+  );
+}
+
+/** Where the type list opens: under the button, or over it when the window has more room above. */
+interface MenuPlace {
+  left: number;
+  width: number;
+  top?: number;
+  bottom?: number;
+  maxHeight: number;
+}
+
+/**
+ * The "+ add…" of a type list: a searched list rather than a plain select, which was unusable once a
+ * model had more than a few dozen types. A name starting with what is typed comes before one merely
+ * holding it; the namespace counts too, so "Shop." narrows to one namespace.
+ *
+ * The list is portalled to the body: the editor panel scrolls and is a size container, and a size
+ * container is the containing block of fixed descendants, so a list kept inside it would be clipped.
+ */
+function TypeAdd({ options, ctx, onPick }: { options: NodeTypeJson[]; ctx: EditorContext; onPick: (id: string) => void }) {
+  const [place, setPlace] = useState<MenuPlace | null>(null);
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    const rank = (t: NodeTypeJson) => {
+      const name = t.CodeName.toLowerCase();
+      if (name.startsWith(q)) return 0;
+      if (name.includes(q)) return 1;
+      return fullName(t).toLowerCase().includes(q) ? 2 : -1;
+    };
+    return options
+      .map((t) => ({ t, r: rank(t) }))
+      .filter((x) => x.r >= 0)
+      .sort((a, b) => a.r - b.r)
+      .map((x) => x.t);
+  }, [options, query]);
+
+  useEffect(() => setActive((a) => Math.min(a, Math.max(0, shown.length - 1))), [shown.length]);
+  useLayoutEffect(() => {
+    listRef.current?.querySelector<HTMLElement>(".type-option.active")?.scrollIntoView({ block: "nearest" });
+  }, [active, place]);
+  // a list pinned to where the button was is wrong once the window changes size
+  useEffect(() => {
+    if (!place) return;
+    const close = () => setPlace(null);
+    window.addEventListener("resize", close);
+    return () => window.removeEventListener("resize", close);
+  }, [place]);
+
+  function openMenu() {
+    const r = buttonRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const margin = 8;
+    const width = Math.min(320, window.innerWidth - 2 * margin);
+    const left = Math.max(margin, Math.min(r.left, window.innerWidth - width - margin));
+    const below = window.innerHeight - r.bottom - margin;
+    const above = r.top - margin;
+    setQuery("");
+    setActive(0);
+    if (below >= 260 || below >= above) setPlace({ left, width, top: r.bottom + 4, maxHeight: Math.min(400, below - 4) });
+    else setPlace({ left, width, bottom: window.innerHeight - r.top + 4, maxHeight: Math.min(400, above - 4) });
+  }
+  function close() {
+    setPlace(null);
+    buttonRef.current?.focus();
+  }
+  function pick(t: NodeTypeJson) {
+    onPick(t.Id);
+    close();
+  }
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      setActive((a) => Math.min(shown.length - 1, Math.max(0, a + (e.key === "ArrowDown" ? 1 : -1))));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (shown[active]) pick(shown[active]);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+    }
+  }
+
+  return (
+    <>
+      <button ref={buttonRef} className={"select dm-chip-add" + (place ? " open" : "")} onClick={() => (place ? close() : openMenu())} aria-haspopup="listbox" aria-expanded={!!place}>
+        <IconPlus size={12} stroke={2} /> add…
+      </button>
+      {place &&
+        createPortal(
+          <>
+            <div className="dm-typeadd-backdrop" onMouseDown={close} />
+            <div className="dm-typeadd-menu" style={{ left: place.left, width: place.width, top: place.top, bottom: place.bottom, maxHeight: place.maxHeight }} onKeyDown={onKeyDown}>
+              <div className="type-picker-search">
+                <IconSearch size={14} stroke={2} />
+                <input autoFocus value={query} placeholder="Search types…" spellCheck={false} onChange={(e) => setQuery(e.target.value)} />
+                {query && (
+                  <button className="icon-button" onClick={() => setQuery("")} title="Clear">
+                    <IconX size={13} stroke={2} />
+                  </button>
+                )}
+              </div>
+              <div className="type-picker-list" role="listbox" ref={listRef}>
+                {shown.map((t, i) => (
+                  <button
+                    key={t.Id}
+                    role="option"
+                    aria-selected={i === active}
+                    className={"type-option" + (i === active ? " active" : "")}
+                    onMouseEnter={() => setActive(i)}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pick(t)}
+                    title={fullName(t)}
+                  >
+                    <span className="type-mark">
+                      <KindIcon kind={t.ModelType} size={15} />
+                      <SourceDot color={ctx.colors.get(t.DatamodelSourceId) ?? "#8a8781"} />
+                    </span>
+                    <span className="type-option-name">{t.CodeName}</span>
+                    {t.Namespace && <span className="dm-typeadd-ns">{t.Namespace}</span>}
+                  </button>
+                ))}
+                {shown.length === 0 && <div className="muted type-picker-empty">No type matches “{query.trim()}”.</div>}
+              </div>
+            </div>
+          </>,
+          document.body,
+        )}
+    </>
   );
 }
 
@@ -507,6 +637,33 @@ function FromChip({ ctx, typeId, value, fromOverride }: { ctx: EditorContext; ty
     </button>
   );
 }
+/** How the forms speak of an anyType field: what a type asks for, what the property then is, and why it is shared. */
+function requestWords(path: string, propertyName: string) {
+  if (path === "NotFacet") return { asks: propertyName + " to be a facet", is: "the property is a facet", shared: "its facet counts are one, shared by every type that has the property" };
+  return { asks: "the index of " + propertyName, is: "the property is indexed", shared: "there is one index, shared by every type that has the property" };
+}
+/**
+ * The other types asking for a setting every type that has the property shares (anyType: its value
+ * index, being a facet). A click opens the property as the first of them sees it.
+ */
+function AskedChip({ ctx, ids, property, declaringId, path, here }: { ctx: EditorContext; ids: string[]; property: PropertyJson; declaringId: string; path: string; here: string }) {
+  if (ids.length === 0) return null;
+  const names = ids.map((id) => ctx.model.NodeTypes[id]?.CodeName ?? id);
+  const first = ids[0];
+  const words = requestWords(path, property.CodeName);
+  return (
+    <button
+      className="dm-ochip inherited"
+      title={
+        names.join(" and ") + (ids.length === 1 ? " asks" : " ask") + " for " + words.asks + ", so " + words.is + " whatever " + here + " says: " + words.shared + ". " +
+        "Click to open " + property.CodeName + " as " + names[0] + " sees it."
+      }
+      onClick={() => ctx.select({ kind: "property", id: property.Id, typeId: declaringId, viaTypeId: first === declaringId ? undefined : first })}
+    >
+      {first === declaringId && ids.length === 1 ? "declared on " + names[0] : "asked by " + (ids.length === 1 ? names[0] : ids.length + " types")}
+    </button>
+  );
+}
 function ConflictChip({ ctx, ids, fallback }: { ctx: EditorContext; ids: string[]; fallback: string }) {
   const names = ids.map((id) => ctx.model.NodeTypes[id]?.CodeName ?? id).join(" and ");
   return (
@@ -560,9 +717,10 @@ function typeOverrides(ctx: EditorContext, type: NodeTypeJson, writable: boolean
  * The fields of a property that can be overridden, seen from view: the type declaring the property, or
  * one inheriting it. From the declaring type every overridable field is open, under the same rule as a
  * type's (the source when it can be written, an override when not). From an inheriting type only the
- * attributes that may differ between types are: what the type sets goes into its own definition when its
- * source can be written ([PropertyOverride]), into the database's overrides when not; the rest of the
- * property is the declaring type's and is shown, not edited.
+ * attributes that may differ between types are, and the index and facet the type can ask for (askedField):
+ * what the type sets goes into its own definition when its source can be written ([PropertyOverride]),
+ * into the database's overrides when not; the rest of the property is the declaring type's and is
+ * shown, not edited.
  */
 function propertyOverrides(ctx: EditorContext, owner: NodeTypeJson, view: NodeTypeJson, property: PropertyJson) {
   const via = view.Id !== owner.Id;
@@ -588,11 +746,19 @@ function propertyOverrides(ctx: EditorContext, owner: NodeTypeJson, view: NodeTy
         frame: {
           overridden,
           quiet: !ownerWritable,
-          chips: overridden ? <OverriddenChip title={"Overridden " + ctx.overridesWhere + ". The source says " + showValue(declared) + "."} /> : null,
+          chips: (
+            <>
+              {overridden && <OverriddenChip title={"Overridden " + ctx.overridesWhere + ". The source says " + showValue(declared) + "."} />}
+              {scope === "anyType" && (
+                <AskedChip ctx={ctx} ids={requestsOf(ctx.model, property, owner.Id, field.path, field.overrideAsks ?? true).filter((id) => id !== owner.Id)} property={property} declaringId={owner.Id} path={field.path} here={owner.CodeName} />
+              )}
+            </>
+          ),
           reset: overridden ? { title: "Remove the override: back to " + showValue(declared) + ", what the source says", onClick: () => ctx.update((m) => setOverride(m, owner.Id, property.Id, field.path, undefined)) } : null,
         },
       };
     }
+    if (scope === "anyType") return askedField(ctx, owner, view, property, field.path, field.overrideAsks ?? true, viewWritable);
     if (scope !== "inherited") {
       const r = resolvePropertySetting(ctx.model, view.Id, property, owner.Id, field.path, scope);
       return { value: r.value, disabled: true, onChange: () => {}, frame: { overridden: false, quiet: true, chips: null, reset: null } };
@@ -603,14 +769,15 @@ function propertyOverrides(ctx: EditorContext, owner: NodeTypeJson, view: NodeTy
     const ownHere = view.PropertyOverrides?.[property.Id]?.[field.path];
     const setHere = ownHere !== undefined && ownHere !== null;
     const toOverride = overriddenHere || !viewWritable;
-    const without = () => showValue(inheritedPropertySetting(ctx.model, view.Id, property, owner.Id, field.path));
+    // an override goes on top of what the type's own definition says, so removing one goes back to that
+    const without = (keepOwn: boolean) => showValue(inheritedPropertySetting(ctx.model, view.Id, property, owner.Id, field.path, keepOwn));
     return {
       value: r.value,
       disabled: false,
       onChange: (v) =>
         ctx.update((m) => {
           // the value the type would have without saying anything itself: setting that is saying nothing
-          const back = inheritedPropertySetting(m, view.Id, property, owner.Id, field.path);
+          const back = inheritedPropertySetting(m, view.Id, property, owner.Id, field.path, toOverride);
           const value = v === undefined || sameValue(v, back) ? undefined : v;
           if (toOverride) setOverride(m, view.Id, property.Id, field.path, value);
           else setOwnPropertyOverride(m, view.Id, property.Id, field.path, value);
@@ -631,12 +798,66 @@ function propertyOverrides(ctx: EditorContext, owner: NodeTypeJson, view: NodeTy
           </>
         ),
         reset: overriddenHere
-          ? { title: "Remove the override: back to " + without(), onClick: () => ctx.update((m) => setOverride(m, view.Id, property.Id, field.path, undefined)) }
+          ? { title: "Remove the override: back to " + without(true), onClick: () => ctx.update((m) => setOverride(m, view.Id, property.Id, field.path, undefined)) }
           : setHere && viewWritable
-            ? { title: "Stop " + view.CodeName + " setting its own: back to " + without(), onClick: () => ctx.update((m) => setOwnPropertyOverride(m, view.Id, property.Id, field.path, undefined)) }
+            ? { title: "Stop " + view.CodeName + " setting its own: back to " + without(false), onClick: () => ctx.update((m) => setOwnPropertyOverride(m, view.Id, property.Id, field.path, undefined)) }
             : null,
       },
     };
+  };
+}
+
+/**
+ * A field of a property that every type having it shares, but any of them can ask for (anyType: the
+ * value index, being a facet), seen from a type inheriting the property; want is the value that asks
+ * (true for Indexed, false for NotFacet). The toggle shows whether the property has it; switching it
+ * asks for it, or takes the type's own request back - in the type's definition when its source can be
+ * written ([PropertyOverride]), in the database's overrides when not. What the declaration and the
+ * other types ask for is shown, and cannot be taken away from here.
+ */
+function askedField(ctx: EditorContext, owner: NodeTypeJson, view: NodeTypeJson, property: PropertyJson, path: string, want: boolean, viewWritable: boolean): FieldOverride {
+  const here = ownPropertySetting(ctx.model, view.Id, property, owner.Id, path);
+  const asks = here.value === want;
+  const ownHere = view.PropertyOverrides?.[property.Id]?.[path];
+  const setHere = ownHere !== undefined && ownHere !== null;
+  const others = requestsOf(ctx.model, property, owner.Id, path, want).filter((id) => id !== view.Id);
+  const toOverride = here.overridden || !viewWritable;
+  const asking = (on: boolean) => (on ? "asking for it" : "not asking for it");
+  return {
+    value: asks || others.length > 0 ? want : !want,
+    // granted because others ask: switching it here would change nothing
+    disabled: !asks && others.length > 0,
+    onChange: (v) =>
+      ctx.update((m) => {
+        const ask = (v ?? false) === want;
+        if (toOverride) {
+          // the override goes on top of the type's definition: saying what that says is saying nothing
+          const definition = m.NodeTypes[view.Id]?.PropertyOverrides?.[property.Id]?.[path] === want;
+          setOverride(m, view.Id, property.Id, path, ask === definition ? undefined : ask ? want : !want);
+        } else {
+          setOwnPropertyOverride(m, view.Id, property.Id, path, ask ? want : undefined);
+        }
+      }),
+    frame: {
+      overridden: here.overridden,
+      quiet: true,
+      chips: (
+        <>
+          {here.overridden && <OverriddenChip title={"Overridden for " + view.CodeName + " " + ctx.overridesWhere + "."} />}
+          {!here.overridden && setHere && (
+            <span className="dm-ochip own" title={view.CodeName + " asks for it itself, in its definition ([PropertyOverride] in code)."}>
+              own
+            </span>
+          )}
+          <AskedChip ctx={ctx} ids={others} property={property} declaringId={owner.Id} path={path} here={view.CodeName} />
+        </>
+      ),
+      reset: here.overridden
+        ? { title: "Remove the override: back to " + asking(ownHere === want) + ", what " + view.CodeName + "'s definition says", onClick: () => ctx.update((m) => setOverride(m, view.Id, property.Id, path, undefined)) }
+        : setHere && viewWritable
+          ? { title: "Stop " + view.CodeName + " asking for it", onClick: () => ctx.update((m) => setOwnPropertyOverride(m, view.Id, property.Id, path, undefined)) }
+          : null,
+    },
   };
 }
 
@@ -854,7 +1075,7 @@ export function TypeEditor({ type, ctx, onDelete, focusField, onFocused, tab: wa
     ctx.select({ kind: "property", id, typeId: type.Id, focusField: "CodeName" });
   }
   return (
-    <div className="dm-editor">
+    <div className={"dm-editor" + (tab === "code" ? " dm-editor-code" : "")}>
       <div className="dm-editor-head">
         <KindIcon kind={type.ModelType} size={20} />
         <div className="dm-editor-title">
@@ -957,7 +1178,7 @@ export function TypeEditor({ type, ctx, onDelete, focusField, onFocused, tab: wa
                 <button key={p.Id} className="dm-proprow" onClick={() => ctx.select({ kind: "property", id: p.Id, typeId: type.Id })}>
                   <PropertyIcon propertyType={p.PropertyType} />
                   <span className="dm-propname">{p.CodeName}</span>
-                  <IndexMarks flags={{ indexed: p.Indexed, wordIndex: p.IndexedByWords, semanticIndex: p.IndexedBySemantic }} />
+                  <IndexMarks flags={{ indexed: isIndexed(ctx.model, p), wordIndex: p.IndexedByWords, semanticIndex: p.IndexedBySemantic }} />
                   <OverrideMarks ctx={ctx} typeId={type.Id} propertyId={p.Id} />
                   <span className="muted">{p.PropertyType}</span>
                   {p.UniqueValues && <span className="badge">unique</span>}
@@ -983,7 +1204,7 @@ export function TypeEditor({ type, ctx, onDelete, focusField, onFocused, tab: wa
                     >
                       <PropertyIcon propertyType={p.property.PropertyType} />
                       <span className="dm-propname">{p.property.CodeName}</span>
-                      <IndexMarks flags={{ indexed: p.property.Indexed, wordIndex: p.property.IndexedByWords, semanticIndex: p.property.IndexedBySemantic }} />
+                      <IndexMarks flags={{ indexed: isIndexed(ctx.model, p.property), wordIndex: p.property.IndexedByWords, semanticIndex: p.property.IndexedBySemantic }} />
                       <OverrideMarks ctx={ctx} typeId={type.Id} propertyId={p.property.Id} />
                       <span className="muted">from {p.owner.CodeName}</span>
                     </button>
@@ -1012,7 +1233,7 @@ export function PropertyEditor({ type, property, ctx, onDelete, focusField, onFo
   // live there, and there is no way to reach it from here but the type it came from
   const relation = property.RelationId ? ctx.model.Relations[property.RelationId] : undefined;
   return (
-    <div className="dm-editor">
+    <div className={"dm-editor" + (tab === "code" ? " dm-editor-code" : "")}>
       {/* the way back up: a property is only ever reached through its type */}
       <button className="link-button dm-editor-back" onClick={() => ctx.select({ kind: "type", id: view.Id, tab: "properties" })} title={`Back to the properties of ${fullName(view)}`}>
         <IconArrowLeft size={13} stroke={2} /> Back to {view.CodeName}
@@ -1022,7 +1243,7 @@ export function PropertyEditor({ type, property, ctx, onDelete, focusField, onFo
         <div className="dm-editor-title">
           <div className="dm-editor-name">
             <span className="dm-crumb">{view.CodeName}</span>.{property.CodeName}
-            <IndexMarks flags={{ indexed: property.Indexed, wordIndex: property.IndexedByWords, semanticIndex: property.IndexedBySemantic }} size={13} />
+            <IndexMarks flags={{ indexed: isIndexed(ctx.model, property), wordIndex: property.IndexedByWords, semanticIndex: property.IndexedBySemantic }} size={13} />
           </div>
           <div className="dm-editor-sub" title={typeDef?.help}>
             {typeDef?.label ?? property.PropertyType} property{property.Internal ? " · internal" : ""}
@@ -1057,7 +1278,8 @@ export function PropertyEditor({ type, property, ctx, onDelete, focusField, onFo
           {via && (
             <div className="dm-note dm-help-text dm-via-note">
               This is {property.CodeName} as {view.CodeName} sees it. {view.CodeName} can give it a default value, a text index setting and a display name of its own, which the types
-              inheriting from {view.CodeName} take too; everything else is one setting for the property wherever it is used, kept on {type.CodeName}.
+              inheriting from {view.CodeName} take too, and it can ask for the property&apos;s value index and for it to be a facet, which every type that has the property shares.
+              Everything else is one setting for the property wherever it is used, kept on {type.CodeName}.
             </div>
           )}
           {relation && (
@@ -1094,7 +1316,7 @@ export function RelationEditor({ relation, ctx, onDelete, focusField, onFocused 
   const source = ctx.sources.find((s) => s.id === relation.DatamodelSourceId);
   const members = Object.values(ctx.model.NodeTypes).flatMap((t) => Object.values(t.Properties).filter((p) => p.PropertyType === "Relation" && p.RelationId === relation.Id).map((p) => ({ t, p })));
   return (
-    <div className="dm-editor">
+    <div className={"dm-editor" + (tab === "code" ? " dm-editor-code" : "")}>
       <div className="dm-editor-head">
         <RelationIcon kind={relation.RelationType} size={20} />
         <div className="dm-editor-title">
@@ -1193,7 +1415,7 @@ export function SourceEditor({ source, info, ctx, locked, onDelete }: { source: 
     ctx.update((m) => setField(m.Sources.find((s) => s.Id === source.Id) as unknown as Record<string, unknown>, path, value));
   }
   return (
-    <div className="dm-editor">
+    <div className={"dm-editor" + (tab === "code" ? " dm-editor-code" : "")}>
       <div className="dm-editor-head">
         <SourceIcon type={source.Type} color={color} size={20} />
         <div className="dm-editor-title">

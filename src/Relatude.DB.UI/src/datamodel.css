@@ -1689,10 +1689,60 @@ button.dm-source-card {
   color: var(--danger);
 }
 
-.dm-chip-add {
-  padding: 2px 6px;
-  font-size: 12px;
+/* two classes: app.css loads after this file and its .select would otherwise set the padding */
+.select.dm-chip-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  font-size: 12.5px;
   width: auto;
+  color: var(--text-soft);
+  cursor: pointer;
+}
+
+.select.dm-chip-add:hover,
+.select.dm-chip-add.open {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* the searched type list a "+ add…" opens, portalled to the body (TypeAdd in DatamodelEditors.tsx) */
+.dm-typeadd-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+}
+
+.dm-typeadd-menu {
+  position: fixed;
+  z-index: 91;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+
+/* the menu's max-height is set from the room in the window; the list takes what the search leaves */
+.dm-typeadd-menu .type-picker-list {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+.dm-typeadd-ns {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--text-muted);
 }
 
 /* picking what a new property holds: the whole catalog, each kind with its explanation */
@@ -2571,10 +2621,19 @@ button.dm-source-card {
 /* The model written out as code, to copy into a code editor. The code sits in the panel's own
    scroll rather than a box of its own: a type is a few lines, a source is a file, and both read
    better whole than in a window inside a window. Long lines are the exception, and they scroll
-   sideways on their own. */
+   sideways on their own.
+   The code box always reaches the bottom of the panel, however short the code: the form is at least
+   the panel's height (.dm-side-body has a definite one, so the percentage resolves), and the tab and
+   then the box take whatever the head and the tabs leave. Longer code grows past it and the panel
+   scrolls, as before. */
+.dm-editor.dm-editor-code {
+  min-height: 100%;
+}
+
 .dm-code-tab {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   gap: 8px;
   min-width: 0;
 }
@@ -2615,6 +2674,7 @@ button.dm-source-card {
 }
 
 .dm-code {
+  flex: 1 1 auto;
   margin: 0;
   padding: 10px 12px;
   border: 1px solid var(--border);

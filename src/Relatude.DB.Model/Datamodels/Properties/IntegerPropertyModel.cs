@@ -6,6 +6,11 @@ public class IntegerPropertyModel : PropertyModel, IPropertyModelUniqueContraint
     public int DefaultValue { get; set; }
     public bool IsEnum { get; set; }
     public string? FullEnumTypeName { get; set; }
+    /// <summary>
+    /// The values allowed, enforced on write for a plain integer. An enum is not held to them: its
+    /// LegalValues are the members of the enum type, for display, and an enum value may be a [Flags]
+    /// combination or a member added in a newer version of the application.
+    /// </summary>
     public int[]? LegalValues { get; set; }
     public string[]? LegalValueNames { get; set; } // parallel to LegalValues
     public int MinValue { get; set; } = int.MinValue;

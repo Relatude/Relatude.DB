@@ -39,7 +39,7 @@ public static class WriteCommands {
         var dm = host.Datamodel;
         var nodeType = resolveNodeType(dm, typeName);
         if (nodeType.IsInnerNode) throw new CliException(nodeType.CodeName + " is an embedded type: it only exists inside another node.");
-        var clrType = findClrType(dm, nodeType);
+        var clrType = findClrType(host.Store, nodeType);
 
         var transaction = host.Store.CreateTransaction();
         var ids = new List<Guid>();
@@ -112,11 +112,13 @@ public static class WriteCommands {
         throw new CliException("No node type named \"" + name + "\". Known types: "
             + (known.Any() ? string.Join(", ", known) : "(none)"));
     }
-    static Type findClrType(Datamodel dm, NodeTypeModel nodeType) {
-        foreach (var assembly in dm.Assemblies) {
+    static Type findClrType(NodeStore store, NodeTypeModel nodeType) {
+        foreach (var assembly in store.Datastore.Datamodel.Assemblies) {
             var type = assembly.GetType(nodeType.FullName, false, false);
             if (type != null) return type;
         }
+        // a runtime type the application has no class for: the store generated one when it opened
+        if (store.Mapper.TryGetNodeType(nodeType.Id, out var generated)) return generated;
         throw new CliException("The type " + nodeType.FullName + " is in the datamodel but its assembly is not loaded here. "
             + "Name the model assembly with --assembly or its folder with --bin.");
     }
