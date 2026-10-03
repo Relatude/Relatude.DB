@@ -38,11 +38,11 @@ public class RelatudeDBServerSettings {
     /// The address this server is reached on, such as https://db.example.com: where "Sign in with
     /// Relatude.License" sends the browser back to, with its one-time code. The sign-in never takes
     /// that address from a request, whose host name is whatever its sender chose, so without this it
-    /// works only on a loopback address (see <see cref="LicenseLogin.StartAsync"/>). The Relatude Services page
+    /// works only on a loopback address (see <see cref="LicenseLogin.BeginAsync"/>). The Relatude Services page
     /// fills it in from the address it is used on when the API key is saved or the installation is paired.
     /// <para>It may list several addresses separated by commas, for a server reached on more than one
-    /// name or several sites sharing one settings file: a sign-in returns to the listed address whose
-    /// host name it was started on, and one started anywhere else is sent to the first.</para>
+    /// name or several sites sharing one settings file: a sign-in returns to the listed address its
+    /// login page is open on, and one started on an address that is not listed is refused.</para>
     /// </summary>
     public string? PublicUrl { get; set; }
     /// <summary>

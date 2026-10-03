@@ -332,7 +332,7 @@ public static class SettingsCatalog {
                         },
                         new() {
                             Path = "PublicUrl", Label = "Public address", Applies = SettingApplies.Live, Placeholder = "https://db.example.com",
-                            Help = "The address this server is reached on, where sign-in with Relatude.License sends the browser back with its code. It is filled in from the address the Relatude Services page is used on when the API key is saved or the installation is paired. Without it the sign-in works only on localhost: the host name a request gives is chosen by whoever sends it, so it is never used for this. Reached on more than one name, or sharing this settings file with another site? List every address, separated by commas: a sign-in returns to the one it was started on, and one started on an address not listed goes to the first.",
+                            Help = "The address this server is reached on, where sign-in with Relatude.License sends the browser back with its code. It is filled in from the address the Relatude Services page is used on when the API key is saved or the installation is paired. Without it the sign-in works only on localhost: the host name a request gives is chosen by whoever sends it, so it is never used for this. Reached on more than one name, or sharing this settings file with another site? List every address, separated by commas: a sign-in returns to the one it was started on, and one started on an address that is not listed is refused.",
                         },
                         // Reporting in (DisableHeartbeat) is deliberately not offered here: it stays a
                         // setting in the json file for whoever has a reason to turn it off, but it is

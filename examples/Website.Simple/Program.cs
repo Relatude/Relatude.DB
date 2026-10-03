@@ -459,9 +459,9 @@ app.MapRelatudeDBClient();
 
 // GraphQL endpoint generated from the datamodel (see wwwroot/graphql.html for a GraphiQL playground).
 // POST /graphql for queries, GET /graphql?sdl for the schema as SDL.
-app.MapRelatudeDBGraphQL("/graphql", o => {
-    o.StoreResolver = http => http.RequestServices.GetRequiredService<RelatudeDBContext>().Database.Datastore;
-});
+//app.MapRelatudeDBGraphQL("/graphql", o => {
+//    o.StoreResolver = http => http.RequestServices.GetRequiredService<RelatudeDBContext>().Database.Datastore;
+//});
 
 app.Run();
 

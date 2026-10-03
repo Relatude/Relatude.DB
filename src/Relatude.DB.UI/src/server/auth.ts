@@ -67,6 +67,15 @@ export function licenseLoginOptions(): Promise<LicenseLoginOptions> {
   return post<LicenseLoginOptions>("license-login-options");
 }
 
-// A navigation, not a fetch: the server registers the sign-in with the license server and sends
-// the browser there; it comes back to the callback next to this url, and from there to the UI root.
-export const licenseLoginStartUrl = `${base}/license-login/start/`;
+// Starts the sign-in: tells the server the address this page is open on, which it checks against its
+// own public addresses, keeps a ticket for in memory and in a cookie, and registers with the license
+// server. The answer is where to send the browser - or, with loginUrl null, why not. The browser
+// comes back to the callback next to this url, and from there to the UI root.
+export interface LicenseLoginBegin {
+  loginUrl: string | null;
+  error: string | null;
+}
+
+export function beginLicenseLogin(colours: Record<string, string>): Promise<LicenseLoginBegin> {
+  return post<LicenseLoginBegin>("license-login/begin", { url: window.location.href, ...colours });
+}

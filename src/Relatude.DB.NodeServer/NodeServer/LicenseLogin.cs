@@ -1,5 +1,8 @@
+using System.Buffers.Text;
 using System.Collections.Concurrent;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Relatude.DB.Common;
 using Relatude.DB.NodeServer.Settings;
@@ -12,23 +15,28 @@ namespace Relatude.DB.NodeServer;
 /// it exists, and the license server says which (<see cref="LookUpAsync"/>), so the license key is
 /// found from it rather than trusted from the settings: LicenseKey in the settings is a record of
 /// it, used only while the license server has not answered.</para>
-/// <para>The sign-in is a redirect in three steps. First this server tells the license server, over
-/// the back channel with its API key, that a browser is about to come and where to send it back;
-/// the license server answers with a sign-in url, and the browser is sent there with nothing but a
-/// request id (the redirect uri never travels through the browser). Where to send it back is one of
-/// this server's public addresses, never a host name a request gives that is not among them (see
-/// <see cref="returnAddress"/>).
-/// The user signs in there and the license server checks that they have access to the license.
-/// The browser then comes back to the callback with a one-time code, which this server trades,
-/// again over the back channel with its API key, for who the user is - and opens its own session.
-/// A code is useless without the API key, and the master login keeps working throughout.</para>
+/// <para>The sign-in is a redirect in three steps, started by the login page rather than by a link.
+/// The page tells this server the address it is open on (<see cref="BeginAsync"/>), and the server
+/// takes it only when it is one of its own (<see cref="returnAddress"/>). It keeps a random ticket
+/// for the sign-in in memory and puts it in the browser's cookie, and tells the license server, over
+/// the back channel with its API key, that a browser is about to come, where to send it back, and
+/// the hash of a secret only this process holds. The license server answers with a sign-in url,
+/// and the browser is sent there with nothing but a request id (the redirect uri never travels
+/// through the browser). The user signs in there and the license server checks that they have
+/// access to the license. The browser then comes back to the callback with a one-time code. This
+/// server takes it only with the ticket of a sign-in it started itself, and trades it, again over
+/// the back channel with its API key and the secret, for who the user is - and opens its own
+/// session. So a code is of use only in the browser and the server process that started the
+/// sign-in, and the master login keeps working throughout.</para>
 /// </summary>
 public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     // The shapes the license server speaks (Relatude.DB.Services: Connect/ConnectContracts.cs and
     // Licensing/LicensingContracts.cs). Only the fields used here; change both sides together.
-    sealed record LoginRequestCreate(Guid ApiKey, Guid LicenseKey, string InstallationKey, string RedirectUri, string? InstallationName);
+    // CodeChallenge is the SHA-256 of CodeVerifier, base64url, as in OAuth's PKCE: the license server
+    // hands the user over only to whoever shows the secret behind it, which is the process that asked.
+    sealed record LoginRequestCreate(Guid ApiKey, Guid LicenseKey, string InstallationKey, string RedirectUri, string? InstallationName, string CodeChallenge);
     sealed record LoginRequestCreated(string RequestId, string LoginUrl, DateTime ExpiresUtc);
-    sealed record TokenRequest(Guid ApiKey, string Code, string State); // State: the request id, so the code is redeemable only for the sign-in it came from
+    sealed record TokenRequest(Guid ApiKey, string Code, string State, string CodeVerifier); // State: the request id, so the code is redeemable only for the sign-in it came from
     sealed record TokenResult(Guid Subject, string Name, string Email, string Mobile, Guid LicenseId, string LicenseName, Guid InstallationId, string InstallationKey, string Role, DateTime IssuedUtc, DateTime ExpiresUtc);
     sealed record Heartbeat(Guid ApiKey, string InstallationKey, string? Name, int Nodes, string? ServerName, string? MachineName, string? BuildVersion);
     sealed record SmsSenderAnswer(bool Allowed, string? Reason);
@@ -154,59 +162,96 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     /// <summary>What the login page asks before it decides whether to show the button.</summary>
     public object DescribeOptions() => new { Available = SignInAvailable, ServerUrl = SignInAvailable ? baseUrl : null };
 
-    // Both handlers write their redirect straight to the response rather than returning an IResult.
-    // A lambda of the shape (HttpContext) => Task<IResult> is also a RequestDelegate, and MapGet
-    // prefers that overload: the task is awaited and its result silently dropped, so the browser
-    // would get an empty 200 instead of the redirect. Writing the response directly is correct
-    // whichever overload the mapper ends up with.
+    /// <summary>What the login page says as it starts the sign-in: the address it is open on
+    /// (<c>location.href</c>), and its colours, see <see cref="colourParameters"/>.</summary>
+    public sealed record BeginRequest(string? Url, string? Bg = null, string? Track = null, string? Bar = null);
+    /// <summary>Where the login page sends the browser next, or why it cannot, which the page shows. One of the two is set.</summary>
+    public sealed record BeginResult(string? LoginUrl, string? Error);
 
-    /// <summary>Step one: register the sign-in with the license server and send the browser there.</summary>
-    public async Task StartAsync(HttpContext context) {
-        if (!SignInAvailable || !tryGetApiKey(out var apiKey)) { failed(context, "Sign-in with Relatude Services is not enabled on this server."); return; }
-        var returnTo = returnAddress(context);
-        if (returnTo.Refusal is { } refusal) { failed(context, refusal); return; }
-        if (returnTo.StartAt is { } startAt) { context.Response.Redirect(startAt); return; }
+    /// <summary>
+    /// A sign-in this server has started and not yet seen come back, kept under the ticket in the
+    /// cookie of the browser that started it. The ticket is in no url, and the verifier never leaves
+    /// this process but to the license server at the end, which was given only its hash at the start.
+    /// Kept in memory on purpose: a sign-in completes on the server process that started it or not at
+    /// all - not on another site holding the same keys, and not after a restart.
+    /// </summary>
+    sealed record PendingSignIn(string RequestId, string CodeVerifier, DateTime ExpiresUtc);
+    readonly ConcurrentDictionary<string, PendingSignIn> _pendingSignIns = new();
+    /// <summary>Anyone who can open the login page can start a sign-in, so how many may wait at once is capped.</summary>
+    const int _maxPendingSignIns = 1000;
+    const string _couldNotReach = "Relatude Services could not be reached. Use the master login, or try again later.";
+
+    /// <summary>
+    /// Step one, asked by the login page with the address it is open on: register the sign-in with
+    /// the license server, keep its ticket here and in this browser's cookie, and answer with where to
+    /// send the browser - or why not.
+    /// </summary>
+    public async Task<BeginResult> BeginAsync(HttpContext context, BeginRequest? begin) {
+        if (!SignInAvailable || !tryGetApiKey(out var apiKey)) return refused("Sign-in with Relatude Services is not enabled on this server.");
+        var returnTo = returnAddress(context, begin?.Url);
+        if (returnTo.Refusal is { } refusal) return refused(refusal);
         var redirectUri = returnTo.Base + server.ApiUrlPublic + "license-login/callback/";
         // the same question the heartbeat asks, and here it also answers the user faster than
         // waiting out the http timeout would
-        if (!await TcpProbe.IsListeningAsync(baseUrl, cancellationToken: context.RequestAborted)) { unreachable(context, "start"); return; }
+        if (!await TcpProbe.IsListeningAsync(baseUrl, cancellationToken: context.RequestAborted)) return refused(unreachable("start"));
         // The license key goes with the API key, and the license server only takes the one the API
         // key belongs to - so it is that one, found from the API key the first time it is needed.
         if (_known is not { } known || known.ApiKey != apiKey) {
             var lookup = await LookUpAsync(apiKey, context.RequestAborted);
             if (lookup.License == null) {
                 RelatudeDBServer.Trace("Sign-in with Relatude.License could not start: the API key was not looked up. " + lookup.Reason);
-                failed(context, lookup.State == "invalid"
-                    ? "Relatude Services does not accept this server's API key: " + lookup.Reason
-                    : "Relatude Services could not be reached. Use the master login, or try again later.");
-                return;
+                return refused(lookup.State == "invalid" ? "Relatude Services does not accept this server's API key: " + lookup.Reason : _couldNotReach);
             }
             known = new KnownLicense(apiKey, lookup.License.Id);
         }
-        var request = new LoginRequestCreate(apiKey, known.LicenseKey, installationKey, redirectUri, settings.Name);
+        forgetExpiredSignIns();
+        if (_pendingSignIns.Count >= _maxPendingSignIns) {
+            RelatudeDBServer.Trace("Sign-in with Relatude.License refused a start: " + _maxPendingSignIns + " sign-ins are already waiting to come back.");
+            return refused("Too many sign-ins are under way on this server. Try again in a few minutes.");
+        }
+        var ticket = randomToken();
+        var verifier = randomToken();
+        var request = new LoginRequestCreate(apiKey, known.LicenseKey, installationKey, redirectUri, settings.Name, challengeOf(verifier));
         try {
             using var response = await http.PostAsJsonAsync(baseUrl + "/api/connect/login-requests", request, _json, context.RequestAborted);
-            if (!response.IsSuccessStatusCode) { failed(context, "Relatude Services refused the sign-in: " + await reasonOf(response)); return; }
+            if (!response.IsSuccessStatusCode) return refused("Relatude Services refused the sign-in: " + await reasonOf(response));
             var created = await response.Content.ReadFromJsonAsync<LoginRequestCreated>(_json, context.RequestAborted);
-            if (created == null || string.IsNullOrEmpty(created.LoginUrl) || string.IsNullOrEmpty(created.RequestId)) { failed(context, "Relatude Services answered without a sign-in url."); return; }
-            // binds the browser that leaves to the one that comes back with the code
-            context.Response.Cookies.Append(_stateCookie, created.RequestId, stateCookieOptions(_stateLifetime));
-            context.Response.Redirect(withQuery(created.LoginUrl, colourParameters(context.Request)));
+            if (created == null || string.IsNullOrEmpty(created.LoginUrl) || string.IsNullOrEmpty(created.RequestId)) return refused("Relatude Services answered without a sign-in url.");
+            _pendingSignIns[ticket] = new PendingSignIn(created.RequestId, verifier, DateTime.UtcNow + _stateLifetime);
+            // binds the browser that leaves to the one that comes back with the code, and both to this process
+            context.Response.Cookies.Append(_stateCookie, ticket, stateCookieOptions(_stateLifetime));
+            return new BeginResult(withQuery(created.LoginUrl, colourParameters(begin)), null);
         } catch (Exception err) when (err is HttpRequestException or TaskCanceledException or JsonException) {
             RelatudeDBServer.Trace("Sign-in with Relatude.License could not start: " + err.Message);
-            failed(context, "Relatude Services could not be reached. Use the master login, or try again later.");
+            return refused(_couldNotReach);
         }
     }
 
-    /// <summary>Step three: the browser is back with a code; trade it for the user and open the session.</summary>
+    static BeginResult refused(string reason) => new(null, reason);
+
+    // The callback writes its redirect straight to the response rather than returning an IResult.
+    // A lambda of the shape (HttpContext) => Task<IResult> is also a RequestDelegate, and MapGet
+    // prefers that overload: the task is awaited and its result silently dropped, so the browser
+    // would get an empty 200 instead of the redirect. Writing the response directly is correct
+    // whichever overload the mapper ends up with.
+
+    /// <summary>
+    /// Step three: the browser is back with a code. It is taken only with the ticket of a sign-in this
+    /// process started, and only once; then traded for the user, and the session opened.
+    /// </summary>
     public async Task CallbackAsync(HttpContext context, string? code, string? state) {
-        var expected = context.Request.Cookies[_stateCookie];
+        var ticket = context.Request.Cookies[_stateCookie];
         context.Response.Cookies.Delete(_stateCookie, stateCookieOptions(null));
+        // one use: the sign-in is taken out whatever happens next
+        PendingSignIn? pending = null;
+        if (!string.IsNullOrEmpty(ticket)) _pendingSignIns.TryRemove(ticket, out pending);
         if (!SignInAvailable || !tryGetApiKey(out var apiKey)) { failed(context, "Sign-in with Relatude Services is not enabled on this server."); return; }
-        if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state) || expected != state) { failed(context, "The sign-in did not come back the way it left. Try again."); return; }
-        if (!await TcpProbe.IsListeningAsync(baseUrl, cancellationToken: context.RequestAborted)) { unreachable(context, "complete"); return; }
+        if (pending == null || pending.ExpiresUtc < DateTime.UtcNow) { failed(context, "This sign-in was not started here, or it has expired. Try again."); return; }
+        if (string.IsNullOrEmpty(code) || state != pending.RequestId) { failed(context, "The sign-in did not come back the way it left. Try again."); return; }
+        if (!await TcpProbe.IsListeningAsync(baseUrl, cancellationToken: context.RequestAborted)) { failed(context, unreachable("complete")); return; }
         try {
-            using var response = await http.PostAsJsonAsync(baseUrl + "/api/connect/token", new TokenRequest(apiKey, code, state), _json, context.RequestAborted);
+            var request = new TokenRequest(apiKey, code, pending.RequestId, pending.CodeVerifier);
+            using var response = await http.PostAsJsonAsync(baseUrl + "/api/connect/token", request, _json, context.RequestAborted);
             if (!response.IsSuccessStatusCode) { failed(context, "Relatude Services refused the sign-in: " + await reasonOf(response)); return; }
             var token = await response.Content.ReadFromJsonAsync<TokenResult>(_json, context.RequestAborted);
             if (token == null || token.Subject == Guid.Empty) { failed(context, "Relatude Services answered without a user."); return; }
@@ -216,60 +261,66 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
             context.Response.Redirect(server.ApiUrlRoot + "/");
         } catch (Exception err) when (err is HttpRequestException or TaskCanceledException or JsonException) {
             RelatudeDBServer.Trace("Sign-in with Relatude.License could not complete: " + err.Message);
-            failed(context, "Relatude Services could not be reached. Use the master login, or try again later.");
+            failed(context, _couldNotReach);
         }
     }
 
-    /// <summary>
-    /// Where the browser comes back to, as <see cref="returnAddress"/> decides it: the base to build
-    /// the callback url on, or where to start the sign-in instead, or why it cannot start. One is set.
-    /// </summary>
-    sealed record ReturnAddress(string? Base, string? StartAt, string? Refusal);
+    void forgetExpiredSignIns() {
+        var now = DateTime.UtcNow;
+        foreach (var (ticket, pending) in _pendingSignIns) if (pending.ExpiresUtc < now) _pendingSignIns.TryRemove(ticket, out _);
+    }
 
-    /// <summary>A sign-in sent on to the public address carries this, so it is sent on once only.</summary>
-    const string _onPublicUrl = "on-public-url";
+    static string randomToken() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+
+    /// <summary>OAuth's S256 code challenge: the SHA-256 of the verifier, base64url without padding.</summary>
+    static string challengeOf(string verifier) => Base64Url.EncodeToString(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
+
+    /// <summary>Where the browser comes back to, as <see cref="returnAddress"/> decides it: the base to build the callback url on, or why the sign-in cannot start. One is set.</summary>
+    sealed record ReturnAddress(string? Base, string? Refusal);
 
     /// <summary>
-    /// Where the license server sends the browser back to with the code: one of the addresses in
-    /// <see cref="RelatudeDBServerSettings.PublicUrl"/> when it is set, and otherwise this request's
-    /// own address only when that is a loopback one.
-    /// <para>A request's host name is not enough on its own, because whoever sends the request chooses
-    /// it. A server that answers on any name - reached by its IP address, say - would register a
-    /// sign-in that returns to an address of the sender's choosing. Should someone with access to the
-    /// license then approve that address on the sign-in page, their code would go to the sender, who
-    /// could bring it here with the state cookie of the sign-in they started, and be signed in as
-    /// them. A code sent to a loopback address reaches nobody but the machine it is on.</para>
+    /// Where the license server sends the browser back to with the code: the address the login page
+    /// says it is open on, once it is found to be one of this server's own - one listed in
+    /// <see cref="RelatudeDBServerSettings.PublicUrl"/>, or a loopback address the request came in on.
+    /// <para>What the page says is checked rather than trusted, because whoever sends the request
+    /// chooses it, as they choose the host name in it. A server that returned to any address it was
+    /// told would register a sign-in that comes back to an address of the sender's choosing. Should
+    /// someone with access to the license then approve that address on the sign-in page, their code
+    /// would go to the sender, who could bring it here with the ticket of the sign-in they started, and
+    /// be signed in as them. A code sent to a loopback address reaches nobody but the machine it is on.</para>
+    /// <para>The page's address rather than the request's host name, because it is the one in the
+    /// browser's address bar: behind a proxy that hands this server another host name, only the page's
+    /// is where the browser can come back to, and where the ticket's cookie was set. A browser also
+    /// says where a request comes from in its Origin header, which no page script can change; when there
+    /// is one, it has to agree.</para>
     /// <para>PublicUrl may hold several addresses: one server, or several sharing one settings file,
-    /// reached on more than one name. The host name a request gives then picks among them - the sender
-    /// can only choose an address the settings already list - and a sign-in returns to the address it
-    /// was started on. One started on a host that is not listed is sent to the first address, so that
-    /// its state cookie is set where the browser comes back to - once only: behind a proxy that hands
-    /// this server another host name than the browser used, it would otherwise go round for ever.</para>
+    /// reached on more than one name. The page's address picks among them, so a sign-in returns to the
+    /// address it was started on. One started on an address that is not listed is refused, naming the
+    /// address to use - it is never sent on to another site.</para>
     /// </summary>
-    ReturnAddress returnAddress(HttpContext context) {
+    ReturnAddress returnAddress(HttpContext context, string? pageUrl) {
+        if (!Uri.TryCreate(pageUrl, UriKind.Absolute, out var page) || (page.Scheme != Uri.UriSchemeHttps && page.Scheme != Uri.UriSchemeHttp))
+            return new(null, "The login page did not say which address it is open on. Reload it and try again.");
+        var origin = page.GetLeftPart(UriPartial.Authority);
+        var sentFrom = context.Request.Headers.Origin.ToString();
+        if (sentFrom.Length > 0 && !string.Equals(sentFrom, origin, StringComparison.OrdinalIgnoreCase))
+            return new(null, "The sign-in was started from another address than the login page is open on. Reload it and try again.");
+        if (page.IsLoopback && isLoopback(context.Request)) return new(origin, null);
         var listed = publicUrlsIn(settings.PublicUrl);
-        if (listed.Length > 0) {
-            var addresses = new List<PublicAddress>();
-            foreach (var address in listed) {
-                if (!tryPublicBase(address, out var publicUri, out var publicBase))
-                    return new(null, null, "The public address " + address + " in the settings (PublicUrl) is not one the sign-in can return to: each address has to be an https address such as https://db.example.com. Fix it in the settings, or use the master login.");
-                addresses.Add(new(publicUri, publicBase));
-            }
-            var host = context.Request.Host;
-            var sameHost = addresses.Where(a => string.Equals(a.Uri.Host, host.Host, StringComparison.OrdinalIgnoreCase)).ToList();
-            // the port only decides between addresses on one host name, since a proxy may hand on another one
-            var port = host.Port ?? (context.Request.IsHttps ? 443 : 80);
-            if (sameHost.Count > 0) return new((sameHost.FirstOrDefault(a => a.Uri.Port == port) ?? sameHost[0]).Base, null, null);
-            var first = addresses[0];
-            if (string.IsNullOrEmpty(context.Request.Query[_onPublicUrl])) {
-                var query = context.Request.QueryString.HasValue ? context.Request.QueryString.Value![1..] + "&" : "";
-                return new(null, withQuery(first.Base + server.ApiUrlPublic + "license-login/start", query + _onPublicUrl + "=1"), null);
-            }
-            return new(first.Base, null, null);
+        if (listed.Length == 0) {
+            return new(null, "Sign-in with Relatude Services is not set up for this address yet: the server's public address (PublicUrl) is not set. "
+                + "It is filled in when the API key is saved or the installation is paired on the Relatude Services page, or it can be set in the settings. Until then, use the master login.");
         }
-        if (isLoopback(context.Request)) return new($"{context.Request.Scheme}://{context.Request.Host}", null, null);
-        return new(null, null, "Sign-in with Relatude Services is not set up for this address yet: the server's public address (PublicUrl) is not set. "
-            + "It is filled in when the API key is saved or the installation is paired on the Relatude Services page, or it can be set in the settings. Until then, use the master login.");
+        var addresses = new List<PublicAddress>();
+        foreach (var address in listed) {
+            if (!tryPublicBase(address, out var publicUri, out var publicBase))
+                return new(null, "The public address " + address + " in the settings (PublicUrl) is not one the sign-in can return to: each address has to be an https address such as https://db.example.com. Fix it in the settings, or use the master login.");
+            addresses.Add(new(publicUri, publicBase));
+        }
+        var match = addresses.FirstOrDefault(a => a.Uri.Scheme == page.Scheme && a.Uri.Port == page.Port && string.Equals(a.Uri.Host, page.Host, StringComparison.OrdinalIgnoreCase));
+        if (match != null) return new(match.Base, null);
+        return new(null, origin + " is not one of this server's public addresses (PublicUrl), so sign-in with Relatude Services cannot come back here. "
+            + "Sign in on " + addresses[0].Base + " instead, or add " + origin + " to the public addresses in the settings.");
     }
 
     /// <summary>One of the addresses in PublicUrl, parsed, and written the way the callback url is built on.</summary>
@@ -324,9 +375,9 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     /// request found out, so which of them noticed is not something the person signing in has to
     /// wonder about; the trace says which, for whoever reads the log.
     /// </summary>
-    void unreachable(HttpContext context, string step) {
+    string unreachable(string step) {
         RelatudeDBServer.Trace($"Sign-in with Relatude.License could not {step}: nothing is listening at {baseUrl}.");
-        failed(context, "Relatude Services could not be reached. Use the master login, or try again later.");
+        return _couldNotReach;
     }
 
     /// <summary>
@@ -335,15 +386,13 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     /// nothing but a progress line - in these colours it reads as the same screen, not a stop at
     /// another site in between. Only plain hex colours are passed on; anything else is dropped.
     /// </summary>
-    static string colourParameters(HttpRequest request) {
+    static string colourParameters(BeginRequest? begin) {
         var parts = new List<string>();
-        foreach (var name in _colourParameters) {
-            var value = request.Query[name].ToString();
-            if (isHexColour(value)) parts.Add(name + "=" + Uri.EscapeDataString(value));
+        foreach (var (name, value) in new[] { ("bg", begin?.Bg), ("track", begin?.Track), ("bar", begin?.Bar) }) {
+            if (value != null && isHexColour(value)) parts.Add(name + "=" + Uri.EscapeDataString(value));
         }
         return string.Join("&", parts);
     }
-    static readonly string[] _colourParameters = ["bg", "track", "bar"];
     static bool isHexColour(string value) =>
         value.Length is 4 or 5 or 7 or 9 && value[0] == '#' && value.Skip(1).All(Uri.IsHexDigit);
     static string withQuery(string url, string query) =>

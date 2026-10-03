@@ -33,6 +33,8 @@ internal sealed class SchemaBuilder {
     readonly Dictionary<Guid, GqlObjectType> _objectTypes = [];
     readonly Dictionary<Guid, GqlInterfaceType> _interfaceTypes = [];
     readonly Dictionary<Guid, GqlInterfaceType> _synthesizedInterfaces = [];
+    /// <summary>Datamodel interface id → the object type of nodes created as that interface (Create&lt;IArticle&gt;).</summary>
+    readonly Dictionary<Guid, GqlObjectType> _instanceTypes = [];
     readonly Dictionary<string, GqlEnumType?> _enumTypes = new(StringComparer.Ordinal);
     readonly Dictionary<string, GqlInputObjectType> _sharedInputs = new(StringComparer.Ordinal);
     readonly Dictionary<Guid, (GqlInputObjectType? Filter, GqlEnumType? OrderBy, GqlObjectType Wrapper)> _listTypes = [];
@@ -86,7 +88,7 @@ internal sealed class SchemaBuilder {
         foreach (var t in _dm.NodeTypes.Values) {
             // an instance of an unexposed subtype is projected as its nearest exposed ancestor
             var nearest = nearestExposed(t);
-            if (nearest != null && !nearest.IsInterface && _objectTypes.TryGetValue(nearest.Id, out var o)) schema.ObjectTypesByNodeTypeId.Add(t.Id, o);
+            if (nearest != null && (_objectTypes.TryGetValue(nearest.Id, out var o) || _instanceTypes.TryGetValue(nearest.Id, out o))) schema.ObjectTypesByNodeTypeId.Add(t.Id, o);
             var reference = referenceTypeFor(t);
             if (reference != null) schema.ReferenceTypesByNodeTypeId.Add(t.Id, reference);
         }
@@ -206,15 +208,35 @@ internal sealed class SchemaBuilder {
             _synthesizedInterfaces.Add(e.Type.Id, i);
             _allTypes.Add(i);
         }
+        // a datamodel interface can have instances of its own (Create<IArticle>), but a GraphQL interface cannot,
+        // so they get an object type implementing it - otherwise every such node projects as null
+        foreach (var e in _exposed) {
+            if (!e.Type.IsInterface) continue;
+            var o = new GqlObjectType {
+                Name = _typeNames.Claim(instanceTypeName(e.Name), e.Name + "Node"),
+                NodeType = e.Type,
+                Description = $"A node created as {e.Name}.",
+            };
+            _instanceTypes.Add(e.Type.Id, o);
+            _allTypes.Add(o);
+        }
     }
 
-    /// <summary>The exposed type an instance of <paramref name="t"/> is seen as: itself, or its most derived exposed ancestor.</summary>
+    /// <summary>"IArticle" → "Article", "Shape" → "ShapeNode".</summary>
+    static string instanceTypeName(string interfaceName)
+        => interfaceName.Length > 1 && interfaceName[0] == 'I' && char.IsUpper(interfaceName[1]) ? interfaceName[1..] : interfaceName + "Node";
+
+    /// <summary>
+    /// The exposed type an instance of <paramref name="t"/> is seen as: itself, or its most derived exposed ancestor
+    /// class, or failing that its most derived exposed ancestor interface.
+    /// </summary>
     NodeTypeModel? nearestExposed(NodeTypeModel t) {
         if (_exposedById.ContainsKey(t.Id)) return t;
         NodeTypeModel? best = null;
         foreach (var a in t.ThisAndAllInheritedTypes.Values) {
-            if (a.Id == t.Id || a.IsInterface || !_exposedById.ContainsKey(a.Id)) continue;
-            if (best == null || a.ThisAndAllInheritedTypes.Count > best.ThisAndAllInheritedTypes.Count) best = a;
+            if (a.Id == t.Id || !_exposedById.ContainsKey(a.Id)) continue;
+            if (best == null || (best.IsInterface && !a.IsInterface)
+                || (best.IsInterface == a.IsInterface && a.ThisAndAllInheritedTypes.Count > best.ThisAndAllInheritedTypes.Count)) best = a;
         }
         return best;
     }
@@ -276,8 +298,10 @@ internal sealed class SchemaBuilder {
     // ---- node fields ----
 
     void buildFieldsFor(ExposedType e) {
-        if (e.Type.IsInterface) _interfaceTypes[e.Type.Id].Fields.AddRange(buildNodeFields(e));
-        else {
+        if (e.Type.IsInterface) {
+            _interfaceTypes[e.Type.Id].Fields.AddRange(buildNodeFields(e));
+            _instanceTypes[e.Type.Id].Fields.AddRange(buildNodeFields(e));
+        } else {
             _objectTypes[e.Type.Id].Fields.AddRange(buildNodeFields(e));
             if (_synthesizedInterfaces.TryGetValue(e.Type.Id, out var s)) s.Fields.AddRange(buildNodeFields(e));
         }
@@ -473,17 +497,23 @@ internal sealed class SchemaBuilder {
     }
 
     void wireInterfacesAndPossibleTypes() {
-        foreach (var e in _exposed.Where(e => !e.Type.IsInterface)) _node.PossibleTypes.Add(_objectTypes[e.Type.Id]);
+        foreach (var e in _exposed) _node.PossibleTypes.Add(e.Type.IsInterface ? _instanceTypes[e.Type.Id] : _objectTypes[e.Type.Id]);
         foreach (var e in _exposed) {
             var t = e.Type;
             if (t.IsInterface) {
                 var i = _interfaceTypes[t.Id];
+                var instance = _instanceTypes[t.Id];
                 i.Interfaces.Add(_node);
+                instance.Interfaces.Add(_node);
                 foreach (var a in ancestorsOf(t)) {
-                    if (_interfaceTypes.TryGetValue(a.Id, out var ai)) i.Interfaces.Add(ai);
+                    if (_interfaceTypes.TryGetValue(a.Id, out var ai)) {
+                        i.Interfaces.Add(ai);
+                        instance.Interfaces.Add(ai);
+                    }
                 }
+                instance.Interfaces.Add(i);
                 foreach (var d in t.ThisAndDescendingTypes.Values.OrderBy(d => d.CodeName, StringComparer.Ordinal).ThenBy(d => d.Id)) {
-                    if (!d.IsInterface && _objectTypes.TryGetValue(d.Id, out var o)) i.PossibleTypes.Add(o);
+                    if (_objectTypes.TryGetValue(d.Id, out var o) || _instanceTypes.TryGetValue(d.Id, out o)) i.PossibleTypes.Add(o);
                 }
             } else {
                 var o = _objectTypes[t.Id];
@@ -714,10 +744,12 @@ internal sealed class SchemaBuilder {
     GqlObjectType? buildMutationFields() {
         var mutation = new GqlObjectType { Name = "Mutation", Description = "Creates, updates and deletes nodes." };
         var rootNames = new NameRegistry("__typename");
-        foreach (var e in _exposed.Where(e => !e.Type.IsInterface && !e.ReadOnly).OrderBy(e => e.Name, StringComparer.Ordinal)) {
+        foreach (var e in _exposed.Where(e => isCreatable(e.Type) && !e.ReadOnly).OrderBy(e => e.Name, StringComparer.Ordinal)) {
             var input = buildInputType(e);
             if (input == null) continue;
-            var objectType = _objectTypes[e.Type.Id];
+            var objectType = e.Type.IsInterface ? _instanceTypes[e.Type.Id] : _objectTypes[e.Type.Id];
+            // the node updated may be a sub-interface's instance, so an interface's update answers with the interface
+            var updatedType = e.Type.IsInterface ? (GqlNamedType)_interfaceTypes[e.Type.Id] : objectType;
             string name(string verb) => rootNames.Claim((_exact ? char.ToUpperInvariant(verb[0]) + verb[1..] : verb) + e.Name);
             mutation.Fields.Add(new GqlField {
                 Name = name("create"), Type = objectType, Source = FieldSource.MutationCreate, TargetNodeType = e.Type,
@@ -725,7 +757,7 @@ internal sealed class SchemaBuilder {
                 Arguments = { new GqlArgument { Name = "input", Type = nn(input) } },
             });
             mutation.Fields.Add(new GqlField {
-                Name = name("update"), Type = objectType, Source = FieldSource.MutationUpdate, TargetNodeType = e.Type,
+                Name = name("update"), Type = updatedType, Source = FieldSource.MutationUpdate, TargetNodeType = e.Type,
                 Description = $"Updates the given fields of a {e.Name} and returns it. Fields left out are unchanged; null clears a field.",
                 Arguments = { new GqlArgument { Name = "id", Type = nn(_scalars.Id) }, new GqlArgument { Name = "input", Type = nn(input) } },
             });
@@ -739,6 +771,12 @@ internal sealed class SchemaBuilder {
         _allTypes.Add(mutation);
         return mutation;
     }
+
+    /// <summary>
+    /// Classes, and interfaces no class implements: a model of interfaces only (Create&lt;IArticle&gt;) stores its
+    /// nodes as the interfaces, while an interface a class implements is a contract the classes' nodes share.
+    /// </summary>
+    static bool isCreatable(NodeTypeModel t) => !t.IsInterface || t.ThisAndDescendingTypes.Values.All(d => d.IsInterface);
 
     GqlInputObjectType? buildInputType(ExposedType e) {
         var fields = new List<GqlInputField>();

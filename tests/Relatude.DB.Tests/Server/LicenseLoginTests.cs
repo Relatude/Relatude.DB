@@ -1,4 +1,7 @@
+using System.Buffers.Text;
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -37,8 +40,9 @@ public class LicenseLoginTests {
         try { Directory.Delete(_root, true); } catch { }
     }
 
-    TestServerHost startServer(string? apiKey, string? licenseKey, string? servicesServerUrl = null, string? publicUrl = null) =>
-        TestServerHost.Start(_root, configure: s => {
+    TestServerHost startServer(string? apiKey, string? licenseKey, string? servicesServerUrl = null, string? publicUrl = null, Guid? id = null, string? root = null) =>
+        TestServerHost.Start(root ?? _root, configure: s => {
+            if (id is { } sharedId) s.Id = sharedId;
             s.ServicesServerUrl = servicesServerUrl ?? _stub!.Url;
             s.ApiKey = apiKey;
             s.LicenseKey = licenseKey;
@@ -152,14 +156,14 @@ public class LicenseLoginTests {
         foreach (var saved in new string?[] { null, "11111111-2222-3333-4444-555555555555" }) {
             var host = startServer(_apiKey.ToString(), saved, publicUrl: "https://db.example.com");
             try {
-                var context = request("db.example.com");
-                await host.Server.LicenseLogin.StartAsync(context);
+                var begun = await host.Server.LicenseLogin.BeginAsync(request("db.example.com"), new("https://db.example.com/relatude.db/", Bg: "#102030"));
 
-                Assert.AreEqual(StatusCodes.Status302Found, context.Response.StatusCode);
-                StringAssert.StartsWith(context.Response.Headers.Location.ToString(), _stub!.Url + "/connect?request=r1", "saved license key: " + (saved ?? "none"));
+                Assert.IsNull(begun.Error, begun.Error);
+                Assert.AreEqual(_stub!.Url + "/connect?request=r1&bg=%23102030", begun.LoginUrl, "saved license key: " + (saved ?? "none"));
                 Assert.IsTrue(_stub.LoginRequests.TryDequeue(out var posted));
                 Assert.AreEqual(_licenseId, posted.GetProperty("licenseKey").GetGuid());
                 Assert.AreEqual(_apiKey, posted.GetProperty("apiKey").GetGuid());
+                Assert.AreEqual(43, posted.GetProperty("codeChallenge").GetString()!.Length, "an S256 challenge goes with every request");
             } finally {
                 await host.DisposeAsync();
             }
@@ -169,13 +173,13 @@ public class LicenseLoginTests {
     // ---- where the browser is sent back to with its code ----
 
     [TestMethod]
-    public async Task SignIn_WithoutAPublicUrl_NeverReturnsToTheHostARequestNames() {
+    public async Task SignIn_WithoutAPublicUrl_NeverReturnsToTheAddressARequestNames() {
         var host = startServer(_apiKey.ToString(), licenseKey: null);
         try {
-            // a server that answers on any name, reached by its IP address, say: the sender picks the host
-            var context = request("evil.example");
-            await host.Server.LicenseLogin.StartAsync(context);
-            StringAssert.StartsWith(context.Response.Headers.Location.ToString(), host.Server.ApiUrlRoot + "/?login-error=", "refused, back to the login page");
+            // a server that answers on any name, reached by its IP address, say: the sender picks the host and the page address
+            var begun = await host.Server.LicenseLogin.BeginAsync(request("evil.example"), new("https://evil.example/relatude.db/"));
+            Assert.IsNull(begun.LoginUrl);
+            StringAssert.Contains(begun.Error, "PublicUrl");
             Assert.IsTrue(_stub!.LoginRequests.IsEmpty, "the license server is never asked to send a code there");
         } finally {
             await host.DisposeAsync();
@@ -184,62 +188,85 @@ public class LicenseLoginTests {
 
     [TestMethod]
     public async Task SignIn_OnALoopbackAddress_ReturnsToIt() {
-        var host = startServer(_apiKey.ToString(), licenseKey: null);
-        try {
-            var context = request("localhost:5001");
-            await host.Server.LicenseLogin.StartAsync(context);
-            StringAssert.StartsWith(context.Response.Headers.Location.ToString(), _stub!.Url + "/connect?request=r1");
-            Assert.IsTrue(_stub.LoginRequests.TryDequeue(out var posted));
-            Assert.AreEqual("https://localhost:5001" + host.Server.ApiUrlRoot + "/auth/license-login/callback/", posted.GetProperty("redirectUri").GetString());
-        } finally {
-            await host.DisposeAsync();
+        // whatever the public address: a code sent to a loopback address reaches only this machine
+        foreach (var publicUrl in new[] { null, "https://db.example.com" }) {
+            var host = startServer(_apiKey.ToString(), licenseKey: null, publicUrl: publicUrl);
+            try {
+                var begun = await host.Server.LicenseLogin.BeginAsync(request("localhost:5001"), new("https://localhost:5001/relatude.db/"));
+                StringAssert.StartsWith(begun.LoginUrl, _stub!.Url + "/connect?request=r1", publicUrl);
+                Assert.IsTrue(_stub.LoginRequests.TryDequeue(out var posted));
+                Assert.AreEqual("https://localhost:5001" + host.Server.ApiUrlRoot + "/auth/license-login/callback/", posted.GetProperty("redirectUri").GetString());
+
+                // a page that says it is on loopback, asked for over a public name, is not taken at its word
+                var claimed = await host.Server.LicenseLogin.BeginAsync(request("db.example.com"), new("https://localhost:5001/relatude.db/"));
+                Assert.IsNull(claimed.LoginUrl, publicUrl);
+                Assert.IsTrue(_stub.LoginRequests.IsEmpty);
+            } finally {
+                await host.DisposeAsync();
+            }
         }
     }
 
     [TestMethod]
-    public async Task SignIn_ReturnsToThePublicUrl_WhateverHostTheRequestNames() {
+    public async Task SignIn_ReturnsToTheAddressThePageIsOpenOn_NotTheHostNameTheRequestGives() {
         var host = startServer(_apiKey.ToString(), licenseKey: null, publicUrl: "https://db.example.com/");
         try {
-            // started on another name: sent to the public address first, so its state cookie is set where the browser comes back
-            var elsewhere = request("evil.example", "?bg=%23102030");
-            await host.Server.LicenseLogin.StartAsync(elsewhere);
-            Assert.AreEqual("https://db.example.com" + host.Server.ApiUrlRoot + "/auth/license-login/start?bg=%23102030&on-public-url=1", elsewhere.Response.Headers.Location.ToString());
-            Assert.IsTrue(_stub!.LoginRequests.IsEmpty);
-
-            // sent on once only - and however it arrives then, the code goes to the public address
-            var sentOn = request("evil.example", "?on-public-url=1");
-            await host.Server.LicenseLogin.StartAsync(sentOn);
-            StringAssert.StartsWith(sentOn.Response.Headers.Location.ToString(), _stub.Url + "/connect?request=r1");
+            // behind a proxy that hands the server its own name: the page's address is the one the browser can come back to
+            var begun = await host.Server.LicenseLogin.BeginAsync(request("10.0.0.5:8080"), new("https://db.example.com/relatude.db/?login-error=x"));
+            StringAssert.StartsWith(begun.LoginUrl, _stub!.Url + "/connect?request=r1");
             Assert.IsTrue(_stub.LoginRequests.TryDequeue(out var posted));
             Assert.AreEqual("https://db.example.com" + host.Server.ApiUrlRoot + "/auth/license-login/callback/", posted.GetProperty("redirectUri").GetString());
+
+            // a page on an address that is not listed is refused - never sent on to another site
+            var elsewhere = await host.Server.LicenseLogin.BeginAsync(request("evil.example"), new("https://evil.example/relatude.db/"));
+            Assert.IsNull(elsewhere.LoginUrl);
+            StringAssert.Contains(elsewhere.Error, "https://evil.example is not one of this server's public addresses");
+            StringAssert.Contains(elsewhere.Error, "Sign in on https://db.example.com instead");
+            Assert.IsTrue(_stub.LoginRequests.IsEmpty);
         } finally {
             await host.DisposeAsync();
         }
     }
 
     [TestMethod]
-    public async Task SignIn_WithSeveralPublicUrls_ReturnsToTheOneItWasStartedOn() {
+    public async Task SignIn_RefusesAPageAddressTheBrowserDidNotSendItFrom() {
+        var host = startServer(_apiKey.ToString(), licenseKey: null, publicUrl: "https://db.example.com");
+        try {
+            var context = request("db.example.com");
+            context.Request.Headers.Origin = "https://evil.example";
+            var begun = await host.Server.LicenseLogin.BeginAsync(context, new("https://db.example.com/relatude.db/"));
+            Assert.IsNull(begun.LoginUrl);
+            StringAssert.Contains(begun.Error, "another address");
+
+            context = request("db.example.com");
+            context.Request.Headers.Origin = "https://db.example.com";
+            Assert.IsNotNull((await host.Server.LicenseLogin.BeginAsync(context, new("https://db.example.com/relatude.db/"))).LoginUrl, "an Origin that agrees is fine");
+
+            foreach (var page in new string?[] { null, "", "/relatude.db/", "ftp://db.example.com/" }) {
+                Assert.IsNull((await host.Server.LicenseLogin.BeginAsync(request("db.example.com"), new(page))).LoginUrl, "page: " + page);
+            }
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
+    public async Task SignIn_WithSeveralPublicUrls_ReturnsToTheOneThePageIsOpenOn() {
         // two sites sharing one settings file, one of them also on a port of its own
         var host = startServer(_apiKey.ToString(), licenseKey: null, publicUrl: "https://a.example.com/, https://b.example.com;\nhttps://b.example.com:8443");
         try {
-            async Task<string> returnsTo(string requestHost) {
-                var context = request(requestHost);
-                await host.Server.LicenseLogin.StartAsync(context);
-                StringAssert.StartsWith(context.Response.Headers.Location.ToString(), _stub!.Url + "/connect?request=r1", requestHost);
-                Assert.IsTrue(_stub.LoginRequests.TryDequeue(out var posted), requestHost);
+            async Task<string?> returnsTo(string page) {
+                var begun = await host.Server.LicenseLogin.BeginAsync(request("internal:8080"), new(page));
+                if (begun.LoginUrl == null) return null;
+                Assert.IsTrue(_stub!.LoginRequests.TryDequeue(out var posted), page);
                 return posted.GetProperty("redirectUri").GetString()!;
             }
             var callback = host.Server.ApiUrlRoot + "/auth/license-login/callback/";
-            Assert.AreEqual("https://a.example.com" + callback, await returnsTo("a.example.com"));
-            Assert.AreEqual("https://b.example.com" + callback, await returnsTo("B.example.com"), "host names compare ignoring case");
-            Assert.AreEqual("https://b.example.com:8443" + callback, await returnsTo("b.example.com:8443"), "the port decides between addresses on one host name");
-            Assert.AreEqual("https://b.example.com" + callback, await returnsTo("b.example.com:9999"), "and nothing more: a proxy may hand on another one");
-
-            // a host that is not listed is sent to the first address, as with one
-            var elsewhere = request("evil.example");
-            await host.Server.LicenseLogin.StartAsync(elsewhere);
-            Assert.AreEqual("https://a.example.com" + host.Server.ApiUrlRoot + "/auth/license-login/start?on-public-url=1", elsewhere.Response.Headers.Location.ToString());
-            Assert.IsTrue(_stub!.LoginRequests.IsEmpty);
+            Assert.AreEqual("https://a.example.com" + callback, await returnsTo("https://a.example.com/relatude.db/"));
+            Assert.AreEqual("https://b.example.com" + callback, await returnsTo("https://B.example.com/relatude.db/"), "host names compare ignoring case");
+            Assert.AreEqual("https://b.example.com:8443" + callback, await returnsTo("https://b.example.com:8443/relatude.db/"));
+            Assert.IsNull(await returnsTo("https://b.example.com:9999/relatude.db/"), "the browser says exactly where it is, so the port has to be listed too");
+            Assert.IsNull(await returnsTo("http://a.example.com/relatude.db/"), "and the scheme");
         } finally {
             await host.DisposeAsync();
         }
@@ -250,13 +277,93 @@ public class LicenseLoginTests {
         foreach (var bad in new[] { "http://db.example.com", "db.example.com", "https://db.example.com/?x=1", "https://db.example.com, http://other.example.com" }) {
             var host = startServer(_apiKey.ToString(), licenseKey: null, publicUrl: bad);
             try {
-                var context = request("db.example.com");
-                await host.Server.LicenseLogin.StartAsync(context);
-                StringAssert.StartsWith(context.Response.Headers.Location.ToString(), host.Server.ApiUrlRoot + "/?login-error=", bad);
+                var begun = await host.Server.LicenseLogin.BeginAsync(request("db.example.com"), new("https://db.example.com/relatude.db/"));
+                Assert.IsNull(begun.LoginUrl, bad);
+                StringAssert.Contains(begun.Error, "PublicUrl", bad);
                 Assert.IsTrue(_stub!.LoginRequests.IsEmpty, bad);
             } finally {
                 await host.DisposeAsync();
             }
+        }
+    }
+
+    // ---- coming back with the code ----
+
+    /// <summary>Starts a sign-in on a page at https://db.example.com and answers the ticket the browser was given in its cookie.</summary>
+    async Task<string> beginOnDbExample(TestServerHost host) {
+        var context = request("db.example.com");
+        var begun = await host.Server.LicenseLogin.BeginAsync(context, new("https://db.example.com/relatude.db/"));
+        Assert.IsNotNull(begun.LoginUrl, begun.Error);
+        var cookie = context.Response.Headers.SetCookie.ToString();
+        StringAssert.StartsWith(cookie, "RelatudeDBLicenseLogin=");
+        StringAssert.Contains(cookie, "httponly");
+        return cookie.Split(';')[0]["RelatudeDBLicenseLogin=".Length..];
+    }
+
+    /// <summary>The browser back at the callback with a code, carrying <paramref name="ticket"/> in its cookie; answers where it is sent next.</summary>
+    static async Task<string> comeBack(TestServerHost host, string? ticket, string code = "c1", string state = "r1") {
+        var context = request("db.example.com", "?code=" + code + "&state=" + state);
+        if (ticket != null) context.Request.Headers.Cookie = "RelatudeDBLicenseLogin=" + ticket;
+        await host.Server.LicenseLogin.CallbackAsync(context, code, state);
+        return context.Response.Headers.Location.ToString();
+    }
+
+    [TestMethod]
+    public async Task Callback_TradesTheCodeWithTheSecretBehindTheChallenge_Once() {
+        var host = startServer(_apiKey.ToString(), licenseKey: null, publicUrl: "https://db.example.com");
+        try {
+            var ticket = await beginOnDbExample(host);
+            Assert.IsTrue(_stub!.LoginRequests.TryDequeue(out var started));
+            Assert.AreNotEqual("r1", ticket, "the cookie holds a ticket of its own, not the request id every url shows");
+
+            Assert.AreEqual(host.Server.ApiUrlRoot + "/", await comeBack(host, ticket), "signed in");
+            Assert.IsTrue(_stub.TokenRequests.TryDequeue(out var traded));
+            Assert.AreEqual("r1", traded.GetProperty("state").GetString());
+            var verifier = traded.GetProperty("codeVerifier").GetString()!;
+            Assert.AreEqual(started.GetProperty("codeChallenge").GetString(), Base64Url.EncodeToString(SHA256.HashData(Encoding.ASCII.GetBytes(verifier))),
+                "the code is traded with the secret whose hash went with the request");
+
+            StringAssert.Contains(await comeBack(host, ticket), "login-error=", "a ticket is good once");
+            Assert.IsTrue(_stub.TokenRequests.IsEmpty);
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
+    public async Task Callback_RefusesASignInThisServerDidNotStart() {
+        var host = startServer(_apiKey.ToString(), licenseKey: null, publicUrl: "https://db.example.com");
+        try {
+            var ticket = await beginOnDbExample(host);
+            StringAssert.Contains(await comeBack(host, ticket: null), "login-error=", "no cookie");
+            StringAssert.Contains(await comeBack(host, "r1"), "login-error=", "the request id from the url is no ticket");
+            StringAssert.Contains(await comeBack(host, Guid.NewGuid().ToString("N")), "login-error=", "nor is anything made up");
+
+            ticket = await beginOnDbExample(host);
+            StringAssert.Contains(await comeBack(host, ticket, state: "r2"), "login-error=", "the code has to come back for the request the ticket started");
+            StringAssert.Contains(await comeBack(host, ticket), "login-error=", "and that spent the ticket");
+            Assert.IsTrue(_stub!.TokenRequests.IsEmpty, "the license server was never asked");
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
+    public async Task Callback_RefusesASignInStartedOnAnotherServerWithTheSameKeys() {
+        // two sites from one settings file, as on two App Services: the same API key and the same installation key
+        var sharedId = Guid.NewGuid();
+        var first = startServer(_apiKey.ToString(), licenseKey: null, publicUrl: "https://db.example.com", id: sharedId);
+        var secondRoot = Path.Combine(_root, "second");
+        Directory.CreateDirectory(secondRoot);
+        var second = startServer(_apiKey.ToString(), licenseKey: null, publicUrl: "https://db.example.com", id: sharedId, root: secondRoot);
+        try {
+            var ticket = await beginOnDbExample(first);
+            StringAssert.Contains(await comeBack(second, ticket), "login-error=", "the ticket lives in the memory of the server that started the sign-in");
+            Assert.IsTrue(_stub!.TokenRequests.IsEmpty);
+            Assert.AreEqual(first.Server.ApiUrlRoot + "/", await comeBack(first, ticket), "where it still completes");
+        } finally {
+            await second.DisposeAsync();
+            await first.DisposeAsync();
         }
     }
 
@@ -346,6 +453,8 @@ public class LicenseLoginTests {
         /// <summary>The senders approved for the license, compared ignoring case as the license server compares names.</summary>
         public ConcurrentBag<string> Approved { get; } = ["Acme", "+4791234567"];
         public ConcurrentQueue<JsonElement> LoginRequests { get; } = new();
+        public ConcurrentQueue<JsonElement> TokenRequests { get; } = new();
+        string _lastInstallationKey = "";
 
         public static async Task<StubLicenseServer> StartAsync(Guid apiKey, Guid licenseId) {
             var stub = new StubLicenseServer();
@@ -376,7 +485,18 @@ public class LicenseLoginTests {
             app.MapPost("/api/connect/login-requests", async (HttpContext http) => {
                 var body = await JsonSerializer.DeserializeAsync<JsonElement>(http.Request.Body);
                 stub.LoginRequests.Enqueue(body);
+                stub._lastInstallationKey = body.GetProperty("installationKey").GetString()!;
                 return Results.Ok(new { requestId = "r1", loginUrl = stub.Url + "/connect?request=r1", expiresUtc = DateTime.UtcNow.AddMinutes(10) });
+            });
+            // takes any code, and leaves checking what came with it to the test
+            app.MapPost("/api/connect/token", async (HttpContext http) => {
+                var body = await JsonSerializer.DeserializeAsync<JsonElement>(http.Request.Body);
+                stub.TokenRequests.Enqueue(body);
+                return Results.Ok(new {
+                    subject = Guid.NewGuid(), name = "Kari Nordmann", email = "", mobile = "", licenseId, licenseName = "Stub license",
+                    installationId = Guid.NewGuid(), installationKey = stub._lastInstallationKey, role = "owner",
+                    issuedUtc = DateTime.UtcNow, expiresUtc = DateTime.UtcNow.AddHours(1),
+                });
             });
             await app.StartAsync();
             stub._app = app;

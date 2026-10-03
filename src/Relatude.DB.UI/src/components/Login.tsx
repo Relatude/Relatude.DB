@@ -1,7 +1,7 @@
-import { useEffect, useState, type FormEvent, type MouseEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { IconCloudLock, IconMoon, IconSun } from "@tabler/icons-react";
 import { AnimatedLogo } from "./AnimatedLogo";
-import { licenseLoginOptions, licenseLoginStartUrl, login, masterLoginOptions, type MasterLoginOptions } from "../server/auth";
+import { beginLicenseLogin, licenseLoginOptions, login, masterLoginOptions, type MasterLoginOptions } from "../server/auth";
 import type { Theme } from "../theme";
 
 interface LoginProps {
@@ -33,24 +33,23 @@ function noWayIn(reason: MasterLoginOptions["reason"]): string {
 const leaveMs = 320;
 
 /**
- * Where "Sign in with Relatude Services" goes, with this screen's colours on it: the server passes
+ * This screen's colours, sent along when "Sign in with Relatude Services" starts: the server passes
  * them on to the landing page (LicenseLogin.cs), which - when it can send the user straight back -
  * shows nothing but a progress line in them, so the round trip reads as one screen. Read at the
  * moment of the click, so a theme switched a second ago is the one sent.
  */
-function servicesStartUrl(): string {
+function screenColours(): Record<string, string> {
   const style = getComputedStyle(document.documentElement);
-  const params = new URLSearchParams();
+  const colours: Record<string, string> = {};
   for (const [name, token] of [
     ["bg", "--bg"], // the page itself
     ["track", "--border"], // the progress line's track
     ["bar", "--text-muted"], // what moves along it
   ]) {
     const value = style.getPropertyValue(token).trim();
-    if (/^#[0-9a-f]{3,8}$/i.test(value)) params.set(name, value);
+    if (/^#[0-9a-f]{3,8}$/i.test(value)) colours[name] = value;
   }
-  const query = params.toString();
-  return query ? `${licenseLoginStartUrl}?${query}` : licenseLoginStartUrl;
+  return colours;
 }
 
 export function Login({ onLoggedIn, theme, onToggleTheme }: LoginProps) {
@@ -90,15 +89,28 @@ export function Login({ onLoggedIn, theme, onToggleTheme }: LoginProps) {
       setBusy(false);
     }
   }
-  function goToServices(e: MouseEvent<HTMLAnchorElement>) {
-    // a new tab or window is the browser's business: the link goes there as it is
-    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-    e.preventDefault();
+  // The screen starts fading as the server is asked, so the wait for its answer is part of the fade
+  // rather than added to it; an answer that is a refusal brings the screen back with the reason.
+  async function goToServices() {
     if (leaving) return;
-    const url = servicesStartUrl();
-    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    setError(null);
     setLeaving(true);
-    window.setTimeout(() => window.location.assign(url), still ? 0 : leaveMs);
+    const started = Date.now();
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    try {
+      const begun = await beginLicenseLogin(screenColours());
+      const loginUrl = begun.loginUrl;
+      if (!loginUrl) {
+        setLeaving(false);
+        setError(begun.error ?? "Sign-in with Relatude Services could not start.");
+        return;
+      }
+      const left = still ? 0 : Math.max(0, leaveMs - (Date.now() - started));
+      window.setTimeout(() => window.location.assign(loginUrl), left);
+    } catch (err) {
+      setLeaving(false);
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
   // No animated background here any more. Backdrop.tsx is still in the tree and still works;
   // rendering <Backdrop /> as the first child below brings it back.
@@ -121,11 +133,11 @@ export function Login({ onLoggedIn, theme, onToggleTheme }: LoginProps) {
           <>
             {licenseLogin && (
               <>
-                {/* a link, not a button: the server answers with a redirect to Relatude Services */}
-                <a className="login-button login-services" href={licenseLoginStartUrl} onClick={goToServices}>
+                {/* a button, not a link: the page has to tell the server the address it is open on first */}
+                <button type="button" className="login-button login-services" onClick={goToServices} disabled={leaving}>
                   <IconCloudLock size={17} stroke={1.7} />
                   Sign in with Relatude Services
-                </a>
+                </button>
                 {master.available && <div className="login-divider">or with the master account</div>}
               </>
             )}

@@ -36,7 +36,8 @@ public static class ExampleQueries {
             INodeData? node = null;
             try { node = sample?.Invoke(type); } catch { /* a sample is a convenience */ }
             // a class with subtypes is referred to through its synthesized interface; the group still carries the type's own name
-            var typeName = schema.ObjectTypesByNodeTypeId.TryGetValue(type.Id, out var objectType) && objectType.NodeType?.Id == type.Id ? objectType.Name : refType.Name;
+            // (an interface's own nodes have an object type too, but the interface is what the root fields are named after)
+            var typeName = !type.IsInterface && schema.ObjectTypesByNodeTypeId.TryGetValue(type.Id, out var objectType) && objectType.NodeType?.Id == type.Id ? objectType.Name : refType.Name;
             var group = new GraphQLExampleGroup { Type = typeName, Label = typeName };
             addTypeExamples(schema, group, list, composite, node);
             if (group.Examples.Count > 0) groups.Add(group);
