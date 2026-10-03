@@ -1,5 +1,6 @@
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
+using Relatude.DB.GraphQL.Endpoints;
 using Relatude.DB.GraphQL.Execution;
 using Relatude.DB.GraphQL.Introspection;
 using Relatude.DB.GraphQL.Schema;
@@ -52,6 +53,25 @@ public sealed class RelatudeGraphQL {
     /// <summary>Convenience overload for tests and simple hosts.</summary>
     public GraphQLResult Execute(string query, QueryContext? queryContext = null)
         => Execute(new GraphQLRequest { Query = query }, queryContext);
+
+    static readonly TimeSpan _explorerDataLifetime = TimeSpan.FromMinutes(1);
+    readonly object _explorerLock = new();
+    (GraphQLExplorerData Data, DateTime Made)? _explorerData;
+
+    /// <summary>
+    /// What the explorer page needs: the schema described, one stored node per type and the guide's examples, the
+    /// nodes read in the given query context. Without a context the answer is shared for a minute: the samples cost
+    /// one query per type, and a page can be reloaded often.
+    /// </summary>
+    public GraphQLExplorerData GetExplorerData(QueryContext? queryContext = null) {
+        if (queryContext != null) return ExplorerData.Build(Schema, ExplorerData.StoreSampler(_store, queryContext));
+        lock (_explorerLock) {
+            if (_explorerData is { } cached && DateTime.UtcNow - cached.Made < _explorerDataLifetime) return cached.Data;
+            var data = ExplorerData.Build(Schema, ExplorerData.StoreSampler(_store, null));
+            _explorerData = (data, DateTime.UtcNow);
+            return data;
+        }
+    }
 
     internal TransactionResult RunTransaction(TransactionData transaction, QueryContext? queryContext)
         => Options.TransactionExecutor != null

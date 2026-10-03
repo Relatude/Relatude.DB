@@ -190,7 +190,7 @@ sealed class UILogs {
         var c = container(p.StoreId);
         var local = c.Settings.LocalSettings ?? throw new Exception("This database has no local settings to save into. ");
         if (savingIsOverridden(p.StoreId, out var section)) {
-            throw new Exception("Log recording is set by the " + section + " configuration section and cannot be saved here. ");
+            throw new Exception("Log recording is set by " + section + " and cannot be saved here. ");
         }
         var log = logger(p.StoreId);
         local.LogRecording = log.GetRecordingSettings();
@@ -223,11 +223,10 @@ sealed class UILogs {
     // the next start, which is exactly what saving is for - so the page says so instead of writing a
     // file that changes nothing
     bool savingIsOverridden(Guid storeId, out string section) {
-        var overlay = _server.ConfigurationOverlay;
-        section = overlay?.SectionName ?? "";
-        if (overlay == null) return false;
-        return overlay.IsOverridden(SettingsOverlay.OverridePath(storeId, "LocalSettings.LogRecording"), out _)
-            || overlay.IsOverridden(SettingsOverlay.OverridePath(storeId, "LocalSettings.MinQueryDurationMsBeforeLogging"), out _);
+        section = _server.DecidedOutsideTheSettingsFiles(SettingsOverlay.OverridePath(storeId, "LocalSettings.LogRecording"))
+            ?? _server.DecidedOutsideTheSettingsFiles(SettingsOverlay.OverridePath(storeId, "LocalSettings.MinQueryDurationMsBeforeLogging"))
+            ?? "";
+        return section.Length > 0;
     }
 
     // Queries faster than this are not recorded at all. It is the query log's only volume control:

@@ -37,7 +37,7 @@ export function lint(text: string, language: Language): LintIssue[] {
 
 /** Whether lint knows anything about the language (so an empty result means "no problems found"). */
 export function canLint(language: Language): boolean {
-  return language !== "plain" && language !== "markdown";
+  return language !== "plain" && language !== "markdown" && language !== "python" && language !== "go" && language !== "java" && language !== "shell";
 }
 
 export function lineOfOffset(text: string, offset: number): number {

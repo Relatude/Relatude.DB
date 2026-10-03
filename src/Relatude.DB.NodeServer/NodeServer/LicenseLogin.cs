@@ -267,8 +267,7 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     public void RememberPublicUrl(HttpContext context) {
         lock (_rememberLock) {
             if (!string.IsNullOrWhiteSpace(settings.PublicUrl)) return;
-            var overlay = server.ConfigurationOverlay;
-            if (overlay != null && overlay.IsOverridden(SettingsOverlay.OverridePath(null, nameof(RelatudeDBServerSettings.PublicUrl)), out _)) return;
+            if (server.DecidedOutsideTheSettingsFiles(nameof(RelatudeDBServerSettings.PublicUrl)) != null) return;
             var seen = context.Request.Scheme + "://" + context.Request.Host.Value + context.Request.PathBase.Value;
             if (!tryPublicBase(seen, out var uri, out var publicBase) || uri.IsLoopback) return;
             settings.PublicUrl = publicBase;

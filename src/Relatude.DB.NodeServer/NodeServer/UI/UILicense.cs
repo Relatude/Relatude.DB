@@ -197,8 +197,5 @@ sealed class UILicense(RelatudeDBServer server) {
         };
     }
 
-    bool isOverridden(string path) {
-        var overlay = server.ConfigurationOverlay;
-        return overlay != null && overlay.IsOverridden(SettingsOverlay.OverridePath(null, path), out _);
-    }
+    bool isOverridden(string path) => server.DecidedOutsideTheSettingsFiles(SettingsOverlay.OverridePath(null, path)) != null;
 }

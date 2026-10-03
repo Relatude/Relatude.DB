@@ -13,7 +13,8 @@ public static class GraphQLEndpointExtensions {
     /// <summary>
     /// Maps a code-first GraphQL endpoint reflecting the whole datamodel on a fixed path.
     /// POST {path} accepts {"query","operationName","variables"}; GET {path}?query=... is optional;
-    /// GET {path}?sdl returns the schema as SDL text. Endpoints defined in the admin UI need no mapping.
+    /// GET {path}?sdl returns the schema as SDL text (when introspection is on). With <see cref="GraphQLOptions.EnableExplorer"/>
+    /// a browser opening {path} gets the explorer page. Endpoints defined in the admin UI need no mapping.
     /// </summary>
     public static IEndpointRouteBuilder MapRelatudeDBGraphQL(this IEndpointRouteBuilder app, string path = "/graphql", Action<GraphQLOptions>? configure = null) {
         var options = new GraphQLOptions();

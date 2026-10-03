@@ -607,7 +607,9 @@ provider settings all live there.</p>
 <p>Any of it can be overridden per environment from standard ASP.NET configuration: a <code>RelatudeDB</code>
 section with the same shape as the file — in <code>appsettings.json</code>, <code>appsettings.Development.json</code>,
 environment variables or user secrets — wins over <code>relatude.db.json</code>, and what it supplies is never
-written back to the file. Credentials belong there, not in the file.</p>
+written back to the file. Credentials belong there, not in the file. What you change in the admin UI
+is kept apart as well, in <code>relatude.db.overrides.json</code> beside the default database's own files, so
+<code>relatude.db.json</code> stays as you deployed it until you move those changes into it from the settings page.</p>
 <hr />
 <h2 id="4-querying">4. Querying<a class="anchor" href="#4-querying" aria-label="Link to this section">#</a></h2>
 <p>One fluent builder, LINQ-style expressions, <code>Execute()</code> at the end.</p>

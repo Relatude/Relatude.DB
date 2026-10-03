@@ -11,10 +11,15 @@ namespace Relatude.DB.Cli;
 /// </summary>
 public sealed class Target {
     public const string SettingsFileOption = "settings";
-    public static readonly string[] Options = ["project", SettingsFileOption, "data", "bin", "assembly", "store", "environment"];
+    public const string OverridesFileOption = "overrides";
+    public static readonly string[] Options = ["project", SettingsFileOption, OverridesFileOption, "data", "bin", "assembly", "store", "environment"];
 
     public required string Root { get; init; }
     public required string SettingsPath { get; init; }
+    /// <summary>relatude.db.overrides.json - the settings changed in the admin UI, merged over
+    /// relatude.db.json - when --overrides names the file. Null: it is where the server keeps it, with
+    /// the default database (see <see cref="SettingsReader.OverridesLocation"/>).</summary>
+    public string? OverridesFile { get; init; }
     /// <summary>Environment name for appsettings.{Environment}.json overrides, as the server resolves it.</summary>
     public required string EnvironmentName { get; init; }
     public string? ProjectFile { get; init; }
@@ -61,9 +66,13 @@ public sealed class Target {
         if (bins.Length == 0) bins = findOutputFolders(root);
         bins = [.. bins.Concat(assemblies.Select(a => Path.GetDirectoryName(a)!)).Distinct(StringComparer.OrdinalIgnoreCase)];
 
+        var overridesOption = args.Get(OverridesFileOption);
+        var overridesFile = overridesOption == null ? null : Path.GetFullPath(overridesOption, cwd);
+
         return new Target {
             Root = root,
             SettingsPath = settingsPath,
+            OverridesFile = overridesFile,
             ProjectFile = projectFile,
             ProbeFolders = bins,
             AssemblyFiles = assemblies,
@@ -140,6 +149,7 @@ public sealed class Target {
         var lines = new List<(string, string)> {
             ("content root", Root),
             ("settings", SettingsPath + (SettingsExists ? string.Empty : "  (does not exist)")),
+            ("overrides", OverridesFile ?? "with the default database"),
             ("environment", EnvironmentName),
         };
         if (ProjectFile != null) lines.Add(("project", ProjectFile));

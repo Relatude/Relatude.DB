@@ -8,7 +8,8 @@ namespace Relatude.DB.GraphQL.Endpoints;
 
 /// <summary>
 /// GraphQL over HTTP for one executor: POST {"query","operationName","variables"} (or a raw application/graphql body),
-/// GET ?query=... when the endpoint allows it, GET ?sdl for the schema text. Shared by the fixed route
+/// GET ?query=... when the endpoint allows it, GET ?sdl for the schema text when introspection is on. With the explorer switched on, a browser
+/// asking for the url gets the explorer page (ExplorerPage), which reads ?explorer-data. Shared by the fixed route
 /// and the endpoints defined in the admin UI.
 /// </summary>
 public static class GraphQLHttpHandler {
@@ -16,6 +17,17 @@ public static class GraphQLHttpHandler {
 
     public static async Task HandleAsync(HttpContext http, RelatudeGraphQL executor, QueryContext? queryContext) {
         var definition = executor.Definition;
+        if (definition.EnableExplorer && HttpMethods.IsGet(http.Request.Method)) {
+            // the page and its files are served without the key: the page is where the key is typed in
+            if (http.Request.Query.TryGetValue("explorer-asset", out var asset)) {
+                await ExplorerPage.WriteAssetAsync(http, asset.ToString());
+                return;
+            }
+            if (ExplorerPage.WantsPage(http.Request)) {
+                await ExplorerPage.WritePageAsync(http, definition);
+                return;
+            }
+        }
         if (!IsAuthorized(http, definition)) {
             await writeErrors(http, StatusCodes.Status401Unauthorized, $"This endpoint requires an API key in the {ApiKeyHeader} header or as a bearer token.");
             return;
@@ -27,7 +39,16 @@ public static class GraphQLHttpHandler {
         }
         GraphQLRequest? request;
         if (HttpMethods.IsGet(http.Request.Method)) {
+            if (http.Request.Query.ContainsKey("explorer-data")) {
+                await writeExplorerData(http, executor, queryContext);
+                return;
+            }
             if (http.Request.Query.ContainsKey("sdl")) {
+                // the schema text tells what introspection tells, so it is served on the same terms
+                if (!definition.EnableIntrospection) {
+                    await writeErrors(http, StatusCodes.Status403Forbidden, "Introspection is switched off for this endpoint, so its schema is not served.");
+                    return;
+                }
                 http.Response.ContentType = "text/plain; charset=utf-8";
                 await http.Response.WriteAsync(executor.ToSDL());
                 return;
@@ -72,6 +93,24 @@ public static class GraphQLHttpHandler {
         http.Response.ContentType = "application/graphql-response+json; charset=utf-8";
         await http.Response.WriteAsync(result.ToJson());
     }
+
+    /// <summary>The schema, samples and guide the explorer page reads; it tells no more than introspection does.</summary>
+    static async Task writeExplorerData(HttpContext http, RelatudeGraphQL executor, QueryContext? queryContext) {
+        if (!executor.Definition.EnableExplorer) {
+            await writeErrors(http, StatusCodes.Status404NotFound, "The explorer is switched off for this endpoint.");
+            return;
+        }
+        if (!executor.Definition.EnableIntrospection) {
+            await writeErrors(http, StatusCodes.Status403Forbidden, "Introspection is switched off for this endpoint, so the explorer cannot read its schema.");
+            return;
+        }
+        var data = executor.GetExplorerData(queryContext);
+        http.Response.ContentType = "application/json; charset=utf-8";
+        http.Response.Headers.CacheControl = "no-store";
+        await http.Response.WriteAsync(JsonSerializer.Serialize(data, _explorerJson));
+    }
+
+    static readonly JsonSerializerOptions _explorerJson = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     static async Task<GraphQLRequest?> readPostAsync(HttpContext http) {
         var contentType = http.Request.ContentType ?? "";

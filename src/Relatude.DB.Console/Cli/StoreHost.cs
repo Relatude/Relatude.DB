@@ -48,6 +48,7 @@ public sealed class StoreHost : IDisposable {
         Guid selected = Guid.Empty;
         var options = new ServerOptions {
             SettingsLoader = new LocalSettingsLoaderFile(target.SettingsPath),
+            SettingsOverridesFilePath = target.OverridesFile, // null: with the default database, as the application finds it
             DefaultTempFolderPath = Path.Combine(Path.GetTempPath(), "relatude.db.cli"),
             OnServerSettingsInit = s => {
                 serverSettings = s;

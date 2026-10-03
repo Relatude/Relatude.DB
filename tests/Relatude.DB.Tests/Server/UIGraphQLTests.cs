@@ -102,6 +102,111 @@ public class UIGraphQLTests {
         }
     }
 
+    [TestMethod]
+    public async Task TheExplorerIsGivenTheSchemaAndAGuideForADraft() {
+        var root = Path.Combine(Path.GetTempPath(), "relatude-graphql-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var host = start(root);
+        try {
+            var storeId = host.Server.Settings.DefaultStoreId;
+            // a draft, never saved, with introspection off: the explorer reads the schema all the same
+            var draft = new GraphQLEndpointDefinition { Name = "Draft", Url = "/draft", Mode = GraphQLEndpointMode.WholeDatamodel, EnableIntrospection = false };
+            var explorer = await command(host, "graphql-explorer", new { storeId, definition = JsonDocument.Parse(draft.ToJson()).RootElement });
+            var schema = prop(explorer, "schema");
+            Assert.AreEqual("Query", prop(schema, "queryType").GetString());
+            Assert.AreEqual(JsonValueKind.Null, prop(schema, "mutationType").ValueKind, "mutations are off by default");
+            var types = prop(schema, "types").EnumerateArray().ToList();
+            Assert.IsTrue(types.Any(t => prop(t, "name").GetString() == "Query" && prop(t, "role").GetString() == "root"));
+            Assert.AreEqual(JsonValueKind.Object, prop(explorer, "samples").ValueKind);
+            var guide = prop(explorer, "guide");
+            Assert.AreEqual(JsonValueKind.Array, prop(guide, "examples").ValueKind);
+            var unavailable = prop(guide, "unavailable").EnumerateArray().ToList();
+            Assert.IsTrue(unavailable.Any(u => prop(u, "id").GetString() == "introspection-schema"), "introspection is off, and the guide says so");
+            Assert.IsTrue(unavailable.Any(u => prop(u, "id").GetString() == "create"));
+        } finally {
+            await host.DisposeAsync();
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    [TestMethod]
+    public async Task TheExplorerPageIsServedOnTheUrlOnlyWhenSwitchedOn() {
+        var root = Path.Combine(Path.GetTempPath(), "relatude-graphql-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var host = start(root);
+        try {
+            var storeId = host.Server.Settings.DefaultStoreId;
+            var definition = new GraphQLEndpointDefinition { Name = "Public", Url = "/pub", Mode = GraphQLEndpointMode.WholeDatamodel };
+            var saved = await command(host, "graphql-save", new { storeId, definition = JsonDocument.Parse(definition.ToJson()).RootElement });
+            definition.Id = prop(saved, "id").GetGuid();
+
+            // switched off: a browser gets what any client gets without a query
+            var off = await get(host, "/pub", "", "text/html");
+            Assert.AreEqual(400, off.Status);
+            Assert.AreEqual(404, (await get(host, "/pub", "?explorer-data", null)).Status, "no schema for the page while it is off");
+            Assert.IsFalse((await command(host, "graphql-endpoints", new { storeId })).GetProperty("endpoints")[0].GetProperty("explorer").GetBoolean());
+
+            definition.EnableExplorer = true;
+            await command(host, "graphql-save", new { storeId, definition = JsonDocument.Parse(definition.ToJson()).RootElement });
+            Assert.IsTrue((await command(host, "graphql-endpoints", new { storeId })).GetProperty("endpoints")[0].GetProperty("explorer").GetBoolean());
+            var page = await get(host, "/pub", "", "text/html,application/xhtml+xml");
+            if (Relatude.DB.GraphQL.Endpoints.ExplorerPage.Available) {
+                Assert.AreEqual(200, page.Status);
+                StringAssert.StartsWith(page.ContentType, "text/html");
+                StringAssert.Contains(page.Body, "id=\"relatude-explorer-config\"");
+                StringAssert.Contains(page.Body, "\"url\":\"/pub\"");
+                StringAssert.Contains(page.Body, "src=\"?explorer-asset=explorer.js&v=", "the files are asked for on the same url");
+                var script = await get(host, "/pub", "?explorer-asset=explorer.js&v=1", null);
+                Assert.AreEqual(200, script.Status);
+                StringAssert.StartsWith(script.ContentType, "text/javascript");
+                Assert.AreEqual(404, (await get(host, "/pub", "?explorer-asset=..%2Fsecret.txt", null)).Status);
+            } else {
+                Assert.AreEqual(404, page.Status, "a build without the page says so");
+            }
+            // a client asking a question is not given the page, browser or not
+            Assert.AreEqual(200, (await get(host, "/pub", "?query=%7B__typename%7D", "text/html")).Status);
+            var data = await get(host, "/pub", "?explorer-data", null);
+            Assert.AreEqual(200, data.Status, data.Body);
+            var json = JsonDocument.Parse(data.Body).RootElement;
+            Assert.AreEqual("Query", json.GetProperty("schema").GetProperty("queryType").GetString());
+            Assert.AreEqual(JsonValueKind.Object, json.GetProperty("samples").ValueKind);
+            Assert.AreEqual(JsonValueKind.Array, json.GetProperty("guide").GetProperty("examples").ValueKind);
+
+            // the schema is no more open than the endpoint: the key is needed, and introspection must be on
+            definition.ApiKey = "the-secret-key";
+            await command(host, "graphql-save", new { storeId, definition = JsonDocument.Parse(definition.ToJson()).RootElement });
+            if (Relatude.DB.GraphQL.Endpoints.ExplorerPage.Available) {
+                var keyed = await get(host, "/pub", "", "text/html");
+                Assert.AreEqual(200, keyed.Status, "the page itself is where the key is typed in");
+                StringAssert.Contains(keyed.Body, "\"apiKey\":true");
+                Assert.IsFalse(keyed.Body.Contains("the-secret-key"), "the key is never written into the page");
+            }
+            Assert.AreEqual(401, (await get(host, "/pub", "?explorer-data", null)).Status);
+            Assert.AreEqual(200, (await get(host, "/pub", "?explorer-data", null, "the-secret-key")).Status);
+            definition.EnableIntrospection = false;
+            await command(host, "graphql-save", new { storeId, definition = JsonDocument.Parse(definition.ToJson()).RootElement });
+            Assert.AreEqual(403, (await get(host, "/pub", "?explorer-data", null, "the-secret-key")).Status);
+        } finally {
+            await host.DisposeAsync();
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    static async Task<(int Status, string? ContentType, string Body)> get(TestServerHost host, string path, string query, string? accept, string? apiKey = null) {
+        var http = new DefaultHttpContext();
+        http.Request.Method = "GET";
+        http.Request.Path = path;
+        http.Request.QueryString = new QueryString(query);
+        if (accept != null) http.Request.Headers.Accept = accept;
+        if (apiKey != null) http.Request.Headers["X-Api-Key"] = apiKey;
+        http.Response.Body = new MemoryStream();
+        var passed = false;
+        await host.Server.GraphQL.Middleware(http, () => { passed = true; return Task.CompletedTask; });
+        Assert.IsFalse(passed, "the request was expected to be answered by the endpoint");
+        http.Response.Body.Position = 0;
+        return (http.Response.StatusCode, http.Response.ContentType, await new StreamReader(http.Response.Body).ReadToEndAsync());
+    }
+
     static TestServerHost start(string root) {
         var host = TestServerHost.Start(root);
         typeof(RelatudeDBServer).GetMethod("MapAdminAPI", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(host.Server, [host.App]);

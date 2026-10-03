@@ -72,6 +72,13 @@ export interface SettingView {
   /** Decided by the configuration section, so it cannot be edited here. */
   overridden: boolean;
   configuredValue: unknown;
+  /** Set by the application's code (OnServerSettingsInit and its kind) at every start: locked too. */
+  codeSet: boolean;
+  /** Saved in relatude.db.overrides.json - changed here - rather than coming from relatude.db.json. */
+  inOverrides: boolean;
+  /** What relatude.db.json gives the setting, when `inOverrides`; null for secrets. */
+  fileValue: unknown;
+  fileHasValue: boolean;
 }
 
 /** One element of an editable collection: a storage provider, a file store. */
@@ -86,6 +93,8 @@ export interface SettingListItem {
   blocking: string[];
   /** what removing it costs beyond the settings file, when that is not visible from here */
   removeWarning?: string | null;
+  /** added here: relatude.db.overrides.json holds it, relatude.db.json does not */
+  addedHere: boolean;
 }
 
 export interface SettingList {
@@ -97,6 +106,8 @@ export interface SettingList {
   emptyHelp: string;
   /** configuration supplied part of this list, so it cannot be edited here */
   locked: boolean;
+  /** elements removed here that relatude.db.json still has, by name */
+  removedHere: string[];
   items: SettingListItem[];
 }
 
@@ -127,6 +138,11 @@ export interface SettingsPage {
   settingsFile: string;
   /** the configuration section that may override these settings, when one is configured */
   configSection?: string | null;
+  /**
+   * where the changes made here are saved; null when they go straight into relatude.db.json. `error`
+   * says the file could not be read at start: nothing in it is in force and saves are refused.
+   */
+  overrides?: { file: string; count: number; error?: string | null } | null;
   sections: SettingSection[];
   pickers: Record<string, SettingChoice[] | undefined>;
 }
@@ -189,4 +205,72 @@ export function addListItem(storeId: string, path: string, values?: SettingValue
 
 export function removeListItem(storeId: string, path: string, id: string): Promise<ListChangeResult> {
   return send<ListChangeResult>("settings-db-list-remove", { storeId, path, id });
+}
+
+// ---- relatude.db.overrides.json ----
+
+/** One thing relatude.db.overrides.json changes: a setting, or a list element added or removed here. */
+export interface OverrideEntry {
+  path: string;
+  kind: "value" | "added" | "removed";
+  label: string;
+  /** the section and group the setting is shown under */
+  where?: string | null;
+  secret: boolean;
+  /** the value saved here; null for secrets and for elements */
+  value: unknown;
+  hasValue: boolean;
+  /** what relatude.db.json has instead */
+  fileValue: unknown;
+  fileHasValue: boolean;
+  summary?: string | null;
+  canMove: boolean;
+  /** why it cannot be moved: configuration decides it */
+  moveBlocked?: string | null;
+  canDiscard: boolean;
+  discardBlocked?: string | null;
+}
+
+export interface OverrideGroup {
+  scope: "server" | "database";
+  storeId?: string | null;
+  title: string;
+  entries: OverrideEntry[];
+}
+
+export interface OverridesView {
+  /** false when the server writes the admin UI's changes straight into relatude.db.json */
+  enabled: boolean;
+  file: string | null;
+  /** the file could not be read when the server started: nothing in it is in force, nothing can be saved */
+  error?: string | null;
+  settingsFile: string;
+  configSection?: string | null;
+  count: number;
+  groups: OverrideGroup[];
+}
+
+export function fetchOverrides(): Promise<OverridesView> {
+  return send<OverridesView>("settings-overrides-get");
+}
+
+export interface MoveOverridesResult {
+  moved: string[];
+  overrides: OverridesView;
+}
+
+export interface DiscardOverridesResult {
+  discarded: string[];
+  rejected: { path: string; reason: string }[];
+  overrides: OverridesView;
+}
+
+/** Moves entries into relatude.db.json; what the configuration section decides stays where it is. */
+export function moveOverrides(paths: string[]): Promise<MoveOverridesResult> {
+  return send<MoveOverridesResult>("settings-overrides-move", { paths });
+}
+
+/** Drops entries, putting back what relatude.db.json says. */
+export function discardOverrides(paths: string[]): Promise<DiscardOverridesResult> {
+  return send<DiscardOverridesResult>("settings-overrides-discard", { paths });
 }

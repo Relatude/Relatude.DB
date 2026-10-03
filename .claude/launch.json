@@ -194,6 +194,25 @@
       ],
       "port": 8765,
       "autoPort": false
+    },
+    {
+      "name": "website-simple-overrides-verify",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "examples/Website.Simple",
+        "--no-launch-profile",
+        "-p:BaseOutputPath=bin/ClaudeOverrides/",
+        "-e",
+        "RelatudeDB__Description=From configuration",
+        "--contentRoot",
+        "C:/Users/ogulb/AppData/Local/Temp/claude/C--WAF-Code-Relatude-DB/fbdde25c-afe5-4cb8-81b1-06c337e9be0e/scratchpad/site",
+        "--urls",
+        "http://localhost:5091"
+      ],
+      "port": 5091,
+      "autoPort": false
     }
   ]
 }

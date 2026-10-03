@@ -5,6 +5,7 @@ using Relatude.DB.DataStores;
 using Relatude.DB.GraphQL;
 using Relatude.DB.GraphQL.Endpoints;
 using Relatude.DB.GraphQL.Schema;
+using Relatude.DB.Query.Data;
 
 namespace Relatude.DB.NodeServer.UI;
 
@@ -49,6 +50,27 @@ sealed class UIGraphQL(RelatudeDBServer server) {
         commands.Register("graphql-reload", ctx => {
             server.GraphQL.Invalidate();
             return (object?)list(ctx.Payload<StorePayload>().StoreId);
+        });
+        commands.Register("graphql-examples", ctx => {
+            var p = ctx.Payload<DefinitionPayload>();
+            var c = container(p.StoreId);
+            var dm = datamodelOf(c) ?? throw new Exception("The database is not open.");
+            var schema = RelatudeGraphQL.BuildSchema(dm, parse(p.Definition));
+            var store = c.IsOpen() && c.Store != null ? c.Store.Datastore : null;
+            // one stored node per type makes the ids and filter values in the examples real
+            Func<NodeTypeModel, INodeData?>? sampler = store == null ? null : t =>
+                (store.Query(t.CodeName + ".Page(0, 1)", Array.Empty<Relatude.DB.Query.Parameter>(), null) as IStoreNodeDataCollection)?.NodeValues.FirstOrDefault();
+            return (object?)new { groups = ExampleQueries.Build(schema, sampler) };
+        });
+        commands.Register("graphql-explorer", ctx => {
+            // what the explorer needs: the schema described type by type, one stored node per type (so ids in the
+            // builder are real) and the guide's examples written for this endpoint
+            var p = ctx.Payload<DefinitionPayload>();
+            var c = container(p.StoreId);
+            var dm = datamodelOf(c) ?? throw new Exception("The database is not open.");
+            var schema = RelatudeGraphQL.BuildSchema(dm, parse(p.Definition));
+            var store = c.IsOpen() && c.Store != null ? c.Store.Datastore : null;
+            return (object?)ExplorerData.Build(schema, store == null ? null : ExplorerData.StoreSampler(store, null));
         });
         commands.Register("graphql-execute", ctx => {
             var p = ctx.Payload<ExecutePayload>();
@@ -99,16 +121,16 @@ sealed class UIGraphQL(RelatudeDBServer server) {
             state = c.StateName,
             adminRoot = server.ApiUrlRoot,
             endpoints = files.Select(f => f.Definition == null
-                ? new EndpointSummary(null, f.FileName, f.FileName, null, false, "Selected", false, false, 0, 0, f.Error)
+                ? new EndpointSummary(null, f.FileName, f.FileName, null, false, "Selected", false, false, false, false, 0, 0, f.Error)
                 : new EndpointSummary(f.Definition.Id, f.Definition.Name, f.FileName, f.Definition.Url, f.Definition.Enabled, f.Definition.Mode.ToString(),
-                    f.Definition.ExactNames, f.Definition.AllowMutations,
+                    f.Definition.ExactNames, f.Definition.AllowMutations, f.Definition.EnableExplorer, f.Definition.EnableIntrospection,
                     f.Definition.Mode == GraphQLEndpointMode.WholeDatamodel ? (dm == null ? 0 : exposableTypes(dm, f.Definition.IncludeSystemTypes).Count()) : f.Definition.Types.Count,
                     f.Definition.Views.Count, null)).ToList(),
             catalog = dm == null ? null : catalog(dm),
         };
     }
 
-    sealed record EndpointSummary(Guid? Id, string Name, string File, string? Url, bool Enabled, string Mode, bool ExactNames, bool AllowMutations, int TypeCount, int ViewCount, string? Error);
+    sealed record EndpointSummary(Guid? Id, string Name, string File, string? Url, bool Enabled, string Mode, bool ExactNames, bool AllowMutations, bool Explorer, bool Introspection, int TypeCount, int ViewCount, string? Error);
 
     static IEnumerable<NodeTypeModel> exposableTypes(Datamodel dm, bool includeSystem)
         => dm.NodeTypes.Values.Where(t => t.Id != NodeConstants.BaseNodeTypeId && !t.Hidden && !t.IsInnerNode && (includeSystem || t.Namespace != "Relatude.DB.Native.Models"));
@@ -161,13 +183,13 @@ sealed class UIGraphQL(RelatudeDBServer server) {
     object preview(NodeStoreContainer c, GraphQLEndpointDefinition def) {
         var issues = validate(c, def);
         var dm = datamodelOf(c);
-        if (dm == null) return new { issues, warnings = Array.Empty<string>(), sdl = (string?)null, types = (string?)null, sample = (string?)null, sampleQuery = (string?)null, typeCount = 0, mutationCount = 0 };
+        if (dm == null) return new { issues, warnings = Array.Empty<string>(), sdl = (string?)null, types = (string?)null, sample = (string?)null, csharpTypes = (string?)null, csharpSample = (string?)null, sampleQuery = (string?)null, typeCount = 0, mutationCount = 0 };
         GqlSchema schema;
         try {
             schema = RelatudeGraphQL.BuildSchema(dm, def);
         } catch (Exception ex) {
             issues.Add(new GraphQLEndpointIssue { Severity = "error", Message = "The schema could not be built: " + ex.Message });
-            return new { issues, warnings = Array.Empty<string>(), sdl = (string?)null, types = (string?)null, sample = (string?)null, sampleQuery = (string?)null, typeCount = 0, mutationCount = 0 };
+            return new { issues, warnings = Array.Empty<string>(), sdl = (string?)null, types = (string?)null, sample = (string?)null, csharpTypes = (string?)null, csharpSample = (string?)null, sampleQuery = (string?)null, typeCount = 0, mutationCount = 0 };
         }
         return new {
             issues,
@@ -175,6 +197,8 @@ sealed class UIGraphQL(RelatudeDBServer server) {
             sdl = SdlWriter.Write(schema),
             types = TypeScriptWriter.WriteTypes(schema),
             sample = TypeScriptWriter.WriteSample(schema),
+            csharpTypes = CSharpWriter.WriteTypes(schema),
+            csharpSample = CSharpWriter.WriteSample(schema),
             sampleQuery = TypeScriptWriter.WriteSampleQuery(schema),
             typeCount = schema.ObjectTypesByNodeTypeId.Count,
             mutationCount = schema.MutationType?.Fields.Count ?? 0,

@@ -37,7 +37,7 @@ sealed class UIDatabases {
         return new {
             // the default is a server setting like any other, so configuration can decide it - and
             // then this page must not pretend the button would do anything
-            DefaultLocked = overlay != null && overlay.IsOverridden(nameof(RelatudeDBServerSettings.DefaultStoreId), out _),
+            DefaultLocked = _server.DecidedOutsideTheSettingsFiles(nameof(RelatudeDBServerSettings.DefaultStoreId)) != null,
             ConfigSection = overlay?.SectionName,
             SettingsFile = _server.Settings.DBSettingsFilePath ?? Defaults.SettingsFileName,
             Databases = _server.GetContainers()
@@ -92,10 +92,10 @@ sealed class UIDatabases {
     object setDefault(Guid storeId) {
         lock (_createLock) {
             if (!_server.Containers.ContainsKey(storeId)) throw new Exception("Database not found. ");
-            var overlay = _server.ConfigurationOverlay;
-            if (overlay != null && overlay.IsOverridden(nameof(RelatudeDBServerSettings.DefaultStoreId), out _)) {
-                throw new Exception("The default database is set by configuration (" + overlay.SectionName
-                    + ") and cannot be changed here: the overlay would win again at the next start. ");
+            var decidedBy = _server.DecidedOutsideTheSettingsFiles(nameof(RelatudeDBServerSettings.DefaultStoreId));
+            if (decidedBy != null) {
+                throw new Exception("The default database is set by " + decidedBy
+                    + " and cannot be changed here: it would win again at the next start. ");
             }
             _server.Settings.DefaultStoreId = storeId;
             _server.UpdateWAFServerSettingsFile();
@@ -142,8 +142,7 @@ sealed class UIDatabases {
             // the same hooks the startup path runs, so a database added here is built the way one
             // read from the settings file is - an application that fills in settings in code must
             // not get a database that skipped it
-            _server.RaiseEventContainerSettingsInit(settings);
-            if (settings.LocalSettings != null) _server.RaiseEventStoreSettingsInit(settings.LocalSettings, settings);
+            _server.RaiseContainerSettingsInitRecorded(settings);
             var container = new NodeStoreContainer(settings, _server);
             lock (_server.Containers) _server.Containers.Add(settings.Id, container);
             // written only now: the file is rebuilt from the live containers, so a container added

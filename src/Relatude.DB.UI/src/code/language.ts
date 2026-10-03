@@ -2,7 +2,7 @@
 // linter apply. Every list here is a plain lookup - nothing is sniffed from the content, except
 // that the viewer refuses to edit text that turns out to hold NUL bytes.
 
-export type Language = "json" | "xml" | "html" | "css" | "javascript" | "typescript" | "csharp" | "graphql" | "markdown" | "plain";
+export type Language = "json" | "xml" | "html" | "css" | "javascript" | "typescript" | "csharp" | "graphql" | "python" | "go" | "java" | "shell" | "markdown" | "plain";
 
 export type FileKind = "image" | "video" | "audio" | "pdf" | "text" | "other";
 
@@ -55,8 +55,12 @@ const languageByExtension: Record<string, Language> = {
   gitattributes: "plain",
   editorconfig: "plain",
   sql: "plain",
-  ps1: "plain",
-  sh: "plain",
+  ps1: "shell",
+  sh: "shell",
+  bash: "shell",
+  py: "python",
+  go: "go",
+  java: "java",
   bat: "plain",
   cmd: "plain",
   sln: "plain",
@@ -78,6 +82,10 @@ const typeNames: Record<string, string> = {
   typescript: "TypeScript",
   csharp: "C#",
   graphql: "GraphQL",
+  python: "Python",
+  go: "Go",
+  java: "Java",
+  shell: "Shell script",
   markdown: "Markdown",
 };
 

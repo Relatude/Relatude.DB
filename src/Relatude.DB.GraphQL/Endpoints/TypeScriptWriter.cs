@@ -48,7 +48,7 @@ public static class TypeScriptWriter {
                     break;
             }
         }
-        return sb.ToString();
+        return CSharpWriter.Lf(sb);
     }
 
     static int rank(GqlNamedType t) => t switch {
@@ -126,15 +126,15 @@ public static class TypeScriptWriter {
         sb.AppendLine("  return result.data;");
         sb.AppendLine("}");
 
-        var list = pickSampleList(schema);
+        var list = PickSampleList(schema);
         if (list == null) {
             sb.AppendLine();
             sb.AppendLine("// The endpoint exposes no types yet, so there is nothing to query.");
-            return sb.ToString();
+            return CSharpWriter.Lf(sb);
         }
         var typeName = list.Type.UnwrapNamed() is GqlObjectType w && w.TryGetField("items", out var itemsField) ? itemsField.Type.UnwrapNamed().Name : "Node";
         var composite = schema.Types.TryGetValue(typeName, out var ct) ? ct as IGqlCompositeType : null;
-        var fields = sampleFields(composite);
+        var fields = SampleFields(composite);
         var selection = string.Join(" ", fields);
         var wrapper = list.Type.UnwrapNamed().Name;
         var single = schema.QueryType.Fields.FirstOrDefault(f => f.Source == FieldSource.RootSingle && f.TargetNodeType == list.TargetNodeType);
@@ -176,7 +176,7 @@ public static class TypeScriptWriter {
             sb.AppendLine($"// The view \"{view.Name}\": {view.Description}");
             sb.AppendLine($"export async function {view.Name}(page = 0): Promise<{viewWrapper}> {{");
             sb.AppendLine($"  const data = await gql<{{ {view.Name}: {viewWrapper} }}>(");
-            sb.AppendLine($"    `query View($page: Int!) {{ {view.Name}(page: $page, pageSize: 20) {{ totalCount items {{ {string.Join(" ", sampleFields(viewType))} }} }} }}`,");
+            sb.AppendLine($"    `query View($page: Int!) {{ {view.Name}(page: $page, pageSize: 20) {{ totalCount items {{ {string.Join(" ", SampleFields(viewType))} }} }} }}`,");
             sb.AppendLine("    { page },");
             sb.AppendLine("  );");
             sb.AppendLine($"  return data.{view.Name};");
@@ -192,7 +192,7 @@ public static class TypeScriptWriter {
                 var update = schema.MutationType.Fields.FirstOrDefault(f => f.Source == FieldSource.MutationUpdate && f.TargetNodeType == create.TargetNodeType);
                 var delete = schema.MutationType.Fields.FirstOrDefault(f => f.Source == FieldSource.MutationDelete && f.TargetNodeType == create.TargetNodeType);
                 var mutComposite = schema.Types.TryGetValue(mutType, out var mct) ? mct as IGqlCompositeType : null;
-                var mutSelection = string.Join(" ", sampleFields(mutComposite));
+                var mutSelection = string.Join(" ", SampleFields(mutComposite));
                 sb.AppendLine();
                 sb.AppendLine($"// Creates a {mutType}. Fields left out of the input take their defaults.");
                 sb.AppendLine($"export async function create{mutType}(input: {inputType}): Promise<{mutType}> {{");
@@ -223,12 +223,12 @@ public static class TypeScriptWriter {
                 }
             }
         }
-        return sb.ToString();
+        return CSharpWriter.Lf(sb);
     }
 
     /// <summary>A ready-to-run query for the endpoint's playground.</summary>
     public static string WriteSampleQuery(GqlSchema schema) {
-        var list = pickSampleList(schema);
+        var list = PickSampleList(schema);
         if (list == null) return "{ __schema { queryType { name } } }";
         var typeName = list.Type.UnwrapNamed() is GqlObjectType w && w.TryGetField("items", out var itemsField) ? itemsField.Type.UnwrapNamed().Name : "Node";
         var composite = schema.Types.TryGetValue(typeName, out var ct) ? ct as IGqlCompositeType : null;
@@ -236,14 +236,14 @@ public static class TypeScriptWriter {
         sb.AppendLine("{");
         sb.AppendLine($"  {list.Name}(page: 0, pageSize: 5) {{");
         sb.AppendLine("    totalCount");
-        sb.AppendLine($"    items {{ {string.Join(" ", sampleFields(composite))} }}");
+        sb.AppendLine($"    items {{ {string.Join(" ", SampleFields(composite))} }}");
         sb.AppendLine("  }");
         sb.AppendLine("}");
-        return sb.ToString();
+        return CSharpWriter.Lf(sb);
     }
 
     /// <summary>The list root field with the richest type, so the sample has something to show.</summary>
-    static GqlField? pickSampleList(GqlSchema schema) {
+    internal static GqlField? PickSampleList(GqlSchema schema) {
         GqlField? best = null;
         var bestCount = -1;
         foreach (var f in schema.QueryType.Fields) {
@@ -255,7 +255,7 @@ public static class TypeScriptWriter {
     }
 
     /// <summary>id plus a few scalar fields and the first relation, as a client would select them.</summary>
-    static List<string> sampleFields(IGqlCompositeType? type) {
+    internal static List<string> SampleFields(IGqlCompositeType? type) {
         var fields = new List<string> { "id" };
         if (type == null) return fields;
         var scalars = 0;

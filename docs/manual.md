@@ -2148,16 +2148,106 @@ The merge rules:
   `DefaultStoreId` re-identifies an object instead of reconfiguring it, and draws an explicit
   warning.
 
-**Overridden values never reach the file.** The admin UI saves settings back to `relatude.db.json`
-wholesale; before that write the server restores every overridden key to the value the file had, so
-a secret supplied through configuration is not baked into the file by the next save. The flip side:
-while a key is overridden, editing it in the admin UI has no lasting effect — configuration wins
-again on the next load. The startup log tells you which keys are in that state.
+**Overridden values never reach a file.** Before the admin UI saves settings — to
+`relatude.db.overrides.json`, see the next section — the server restores every overridden key to the
+value the files gave it, so a secret supplied through configuration is not baked into a file by the
+next save. The flip side: while a key is overridden, editing it in the admin UI has no lasting
+effect — configuration wins again on the next load — so the settings pages lock it. The startup log
+tells you which keys are in that state.
 
 The overlay is applied after the settings file is read and before `OnServerSettingsInit` fires, so
 every callback sees the merged settings. `ServerOptions.ConfigurationSectionName` renames the
 section; set it to `null` to turn the overlay off. A custom `SettingsLoader` is composed with, not
 replaced: the overlay applies to whatever the loader returns.
+
+### Changes made in the admin UI: relatude.db.overrides.json
+
+The settings pages of the admin UI never write `relatude.db.json`. That file is the application's
+own description of itself — usually written by a developer, kept in source control and deployed with
+the application — while what an administrator changes belongs to the installation. So every save from
+the settings pages compares the settings in force with `relatude.db.json` as it was read, and writes
+only the difference to `relatude.db.overrides.json`, kept with the default database:
+
+```jsonc
+// relatude.db/relatude.db.overrides.json, beside the default database's data/ and state/ folders
+{
+  "Name": "Production",
+  "ContainerSettings": [
+    {
+      "Id": "6f1d2c3b-2222-4a5b-9c8d-000000000002",
+      "LocalSettings": { "NodeCacheSizeGb": 2.5 },
+      "IOSettings": [
+        { "Id": "a30d711e-…", "$added": true, "Name": "Second disk", "IOType": "LocalDisk", "Path": "second" }
+      ],
+      "DatamodelSources": [
+        { "Id": "6f1d2c3b-4444-…", "$removed": true }
+      ]
+    }
+  ]
+}
+```
+
+At every start, and every soft restart, the settings are built in four layers, each merged over the
+one before:
+
+| Layer | Where | Written by |
+|---|---|---|
+| 1 | `relatude.db.json` | you, or `relatude init` |
+| 2 | `relatude.db.overrides.json` | the settings pages of the admin UI |
+| 3 | the `RelatudeDB` configuration section | appsettings, environment variables, user secrets |
+| 4 | `OnServerSettingsInit`, `OnContainerSettingsInit`, `OnStoreSettingsInit` | your code |
+
+A save takes layers 3 and 4 off again before it makes the difference, so neither a secret from
+configuration nor a value your code forces at every start ever lands in either file. The settings
+pages lock both kinds of field, marked *from configuration* and *from code*.
+
+The file has the same shape as `relatude.db.json`. Objects hold only the keys that changed. List
+elements are matched on their `Id`: a changed element holds its `Id` and the changed fields, an element
+added in the admin UI is written whole with `"$added": true`, and one removed there is its `Id` with
+`"$removed": true`. A list without ids is written whole. A change to an element that `relatude.db.json`
+no longer has is reported at startup and skipped, rather than added as half an element. Unknown keys
+and values that do not fit a setting are warnings, as in the configuration section. A file that is not
+valid JSON stops the start, because the next save would otherwise write over everything in it.
+
+**On the settings pages** a field saved in the overrides file is marked *in overrides*. Hovering the
+mark shows what `relatude.db.json` has, and the restore button beside the field puts that value back
+as an edit you then save. A list element added there is marked *added here*, and elements removed
+there are named under the list. The **Overrides** button in the toolbar lists everything in the file —
+the server's settings and every database's — with both values side by side:
+
+- **Move into relatude.db.json** writes the selected entries, or all of them, into `relatude.db.json`
+  and takes them out of the overrides file. Nothing that is running changes. Settings decided by the
+  configuration section are never moved, so configuration cannot leak into `relatude.db.json` this
+  way. The file is rewritten by the settings loader, so comments in it are lost, and a secret moved
+  there is stored in plain text.
+- **Discard** puts back what `relatude.db.json` says for the selected entries — a value, a removed
+  element restored, an added element taken out again — and saves.
+
+**Where the file is.** It is kept with the default database — the one `DefaultStoreId` names — at the
+root of the storage provider that database keeps its files in. On local disk that is beside its
+`data/`, `state/` and `log/` folders, so with the default settings `relatude.db/relatude.db.overrides.json`;
+on Azure Blob storage it is a blob in the database's container. Wherever the database's files go, the
+admin UI's changes go with them.
+
+The file has to be found before the settings are put together, so the default database is looked up
+in `relatude.db.json` with the configuration section over it — never with the overrides file itself.
+Changing the default database, its storage provider or that provider's folder in the admin UI moves
+the database's files at its next open, but leaves the overrides file where `relatude.db.json` puts it,
+and the next start finds it there. Moving such a change into `relatude.db.json` takes the file along
+to the new place. Values set by the settings callbacks are not consulted, as they run later. If you
+change the database's folder in `relatude.db.json` by hand, move the file together with the
+database's own files. With no database to follow, the file is kept at
+`relatude.db/relatude.db.overrides.json` below the root data folder.
+
+If the storage cannot be reached when the server starts — a blob service that is down, say — the
+server starts anyway, on `relatude.db.json` and configuration alone, and the settings pages say so and
+refuse to save until a restart can read the file, since a save would write over it.
+
+`ServerOptions.SettingsOverridesFilePath` names a file on disk instead, relative to the root data
+folder or absolute. `ServerOptions.UseSettingsOverridesFile = false` turns the file off: the settings
+pages then write `relatude.db.json` again, as they did before it existed — still without configuration
+values or values set by code. The CLI finds the file the same way, `--overrides <file>` points it
+elsewhere, and `relatude settings` reports where it is and how many settings it changes.
 
 ### Options and events in Program.cs
 
@@ -2174,10 +2264,11 @@ builder.AddRelatudeDB(options => {
     options.DefaultDataFolderPath = "data";          // relative to the content root, or absolute
     options.DefaultTempFolderPath = "data/tmp";
     options.SettingsLoader = new MySettingsLoader();  // replaces relatude.db.json entirely
+    options.SettingsOverridesFilePath = "data/relatude.db.overrides.json"; // admin UI changes; default: with the default database
 
-    // Secrets belong in the RelatudeDB configuration section (previous section) — it is merged in
-    // automatically and stripped again before saves. This callback also works, but what it sets is
-    // written back to relatude.db.json when the admin UI saves settings.
+    // Secrets belong in the RelatudeDB configuration section — it is merged in automatically and
+    // stripped again before saves. What this callback sets is applied at every start, locked on the
+    // settings pages, and never saved to relatude.db.json or relatude.db.overrides.json.
     options.OnServerSettingsInit = s => {
         s.TokenCookieName = "MyToken";
     };
@@ -2361,7 +2452,7 @@ What you do in it:
 | **Status** | Store state, running file conversions, activity and timings. |
 | **Activity** | What the database records about itself — queries, transactions, actions, tasks, metrics, the system trace — each log switched on or off, with its entries, search and graphs. |
 | **Logs** | Logs of your own: define one, and read what the application recorded into it as graphs, entries and the spread of a column's values. The **Built-in logs** switch shows the Activity logs here too, read only. See [§32](#32-logs--recording-what-the-application-does). |
-| **Memory** (on the dashboard) | Every memory budget of one database on one line - the node and result set caches, each index engine, the state store - each showing what it is actually holding against what it is allowed. Dragging a budget takes effect at once where the part can be re-sized while it runs; saving writes them back to `relatude.db.json` for the next start. |
+| **Memory** (on the dashboard) | Every memory budget of one database on one line - the node and result set caches, each index engine, the state store - each showing what it is actually holding against what it is allowed. Dragging a budget takes effect at once where the part can be re-sized while it runs; saving keeps them for the next start, in `relatude.db.overrides.json` like every change made on the settings pages. |
 
 Two habits worth forming:
 
@@ -4242,8 +4333,10 @@ relatude info --store "Reporting"        # when the file holds more than one dat
 ```
 
 The folder holding `relatude.db.json` is treated as the application's content root, exactly as the
-server treats it, so every relative path inside the file resolves to the same place. The `RelatudeDB`
-configuration section is applied too — the tool reads `appsettings.json`,
+server treats it, so every relative path inside the file resolves to the same place.
+`relatude.db.overrides.json` (the changes made in the admin UI, found with the default database as the
+server finds it, or wherever `--overrides` says) and the `RelatudeDB` configuration section are applied
+too — the tool reads `appsettings.json`,
 `appsettings.{environment}.json` and environment variables from that root, so it works on the same
 effective settings the server would run with. `--environment` picks the environment (default:
 `DOTNET_ENVIRONMENT`, `ASPNETCORE_ENVIRONMENT` or `Production`).
@@ -4689,8 +4782,8 @@ A few things to know:
 
 The activity logs on the Activity page work the same way, with two differences: they are defined by
 the database itself, and a switch flipped there is live at once but kept across a restart only when
-*Save and remember changes* writes it to `relatude.db.json` (`LogRecording`,
-[§12.1](#121-every-setting-in-relatudedbjson)).
+*Save and remember changes* saves it with the settings (`LogRecording`,
+[§12.1](#121-every-setting-in-relatudedbjson)), in `relatude.db.overrides.json` like every other admin UI change.
 
 They can be read on the Logs page as well: the **Built-in logs** switch at the end of its tabs (off
 until it is turned on, and remembered in the browser) adds a tab for each of them after your own logs,

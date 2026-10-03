@@ -148,13 +148,39 @@ public static class SettingsAccessor {
     /// changed, so a save can report what it did.
     /// </summary>
     public static bool Write(object root, string path, JsonElement value) {
+        var (owner, target) = writableProperty(root, path);
+        var converted = Convert(value, target, path);
+        var before = target.GetValue(owner);
+        if (Equals(before, converted)) return false;
+        target.SetValue(owner, converted);
+        return true;
+    }
+
+    /// <summary>
+    /// Puts a value back exactly as the settings file holds it - an object or a list as well as a single
+    /// value, an empty string as an empty string - where <see cref="Write"/> reads what a person typed.
+    /// Used to restore the value relatude.db.json gives a setting.
+    /// </summary>
+    public static void Assign(object root, string path, JsonNode? value) {
+        var (owner, target) = writableProperty(root, path);
+        object? converted;
+        try {
+            converted = JsonSerializer.Deserialize(value, target.PropertyType, LocalSettingsLoaderFile.JsonOptions);
+        } catch (Exception error) {
+            throw new Exception("Setting \"" + path + "\" does not accept this value: " + error.Message);
+        }
+        target.SetValue(owner, converted);
+    }
+
+    // the object holding the property a path ends in, creating the objects on the way when they are
+    // still null; elements are added through the list commands, never conjured by a write
+    static (object Owner, PropertyInfo Property) writableProperty(object root, string path) {
         var steps = parse(path);
         var current = root;
         for (var i = 0; i < steps.Length - 1; i++) {
             var property = propertyOf(current.GetType(), steps[i].Property, path);
             var next = property.GetValue(current);
             if (steps[i].ElementId != null) {
-                // elements are added through the list commands, never conjured by a write
                 current = ElementOf(next, steps[i].ElementId!.Value, path);
                 continue;
             }
@@ -168,11 +194,7 @@ public static class SettingsAccessor {
         if (steps[^1].ElementId != null) throw new Exception("Setting \"" + path + "\" names a collection element, not a value.");
         var target = propertyOf(current.GetType(), steps[^1].Property, path);
         if (target.SetMethod?.IsPublic != true) throw new Exception("Setting \"" + path + "\" is read only.");
-        var converted = Convert(value, target, path);
-        var before = target.GetValue(current);
-        if (Equals(before, converted)) return false;
-        target.SetValue(current, converted);
-        return true;
+        return (current, target);
     }
 
     /// <summary>Turns a value posted by the browser into the property's own type. An empty string

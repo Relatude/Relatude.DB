@@ -1,0 +1,1162 @@
+/* The GraphQL explorer (GraphQLExplorer.tsx and its Explorer* parts): a side panel (build, docs, guide,
+   history), the query with its variables, and the answer or the code. It fills the editor body it sits in;
+   maximized it covers the window. Narrow, the answer moves under the query, then everything stacks. */
+
+.gx {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  container-type: inline-size;
+  container-name: gx;
+}
+
+.gx.max {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  padding: 10px 14px 12px;
+  background: var(--bg);
+}
+
+.gx .icon-button.small,
+.gx-guide .icon-button.small {
+  width: 26px;
+  height: 26px;
+  flex: none;
+}
+
+.gx .action-button.small {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.gx-spacer {
+  flex: 1;
+}
+
+/* ---- the bar: side toggle, tabs, maximize, operation, run ---- */
+
+.gx-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.gx-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: 1px 0;
+}
+
+.gx-tab {
+  flex: none;
+  display: flex;
+  align-items: center;
+  max-width: 230px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--button-bg);
+}
+
+.gx-tab.active {
+  border-color: var(--section-tone);
+  background: var(--section-tone-soft);
+}
+
+.gx-tab-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 4px 2px 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gx-tab.active .gx-tab-name {
+  color: var(--section-tone);
+}
+
+.gx-tab-close {
+  display: flex;
+  padding: 4px 6px;
+  color: var(--text-faint);
+}
+
+.gx-tab-close:hover {
+  color: var(--danger);
+}
+
+.gx-op-pick {
+  max-width: 180px;
+}
+
+.gx .action-button.gx-run {
+  min-width: 92px;
+  justify-content: center;
+}
+
+/* ---- the three columns ---- */
+
+.gx-main {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--gx-side, 330px) 10px minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.gx-main.no-side {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.gx-side {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.gx-side-switch {
+  align-self: stretch;
+  margin: 8px;
+}
+
+.gx-side-switch button {
+  flex: 1;
+  justify-content: center;
+}
+
+.gx-side-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 10px 14px;
+}
+
+.gx-split {
+  cursor: col-resize;
+  margin: 0 2px;
+  border-radius: 3px;
+  touch-action: none;
+}
+
+.gx-split:hover {
+  background: var(--hover);
+}
+
+.gx-center,
+.gx-right {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gx-right {
+  margin-left: 12px;
+}
+
+.gx-pane-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 28px;
+}
+
+.gx-pane-title {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.gx-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.gx-status span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gx-status svg {
+  flex: none;
+}
+
+.gx-status.ok {
+  color: var(--ok);
+}
+
+.gx-status.bad {
+  color: var(--danger);
+}
+
+button.gx-status {
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.gx-status:hover span {
+  text-decoration: underline;
+}
+
+.gx-pane-head .link-button {
+  margin-left: 0;
+  white-space: nowrap;
+}
+
+/* the editor frames: the same as the API section's (api.css), repeated here because the endpoint's own page
+   (src/explorer) does not load that stylesheet */
+.gx .api-code {
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.gx .api-code .code-editor {
+  flex: 1;
+  max-height: none;
+}
+
+.gx .api-code.gx-fill {
+  flex: 1;
+  height: auto;
+  min-height: 120px;
+}
+
+.gx .api-code.gx-vars {
+  flex: none;
+  height: 150px;
+  min-height: 90px;
+}
+
+.gx-meta {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+}
+
+.gx-meta.bad {
+  color: var(--danger);
+}
+
+.gx-empty {
+  padding: 24px 6px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.gx-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 14px;
+  font-size: 12px;
+}
+
+.gx-warnings svg {
+  vertical-align: -2px;
+  color: var(--busy);
+}
+
+@container gx (max-width: 1100px) {
+  .gx-main {
+    grid-template-columns: var(--gx-side, 330px) 10px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .gx-side,
+  .gx-split {
+    grid-row: 1 / span 2;
+  }
+  .gx-right {
+    grid-column: 3;
+    margin: 10px 0 0;
+  }
+  .gx-main.no-side {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .gx-main.no-side .gx-right {
+    grid-column: 1;
+  }
+}
+
+@container gx (max-width: 700px) {
+  .gx-main,
+  .gx-main.no-side {
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+  }
+  .gx-side {
+    flex: none;
+    max-height: 55vh;
+  }
+  .gx-split {
+    display: none;
+  }
+  .gx-center,
+  .gx-right {
+    flex: none;
+    min-height: 460px;
+    margin: 10px 0 0;
+  }
+}
+
+/* ---- build ---- */
+
+.gx-builder {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+}
+
+.gx .gx-filter {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.gx-builder-error {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--danger);
+}
+
+.gx-builder-error .link-button {
+  margin-left: 0;
+}
+
+.gx-section-head {
+  margin: 12px 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--section-tone);
+}
+
+.gx-section-head .muted {
+  margin-left: 4px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-muted);
+}
+
+.gx-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 24px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+
+.gx-row:hover {
+  background: var(--hover);
+}
+
+.gx-row input[type="checkbox"],
+.gx-arg-head input[type="checkbox"] {
+  flex: none;
+  margin: 0 3px 0 0;
+}
+
+.gx-caret {
+  flex: none;
+  display: inline-flex;
+  width: 12px;
+  color: var(--text-faint);
+}
+
+.gx-name {
+  flex: 0 0 auto;
+  max-width: 62%;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: var(--code-font);
+  font-size: 12.5px;
+  text-align: left;
+  color: var(--text);
+}
+
+.gx-row.on > .gx-name {
+  font-weight: 700;
+  color: var(--section-tone);
+}
+
+.gx-args-mark {
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
+.gx-badge {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 99px;
+  background: var(--badge-bg);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.gx-type {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  padding: 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: var(--code-font);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.gx-type:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.gx-fragment .gx-name {
+  font-style: italic;
+}
+
+.gx-args {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 1px 0 4px;
+  padding: 3px 0 4px 8px;
+  border-left: 2px solid var(--section-tone-soft);
+}
+
+.gx-arg-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  white-space: nowrap;
+}
+
+.gx-arg-name {
+  padding: 0;
+  font: var(--code-font);
+  font-size: 12px;
+  color: var(--tok-a);
+}
+
+.gx-arg.on > .gx-arg-head .gx-arg-name {
+  font-weight: 700;
+}
+
+.gx-arg-type {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: var(--code-font);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.gx-required {
+  font-family: inherit;
+  color: var(--danger);
+}
+
+.gx-value {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 0 5px 20px;
+}
+
+.gx .gx-input {
+  flex: 1;
+  width: auto;
+  min-width: 60px;
+  height: 26px;
+  box-sizing: border-box;
+  padding: 2px 8px;
+  font: var(--code-font);
+  font-size: 12px;
+}
+
+.gx .gx-input.bad {
+  border-color: var(--danger);
+}
+
+.gx-value .select.compact {
+  min-width: 100px;
+  max-width: 100%;
+}
+
+.gx-value.gx-object,
+.gx-value.gx-list {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.gx-input-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+}
+
+.gx-object-tools {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.gx-list-item {
+  padding: 4px 6px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+}
+
+.gx-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+
+.gx-list .link-button {
+  align-self: flex-start;
+  margin-left: 0;
+}
+
+.gx-var-chip {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font: var(--code-font);
+  font-size: 12px;
+  color: var(--tok-v);
+  background: var(--term-bg);
+}
+
+.gx-sample {
+  flex: none;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.gx-sample:hover {
+  background: var(--hover);
+}
+
+.gx-builder-foot {
+  margin: 14px 0 0;
+  font-size: 11px;
+}
+
+/* ---- docs ---- */
+
+.gx-docs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.gx-docs-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
+.gx .gx-docs-search .text-input {
+  flex: 1;
+  width: auto;
+}
+
+.gx-docs-nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.gx-docs-nav .link-button {
+  margin-left: 0;
+}
+
+.gx-docs-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: var(--code-font);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.gx-docs-page {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gx-docs-text {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.gx-docs-page code {
+  padding: 0 4px;
+  border-radius: 4px;
+  font: var(--code-font);
+  font-size: 12px;
+  color: var(--term-text);
+  background: var(--term-bg);
+}
+
+.gx-docs-group-head {
+  margin: 10px 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--section-tone);
+}
+
+.gx-docs-group-head .muted {
+  margin-left: 4px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-muted);
+}
+
+.gx-docs-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.gx-type-link {
+  padding: 0;
+  font: var(--code-font);
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.gx-type-link:hover {
+  text-decoration: underline;
+}
+
+.gx-type-ref {
+  font: var(--code-font);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.gx-docs-field {
+  padding: 7px 0;
+  border-top: 1px solid var(--border);
+}
+
+.gx-docs-field.focus {
+  margin: 0 -6px;
+  padding: 7px 6px;
+  border-radius: 6px;
+  background: var(--section-tone-soft);
+}
+
+.gx-docs-field-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font: var(--code-font);
+  font-size: 12.5px;
+}
+
+.gx-docs-field-name {
+  font-weight: 700;
+  color: var(--tok-p);
+}
+
+.gx-docs-field-text {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-soft);
+}
+
+.gx-docs-args {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 0 0 10px;
+  font: var(--code-font);
+  font-size: 11.5px;
+}
+
+.gx-docs-arg {
+  color: var(--tok-a);
+}
+
+.gx-docs-hits {
+  display: flex;
+  flex-direction: column;
+}
+
+.gx-docs-hit {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 6px;
+  border-radius: 5px;
+  font-size: 12px;
+  text-align: left;
+}
+
+.gx-docs-hit:hover {
+  background: var(--hover);
+}
+
+.gx-docs-hit-name {
+  font: var(--code-font);
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.gx-docs-hit .muted {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--code-font);
+  font-size: 11px;
+}
+
+.gx-enum-value {
+  font: var(--code-font);
+  font-size: 12px;
+}
+
+.gx-docs-used {
+  font-size: 12px;
+}
+
+/* ---- guide ---- */
+
+.gx-guide {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+}
+
+.gx-guide-section-head {
+  margin: 14px 0 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--section-tone);
+}
+
+.gx-guide-intro {
+  margin: 2px 0 4px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.gx-topic {
+  margin: 5px 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.gx-topic.unavailable {
+  opacity: 0.7;
+}
+
+.gx-topic-title {
+  margin-bottom: 3px;
+  font-weight: 700;
+}
+
+.gx-topic-text {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
+.gx-topic-note {
+  margin: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.gx-topic-warn {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.gx-topic-code pre {
+  margin: 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  border-radius: 6px;
+  font: var(--code-font);
+  font-size: 11.5px;
+  line-height: 17px;
+  white-space: pre;
+  color: var(--term-text);
+  background: var(--term-bg);
+}
+
+.gx-topic-code pre + pre {
+  margin-top: 4px;
+}
+
+.gx-topic-code .gx-topic-more {
+  margin: 4px 0 0;
+}
+
+.gx-topic-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/* ---- history ---- */
+
+.gx-history {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-top: 2px;
+}
+
+.gx-history-entry {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto 26px;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+
+.gx-history-entry:hover {
+  background: var(--hover);
+}
+
+.gx-history-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--code-font);
+  font-size: 12px;
+}
+
+.gx-history-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.gx-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+}
+
+.gx-dot.ok {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+}
+
+.gx-dot.bad {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.gx .gx-history-clear {
+  align-self: flex-start;
+  margin-top: 12px;
+}
+
+/* ---- the answer ---- */
+
+.gx-result {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gx-errors {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 40%;
+  overflow: auto;
+}
+
+.gx-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.gx-error svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.gx-error .link-button {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.gx-table-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gx-table-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.gx-chip {
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  font: var(--code-font);
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.gx-chip.active {
+  border-color: var(--section-tone);
+  color: var(--section-tone);
+  background: var(--section-tone-soft);
+}
+
+.gx-table-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.gx-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.gx-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font: var(--code-font);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--button-bg);
+}
+
+.gx-table td {
+  max-width: 360px;
+  padding: 4px 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.gx-table tr:hover td {
+  background: var(--hover);
+}
+
+.gx-table td.gx-row-tools {
+  width: 28px;
+  padding: 1px 2px;
+}
+
+.gx-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.gx-null {
+  font-style: italic;
+  color: var(--text-faint);
+}
+
+.gx-bool {
+  color: var(--tok-v);
+}
+
+.gx-json {
+  font: var(--code-font);
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.gx-node-link {
+  padding: 0;
+  font-size: 12px;
+  text-align: left;
+  color: var(--accent);
+}
+
+.gx-node-link:hover {
+  text-decoration: underline;
+}
+
+.gx-node-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+}
+
+/* ---- code ---- */
+
+.gx-code {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gx-code-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gx-code-note {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+/* one object: field names down the left, values beside them */
+.gx-table.gx-record {
+  width: 100%;
+}
+
+.gx-table.gx-record th {
+  position: static;
+  width: 1%;
+  white-space: nowrap;
+  vertical-align: top;
+  border-right: 1px solid var(--border);
+}
+
+.gx-table.gx-record td {
+  max-width: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.gx-code-tools {
+  display: flex;
+  margin-left: auto;
+}
+
+.gx-guide-notice {
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  background: var(--section-tone-soft);
+}
+
+.gx-guide-notice p {
+  margin: 0;
+}
+
+.gx-guide-notice p + p {
+  margin-top: 4px;
+}
+
+/* a small button that carries its name grows with it, like any labelled icon button */
+.gx .icon-button.small.labelled {
+  width: auto;
+  padding: 0 8px;
+  gap: 5px;
+}

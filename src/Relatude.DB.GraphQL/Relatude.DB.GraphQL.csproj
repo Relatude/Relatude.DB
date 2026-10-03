@@ -4,11 +4,16 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>0.4.1.203</Version>
+    <Version>0.4.1.204</Version>
   </PropertyGroup>
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- the explorer page: the standalone build of the admin UI's explorer (src/Relatude.DB.UI, npm run build) -->
+  <ItemGroup>
+    <EmbeddedResource Include="Explorer\**" LogicalName="Relatude.DB.GraphQL.Explorer.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

@@ -28,6 +28,12 @@ public sealed class GraphQLEndpointDefinition {
     public bool AllowMutations { get; set; }
     public bool EnableIntrospection { get; set; } = true;
     public bool EnableGetRequests { get; set; } = true;
+    /// <summary>
+    /// Serve the explorer, a page to build, run and read about queries, on the endpoint's url: a browser asking for
+    /// the url gets the page instead of an error. It reads the schema through the endpoint, so it needs introspection,
+    /// and asks for the API key when the endpoint has one.
+    /// </summary>
+    public bool EnableExplorer { get; set; }
     /// <summary>Whole-datamodel mode only: also expose the built-in system node types (users, groups, cultures...).</summary>
     public bool IncludeSystemTypes { get; set; }
     /// <summary>When set, requests must carry it in an "X-Api-Key" header or as a bearer token.</summary>
@@ -67,6 +73,7 @@ public sealed class GraphQLEndpointDefinition {
         AllowMutations = options.AllowMutations,
         EnableIntrospection = options.EnableIntrospection,
         EnableGetRequests = options.EnableGetRequests,
+        EnableExplorer = options.EnableExplorer,
         IncludeSystemTypes = options.IncludeSystemTypes,
         MaxQueryDepth = options.MaxQueryDepth,
         MaxIncludeDepth = options.MaxIncludeDepth,

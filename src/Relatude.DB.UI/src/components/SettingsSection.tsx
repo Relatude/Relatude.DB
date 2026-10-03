@@ -14,8 +14,10 @@ import {
   IconArrowBackUp,
   IconChevronDown,
   IconChevronRight,
+  IconCode,
   IconDatabase,
   IconExternalLink,
+  IconFileDiff,
   IconFileText,
   IconFolders,
   IconGauge,
@@ -24,6 +26,7 @@ import {
   IconPlus,
   IconRefresh,
   IconReload,
+  IconRestore,
   IconSchema,
   IconSearch,
   IconServer,
@@ -58,6 +61,7 @@ import {
   type SettingsPage,
 } from "../server/settings";
 import { Loading } from "./Loading";
+import { OverridesDialog } from "./OverridesDialog";
 
 // Where a programmatic scroll leaves a group's heading, and the line at which the contents counts a
 // heading as passed. The line sits a hair below the landing point, so a group that was scrolled to
@@ -88,7 +92,13 @@ const LazyPickers = createContext<(setting: SettingView) => PickerLoader | undef
  * different settings do not overwrite each other. Three states are marked on every field, since a
  * value alone does not tell you what to do with it: whether it still holds its default, whether it
  * has an unsaved edit, and whether configuration - appsettings.json, environment variables, user
- * secrets - decides it, in which case editing here is pointless and the field is locked.
+ * secrets - decides it, in which case editing here is pointless and the field is locked. The same
+ * lock applies to a setting the application's own code sets at every start.
+ *
+ * A save goes to relatude.db.overrides.json, not relatude.db.json: the server keeps what is changed
+ * here apart from the application's own file and merges it over that file at every start. A field
+ * saved there says so, with the value relatude.db.json has and a button that puts it back; the
+ * Overrides button in the toolbar lists everything in the file and moves it into relatude.db.json.
  */
 export function SettingsSection({
   storeId,
@@ -109,6 +119,7 @@ export function SettingsSection({
   const [reopen, setReopen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [restarting, setRestarting] = useState(false);
+  const [showOverrides, setShowOverrides] = useState(false);
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
   const pane = useRef<HTMLDivElement>(null);
   const groupElements = useRef(new Map<string, HTMLElement>());
@@ -321,7 +332,9 @@ export function SettingsSection({
           result.rejected.map((r) => `${byPath.get(r.path)?.label ?? r.path}: ${r.reason}`),
         );
       }
-      setMessage(describeSave(result.changed.length, result.reopened, result.changed.map((p) => byPath.get(p)).filter(Boolean) as SettingView[]));
+      setMessage(
+        describeSave(result.changed.length, result.reopened, result.changed.map((p) => byPath.get(p)).filter(Boolean) as SettingView[], result.settings.overrides?.file ?? null),
+      );
     } catch (e) {
       await showError("Could not save", e instanceof Error ? e.message : String(e));
     } finally {
@@ -417,11 +430,25 @@ export function SettingsSection({
           />
           Show comments
         </label>
-        <span className="header-spacer" />
+        <div className="settings-toolbar-end">
         <span className="muted settings-source" title={page.configSection ? `Any of these can be overridden from the ${page.configSection} configuration section` : undefined}>
           {page.settingsFile}
           {page.configSection ? ` · ${page.configSection} section` : ""}
         </span>
+        {page.overrides && (
+          <button
+            className="icon-button labelled"
+            title={
+              page.overrides.error
+                ? `The overrides file could not be read: ${page.overrides.error}`
+                : `Saving here writes to ${page.overrides.file}, merged over ${page.settingsFile} at every start. List what it holds, and move it into ${page.settingsFile}.`
+            }
+            onClick={() => setShowOverrides(true)}
+          >
+            <IconFileDiff size={15} stroke={1.8} className={page.overrides.error ? "tone-danger" : "tone-override"} />
+            Overrides{page.overrides.error ? " · not read" : page.overrides.count > 0 ? ` · ${page.overrides.count}` : ""}
+          </button>
+        )}
         {page.scope === "database" && (
           <button
             className="icon-button labelled"
@@ -442,6 +469,7 @@ export function SettingsSection({
         <button className="icon-button" title="Reload" onClick={load} disabled={editedPaths.length > 0}>
           <IconRefresh size={16} stroke={1.8} />
         </button>
+        </div>
       </div>
       {message && <div className="settings-message">{message}</div>}
       <div className="settings-body">
@@ -525,6 +553,13 @@ export function SettingsSection({
           })}
         </div>
       </div>
+      {showOverrides && (
+        <OverridesDialog
+          onClose={() => setShowOverrides(false)}
+          // moving changes nothing that is running, but discarding does, and either changes the marks
+          onChanged={load}
+        />
+      )}
       {editedPaths.length > 0 && (
         <div className="settings-savebar">
           <span>
@@ -661,6 +696,11 @@ function ListEditor({
                 {isCollapsed ? <IconChevronRight size={15} stroke={1.8} /> : <IconChevronDown size={15} stroke={1.8} />}
                 <span className="setting-item-name">{itemLabel(list, item, pickers, valueOf)}</span>
               </button>
+              {item.addedHere && (
+                <span className="setting-badge overrides" title="Added here: relatude.db.overrides.json holds it, relatude.db.json does not">
+                  added here
+                </span>
+              )}
               {item.usedBy.length > 0 && <span className="setting-item-usage">used as {item.usedBy.join(", ")}</span>}
               <span className="header-spacer" />
               <button
@@ -702,6 +742,11 @@ function ListEditor({
           </div>
         );
       })}
+      {list.removedHere.length > 0 && (
+        <div className="setting-items-removed">
+          Removed here, still in relatude.db.json: {list.removedHere.join(", ")}. The Overrides button moves the removal there, or takes it back.
+        </div>
+      )}
       <button className="action-button" disabled={busy || list.locked} onClick={onAdd} title={list.locked ? "This list comes from configuration" : undefined}>
         <IconPlus size={15} stroke={1.8} />
         Add {list.itemName}
@@ -757,7 +802,10 @@ function SettingRow({
   fallbackColor?: string;
 }) {
   const value = edited ? edit : setting.value;
-  const locked = setting.overridden || setting.readOnly;
+  const locked = setting.overridden || setting.codeSet || setting.readOnly;
+  // the value relatude.db.json has can be put back like any edit - not for a secret, whose value the
+  // page never sees; the Overrides list discards those
+  const canRestoreFile = setting.inOverrides && !setting.secret && !locked && !edited;
   // emptying a secret field is the only way to remove a stored secret, so say so before it is saved
   const clearsSecret = setting.secret && edited && (edit === "" || edit === null);
   return (
@@ -793,6 +841,15 @@ function SettingRow({
             </span>
           </div>
         )}
+        {setting.codeSet && (
+          <div className="setting-override">
+            <IconCode size={13} stroke={1.8} />
+            <span>
+              Set by the application's code at every start (OnServerSettingsInit, OnContainerSettingsInit or OnStoreSettingsInit). The value below is
+              what is running; editing it here would be undone at the next start, so it is never saved to the settings files.
+            </span>
+          </div>
+        )}
       </div>
       <div className="setting-control">
         <Editor setting={setting} value={value} pickers={pickers} disabled={locked} onChange={onChange} fallbackColor={fallbackColor} />
@@ -801,6 +858,15 @@ function SettingRow({
         {!locked && setting.generate === "guid" && (
           <button className="icon-button" title="Generate a new random value" onClick={() => onChange(newGuid())}>
             <IconWand size={15} stroke={1.8} />
+          </button>
+        )}
+        {canRestoreFile && (
+          <button
+            className="icon-button"
+            title={`Use the value relatude.db.json has: ${setting.fileHasValue ? display(setting.fileValue) : "not set"}. Saving then removes it from the overrides file.`}
+            onClick={() => onChange(setting.fileValue ?? "")}
+          >
+            <IconRestore size={15} stroke={1.8} className="tone-override" />
           </button>
         )}
         {edited ? (
@@ -825,9 +891,20 @@ function Badges({ setting, edited, clearsSecret }: { setting: SettingView; edite
     <>
       {edited && <span className="setting-badge unsaved">unsaved</span>}
       {setting.overridden && <span className="setting-badge config">from configuration</span>}
+      {setting.codeSet && <span className="setting-badge config">from code</span>}
       {setting.readOnly && !setting.overridden && <span className="setting-badge">read only</span>}
       {/* "from configuration" already says the value is not this server's own, so default-vs-custom would only add noise */}
-      {!setting.readOnly && !setting.overridden && (setting.isDefault ? <span className="setting-badge faint">default</span> : <span className="setting-badge custom">custom</span>)}
+      {!setting.readOnly && !setting.overridden && !setting.codeSet && (setting.isDefault ? <span className="setting-badge faint">default</span> : <span className="setting-badge custom">custom</span>)}
+      {setting.inOverrides && (
+        <span
+          className="setting-badge overrides"
+          title={`Saved in relatude.db.overrides.json, merged over relatude.db.json at every start. relatude.db.json has: ${
+            setting.secret ? (setting.fileHasValue ? "a secret" : "nothing") : setting.fileHasValue ? display(setting.fileValue) : "not set"
+          }`}
+        >
+          in overrides
+        </span>
+      )}
       {/* what it takes to apply is only worth saying for a setting that can actually be changed here */}
       {!setting.readOnly && setting.applies === "reopen" && <span className="setting-badge applies">needs reopen</span>}
       {!setting.readOnly && setting.applies === "restart" && <span className="setting-badge applies">needs restart</span>}
@@ -984,9 +1061,9 @@ function sameValue(a: unknown, b: unknown): boolean {
   return String(a) === String(b);
 }
 
-function describeSave(changed: number, reopened: boolean, settings: SettingView[]): string {
+function describeSave(changed: number, reopened: boolean, settings: SettingView[], overridesFile: string | null): string {
   if (changed === 0) return "Nothing changed.";
-  const saved = `${changed} ${changed === 1 ? "setting" : "settings"} saved.`;
+  const saved = `${changed} ${changed === 1 ? "setting" : "settings"} saved${overridesFile ? ` to ${overridesFile}` : ""}.`;
   if (reopened) return saved + " The database was closed and reopened.";
   if (settings.some((s) => s.applies === "restart")) return saved + " Some of them only take effect after the host restarts.";
   if (settings.some((s) => s.applies === "reopen")) return saved + " Some of them only take effect when the database is next opened.";

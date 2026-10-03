@@ -4,9 +4,9 @@ Everything that is not your C# model. Three surfaces, and knowing which one owns
 
 | Surface | Owns | Changes at |
 |---|---|---|
-| `relatude.db.json` | Storage, index engines, file stores, AI providers, datamodel sources, credentials | Deploy time, or from the admin UI |
+| `relatude.db.json` | Storage, index engines, file stores, AI providers, datamodel sources, credentials | Deploy time (the admin UI never writes it) |
 | `ServerOptions` in `Program.cs` | File converters, lifecycle callbacks, folder paths, a custom settings loader | Compile time |
-| The admin UI | The same things as the JSON file — **it writes back to it** | Runtime |
+| The admin UI | The same things as the JSON file — **it saves the difference into `relatude.db.overrides.json`**, merged over the JSON file at every start | Runtime |
 
 ## Contents
 
@@ -15,6 +15,7 @@ Everything that is not your C# model. Three surfaces, and knowing which one owns
 - [Server level](#server-level)
 - [Container level](#container-level)
 - [LocalSettings: the engine knobs](#localsettings-the-engine-knobs)
+- [Changes made in the admin UI: relatude.db.overrides.json](#changes-made-in-the-admin-ui-relatudedboverridesjson)
 - [ServerOptions](#serveroptions)
 - [The startup event order](#the-startup-event-order)
 - [Registering a datamodel](#registering-a-datamodel)
@@ -197,9 +198,17 @@ Merge rules:
 - Unrecognized keys, read-only keys and unparsable values are warned about at startup and skipped — never a crash, never silent.
 - The startup log lists every overridden key path (paths only, never values). Overriding `Id` or `DefaultStoreId` re-identifies an object and draws an explicit warning.
 
-**Overridden values are never written back to the file.** Before the admin UI's wholesale save, the server restores every overridden key to the file's own value (`SettingsOverlay.RemoveOverridesBeforeSave`), so configuration-supplied secrets do not leak into `relatude.db.json`. Consequence: while a key is overridden, editing it in the admin UI has no lasting effect — configuration wins on the next load.
+**Overridden values are never written to a file.** Before the admin UI saves (into `relatude.db.overrides.json`, next section), the server restores every overridden key to the value the files gave it (`SettingsOverlay.RemoveOverridesBeforeSave`), so configuration-supplied secrets do not leak into either file. Consequence: while a key is overridden, editing it in the admin UI would have no lasting effect, so the settings pages lock it.
 
 The overlay applies after `SettingsLoader.ReadAsync()` and before `OnServerSettingsInit`, so callbacks see merged settings, and it composes with a custom `SettingsLoader`. `ServerOptions.ConfigurationSectionName` renames the section; `null` disables it.
+
+## Changes made in the admin UI: relatude.db.overrides.json
+
+The settings pages never write `relatude.db.json`. Every save compares the settings in force with `relatude.db.json` as it was read and writes only the difference to `relatude.db.overrides.json`, kept with the default database (the one `DefaultStoreId` names) at the root of its primary storage provider: beside its `data/`/`state/` folders on local disk (by default `relatude.db/relatude.db.overrides.json`), a blob in its container on Azure, in memory for a memory database. The database is found in `relatude.db.json` + configuration only, never via the overrides file itself, so an admin-UI change to the default database's folder leaves the file in place until that change is moved into `relatude.db.json` (then the file follows). Unreachable storage at start: the server starts without the file and refuses saves. `ServerOptions.SettingsOverridesFilePath` names a disk file instead; `UseSettingsOverridesFile = false` sends saves to `relatude.db.json` as before. Layers at every start, each over the one before: `relatude.db.json` → the overrides file → the `RelatudeDB` configuration section → `OnServerSettingsInit` / `OnContainerSettingsInit` / `OnStoreSettingsInit`. A save takes the last two off again first, so configuration secrets and values forced by code never land in either file, and the settings pages lock both.
+
+Same shape as `relatude.db.json`, only changed keys. List elements match on `Id`: a changed element is its `Id` plus changed fields, an added one is written whole with `"$added": true`, a removed one is `{ "Id": …, "$removed": true }`; lists without ids are written whole; a dictionary that lost a key is written whole with `"$replace": true`. A change to an element `relatude.db.json` no longer has is warned about and skipped. Invalid JSON stops the start (the next save would otherwise overwrite it).
+
+The settings pages mark such fields *in overrides* (with a restore-to-file button), list elements *added here*, and name removed elements under the list. The toolbar's **Overrides** dialog lists the whole file and can **Move into relatude.db.json** (selected or all; configuration-decided entries are never moved; the file is rewritten by the loader, so comments go) or **Discard** (put back what `relatude.db.json` says). Programmatically: `RelatudeDBServer.MoveOverridesIntoSettingsFile(paths)`. The CLI reads the file too (`--overrides <file>`), and `relatude settings` reports what it changes.
 
 ## ServerOptions
 
@@ -273,7 +282,7 @@ app.Lifetime.ApplicationStopping → Shutdown() → OnStoreClose(store)
 
 Two consequences worth carrying:
 
-- **Secrets belong in the `RelatudeDB` configuration section**, not in `OnServerSettingsInit`. Both run before anything uses the settings, but only section-supplied values are stripped again before saves — what a callback sets is written into `relatude.db.json` the next time the admin UI saves settings.
+- **Secrets belong in the `RelatudeDB` configuration section**, not hard-coded in `OnServerSettingsInit`. Both are stripped again before saves - what a callback changes is recorded at start, locked on the settings pages and never written to `relatude.db.json` or `relatude.db.overrides.json` - but a callback means the secret lives in source code.
 
 - **`OnStoreOpenBackground` is where seeding goes.** `OnStoreOpen` blocks the open, so heavy work there delays every request behind the startup progress page.
 
@@ -364,7 +373,7 @@ Failed logins are rate limited per IP (30 per minute). Only the admin UI and its
 ## Pitfalls
 
 - **A missing `relatude.db.json` is created with the demo model**, not yours. A store full of `Relatude.DB.Demo.Models` types means the file was never configured.
-- **The admin UI writes the whole file back** through `WriteAsync` whenever settings change, so hand-written comments and formatting are lost the first time anything is saved from the UI.
+- **The admin UI does not write `relatude.db.json`**: saves go to `relatude.db.overrides.json` as a difference, so a deployment that replaces `relatude.db.json` keeps what was changed in the UI, and an override silently beats a later edit of the same key in `relatude.db.json`. Comments and formatting in `relatude.db.json` are lost only when entries are moved into it from the Overrides dialog (it is rewritten through `WriteAsync`).
 - **`DBAdminUIUrlPath` in the file overrides `UseRelatudeDB("/path")` in code**, because it is applied after the settings load.
 - **Datamodel namespace matching is exact**, not prefix-based.
 - **Three of the six `DatamodelSourceType` values throw `NotImplementedException`.**

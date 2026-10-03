@@ -3710,9 +3710,24 @@ a.action-button {
   cursor: pointer;
 }
 
+/* the files the page reads and writes, the overrides list, restart and reload: one group at the end
+   of the toolbar, so on a narrow pane it moves to the next line whole instead of leaving the reload
+   button behind, and the file names give way first */
+.settings-toolbar-end {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin-left: auto;
+}
+
 .settings-source {
+  min-width: 0;
+  overflow: hidden;
   font-size: 12px;
   text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settings-message {
@@ -3845,6 +3860,172 @@ a.action-button {
 .setting-badge.mixed {
   color: var(--data);
   background: var(--data-soft);
+}
+
+/* saved in relatude.db.overrides.json rather than coming from relatude.db.json - the same teal the
+   datamodel editor gives an override, since it is the same idea: a layer over what the code says */
+.setting-badge.overrides {
+  color: var(--override);
+  background: var(--override-soft);
+}
+
+svg.tone-override {
+  color: var(--override);
+}
+
+.setting-items-removed {
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-soft);
+  background: var(--override-soft);
+  border-radius: 8px;
+}
+
+/* ---- the overrides dialog: what relatude.db.overrides.json holds ---- */
+
+.dialog.overrides-dialog {
+  width: min(860px, calc(100vw - 40px));
+}
+
+.overrides-intro {
+  max-width: 90ch;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
+.overrides-intro code,
+.overrides-empty code {
+  font-size: 12px;
+}
+
+.overrides-empty {
+  padding: 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.overrides-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 4px 2px 8px;
+  font-size: 12.5px;
+}
+
+.overrides-list {
+  flex: 1;
+  min-height: 0;
+  max-height: calc(100vh - 300px);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.overrides-group + .overrides-group {
+  border-top: 1px solid var(--border);
+}
+
+.overrides-group h4 {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.overrides-group h4 .muted {
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.overrides-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 12px 8px 14px;
+  cursor: pointer;
+}
+
+.overrides-entry + .overrides-entry {
+  border-top: 1px solid var(--border);
+}
+
+.overrides-entry:hover {
+  background: var(--hover, var(--badge-bg));
+}
+
+.overrides-entry input {
+  margin-top: 2px;
+  accent-color: var(--section-tone);
+}
+
+.overrides-entry.blocked {
+  cursor: default;
+}
+
+.overrides-entry.blocked .overrides-entry-label {
+  color: var(--text-muted);
+}
+
+.overrides-entry-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.overrides-entry-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.overrides-entry-where {
+  margin-top: 1px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.overrides-entry-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.overrides-value {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.overrides-value code {
+  font-size: 11.5px;
+  word-break: break-all;
+}
+
+.overrides-entry-note {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.overrides-entry-note svg {
+  position: relative;
+  top: 1px;
+  flex: none;
 }
 
 .setting-control {
@@ -9225,6 +9406,108 @@ body.pg-resizing {
 .tok-h {
   color: var(--tok-p);
   font-weight: 700;
+}
+
+/* the completion list under the caret (CodeEditor's complete source): one row per entry with a coloured
+   letter for its kind, its type to the right, and the chosen entry's description at the foot */
+.code-complete {
+  position: fixed;
+  z-index: 2000;
+  width: 360px;
+  max-width: calc(100vw - 16px);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  font-size: 12.5px;
+}
+
+.code-complete-list {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 3px;
+}
+
+.code-complete-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.code-complete-item.active {
+  background: var(--accent-soft);
+}
+
+.code-complete-kind {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font: 700 10px/1 ui-monospace, Consolas, monospace;
+  color: #fff;
+  background: var(--text-faint);
+}
+
+.code-complete-kind.kind-field {
+  background: var(--tok-p);
+}
+.code-complete-kind.kind-argument,
+.code-complete-kind.kind-directive {
+  background: var(--tok-a);
+}
+.code-complete-kind.kind-type {
+  background: var(--tok-t);
+}
+.code-complete-kind.kind-enum {
+  background: var(--tok-n);
+}
+.code-complete-kind.kind-variable {
+  background: var(--tok-v);
+}
+.code-complete-kind.kind-keyword,
+.code-complete-kind.kind-fragment {
+  background: var(--tok-k);
+}
+.code-complete-kind.kind-value {
+  background: var(--tok-s);
+}
+
+.code-complete-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: var(--code-font);
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.code-complete-detail {
+  min-width: 0;
+  margin-left: auto;
+  padding-left: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: var(--code-font);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.code-complete-doc {
+  max-height: 84px;
+  overflow: auto;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-soft);
 }
 
 /* ---- files: sorting, selection, compact list ---- */

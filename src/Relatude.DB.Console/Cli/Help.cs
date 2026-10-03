@@ -24,6 +24,8 @@ public static class Help {
 
       Database:
         --settings <file>     path to relatude.db.json (default: <project>/relatude.db.json)
+        --overrides <file>    the settings changed in the admin UI, merged over relatude.db.json
+                              (default: relatude.db.overrides.json in the default database's storage)
         --data <folder>       content root the settings paths are resolved against
         --store <name|id>     which database in the settings file (default: DefaultStoreId)
         --environment <name>  environment for the RelatudeDB section in appsettings.json,
@@ -40,6 +42,8 @@ public static class Help {
 
       Settings file:
         --settings <file>     path to relatude.db.json (default: <project>/relatude.db.json)
+        --overrides <file>    the settings changed in the admin UI, merged over relatude.db.json
+                              (default: relatude.db.overrides.json in the default database's storage)
         --data <folder>       content root the settings paths are resolved against
         --store <name|id>     which database in the settings file (default: DefaultStoreId)
         --environment <name>  environment for the RelatudeDB section in appsettings.json,

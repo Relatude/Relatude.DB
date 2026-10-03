@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using System.Text.Json;
 using Relatude.DB.DataStores;
 using Relatude.DB.NodeServer;
 using Relatude.DB.NodeServer.Settings;
@@ -28,29 +30,47 @@ sealed class TestServerHost(WebApplication app, RelatudeDBServer server, List<No
 
     /// <param name="configure">Runs over the settings before the server reads them, for a test that
     /// needs a model of its own or a setting the defaults do not have.</param>
-    public static TestServerHost Start(string root, int databases = 1, Action<RelatudeDBServerSettings>? configure = null) {
+    /// <param name="settings">The settings to start from instead of fresh memory settings - the same
+    /// relatude.db.json read again by a second host on the same root.</param>
+    /// <param name="overridesFile">Keeps the admin UI's changes in relatude.db.overrides.json, as a real
+    /// server does: at relatude.db/relatude.db.overrides.json below <paramref name="root"/>, or with the
+    /// default database when <paramref name="overridesWithDatabase"/> is set. Off by default, so a test's
+    /// saves never touch disk.</param>
+    /// <param name="configuration">Values for the RelatudeDB configuration section; null leaves the overlay off.</param>
+    /// <param name="options">Runs over the server options before the server starts (the settings callbacks).</param>
+    public static TestServerHost Start(string root, int databases = 1, Action<RelatudeDBServerSettings>? configure = null,
+        RelatudeDBServerSettings? settings = null, bool overridesFile = false, Dictionary<string, string?>? configuration = null,
+        Action<ServerOptions>? options = null, bool overridesWithDatabase = false) {
         var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions {
             ContentRootPath = root,
             ApplicationName = "relatude.tests",
             EnvironmentName = "Test",
         });
+        if (configuration != null) builder.Configuration.AddInMemoryCollection(configuration);
         builder.Services.AddSingleton<IServer, NoServer>();
         var app = builder.Build();
         var closed = new List<NodeStore>();
-        var initial = MemorySettings(databases);
+        var initial = settings ?? MemorySettings(databases);
         configure?.Invoke(initial);
-        var settings = new MutableSettings(initial);
-        var options = new ServerOptions {
-            SettingsLoader = settings,
-            ConfigurationSectionName = null, // no appsettings overlay in the tests
+        var loader = new MutableSettings(initial);
+        var serverOptions = new ServerOptions {
+            SettingsLoader = loader,
+            ConfigurationSectionName = configuration == null ? null : SettingsOverlay.DefaultSectionName, // no appsettings overlay unless asked for
+            UseSettingsOverridesFile = overridesFile,
+            SettingsOverridesFilePath = overridesFile && !overridesWithDatabase ? SettingsOverridesFile.FallbackRelativePath : null,
             DefaultDataFolderPath = root,
             DefaultTempFolderPath = Path.Combine(root, "temp"),
             OnStoreClose = store => { lock (closed) closed.Add(store); },
         };
+        options?.Invoke(serverOptions);
         var server = new RelatudeDBServer(string.Empty);
-        server.StartAsync(app, options).Wait();
-        return new TestServerHost(app, server, closed, settings);
+        server.StartAsync(app, serverOptions).Wait();
+        return new TestServerHost(app, server, closed, loader);
     }
+
+    /// <summary>A deep copy, the way relatude.db.json would be read again from disk.</summary>
+    public static RelatudeDBServerSettings Copy(RelatudeDBServerSettings settings)
+        => JsonSerializer.Deserialize<RelatudeDBServerSettings>(JsonSerializer.Serialize(settings, LocalSettingsLoaderFile.JsonOptions), LocalSettingsLoaderFile.JsonOptions)!;
 
     public static RelatudeDBServerSettings MemorySettings(int databases) {
         var template = RelatudeDBServerSettings.CreateDefault().ContainerSettings![0];
@@ -91,11 +111,16 @@ sealed class TestServerHost(WebApplication app, RelatudeDBServer server, List<No
 sealed class MutableSettings(RelatudeDBServerSettings settings) : ISettingsLoader {
     public RelatudeDBServerSettings Settings { get; set; } = settings;
     public int ReadCount { get; private set; }
+    /// <summary>Every write, copied as it was made: what relatude.db.json would have been given.</summary>
+    public List<RelatudeDBServerSettings> Writes { get; } = [];
     public Task<RelatudeDBServerSettings> ReadAsync() {
         ReadCount++;
         return Task.FromResult(Settings);
     }
-    public Task WriteAsync(RelatudeDBServerSettings s) => Task.CompletedTask; // never touch disk
+    public Task WriteAsync(RelatudeDBServerSettings s) {
+        lock (Writes) Writes.Add(TestServerHost.Copy(s)); // never touch disk
+        return Task.CompletedTask;
+    }
 }
 
 sealed class NoServer : IServer {

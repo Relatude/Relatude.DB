@@ -22,7 +22,17 @@
 }
 
 .api-table .log-table-row {
-  grid-template-columns: minmax(160px, 1.2fr) minmax(160px, 1.4fr) minmax(140px, 1fr) 60px 60px 90px minmax(120px, 1fr);
+  grid-template-columns: minmax(160px, 1.2fr) minmax(160px, 1.4fr) minmax(140px, 1fr) 60px 60px 90px minmax(120px, 1fr) 150px;
+  align-items: center;
+}
+
+.api-table .action-button.api-explore {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  font-size: 12px;
 }
 
 .api-table .mono,
@@ -218,20 +228,134 @@
   max-height: none;
 }
 
+/* the section fills the pane: long forms scroll inside it, the code windows and the playground fill it,
+   so the result of a query never pushes the page into a scroll bar */
+.content-body > .api {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
+.api-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.api-body > .logs-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.api-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.api-editor-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.api-editor-body.fill {
+  overflow: hidden;
+}
+
+.api-editor-body.fill > .panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.api-editor-body.fill .api-code:not(.small) {
+  flex: 1;
+  height: auto;
+  min-height: 120px;
+}
+
+.api-code.small {
+  height: 180px;
+  min-height: 140px;
+}
+
 /* try it */
 .api-try .clog-field-label {
   display: block;
   margin: 10px 0 4px;
 }
 
+.api-try-bar {
+  flex-wrap: wrap;
+}
+
+.api-try-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.api-try-pick .select {
+  max-width: 260px;
+}
+
+.api-try-note {
+  flex: 1 1 160px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+
 .api-try-inputs {
+  flex: none;
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   gap: 14px;
+}
+
+.api-try-result {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 @container (max-width: 760px) {
   .api-try-inputs {
     grid-template-columns: 1fr;
   }
+}
+
+/* links to what the endpoint serves on its own url: the explorer page, in the settings hint */
+.api-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--accent);
+}
+
+.api-link:hover {
+  text-decoration: underline;
+}
+
+/* "Public page": the endpoint's explorer page as a browser sees it, next to Explore and in the editor's bar */
+.api-table .api-public-page {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+
+.icon-button.api-public-page:not(:disabled):hover {
+  color: var(--section-tone);
 }

@@ -24,7 +24,7 @@ const whitespace = rule(/\s+/y, null);
 const identifier = rule(/[A-Za-z_$][\w$]*/y, null);
 
 const jsonRules: Rule[] = [
-  rule(/\/\/[^\n]*|\/\*[\s\S]*?\*\//y, "c"),
+  rule(/\/\/[^\r\n]*|\/\*[\s\S]*?\*\//y, "c"),
   rule(/"(?:[^"\\\n]|\\.)*"(?=\s*:)/y, "p"),
   rule(/"(?:[^"\\\n]|\\.)*"/y, "s"),
   rule(/-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b/y, "n"),
@@ -54,7 +54,7 @@ const jsKeywords =
   "abstract|any|as|async|await|boolean|break|case|catch|class|const|constructor|continue|debugger|declare|default|delete|do|else|enum|export|extends|finally|for|from|function|get|if|implements|import|in|infer|instanceof|interface|is|keyof|let|module|namespace|never|new|number|object|of|override|package|private|protected|public|readonly|return|satisfies|set|static|string|super|switch|symbol|this|throw|try|type|typeof|unknown|var|void|while|with|yield";
 
 const jsRules: Rule[] = [
-  rule(/\/\/[^\n]*|\/\*[\s\S]*?\*\//y, "c"),
+  rule(/\/\/[^\r\n]*|\/\*[\s\S]*?\*\//y, "c"),
   rule(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\[\s\S])*`/y, "s"),
   // a regex literal, only where an expression can start; elsewhere "/" is division
   rule(/(?<=[(,=:[!&|?{};]\s*|^\s*|\b(?:return|typeof|case)\s+)\/(?![*/])(?:\[(?:[^\]\\\n]|\\.)*\]|[^/\\\n[]|\\.)+\/[dgimsuvy]*/my, "s"),
@@ -71,11 +71,11 @@ const csKeywords =
   "abstract|as|base|bool|break|byte|case|catch|char|checked|class|const|continue|decimal|default|delegate|do|double|else|enum|event|explicit|extern|finally|fixed|float|for|foreach|goto|if|implicit|in|int|interface|internal|is|lock|long|namespace|new|object|operator|out|override|params|private|protected|public|readonly|record|ref|return|sbyte|sealed|short|sizeof|stackalloc|static|string|struct|switch|this|throw|try|typeof|uint|ulong|unchecked|unsafe|ushort|using|var|virtual|void|volatile|while|async|await|yield|get|set|init|value|when|where|with|nameof|partial|dynamic|global|required|file|scoped|notnull|unmanaged";
 
 const csRules: Rule[] = [
-  rule(/\/\/[^\n]*|\/\*[\s\S]*?\*\//y, "c"),
+  rule(/\/\/[^\r\n]*|\/\*[\s\S]*?\*\//y, "c"),
   rule(/"""[\s\S]*?"""|\$?@"(?:[^"]|"")*"|@?\$"(?:[^"\\\n]|\\.)*"|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/y, "s"),
   rule(/\b(?:0[xX][\da-fA-F_]+|0[bB][01_]+|\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?[fFdDmMuUlL]{0,2})\b/y, "n"),
   rule(/\b(?:true|false|null)\b/y, "v"),
-  rule(/#\s*(?:if|else|elif|endif|region|endregion|define|undef|nullable|pragma|warning|error|line)\b[^\n]*/y, "c"),
+  rule(/#\s*(?:if|else|elif|endif|region|endregion|define|undef|nullable|pragma|warning|error|line)\b[^\r\n]*/y, "c"),
   rule(new RegExp(`\\b(?:${csKeywords})\\b`, "y"), "k"),
   rule(/[A-Za-z_][\w]*(?=\s*[(<])/y, "f"),
   rule(/[A-Za-z_][\w]*/y, null),
@@ -83,8 +83,66 @@ const csRules: Rule[] = [
   whitespace,
 ];
 
+const pyKeywords = "and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield";
+
+const pythonRules: Rule[] = [
+  rule(/#[^\r\n]*/y, "c"),
+  rule(/[rRbBfFuU]{0,2}(?:"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')/y, "s"),
+  rule(/\b\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?j?\b/y, "n"),
+  rule(/\b(?:True|False|None)\b/y, "v"),
+  rule(new RegExp(`\\b(?:${pyKeywords})\\b`, "y"), "k"),
+  rule(/@[A-Za-z_][\w.]*/y, "a"),
+  rule(/[A-Za-z_]\w*(?=\s*\()/y, "f"),
+  rule(/[A-Za-z_]\w*/y, null),
+  rule(/[{}()[\];,.<>=!+\-*/%&|^~:]+/y, "o"),
+  whitespace,
+];
+
+const goKeywords =
+  "break|case|chan|const|continue|default|defer|else|fallthrough|for|func|go|goto|if|import|interface|map|package|range|return|select|struct|switch|type|var|any|bool|byte|error|float32|float64|int|int32|int64|rune|string|uint|uint64";
+
+const goRules: Rule[] = [
+  rule(/\/\/[^\r\n]*|\/\*[\s\S]*?\*\//y, "c"),
+  rule(/"(?:[^"\\\n]|\\.)*"|`[^`]*`|'(?:[^'\\\n]|\\.)*'/y, "s"),
+  rule(/\b\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?\b/y, "n"),
+  rule(/\b(?:true|false|nil|iota)\b/y, "v"),
+  rule(new RegExp(`\\b(?:${goKeywords})\\b`, "y"), "k"),
+  rule(/[A-Za-z_]\w*(?=\s*[([])/y, "f"),
+  rule(/[A-Za-z_]\w*/y, null),
+  rule(/[{}()[\];,.<>=!+\-*/%&|^~?:]+/y, "o"),
+  whitespace,
+];
+
+const javaKeywords =
+  "abstract|assert|boolean|break|byte|case|catch|char|class|const|continue|default|do|double|else|enum|extends|final|finally|float|for|goto|if|implements|import|instanceof|int|interface|long|native|new|package|private|protected|public|record|return|short|static|strictfp|super|switch|synchronized|this|throw|throws|transient|try|var|void|volatile|while|yield";
+
+const javaRules: Rule[] = [
+  rule(/\/\/[^\r\n]*|\/\*[\s\S]*?\*\//y, "c"),
+  rule(/"""[\s\S]*?"""|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/y, "s"),
+  rule(/\b\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?[fFdDlL]?\b/y, "n"),
+  rule(/\b(?:true|false|null)\b/y, "v"),
+  rule(/@[A-Za-z_]\w*/y, "a"),
+  rule(new RegExp(`\\b(?:${javaKeywords})\\b`, "y"), "k"),
+  rule(/[A-Za-z_]\w*(?=\s*[(<])/y, "f"),
+  rule(/[A-Za-z_]\w*/y, null),
+  rule(/[{}()[\];,.<>=!+\-*/%&|^~?:]+/y, "o"),
+  whitespace,
+];
+
+// shell and PowerShell alike: comments, quotes, variables and flags are what a command is read by
+const shellRules: Rule[] = [
+  rule(/#[^\r\n]*/y, "c"),
+  rule(/"(?:[^"\\]|\\[\s\S])*"|'[^']*'/y, "s"),
+  rule(/\$env:[A-Za-z_]\w*|\$\{?[A-Za-z_]\w*\}?/y, "v"),
+  rule(/(?<=\s)--?[A-Za-z][\w-]*/y, "a"),
+  rule(/\b(?:if|then|else|fi|for|do|done|while|case|esac|function|in|throw|foreach)\b/y, "k"),
+  rule(/[A-Za-z_][\w-]*/y, null),
+  rule(/\d+/y, "n"),
+  whitespace,
+];
+
 const graphqlRules: Rule[] = [
-  rule(/#[^\n]*/y, "c"),
+  rule(/#[^\r\n]*/y, "c"),
   rule(/"""[\s\S]*?"""|"(?:[^"\\\n]|\\.)*"/y, "s"),
   rule(/-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b/y, "n"),
   rule(/\b(?:query|mutation|subscription|fragment|on|type|interface|enum|input|scalar|union|implements|schema|directive|extend|repeatable)\b/y, "k"),
@@ -133,13 +191,13 @@ const markupRules: Rule[] = [
 ];
 
 const markdownRules: Rule[] = [
-  rule(/^```[\s\S]*?^```[^\n]*/my, "s"),
-  rule(/^#{1,6}[^\n]*/my, "h"),
-  rule(/^>[^\n]*/my, "c"),
+  rule(/^```[\s\S]*?^```[^\r\n]*/my, "s"),
+  rule(/^#{1,6}[^\r\n]*/my, "h"),
+  rule(/^>[^\r\n]*/my, "c"),
   rule(/^\s*(?:[-*+]|\d+\.)\s/my, "o"),
   rule(/`[^`\n]+`/y, "s"),
   rule(/!?\[[^\]\n]*\]\([^)\n]*\)/y, "a"),
-  rule(/(\*\*|__)(?:(?!\1)[^\n])+\1/y, "k"),
+  rule(/(\*\*|__)(?:(?!\1)[^\r\n])+\1/y, "k"),
   rule(/[*_][^\n*_]+[*_]/y, "v"),
   rule(/[A-Za-z0-9 ,.;:'"!?()]+/y, null),
   whitespace,
@@ -158,6 +216,14 @@ function rulesFor(language: Language): Rule[] | null {
       return csRules;
     case "graphql":
       return graphqlRules;
+    case "python":
+      return pythonRules;
+    case "go":
+      return goRules;
+    case "java":
+      return javaRules;
+    case "shell":
+      return shellRules;
     case "xml":
     case "html":
       return markupRules;

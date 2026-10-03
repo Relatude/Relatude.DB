@@ -4,6 +4,7 @@
 // whether it takes mutations. The server builds the schema from the file and the datamodel whenever either
 // changes; the page previews that schema, as SDL and as TypeScript, while the definition is edited.
 
+import type { SchemaInfo } from "../graphql/schema";
 import { send } from "./channel";
 
 export type EndpointMode = "Selected" | "WholeDatamodel";
@@ -40,6 +41,8 @@ export interface EndpointDefinition {
   allowMutations: boolean;
   enableIntrospection: boolean;
   enableGetRequests: boolean;
+  /** a browser asking for the url gets the explorer page */
+  enableExplorer?: boolean;
   includeSystemTypes: boolean;
   apiKey?: string | null;
   maxQueryDepth: number;
@@ -59,6 +62,10 @@ export interface EndpointSummary {
   mode: EndpointMode;
   exactNames: boolean;
   allowMutations: boolean;
+  /** the explorer page is served on the url */
+  explorer: boolean;
+  /** introspection is on: the schema is told, as __schema and as ?sdl */
+  introspection: boolean;
   typeCount: number;
   viewCount: number;
   /** set when the file could not be read; the other fields are then placeholders */
@@ -106,9 +113,26 @@ export interface EndpointPreview {
   sdl: string | null;
   types: string | null;
   sample: string | null;
+  csharpTypes: string | null;
+  csharpSample: string | null;
   sampleQuery: string | null;
   typeCount: number;
   mutationCount: number;
+}
+
+export interface EndpointExample {
+  id: string;
+  title: string;
+  query: string;
+  /** variables as json text, null when the query takes none */
+  variables: string | null;
+}
+
+export interface EndpointExampleGroup {
+  /** the GraphQL type the examples are about; empty for views and introspection */
+  type: string;
+  label: string;
+  examples: EndpointExample[];
 }
 
 export interface EndpointLoad {
@@ -141,6 +165,33 @@ export function deleteEndpoint(storeId: string, id: string): Promise<{ deleted: 
   return send<{ deleted: boolean }>("graphql-delete", { storeId, id });
 }
 
+export function fetchExamples(storeId: string, definition: EndpointDefinition, signal?: AbortSignal): Promise<{ groups: EndpointExampleGroup[] }> {
+  return send<{ groups: EndpointExampleGroup[] }>("graphql-examples", { storeId, definition }, signal);
+}
+
+export interface GuideExample {
+  /** the guide topic, such as "filter" or "fragments" */
+  id: string;
+  query: string;
+  variables: string | null;
+  /** what the example uses on this endpoint, and where its values came from */
+  note: string | null;
+  isMutation: boolean;
+}
+
+export interface ExplorerData {
+  schema: SchemaInfo;
+  /** one stored node per type (by GraphQL type name), so ids in the builder are real */
+  samples: Record<string, { id: string; name: string | null }>;
+  guide: { examples: GuideExample[]; unavailable: { id: string; reason: string }[] };
+  warnings: string[];
+}
+
+/** What the explorer needs for a definition: the schema, sample ids, and the guide's examples. */
+export function fetchExplorer(storeId: string, definition: EndpointDefinition, signal?: AbortSignal): Promise<ExplorerData> {
+  return send<ExplorerData>("graphql-explorer", { storeId, definition }, signal);
+}
+
 export function executeEndpoint(
   storeId: string,
   request: { id?: string; definition?: EndpointDefinition; query: string; variables?: unknown; operationName?: string },
@@ -158,6 +209,7 @@ export function newEndpointDefinition(): EndpointDefinition {
     allowMutations: false,
     enableIntrospection: true,
     enableGetRequests: true,
+    enableExplorer: false,
     includeSystemTypes: false,
     apiKey: null,
     maxQueryDepth: 16,

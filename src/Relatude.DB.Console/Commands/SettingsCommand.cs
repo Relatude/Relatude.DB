@@ -18,12 +18,17 @@ public static class SettingsCommand {
                 + Environment.NewLine + "Create one with: relatude init");
         }
         var settings = SettingsReader.Read(target);
+        var (overridesWhere, overrides, overridesProblem) = SettingsReader.Overrides(target);
         var containers = settings.ContainerSettings ?? [];
         var selected = args.Flag("all") ? containers : [SettingsReader.SelectContainer(settings, target.Store)];
 
         if (args.Flag("json")) {
             Output.Json(new {
                 File = target.SettingsPath,
+                // what the admin UI changed, merged over the file: the paths only, never the values
+                OverridesFile = overridesWhere,
+                OverridesProblem = overridesProblem,
+                Overrides = overrides.Select(e => new { e.Path, Kind = e.Kind.ToString() }).ToArray(),
                 ContentRoot = target.Root,
                 Server = new {
                     settings.Name,
@@ -40,6 +45,8 @@ public static class SettingsCommand {
         }
         Output.WriteLine("Settings  " + target.SettingsPath);
         Output.Table([
+            ("overrides", overridesWhere + " - " + (overridesProblem ?? (overrides.Length == 0 ? "nothing changed in the admin UI"
+                : overrides.Length + (overrides.Length == 1 ? " setting" : " settings") + " changed in the admin UI"))),
             ("server", settings.Name ?? "-"),
             ("content root", target.Root),
             ("admin UI", settings.DBAdminUIUrlPath ?? "/" + Defaults.AdminUrlRoot),

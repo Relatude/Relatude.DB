@@ -13,7 +13,7 @@ public static class SdlWriter {
             .OrderBy(rank)
             .ThenBy(t => t.Name, StringComparer.Ordinal);
         foreach (var t in rest) writeType(sb, t);
-        return sb.ToString();
+        return sb.ToString().Replace("\r\n", "\n");
     }
 
     static int rank(GqlNamedType t) => t switch {

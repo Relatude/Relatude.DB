@@ -26,8 +26,13 @@ namespace Relatude.DB.NodeServer.UI;
 /// A group may edit a collection instead of a fixed set of settings (storage providers, file stores).
 /// Its elements are addressed by Id, so their fields are ordinary settings on longer paths and carry
 /// all three marks too; only adding and removing need commands of their own.
+///
+/// Saving writes to relatude.db.overrides.json, not relatude.db.json (see
+/// <see cref="SettingsOverridesFile"/>), so every setting also says whether that file holds it and
+/// what relatude.db.json has. Moving entries from one file to the other, or dropping them, is in
+/// UISettingsOverrides.cs.
 /// </summary>
-sealed class UISettings {
+sealed partial class UISettings {
     readonly RelatudeDBServer _server;
     readonly object _saveLock = new();
     internal UISettings(RelatudeDBServer server) => _server = server;
@@ -40,6 +45,7 @@ sealed class UISettings {
         commands.Register("settings-db-list-add", ctx => listAdd(ctx.Payload<ListAddPayload>()));
         commands.Register("settings-db-list-remove", ctx => listRemove(ctx.Payload<ListItemPayload>()));
         commands.Register("settings-ai-models", ctx => aiModels(ctx.Payload<AiModelsPayload>()));
+        registerOverrides(commands);
     }
 
     // ---- the models an AI service publishes ----
@@ -78,6 +84,7 @@ sealed class UISettings {
             Title = string.IsNullOrEmpty(settings.Name) ? "Server" : settings.Name,
             SettingsFile = settings.DBSettingsFilePath ?? Defaults.SettingsFileName,
             ConfigSection = _server.ConfigurationOverlay?.SectionName,
+            Overrides = overridesSummary(),
             Sections = buildSections(SettingsCatalog.Server, settings, containerId: null),
             Pickers = new {
                 Databases = _server.GetContainers().Select(c => new {
@@ -100,6 +107,7 @@ sealed class UISettings {
             IsOpen = container.IsOpenOrOpening(),
             SettingsFile = _server.Settings.DBSettingsFilePath ?? Defaults.SettingsFileName,
             ConfigSection = _server.ConfigurationOverlay?.SectionName,
+            Overrides = overridesSummary(),
             Sections = buildSections(SettingsCatalog.Database, settings, storeId),
             Pickers = new {
                 IoProviders = (settings.IOSettings ?? []).Select(io => new {
@@ -179,16 +187,21 @@ sealed class UISettings {
     }
 
     object buildList(SettingListDefinition list, Type rootType, object root, Guid? containerId) {
-        var overlay = _server.ConfigurationOverlay;
         // configuration can append to an array but never remove from one, so a list the overlay has
-        // touched is not one this page can be trusted to edit
-        var locked = overlay != null && overlay.IsOverridden(SettingsOverlay.OverridePath(containerId, list.Path), out _);
+        // touched is not one this page can be trusted to edit - nor one the application's code sets
+        var listPath = SettingsOverlay.OverridePath(containerId, list.Path);
+        var locked = _server.DecidedOutsideTheSettingsFiles(listPath) != null;
+        var file = _server.OverridesFile;
         return new {
             list.Path,
             list.ItemName,
             list.LabelField,
             list.EmptyHelp,
             Locked = locked,
+            // elements removed here are gone from the page but still in relatude.db.json: said under
+            // the list, so the removal can be found again and moved there or taken back
+            RemovedHere = file == null ? [] : file.RemovedFrom(listPath)
+                .Select(e => elementLabel(list, file.FileValue(e.Path) as JsonObject, e.Path)).ToArray(),
             Items = elements(root, list.Path).Select(item => {
                 var id = idOf(item);
                 var prefix = list.Path + "[" + id + "].";
@@ -200,6 +213,7 @@ sealed class UISettings {
                     Removable = !locked && usage.Blocking.Length == 0,
                     usage.Blocking,
                     usage.RemoveWarning,
+                    AddedHere = file != null && file.IsAdded(SettingsOverlay.OverridePath(containerId, list.Path + "[" + id + "]")),
                 };
             }),
         };
@@ -211,8 +225,13 @@ sealed class UISettings {
         var value = SettingsAccessor.Read(root, path);
         JsonNode? configured = null;
         var overlay = _server.ConfigurationOverlay;
-        var overridden = overlay != null && overlay.IsOverridden(SettingsOverlay.OverridePath(containerId, path), out configured);
+        var fullPath = SettingsOverlay.OverridePath(containerId, path);
+        var overridden = overlay != null && overlay.IsOverridden(fullPath, out configured);
+        var codeSet = !overridden && _server.IsSetByCode(fullPath);
         var isSecret = definition.Secret;
+        var file = _server.OverridesFile;
+        var inOverrides = file?.ValueEntryFor(fullPath) != null;
+        var fileValue = inOverrides ? file!.FileValue(fullPath) : null;
         return new {
             Path = path,
             definition.Label,
@@ -244,6 +263,13 @@ sealed class UISettings {
             IsDefault = !definition.ReadOnly && sameValue(value, description.DefaultValue),
             Overridden = overridden,
             ConfiguredValue = overridden && !isSecret ? configured : null,
+            // set by OnServerSettingsInit and its kind at every start: locked like a configured one
+            CodeSet = codeSet,
+            // saved in relatude.db.overrides.json rather than coming from relatude.db.json, and what
+            // relatude.db.json has instead - the value a reset to the file puts back
+            InOverrides = inOverrides,
+            FileValue = inOverrides && !isSecret ? fileValue : null,
+            FileHasValue = inOverrides && hasValue(fileValue),
         };
     }
 
@@ -545,10 +571,9 @@ sealed class UISettings {
     }
 
     void requireUnlockedList(SettingListDefinition list, Guid containerId) {
-        var overlay = _server.ConfigurationOverlay;
-        if (overlay != null && overlay.IsOverridden(SettingsOverlay.OverridePath(containerId, list.Path), out _)) {
-            throw new Exception("The " + list.ItemName + " list is set by the " + overlay.SectionName
-                + " configuration section and cannot be changed here. ");
+        var decidedBy = _server.DecidedOutsideTheSettingsFiles(SettingsOverlay.OverridePath(containerId, list.Path));
+        if (decidedBy != null) {
+            throw new Exception("The " + list.ItemName + " list is set by " + decidedBy + " and cannot be changed here. ");
         }
     }
 
@@ -561,7 +586,6 @@ sealed class UISettings {
         var groups = catalog.SelectMany(s => s.Groups).ToArray();
         var byPath = groups.SelectMany(g => g.Settings).ToDictionary(s => s.Path, StringComparer.OrdinalIgnoreCase);
         var lists = groups.Select(g => g.List).OfType<SettingListDefinition>().ToArray();
-        var overlay = _server.ConfigurationOverlay;
         foreach (var (path, value) in values) {
             var definition = byPath.GetValueOrDefault(path) ?? listField(lists, path);
             if (definition == null) {
@@ -573,9 +597,11 @@ sealed class UISettings {
                 continue;
             }
             // writing an overridden setting would be silently undone: the value on disk is restored
-            // before saving, and configuration is merged back over it at the next start
-            if (overlay != null && overlay.IsOverridden(SettingsOverlay.OverridePath(containerId, path), out _)) {
-                rejected.Add(new RejectedSetting(path, definition.Label + " is set by the " + overlay.SectionName + " configuration section and cannot be changed here."));
+            // before saving, and configuration - or the application's code - is applied over it again
+            // at the next start
+            var decidedBy = _server.DecidedOutsideTheSettingsFiles(SettingsOverlay.OverridePath(containerId, path));
+            if (decidedBy != null) {
+                rejected.Add(new RejectedSetting(path, definition.Label + " is set by " + decidedBy + " and cannot be changed here."));
                 continue;
             }
             try {

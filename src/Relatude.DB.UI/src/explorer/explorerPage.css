@@ -1,0 +1,114 @@
+/* The explorer page on an endpoint's own url (ExplorerPage.tsx): a slim bar with the endpoint's name over the
+   explorer, which fills the rest of the window. */
+
+.gxp {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.gxp-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.gxp-mark {
+  display: inline-flex;
+  color: var(--nav-pink);
+}
+
+.gxp-name {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.gxp-url {
+  font: var(--code-font);
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.gxp-description {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.gxp-spacer {
+  flex: 1;
+}
+
+.gxp-link,
+.gxp-key-set {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.gxp-link:hover,
+.gxp-key-set:hover {
+  color: var(--text);
+}
+
+.gxp-body {
+  flex: 1;
+  min-height: 0;
+  padding: 10px 14px 12px;
+}
+
+.gxp .icon-button.small {
+  width: 28px;
+  height: 28px;
+}
+
+.gxp-key {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(440px, 100%);
+  margin: 12vh auto 0;
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.gxp-key-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.gxp-key p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.gxp-key .text-input {
+  width: 100%;
+}
+
+.gxp-key-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.gxp-key-actions .action-button {
+  min-width: 0;
+}

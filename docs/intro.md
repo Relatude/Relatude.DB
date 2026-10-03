@@ -183,7 +183,9 @@ provider settings all live there.
 Any of it can be overridden per environment from standard ASP.NET configuration: a `RelatudeDB`
 section with the same shape as the file — in `appsettings.json`, `appsettings.Development.json`,
 environment variables or user secrets — wins over `relatude.db.json`, and what it supplies is never
-written back to the file. Credentials belong there, not in the file.
+written back to the file. Credentials belong there, not in the file. What you change in the admin UI
+is kept apart as well, in `relatude.db.overrides.json` beside the default database's own files, so
+`relatude.db.json` stays as you deployed it until you move those changes into it from the settings page.
 
 ---
 

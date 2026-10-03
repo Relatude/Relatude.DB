@@ -23,7 +23,11 @@ public static class AppConfig {
     }
 
     public static RelatudeDBServerSettings ApplyOverlay(RelatudeDBServerSettings settings, Target target) {
-        var overlay = SettingsOverlay.Create(Build(target), SettingsOverlay.DefaultSectionName, Output.Detail, Output.Warn);
+        var overlay = CreateOverlay(target);
         return overlay == null ? settings : overlay.Apply(settings);
     }
+
+    /// <summary>The RelatudeDB section, or null when there is none.</summary>
+    public static SettingsOverlay? CreateOverlay(Target target)
+        => SettingsOverlay.Create(Build(target), SettingsOverlay.DefaultSectionName, Output.Detail, Output.Warn);
 }

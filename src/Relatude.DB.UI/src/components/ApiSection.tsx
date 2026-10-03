@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   IconAlertTriangle,
   IconApi,
   IconArrowBackUp,
   IconBraces,
-  IconCheck,
   IconCode,
-  IconCopy,
+  IconCompass,
   IconDeviceFloppy,
   IconDownload,
   IconExternalLink,
@@ -20,6 +19,7 @@ import {
   IconSettings,
   IconTrash,
   IconWand,
+  IconWorldWww,
 } from "@tabler/icons-react";
 import "../api.css";
 import { lint } from "../code/lint";
@@ -30,6 +30,8 @@ import {
   executeEndpoint,
   fetchEndpoint,
   fetchEndpoints,
+  fetchExamples,
+  fetchExplorer,
   newEndpointDefinition,
   normalizeDefinition,
   previewEndpoint,
@@ -37,6 +39,8 @@ import {
   saveEndpoint,
   type CatalogType,
   type EndpointDefinition,
+  type EndpointExample,
+  type EndpointExampleGroup,
   type EndpointPreview,
   type EndpointsInfo,
   type EndpointTypeDef,
@@ -44,17 +48,20 @@ import {
 } from "../server/graphql";
 import type { DatabaseInfo } from "../server/serverInfo";
 import { CodeEditor } from "./CodeEditor";
+import { GraphQLExplorer, type ExplorerSource } from "./GraphQLExplorer";
+import { CopyText } from "./CopyText";
 import { Loading } from "./Loading";
 import { Switch } from "./LogsSection";
 
 // The API section: the GraphQL endpoints of the database. One tab per endpoint plus an overview; an
 // endpoint is edited as a form (settings, the types and properties it exposes, views), as json, and is
-// shown as the schema and TypeScript it amounts to, with a small playground to try it on the database.
+// shown as the schema and code it amounts to, with a small playground to try it on the database and an
+// explorer to find out what it can answer (GraphQLExplorer.tsx).
 
 const overviewTab = "__overview";
 const newTab = "__new";
 
-type EditorView = "settings" | "types" | "views" | "code" | "try" | "json";
+type EditorView = "settings" | "types" | "views" | "code" | "try" | "explorer" | "json";
 
 export function ApiSection({ db }: { db: DatabaseInfo }) {
   const [info, setInfo] = useState<EndpointsInfo | null>(null);
@@ -62,6 +69,8 @@ export function ApiSection({ db }: { db: DatabaseInfo }) {
   const [tab, setTab] = useState(overviewTab);
   const [saved, setSaved] = useState<Record<string, EndpointDefinition>>({});
   const [drafts, setDrafts] = useState<Record<string, EndpointDefinition>>({});
+  // the view each endpoint's tab was left on
+  const [views, setViews] = useState<Record<string, EditorView>>({});
 
   const load = useCallback(async () => {
     try {
@@ -138,22 +147,36 @@ export function ApiSection({ db }: { db: DatabaseInfo }) {
           {drafts[newTab] && <span className="clog-draft-dot" title="Unsaved changes" />}
         </button>
       </div>
-      {!editing ? (
-        <Overview info={info} drafts={drafts} onOpen={setTab} onNew={() => setTab(newTab)} onReload={reload} />
-      ) : (
-        <EndpointEditor
-          key={tab}
-          storeId={db.id}
-          info={info}
-          endpointId={tab === newTab ? null : tab}
-          saved={tab === newTab ? undefined : saved[tab]}
-          onLoaded={(id, def) => setSaved((s) => ({ ...s, [id]: def }))}
-          draft={drafts[tab]}
-          onDraft={(d) => setDraft(tab, d)}
-          onSaved={(id) => afterSave(tab, id)}
-          onDeleted={() => afterDelete(tab)}
-        />
-      )}
+      <div className="api-body">
+        {!editing ? (
+          <Overview
+            info={info}
+            drafts={drafts}
+            onOpen={setTab}
+            onExplore={(id) => {
+              setViews((v) => ({ ...v, [id]: "explorer" }));
+              setTab(id);
+            }}
+            onNew={() => setTab(newTab)}
+            onReload={reload}
+          />
+        ) : (
+          <EndpointEditor
+            key={tab}
+            storeId={db.id}
+            info={info}
+            endpointId={tab === newTab ? null : tab}
+            saved={tab === newTab ? undefined : saved[tab]}
+            onLoaded={(id, def) => setSaved((s) => ({ ...s, [id]: def }))}
+            draft={drafts[tab]}
+            onDraft={(d) => setDraft(tab, d)}
+            view={views[tab] ?? "settings"}
+            onView={(v) => setViews((all) => ({ ...all, [tab]: v }))}
+            onSaved={(id) => afterSave(tab, id)}
+            onDeleted={() => afterDelete(tab)}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -164,12 +187,14 @@ function Overview({
   info,
   drafts,
   onOpen,
+  onExplore,
   onNew,
   onReload,
 }: {
   info: EndpointsInfo;
   drafts: Record<string, EndpointDefinition>;
   onOpen: (id: string) => void;
+  onExplore: (id: string) => void;
   onNew: () => void;
   onReload: () => void;
 }) {
@@ -205,6 +230,7 @@ function Overview({
               <span className="num">Views</span>
               <span>Mutations</span>
               <span>File</span>
+              <span />
             </div>
             {info.endpoints.map((e) => (
               <div key={e.id ?? e.file} className={"log-table-row" + (e.id ? " clickable" : "")} onClick={() => e.id && onOpen(e.id)}>
@@ -219,17 +245,35 @@ function Overview({
                   )}
                 </span>
                 <span className="mono">
-                  {e.url && (
-                    <a href={origin + e.url + "?sdl"} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} title="The schema as SDL, in a new tab">
-                      {e.url} <IconExternalLink size={12} stroke={1.8} />
-                    </a>
-                  )}
+                  {e.url &&
+                    (e.introspection ? (
+                      <a href={origin + e.url + "?sdl"} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} title="The schema as SDL, in a new tab">
+                        {e.url} <IconExternalLink size={12} stroke={1.8} />
+                      </a>
+                    ) : (
+                      <span title="Introspection is off, so the schema is not served">{e.url}</span>
+                    ))}
                 </span>
                 <span>{e.error ? "" : e.mode === "WholeDatamodel" ? "Whole datamodel" + (e.exactNames ? ", exact names" : "") : "Selected types"}</span>
                 <span className="num">{e.error ? "" : e.typeCount}</span>
                 <span className="num">{e.error ? "" : e.viewCount}</span>
                 <span>{e.error ? "" : e.allowMutations ? "allowed" : "read only"}</span>
                 <span className="muted mono">{e.file}</span>
+                <span>
+                  {e.id && !e.error && (
+                    <button
+                      className="action-button api-explore"
+                      title="Explore the endpoint: build, run and read about queries"
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        onExplore(e.id!);
+                      }}
+                    >
+                      <IconCompass size={14} stroke={1.8} /> Explore
+                    </button>
+                  )}
+                  {e.id && !e.error && <PublicPageLink page={publicPage(e.url, e.enabled, e.explorer, e.introspection, false)} />}
+                </span>
               </div>
             ))}
           </div>
@@ -251,6 +295,8 @@ function EndpointEditor({
   onLoaded,
   draft,
   onDraft,
+  view,
+  onView: setView,
   onSaved,
   onDeleted,
 }: {
@@ -261,10 +307,11 @@ function EndpointEditor({
   onLoaded: (id: string, def: EndpointDefinition) => void;
   draft: EndpointDefinition | undefined;
   onDraft: (def: EndpointDefinition | null) => void;
+  view: EditorView;
+  onView: (view: EditorView) => void;
   onSaved: (id: string) => void;
   onDeleted: () => void;
 }) {
-  const [view, setView] = useState<EditorView>("settings");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [preview, setPreview] = useState<EndpointPreview | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -355,6 +402,8 @@ function EndpointEditor({
     }
   }
 
+  // the page serves the endpoint as it is saved
+  const page = saved ? publicPage(normalizeUrl(saved.url), saved.enabled, !!saved.enableExplorer, saved.enableIntrospection, dirty) : { href: null, reason: "Save the endpoint first: the page serves the saved endpoint." };
   const errors = preview?.issues.filter((i) => i.isError) ?? [];
   const warnings = [...(preview?.issues.filter((i) => !i.isError).map((i) => i.message) ?? []), ...(preview?.warnings ?? [])];
   const status = errors.length > 0 ? errors[0].message + (errors.length > 1 ? ` (+${errors.length - 1} more)` : "") : dirty ? "Unsaved changes" : endpointId ? "Saved" : "New endpoint";
@@ -378,6 +427,9 @@ function EndpointEditor({
           <button className={view === "try" ? "active" : ""} onClick={() => setView("try")}>
             <IconFlask size={14} stroke={1.8} /> Try it
           </button>
+          <button className={view === "explorer" ? "active" : ""} onClick={() => setView("explorer")} title="Build, run and read about queries, with a guide of runnable examples">
+            <IconCompass size={14} stroke={1.8} /> Explorer
+          </button>
           <button className={view === "json" ? "active" : ""} onClick={() => setView("json")}>
             <IconBraces size={14} stroke={1.8} /> Json
           </button>
@@ -386,6 +438,7 @@ function EndpointEditor({
           {previewBusy && <IconRefresh size={13} stroke={1.8} className="spinning" />}
           {status}
         </span>
+        <PublicPageLink page={page} labelled />
         <Switch label="Enabled" checked={current.enabled} onChange={(v) => update({ enabled: v })} />
         <button className="action-button" onClick={() => onDraft(null)} disabled={!dirty}>
           <IconArrowBackUp size={15} stroke={1.8} /> Revert
@@ -397,7 +450,7 @@ function EndpointEditor({
           <IconTrash size={16} stroke={1.8} />
         </button>
       </div>
-      {warnings.length > 0 && view !== "code" && (
+      {warnings.length > 0 && view !== "code" && view !== "try" && view !== "explorer" && (
         <div className="logs-note api-warnings">
           {warnings.slice(0, 6).map((w, i) => (
             <div key={i}>
@@ -407,12 +460,15 @@ function EndpointEditor({
           {warnings.length > 6 && <div className="muted">… and {warnings.length - 6} more</div>}
         </div>
       )}
-      {view === "settings" && <SettingsForm def={current} adminRoot={info.adminRoot} onChange={update} />}
-      {view === "types" && <TypesEditor def={current} catalog={info.catalog} onChange={update} />}
-      {view === "views" && <ViewsEditor def={current} onChange={update} />}
-      {view === "code" && <CodeView def={current} preview={preview} busy={previewBusy} open={info.open} />}
-      {view === "try" && <TryIt storeId={storeId} def={current} preview={preview} open={info.open} />}
-      {view === "json" && <JsonView def={current} onChange={(d) => onDraft(d)} />}
+      <div className={"api-editor-body" + (view === "try" || view === "code" || view === "json" || view === "explorer" ? " fill" : "")}>
+        {view === "settings" && <SettingsForm def={current} adminRoot={info.adminRoot} onChange={update} />}
+        {view === "types" && <TypesEditor def={current} catalog={info.catalog} onChange={update} />}
+        {view === "views" && <ViewsEditor def={current} onChange={update} />}
+        {view === "code" && <CodeView def={current} preview={preview} busy={previewBusy} open={info.open} />}
+        {view === "try" && <TryIt storeId={storeId} def={current} preview={preview} open={info.open} />}
+        {view === "explorer" && <AdminExplorer storeId={storeId} endpointKey={endpointId ?? "new"} def={current} open={info.open} tools={<PublicPageLink page={page} labelled small />} />}
+        {view === "json" && <JsonView def={current} onChange={(d) => onDraft(d)} />}
+      </div>
     </div>
   );
 }
@@ -480,10 +536,28 @@ function SettingsForm({ def, adminRoot, onChange }: { def: EndpointDefinition; a
           <Switch label="Allow mutations (create, update, delete)" checked={def.allowMutations} onChange={(v) => onChange({ allowMutations: v })} />
           <Switch label="Introspection (__schema, __type)" checked={def.enableIntrospection} onChange={(v) => onChange({ enableIntrospection: v })} />
           <Switch label="GET requests with ?query=" checked={def.enableGetRequests} onChange={(v) => onChange({ enableGetRequests: v })} />
+          <Switch label="Explorer page on the url, for browsers (like GraphiQL)" checked={!!def.enableExplorer} onChange={(v) => onChange({ enableExplorer: v })} />
           {def.mode === "WholeDatamodel" && <Switch label="Include the system types (users, groups…)" checked={def.includeSystemTypes} onChange={(v) => onChange({ includeSystemTypes: v })} />}
           <span className="clog-field-hint">
             {def.exactNames ? "Type Article, field Title, root fields Article / Articles / CreateArticle." : "Type Article, field title, root fields article / articles / createArticle."}
           </span>
+          {def.enableExplorer && (
+            <span className={"clog-field-hint" + (def.enableIntrospection ? "" : " bad")}>
+              {!def.enableIntrospection ? (
+                "The explorer reads the schema through introspection, which is off: the page will say so and stay empty."
+              ) : url ? (
+                <>
+                  A browser opening{" "}
+                  <a className="api-link" href={origin + url} target="_blank" rel="noreferrer">
+                    {origin + url} <IconExternalLink size={12} stroke={1.8} />
+                  </a>{" "}
+                  gets the explorer{def.apiKey ? ", which asks for the API key" : ""}. Clients posting queries are not affected. Save first: the page serves the saved endpoint.
+                </>
+              ) : (
+                "A browser opening the url gets the explorer."
+              )}
+            </span>
+          )}
         </div>
         <label className="clog-field">
           <span className="clog-field-label">API key</span>
@@ -744,26 +818,31 @@ function ViewsEditor({ def, onChange }: { def: EndpointDefinition; onChange: (pa
 
 // ---- code ----
 
-type CodeKind = "sdl" | "types" | "sample";
+type CodeKind = "sdl" | "ts-types" | "ts-client" | "cs-types" | "cs-client";
+
+const codeKinds: { kind: CodeKind; label: string; language: Language; extension: string; pick: (p: EndpointPreview) => string | null }[] = [
+  { kind: "sdl", label: "Schema (SDL)", language: "graphql", extension: ".graphql", pick: (p) => p.sdl },
+  { kind: "ts-types", label: "TypeScript types", language: "typescript", extension: ".types.ts", pick: (p) => p.types },
+  { kind: "ts-client", label: "TypeScript client", language: "typescript", extension: ".client.ts", pick: (p) => p.sample },
+  { kind: "cs-types", label: "C# types", language: "csharp", extension: ".Types.cs", pick: (p) => p.csharpTypes },
+  { kind: "cs-client", label: "C# client", language: "csharp", extension: ".Client.cs", pick: (p) => p.csharpSample },
+];
 
 function CodeView({ def, preview, busy, open }: { def: EndpointDefinition; preview: EndpointPreview | null; busy: boolean; open: boolean }) {
   const [kind, setKind] = useState<CodeKind>("sdl");
-  const text = kind === "sdl" ? preview?.sdl : kind === "types" ? preview?.types : preview?.sample;
-  const language: Language = kind === "sdl" ? "graphql" : "typescript";
-  const fileName = fileSlug(def.name) + (kind === "sdl" ? ".graphql" : kind === "types" ? ".types.ts" : ".client.ts");
+  const current = codeKinds.find((k) => k.kind === kind) ?? codeKinds[0];
+  const text = preview ? current.pick(preview) : null;
+  const language = current.language;
+  const fileName = fileSlug(def.name) + current.extension;
   return (
     <section className="panel api-code-panel">
       <div className="api-code-bar">
         <div className="module-switch compact">
-          <button className={kind === "sdl" ? "active" : ""} onClick={() => setKind("sdl")}>
-            Schema (SDL)
-          </button>
-          <button className={kind === "types" ? "active" : ""} onClick={() => setKind("types")}>
-            TypeScript types
-          </button>
-          <button className={kind === "sample" ? "active" : ""} onClick={() => setKind("sample")}>
-            TypeScript client
-          </button>
+          {codeKinds.map((k) => (
+            <button key={k.kind} className={kind === k.kind ? "active" : ""} onClick={() => setKind(k.kind)}>
+              {k.label}
+            </button>
+          ))}
         </div>
         <span className="muted api-code-meta">
           {preview ? `${preview.typeCount} types` + (preview.mutationCount > 0 ? `, ${preview.mutationCount} mutations` : ", read only") : ""}
@@ -798,27 +877,6 @@ function CodeView({ def, preview, busy, open }: { def: EndpointDefinition; previ
   );
 }
 
-function CopyText({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const timer = useRef(0);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => setCopied(false), 1500);
-    } catch (e) {
-      await showError("Could not copy", e instanceof Error ? e.message : String(e));
-    }
-  }
-  return (
-    <button className={"icon-button" + (copied ? " copied" : "")} title="Copy" disabled={!text} onClick={copy}>
-      {copied ? <IconCheck size={16} stroke={1.8} /> : <IconCopy size={16} stroke={1.8} />}
-    </button>
-  );
-}
-
 function download(name: string, text: string) {
   const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
   const a = document.createElement("a");
@@ -839,11 +897,53 @@ function fileSlug(name: string): string {
 
 // ---- try it ----
 
+const examplesSettleMs = 300;
+
 function TryIt({ storeId, def, preview, open }: { storeId: string; def: EndpointDefinition; preview: EndpointPreview | null; open: boolean }) {
+  const [groups, setGroups] = useState<EndpointExampleGroup[] | null>(null);
+  const [groupLabel, setGroupLabel] = useState<string | null>(null);
+  const [exampleId, setExampleId] = useState<string | null>(null);
   const [query, setQuery] = useState<string | null>(null);
   const [variables, setVariables] = useState("{}");
   const [result, setResult] = useState("");
   const [running, setRunning] = useState(false);
+  const defJson = JSON.stringify(def);
+
+  // the examples follow the definition, a little behind the typing
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      fetchExamples(storeId, JSON.parse(defJson) as EndpointDefinition, controller.signal).then(
+        (r) => setGroups(r.groups),
+        () => {},
+      );
+    }, examplesSettleMs);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [storeId, defJson, open]);
+
+  const group = groups?.find((g) => g.label === groupLabel) ?? groups?.[0] ?? null;
+  const example = group?.examples.find((e) => e.id === exampleId) ?? group?.examples[0] ?? null;
+
+  // the first example fills the editors until something has been typed
+  useEffect(() => {
+    if (query === null && example) {
+      setQuery(example.query);
+      setVariables(example.variables ?? "{}");
+    }
+  }, [example, query]);
+
+  function pick(g: EndpointExampleGroup, e: EndpointExample) {
+    setGroupLabel(g.label);
+    setExampleId(e.id);
+    setQuery(e.query);
+    setVariables(e.variables ?? "{}");
+    setResult("");
+  }
+
   const text = query ?? preview?.sampleQuery ?? "{ __typename }";
 
   async function run() {
@@ -870,9 +970,46 @@ function TryIt({ storeId, def, preview, open }: { storeId: string; def: Endpoint
   if (!open) return <div className="logs-note">The database is closed, so there is nothing to query.</div>;
   return (
     <section className="panel api-try">
-      <div className="api-code-bar">
-        <span className="muted">Runs against the database with the definition as it is here, saved or not.</span>
-        <span className="logs-spacer" />
+      <div className="api-code-bar api-try-bar">
+        <label className="api-try-pick">
+          <span className="muted">Type</span>
+          <select
+            className="select compact"
+            value={group?.label ?? ""}
+            disabled={!groups}
+            onChange={(e) => {
+              const g = groups?.find((x) => x.label === e.target.value);
+              if (g && g.examples[0]) pick(g, g.examples[0]);
+            }}
+          >
+            {(groups ?? []).map((g) => (
+              <option key={g.label} value={g.label}>
+                {g.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="api-try-pick">
+          <span className="muted">Example</span>
+          <select
+            className="select compact"
+            value={example?.id ?? ""}
+            disabled={!group}
+            onChange={(e) => {
+              const ex = group?.examples.find((x) => x.id === e.target.value);
+              if (group && ex) pick(group, ex);
+            }}
+          >
+            {(group?.examples ?? []).map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="muted api-try-note" title="The query runs against the database with the definition as it is here, saved or not. Ctrl+S in an editor runs it too.">
+          Runs with the definition as it is here, saved or not.
+        </span>
         <button className="action-button primary" onClick={run} disabled={running}>
           <IconPlayerPlay size={15} stroke={1.8} /> {running ? "Running…" : "Run"}
         </button>
@@ -891,11 +1028,78 @@ function TryIt({ storeId, def, preview, open }: { storeId: string; def: Endpoint
           </div>
         </div>
       </div>
-      <span className="clog-field-label">Result</span>
-      <div className="api-code">
-        <CodeEditor value={result} onChange={() => {}} language="json" issues={[]} readOnly />
+      <div className="api-try-result">
+        <span className="clog-field-label">Result</span>
+        <div className="api-code">
+          <CodeEditor value={result} onChange={() => {}} language="json" issues={[]} readOnly />
+        </div>
       </div>
     </section>
+  );
+}
+
+// ---- explorer ----
+
+/** The explorer in the admin UI: the schema and the queries go through the admin API, with the definition as it is here. */
+function AdminExplorer({ storeId, endpointKey, def, open, tools }: { storeId: string; endpointKey: string; def: EndpointDefinition; open: boolean; tools?: ReactNode }) {
+  const defJson = JSON.stringify(def);
+  const source = useMemo<ExplorerSource>(() => {
+    const definition = JSON.parse(defJson) as EndpointDefinition;
+    const url = normalizeUrl(definition.url) ?? "/" + definition.url.replace(/^\/+/, "");
+    return {
+      storageKey: endpointKey,
+      version: defJson,
+      load: (signal) => fetchExplorer(storeId, definition, signal),
+      execute: async (request) => (await executeEndpoint(storeId, { definition, ...request })).result,
+      endpoint: window.location.origin + url,
+      apiKey: !!definition.apiKey,
+      introspection: definition.enableIntrospection,
+      audience: "admin",
+    };
+  }, [storeId, endpointKey, defJson]);
+  if (!open) return <div className="logs-note">The database is closed, so there is nothing to explore.</div>;
+  return <GraphQLExplorer source={source} tools={tools} />;
+}
+
+// ---- the public page ----
+
+interface PublicPage {
+  /** where the page is, or null when it is not served */
+  href: string | null;
+  /** why not, or what to know before opening it */
+  reason: string;
+}
+
+/** Whether the endpoint's explorer page is served on its url, and if not, why not. */
+function publicPage(url: string | null, enabled: boolean, explorer: boolean, introspection: boolean, unsaved: boolean): PublicPage {
+  if (!url) return { href: null, reason: "The endpoint has no url." };
+  if (!explorer) return { href: null, reason: "The explorer page is off: switch on \"Explorer page on the url\" under Settings, and save." };
+  if (!enabled) return { href: null, reason: "The endpoint is switched off, so its url answers nothing." };
+  if (!introspection) return { href: null, reason: "Introspection is off, so the page cannot read the schema." };
+  const href = window.location.origin + url;
+  return { href, reason: `Open the explorer page at ${href}, as anyone with a browser sees it.` + (unsaved ? " It serves the saved endpoint: the changes here are not on it yet." : "") };
+}
+
+/** Opens the endpoint's explorer page in a new tab; shown off, with the reason, when there is no page to open. */
+function PublicPageLink({ page, labelled, small }: { page: PublicPage; labelled?: boolean; small?: boolean }) {
+  const content = (
+    <>
+      <IconWorldWww size={small ? 14 : 16} stroke={1.8} />
+      {labelled && <span>Public page</span>}
+    </>
+  );
+  const className = "icon-button api-public-page" + (labelled ? " labelled" : "") + (small ? " small" : "");
+  if (!page.href) {
+    return (
+      <button className={className} disabled title={page.reason} onClick={(e) => e.stopPropagation()}>
+        {content}
+      </button>
+    );
+  }
+  return (
+    <a className={className} href={page.href} target="_blank" rel="noreferrer" title={page.reason} onClick={(e) => e.stopPropagation()}>
+      {content}
+    </a>
   );
 }
 

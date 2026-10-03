@@ -203,6 +203,25 @@ public class GraphQLEndpointToolsTests {
             Assert.AreEqual(405, get, "GET is switched off on this endpoint");
             var (sdl, _, _) = await call(gql, "GET", query: "?sdl", setup: r => r.Headers["X-Api-Key"] = "s3cret-key");
             Assert.AreEqual(200, sdl, "the schema text is still served");
+            var (sdlNoKey, _, _) = await call(gql, "GET", query: "?sdl");
+            Assert.AreEqual(401, sdlNoKey, "but only with the key");
+        } finally { store.Dispose(); }
+    }
+
+    [TestMethod]
+    public async Task Http_Handler_Keeps_The_Schema_Text_In_When_Introspection_Is_Off() {
+        var (store, _, _) = Open();
+        try {
+            var gql = new RelatudeGraphQL(store.Datastore, new GraphQLEndpointDefinition { Name = "Hidden", Url = "/h", Mode = GraphQLEndpointMode.WholeDatamodel, EnableIntrospection = false });
+            var (status, body, _) = await call(gql, "GET", query: "?sdl");
+            Assert.AreEqual(403, status);
+            StringAssert.Contains(body, "Introspection is switched off");
+            Assert.IsFalse(body.Contains("type Query"), "nothing of the schema is told");
+            var (introspection, introspectionBody, _) = await call(gql, "POST", "{\"query\":\"{ __schema { types { name } } }\"}");
+            StringAssert.Contains(introspectionBody, "Introspection is disabled", "the same terms as introspection itself");
+            var (query, _, _) = await call(gql, "POST", "{\"query\":\"{ articles { totalCount } }\"}");
+            Assert.AreEqual(200, query, "queries are not affected");
+            Assert.AreNotEqual(200, introspection);
         } finally { store.Dispose(); }
     }
 }

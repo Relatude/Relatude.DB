@@ -14,8 +14,9 @@ namespace Relatude.DB.NodeServer.Settings;
 /// Objects merge key by key and scalars replace. Array elements are matched on Id when the overlay
 /// element gives one, otherwise on position; unmatched overlay elements are appended. Overlays cannot
 /// remove elements or set values to null.
-/// Overridden keys are restored to the file's own values before settings are written back, so
-/// configuration-supplied values (such as secrets) never reach relatude.db.json.
+/// Overridden keys are restored to the files' own values before settings are written back, so
+/// configuration-supplied values (such as secrets) never reach relatude.db.json or
+/// relatude.db.overrides.json. The overlay sits over both files, see RelatudeDBServer.SettingsLayers.cs.
 /// </summary>
 public sealed class SettingsOverlay {
     public const string DefaultSectionName = "RelatudeDB";
@@ -68,14 +69,40 @@ public sealed class SettingsOverlay {
             ?? throw new Exception("Could not read the merged server settings.");
     }
 
+    /// <summary>The settings with the section merged in, without recording or reporting anything - for a
+    /// look at what configuration makes of relatude.db.json before the settings are put together, such as
+    /// where the default database keeps its files (see <see cref="SettingsOverridesLocation"/>).</summary>
+    public RelatudeDBServerSettings Preview(RelatudeDBServerSettings settings) {
+        var overrides = _overrides.ToList();
+        var overriddenByPath = new Dictionary<string, JsonNode?>(_overriddenByPath, StringComparer.OrdinalIgnoreCase);
+        try {
+            var root = JsonSerializer.SerializeToNode(settings, LocalSettingsLoaderFile.JsonOptions) as JsonObject
+                ?? throw new Exception("Could not serialize the server settings.");
+            mergeObject(root, _overlay, []);
+            return root.Deserialize<RelatudeDBServerSettings>(LocalSettingsLoaderFile.JsonOptions)
+                ?? throw new Exception("Could not read the merged server settings.");
+        } finally {
+            _overrides.Clear();
+            _overrides.AddRange(overrides);
+            _overriddenByPath.Clear();
+            foreach (var (key, value) in overriddenByPath) _overriddenByPath[key] = value;
+        }
+    }
+
     /// <summary>Returns a copy of the live settings where every overridden key holds the value the file
     /// had, so configuration-supplied values are not written to disk. Keys the overlay appended are
     /// removed again.</summary>
     public RelatudeDBServerSettings RemoveOverridesBeforeSave(RelatudeDBServerSettings liveSettings) {
         if (_overrides.Count == 0) return liveSettings;
         if (JsonSerializer.SerializeToNode(liveSettings, LocalSettingsLoaderFile.JsonOptions) is not JsonObject root) return liveSettings;
-        for (var i = _overrides.Count - 1; i >= 0; i--) restore(root, _overrides[i]);
+        RemoveOverridesBeforeSave(root);
         return root.Deserialize<RelatudeDBServerSettings>(LocalSettingsLoaderFile.JsonOptions) ?? liveSettings;
+    }
+
+    /// <summary>The same as <see cref="RemoveOverridesBeforeSave(RelatudeDBServerSettings)"/>, in place on
+    /// the serialized settings.</summary>
+    public void RemoveOverridesBeforeSave(JsonObject root) {
+        for (var i = _overrides.Count - 1; i >= 0; i--) restore(root, _overrides[i]);
     }
 
     sealed class Step {

@@ -205,21 +205,27 @@ public partial class RelatudeDBServer {
         try { Shutdown(); } catch { }
     }
     /// <summary>
-    /// Reads the settings file, applies the <c>IConfiguration</c> overlay on top of it and builds a
-    /// container for every database it describes. Split out of <see cref="StartAsync"/> so that
+    /// Reads the settings file and the overrides file, applies the <c>IConfiguration</c> overlay on top
+    /// of them and builds a container for every database they describe (the layers are described in
+    /// RelatudeDBServer.SettingsLayers.cs). Split out of <see cref="StartAsync"/> so that
     /// <see cref="SoftRestartAsync"/> can redo exactly this much and no more: everything around it -
     /// the temp folder, the middleware, the lifetime hooks - is bound to the host and belongs to the
     /// process, not to a reload.
     /// </summary>
     async Task loadSettingsAndCreateContainersAsync(bool firstStart) {
         var sw = Stopwatch.StartNew();
-        _serverSettings = await _settingsLoader!.ReadAsync();
-        Log("Settings loaded in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms. Found " + (_serverSettings.ContainerSettings?.Length ?? 0) + " container(s).");
+        // the configuration section is read first, though it is merged last: where the overrides file
+        // is kept follows the default database as relatude.db.json and configuration describe it
+        _settingsOverlay = null;
         if (Options?.ConfigurationSectionName != null && _configuration != null) {
             _settingsOverlay = SettingsOverlay.Create(_configuration, Options.ConfigurationSectionName,
                 Log, msg => { Log(msg); Console.Error.WriteLine("relatude.db: " + msg); });
-            if (_settingsOverlay != null) _serverSettings = _settingsOverlay.Apply(_serverSettings);
         }
+        _serverSettings = await readSettingsFilesAsync();
+        Log("Settings loaded in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms. Found " + (_serverSettings.ContainerSettings?.Length ?? 0) + " container(s)."
+            + (_overridesFile == null ? "" : " Changes made in the admin UI are kept in " + _overridesFile.Display + "."));
+        if (_settingsOverlay != null) _serverSettings = _settingsOverlay.Apply(_serverSettings);
+        shareOverridesFileProvider();
         if (_serverSettings.DBAdminUIUrlPath != null) {
             if (firstStart) {
                 setApiUrlRoot(_serverSettings.DBAdminUIUrlPath);
@@ -229,11 +235,10 @@ public partial class RelatudeDBServer {
                     + " already mapped on \"" + ApiUrlRoot + "\". The new path only takes effect after a full process restart.");
             }
         }
-        RaiseEventServerSettingsInit(_serverSettings);
+        raiseServerSettingsInitRecorded();
         if (_serverSettings.ContainerSettings != null) {
             foreach (var containerSettings in _serverSettings.ContainerSettings) {
-                RaiseEventContainerSettingsInit(containerSettings);
-                if (containerSettings.LocalSettings != null) RaiseEventStoreSettingsInit(containerSettings.LocalSettings, containerSettings);
+                RaiseContainerSettingsInitRecorded(containerSettings);
                 var container = new NodeStoreContainer(containerSettings, this);
                 lock (Containers) Containers.Add(containerSettings.Id, container);
                 if (containerSettings.Id == _serverSettings.DefaultStoreId) _defaultContainer = container;
@@ -442,12 +447,6 @@ public partial class RelatudeDBServer {
                 + " after waiting " + elapsed.TotalSeconds.To1000N() + " s for another process to release it."));
     }
 
-    public void UpdateWAFServerSettingsFile() {
-        _serverSettings.ContainerSettings = GetContainers().Select(c => c.Settings).ToArray();
-        var settingsToWrite = _settingsOverlay == null ? _serverSettings : _settingsOverlay.RemoveOverridesBeforeSave(_serverSettings);
-        _settingsLoader!.WriteAsync(settingsToWrite).Wait();
-        if (Containers.ContainsKey(_serverSettings.DefaultStoreId)) _defaultContainer = Containers[_serverSettings.DefaultStoreId];
-    }
     public NodeStore GetStore(Guid storeId) {
         if (!Containers.TryGetValue(storeId, out var container)) throw new Exception("Container not found.");
         if (container.Store == null) throw new Exception("Store not initialized. ");
@@ -623,6 +622,21 @@ public class ServerOptions {
     /// settings file. Set to null to disable. Defaults to "RelatudeDB".
     /// </summary>
     public string? ConfigurationSectionName { get; set; } = SettingsOverlay.DefaultSectionName;
+    /// <summary>
+    /// Keeps the settings changed in the admin UI apart from relatude.db.json, in relatude.db.overrides.json.
+    /// At every start that file is merged over relatude.db.json, and the configuration section over both;
+    /// the admin UI writes only there, so relatude.db.json stays as the application deployed it, and
+    /// anything in the file can be moved into it from the settings page. On by default. Turned off, the
+    /// admin UI writes relatude.db.json, as it did before the file existed.
+    /// </summary>
+    public bool UseSettingsOverridesFile { get; set; } = true;
+    /// <summary>
+    /// A file on disk to keep relatude.db.overrides.json in, relative to the root data folder or absolute.
+    /// Left null - the default - the file is kept with the default database, at the root of the storage
+    /// it keeps its files in (beside its data/, state/ and log/ folders on local disk, in its container
+    /// on blob storage), as relatude.db.json and the configuration section describe that database.
+    /// </summary>
+    public string? SettingsOverridesFilePath { get; set; } = null;
     /// <summary>
     /// Default relative or absolute path to default data folder
     /// </summary>

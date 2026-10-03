@@ -18,10 +18,12 @@ public sealed class GraphQLOptions {
     public int DefaultPageSize { get; set; } = 25;
     /// <summary>Hard cap for the pageSize argument.</summary>
     public int MaxPageSize { get; set; } = 200;
-    /// <summary>Serve __schema / __type. Disable on hardened public endpoints.</summary>
+    /// <summary>Serve __schema / __type, and the schema as SDL on GET ?sdl. Disable on hardened public endpoints.</summary>
     public bool EnableIntrospection { get; set; } = true;
     /// <summary>Allow GET ?query=... requests (POST is always enabled).</summary>
     public bool EnableGetRequests { get; set; } = true;
+    /// <summary>Serve the explorer page (build, run and read about queries) to a browser asking for the endpoint's url. Off by default.</summary>
+    public bool EnableExplorer { get; set; }
     /// <summary>Expose create/update/delete mutations for every type.</summary>
     public bool AllowMutations { get; set; }
     /// <summary>Expose the built-in system node types (users, groups, collections, cultures). Off by default.</summary>
