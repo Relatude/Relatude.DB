@@ -9,22 +9,24 @@ namespace Relatude.DB.GraphQL.Endpoints;
 /// <summary>
 /// GraphQL over HTTP for one executor: POST {"query","operationName","variables"} (or a raw application/graphql body),
 /// GET ?query=... when the endpoint allows it, GET ?sdl for the schema text when introspection is on. With the explorer switched on, a browser
-/// asking for the url gets the explorer page (ExplorerPage), which reads ?explorer-data. Shared by the fixed route
-/// and the endpoints defined in the admin UI.
+/// asking for the url gets the explorer page (ExplorerPage), which reads ?explorer-data; with the facet search on, it gets the
+/// same page opened on the facet search, whose requests ("?facets=") go to the host's IGraphQLFacetSearch. Shared by the
+/// fixed route and the endpoints defined in the admin UI.
 /// </summary>
 public static class GraphQLHttpHandler {
     public const string ApiKeyHeader = "X-Api-Key";
 
     public static async Task HandleAsync(HttpContext http, RelatudeGraphQL executor, QueryContext? queryContext) {
         var definition = executor.Definition;
-        if (definition.EnableExplorer && HttpMethods.IsGet(http.Request.Method)) {
+        var facets = executor.FacetSearchAvailable;
+        if ((definition.EnableExplorer || facets) && HttpMethods.IsGet(http.Request.Method)) {
             // the page and its files are served without the key: the page is where the key is typed in
             if (http.Request.Query.TryGetValue("explorer-asset", out var asset)) {
                 await ExplorerPage.WriteAssetAsync(http, asset.ToString());
                 return;
             }
             if (ExplorerPage.WantsPage(http.Request)) {
-                await ExplorerPage.WritePageAsync(http, definition);
+                await ExplorerPage.WritePageAsync(http, definition, facets);
                 return;
             }
         }
@@ -35,6 +37,15 @@ public static class GraphQLHttpHandler {
         if (HttpMethods.IsOptions(http.Request.Method)) {
             http.Response.StatusCode = StatusCodes.Status204NoContent;
             http.Response.Headers.Allow = "GET, POST, OPTIONS";
+            return;
+        }
+        if (http.Request.Query.TryGetValue("facets", out var facetAction)) {
+            // the facet search beside the schema, which the page's visual pivot reads (see IGraphQLFacetSearch)
+            if (!facets) {
+                await writeErrors(http, StatusCodes.Status404NotFound, "The facet search is switched off for this endpoint.");
+                return;
+            }
+            await executor.Options.FacetSearch!.HandleAsync(http, executor, facetAction.ToString(), queryContext);
             return;
         }
         GraphQLRequest? request;

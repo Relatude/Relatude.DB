@@ -53,7 +53,7 @@ public static partial class ExplorerPage {
         if (!HttpMethods.IsGet(request.Method)) return false;
         var q = request.Query;
         if (q.ContainsKey("explorer")) return true;
-        if (q.ContainsKey("query") || q.ContainsKey("sdl") || q.ContainsKey("explorer-data") || q.ContainsKey("explorer-asset")) return false;
+        if (q.ContainsKey("query") || q.ContainsKey("sdl") || q.ContainsKey("explorer-data") || q.ContainsKey("explorer-asset") || q.ContainsKey("facets")) return false;
         return request.Headers.Accept.Any(a => a != null && a.Contains("text/html", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -73,8 +73,11 @@ public static partial class ExplorerPage {
         await writeAsync(http, file.Raw, file.Gzip, file.ContentType);
     }
 
-    /// <summary>Writes the page, with the endpoint's name, url and what it asks of a client written into it.</summary>
-    public static async Task WritePageAsync(HttpContext http, GraphQLEndpointDefinition definition) {
+    /// <summary>
+    /// Writes the page, with the endpoint's name, url and what it asks of a client written into it. With the facet search
+    /// on, the page opens on it (a visual pivot of the exposed types) and the explorer, when that is on too, is a tab of it.
+    /// </summary>
+    public static async Task WritePageAsync(HttpContext http, GraphQLEndpointDefinition definition, bool facets = false) {
         var page = asset(PageName);
         if (page == null) {
             http.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -91,6 +94,8 @@ public static partial class ExplorerPage {
             apiKey = !string.IsNullOrEmpty(definition.ApiKey),
             introspection = definition.EnableIntrospection,
             mutations = definition.AllowMutations,
+            explorer = definition.EnableExplorer,
+            facets,
         });
         var html = Encoding.UTF8.GetString(page.Raw);
         // the build refers to its files next to the page; here they are questions to the same url
@@ -99,7 +104,7 @@ public static partial class ExplorerPage {
             var version = asset(file)?.ETag.Trim('"') ?? "0";
             return $"{m.Groups[1].Value}=\"?explorer-asset={Uri.EscapeDataString(file)}&v={version}\"";
         });
-        html = html.Replace("<title>GraphQL explorer</title>", "<title>" + System.Net.WebUtility.HtmlEncode(name) + " · GraphQL explorer</title>");
+        html = html.Replace("<title>GraphQL explorer</title>", "<title>" + System.Net.WebUtility.HtmlEncode(name) + (facets ? " · Facet search" : " · GraphQL explorer") + "</title>");
         // the settings travel as json inside the page; "<" is escaped so no value can close the script element
         html = html.Replace("</head>", "<script id=\"relatude-explorer-config\" type=\"application/json\">" + config.Replace("<", "\\u003c") + "</script></head>");
         http.Response.Headers.CacheControl = "no-cache";

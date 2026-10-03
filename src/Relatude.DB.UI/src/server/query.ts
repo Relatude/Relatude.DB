@@ -1025,6 +1025,14 @@ export async function streamCardImages(
     }
     throw new Error(message);
   }
+  await readCardImages(response, onRecord);
+}
+
+/**
+ * The records of a card pictures response, handed to `onRecord` as they arrive: the admin UI's route
+ * above and an endpoint's facet search (explorer/facetSource.ts) write the same stream.
+ */
+export async function readCardImages(response: Response, onRecord: (id: number, status: number, bytes: Uint8Array, region: Float32Array | null) => void): Promise<void> {
   // records: int32 id, uint8 status, uint8 flags, int32 length, [4 float32 of region when flags bit 0], bytes -
   // parsed as the chunks come in
   const headerSize = 10;

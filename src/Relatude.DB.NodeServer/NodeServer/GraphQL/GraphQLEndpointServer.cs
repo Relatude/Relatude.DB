@@ -26,7 +26,16 @@ public sealed class GraphQLEndpointServer {
     Dictionary<string, Route> _routes = new(StringComparer.OrdinalIgnoreCase);
     string? _loadedFor; // the container set the tables were built for
 
-    internal GraphQLEndpointServer(RelatudeDBServer server) { _server = server; }
+    internal GraphQLEndpointServer(RelatudeDBServer server) {
+        _server = server;
+        FacetSearch = new GraphQLFacetSearch(server);
+    }
+
+    /// <summary>
+    /// The facet search the endpoints serve when theirs is switched on (<see cref="GraphQLEndpointDefinition.EnableFacetSearch"/>).
+    /// Given to every endpoint defined here; a code-first endpoint gets it through <see cref="GraphQLOptions.FacetSearch"/>.
+    /// </summary>
+    public GraphQLFacetSearch FacetSearch { get; }
 
     /// <summary>Forgets the loaded definitions; the next request reads the files again.</summary>
     public void Invalidate() {
@@ -74,15 +83,16 @@ public sealed class GraphQLEndpointServer {
         var executors = _executors.GetValue(dataStore, _ => new Executors());
         lock (executors) {
             if (executors.ByEndpoint.TryGetValue(definition.Id, out var entry) && ReferenceEquals(entry.Definition, definition)) return entry.Executor;
-            var executor = new RelatudeGraphQL(dataStore, definition, OptionsFor(nodeStore));
+            var executor = new RelatudeGraphQL(dataStore, definition, OptionsFor(nodeStore, FacetSearch));
             executors.ByEndpoint[definition.Id] = (definition, executor);
             return executor;
         }
     }
 
-    /// <summary>Mutations go through the NodeStore so transaction plugins see them.</summary>
-    public static GraphQLOptions OptionsFor(Nodes.NodeStore nodeStore) => new() {
+    /// <summary>Mutations go through the NodeStore so transaction plugins see them; the facet search, when given, answers the page's facets.</summary>
+    public static GraphQLOptions OptionsFor(Nodes.NodeStore nodeStore, IGraphQLFacetSearch? facetSearch = null) => new() {
         TransactionExecutor = (_, transaction, _) => nodeStore.Execute(transaction),
+        FacetSearch = facetSearch,
     };
 
     void ensureLoaded() {

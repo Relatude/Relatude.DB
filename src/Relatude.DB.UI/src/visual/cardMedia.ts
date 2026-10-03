@@ -1,7 +1,7 @@
 import { CardKind, alwaysPicturesBelow, cardFill, detailCssPx, imageLevels, imageShare, tileSlots, tileWidths, type FieldSurface, type TileOnScreen } from "./cardField";
 import type { Layout } from "./layouts";
 import { IntMap } from "./intMap";
-import { fetchCards, streamCardImages } from "../server/query";
+import type { CardSource } from "./visualSource";
 
 /**
  * Keeps the cards on the screen supplied with their names and pictures, once they are wide enough
@@ -42,8 +42,8 @@ import { fetchCards, streamCardImages } from "../server/query";
  */
 
 export interface CardMedia {
-  /** The database the cards belong to; a change drops everything known. */
-  setStore(storeId: string): void;
+  /** Where the cards' names and pictures come from; one with another key drops everything known. */
+  setSource(source: CardSource): void;
   /** A new set of cards, by node id in card order. What is known about the nodes is kept; every card starts flat. */
   setCards(ids: Int32Array): void;
   /** Where the cards are (or are going): the layout the viewport is read against. */
@@ -178,10 +178,10 @@ export interface CardMediaOptions {
   tiles?: boolean;
 }
 
-export function createCardMedia(field: FieldSurface, initialStoreId: string, options: CardMediaOptions = {}): CardMedia {
-  const useTiles = options.tiles !== false;
+export function createCardMedia(field: FieldSurface, initialSource: CardSource, options: CardMediaOptions = {}): CardMedia {
+  const useTiles = options.tiles !== false && initialSource.tiles !== false;
   let pictures = true;
-  let storeId = initialStoreId;
+  let source = initialSource;
   let ids: Int32Array = new Int32Array(0);
   let count = 0;
   let indexOf: IntMap | null = null; // node id → card index, built when the first answer needs it
@@ -596,7 +596,8 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
     };
     const signal = abort.signal;
     const asOf = epoch;
-    fetchCards(storeId, asked)
+    source
+      .cards(asked)
       .then((answer) => {
         if (signal.aborted) return;
         if (asOf !== epoch) {
@@ -652,8 +653,7 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
     const signal = abort.signal;
     const asOf = epoch;
     const map = ensureIndexOf();
-    streamCardImages(
-      storeId,
+    source.cardImages(
       imageLevels[level],
       items,
       (id, status, bytes) => {
@@ -842,8 +842,7 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
     const signal = abort.signal;
     const asOf = epoch;
     const n = 1 << w.p;
-    streamCardImages(
-      storeId,
+    source.cardImages(
       w.width,
       [{ id: w.id, p: info.p, tile: { x: w.i / n, y: w.j / n, size: 1 / n, width: w.width } }],
       (id, status, bytes, region) => {
@@ -1084,9 +1083,12 @@ export function createCardMedia(field: FieldSurface, initialStoreId: string, opt
   }
 
   return {
-    setStore(id) {
-      if (id === storeId) return;
-      storeId = id;
+    setSource(next) {
+      if (next.key === source.key) {
+        source = next;
+        return;
+      }
+      source = next;
       reset();
       names.clear();
       images.clear();

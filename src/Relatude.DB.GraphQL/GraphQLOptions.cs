@@ -24,6 +24,18 @@ public sealed class GraphQLOptions {
     public bool EnableGetRequests { get; set; } = true;
     /// <summary>Serve the explorer page (build, run and read about queries) to a browser asking for the endpoint's url. Off by default.</summary>
     public bool EnableExplorer { get; set; }
+    /// <summary>
+    /// Serve the facet search over the exposed types, and its visual pivot page, on the endpoint's url. Off by
+    /// default; it needs <see cref="FacetSearch"/> as well (see <see cref="GraphQLEndpointDefinition.EnableFacetSearch"/>).
+    /// </summary>
+    public bool EnableFacetSearch { get; set; }
+    /// <summary>How many nodes the facet search's picture may hold.</summary>
+    public int MaxFacetCards { get; set; } = GraphQLEndpointDefinition.DefaultMaxFacetCards;
+    /// <summary>
+    /// What answers the facet search's requests. The Relatude.DB server sets it for the endpoints defined in the
+    /// admin UI, and offers it for a code-first endpoint as <c>RelatudeDBServer.GraphQL.FacetSearch</c>.
+    /// </summary>
+    public IGraphQLFacetSearch? FacetSearch { get; set; }
     /// <summary>Expose create/update/delete mutations for every type.</summary>
     public bool AllowMutations { get; set; }
     /// <summary>Expose the built-in system node types (users, groups, collections, cultures). Off by default.</summary>

@@ -112,3 +112,63 @@
 .gxp-key-actions .action-button {
   min-width: 0;
 }
+
+/* the two halves of a page whose endpoint serves both: the facet search and the explorer */
+.gxp-tabs {
+  margin-left: 6px;
+}
+
+/* ---- the facet search (FacetPage.tsx): the query section's rail and its visual pivot, side by side ---- */
+
+.gxp-body.facets {
+  padding-top: 12px;
+}
+
+.fp-message {
+  padding: 24px 4px;
+  font-size: 13px;
+}
+
+.fp-rail {
+  display: flex;
+  flex-direction: column;
+}
+
+.fp-type {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.fp-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
+.fp-search .text-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.fp-count {
+  margin: 8px 0 12px;
+  font-size: 12px;
+}
+
+.fp-picture {
+  min-height: 0;
+}
+
+.fp-dimensions button {
+  min-width: 34px;
+  font-weight: 600;
+}
+
+/* a phone has no room for a rail beside the picture: the rail goes on top, and gives the picture most of the height */
+@media (max-width: 760px) {
+  .query-body.fp {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 34%) minmax(0, 1fr);
+  }
+}

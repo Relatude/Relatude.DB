@@ -36,6 +36,7 @@ public static class GraphQLEndpointValidator {
         if (def.MaxIncludeDepth < 0) error("The maximum relation depth cannot be negative.");
         if (!string.IsNullOrEmpty(def.ApiKey) && def.ApiKey.Trim().Length < 8) warning("The API key is short; use at least 8 characters.");
         if (def.EnableExplorer && !def.EnableIntrospection) warning("The explorer reads the schema through introspection, which is switched off: the page will say so and stay empty.");
+        if (def.EnableFacetSearch && def.MaxFacetCards < 1) error("The facet search's maximum cards must be at least 1.");
         if (def.AllowMutations && string.IsNullOrEmpty(def.ApiKey)) warning("Mutations are allowed without an API key: anyone who can reach the url can change data.");
 
         if (def.Mode == GraphQLEndpointMode.Selected) {

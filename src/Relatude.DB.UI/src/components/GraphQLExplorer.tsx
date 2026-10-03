@@ -758,8 +758,9 @@ export function GraphQLExplorer({ source, fullWindow, tools }: { source: Explore
                   </button>
                 </div>
                 <span className={"gx-meta" + (errorCount > 0 ? " bad" : "")}>
-                  {errorCount > 0 ? `${errorCount} error${errorCount > 1 ? "s" : ""}` : "OK"} · {Math.round(ok.ms)} ms
-                  {serverMs(ok) !== null ? ` (server ${serverMs(ok)!.toFixed(1)})` : ""} · {sizeText(ok.bytes)}
+                  {/* the time the server took to answer, and in brackets the whole round trip as the browser saw it */}
+                  {errorCount > 0 ? `${errorCount} error${errorCount > 1 ? "s" : ""}` : "OK"} ·{" "}
+                  {serverMs(ok) !== null ? `${serverMs(ok)!.toFixed(1)} ms (total ${Math.round(ok.ms)} ms)` : `${Math.round(ok.ms)} ms`} · {sizeText(ok.bytes)}
                 </span>
                 <span className="gx-spacer" />
                 <CopyText text={() => JSON.stringify(ok.result, null, 2)} title="Copy the result" small />

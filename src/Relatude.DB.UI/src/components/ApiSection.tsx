@@ -272,7 +272,7 @@ function Overview({
                       <IconCompass size={14} stroke={1.8} /> Explore
                     </button>
                   )}
-                  {e.id && !e.error && <PublicPageLink page={publicPage(e.url, e.enabled, e.explorer, e.introspection, false)} />}
+                  {e.id && !e.error && <PublicPageLink page={publicPage(e.url, e.enabled, e.explorer, e.facets, e.introspection, false)} />}
                 </span>
               </div>
             ))}
@@ -403,7 +403,9 @@ function EndpointEditor({
   }
 
   // the page serves the endpoint as it is saved
-  const page = saved ? publicPage(normalizeUrl(saved.url), saved.enabled, !!saved.enableExplorer, saved.enableIntrospection, dirty) : { href: null, reason: "Save the endpoint first: the page serves the saved endpoint." };
+  const page = saved
+    ? publicPage(normalizeUrl(saved.url), saved.enabled, !!saved.enableExplorer, !!saved.enableFacetSearch, saved.enableIntrospection, dirty)
+    : { href: null, reason: "Save the endpoint first: the page serves the saved endpoint." };
   const errors = preview?.issues.filter((i) => i.isError) ?? [];
   const warnings = [...(preview?.issues.filter((i) => !i.isError).map((i) => i.message) ?? []), ...(preview?.warnings ?? [])];
   const status = errors.length > 0 ? errors[0].message + (errors.length > 1 ? ` (+${errors.length - 1} more)` : "") : dirty ? "Unsaved changes" : endpointId ? "Saved" : "New endpoint";
@@ -537,6 +539,7 @@ function SettingsForm({ def, adminRoot, onChange }: { def: EndpointDefinition; a
           <Switch label="Introspection (__schema, __type)" checked={def.enableIntrospection} onChange={(v) => onChange({ enableIntrospection: v })} />
           <Switch label="GET requests with ?query=" checked={def.enableGetRequests} onChange={(v) => onChange({ enableGetRequests: v })} />
           <Switch label="Explorer page on the url, for browsers (like GraphiQL)" checked={!!def.enableExplorer} onChange={(v) => onChange({ enableExplorer: v })} />
+          <Switch label="Facet search, shown as a 3D visual pivot on the url" checked={!!def.enableFacetSearch} onChange={(v) => onChange({ enableFacetSearch: v })} />
           {def.mode === "WholeDatamodel" && <Switch label="Include the system types (users, groups…)" checked={def.includeSystemTypes} onChange={(v) => onChange({ includeSystemTypes: v })} />}
           <span className="clog-field-hint">
             {def.exactNames ? "Type Article, field Title, root fields Article / Articles / CreateArticle." : "Type Article, field title, root fields article / articles / createArticle."}
@@ -558,6 +561,22 @@ function SettingsForm({ def, adminRoot, onChange }: { def: EndpointDefinition; a
               )}
             </span>
           )}
+          {def.enableFacetSearch && (
+            <span className="clog-field-hint">
+              {url ? (
+                <>
+                  A browser opening{" "}
+                  <a className="api-link" href={origin + url} target="_blank" rel="noreferrer">
+                    {origin + url} <IconExternalLink size={12} stroke={1.8} />
+                  </a>{" "}
+                  gets a facet search of the exposed types beside a visual pivot of them, in 3D{def.enableExplorer ? ", with the explorer as a second tab" : ""}. Only the exposed types and properties take part, under their datamodel names; the
+                  text is matched by words only.{def.apiKey ? " The page asks for the API key." : ""}
+                </>
+              ) : (
+                "A browser opening the url gets a facet search of the exposed types, as a visual pivot."
+              )}
+            </span>
+          )}
         </div>
         <label className="clog-field">
           <span className="clog-field-label">API key</span>
@@ -575,6 +594,13 @@ function SettingsForm({ def, adminRoot, onChange }: { def: EndpointDefinition; a
         {number("maxPageSize", "Maximum page size", "The pageSize argument is capped here.")}
         {number("maxQueryDepth", "Maximum query depth", "Nesting of the selection, fragments included.")}
         {number("maxIncludeDepth", "Maximum relation depth", "How far relations can be followed in one query.")}
+        {def.enableFacetSearch && (
+          <label className="clog-field">
+            <span className="clog-field-label">Maximum cards</span>
+            <input className="text-input number" type="number" min={1} value={def.maxFacetCards ?? 200_000} onChange={(e) => onChange({ maxFacetCards: Number(e.target.value) })} />
+            <span className="clog-field-hint">How many nodes the facet search's picture may hold; a larger result shows its first ones.</span>
+          </label>
+        )}
       </div>
     </section>
   );
@@ -1070,14 +1096,16 @@ interface PublicPage {
   reason: string;
 }
 
-/** Whether the endpoint's explorer page is served on its url, and if not, why not. */
-function publicPage(url: string | null, enabled: boolean, explorer: boolean, introspection: boolean, unsaved: boolean): PublicPage {
+/** Whether the endpoint's page - the facet search, the explorer or both - is served on its url, and if not, why not. */
+function publicPage(url: string | null, enabled: boolean, explorer: boolean, facets: boolean, introspection: boolean, unsaved: boolean): PublicPage {
   if (!url) return { href: null, reason: "The endpoint has no url." };
-  if (!explorer) return { href: null, reason: "The explorer page is off: switch on \"Explorer page on the url\" under Settings, and save." };
+  if (!explorer && !facets) return { href: null, reason: "The page is off: switch on the explorer page or the facet search under Settings, and save." };
   if (!enabled) return { href: null, reason: "The endpoint is switched off, so its url answers nothing." };
-  if (!introspection) return { href: null, reason: "Introspection is off, so the page cannot read the schema." };
+  // the facet search reads no schema; the explorer does
+  if (!facets && !introspection) return { href: null, reason: "Introspection is off, so the page cannot read the schema." };
   const href = window.location.origin + url;
-  return { href, reason: `Open the explorer page at ${href}, as anyone with a browser sees it.` + (unsaved ? " It serves the saved endpoint: the changes here are not on it yet." : "") };
+  const what = facets ? (explorer ? "the facet search and the explorer" : "the facet search") : "the explorer page";
+  return { href, reason: `Open ${what} at ${href}, as anyone with a browser sees it.` + (unsaved ? " It serves the saved endpoint: the changes here are not on it yet." : "") };
 }
 
 /** Opens the endpoint's explorer page in a new tab; shown off, with the reason, when there is no page to open. */

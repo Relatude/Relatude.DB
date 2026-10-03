@@ -15,8 +15,15 @@ namespace Relatude.DB.GraphQL;
 public sealed class RelatudeGraphQL {
     readonly IDataStore _store;
     readonly Lazy<string> _sdl;
+    readonly Lazy<GraphQLFacetScope> _facetScope;
 
     public GqlSchema Schema { get; }
+    /// <summary>The store the endpoint reads and writes.</summary>
+    public IDataStore Store => _store;
+    /// <summary>The types and properties the endpoint's facet search may look at (see <see cref="GraphQLEndpointDefinition.EnableFacetSearch"/>).</summary>
+    public GraphQLFacetScope FacetScope => _facetScope.Value;
+    /// <summary>The facet search is switched on and there is something to answer it.</summary>
+    public bool FacetSearchAvailable => Definition.EnableFacetSearch && Options.FacetSearch != null;
     public GraphQLEndpointDefinition Definition { get; }
     public GraphQLOptions Options { get; }
     internal IntrospectionData Introspection { get; }
@@ -34,6 +41,7 @@ public sealed class RelatudeGraphQL {
         Schema = SchemaBuilder.Build(store.Datamodel, definition, Options);
         Introspection = IntrospectionData.Build(Schema);
         _sdl = new Lazy<string>(() => SdlWriter.Write(Schema), LazyThreadSafetyMode.ExecutionAndPublication);
+        _facetScope = new Lazy<GraphQLFacetScope>(() => GraphQLFacetScope.Build(Schema), LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     /// <summary>The generated schema as GraphQL SDL.</summary>

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { IconArrowNarrowDown, IconArrowNarrowUp, IconCube3dSphere, IconFocusCentered, IconListDetails, IconMinus, IconPhoto, IconPhotoOff, IconPlus, IconRestore, IconRotate360 } from "@tabler/icons-react";
 import { BareButton, FullscreenButton, MaximizeButton } from "./DatamodelGraph";
 import type { PivotBase } from "./PivotView";
-import { bytesOf, fetchPivotModel, runVisual, type PivotModel, type PivotProperty, type VisualGroup, type VisualRequest, type VisualResult } from "../server/query";
+import { bytesOf, type PivotModel, type PivotProperty, type VisualGroup, type VisualRequest, type VisualResult } from "../server/query";
 import { useLiveResult } from "../server/hooks";
 import { formatCount, formatQuery } from "../format";
 import { showConfirm } from "../dialogs";
@@ -14,6 +14,7 @@ import { buildPalette, hashText, paletteSlot, palettes, parseCssColor, type Pale
 import { shapeLabel, shapeMaskUrl, shapeSlotFor } from "../visual/shapes";
 import { IntMap } from "../visual/intMap";
 import { createCardMedia, type CardMedia } from "../visual/cardMedia";
+import { adminVisualSource, type VisualSource } from "../visual/visualSource";
 import { subscribeNodePicture } from "../nodeMedia";
 import { createCardLabels, type CardLabels, type LabelColors } from "../visual/cardLabels";
 import { marqueeModeOf, selectModeOf, type MarqueeMode, type SelectMode } from "../selection";
@@ -94,6 +95,9 @@ interface Drag {
   /** what stops listening for Escape, while a rectangle is being drawn */
   stopEscape?: () => void;
 }
+
+/** no node open in a form: what a picture that opens nothing is given */
+const noCards: readonly number[] = [];
 
 const modeOptions = [
   { value: "auto", label: "auto" },
@@ -193,44 +197,47 @@ export function VisualPivotView({
   base,
   definition,
   onChange,
-  refreshToken,
-  showQuery,
+  refreshToken = 0,
+  showQuery = false,
   onOpen,
   onSelectMany,
-  marquee,
-  selected,
-  allSelected,
+  marquee = false,
+  selected = noCards,
+  allSelected = false,
   fullscreen,
   onToggleFullscreen,
   maximized = false,
   onToggleMaximized,
   head,
+  source,
+  simple = false,
 }: {
   base: PivotBase;
   /** The definition as the page keeps it - null until this view has opened once for the type. */
   definition: VisualDefinition | null;
   onChange: (definition: VisualDefinition) => void;
   /** Changes when the page is asked to run again with nothing else changed. */
-  refreshToken: number;
-  showQuery: boolean;
+  refreshToken?: number;
+  showQuery?: boolean;
   /**
    * A card was clicked: this node goes to the form beside the picture - on its own, toggled (ctrl),
    * or added (shift). By the INTERNAL id the card was drawn with, which is what the page selects by:
    * nothing is looked up to make a selection, and a guid is fetched only for what a form reads.
+   * Without it a card opens nothing, and a click makes the card's colour group pulse instead.
    */
-  onOpen: (nodeId: number, mode: SelectMode) => void;
+  onOpen?: (nodeId: number, mode: SelectMode) => void;
   /** A rectangle was drawn round some cards: these nodes become the selection, or are added to or taken out of it (see applyMarquee). */
-  onSelectMany: (ids: number[], mode: MarqueeMode) => void;
+  onSelectMany?: (ids: number[], mode: MarqueeMode) => void;
   /** Drag to select is on: the left button draws a rectangle round cards rather than moving the picture. */
-  marquee: boolean;
+  marquee?: boolean;
   /** The nodes the form has open, by internal id: the picture marks their cards, and stops when the form lets go. */
-  selected: readonly number[];
+  selected?: readonly number[];
   /**
    * The selection is the whole result set (the page's Select all). Every card is then marked without
    * asking which node each one is: the picture knows a card's int id and the form knows a guid, and
    * pairing a million of them up to say what "all of them" already says would be the only cost in it.
    */
-  allSelected: boolean;
+  allSelected?: boolean;
   /** Whether the row this picture is in - the facet rail with it - is filling the screen. */
   fullscreen: boolean;
   /** Fills the screen with that row, or hands it back; the page owns it, since the rail is not ours. */
@@ -245,22 +252,35 @@ export function VisualPivotView({
    * the page passes them down and they ride along with the picture's own controls.
    */
   head?: React.ReactNode;
+  /** Where the picture's data comes from; absent is the admin UI's own commands for `base.storeId`. Keep it the same object from render to render. */
+  source?: VisualSource;
+  /**
+   * The picture on its own, to be looked at rather than worked with - the facet page of a GraphQL
+   * endpoint: the builder keeps the colour, the bars and the depth and drops the rest of its knobs,
+   * and the query is never shown. Nothing opens or selects cards there either (no onOpen).
+   */
+  simple?: boolean;
 }) {
   const [model, setModel] = useState<PivotModel | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
   const def = definition ?? emptyVisual;
+  const src = source ?? adminVisualSource(base.storeId);
+  // read when the card media is made, which happens with the field rather than on every render
+  const srcRef = useRef(src);
+  srcRef.current = src;
 
   useEffect(() => {
     let cancelled = false;
     setModel(null);
     setModelError(null);
-    fetchPivotModel(base.storeId, base.typeId, base.propertyScope)
+    src
+      .pivotModel(base.typeId, base.propertyScope)
       .then((m) => !cancelled && setModel(m))
       .catch((e) => !cancelled && setModelError(e instanceof Error ? e.message : String(e)));
     return () => {
       cancelled = true;
     };
-  }, [base.storeId, base.typeId, base.propertyScope]);
+  }, [src, base.typeId, base.propertyScope]);
 
   const groupable = useMemo(() => model?.properties.filter((p) => p.groupable) ?? [], [model]);
 
@@ -369,7 +389,7 @@ export function VisualPivotView({
     tokenSeen.current = refreshToken;
     keepCamera.current = true;
   }, [refreshToken]);
-  const { result, loading, error } = useLiveResult(request, runVisual);
+  const { result, loading, error } = useLiveResult(request, src.visual);
   const decoded = useMemo(() => (result ? decode(result) : null), [result]);
 
   // ---- the canvas and the field ----
@@ -488,7 +508,7 @@ export function VisualPivotView({
     f.resize();
     // a solid stops at the largest picture level: there is no part of a picture "in view" to cut a
     // sharper tile out of when what is on screen is a face seen at an angle
-    const m = createCardMedia(f, base.storeId, { tiles: !solidPicture });
+    const m = createCardMedia(f, srcRef.current, { tiles: !solidPicture });
     media.current = m;
     f.setPictures(showPictures.current);
     m.setPictures(showPictures.current);
@@ -622,8 +642,8 @@ export function VisualPivotView({
 
   // another database: nothing known about the cards carries over
   useEffect(() => {
-    media.current?.setStore(base.storeId);
-  }, [base.storeId]);
+    media.current?.setSource(src);
+  }, [src]);
 
   // A file put on a node from the form beside this picture (see nodeMedia.ts). The picture of that
   // node is held here in a texture and its bytes in a cache, both of which are now of the old file,
@@ -913,12 +933,12 @@ export function VisualPivotView({
       // a rectangle round nothing: on its own it clears the selection, as a click on the ground would,
       // and held open by a key it leaves the selection alone
       applyMarks();
-      onSelectMany([], mode);
+      onSelectMany?.([], mode);
       return;
     }
     // nothing to resolve, nothing to wait for and nothing to ask about: these are the ids the page
     // selects by, however many of them the rectangle caught (see marquee.tsx)
-    onSelectMany(intIds, mode);
+    onSelectMany?.(intIds, mode);
   }
 
   /** Escape, or the mode switched off, while a rectangle is being drawn: nothing is taken, and the marks the preview borrowed go back to the form's own. */
@@ -1380,6 +1400,11 @@ export function VisualPivotView({
     const [x, y] = canvasPoint(e);
     const i = f.pick(x, y);
     if (i < 0 || !decoded || i >= decoded.count) return;
+    if (!onOpen) {
+      // nothing to open a card in: its colour group shows where it is instead, as its legend entry would
+      if (colorData) f.pulseGroup(colorData.assignment[i]);
+      return;
+    }
     // the page answers through `selected`, and the marks follow that - which is this frame, since
     // the id the card was drawn with is the id the page selects by
     onOpen(decoded.ids[i], selectModeOf(e));
@@ -1441,7 +1466,7 @@ export function VisualPivotView({
     </select>
   );
   const modeSelect = (property: PivotProperty | undefined, value: string, onPick: (mode: string) => void) =>
-    property && hasModes(property) ? (
+    property && hasModes(property) && !simple ? (
       <select className="select" value={value} title="How the values are grouped: one group per value, or ranges of them" onChange={(e) => onPick(e.target.value)}>
         {modeOptions.map((m) => (
           <option key={m.value} value={m.value}>
@@ -1485,8 +1510,8 @@ export function VisualPivotView({
             )}
             {modeSelect(rowInfo, rowMode, (mode) => onChange({ ...def, depthGroupMode: mode }))}
           </span>
-          <span className="pivot-builder-label visual-label-2">Sort by</span>
-          <span className="pivot-chip">
+          {!simple && <span className="pivot-builder-label visual-label-2">Sort by</span>}
+          {!simple && <span className="pivot-chip">
             <select
               className="select"
               value={sortProperty ?? ""}
@@ -1510,11 +1535,11 @@ export function VisualPivotView({
                 {sortDescending ? <IconArrowNarrowDown size={14} stroke={2} /> : <IconArrowNarrowUp size={14} stroke={2} />}
               </button>
             )}
-          </span>
+          </span>}
           {/* The two channels the picture can do without: how thick a card is, and what it is cut out
               to. They are folded away behind the plus at the end of the line, and unfolded when one
               of them is in use - a picture whose cards are hearts has to say somewhere why. */}
-          {extras && (
+          {extras && !simple && (
             <>
               <span className="pivot-builder-label visual-label-2">Thickness</span>
               <span className="pivot-chip">
@@ -1530,7 +1555,7 @@ export function VisualPivotView({
           )}
           {/* only in a picture of solids: there is nothing to stretch in a flat one, which is fitted
               to the panel it is drawn in */}
-          {solidPicture && (
+          {solidPicture && !simple && (
             <>
               <span className="pivot-builder-label visual-label-2">Stretch</span>
               <span className="pivot-chip">
@@ -1542,14 +1567,16 @@ export function VisualPivotView({
           <div className="pivot-options">
             {head}
             {/* forced open while one of them is in use, so it cannot be folded away and forgotten */}
-            <button
-              className={"icon-button" + (extras ? " active" : "")}
-              disabled={inUse}
-              title={inUse ? "Thickness and shape are in use, so they stay on show" : extras ? "Hide thickness and shape" : "Show thickness and shape"}
-              onClick={() => onChange({ ...def, extras: !extras })}
-            >
-              {extras ? <IconMinus size={16} stroke={1.9} /> : <IconPlus size={16} stroke={1.9} />}
-            </button>
+            {!simple && (
+              <button
+                className={"icon-button" + (extras ? " active" : "")}
+                disabled={inUse}
+                title={inUse ? "Thickness and shape are in use, so they stay on show" : extras ? "Hide thickness and shape" : "Show thickness and shape"}
+                onClick={() => onChange({ ...def, extras: !extras })}
+              >
+                {extras ? <IconMinus size={16} stroke={1.9} /> : <IconPlus size={16} stroke={1.9} />}
+              </button>
+            )}
             <button className="icon-button" title="Fit the whole picture in view (or double-click it)" onClick={() => fitToLayout(refitSeconds)}>
               <IconFocusCentered size={16} stroke={1.9} />
             </button>
@@ -1579,12 +1606,14 @@ export function VisualPivotView({
             >
               {picturesOn ? <IconPhoto size={16} stroke={1.9} /> : <IconPhotoOff size={16} stroke={1.9} />}
             </button>
-            <BareButton
-              on={def.bare === true}
-              onToggle={() => onChange({ ...def, bare: def.bare !== true })}
-              what="picture"
-              offTitle="Quieten the picture — a black ground in the dark theme, deeper cards in the light one"
-            />
+            {!simple && (
+              <BareButton
+                on={def.bare === true}
+                onToggle={() => onChange({ ...def, bare: def.bare !== true })}
+                what="picture"
+                offTitle="Quieten the picture — a black ground in the dark theme, deeper cards in the light one"
+              />
+            )}
             <button className={"icon-button" + (def.legend ? " active" : "")} title={def.legend ? "Hide the legend" : "Show the legend"} onClick={() => onChange({ ...def, legend: !def.legend })}>
               <IconListDetails size={16} stroke={1.9} />
             </button>

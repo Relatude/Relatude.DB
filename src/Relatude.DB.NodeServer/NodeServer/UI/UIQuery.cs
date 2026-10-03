@@ -230,7 +230,7 @@ sealed class UIQuery {
         };
     }
 
-    static Guid queriedType(Datamodel dm, Guid? given)
+    internal static Guid queriedType(Datamodel dm, Guid? given)
         => given is Guid id && dm.NodeTypes.ContainsKey(id) ? id : NodeConstants.BaseNodeTypeId;
 
     // Every word the page splits the search text into, marked with the operator the chosen match
@@ -267,7 +267,7 @@ sealed class UIQuery {
     /// the result set, every page - and asking for it when nothing will read it is the difference
     /// between browsing a large store and waiting for it.
     /// </summary>
-    static string queryFor(NodeStore s, Datamodel dm, SearchPayload p, Guid typeId, int pageIndex, int pageSize) {
+    internal static string queryFor(NodeStore s, Datamodel dm, SearchPayload p, Guid typeId, int pageIndex, int pageSize) {
         var q = s.QueryType(typeId, adminContext);
         if (!string.IsNullOrWhiteSpace(p.Text)) {
             q = q.WhereSearch(applyMatch(p.Text, p.Match), p.SemanticRatio, (float?)p.MinimumSimilarity, p.AnyWord);
@@ -661,7 +661,7 @@ sealed class UIQuery {
     /// One facet as the rail shows it. Empty buckets are dropped - a selected one never is, it has to
     /// stay clickable to be turned off - and what is left is trimmed to the values worth showing.
     /// </summary>
-    static FacetView? facetView(Datamodel dm, Facets facets, bool expanded) {
+    internal static FacetView? facetView(Datamodel dm, Facets facets, bool expanded) {
         dm.Properties.TryGetValue(facets.PropertyId, out var property);
         var isRange = facets.IsRangeFacet == true;
         var values = facets.Values.Where(v => v.Count > 0 || v.Selected).ToList();
@@ -700,7 +700,7 @@ sealed class UIQuery {
             })],
         };
     }
-    sealed class FacetView {
+    internal sealed class FacetView {
         public Guid PropertyId { get; init; }
         public string CodeName { get; init; } = "";
         public string DisplayName { get; init; } = "";
@@ -830,7 +830,7 @@ sealed class UIQuery {
     // out of the summary line underneath.
     static readonly string[] likelyNameProperties = ["Name", "Title", "Heading", "Subject", "Code", "Key"];
     const int maxFallbackNameLength = 120;
-    static (string Name, Guid? FromProperty) nameOf(Datamodel dm, INodeData n) {
+    internal static (string Name, Guid? FromProperty) nameOf(Datamodel dm, INodeData n, Func<Guid, bool>? shown = null) {
         if (dm.NodeTypes.TryGetValue(n.NodeType, out var type)) {
             var declared = type.GetDisplayName(n);
             if (!string.IsNullOrWhiteSpace(declared)) return (declared, null);
@@ -839,13 +839,18 @@ sealed class UIQuery {
         if (type != null) {
             foreach (var likely in likelyNameProperties) {
                 if (!type.AllPropertiesByName.TryGetValue(likely, out var property)) continue;
+                if (shown != null && !shown(property.Id)) continue;
                 if (shortText(n, property) is string byName) return (byName, property.Id);
             }
             foreach (var property in type.AllProperties.Values.OrderBy(p => p.CodeName, StringComparer.OrdinalIgnoreCase)) {
                 if (property.Internal || property is not StringPropertyModel || !property.Indexed) continue;
+                if (shown != null && !shown(property.Id)) continue;
                 if (shortText(n, property) is string indexed) return (indexed, property.Id);
             }
         }
+        // a reader limited to the properties it is shown (an endpoint's facet search) gets no address, which
+        // no endpoint exposes, and no guid in place of a name: a card with nothing to say says nothing
+        if (shown != null) return ("", null);
         if (!string.IsNullOrWhiteSpace(n.Address)) return (n.Address!, null);
         return (n.Id.ToString(), null);
     }
@@ -2019,7 +2024,7 @@ sealed class UIQuery {
         return new { TypeId = typeId, TypeName = type.CodeName, Properties = properties };
     }
     // mirrors Property.CanBeFacet in the engine, which is what decides at query time
-    static bool isGroupable(PropertyModel property) {
+    internal static bool isGroupable(PropertyModel property) {
         if (property is RelationPropertyModel relation) return relation.Facet;
         if (!property.Indexed || property.NotFacet) return false;
         return property.PropertyType is PropertyType.Boolean or PropertyType.Integer or PropertyType.String or PropertyType.StringArray
@@ -2028,10 +2033,10 @@ sealed class UIQuery {
             or PropertyType.Reference or PropertyType.References;
     }
     // mirrors ValueProperty<T>.CanAggregate / IsNumeric
-    static bool isAggregatable(PropertyModel property) => property.Indexed && property is not RelationPropertyModel && property.PropertyType is
+    internal static bool isAggregatable(PropertyModel property) => property.Indexed && property is not RelationPropertyModel && property.PropertyType is
         PropertyType.Boolean or PropertyType.Integer or PropertyType.String or PropertyType.Double or PropertyType.Float or PropertyType.Decimal
         or PropertyType.DateTime or PropertyType.DateTimeOffset or PropertyType.TimeSpan or PropertyType.Guid or PropertyType.Long or PropertyType.Reference;
-    static bool isNumeric(PropertyModel property) => property.Indexed && property.PropertyType is
+    internal static bool isNumeric(PropertyModel property) => property.Indexed && property.PropertyType is
         PropertyType.Integer or PropertyType.Long or PropertyType.Double or PropertyType.Float or PropertyType.Decimal;
 
     /// <summary>
@@ -2300,12 +2305,18 @@ sealed class UIQuery {
     /// Buckets() clause on the search, answered from the indexes inside the store's read lock - so no
     /// node is read whatever the size of the result.
     /// </summary>
-    async Task<object> visual(VisualPayload p) {
-        var s = store(p.StoreId);
+    Task<object> visual(VisualPayload p) => VisualOf(store(p.StoreId), p, adminContext, maxVisualCards);
+
+    /// <summary>
+    /// The picture's answer for a search, read in the given context and holding at most `maxCards` cards: what the
+    /// admin UI asks for (see <see cref="visual"/>), and what an endpoint's facet search asks for with its own
+    /// context and ceiling (GraphQL/GraphQLFacetSearch.cs), having kept the payload to what the endpoint exposes.
+    /// </summary>
+    internal static async Task<object> VisualOf(NodeStore s, VisualPayload p, QueryContext? ctx, int maxCards) {
         var dm = s.Datastore.Datamodel;
         var typeId = queriedType(dm, p.TypeId);
         var nodeType = dm.NodeTypes[typeId];
-        var cards = Math.Clamp(p.MaxCards <= 0 ? maxVisualCards : p.MaxCards, 1, maxVisualCards);
+        var cards = Math.Clamp(p.MaxCards <= 0 ? maxCards : p.MaxCards, 1, maxCards);
         // the same search as the list, as one page as large as the picture may be, with the grouping
         // and the sort as clauses of the query: a facet selection contributes its filter only, no
         // bucket of it is counted
@@ -2314,7 +2325,7 @@ sealed class UIQuery {
         var queryString = queryFor(s, dm, search, typeId, 0, cards) + ".Buckets()" + bucketClauses(dm, p.Properties) + sortClause(dm, p.SortBy, p.SortDescending);
 
         var sw = Stopwatch.StartNew();
-        var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
+        var data = await s.Datastore.QueryAsync(queryString, [], ctx);
         if (data is not BucketsQueryResultData buckets) throw new Exception("The query did not return the buckets of a collection of nodes. ");
         var ids = buckets.Ids;
         var position = positionsOf(ids);
@@ -2925,13 +2936,23 @@ sealed class UIQuery {
     /// null and the browser draws a placeholder. The version is the file's hash, so the browser can
     /// keep a picture for as long as the file stays the same and no longer.
     /// </summary>
-    object cards(CardsPayload p) {
-        var s = store(p.StoreId);
+    object cards(CardsPayload p) => CardsOf(store(p.StoreId), p.Ids, adminContext, null);
+
+    /// <summary>
+    /// What a reader outside the admin UI may see of a card: whether a node is one at all, which file property its
+    /// picture may come from, and what it is called. The admin UI reads with none of these (null): every node, every
+    /// picture, and the name the query section gives a node.
+    /// </summary>
+    internal sealed record CardRules(Func<INodeData, bool> Visible, Func<INodeData, Guid, bool> Picture, Func<Datamodel, INodeData, string> Name);
+
+    /// <summary>The names and pictures of a set of cards (see <see cref="cards"/>), read in the given context under the given rules.</summary>
+    internal static object CardsOf(NodeStore s, int[]? ids, QueryContext? ctx, CardRules? rules) {
         var dm = s.Datastore.Datamodel;
         var probe = cardAdjustment(cardImageLevels[0]); // what the picture would be converted with, to ask whether it can be
         var result = new List<object>();
-        foreach (var id in (p.Ids ?? []).Distinct().Take(maxCardsPerLookup)) {
-            if (!s.Datastore.TryGet(id, out var n, adminContext)) continue; // a card of a node that is gone: the browser keeps it blank
+        foreach (var id in (ids ?? []).Distinct().Take(maxCardsPerLookup)) {
+            if (!s.Datastore.TryGet(id, out var n, ctx)) continue; // a card of a node that is gone: the browser keeps it blank
+            if (rules != null && !rules.Visible(n)) continue;
             Guid? image = null;
             string? version = null;
             var width = 0; // the original's size, 0 until the store has read the file's metadata
@@ -2939,10 +2960,11 @@ sealed class UIQuery {
             if (dm.NodeTypes.TryGetValue(n.NodeType, out var type)) {
                 foreach (var property in type.AllProperties.Values) {
                     if (property is not FilePropertyModel || property.Internal) continue;
+                    if (rules != null && !rules.Picture(n, property.Id)) continue;
                     if (!n.TryGetValue(property.Id, out var value) || value is not FileValue file || file.IsEmpty) continue;
                     if (file.FileType != FileType.Image) continue;
                     var path = new PropertyPath(id, property.Id);
-                    if (!s.Datastore.CanConvert(path, probe, adminContext)) continue; // a vector image, or a format no converter reads
+                    if (!s.Datastore.CanConvert(path, probe, ctx)) continue; // a vector image, or a format no converter reads
                     image = property.Id;
                     version = file.Hash.Length > 8 ? file.Hash[..8] : file.Hash;
                     width = file.Width;
@@ -2950,7 +2972,7 @@ sealed class UIQuery {
                     break;
                 }
             }
-            result.Add(new { Id = id, Name = displayNameOf(dm, n), Image = image, Version = version, Width = width, Height = height });
+            result.Add(new { Id = id, Name = rules != null ? rules.Name(dm, n) : displayNameOf(dm, n), Image = image, Version = version, Width = width, Height = height });
         }
         return new { Cards = result };
     }
@@ -3019,10 +3041,16 @@ sealed class UIQuery {
     /// made. One request for a batch rather than one per picture, because a browser on plain http
     /// gives a host six connections, and a screen of cards is hundreds of pictures.
     /// </summary>
-    internal async Task WriteCardImages(HttpContext http, CardImagesPayload p) {
-        var s = store(p.StoreId);
-        var level = cardImageLevels.Contains(p.Level) ? p.Level : cardImageLevels[2];
-        var items = (p.Items ?? []).Take(maxCardImagesPerBatch).ToArray();
+    internal Task WriteCardImages(HttpContext http, CardImagesPayload p) => WriteCardImagesOf(http, store(p.StoreId), p.Level, p.Items, adminContext, null, tiles: true);
+
+    /// <summary>
+    /// The pictures of a batch of cards (see <see cref="WriteCardImages"/>), read in the given context. Under rules, a
+    /// node that is not a card, or a property its picture may not come from, answers "no picture" without anything
+    /// being read or converted; without tiles, a tile is answered "no tile" the same way.
+    /// </summary>
+    internal static async Task WriteCardImagesOf(HttpContext http, NodeStore s, int requestedLevel, CardImageItem[]? requested, QueryContext? ctx, CardRules? rules, bool tiles) {
+        var level = cardImageLevels.Contains(requestedLevel) ? requestedLevel : cardImageLevels[2];
+        var items = (requested ?? []).Take(maxCardImagesPerBatch).ToArray();
         var levelAdj = cardAdjustment(level);
         http.Response.ContentType = "application/octet-stream";
         http.Response.Headers.CacheControl = "no-store";
@@ -3036,15 +3064,17 @@ sealed class UIQuery {
             byte[] bytes = [];
             float[]? region = null;
             try {
+                if (item.Tile != null && !tiles) throw new TileUnavailable();
+                if (rules != null && (!s.Datastore.TryGet(item.Id, out var n, ctx) || !rules.Visible(n) || !rules.Picture(n, item.P))) throw new PictureUnavailable();
                 var path = new PropertyPath(item.Id, item.P);
                 var adj = levelAdj;
                 if (item.Tile != null) {
                     // a tile needs the original's size, which the store reads from the file after
                     // the upload; until it has, the card keeps its whole picture
-                    if (!s.Datastore.TryGetValue<FileValue>(path, out var file, adminContext) || file.IsEmpty || file.Width <= 0 || file.Height <= 0) throw new TileUnavailable();
+                    if (!s.Datastore.TryGetValue<FileValue>(path, out var file, ctx) || file.IsEmpty || file.Width <= 0 || file.Height <= 0) throw new TileUnavailable();
                     adj = tileAdjustment(file.Width, file.Height, item.Tile, out region);
                 }
-                var state = await s.Datastore.GetFileStreamAndState(path, adj, cardImageWaitMs, adminContext);
+                var state = await s.Datastore.GetFileStreamAndState(path, adj, cardImageWaitMs, ctx);
                 if (state.IsReady) {
                     using var stream = state.Stream;
                     using var buffer = new MemoryStream();
@@ -3054,13 +3084,15 @@ sealed class UIQuery {
                 } else {
                     state.Stream.Dispose(); // the engine's status picture, which is not for a card
                     // still on its way, or given up on: the browser asks again for the first and not the second
-                    var failed = s.Datastore.TryGetConversionInfo(path, adj, false, out var progress, adminContext) && progress.Status == FileConversionStatus.Error;
+                    var failed = s.Datastore.TryGetConversionInfo(path, adj, false, out var progress, ctx) && progress.Status == FileConversionStatus.Error;
                     status = failed ? (item.Tile != null ? (byte)3 : (byte)2) : (byte)1;
                 }
             } catch (OperationCanceledException) {
                 throw;
             } catch (TileUnavailable) {
                 status = 3;
+            } catch (PictureUnavailable) {
+                status = 2;
             } catch (Exception) {
                 status = item.Tile != null ? (byte)3 : (byte)2; // the file is gone, or the property no longer holds one
             }
@@ -3082,6 +3114,7 @@ sealed class UIQuery {
         });
     }
     sealed class TileUnavailable : Exception { }
+    sealed class PictureUnavailable : Exception { }
 
     sealed record StorePayload(Guid StoreId);
     sealed record NodePayload(Guid StoreId, Guid Id);

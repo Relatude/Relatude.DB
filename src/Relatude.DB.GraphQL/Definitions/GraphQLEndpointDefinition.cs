@@ -34,6 +34,17 @@ public sealed class GraphQLEndpointDefinition {
     /// and asks for the API key when the endpoint has one.
     /// </summary>
     public bool EnableExplorer { get; set; }
+    /// <summary>
+    /// Serve a facet search over the endpoint's node types beside the schema (the "?facets=" requests), and a page
+    /// showing it as a visual pivot on the endpoint's url - the page a browser gets first when this is on. Only the
+    /// exposed types and properties take part, under their datamodel names: renames apply to the schema alone, and
+    /// everything else works as the admin UI's query section does. It needs a host that provides the search
+    /// (<see cref="GraphQLOptions.FacetSearch"/>), which the Relatude.DB server does for the endpoints it serves.
+    /// </summary>
+    public bool EnableFacetSearch { get; set; }
+    /// <summary>How many nodes the facet search's picture may hold; a larger result shows its first ones.</summary>
+    public int MaxFacetCards { get; set; } = DefaultMaxFacetCards;
+    public const int DefaultMaxFacetCards = 200_000;
     /// <summary>Whole-datamodel mode only: also expose the built-in system node types (users, groups, cultures...).</summary>
     public bool IncludeSystemTypes { get; set; }
     /// <summary>When set, requests must carry it in an "X-Api-Key" header or as a bearer token.</summary>
@@ -74,6 +85,8 @@ public sealed class GraphQLEndpointDefinition {
         EnableIntrospection = options.EnableIntrospection,
         EnableGetRequests = options.EnableGetRequests,
         EnableExplorer = options.EnableExplorer,
+        EnableFacetSearch = options.EnableFacetSearch,
+        MaxFacetCards = options.MaxFacetCards,
         IncludeSystemTypes = options.IncludeSystemTypes,
         MaxQueryDepth = options.MaxQueryDepth,
         MaxIncludeDepth = options.MaxIncludeDepth,

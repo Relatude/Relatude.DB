@@ -43,6 +43,10 @@ export interface EndpointDefinition {
   enableGetRequests: boolean;
   /** a browser asking for the url gets the explorer page */
   enableExplorer?: boolean;
+  /** a facet search over the exposed types is served beside the schema, and the page opens on it as a visual pivot */
+  enableFacetSearch?: boolean;
+  /** how many nodes the facet search's picture may hold */
+  maxFacetCards?: number;
   includeSystemTypes: boolean;
   apiKey?: string | null;
   maxQueryDepth: number;
@@ -64,6 +68,8 @@ export interface EndpointSummary {
   allowMutations: boolean;
   /** the explorer page is served on the url */
   explorer: boolean;
+  /** the facet search is served, and the page on the url opens on it */
+  facets: boolean;
   /** introspection is on: the schema is told, as __schema and as ?sdl */
   introspection: boolean;
   typeCount: number;
@@ -210,6 +216,8 @@ export function newEndpointDefinition(): EndpointDefinition {
     enableIntrospection: true,
     enableGetRequests: true,
     enableExplorer: false,
+    enableFacetSearch: false,
+    maxFacetCards: 200_000,
     includeSystemTypes: false,
     apiKey: null,
     maxQueryDepth: 16,
