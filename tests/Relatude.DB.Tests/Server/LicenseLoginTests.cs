@@ -218,8 +218,36 @@ public class LicenseLoginTests {
     }
 
     [TestMethod]
+    public async Task SignIn_WithSeveralPublicUrls_ReturnsToTheOneItWasStartedOn() {
+        // two sites sharing one settings file, one of them also on a port of its own
+        var host = startServer(_apiKey.ToString(), licenseKey: null, publicUrl: "https://a.example.com/, https://b.example.com;\nhttps://b.example.com:8443");
+        try {
+            async Task<string> returnsTo(string requestHost) {
+                var context = request(requestHost);
+                await host.Server.LicenseLogin.StartAsync(context);
+                StringAssert.StartsWith(context.Response.Headers.Location.ToString(), _stub!.Url + "/connect?request=r1", requestHost);
+                Assert.IsTrue(_stub.LoginRequests.TryDequeue(out var posted), requestHost);
+                return posted.GetProperty("redirectUri").GetString()!;
+            }
+            var callback = host.Server.ApiUrlRoot + "/auth/license-login/callback/";
+            Assert.AreEqual("https://a.example.com" + callback, await returnsTo("a.example.com"));
+            Assert.AreEqual("https://b.example.com" + callback, await returnsTo("B.example.com"), "host names compare ignoring case");
+            Assert.AreEqual("https://b.example.com:8443" + callback, await returnsTo("b.example.com:8443"), "the port decides between addresses on one host name");
+            Assert.AreEqual("https://b.example.com" + callback, await returnsTo("b.example.com:9999"), "and nothing more: a proxy may hand on another one");
+
+            // a host that is not listed is sent to the first address, as with one
+            var elsewhere = request("evil.example");
+            await host.Server.LicenseLogin.StartAsync(elsewhere);
+            Assert.AreEqual("https://a.example.com" + host.Server.ApiUrlRoot + "/auth/license-login/start?on-public-url=1", elsewhere.Response.Headers.Location.ToString());
+            Assert.IsTrue(_stub!.LoginRequests.IsEmpty);
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
     public async Task SignIn_RefusesAPublicUrlItCannotReturnTo() {
-        foreach (var bad in new[] { "http://db.example.com", "db.example.com", "https://db.example.com/?x=1" }) {
+        foreach (var bad in new[] { "http://db.example.com", "db.example.com", "https://db.example.com/?x=1", "https://db.example.com, http://other.example.com" }) {
             var host = startServer(_apiKey.ToString(), licenseKey: null, publicUrl: bad);
             try {
                 var context = request("db.example.com");

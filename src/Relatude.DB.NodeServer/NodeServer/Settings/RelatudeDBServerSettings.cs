@@ -40,6 +40,9 @@ public class RelatudeDBServerSettings {
     /// that address from a request, whose host name is whatever its sender chose, so without this it
     /// works only on a loopback address (see <see cref="LicenseLogin.StartAsync"/>). The Relatude Services page
     /// fills it in from the address it is used on when the API key is saved or the installation is paired.
+    /// <para>It may list several addresses separated by commas, for a server reached on more than one
+    /// name or several sites sharing one settings file: a sign-in returns to the listed address whose
+    /// host name it was started on, and one started anywhere else is sent to the first.</para>
     /// </summary>
     public string? PublicUrl { get; set; }
     /// <summary>

@@ -15,8 +15,9 @@ namespace Relatude.DB.NodeServer;
 /// <para>The sign-in is a redirect in three steps. First this server tells the license server, over
 /// the back channel with its API key, that a browser is about to come and where to send it back;
 /// the license server answers with a sign-in url, and the browser is sent there with nothing but a
-/// request id (the redirect uri never travels through the browser). Where to send it back is this
-/// server's public address, never the host name a request gives (see <see cref="returnAddress"/>).
+/// request id (the redirect uri never travels through the browser). Where to send it back is one of
+/// this server's public addresses, never a host name a request gives that is not among them (see
+/// <see cref="returnAddress"/>).
 /// The user signs in there and the license server checks that they have access to the license.
 /// The browser then comes back to the callback with a one-time code, which this server trades,
 /// again over the back channel with its API key, for who the user is - and opens its own session.
@@ -229,32 +230,55 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     const string _onPublicUrl = "on-public-url";
 
     /// <summary>
-    /// Where the license server sends the browser back to with the code: <see cref="RelatudeDBServerSettings.PublicUrl"/>
-    /// when it is set, and otherwise this request's own address only when that is a loopback one.
+    /// Where the license server sends the browser back to with the code: one of the addresses in
+    /// <see cref="RelatudeDBServerSettings.PublicUrl"/> when it is set, and otherwise this request's
+    /// own address only when that is a loopback one.
     /// <para>A request's host name is not enough on its own, because whoever sends the request chooses
     /// it. A server that answers on any name - reached by its IP address, say - would register a
     /// sign-in that returns to an address of the sender's choosing. Should someone with access to the
     /// license then approve that address on the sign-in page, their code would go to the sender, who
     /// could bring it here with the state cookie of the sign-in they started, and be signed in as
     /// them. A code sent to a loopback address reaches nobody but the machine it is on.</para>
-    /// <para>A sign-in started on another host than the public address is sent there first, so that
+    /// <para>PublicUrl may hold several addresses: one server, or several sharing one settings file,
+    /// reached on more than one name. The host name a request gives then picks among them - the sender
+    /// can only choose an address the settings already list - and a sign-in returns to the address it
+    /// was started on. One started on a host that is not listed is sent to the first address, so that
     /// its state cookie is set where the browser comes back to - once only: behind a proxy that hands
     /// this server another host name than the browser used, it would otherwise go round for ever.</para>
     /// </summary>
     ReturnAddress returnAddress(HttpContext context) {
-        if (!string.IsNullOrWhiteSpace(settings.PublicUrl)) {
-            if (!tryPublicBase(settings.PublicUrl, out var publicUri, out var publicBase))
-                return new(null, null, "The public address in the settings (PublicUrl) is not one the sign-in can return to: it has to be an https address such as https://db.example.com. Fix it in the settings, or use the master login.");
-            if (!string.Equals(context.Request.Host.Host, publicUri.Host, StringComparison.OrdinalIgnoreCase) && string.IsNullOrEmpty(context.Request.Query[_onPublicUrl])) {
-                var query = context.Request.QueryString.HasValue ? context.Request.QueryString.Value![1..] + "&" : "";
-                return new(null, withQuery(publicBase + server.ApiUrlPublic + "license-login/start", query + _onPublicUrl + "=1"), null);
+        var listed = publicUrlsIn(settings.PublicUrl);
+        if (listed.Length > 0) {
+            var addresses = new List<PublicAddress>();
+            foreach (var address in listed) {
+                if (!tryPublicBase(address, out var publicUri, out var publicBase))
+                    return new(null, null, "The public address " + address + " in the settings (PublicUrl) is not one the sign-in can return to: each address has to be an https address such as https://db.example.com. Fix it in the settings, or use the master login.");
+                addresses.Add(new(publicUri, publicBase));
             }
-            return new(publicBase, null, null);
+            var host = context.Request.Host;
+            var sameHost = addresses.Where(a => string.Equals(a.Uri.Host, host.Host, StringComparison.OrdinalIgnoreCase)).ToList();
+            // the port only decides between addresses on one host name, since a proxy may hand on another one
+            var port = host.Port ?? (context.Request.IsHttps ? 443 : 80);
+            if (sameHost.Count > 0) return new((sameHost.FirstOrDefault(a => a.Uri.Port == port) ?? sameHost[0]).Base, null, null);
+            var first = addresses[0];
+            if (string.IsNullOrEmpty(context.Request.Query[_onPublicUrl])) {
+                var query = context.Request.QueryString.HasValue ? context.Request.QueryString.Value![1..] + "&" : "";
+                return new(null, withQuery(first.Base + server.ApiUrlPublic + "license-login/start", query + _onPublicUrl + "=1"), null);
+            }
+            return new(first.Base, null, null);
         }
         if (isLoopback(context.Request)) return new($"{context.Request.Scheme}://{context.Request.Host}", null, null);
         return new(null, null, "Sign-in with Relatude Services is not set up for this address yet: the server's public address (PublicUrl) is not set. "
             + "It is filled in when the API key is saved or the installation is paired on the Relatude Services page, or it can be set in the settings. Until then, use the master login.");
     }
+
+    /// <summary>One of the addresses in PublicUrl, parsed, and written the way the callback url is built on.</summary>
+    sealed record PublicAddress(Uri Uri, string Base);
+
+    /// <summary>The addresses in <see cref="RelatudeDBServerSettings.PublicUrl"/>, which separates them
+    /// with commas - semicolons and white space are taken as well, so a list written either way works.</summary>
+    static string[] publicUrlsIn(string? value) => string.IsNullOrWhiteSpace(value) ? []
+        : value.Split([',', ';', ' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     /// <summary>
     /// Fills in <see cref="RelatudeDBServerSettings.PublicUrl"/>, when it is not set yet, from the
@@ -273,7 +297,7 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
             settings.PublicUrl = publicBase;
             server.UpdateWAFServerSettingsFile();
             RelatudeDBServer.Trace("Sign-in with Relatude.License will send browsers back to " + publicBase + ", the address the Relatude Services page was used on. "
-                + "Change PublicUrl in the settings if that is not this server's public address.");
+                + "Change PublicUrl in the settings if that is not this server's public address, or add the other addresses it is reached on, separated by commas.");
         }
     }
     readonly object _rememberLock = new();
