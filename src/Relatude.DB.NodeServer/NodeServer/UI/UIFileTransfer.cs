@@ -87,7 +87,7 @@ internal sealed class UIFileTransfer {
             return Results.BadRequest(new { error = $"The upload holds {received} bytes, {size} were expected. " });
         }
         try {
-            moveIntoPlace(io, temp, fileKey);
+            MoveIntoPlace(io, temp, fileKey);
         } catch (Exception exception) {
             io.DeleteFileIfItExists(temp);
             return Results.BadRequest(new { error = exception.Message }); // a locked destination, say
@@ -151,7 +151,7 @@ internal sealed class UIFileTransfer {
             stream?.Dispose();
             if (failure == null) {
                 try {
-                    moveIntoPlace(io, temp, fileKey);
+                    MoveIntoPlace(io, temp, fileKey);
                     written++;
                 } catch (Exception exception) {
                     failure = exception.Message;
@@ -296,8 +296,9 @@ internal sealed class UIFileTransfer {
     }
 
     // Providers that cannot move a file (blob storage) copy the bytes instead; everything else
-    // renames, which is a metadata operation even for a file of gigabytes.
-    static void moveIntoPlace(IIOProvider io, string[] temp, string[] fileKey) {
+    // renames, which is a metadata operation even for a file of gigabytes. Internal because a move
+    // between storages (UIFileMove) stages its copies the same way.
+    internal static void MoveIntoPlace(IIOProvider io, string[] temp, string[] fileKey) {
         io.DeleteFileIfItExists(fileKey);
         if (io.CanRenameFile) {
             io.RenameFile(temp, fileKey);

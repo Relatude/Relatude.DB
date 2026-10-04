@@ -8,7 +8,9 @@ import {
   IconDatabaseImport,
   IconDownload,
   IconEye,
+  IconCopy,
   IconFile,
+  IconFileExport,
   IconFileZip,
   IconFolder,
   IconFolderDown,
@@ -42,6 +44,8 @@ import {
   friendlyName,
   friendlyPath,
   itemsFromDrop,
+  moveFiles,
+  nameProblem as storageNameProblem,
   pickDirectory,
   renameFile,
   renameFolder,
@@ -54,6 +58,7 @@ import {
   type FolderListing,
   type FolderSize,
   type IoInfo,
+  type MoveResult,
   type NameMap,
   type UploadEntry,
   type ZipSink,
@@ -67,6 +72,7 @@ import { displayType } from "../code/language";
 import { useVirtualWindow, windowPad } from "../virtualWindow";
 import { FileTile } from "./FileTile";
 import { FileViewer } from "./FileViewer";
+import { MoveFilesDialog, type MoveChoice } from "./MoveFilesDialog";
 
 // Selection is one thing here: a click on a file row selects that file (ctrl toggles, shift takes a
 // range, the checkbox toggles), and folders are ticked in the tree - once "Select folders" has put
@@ -92,6 +98,14 @@ interface SortState {
 }
 
 type ViewMode = "list" | "thumbnails";
+
+// what a delete or a move of the selection takes (see selectionToActOn)
+interface ActOn {
+  fileKeys: string[];
+  topFolders: string[];
+  label: string; // "3 files and 2 folders"
+  touchesPrimary: boolean; // some of it is the database's own data
+}
 
 export function FilesSection({ db }: { db: DatabaseInfo }) {
   const [ios, setIos] = useState<IoInfo[]>([]);
@@ -209,6 +223,11 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   useEffect(() => {
     shownIo.current = ioId; // before the effect below asks for the new provider's root
   }, [ioId]);
+  // the folder on screen, for the same reason: a minimized move finishing reads it (see afterItemsLeft)
+  const openPath = useRef(path);
+  useEffect(() => {
+    openPath.current = path;
+  }, [path]);
   const loadFolder = useCallback(
     (io: string, folderPath: string) => {
       fetchFolder(io, folderPath)
@@ -514,19 +533,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   // what a name may look like, as the server will judge it: database storage keeps to the file
   // key alphabet, the project folder takes any legal file system name
   function nameProblem(name: string): string | null {
-    const trimmed = name.trim();
-    if (trimmed.length === 0) return "A name is required.";
-    if (/[/\\]/.test(trimmed)) return "A name cannot contain / or \\.";
-    if (trimmed === "." || trimmed === "..") return "That is not a name.";
-    if (projectRoot) {
-      // eslint-disable-next-line no-control-regex
-      if (/[<>:"|?*\x00-\x1f]/.test(trimmed)) return 'A file name cannot contain < > : " | ? * or control characters.';
-      if (trimmed.length > 255) return "The name is too long.";
-      return null;
-    }
-    if (!/^[a-z0-9()\-–_. ]+$/i.test(trimmed)) return "Names in database storage can only contain letters, numbers, dash, space, underscore, dot and parentheses.";
-    if (trimmed.length > 100) return "The name can be at most 100 characters.";
-    return null;
+    return storageNameProblem(name, projectRoot);
   }
 
   async function onRenameFile(file: FileInfo) {
@@ -643,24 +650,108 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     window.addEventListener("mouseup", up);
   }
 
+  // What a delete or a move of the selection acts on: the selected files of the open folder and the
+  // ticked folders. A ticked folder inside another ticked folder goes with its parent, and so does a
+  // selected file inside a ticked folder.
+  function selectionToActOn(): ActOn {
+    const folders = [...selectedFolders].filter((f) => f !== "").sort();
+    const topFolders = folders.filter((f) => !folders.some((other) => other !== f && f.startsWith(other + "/")));
+    const fileKeys = files.filter((f) => selected.has(f.key) && !topFolders.some((folder) => f.key.startsWith(folder + "/"))).map((f) => f.key);
+    const parts: string[] = [];
+    if (fileKeys.length > 0) parts.push(`${fileKeys.length} file${fileKeys.length === 1 ? "" : "s"}`);
+    if (topFolders.length > 0) parts.push(`${topFolders.length} folder${topFolders.length === 1 ? "" : "s"}`);
+    return { fileKeys, topFolders, label: parts.join(" and "), touchesPrimary: fileKeys.some(isPrimaryFile) || topFolders.some(isPrimaryFolder) };
+  }
+
+  // Whatever took files and folders away (a delete, a move) takes them out of the selection and the
+  // caches, and if the open folder went with them, the page goes to its parent. Also after a cancel:
+  // some of it may have gone. A move runs minimized while the storage is browsed, so this reads where
+  // the page is now rather than where it was when the move began, and leaves alone a page that has
+  // gone over to another provider.
+  function afterItemsLeft(io: string, topFolders: string[], fileKeys: string[]) {
+    if (shownIo.current !== io) return;
+    const under = (key: string) => topFolders.some((f) => key === f || key.startsWith(f + "/"));
+    const left = new Set(fileKeys);
+    const stays = (key: string) => !left.has(key) && !under(key);
+    setSelected((prev) => (([...prev].every(stays)) ? prev : new Set([...prev].filter(stays))));
+    setSelectedFolders((prev) => ([...prev].some(under) ? new Set([...prev].filter((f) => !under(f))) : prev));
+    if (selectionAnchor.current !== null && !stays(selectionAnchor.current)) selectionAnchor.current = null;
+    setListings((prev) => Object.fromEntries(Object.entries(prev).filter(([key]) => !under(key))));
+    setTreeSizes({});
+    for (const folder of topFolders) loadFolder(io, parentOf(folder));
+    setDeepFiles(null); // a deep listing held what just went, wherever it stood
+    const open = openPath.current;
+    const gone = topFolders.find((f) => open === f || open.startsWith(f + "/"));
+    if (gone) {
+      setPath(parentOf(gone));
+      loadFolder(io, parentOf(gone));
+    } else {
+      loadFolder(io, open);
+    }
+  }
+
+  // ---- move or copy: the same selection, into another storage ----
+
+  // the selection the move dialog is open on, and whether it was opened to move or to copy
+  const [moving, setMoving] = useState<{ what: ActOn; mode: "move" | "copy" } | null>(null);
+
+  function onMoveSelected(mode: "move" | "copy") {
+    if (!ioId) return;
+    const what = selectionToActOn();
+    if (what.fileKeys.length + what.topFolders.length > 0) setMoving({ what, mode });
+  }
+
+  async function onMoveChosen(what: ActOn, choice: MoveChoice) {
+    setMoving(null);
+    if (!ioId) return;
+    const from = ioId;
+    const target = ios.find((candidate) => candidate.id === choice.toIoId);
+    const where = (target?.name ?? "the other storage") + (choice.targetPath ? ` / ${choice.targetPath}` : "");
+    if (what.touchesPrimary && !choice.keepOriginals && !(await confirmPrimaryMove(what.label, where))) return;
+    // the file in the viewer goes too: its unsaved changes would be saved into a file that is gone
+    const takesViewed = viewFile !== null && !choice.keepOriginals && what.fileKeys.includes(viewFile.key);
+    if (takesViewed) {
+      if (!(await confirmDiscard())) return;
+      viewerDirty.current = false;
+    }
+    const verb = choice.keepOriginals ? "Copy" : "Move";
+    const result = await runWithProgress(
+      `${verb} ${what.label} to ${where}`,
+      (ctl) =>
+        moveFiles(ctl, {
+          fromIoId: from,
+          toIoId: choice.toIoId,
+          basePath: path,
+          files: what.fileKeys,
+          folders: what.topFolders,
+          targetPath: choice.targetPath,
+          overwrite: choice.overwrite,
+          keepOriginals: choice.keepOriginals,
+        }),
+      { minimizable: true },
+    );
+    // a copy leaves everything where it was; a move, even a cancelled one, may have taken some of it
+    if (!choice.keepOriginals) afterItemsLeft(from, what.topFolders, what.fileKeys);
+    if (!result) return;
+    const summary = moveSummary(result, choice.keepOriginals ? "Copied" : "Moved", where);
+    if (result.filesFailed > 0) {
+      showError(`Not everything was ${choice.keepOriginals ? "copied" : "moved"}`, summary, [...result.errors, ...result.skipped.map((key) => `${key}: already there, left as it was`)]);
+    } else if (result.filesSkipped > 0) {
+      showInfo("Some files were already there", summary, result.skipped);
+    } else {
+      setMessage(summary);
+    }
+  }
+
   // ---- delete: the selected files of the open folder and the ticked folders, in one go ----
 
   async function deleteSelected() {
     if (!ioId) return;
     const io = ioId;
-    // a ticked folder inside another ticked folder goes with its parent, and so does a selected
-    // file inside a ticked folder
-    const folders = [...selectedFolders].filter((f) => f !== "").sort();
-    const topFolders = folders.filter((f) => !folders.some((other) => other !== f && f.startsWith(other + "/")));
-    const fileKeys = files.filter((f) => selected.has(f.key) && !topFolders.some((folder) => f.key.startsWith(folder + "/"))).map((f) => f.key);
+    const { fileKeys, topFolders, label, touchesPrimary } = selectionToActOn();
     const fileCount = fileKeys.length;
     const folderCount = topFolders.length;
     if (fileCount + folderCount === 0) return;
-    const parts: string[] = [];
-    if (fileCount > 0) parts.push(`${fileCount} file${fileCount === 1 ? "" : "s"}`);
-    if (folderCount > 0) parts.push(`${folderCount} folder${folderCount === 1 ? "" : "s"}`);
-    const label = parts.join(" and ");
-    const touchesPrimary = fileKeys.some(isPrimaryFile) || topFolders.some(isPrimaryFolder);
     if (touchesPrimary && !(await confirmPrimaryData(`Deleting ${label}.`))) return;
     const { ok } = await showConfirm(
       `Delete ${label}?`,
@@ -687,21 +778,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
       if (failed.length > 0) showError("Could not delete everything", `${failed.length} item${failed.length === 1 ? "" : "s"} could not be deleted.`, failed);
       else setMessage(`Deleted ${label}.`);
     }
-    // what is gone leaves the caches, the ticks and, if the open folder went with it, the path
-    setSelected(new Set());
-    setSelectedFolders(new Set());
-    selectionAnchor.current = null;
-    setListings((prev) => Object.fromEntries(Object.entries(prev).filter(([key]) => !topFolders.some((f) => key === f || key.startsWith(f + "/")))));
-    setTreeSizes({});
-    const gone = topFolders.find((f) => path === f || path.startsWith(f + "/"));
-    for (const folder of topFolders) loadFolder(io, parentOf(folder));
-    setDeepFiles(null); // a deep listing held what was just deleted, wherever it stood
-    if (gone) {
-      setPath(parentOf(gone));
-      loadFolder(io, parentOf(gone));
-    } else {
-      loadFolder(io, path);
-    }
+    afterItemsLeft(io, topFolders, fileKeys);
   }
 
   const fileInput = useRef<HTMLInputElement>(null);
@@ -948,6 +1025,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   }
 
   const deletable = files.filter((f) => selected.has(f.key)).length + [...selectedFolders].filter((f) => f !== "").length;
+  const moveTargets = ios.filter((candidate) => candidate.id !== ioId);
   const compact = viewFile !== null; // the viewer is open: the list keeps the name and the size
   // the viewer may take everything but the tree, the bars and a readable list: a stored width from
   // a wider window is cut down to that here, and the drag never grows it past it
@@ -1105,6 +1183,18 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
           >
             <IconHistory size={14} stroke={1.8} className="tone-data" /> Go back in time…
           </button>
+        )}
+        {/* only where there is somewhere to move to: every database has its storage and the server
+            root, so in practice always */}
+        {deletable > 0 && moveTargets.length > 0 && (
+          <>
+            <button className="action-button" onClick={() => onMoveSelected("copy")} title="Copy the selected files and folders into another storage, leaving them here as well">
+              <IconCopy size={14} stroke={1.8} className="tone-accent" /> Copy {deletable} selected…
+            </button>
+            <button className="action-button" onClick={() => onMoveSelected("move")} title="Move the selected files and folders into another storage">
+              <IconFileExport size={14} stroke={1.8} className="tone-accent" /> Move {deletable} selected…
+            </button>
+          </>
         )}
         {deletable > 0 && (
           <button className="action-button danger" onClick={deleteSelected}>
@@ -1280,6 +1370,19 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
           </>
         )}
       </div>
+      {moving && io && (
+        <MoveFilesDialog
+          mode={moving.mode}
+          source={io}
+          targets={moveTargets}
+          what={moving.what.label}
+          fromPath={path}
+          touchesPrimary={moving.what.touchesPrimary}
+          show={showPath}
+          onCancel={() => setMoving(null)}
+          onMove={(choice) => void onMoveChosen(moving.what, choice)}
+        />
+      )}
       {timeTravel && (
         <TimeTravelDialog
           db={db}
@@ -1511,6 +1614,45 @@ function FolderNode(p: FolderNodeProps) {
 
 const friendlyNamesKey = "filesFriendlyNames";
 const folderChecksKey = "filesFolderChecks";
+
+/** One line on how a move went: what went where, how much, and how long it took. */
+function moveSummary(result: MoveResult, verb: "Moved" | "Copied", where: string): string {
+  const parts = [`${verb} ${result.filesMoved} of ${result.filesTotal} file${result.filesTotal === 1 ? "" : "s"} (${formatBytes(result.bytesMoved)}) to ${where}`];
+  if (result.elapsedMs >= 1000) parts.push(`in ${formatTook(result.elapsedMs)}`);
+  let line = parts.join(" ") + ".";
+  if (result.filesSkipped > 0) line += ` ${result.filesSkipped} ${result.filesSkipped === 1 ? "was" : "were"} already there and stayed where ${result.filesSkipped === 1 ? "it was" : "they were"}.`;
+  if (result.filesFailed > 0) line += ` ${result.filesFailed} could not be ${verb.toLowerCase()} and ${result.filesFailed === 1 ? "is" : "are"} still here.`;
+  if (result.foldersRemoved > 0) line += ` ${result.foldersRemoved} emptied folder${result.foldersRemoved === 1 ? " was" : "s were"} removed.`;
+  return line;
+}
+
+// "8.4 s", "3 min 12 s", "1 h 5 min"
+function formatTook(ms: number): string {
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds < 10 ? seconds.toFixed(1) : Math.floor(seconds)} s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ${Math.floor(seconds % 60)} s`;
+  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+}
+
+/**
+ * The extra dialog in front of moving anything out of the database's own data folders. Nothing is
+ * lost - the files arrive whole in the other storage - but the database looks for them here, so to
+ * the database they are gone until they are moved back: the same ticked acknowledgement as a delete.
+ */
+async function confirmPrimaryMove(what: string, where: string): Promise<boolean> {
+  const { ok } = await showConfirm(
+    "This is the actual data",
+    `Moving ${what} to ${where} takes it out of the database's own storage. Everything moved arrives whole, but the database looks for it here,`
+      + " and until it is moved back the database will miss it: content goes missing, or the database fails to open at all.",
+    {
+      confirmLabel: "Continue",
+      danger: true,
+      option: { label: "I understand the database will miss these files", required: true },
+    },
+  );
+  return ok;
+}
 
 const primaryDataTip = "Nothing can generate it again, so deleting anything here loses data for good.";
 

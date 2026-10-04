@@ -20,10 +20,24 @@ export interface ProgressState {
   done: number;
   total: number | null; // null = indeterminate
   meta: string | null; // replaces the "done / total · pct" line when the task counts in its own unit
+  speed: ProgressSpeed | null; // a transfer that reports its rate, drawn under the bar (see SpeedGraph)
   status: "running" | "done" | "error" | "cancelled";
   message: string | null;
   minimizable: boolean;
   minimized: boolean;
+}
+
+/**
+ * How fast a transfer has been going, for the small graph in its dialog. The x axis is the transfer
+ * itself, the way the progress bar above it is - the graph fills in under the bar as the bar fills -
+ * cut into columns, each the bytes per second moved while the transfer was in that part of it.
+ */
+export interface ProgressSpeed {
+  rates: (number | null)[]; // bytes per second, one per column; null for the part not reached yet
+  reached: number; // how far through the transfer is, 0 to 1: where the line ends
+  elapsedMs: number;
+  now: number; // bytes per second over the last few seconds
+  average: number; // bytes per second since the start
 }
 
 export interface MessageState {
@@ -73,7 +87,7 @@ export type DialogState = ProgressState | MessageState | ConfirmState | ChoiceSt
 
 export interface ProgressController {
   signal: AbortSignal;
-  set(update: { label?: string; done?: number; total?: number | null; meta?: string | null }): void;
+  set(update: { label?: string; done?: number; total?: number | null; meta?: string | null; speed?: ProgressSpeed | null }): void;
 }
 
 export interface ProgressOptions {
@@ -189,6 +203,7 @@ export async function runWithProgress<T>(
       done: 0,
       total: null,
       meta: null,
+      speed: null,
       status: "running",
       message: null,
       minimizable: options?.minimizable ?? false,

@@ -3507,6 +3507,105 @@ a.action-button {
   font-size: 12px;
 }
 
+/* ---- the speed of a transfer, under its progress bar (SpeedGraph) ----
+   one series, so no legend: the figure above names it. The line is the app's accent like the bar
+   above it; the area under it is a wash of the same, and the baseline stays recessive */
+
+.speed {
+  margin-top: 12px;
+}
+
+.speed-figures {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.speed-figures .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.speed-now {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.speed-graph {
+  display: block;
+  width: 100%;
+  height: 40px;
+  overflow: visible;
+  cursor: crosshair;
+}
+
+.speed-base {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.speed-area {
+  fill: var(--accent);
+  fill-opacity: 0.14;
+}
+
+.speed-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.speed-cursor {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+
+/* ---- moving files into another storage (MoveFilesDialog) ---- */
+
+.dialog.move-dialog {
+  width: 520px;
+}
+
+.move-dialog .move-mode {
+  width: fit-content;
+  margin-bottom: 12px;
+}
+
+.dialog-field.move-folder-field {
+  margin-bottom: 6px;
+}
+
+.move-tree {
+  max-height: 200px;
+  margin-bottom: 12px;
+  padding: 4px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.move-options {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.move-options > .muted {
+  font-size: 12px;
+}
+
 /* ---- collapsed rail (toggled from the header, animated via the width above) ---- */
 
 .sidebar.collapsed {

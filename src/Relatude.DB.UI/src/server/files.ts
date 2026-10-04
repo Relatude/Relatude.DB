@@ -1,7 +1,7 @@
 import { send } from "./channel";
 import { adminBase } from "./base";
 import { formatBytes } from "../format";
-import type { ProgressController } from "../dialogs";
+import type { ProgressController, ProgressSpeed } from "../dialogs";
 
 export interface IoInfo {
   id: string;
@@ -587,6 +587,236 @@ function formatRemaining(seconds: number): string {
 
 function pause(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ---- moving between storages ----
+// The bytes go from storage to storage on the server (UIFileMove.cs), so a move is a job there that
+// this polls: a big file then counts up inside the file, and a cancel is answered within a buffer.
+
+export interface MoveRequest {
+  fromIoId: string;
+  toIoId: string;
+  basePath: string; // the open folder: a selected file keeps its path below it
+  files: string[];
+  folders: string[]; // each arrives in targetPath under its own name, with everything below it
+  targetPath: string;
+  overwrite: boolean; // replace what the target already has; otherwise that file stays where it is
+  keepOriginals: boolean; // a copy rather than a move
+}
+
+export interface MoveResult {
+  filesTotal: number;
+  filesMoved: number;
+  filesSkipped: number;
+  filesFailed: number;
+  foldersRemoved: number;
+  bytesMoved: number;
+  elapsedMs: number;
+  errors: string[]; // one line per file that failed, "key: reason"
+  skipped: string[]; // the files left where they were because the target had them already
+}
+
+interface MoveProgress {
+  state: "listing" | "moving" | "tidying" | "done" | "cancelled" | "failed";
+  error: string | null;
+  current: string;
+  filesTotal: number;
+  filesMoved: number;
+  filesSkipped: number;
+  filesFailed: number;
+  foldersRemoved: number;
+  bytesTotal: number;
+  bytesMoved: number;
+  bytesTransferred: number; // what has gone across, counted buffer by buffer: the speed
+  bytesPassed: number; // what was decided without going across (skipped, failed)
+  elapsedMs: number;
+  samples: MoveSample[]; // the new ones since the last poll
+  errors: string[] | null; // only once finished
+  skipped: string[] | null;
+}
+
+// [ms since start, bytes transferred, bytes passed over] - read on the server a few times a second
+type MoveSample = [number, number, number];
+
+const movePollMs = 400;
+
+/**
+ * Moves the files and folders, behind the progress dialog. A cancel is passed on to the server and
+ * waited for: the files in flight are rolled back there, and the dialog should not say "cancelled"
+ * while a file is still being copied. The ones already moved stay moved.
+ */
+export async function moveFiles(ctl: ProgressController, request: MoveRequest): Promise<MoveResult> {
+  ctl.set({ label: "Listing what to move…", total: null });
+  const { jobId } = await send<{ jobId: string }>("io-move-start", request);
+  const samples: MoveSample[] = [];
+  let cancelled = false;
+  let misses = 0;
+  for (;;) {
+    if (ctl.signal.aborted && !cancelled) {
+      cancelled = true;
+      ctl.set({ label: "Cancelling - finishing off the files in flight…" });
+      void send("io-move-cancel", { jobId }).catch(() => {});
+    }
+    let p: MoveProgress;
+    try {
+      p = await send<MoveProgress>("io-move-progress", { jobId, samplesFrom: samples.length });
+      misses = 0;
+    } catch (error) {
+      // the move goes on on the server whatever happens here, so a poll lost to a blip is not the end
+      // of it - but a server that keeps not answering is
+      if (++misses > 5) throw error;
+      await pauseUnlessAborted(1000 * misses, cancelled ? null : ctl.signal);
+      continue;
+    }
+    for (const sample of p.samples) samples.push(sample);
+    reportMove(ctl, p, samples, cancelled);
+    if (p.state === "done") {
+      return {
+        filesTotal: p.filesTotal,
+        filesMoved: p.filesMoved,
+        filesSkipped: p.filesSkipped,
+        filesFailed: p.filesFailed,
+        foldersRemoved: p.foldersRemoved,
+        bytesMoved: p.bytesMoved,
+        elapsedMs: p.elapsedMs,
+        errors: p.errors ?? [],
+        skipped: p.skipped ?? [],
+      };
+    }
+    if (p.state === "cancelled") throw new DOMException("Aborted", "AbortError");
+    if (p.state === "failed") throw new Error(p.error ?? "The move failed.");
+    // a cancel wakes the loop at once, so it is passed on without waiting out the interval
+    await pauseUnlessAborted(movePollMs, cancelled ? null : ctl.signal);
+  }
+}
+
+function reportMove(ctl: ProgressController, p: MoveProgress, samples: MoveSample[], cancelling: boolean): void {
+  const settled = p.filesMoved + p.filesSkipped + p.filesFailed;
+  // the poll's own reading as the last point, so the graph ends where the bar does rather than up to
+  // a quarter of a second behind it - unless a sample was taken after it
+  const last = samples[samples.length - 1];
+  const reading: MoveSample = [p.elapsedMs, p.bytesTransferred, p.bytesPassed];
+  const fresh = last !== undefined && reading[0] > last[0] && reading[1] >= last[1] && reading[2] >= last[2];
+  const speed = speedTrace(fresh ? [...samples, reading] : samples, p.bytesTotal);
+  const label = cancelling ? "Cancelling - finishing off the files in flight…" : p.state === "tidying" ? "Removing the emptied folders…" : p.current;
+  if (p.state === "listing") {
+    ctl.set({ label: label ? `Listing ${label}` : "Listing what to move…", total: null });
+    return;
+  }
+  if (p.state === "cancelled") {
+    // what stays done: the files in flight were rolled back, so the bytes counted for them say nothing
+    ctl.set({ speed, meta: `${p.filesMoved} of ${p.filesTotal} files done before the cancel (${formatBytes(p.bytesMoved)})` });
+    return;
+  }
+  // a move of nothing but empty files has no bytes to count, so it counts files instead
+  const byBytes = p.bytesTotal > 0;
+  const done = byBytes ? Math.min(p.bytesTransferred + p.bytesPassed, p.bytesTotal) : settled;
+  const total = byBytes ? p.bytesTotal : p.filesTotal;
+  // what is left, at the pace of the last ten seconds: the pace since the start would still be
+  // paying for the listing and the first slow files long after the move has found its speed
+  const recent = rateOver(samples, 10_000);
+  const left = byBytes && recent > 0 ? (p.bytesTotal - done) / recent : 0;
+  ctl.set({
+    label,
+    done,
+    total,
+    speed,
+    meta:
+      `${settled} / ${p.filesTotal} files` +
+      (byBytes ? ` · ${formatBytes(done)} / ${formatBytes(p.bytesTotal)}` : "") +
+      (p.filesSkipped > 0 ? ` · ${p.filesSkipped} skipped` : "") +
+      (p.filesFailed > 0 ? ` · ${p.filesFailed} failed` : "") +
+      (left > 1 && p.state === "moving" ? ` · ${formatRemaining(left)} left` : ""),
+  });
+}
+
+const speedColumns = 60; // how many the speed graph is drawn in (see ProgressSpeed)
+
+/**
+ * The samples as the speed graph draws them: the transfer cut into columns by how far through it is,
+ * the way the progress bar above it is, each the bytes per second moved while the transfer was in
+ * that part of it. A file skipped or failed moves the transfer along without moving any bytes, so
+ * the bytes passed over count towards how far it is and not towards the speed. Null until there is
+ * something to draw - a transfer of nothing but empty files never has.
+ */
+export function speedTrace(samples: MoveSample[], totalBytes: number): ProgressSpeed | null {
+  if (totalBytes <= 0 || samples.length < 2) return null;
+  const moved = new Array<number>(speedColumns).fill(0);
+  const took = new Array<number>(speedColumns).fill(0);
+  const along = (sample: MoveSample) => Math.min(1, (sample[1] + sample[2]) / totalBytes);
+  for (let i = 1; i < samples.length; i++) {
+    const p0 = along(samples[i - 1]);
+    const p1 = along(samples[i]);
+    const ms = samples[i][0] - samples[i - 1][0];
+    const bytes = Math.max(0, samples[i][1] - samples[i - 1][1]);
+    if (p1 <= p0) {
+      // time without progress - waiting on a slow file, say - belongs to the column it waited in
+      const column = Math.min(speedColumns - 1, Math.max(0, Math.ceil(p0 * speedColumns) - 1));
+      moved[column] += bytes;
+      took[column] += ms;
+      continue;
+    }
+    // spread over the columns the stretch crossed, in proportion to how much of it each one got
+    for (let column = Math.floor(p0 * speedColumns); column < speedColumns && column / speedColumns < p1; column++) {
+      const share = (Math.min(p1, (column + 1) / speedColumns) - Math.max(p0, column / speedColumns)) / (p1 - p0);
+      if (share <= 0) continue;
+      moved[column] += bytes * share;
+      took[column] += ms * share;
+    }
+  }
+  const [elapsedMs, transferred] = samples[samples.length - 1];
+  return {
+    rates: moved.map((bytes, i) => (took[i] > 0 ? (bytes / took[i]) * 1000 : null)),
+    reached: along(samples[samples.length - 1]),
+    elapsedMs,
+    now: rateOver(samples, 2000),
+    average: elapsedMs > 0 ? (transferred / elapsedMs) * 1000 : 0,
+  };
+}
+
+// bytes per second over the last windowMs of the samples
+function rateOver(samples: MoveSample[], windowMs: number): number {
+  if (samples.length < 2) return 0;
+  const [lastMs, lastBytes] = samples[samples.length - 1];
+  let i = samples.length - 2;
+  while (i > 0 && lastMs - samples[i][0] < windowMs) i--;
+  const [fromMs, fromBytes] = samples[i];
+  return lastMs > fromMs ? ((lastBytes - fromBytes) / (lastMs - fromMs)) * 1000 : 0;
+}
+
+// a pause that ends early when the signal aborts
+function pauseUnlessAborted(ms: number, signal: AbortSignal | null): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const done = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener("abort", done);
+  });
+}
+
+/**
+ * What is wrong with a file or folder name, as the storage it goes into will judge it: database
+ * storage keeps to the file key alphabet, the website project folder takes any legal file system
+ * name. Null when it is fine.
+ */
+export function nameProblem(name: string, plainFolder: boolean): string | null {
+  const trimmed = name.trim();
+  if (trimmed.length === 0) return "A name is required.";
+  if (/[/\\]/.test(trimmed)) return "A name cannot contain / or \\.";
+  if (trimmed === "." || trimmed === "..") return "That is not a name.";
+  if (plainFolder) {
+    // eslint-disable-next-line no-control-regex
+    if (/[<>:"|?*\x00-\x1f]/.test(trimmed)) return 'A file name cannot contain < > : " | ? * or control characters.';
+    if (trimmed.length > 255) return "The name is too long.";
+    return null;
+  }
+  if (!/^[a-z0-9()\-–_. ]+$/i.test(trimmed)) return "Names in database storage can only contain letters, numbers, dash, space, underscore, dot and parentheses.";
+  if (trimmed.length > 100) return "The name can be at most 100 characters.";
+  return null;
 }
 
 // the zip-a-folder endpoint; used as the DownloadURL behind dragging a folder to the desktop

@@ -2,6 +2,7 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { IconAlertTriangle, IconCheck, IconLoader2, IconMinus, IconX } from "@tabler/icons-react";
 import { DialogTools } from "./DialogTools";
+import { SpeedGraph } from "./SpeedGraph";
 import {
   acceptChoice,
   acceptConfirm,
@@ -230,6 +231,8 @@ function ProgressDialog({ dialog }: { dialog: ProgressState }) {
         <div className={"progress-bar" + (running && pct === null ? " indeterminate" : "") + (dialog.status === "error" ? " error" : "")}>
           <div className="progress-fill" style={{ width: (running ? (pct ?? 100) : 100) + "%" }} />
         </div>
+        {/* kept once the task ends: how fast it went is worth a look when it stopped short */}
+        {dialog.speed && <SpeedGraph speed={dialog.speed} />}
         <div className="dialog-row">
           <span className="dialog-meta muted">
             {dialog.meta ?? (
