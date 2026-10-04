@@ -608,7 +608,7 @@ provider settings all live there.</p>
 section with the same shape as the file — in <code>appsettings.json</code>, <code>appsettings.Development.json</code>,
 environment variables or user secrets — wins over <code>relatude.db.json</code>, and what it supplies is never
 written back to the file. Credentials belong there, not in the file. What you change in the admin UI
-is kept apart as well, in <code>relatude.db.overrides.json</code> beside the default database's own files, so
+is kept apart as well, in <code>overrides/relatude.db.overrides.json</code> beside the default database's own files, so
 <code>relatude.db.json</code> stays as you deployed it until you move those changes into it from the settings page.</p>
 <hr />
 <h2 id="4-querying">4. Querying<a class="anchor" href="#4-querying" aria-label="Link to this section">#</a></h2>
@@ -752,8 +752,8 @@ assignment.</p>
   <code>Relatude.DB.Plugins.FFMpeg</code> for video.</li>
 <li><strong>Geo</strong> — coordinate properties with radius filters and sort-by-distance.</li>
 <li><strong>Extras</strong> — cultures and fallbacks, revisions, per-property read/write access, transaction plugins,
-  and a GraphQL <strong>read</strong> endpoint generated from your model
-  (<code>app.MapRelatudeDBGraphQL("/graphql")</code>; there are no GraphQL mutations).</li>
+  and GraphQL endpoints generated from your model: defined on the admin UI's <strong>API</strong> page, or mapped
+  in code with <code>app.MapRelatudeDBGraphQL("/graphql")</code>. They are read-only unless you allow mutations.</li>
 </ul>
 <hr />
 <h2 id="where-next">Where next<a class="anchor" href="#where-next" aria-label="Link to this section">#</a></h2>

@@ -62,6 +62,10 @@ concept builds on the last.
 31. [The command line tool](#31-the-command-line-tool)
 32. [Logs — recording what the application does](#32-logs--recording-what-the-application-does) · [32.4 HyperLogLog](#324-estimated-unique-counts-hyperloglog) · [32.8 Positions](#328-positions)
 
+**Part V — APIs**
+
+33. [GraphQL endpoints](#33-graphql-endpoints) · [33.2 the definition file](#332-the-definition-file) · [33.4 querying](#334-querying) · [33.6 mutations](#336-mutations) · [33.9 code-first](#339-code-first-mapping-an-endpoint-in-programcs)
+
 ---
 ---
 
@@ -2169,7 +2173,7 @@ the settings pages compares the settings in force with `relatude.db.json` as it 
 only the difference to `relatude.db.overrides.json`, kept with the default database:
 
 ```jsonc
-// relatude.db/relatude.db.overrides.json, beside the default database's data/ and state/ folders
+// relatude.db/overrides/relatude.db.overrides.json, beside the default database's data/ and state/ folders
 {
   "Name": "Production",
   "ContainerSettings": [
@@ -2223,11 +2227,13 @@ the server's settings and every database's — with both values side by side:
 - **Discard** puts back what `relatude.db.json` says for the selected entries — a value, a removed
   element restored, an added element taken out again — and saves.
 
-**Where the file is.** It is kept with the default database — the one `DefaultStoreId` names — at the
-root of the storage provider that database keeps its files in. On local disk that is beside its
-`data/`, `state/` and `log/` folders, so with the default settings `relatude.db/relatude.db.overrides.json`;
-on Azure Blob storage it is a blob in the database's container. Wherever the database's files go, the
-admin UI's changes go with them.
+**Where the file is.** It is kept with the default database — the one `DefaultStoreId` names — in an
+`overrides/` folder at the root of the storage provider that database keeps its files in. On local
+disk that folder is beside its `data/`, `state/` and `log/` folders, so with the default settings
+`relatude.db/overrides/relatude.db.overrides.json`; on Azure Blob storage it is a blob under
+`overrides/` in the database's container. Wherever the database's files go, the admin UI's changes go
+with them. Earlier versions kept the file at the root of the storage itself; the server moves such a
+file into `overrides/` when it starts, and finds it at the root until then.
 
 The file has to be found before the settings are put together, so the default database is looked up
 in `relatude.db.json` with the configuration section over it — never with the overrides file itself.
@@ -2237,7 +2243,7 @@ and the next start finds it there. Moving such a change into `relatude.db.json` 
 to the new place. Values set by the settings callbacks are not consulted, as they run later. If you
 change the database's folder in `relatude.db.json` by hand, move the file together with the
 database's own files. With no database to follow, the file is kept at
-`relatude.db/relatude.db.overrides.json` below the root data folder.
+`relatude.db/overrides/relatude.db.overrides.json` below the root data folder.
 
 If the storage cannot be reached when the server starts — a blob service that is down, say — the
 server starts anyway, on `relatude.db.json` and configuration alone, and the settings pages say so and
@@ -2452,6 +2458,7 @@ What you do in it:
 | **Status** | Store state, running file conversions, activity and timings. |
 | **Activity** | What the database records about itself — queries, transactions, actions, tasks, metrics, the system trace — each log switched on or off, with its entries, search and graphs. |
 | **Logs** | Logs of your own: define one, and read what the application recorded into it as graphs, entries and the spread of a column's values. The **Built-in logs** switch shows the Activity logs here too, read only. See [§32](#32-logs--recording-what-the-application-does). |
+| **API** | GraphQL endpoints over the database: each one a url, the types and properties it exposes and under which names, views, mutations, an API key, generated client code, and an explorer to try queries. See [§33](#33-graphql-endpoints). |
 | **Memory** (on the dashboard) | Every memory budget of one database on one line - the node and result set caches, each index engine, the state store - each showing what it is actually holding against what it is allowed. Dragging a budget takes effect at once where the part can be re-sized while it runs; saving keeps them for the next start, in `relatude.db.overrides.json` like every change made on the settings pages. |
 
 Two habits worth forming:
@@ -4918,6 +4925,626 @@ handful of towns — driving by day, stopping now and then, parked at night, wit
 kilometres off — so every one of these has something to show before the application records anything.
 
 ---
+---
+
+# Part V — APIs
+
+## 33. GraphQL endpoints
+
+A database can answer GraphQL. An endpoint is generated from the datamodel: every node type it
+exposes becomes a GraphQL type with a field per property, one root field that fetches a node by id
+and one that pages through nodes with filters, text search and ordering. Relations become fields a
+query can follow as deep as its selection goes. If you allow mutations, there are also root fields that
+create, update and delete nodes. You write no resolvers and compile nothing: the schema is built
+from the datamodel when the endpoint is first asked, and built again when the datamodel or the
+endpoint changes.
+
+```graphql
+{
+  events(filter: { price: { gte: 200 } }, orderBy: starts, pageSize: 2) {
+    totalCount
+    items { id title starts price venue { name } }
+  }
+}
+```
+
+There are two ways to have one:
+
+| | |
+|---|---|
+| **Defined in the admin UI** | The database's **API** page. Each database can have any number of endpoints, each on its own url. An endpoint chooses the types and properties it shows and what to call them, and can have views, an API key, mutations, a public explorer page and a facet search. Each endpoint is a JSON file in the database's `graphql` folder, served by a middleware that `UseRelatudeDB` installs, so there is no code to write. See [§33.1](#331-an-endpoint-in-the-admin-ui). |
+| **Code-first** | `app.MapRelatudeDBGraphQL("/graphql")` maps one route over the whole datamodel, configured in `Program.cs`. See [§33.9](#339-code-first-mapping-an-endpoint-in-programcs). |
+
+Both use the `Relatude.DB.GraphQL` library, which ships in the `Relatude.DB.Server` package. It has no
+third-party dependency: it does its own parsing, validation, execution and introspection.
+
+Each root field becomes **one** query against the store. The filter, search, ordering, paging and
+every relation the selection follows are translated into a single query text with `Include` paths,
+in the query language of [§19](#19-query-anatomy)–[§26](#26-sorting-paging-and-result-sets). Every
+value from the request goes in as a parameter, never into the query text. So a page of 25 events
+with their venues and hosts is one query, not 51.
+
+### 33.1 An endpoint in the admin UI
+
+Open a database, choose **API** in the menu, then **New endpoint**. A new endpoint is called
+*GraphQL endpoint* and answers on `/graphql`, with a number added when that name or url is taken.
+It starts in the mode that exposes the types you choose, with none chosen yet. The editor has seven
+views:
+
+| View | What it is for |
+|---|---|
+| **Settings** | The name, url, description, mode, switches and limits of [§33.2](#332-the-definition-file), and the API key (the wand button generates one). |
+| **Types** | The node types and properties to expose, and the names they appear under: the GraphQL type name, the two root field names and a name per field. Mark a type **Read only** to leave it out of the mutations. This view is only used in the *Selected types and properties* mode. |
+| **Views** | Root fields defined by a query ([§33.5](#335-views)). |
+| **Code** | Generated code to copy or download: the schema as SDL, TypeScript types and a TypeScript client, and C# types and a C# client. |
+| **Try it** | Runs a query. Pick a type and an example query to start from. |
+| **Explorer** | The explorer of [§33.8](#338-the-explorer-and-the-facet-page). |
+| **Json** | The definition file itself, editable as text. |
+
+Every view works on the **draft**, the unsaved version of the endpoint, so you can see the schema a
+change gives before you save it. Warnings under the bar say what the schema builder left out or
+renamed, for example a type that is no longer in the datamodel, a relation to a type the endpoint
+does not expose, or a name that is already taken. **Save** writes the file, and the next request is
+answered with the new schema; no restart is needed. Some problems are errors that block saving: a
+url that another endpoint on the server already uses, a page size below 1, or a view whose query
+does not parse.
+
+The endpoint list shows each endpoint's url, mode, number of types and views, whether it takes
+mutations, and its file. Buttons on each row open the endpoint's public pages:
+
+- **Explore** opens the explorer and **Pivot** opens the facet page, when they are switched on
+  ([§33.8](#338-the-explorer-and-the-facet-page)).
+- **SDL** shows the schema as text, when introspection is on and the endpoint has no API key.
+
+The endpoints are served by a middleware that `UseRelatudeDB` installs after its own authorization
+middleware. An endpoint's url can be any path the admin UI does not use. No two endpoints may share
+a url, even across databases. While the endpoint's database is not open, its url answers `503`.
+
+> **The url is public.** The admin UI's login does not cover an endpoint. Protect it with an API key
+> or a reverse proxy, or expose only what anyone may see ([§33.10](#3310-who-reads-and-the-limits)).
+
+### 33.2 The definition file
+
+An endpoint is its file: `graphql/<name>.json` on the database's `IoDatabase` storage provider, next
+to the database's own files. Every `.json` file in that folder is an endpoint, so you can also write a
+definition by hand, copy it from another database or keep it in source control. **Reload from disk**
+on the API page reads the folder again. A file without an `id` gets one derived from its file name.
+A file that cannot be read as a definition stays in the list, marked with what is wrong with it.
+The reader is lenient: comments and trailing commas are allowed, property names can be in any case,
+and enum values are written by name.
+
+```json
+{
+  "name": "Public API",
+  "description": "Events and venues for the web site.",
+  "url": "/api/graphql",
+  "mode": "Selected",
+  "allowMutations": false,
+  "enableExplorer": true,
+  "enableFacetSearch": true,
+  "apiKey": null,
+  "defaultPageSize": 25,
+  "maxPageSize": 200,
+  "types": [
+    {
+      "nodeTypeId": "0c7f9a52-1e4b-4f0a-9a7e-3d1c2b5e8f61", // IEvent
+      "name": "Event",
+      "properties": [
+        { "propertyId": "5a1d3c7e-2b9f-4e61-8c0d-7f3e1a2b4c59" },                    // Title
+        { "propertyId": "9e2b4d61-7c3a-4f58-b1e0-2d6f8a9c3e17", "name": "starts" },  // StartsUtc
+        { "propertyId": "3c8e1f27-6d4b-4a90-9e5c-1b7d2f4a6e83" },                    // Price
+        { "propertyId": "7b4f2e91-3a6c-4d18-8f2b-5e9c1d3a7b46" },                    // Status
+        { "propertyId": "1f6a8c34-9b2e-4c57-a3d1-6e4b7f9c2a08" }                     // Venue
+      ]
+    },
+    {
+      "nodeTypeId": "4d2e6b81-8f3a-4c19-b7e2-9a5c3d1f6e24", // IVenue
+      "name": "Venue",
+      "readOnly": true,
+      "properties": null
+    }
+  ],
+  "views": [
+    { "name": "upcoming", "query": "IEvent.Where(e => e.Status == 1)", "description": "Published events." }
+  ]
+}
+```
+
+Types and properties are referenced by their **datamodel ids**, not their names, so renaming a
+property in the model does not break the endpoint. A field that is named in the definition keeps
+that name; a field whose name is derived follows the rename. The Types view of the editor fills
+in the ids, so a file is usually easiest to start there.
+
+| Field | Default | What it does |
+|---|---|---|
+| `id` | from the file name | Identifies the endpoint. |
+| `name`, `description` | | Shown in the admin UI, the explorer and the generated code. The file is named after `name`. |
+| `url` | `/graphql` | The path the endpoint answers on. Case and a trailing slash do not matter. |
+| `enabled` | `true` | When `false`, the url is not answered and the request passes on to the application. |
+| `mode` | `Selected` | `Selected` exposes only what `types` lists. `WholeDatamodel` exposes every node type and property and follows the datamodel as it changes; `types` is then ignored. |
+| `exactNames` | `false` | Use the datamodel's names verbatim instead of GraphQL-style names ([§33.3](#333-the-schema)). |
+| `allowMutations` | `false` | Adds create, update and delete fields ([§33.6](#336-mutations)). |
+| `enableIntrospection` | `true` | Answers `__schema` and `__type`, serves the schema as text on `?sdl`, and gives the explorer its data. When off, clients cannot read the schema, but queries still work. |
+| `enableGetRequests` | `true` | Accepts `GET ?query=` requests. POST requests are always accepted. |
+| `enableExplorer` | `false` | Serves the explorer page on the url ([§33.8](#338-the-explorer-and-the-facet-page)). |
+| `enableFacetSearch` | `false` | Serves the facet search and its visual pivot page on the url ([§33.8](#338-the-explorer-and-the-facet-page)). |
+| `maxFacetCards` | 200,000 | The most nodes the facet page draws. |
+| `defaultNodeTypeId` | none | The type the explorer and the facet page open on. Without it they choose one themselves. |
+| `includeSystemTypes` | `false` | In whole-datamodel mode only: also expose the built-in users, groups, collections and cultures. |
+| `apiKey` | none | When set, every request must carry this key ([§33.7](#337-over-http)). |
+| `maxQueryDepth` | 16 | How deeply a query's selection may nest, fragments included. |
+| `maxIncludeDepth` | 8 | How many relations deep a selection may follow. |
+| `defaultPageSize`, `maxPageSize` | 25, 200 | The page size used when a query asks for none, and the largest page size allowed. A larger `pageSize` is cut down to the maximum, not refused. |
+| `types[]` | | Selected mode only. Each entry has `nodeTypeId`; `name`, the GraphQL type name; `singleName` and `listName`, the two root field names; `readOnly`; and `properties`. `null` exposes every property of the type; a list exposes only those properties, each with a `propertyId` and an optional field `name`. |
+| `views[]` | | Each view has `name`, `query` and `description` ([§33.5](#335-views)). |
+
+### 33.3 The schema
+
+Every exposed node type gets a GraphQL type, plus two root fields on `Query`:
+
+- one that fetches a single node by its id, for example `event(id: ID!)`;
+- one that returns a page of nodes, for example `events(filter, search, orderBy, descending, page, pageSize, ids)`.
+
+Every node type also has four system fields, from the `Node` interface that all node types
+implement: `id` (the node's public `Guid`), `displayName`, `createdUtc` and `changedUtc`. Here is
+the schema of the endpoint above, trimmed:
+
+```text
+type Query {
+  event(id: ID!): Event
+  events(filter: EventFilterInput, search: String, orderBy: EventOrderBy, descending: Boolean = false,
+         page: Int = 0, pageSize: Int, ids: [ID!]): EventResult!
+  venue(id: ID!): Venue
+  venues(filter: VenueFilterInput, search: String, orderBy: VenueOrderBy, descending: Boolean = false,
+         page: Int = 0, pageSize: Int, ids: [ID!]): VenueResult!
+  upcoming(filter: EventFilterInput, search: String, orderBy: EventOrderBy, descending: Boolean = false,
+           page: Int = 0, pageSize: Int, ids: [ID!]): EventResult!
+}
+
+interface Event implements Node {
+  id: ID!
+  displayName: String
+  createdUtc: DateTime!
+  changedUtc: DateTime!
+  price: Decimal!
+  starts: DateTime!
+  status: EventStatus!
+  title: String
+  venue: Venue
+}
+
+type EventNode implements Node & Event { ... }   # the same fields
+
+interface Venue implements Node {
+  ...
+  capacity: Int!
+  events(top: Int): [Event!]!
+  location: GeoCoordinate
+  name: String
+}
+
+type EventResult {
+  items: [Event!]!
+  totalCount: Int!
+  pageIndex: Int!
+  pageSize: Int
+  durationMs: Float!
+}
+
+enum EventOrderBy { price starts status title }
+enum EventStatus { Draft Published SoldOut Cancelled }
+
+input EventFilterInput {
+  price: DecimalFilterInput
+  starts: DateTimeFilterInput
+  status: EventStatusFilterInput
+  title: StringFilterInput
+  venue: RelatedNodeFilterInput
+  and: [EventFilterInput!]
+  or: [EventFilterInput!]
+  not: EventFilterInput
+}
+```
+
+**Names.** By default the names follow GraphQL conventions. Types keep their datamodel name, and
+fields and root fields are camelCase, with the list field in the plural: type `Article`, field
+`title`, root fields `article` and `articles`, mutation `createArticle`. With `exactNames` on, names
+are copied verbatim: field `Title`, root fields `Article` and `Articles`, mutation `CreateArticle`.
+A system field keeps its name in both modes. A property whose derived name collides with a system
+field gets `Value` added, so a property called `DisplayName` becomes `displayNameValue`.
+
+When a name is already taken, the next free one is used: `_2` is added to the name, and the schema
+builder warns. Names are claimed in a fixed order, so the same model always gives the same schema.
+
+An inherited property keeps the field name of the base type that exposes it, because the base
+type's GraphQL interface is a contract its subtypes must keep. If a subtype renames that field, the
+rename is ignored with a warning.
+
+> **Interface-first models get unusual names unless you rename.** This manual's model is made of
+> interfaces (`IEvent`, `IVenue`, …), and in whole-datamodel mode they show up as such: the GraphQL
+> interface `IEvent` and the root fields `iEvent` and `iEvents`. In the *Selected* mode, name the type
+> `Event`, as the file above does, to get `event`, `events` and `createEvent`.
+
+**Interfaces and the types of nodes.** A datamodel interface becomes a GraphQL interface. GraphQL
+does not allow a value whose type is an interface, but a node created as an interface
+(`db.Create<IEvent>()`) has exactly that type. So each exposed interface also gets an object type
+for its nodes. The object type drops a leading `I` from the name (`IEvent` gives `Event`) or, when
+it cannot, adds `Node` (`Event` gives `EventNode`), as in the schema above. Queries normally use the
+interface name; `__typename` returns the object type.
+
+A class with exposed subclasses gets an interface as well, named `<Class>Interface`, so that a field
+of the class's type can return the subclasses' nodes. Use `... on Subclass { }` in a query to read
+the fields only a subclass has. A node of a subtype the endpoint does not expose is shown as its
+nearest exposed ancestor. A query for `events` therefore never returns `null` items just because
+some events are of a type the endpoint leaves out.
+
+**How properties map:**
+
+| Datamodel property | GraphQL field | `filter` operators | In `orderBy` | Mutation input |
+|---|---|---|---|---|
+| `bool` | `Boolean!` | `eq` `ne` | yes | `Boolean` |
+| `int` | `Int!` | `eq` `ne` `gt` `gte` `lt` `lte` `in` `nin` | yes | `Int` |
+| enum (`int` with an enum type) | the enum, by name | `eq` `ne` `in` `nin` | yes | the enum |
+| `long` | `Long!` | as `int` | yes | `Long` |
+| `double`, `float` | `Float!` | as `int` | yes | `Float` |
+| `decimal` | `Decimal!` | as `int` | yes | `Decimal` |
+| `string` | `String` | `eq` `ne` `in` `nin` | yes | `String` |
+| `DateTime`, `DateTimeOffset` | `DateTime!`, an ISO-8601 UTC string | `eq` `ne` `gt` `gte` `lt` `lte` | yes | `DateTime` |
+| `TimeSpan` | `String!` | – | – | `String`, for example `"01:30:00"` |
+| `Guid` | `ID!` | `eq` `ne` `in` `nin` | – | `ID` |
+| `string[]`, `Guid[]`, enum `[]` | `[String!]!`, `[ID!]!`, `[Enum!]!` | – | – | a list |
+| `GeoCoordinate` | `GeoCoordinate { latitude longitude }`, null when unset | – | – | `GeoCoordinateInput` |
+| `FileValue` | `FileInfo { name size width height contentType }`, null when empty | – | – | – |
+| relation, "one" side | the related type | `eq` `in` (by id) | – | `ID` |
+| relation, "many" side | `[T!]!` with a `top` argument | `eq` `in` (by id) | – | `[ID!]`, which replaces the whole set |
+| `Reference<T>` | `T` | `eq` `in` (by id) | – | `ID` |
+| `References<T>` | `[T!]!` with a `top` argument | – | – | `[ID!]` |
+| `Embedded`, `EmbeddedMap`, `byte[]`, `float[]`, `object` | left out | | | |
+
+For a relation or reference to a type the endpoint does not expose, the field is left out, with a
+warning in *Selected* mode. The filter on that relation stays, since it only takes an id.
+
+### 33.4 Querying
+
+A list root field returns a result object: the nodes of the page in `items`, the number of matches
+before paging in `totalCount`, the page index and size actually used, and `durationMs`, the time the
+store spent on it. Its arguments are:
+
+| Argument | What it does |
+|---|---|
+| `filter` | Conditions on the type's fields. All given conditions must match; `and`, `or` and `not` combine them. |
+| `search` | Free-text search: the same matching as `WhereSearch` ([§21](#21-text-and-semantic-search)). It is a filter, so the result is not ordered by relevance. |
+| `orderBy`, `descending` | Order by one field; only orderable fields are in the enum. Without `orderBy` the nodes come in the store's order. |
+| `page`, `pageSize` | A zero-based page index, and the page size (`defaultPageSize` when not given, capped at `maxPageSize`). |
+| `ids` | Restricts the result to the given node ids. |
+
+```graphql
+query Upcoming($from: DateTime!) {
+  events(filter: { starts: { gte: $from } }, orderBy: starts, pageSize: 2) {
+    totalCount
+    items { id title starts price venue { name } }
+  }
+}
+```
+
+```json
+{
+  "data": {
+    "events": {
+      "totalCount": 3,
+      "items": [
+        { "id": "7e51b1dd-a7a1-4c99-b16b-4f373ab2573b", "title": "Concert 2",
+          "starts": "2026-11-02T19:00:00.0000000Z", "price": 200, "venue": { "name": "Opera House" } },
+        { "id": "1459bd5a-9b4d-48c1-8c49-288fff8d5a2e", "title": "Concert 3",
+          "starts": "2026-11-03T19:00:00.0000000Z", "price": 300, "venue": { "name": "Opera House" } }
+      ]
+    }
+  },
+  "extensions": { "durationMs": 46.223 }
+}
+```
+
+The filter is an object with one entry per field, each holding operators. Several operators on one
+field must all match, so `{ price: { gte: 100, lt: 300 } }` is a range. Write enum values by name.
+Relations and references are filtered by the related node's id, with `eq` or `in`. On the "many"
+side, the condition means that one of the related nodes has that id:
+
+```graphql
+{
+  cheapOrSoldOut: events(filter: { or: [ { price: { lt: 150 } }, { status: { eq: SoldOut } } ] }) { totalCount }
+  notAtTheOpera:  events(filter: { not: { venue: { eq: "0b6e…" } } }) { totalCount }
+  some:           events(filter: { status: { in: [Published, SoldOut] } }) { totalCount }
+}
+```
+
+`in: []` matches nothing and `nin: []` excludes nothing. Strings are matched by equality only, so
+there are no `contains`, `startsWith` or case-insensitive operators. Use `search` to match text.
+
+**Following relations.** Select a relation field to get the related nodes. The relations a
+selection follows are added to the root field's query as `Include` paths, so they are loaded with
+it rather than by one query per item. A "many" field returns all its related nodes unless `top`
+limits them:
+
+```graphql
+{
+  venues {
+    items {
+      name
+      events(top: 3) { title starts }
+    }
+  }
+}
+```
+
+Nested lists cannot be filtered or ordered. A query that needs that should start from the other
+side, for example `events(filter: { venue: { eq: $venue } }, orderBy: starts)`.
+
+**The rest of GraphQL** works as the specification says: variables (with defaults), aliases (which
+also let one query ask for the same list twice with different arguments), named and inline
+fragments, `@include` and `@skip`, `__typename`, several root fields in one request, and documents
+with several operations together with `operationName`. Subscriptions are not supported.
+
+Errors follow the GraphQL convention. A request that cannot run at all is answered with `errors` and
+no `data`: a syntax error, an unknown field, a wrong variable, or a query deeper than the limits.
+For example:
+
+```json
+{ "errors": [ { "message": "Field \"nope\" is not defined on type \"Event\".", "locations": [ { "line": 1, "column": 20 } ] } ] }
+```
+
+A root field that fails while running, such as a malformed id or a rejected mutation, becomes `null`
+with an error that carries its `path`, and the other root fields of the request still answer.
+
+### 33.5 Views
+
+A view is a root field defined by a query. It returns the same result type as the type's list field
+and takes the same arguments, so a client can still filter, search, order and page within it. The
+view's own query is applied first:
+
+```json
+"views": [
+  { "name": "upcoming", "query": "IEvent.Where(e => e.Status == 1)", "description": "Published events." },
+  { "name": "jazz",     "query": "IEvent.WhereSearch(\"jazz\").OrderBy(e => e.StartsUtc)" }
+]
+```
+
+```graphql
+{ upcoming(orderBy: starts, pageSize: 10) { totalCount items { title starts } } }
+```
+
+The query is written in the text form of the query language ([§20](#20-filtering-with-where)). It
+starts with a type's code name, without its namespace, and uses the datamodel's property names, not
+the endpoint's renames. Enum values are written as their numbers. A view can only use methods that
+keep the result a set of nodes the endpoint can page:
+
+`Where`, `WhereSearch`, `WhereInIds`, `WhereIn`, `WhereTypes`, `Relates`, `RelatesNot`,
+`RelatesAny`, `OrderBy`, `WhereCulture`, `WhereCultureFallback`, `WhereHidden` and `Traverse`.
+
+`Page`, `Include`, `Select` and `Count` are not allowed, because the endpoint adds paging and
+includes itself. The editor checks each view when it is saved. The view's type must be exposed by
+the endpoint, or the view is left out with a warning. A view is a fixed query, so it is the way to
+give clients a selection they cannot build themselves: an `or` across relations, a traversal, or
+a culture.
+
+### 33.6 Mutations
+
+With `allowMutations` on, every exposed type that can be created gets three fields on `Mutation`:
+
+```text
+type Mutation {
+  createEvent(input: EventInput!): EventNode
+  updateEvent(id: ID!, input: EventInput!): Event
+  deleteEvent(id: ID!): Boolean!
+}
+
+input EventInput { price: Decimal  starts: DateTime  status: EventStatus  title: String  venue: ID }
+```
+
+Types marked `readOnly` are left out, which is why there is no `createVenue` here. So are interfaces
+that a class implements, because their nodes are created as the classes. The input has the same
+field names as the output type, minus files and anything else from the last rows of the property
+table in [§33.3](#333-the-schema).
+
+```graphql
+mutation NewEvent($venue: ID!) {
+  createEvent(input: { title: "Late show", price: 250, status: Published,
+                       starts: "2026-12-01T21:00:00Z", venue: $venue }) {
+    id
+    title
+    venue { name }
+  }
+}
+```
+
+- **create** inserts a node with a new id. A property the input does not set gets the type's default
+  value, as in the admin UI's editor. The new node is read back and returned, so the selection can
+  follow its relations.
+- **update** changes only the fields the input gives. `null` clears a field, which means it gets the
+  type's default value. A relation field replaces the whole set of related nodes, and `null` or `[]`
+  removes them all. If no node has the id, the result is `null` with an error.
+- **delete** returns `true`, or `false` when no node has the id.
+
+Relations and references take the related node's id. Relations are set, not added: giving an event
+a new venue moves it from its old one, and listing an event in a venue's `events` moves it there
+from wherever it was.
+
+Each mutation field is one transaction, and the fields of a request run in the order written. They
+run through the `NodeStore`, so the transaction plugins of [§15](#15-transactions) see them, and the
+datamodel's validation rules ([§3](#3-scalar-properties-and-their-attributes)) apply. A change that
+is rejected becomes an error on its field. There are no file uploads through GraphQL: upload files
+as described in [§17](#17-uploading-files) and keep the id.
+
+An endpoint that allows mutations without an API key lets anyone who can reach its url change
+data. The editor warns about this, and so should you.
+
+### 33.7 Over HTTP
+
+| Request | Answer |
+|---|---|
+| `POST {url}` with `{"query", "operationName", "variables"}` as `application/json` | The result, as `application/graphql-response+json`. |
+| `POST {url}` with the query as the body, `Content-Type: application/graphql` | The same. |
+| `GET {url}?query=…&variables=…&operationName=…` | The same, when `enableGetRequests` is on. Otherwise `405`. |
+| `GET {url}?sdl` | The schema as SDL text, when introspection is on. Otherwise `403`. |
+| `GET {url}` from a browser (`Accept: text/html`), or `?explorer` | The explorer or the facet page, when switched on ([§33.8](#338-the-explorer-and-the-facet-page)). |
+| `OPTIONS {url}` | `204` with `Allow: GET, POST, OPTIONS`. |
+
+The status codes are:
+
+- `200` when there is `data`, even if some fields failed;
+- `400` when the request produced no data at all (syntax, validation, variables) or the body is not valid JSON;
+- `401` when the API key is missing or wrong;
+- `503` while the database is not open.
+
+Every answer carries `extensions.durationMs`, the time the request took on the server.
+
+With an `apiKey` set, every request must carry it, either in an `X-Api-Key` header or as
+`Authorization: Bearer <key>`. The key is compared in constant time. The explorer and facet pages are themselves served without the key, because the page is
+where the key is typed in; everything the page then reads requires it.
+
+```bash
+curl -s https://example.com/api/graphql -H "Content-Type: application/json" -H "X-Api-Key: $KEY" \
+  -d '{"query":"query($n:Int){ events(pageSize:$n){ totalCount items { title } } }","variables":{"n":5}}'
+```
+
+```typescript
+const response = await fetch("/api/graphql", {
+  method: "POST",
+  headers: { "Content-Type": "application/json", "X-Api-Key": apiKey },
+  body: JSON.stringify({ query, variables: { from: "2026-11-01T00:00:00Z" } }),
+});
+const { data, errors } = await response.json();
+```
+
+The editor's **Code** view writes typed clients like this for you, in TypeScript and C#, from the
+endpoint's schema. A browser on another origin needs the application's own `UseCors`, called before
+`UseRelatudeDB`. The CORS middleware answers the browser's preflight request itself, so the
+endpoint never sees it.
+
+### 33.8 The explorer and the facet page
+
+Two switches put a page on the endpoint's url for a browser that opens it. When both are on, the
+page has a tab for each, and `?explorer` opens the explorer directly.
+
+**The explorer** (`enableExplorer`) is a page for building, running and reading about queries,
+similar to GraphiQL. It has:
+
+- a tree of the schema to build a query by ticking fields, and documentation for every type and
+  field;
+- an editor with completion and validation that suggests the name you probably meant. **Ctrl+Enter**
+  runs the query and **Shift+Alt+F** formats it;
+- the result as JSON or as a table, with tabs and a history;
+- for any query, the code to run it in curl, PowerShell, JavaScript, TypeScript, C#, Python, Java
+  and Go, either the whole client or only the model or the connection code;
+- a guide of runnable examples, written with the endpoint's own names and, where possible, the ids
+  and values of real nodes: paging, one node by id, each kind of filter, enums, search, ordering,
+  relations and relation filters, files, positions, variables, aliases, fragments, directives,
+  several root fields, the views and the mutations.
+
+The explorer reads the schema through introspection, so it stays empty when introspection is off.
+If the endpoint has an API key, the page asks for it and keeps it for the browser session. The same
+explorer is the **Explorer** view in the admin UI's editor, where it runs against the draft.
+
+**The facet page** (`enableFacetSearch`) is the admin UI's faceted search
+([§28](#28-faceted-search)) as a public page: a facet rail on one side and a visual pivot of the
+matching nodes in 3D, with a switch to 2D. Clicking a card opens the node, showing the properties
+the endpoint exposes. It only uses what the endpoint exposes. The types are the endpoint's types,
+in the definition's order, and the page opens on `defaultNodeTypeId`, or on the first type when
+that is not set. The facets are those
+the query engine offers for the type, limited to the exposed properties. A selection, grouping or
+sort on anything else is ignored. A facet on a reference or relation needs the target type to be
+exposed as well.
+
+The facet page differs from the admin UI's query section in three ways:
+
+- it uses the datamodel's names, because the endpoint's renames only apply to its schema;
+- it matches text by words only. A semantic search embeds the text with the AI provider, which
+  would be a paid call per keystroke on a page anyone can open;
+- it draws at most `maxFacetCards` nodes (200,000 by default); a larger result shows its first ones.
+
+The facet page's requests are `?facets=<action>` on the same url, behind the same API key. They need
+a host that answers them. The Relatude.DB server does this for the endpoints of the API page; a
+code-first endpoint gets it from `RelatudeDBServer.GraphQL.FacetSearch` ([§33.9](#339-code-first-mapping-an-endpoint-in-programcs)).
+
+### 33.9 Code-first: mapping an endpoint in Program.cs
+
+`MapRelatudeDBGraphQL` maps one route that reflects the **whole datamodel** in GraphQL-style names,
+with its options set in code:
+
+```csharp
+using Relatude.DB.Datamodels;    // QueryContext
+using Relatude.DB.GraphQL;
+using Relatude.DB.NodeServer;
+
+app.UseRelatudeDB();
+app.MapRelatudeDBGraphQL("/graphql", o => {
+    // which store answers; the default resolves IDataStore from the request's services
+    o.StoreResolver = _ => RelatudeDBRuntime.Database.Datastore;
+    // run mutations through the NodeStore, so transaction plugins see them
+    o.TransactionExecutor = (_, transaction, _) => RelatudeDBRuntime.Database.Execute(transaction);
+    o.QueryContextFactory = http => QueryContext.Default.Culture(http.Request.Query["culture"].FirstOrDefault());
+    o.TypeFilter = type => type.CodeName != "IAttendee";   // keep a type out of the schema
+    o.EnableExplorer = true;
+    o.EnableFacetSearch = true;
+    o.FacetSearch = RelatudeDBRuntime.Server.GraphQL.FacetSearch;
+});
+```
+
+| Option | Default | What it does |
+|---|---|---|
+| `StoreResolver` | `IDataStore` from the request's services | The store to answer from. `AddRelatudeDB` does not register an `IDataStore`, so a Relatude.DB server app sets this, as above. While it returns `null` or throws (for example before the database is open), the route answers `503`. |
+| `QueryContextFactory` | none (the store's default context) | The query context per request: user, culture, unpublished or hidden nodes ([§29](#29-cultures-visibility-and-scoped-stores)). |
+| `TransactionExecutor` | `IDataStore.Execute` | Runs a mutation's transaction. The default goes straight to the data store and skips transaction plugins. |
+| `TypeFilter` | none | Return `false` to keep a node type out of the schema. |
+| `AllowMutations`, `EnableIntrospection`, `EnableGetRequests`, `EnableExplorer`, `EnableFacetSearch`, `MaxFacetCards`, `IncludeSystemTypes`, `MaxQueryDepth`, `MaxIncludeDepth`, `DefaultPageSize`, `MaxPageSize` | as in [§33.2](#332-the-definition-file) | The same settings as the definition file. |
+| `FacetSearch` | none | What answers the facet page's requests. |
+
+The schema is built once per store and built again when the store is replaced, for example by a
+soft restart.
+
+The library can also be used without HTTP. `RelatudeGraphQL` takes a data store and an options object
+or a definition:
+
+```csharp
+var gql = new RelatudeGraphQL(db.Datastore, new GraphQLOptions { AllowMutations = true });
+GraphQLResult result = gql.Execute(new GraphQLRequest { Query = "{ iEvents { totalCount } }" });
+string json = result.ToJson();
+string sdl = gql.ToSDL();
+IReadOnlyList<string> warnings = gql.Warnings;   // what the schema builder left out or renamed
+```
+
+An instance is immutable and safe to share. Its schema is the one the datamodel had when it was
+built.
+
+### 33.10 Who reads, and the limits
+
+**Who reads.** An endpoint defined in the admin UI queries in the database's default query context:
+no user, and no unpublished or hidden nodes. It sees what anyone may see. A code-first endpoint
+reads in the context its `QueryContextFactory` returns for the request. Either way, the endpoint
+shows a subset of the datamodel, never more than its context can read, and the facet page reads in
+the same context.
+
+**Keeping it closed.** The switches that matter:
+
+- `apiKey` keeps out every request without the key, including the facet page's data.
+- With `enableIntrospection` off, the schema is not served: `__schema` and `__type` fail, `?sdl`
+  answers `403`, and the explorer stays empty. Clients that already know the queries are unaffected.
+- With `enableGetRequests` off, queries are only accepted as POST requests, so a query cannot be put
+  in a link.
+- Leave `allowMutations` off unless the endpoint has a key, and mark types that clients must not
+  change as `readOnly`.
+
+**The limits** keep one request from costing too much:
+
+- `maxQueryDepth` caps how deeply a selection nests;
+- `maxIncludeDepth` caps how many relations deep it goes;
+- `maxPageSize` caps the page size.
+
+A request over a depth limit is refused as a whole, with an error and no data. A page size over
+the maximum is cut down to it. A "many" relation field without `top` returns all its related nodes, so a model
+where one node has thousands of partners is better served by querying from the other side, or by a
+view.
+
+---
 
 ## Where to look when this manual runs out
 
@@ -4941,6 +5568,7 @@ your build, read the source — it is small and well commented:
 | A working model | `src/Relatude.DB.NodeStore/Demo/Models/DemoArticle.cs` |
 | The command line tool | `src/Relatude.DB.Console/` — `relatude help all` for its reference |
 | Logs, statistics and HyperLogLog | `src/Relatude.DB.Logger/Logging/` — `ICustomLogs.cs`, `LogSettings.cs`, `LogValues.cs`, `Statistics/HyperLogLog.cs` |
+| GraphQL endpoints | `src/Relatude.DB.GraphQL/` — `Definitions/GraphQLEndpointDefinition.cs`, `GraphQLOptions.cs`, `Schema/SchemaBuilder.cs`, `Endpoints/GraphQLHttpHandler.cs`; the server side in `src/Relatude.DB.NodeServer/NodeServer/GraphQL/` |
 
 For measured numbers rather than API surface, see the
 [vector index benchmarks](vector-matrix.html) — a matrix sweep of the three vector engines over

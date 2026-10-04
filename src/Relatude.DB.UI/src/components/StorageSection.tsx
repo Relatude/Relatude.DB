@@ -22,6 +22,7 @@ import {
 import { runWithProgress, showChoice, showConfirm, showError, showInfo } from "../dialogs";
 import { useProgressTask } from "./DialogHost";
 import { deleteFiles, downloadUrl, pickDirectory } from "../server/files";
+import { waitForSharedJob } from "../server/sharedTasks";
 import {
   addDemoContent,
   backupNow,
@@ -158,29 +159,19 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   useLive<MaintenanceInfo>("db-maintenance-info", { storeId: db.id }, setMaintenance, { enabled: !!maintenance?.tasksQueued });
 
   async function onBackupNow() {
-    const beforeKeys = new Set((backups?.files ?? []).map((f) => f.key));
     // the backup is written by the server while the database stays open, so it can be put in the
-    // top bar: what is being waited for is a file appearing, not the UI staying still
+    // top bar: what is being waited for is the server finishing, not the UI staying still. It is
+    // queued as a task there and followed through the queue (see waitForSharedJob), so it goes on
+    // counting in every session's top bar - this one after a reload too. Nothing stops it once queued.
     const done = await runWithProgress(
       `Backup ${db.name}`,
       async (ctl) => {
         ctl.set({ label: "Requesting backup…" });
-        await backupNow(db.id, truncate, keepForever);
-        // the backup runs as a background task on the server: wait for the new file to appear
-        // (cancel stops the waiting, not the server task)
-        for (;;) {
-          if (ctl.signal.aborted) throw new DOMException("Aborted", "AbortError");
-          ctl.set({ label: "Backup running on the server…" });
-          await new Promise((r) => setTimeout(r, 1500));
-          const list = await fetchBackupList(db.id);
-          const fresh = list.files.find((f) => !beforeKeys.has(f.key));
-          if (fresh) {
-            ctl.set({ label: `${fresh.name} (${formatBytes(fresh.size)})` });
-            return true;
-          }
-        }
+        await backupNow(db.id, truncate, keepForever, ctl.taskId);
+        await waitForSharedJob(ctl);
+        return true;
       },
-      { minimizable: true, key: backupKey },
+      { minimizable: true, key: backupKey, cancellable: false },
     );
     if (done) setMessage("Backup created.");
     load();
@@ -228,9 +219,9 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       `Rebuild the text index of ${db.name}`,
       async (ctl) => {
         ctl.set({ label: "Queueing every indexed node…" });
-        return await rebuildTextIndex(db.id);
+        return await rebuildTextIndex(db.id, ctl.taskId);
       },
-      { minimizable: true, key: reindexKey },
+      { minimizable: true, key: reindexKey, cancellable: false },
     );
     if (!result) return;
     setMaintenanceMessage(
@@ -249,24 +240,20 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
     );
     if (!choice.ok) return;
     // the rewrite runs on the server and the database answers queries throughout, so this one is
-    // minimizable: what is being waited for is the server finishing, not the UI staying still
+    // minimizable: what is being waited for is the server finishing, not the UI staying still. The
+    // rewrite is a queued task there, followed until its batch is gone - which is also what keeps it
+    // in every session's top bar, this one after a reload included. Nothing stops it once queued.
     const done = await runWithProgress(
       `Truncate ${db.name}`,
       async (ctl) => {
-        ctl.set({ label: "Truncating… (runs on the server, cancel only stops waiting)" });
-        await truncateDatabase(db.id, choice.option);
-        // the rewrite continues in the background: wait until it is no longer running
-        for (;;) {
-          if (ctl.signal.aborted) throw new DOMException("Aborted", "AbortError");
-          await new Promise((r) => setTimeout(r, 1500));
-          const info = await fetchMaintenanceInfo(db.id);
-          if (!info.runningRewrite) return true;
-          ctl.set({ label: `Rewriting ${info.runningRewrite}…` });
-        }
+        ctl.set({ label: "Truncating… (runs on the server)" });
+        await truncateDatabase(db.id, choice.option, ctl.taskId);
+        const job = await waitForSharedJob(ctl);
+        return job?.message ?? (choice.option ? "Truncated. The old file is kept." : "Truncated.");
       },
-      { minimizable: true, key: truncateKey },
+      { minimizable: true, key: truncateKey, cancellable: false },
     );
-    if (done) setMaintenanceMessage(choice.option ? "Truncated. The old file is kept." : "Truncated.");
+    if (done) setMaintenanceMessage(done);
     load();
   }
 
@@ -275,10 +262,10 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       `Update state snapshot`,
       async (ctl) => {
         ctl.set({ label: "Writing the state snapshot…" });
-        await saveStateSnapshot(db.id);
+        await saveStateSnapshot(db.id, ctl.taskId);
         return true;
       },
-      { minimizable: true, key: stateKey },
+      { minimizable: true, key: stateKey, cancellable: false },
     );
     if (done) setMaintenanceMessage("State snapshot updated.");
     load();
@@ -364,9 +351,9 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       `Converted files in ${db.name}`,
       async (ctl) => {
         ctl.set({ label: "Measuring the converted file cache…" });
-        return await fetchConvertedInfo(db.id);
+        return await fetchConvertedInfo(db.id, ctl.taskId);
       },
-      { minimizable: true, key: convertedKey },
+      { minimizable: true, key: convertedKey, cancellable: false },
     );
     if (!info) return;
     if (info.files === 0) {
@@ -384,9 +371,9 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       `Delete converted files in ${db.name}`,
       async (ctl) => {
         ctl.set({ label: "Deleting…" });
-        return await deleteConvertedFiles(db.id);
+        return await deleteConvertedFiles(db.id, ctl.taskId);
       },
-      { minimizable: true, key: convertedKey },
+      { minimizable: true, key: convertedKey, cancellable: false },
     );
     if (!result) return;
     const summary = `Deleted ${formatCount(result.deleted)} converted file${result.deleted === 1 ? "" : "s"}, freed ${formatBytes(result.freed)}.`;

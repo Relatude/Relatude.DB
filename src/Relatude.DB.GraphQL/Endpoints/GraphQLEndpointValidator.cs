@@ -63,6 +63,12 @@ public static class GraphQLEndpointValidator {
             }
         }
 
+        if (def.DefaultNodeTypeId is Guid defaultType) {
+            var name = dm != null && dm.NodeTypes.TryGetValue(defaultType, out var model) ? model.CodeName : defaultType.ToString();
+            if (dm != null && !dm.NodeTypes.ContainsKey(defaultType)) warning($"The type the explorer and the facet search open on ({name}) is not in the datamodel; they choose one themselves.");
+            else if (def.Mode == GraphQLEndpointMode.Selected && !def.Types.Any(t => t.NodeTypeId == defaultType)) warning($"The type the explorer and the facet search open on ({name}) is not exposed; they choose one themselves.");
+        }
+
         var viewNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var v in def.Views) {
             var label = string.IsNullOrWhiteSpace(v.Name) ? "(unnamed)" : v.Name.Trim();

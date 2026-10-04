@@ -119,7 +119,7 @@ public class AzureBlobIOProvider : IIOProvider {
             lock (_lock) {
                 meta.Writers--;
                 meta.LastModifiedUtc = DateTime.UtcNow;
-                meta.Size = 0;
+                meta.Size = size; // the folder listing reads this tracked meta, not the blob's properties
                 _openStreams.Remove(stream!);
             }
         });

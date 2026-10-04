@@ -82,7 +82,9 @@ public static class ExplorerGuide {
         }
         var def = schema.Definition;
 
-        var main = roots.OrderByDescending(score).ThenBy(r => r.List.Name, StringComparer.Ordinal).FirstOrDefault();
+        // the endpoint's owner may name the type the explorer opens on; otherwise the one with the most to show
+        var main = roots.FirstOrDefault(r => r.NodeType.Id == def.DefaultNodeTypeId)
+            ?? roots.OrderByDescending(score).ThenBy(r => r.List.Name, StringComparer.Ordinal).FirstOrDefault();
         if (main == null) {
             foreach (var id in _typeTopics) gap(id, "The endpoint exposes no node types yet.");
         } else try {

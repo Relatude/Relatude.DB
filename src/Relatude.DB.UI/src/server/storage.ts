@@ -30,8 +30,10 @@ export function fetchBackupList(storeId: string): Promise<BackupList> {
   return send<BackupList>("backup-list", { storeId });
 }
 
-export function backupNow(storeId: string, truncate: boolean, keepForever: boolean): Promise<{ done: boolean }> {
-  return send<{ done: boolean }>("backup-now", { storeId, truncate, keepForever });
+// taskId, here and below: the task the work runs as on the server's task board (ProgressController.taskId),
+// so every session can follow it - null where the progress is not shared
+export function backupNow(storeId: string, truncate: boolean, keepForever: boolean, taskId: string | null = null): Promise<{ done: boolean }> {
+  return send<{ done: boolean }>("backup-now", { storeId, truncate, keepForever, taskId });
 }
 
 export interface MaintenanceInfo {
@@ -52,8 +54,8 @@ export interface MaintenanceInfo {
  * Queues text extraction for every text indexed node, which is what rebuilds the search index.
  * Returns how many nodes were queued; the work itself runs as background tasks.
  */
-export function rebuildTextIndex(storeId: string): Promise<{ queued: number }> {
-  return send<{ queued: number }>("db-rebuild-text-index", { storeId });
+export function rebuildTextIndex(storeId: string, taskId: string | null = null): Promise<{ queued: number }> {
+  return send<{ queued: number }>("db-rebuild-text-index", { storeId, taskId });
 }
 
 export function fetchDbFileInfo(storeId: string): Promise<DbFileInfo> {
@@ -74,12 +76,12 @@ export function deleteUnusedDbFiles(storeId: string): Promise<{ deleted: number;
   return send<{ deleted: number; freed: number; errors: string[] }>("db-delete-unused", { storeId });
 }
 
-export function truncateDatabase(storeId: string, keepOld: boolean): Promise<{ done: boolean }> {
-  return send<{ done: boolean }>("db-truncate", { storeId, keepOld });
+export function truncateDatabase(storeId: string, keepOld: boolean, taskId: string | null = null): Promise<{ done: boolean }> {
+  return send<{ done: boolean }>("db-truncate", { storeId, keepOld, taskId });
 }
 
-export function saveStateSnapshot(storeId: string): Promise<{ done: boolean }> {
-  return send<{ done: boolean }>("db-save-state", { storeId });
+export function saveStateSnapshot(storeId: string, taskId: string | null = null): Promise<{ done: boolean }> {
+  return send<{ done: boolean }>("db-save-state", { storeId, taskId });
 }
 
 // Reverts to a backup: closes the database, copies the backup into place as the next WAL
@@ -405,12 +407,12 @@ export interface ConvertedCacheInfo {
   bytes: number;
 }
 
-export function fetchConvertedInfo(storeId: string): Promise<ConvertedCacheInfo> {
-  return send<ConvertedCacheInfo>("db-converted-info", { storeId });
+export function fetchConvertedInfo(storeId: string, taskId: string | null = null): Promise<ConvertedCacheInfo> {
+  return send<ConvertedCacheInfo>("db-converted-info", { storeId, taskId });
 }
 
-export function deleteConvertedFiles(storeId: string): Promise<{ deleted: number; freed: number; remaining: number }> {
-  return send<{ deleted: number; freed: number; remaining: number }>("db-delete-converted", { storeId });
+export function deleteConvertedFiles(storeId: string, taskId: string | null = null): Promise<{ deleted: number; freed: number; remaining: number }> {
+  return send<{ deleted: number; freed: number; remaining: number }>("db-delete-converted", { storeId, taskId });
 }
 
 // ---- file storages ----
@@ -495,7 +497,7 @@ export async function runFileScan(
 ): Promise<FileScanProgress> {
   const say = (text: string) => (phase ? phase + " — " + text : text);
   ctl.set({ label: say("Starting…"), total: 100, done: 0, meta: "0%" }); // the job reports percent, so the bar counts to 100
-  const { jobId } = await send<{ jobId: string }>("files-scan-start", { storeId, scan, countOnly });
+  const { jobId } = await send<{ jobId: string }>("files-scan-start", { storeId, scan, countOnly, taskId: ctl.taskId });
   const cancelJob = () => {
     void send("files-scan-cancel", { jobId }).catch(() => {}); // a job that already finished is not an error worth showing
   };
@@ -554,7 +556,7 @@ export function fetchDemoInfo(storeId: string): Promise<DemoContentInfo> {
 // server job too, and keeps what it had already inserted.
 export async function addDemoContent(ctl: ProgressController, storeId: string, count: number, wikipedia: boolean): Promise<DemoProgress> {
   ctl.set({ label: "Starting…", total: 100, done: 0, meta: "0%" }); // the job reports percent, so the bar counts to 100
-  const { jobId } = await send<{ jobId: string }>("demo-start", { storeId, count, wikipedia });
+  const { jobId } = await send<{ jobId: string }>("demo-start", { storeId, count, wikipedia, taskId: ctl.taskId });
   const cancelJob = () => {
     void send("demo-cancel", { jobId }).catch(() => {}); // a job that already finished is not an error worth showing
   };
@@ -653,7 +655,7 @@ export function checkWikiPath(path: string): Promise<WikiPathInfo> {
 // article it had already committed.
 export async function importWikiCorpus(ctl: ProgressController, storeId: string, request: WikiImportRequest): Promise<WikiImportProgress> {
   ctl.set({ label: "Starting…", total: 100, done: 0, meta: "0%" }); // the job reports percent, so the bar counts to 100
-  const { jobId } = await send<{ jobId: string }>("wiki-start", { storeId, ...request });
+  const { jobId } = await send<{ jobId: string }>("wiki-start", { storeId, ...request, taskId: ctl.taskId });
   const cancelJob = () => {
     void send("wiki-cancel", { jobId }).catch(() => {}); // a job that already finished is not an error worth showing
   };

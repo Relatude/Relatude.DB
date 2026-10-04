@@ -189,19 +189,30 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitWriteLock();
         }
     }
-    public void Maintenance(MaintenanceAction a) {
-        if (a.HasFlag(MaintenanceAction.TruncateLog) && RevertWindowIsActive) {
+    /// <summary>
+    /// Queues a rewrite of the log down to the current state, unless a revert window is open or the log
+    /// holds nothing to drop. Returns whether one was queued. <paramref name="jobId"/> names its batch in
+    /// the task queue, so a caller can follow it there until it is gone (a rewrite deletes its batch
+    /// when it succeeds).
+    /// </summary>
+    public bool EnqueueLogTruncation(bool deleteOldLogs, string? jobId = null) {
+        if (RevertWindowIsActive) {
             LogInfo("Log truncation skipped: a revert window is active. ");
-        } else if (a.HasFlag(MaintenanceAction.TruncateLog) && _noPrimitiveActionsInLogThatCanBeTruncated > 0) {
-            var task = new RewriteTask() {
-                HotSwapToNewFile = true,
-                DeleteOldDbFilesAfterHotSwap = a.HasFlag(MaintenanceAction.DeleteOldLogs),
-                NewLogFileKey = null,
-                IO = _io,
-                Truncate = true,
-            };
-            EnqueueTask(task);
+            return false;
         }
+        if (_noPrimitiveActionsInLogThatCanBeTruncated <= 0) return false;
+        var task = new RewriteTask() {
+            HotSwapToNewFile = true,
+            DeleteOldDbFilesAfterHotSwap = deleteOldLogs,
+            NewLogFileKey = null,
+            IO = _io,
+            Truncate = true,
+        };
+        EnqueueTask(task, jobId);
+        return true;
+    }
+    public void Maintenance(MaintenanceAction a) {
+        if (a.HasFlag(MaintenanceAction.TruncateLog)) EnqueueLogTruncation(a.HasFlag(MaintenanceAction.DeleteOldLogs));
         if (a.HasFlag(MaintenanceAction.TruncateIndexes)) TruncateIndexes();
         if (a.HasFlag(MaintenanceAction.DeleteOldLogs) && !a.HasFlag(MaintenanceAction.TruncateLog)) DeleteOldLogs();
         if (a.HasFlag(MaintenanceAction.SaveIndexStates)) SaveIndexStates();

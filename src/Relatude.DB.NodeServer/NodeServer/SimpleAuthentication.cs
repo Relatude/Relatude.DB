@@ -246,6 +246,11 @@ public class SimpleAuthentication(RelatudeDBServer server) {
         return next();
     }
     public async Task StartupProgressBarMiddleware(HttpContext ctx, Func<Task> next) {
+        if (StatusEndpoint.IsStatusRequest(ctx)) {
+            // answered in every state, starting, restarting and stopping included: that is what it is for
+            await StatusEndpoint.WriteAsync(ctx, server);
+            return;
+        }
         if (server.IsShuttingDown) {
             // requests that arrive after the host began stopping (typically on a connection that was
             // already open) must not start new work on databases that are about to close

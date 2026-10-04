@@ -33,11 +33,15 @@ sealed class UIDemo {
             : @"C:\WAF_Sources\wikipedia\wiki-articles.json";
 
     readonly RelatudeDBServer _server;
-    internal UIDemo(RelatudeDBServer server) => _server = server;
+    readonly UISharedTasks _shared;
+    internal UIDemo(RelatudeDBServer server, UISharedTasks shared) {
+        _server = server;
+        _shared = shared;
+    }
 
     internal void Register(UICommands commands) {
         commands.Register("demo-info", ctx => info(ctx.Payload<DemoInfoPayload>()));
-        commands.Register("demo-start", ctx => start(ctx.Payload<DemoStartPayload>()));
+        commands.Register("demo-start", ctx => start(ctx.Payload<DemoStartPayload>(), ctx));
         commands.Register("demo-progress", ctx => progress(ctx.Payload<DemoJobPayload>()));
         commands.Register("demo-cancel", ctx => cancel(ctx.Payload<DemoJobPayload>()));
     }
@@ -57,7 +61,7 @@ sealed class UIDemo {
         };
     }
 
-    object start(DemoStartPayload p) {
+    object start(DemoStartPayload p, UICommandContext ctx) {
         var store = openStore(p.StoreId);
         if (!hasDemoType(store)) throw new Exception(noDemoTypeMessage);
         var count = p.Count;
@@ -66,6 +70,7 @@ sealed class UIDemo {
         if (p.Wikipedia && !File.Exists(wikipediaPath)) throw new Exception("No wikipedia article file at " + wikipediaPath + ". ");
         var wikipedia = p.Wikipedia;
         var job = FileScanJobs.Start(p.StoreId, jobKind, j => generate(store, count, wikipedia, j));
+        _shared.Attach(_shared.RefOf(ctx, p.StoreId, "Add demo content"), job);
         return new { JobId = job.Id };
     }
 

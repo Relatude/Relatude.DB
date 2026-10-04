@@ -1,5 +1,6 @@
 using System.Buffers.Text;
 using System.Collections.Concurrent;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -10,6 +11,7 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Relatude.DB.NodeServer;
 
 namespace Relatude.Server;
 
@@ -367,8 +369,71 @@ public class LicenseLoginTests {
         }
     }
 
+    // ---- addresses approved in Relatude Services ----
+
     [TestMethod]
-    public async Task RememberPublicUrl_TakesTheAddressTheServicesPageIsUsedOn_OnceAndNeverLoopback() {
+    public async Task SignIn_OnAnAddressApprovedInRelatudeServices_ReturnsToIt() {
+        var host = startServer(_apiKey.ToString(), licenseKey: null);
+        try {
+            _stub!.ApprovedAddresses = ["portal.example.com", "portal.example.com:8443"];
+            var begun = await host.Server.LicenseLogin.BeginAsync(request("internal:8080"), new("https://Portal.example.com/relatude.db/"));
+            Assert.IsNull(begun.Error, begun.Error);
+            Assert.IsTrue(_stub.LoginRequests.TryDequeue(out var posted));
+            Assert.AreEqual("https://portal.example.com" + host.Server.ApiUrlRoot + "/auth/license-login/callback/", posted.GetProperty("redirectUri").GetString());
+            Assert.IsTrue(_stub.AddressQuestions.TryDequeue(out var asked));
+            Assert.AreEqual(_apiKey, asked.GetProperty("apiKey").GetGuid());
+            Assert.AreEqual(posted.GetProperty("installationKey").GetString(), asked.GetProperty("installationKey").GetString(), "asked about this installation");
+
+            Assert.IsNotNull((await host.Server.LicenseLogin.BeginAsync(request("internal:8080"), new("https://portal.example.com:8443/relatude.db/"))).LoginUrl);
+            Assert.IsTrue(_stub.AddressQuestions.IsEmpty, "an approved address is not asked about again straight away");
+            Assert.IsTrue(_stub.LoginRequests.TryDequeue(out posted));
+            Assert.AreEqual("https://portal.example.com:8443" + host.Server.ApiUrlRoot + "/auth/license-login/callback/", posted.GetProperty("redirectUri").GetString());
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
+    public async Task SignIn_OnAnAddressNeitherListedNorApproved_IsRefusedWithoutALoginRequest() {
+        var host = startServer(_apiKey.ToString(), licenseKey: null, publicUrl: "https://db.example.com");
+        try {
+            _stub!.ApprovedAddresses = ["portal.example.com"];
+            foreach (var page in new[] { "https://evil.example/relatude.db/", "https://portal.example.com:9999/relatude.db/", "https://sub.portal.example.com/relatude.db/" }) {
+                var begun = await host.Server.LicenseLogin.BeginAsync(request("evil.example"), new(page));
+                Assert.IsNull(begun.LoginUrl, page);
+                StringAssert.Contains(begun.Error, "is not one of this server's public addresses", page);
+                StringAssert.Contains(begun.Error, "Relatude Services", page);
+            }
+            Assert.IsTrue(_stub.LoginRequests.IsEmpty, "the license server is never asked to send a code there, nor to put it up for approval");
+
+            // http is never asked about: the license server would not send a browser back there
+            while (_stub.AddressQuestions.TryDequeue(out _)) { }
+            var plain = await host.Server.LicenseLogin.BeginAsync(request("portal.example.com"), new("http://portal.example.com/relatude.db/"));
+            StringAssert.Contains(plain.Error, "https");
+            Assert.IsTrue(_stub.AddressQuestions.IsEmpty);
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
+    public async Task SignIn_WithALicenseServerThatDoesNotKnowTheQuestion_TakesOnlyItsOwnAddresses() {
+        var host = startServer(_apiKey.ToString(), licenseKey: null);
+        try {
+            _stub!.ApprovedAddresses = null; // answers 404, as a license server from before it does
+            var begun = await host.Server.LicenseLogin.BeginAsync(request("db.example.com"), new("https://db.example.com/relatude.db/"));
+            Assert.IsNull(begun.LoginUrl);
+            StringAssert.Contains(begun.Error, "PublicUrl");
+            Assert.IsTrue(_stub.LoginRequests.IsEmpty);
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    // ---- the public addresses filling themselves in ----
+
+    [TestMethod]
+    public async Task RememberPublicUrl_AddsEachHttpsAddressOnce_AndNeverLoopback() {
         var host = startServer(_apiKey.ToString(), licenseKey: null);
         try {
             host.Server.LicenseLogin.RememberPublicUrl(request("localhost:5001"));
@@ -380,11 +445,62 @@ public class LicenseLoginTests {
 
             host.Server.LicenseLogin.RememberPublicUrl(request("db.example.com"));
             Assert.AreEqual("https://db.example.com", host.Server.Settings.PublicUrl);
-            host.Server.LicenseLogin.RememberPublicUrl(request("other.example.com"));
-            Assert.AreEqual("https://db.example.com", host.Server.Settings.PublicUrl, "filled in once: after that it is changed in the settings, not by a request");
+            host.Server.LicenseLogin.RememberPublicUrl(request("DB.example.com"));
+            Assert.AreEqual("https://db.example.com", host.Server.Settings.PublicUrl, "the same address, however it is written, once");
+            host.Server.LicenseLogin.RememberPublicUrl(request("other.example.com:8443"));
+            Assert.AreEqual("https://db.example.com, https://other.example.com:8443", host.Server.Settings.PublicUrl, "another address the admin UI is used on is added");
+
+            var begun = await host.Server.LicenseLogin.BeginAsync(request("other.example.com:8443"), new("https://other.example.com:8443/relatude.db/"));
+            Assert.IsNotNull(begun.LoginUrl, begun.Error);
+            Assert.IsTrue(_stub!.AddressQuestions.IsEmpty, "a listed address is this server's own; Relatude Services is not asked");
         } finally {
             await host.DisposeAsync();
         }
+    }
+
+    [TestMethod]
+    public async Task RememberPublicUrl_LeavesAValueTheConfigurationDecides() {
+        var host = TestServerHost.Start(_root, configure: s => {
+            s.ServicesServerUrl = _stub!.Url;
+            s.ApiKey = _apiKey.ToString();
+            s.DisableHeartbeat = true;
+        }, configuration: new() { ["RelatudeDB:PublicUrl"] = "https://configured.example.com" });
+        try {
+            host.Server.LicenseLogin.RememberPublicUrl(request("db.example.com"));
+            Assert.AreEqual("https://configured.example.com", host.Server.Settings.PublicUrl);
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
+    public async Task OpeningTheAdminUI_SignedIn_AddsItsAddress_TheLocalhostBypassDoesNot() {
+        var host = startServer(_apiKey.ToString(), licenseKey: null);
+        try {
+            host.Server.Settings.MasterUserName = "admin";
+            host.Server.Settings.MasterPassword = "secret";
+            host.Server.Settings.AllowMasterLoginOutsideLocalhost = true;
+            typeof(RelatudeDBServer).GetMethod("MapAdminAPI", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(host.Server, [host.App]);
+
+            await whoami(host, request("db.example.com"));
+            Assert.IsNull(host.Server.Settings.PublicUrl, "no session: nobody vouches for the address");
+
+            var login = request("db.example.com");
+            host.Server.Authentication.LogIn(login, remember: false);
+            var session = login.Response.Headers.SetCookie.ToString().Split(';')[0];
+            var signedIn = request("db.example.com");
+            signedIn.Request.Headers.Cookie = session;
+            await whoami(host, signedIn);
+            Assert.AreEqual("https://db.example.com", host.Server.Settings.PublicUrl);
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    static async Task whoami(TestServerHost host, DefaultHttpContext http) {
+        http.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes("""{"type":"whoami","payload":{}}"""));
+        var result = await host.Server.UI!.Commands.Execute(http);
+        Assert.AreEqual(200, ((IStatusCodeHttpResult)result).StatusCode ?? 200);
     }
 
     // ---- SMS senders ----
@@ -454,6 +570,9 @@ public class LicenseLoginTests {
         public ConcurrentBag<string> Approved { get; } = ["Acme", "+4791234567"];
         public ConcurrentQueue<JsonElement> LoginRequests { get; } = new();
         public ConcurrentQueue<JsonElement> TokenRequests { get; } = new();
+        public ConcurrentQueue<JsonElement> AddressQuestions { get; } = new();
+        /// <summary>The addresses approved for the installation in the portal; null answers 404, as a license server from before the question does.</summary>
+        public string[]? ApprovedAddresses { get; set; } = [];
         string _lastInstallationKey = "";
 
         public static async Task<StubLicenseServer> StartAsync(Guid apiKey, Guid licenseId) {
@@ -487,6 +606,11 @@ public class LicenseLoginTests {
                 stub.LoginRequests.Enqueue(body);
                 stub._lastInstallationKey = body.GetProperty("installationKey").GetString()!;
                 return Results.Ok(new { requestId = "r1", loginUrl = stub.Url + "/connect?request=r1", expiresUtc = DateTime.UtcNow.AddMinutes(10) });
+            });
+            app.MapPost("/api/connect/approved-addresses", async (HttpContext http) => {
+                var body = await JsonSerializer.DeserializeAsync<JsonElement>(http.Request.Body);
+                stub.AddressQuestions.Enqueue(body);
+                return stub.ApprovedAddresses is { } addresses ? Results.Ok(new { addresses }) : Results.NotFound();
             });
             // takes any code, and leaves checking what came with it to the test
             app.MapPost("/api/connect/token", async (HttpContext http) => {

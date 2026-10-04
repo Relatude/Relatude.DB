@@ -37,7 +37,12 @@ export interface DashboardInfo {
   state: string;
   name: string;
   storeId: string;
-  startupError: { timeUtc: string | null; message: string } | null;
+  startupError: {
+    timeUtc: string | null;
+    message: string;
+    /** the restart the server scheduled for itself, after a locked file stopped the default database opening */
+    restart?: { dueUtc: string | null; attempt: number; attempts: number } | null;
+  } | null;
   files: FileSizes;
   engines: { textIndex: string; valueIndex: string; queue: string; semanticIndex?: string | null };
   uptimeMs?: number;

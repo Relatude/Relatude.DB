@@ -1937,7 +1937,7 @@ sealed class UIQuery {
     };
 
     /// <summary>A value as a person reads it, formatted for the property rather than for the server's culture.</summary>
-    static string display(PropertyModel? property, object? v) {
+    internal static string display(PropertyModel? property, object? v) {
         switch (v) {
             case null: return "";
             case string s: return s;

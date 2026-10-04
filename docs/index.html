@@ -26,6 +26,10 @@
   } catch (e) {}
   if (colour) document.documentElement.setAttribute("data-colour", "on");
   document.documentElement.setAttribute("data-weather", weather);
+  // The page opens with its text hidden, the wordmark alone in the middle of
+  // the frame (logo only, below); a click brings the text in. Set here so the
+  // text never shows for a frame first.
+  document.documentElement.classList.add("logo-only");
   // The effective light/dark, whether it came from the stored choice or from the
   // OS, and the palette the background scene should wear: that answer, in full
   // colour when the colour switch is on. The scene asks for it at boot and the
@@ -66,8 +70,9 @@
    Santa crosses now and then. A double-click anywhere (or the full-screen
    switch) goes full screen with the page cleared away, the wordmark alone over
    the scene, and tours the page's looks while it is left there; another
-   double-click brings it all back. The arrow keys, Space and Page Up/Down, or
-   a click on the background, step through those looks by hand.
+   double-click brings it all back. The arrow keys, Space and Page Up/Down
+   step through those looks by hand. The page opens the same way, with the
+   text hidden and the wordmark alone in the middle; a click shows the text.
    The stack:
 
      0  #fallback / #scene   a still dawn when WebGL2 is missing, or the canvas
@@ -462,7 +467,8 @@ footer a:hover { color: var(--fg); }
    and leaves the wordmark alone in the middle of the frame, with the switches
    still in their corner; leaving it (another double-click, Escape) brings
    everything back. Where there is no full screen a double-click does the
-   same on its own. Nothing underneath moves:
+   same on its own. The page also opens this way, and a click anywhere but
+   on a switch brings the text in (hence the pointer). Nothing underneath moves:
    the rest fades out and stops taking the pointer, and the wordmark glides to
    the middle by an offset the script measures at the switch (--logo-dy). The
    glide is on the svg rather than the h1, whose entrance animation holds a
@@ -474,7 +480,7 @@ footer a:hover { color: var(--fg); }
    it, and the blur would drop out the moment the fade began. */
 .tagline, .lede, .install, footer { transition: opacity .5s ease .35s, visibility 0s linear .35s; }
 .wordmark svg { transition: transform 1s cubic-bezier(.65, 0, .35, 1); }
-:root.logo-only { overflow: hidden; }
+:root.logo-only { overflow: hidden; cursor: pointer; }
 :root.logo-only :is(.scrim, .tagline, .lede, .btn, .install, footer) {
   opacity: 0; visibility: hidden;
   transition: opacity .45s ease, visibility 0s linear .45s;
@@ -726,12 +732,13 @@ footer a:hover { color: var(--fg); }
   });
 
   // Logo only: the page cleared away to leave the wordmark in the middle of
-  // the frame. A double-click anywhere goes full screen, which brings logo
-  // only with it (below), and a second one comes back out of both; where the
-  // page cannot go full screen, or is refused, a double-click is logo only on
-  // its own. Escape leaves either. Anything a double-click already means
-  // something on is left out: the switches, the links, and the install line,
-  // where it selects the command for copying. A view, not a setting, so
+  // the frame. The page opens this way (the class is set at the top), and a
+  // click brings the text in. A double-click anywhere goes full screen, which
+  // brings logo only with it (below), and a second one comes back out of both;
+  // where the page cannot go full screen, or is refused, a double-click is
+  // logo only on its own. Escape leaves either. Anything a double-click already
+  // means something on is left out: the switches, the links, and the install
+  // line, where it selects the command for copying. A view, not a setting, so
   // nothing is stored.
   var root = document.documentElement;
   var $mark = document.querySelector(".wordmark");
@@ -768,7 +775,7 @@ footer a:hover { color: var(--fg); }
   // a double-tap into a dblclick. Where one does, the tap counter has already
   // acted on it, and that dblclick is dropped.
   function toggleView() {
-    clearTimeout(clickStep);                             // it was a double-click after all
+    clearTimeout(clickShow);                             // it was a double-click after all
     if (fsElement()) { leaveFull(); return; }
     if (logoOnly() || !canFull) { setLogoOnly(!logoOnly()); return; }
     enterFull(function () { setLogoOnly(true); });       // refused: logo only all the same
@@ -790,32 +797,37 @@ footer a:hover { color: var(--fg); }
       lastTap = { t: now, x: e.clientX, y: e.clientY };
     }
   });
-  // A click on the background (not on the text, a link, a switch or the
-  // install line) steps to the next look. It waits a moment first, so the
-  // first click of a double-click is not taken for one, and a click that
-  // only finished selecting some text does not count. Judged on the way
-  // down (capture), before any switch has handled the click: the weather
-  // switch swaps its icon as it does, and the icon clicked would then be
-  // out of the page, belonging to no button, and pass for background.
-  var clickStep = 0;
-  function background(t) { return !(t && t.closest && t.closest("a, button, .install, .tagline, .lede, footer")); }
+  // The text back: out of full screen if the page is in it (which takes it
+  // out of logo only too), else out of logo only.
+  function showText() {
+    if (fsElement()) leaveFull(); else setLogoOnly(false);
+  }
+  // While the text is hidden, a click anywhere but on a switch brings it in.
+  // It waits a moment first, so the first click of a double-click is not
+  // taken for one. Judged on the way down (capture), before any switch has
+  // handled the click: the weather switch swaps its icon as it does, and the
+  // icon clicked would then be out of the page, belonging to no button, and
+  // pass for background.
+  var clickShow = 0;
   document.addEventListener("click", function (e) {
-    clearTimeout(clickStep);
-    if (e.button !== 0 || e.detail > 1 || performance.now() - tappedAt < 600 || !background(e.target)) return;
-    if (window.getSelection && String(window.getSelection())) return;
-    clickStep = setTimeout(function () { stepLook(1); }, 350);
+    clearTimeout(clickShow);
+    if (!logoOnly() || e.button !== 0 || e.detail > 1 || performance.now() - tappedAt < 600 || spared(e.target)) return;
+    clickShow = setTimeout(showText, 350);
   }, true);
   // The second press of a double-click would select the word under it first.
   document.addEventListener("mousedown", function (e) {
     if (e.detail > 1 && !spared(e.target)) e.preventDefault();
   });
-  // Keys step through the looks as well: the right arrow, Page Down or Space
-  // to the next, the left arrow or Page Up back. Space and the page keys
-  // still scroll a page taller than the window, and nothing is taken from a
+  // Keys step through the looks: the right arrow, Page Down or Space to the
+  // next, the left arrow or Page Up back. Space and the page keys still
+  // scroll a page taller than the window, and nothing is taken from a
   // focused link or button, or with a modifier held.
   document.addEventListener("keydown", function (e) {
     // (the browser usually takes Escape itself to leave full screen)
-    if (e.key === "Escape") { if (fsElement()) leaveFull(); else setLogoOnly(false); return; }
+    if (e.key === "Escape") { showText(); return; }
+    // Tab is looking for the links, which are not there while the text is
+    // hidden: it brings them in (full screen keeps them out of the way).
+    if (e.key === "Tab" && logoOnly() && !fsElement()) { setLogoOnly(false); return; }
     var dir = e.key === "ArrowRight" || e.key === "PageDown" || e.key === " " ? 1
             : e.key === "ArrowLeft" || e.key === "PageUp" ? -1 : 0;
     if (!dir || e.repeat || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
@@ -828,6 +840,26 @@ footer a:hover { color: var(--fg); }
   window.addEventListener("resize", function () {
     if (logoOnly()) placeLogo();
   });
+
+  // The opening: logo only from the first paint, so the wordmark is placed
+  // in the middle without the glide, and the scrollbar's room is kept the
+  // way setLogoOnly keeps it — if the page will scroll once the text is in
+  // and its scrollbar takes room, so nothing shifts sideways when it comes.
+  if (logoOnly()) {
+    var probe = document.createElement("div");
+    probe.style.cssText = "position:absolute;top:-200px;width:100px;height:100px;overflow:scroll";
+    document.body.appendChild(probe);
+    var bar = probe.offsetWidth - probe.clientWidth;
+    document.body.removeChild(probe);
+    root.style.scrollbarGutter = bar > 0 && root.scrollHeight > root.clientHeight ? "stable" : "";
+    var $svg = $mark.querySelector("svg");
+    $svg.style.transition = "none";
+    placeLogo();
+    void $svg.getBoundingClientRect();                  // take the place before the glide is back on
+    $svg.style.transition = "";
+    // the footer logo can change the column's height as it loads
+    window.addEventListener("load", function () { if (logoOnly()) placeLogo(); });
+  }
 
   // Full screen: the scene with nothing in front of it but the wordmark. The
   // page goes full screen and into logo only, and comes out of both together
@@ -942,9 +974,9 @@ footer a:hover { color: var(--fg); }
       if (weather === "sunny") window.localStorage.removeItem(WKEY); else window.localStorage.setItem(WKEY, weather);
     } catch (e) {}
   }
-  // Stepping through the looks by hand (the keys and the background click,
-  // above) takes the same round, one switch at a time. Each step picks a
-  // whole look, so all of it is stored, and it ends a tour under way.
+  // Stepping through the looks by hand (the keys, above) takes the same
+  // round, one switch at a time. Each step picks a whole look, so all of it
+  // is stored, and it ends a tour under way.
   function stepLook(dir) {
     var s = TOUR[(tourAt() + dir + TOUR.length) % TOUR.length];
     tourEnds();

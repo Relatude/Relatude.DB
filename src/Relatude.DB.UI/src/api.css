@@ -22,17 +22,33 @@
 }
 
 .api-table .log-table-row {
-  grid-template-columns: minmax(160px, 1.2fr) minmax(160px, 1.4fr) minmax(140px, 1fr) 60px 60px 90px minmax(120px, 1fr) 150px;
+  grid-template-columns: minmax(140px, 1.2fr) minmax(140px, 1.4fr) minmax(110px, 1fr) 50px 50px 80px minmax(100px, 1fr) 220px;
   align-items: center;
 }
 
-.api-table .action-button.api-explore {
+/* Explore, Pivot and SDL: the endpoint's url as a browser sees it, each in a new tab, at the right of its row */
+.api-table .api-row-pages {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+a.action-button.api-page-button {
   min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 10px;
+  padding: 3px 8px;
   font-size: 12px;
+}
+
+a.api-page-button:hover {
+  text-decoration: none;
+}
+
+/* in the editor's bar and the explorer's toolbar they are the bar's own labelled icon buttons */
+.icon-button.api-page-button:hover {
+  color: var(--section-tone);
 }
 
 .api-table .mono,
@@ -337,25 +353,3 @@
   }
 }
 
-/* links to what the endpoint serves on its own url: the explorer page, in the settings hint */
-.api-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--accent);
-}
-
-.api-link:hover {
-  text-decoration: underline;
-}
-
-/* "Public page": the endpoint's explorer page as a browser sees it, next to Explore and in the editor's bar */
-.api-table .api-public-page {
-  display: inline-flex;
-  vertical-align: middle;
-  margin-left: 6px;
-}
-
-.icon-button.api-public-page:not(:disabled):hover {
-  color: var(--section-tone);
-}

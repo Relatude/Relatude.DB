@@ -127,4 +127,33 @@ public class GraphQLExplorerTests {
             CollectionAssert.Contains(types["Sizes"].EnumValues, types["Sizes"].EnumValues![0]);
         } finally { store.Dispose(); }
     }
+
+    [TestMethod]
+    public void Guide_And_Facet_Search_Open_On_The_Default_Type() {
+        var (store, _, _) = Open();
+        try {
+            static string listOf(RelatudeGraphQL gql, Guid typeId) => gql.Schema.QueryType.Fields
+                .First(f => f.Source == Relatude.DB.GraphQL.Schema.FieldSource.RootList && f.TargetNodeType?.Id == typeId).Name;
+            var automatic = new RelatudeGraphQL(store.Datastore, writable());
+            var first = automatic.FacetScope.Types[0];
+            Assert.AreEqual(first, automatic.FacetScope.DefaultType, "without a default the facet search opens on the first type");
+            var autoQuery = ExplorerGuide.Build(automatic.Schema, null).Examples.Single(e => e.Id == "first").Query;
+
+            // any other exposed type, named as the default, is what both open on
+            var other = automatic.FacetScope.Types.First(t => !autoQuery.Contains(listOf(automatic, t.Id) + "(") && t != first);
+            var def = writable();
+            def.DefaultNodeTypeId = other.Id;
+            var chosen = new RelatudeGraphQL(store.Datastore, def);
+            Assert.AreEqual(other.Id, chosen.FacetScope.DefaultType!.Id);
+            Assert.AreEqual(first.Id, chosen.FacetScope.Types[0].Id, "the order of the type list is left alone");
+            StringAssert.Contains(ExplorerGuide.Build(chosen.Schema, null).Examples.Single(e => e.Id == "first").Query, listOf(chosen, other.Id) + "(");
+
+            // a default the endpoint does not expose leaves the choice to them, and is warned about
+            var selected = new GraphQLEndpointDefinition { Name = "Few", Url = "/few", Types = [new GraphQLTypeDefinition { NodeTypeId = first.Id }], DefaultNodeTypeId = other.Id };
+            var few = new RelatudeGraphQL(store.Datastore, selected);
+            Assert.AreEqual(first.Id, few.FacetScope.DefaultType!.Id);
+            var issues = GraphQLEndpointValidator.Validate(selected, store.Datastore.Datamodel, []);
+            Assert.IsTrue(issues.Any(i => !i.IsError && i.Message.Contains("not exposed")));
+        } finally { store.Dispose(); }
+    }
 }

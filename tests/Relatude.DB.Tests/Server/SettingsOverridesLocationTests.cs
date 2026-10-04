@@ -9,7 +9,7 @@ using System.Text.Json;
 namespace Relatude.Server;
 
 /// <summary>
-/// Where relatude.db.overrides.json is kept: with the default database, at the root of its storage, as
+/// Where relatude.db.overrides.json is kept: with the default database, in the overrides folder of its storage, as
 /// relatude.db.json and the configuration section describe that database - never as the overrides file
 /// itself does, since it cannot decide where it is to be found. Moving a change of the database's folder
 /// into relatude.db.json takes the file along; storage that cannot be reached at start does not stop
@@ -59,7 +59,9 @@ public class SettingsOverridesLocationTests {
         return json;
     }
 
-    static string fileIn(string root, string folder) => Path.Combine(root, folder, SettingsOverridesFile.FileName);
+    static string fileIn(string root, string folder) => Path.Combine(root, folder, SettingsOverridesLocation.FolderName, SettingsOverridesFile.FileName);
+    // where versions before the overrides folder kept it: at the storage root itself
+    static string legacyFileIn(string root, string folder) => Path.Combine(root, folder, SettingsOverridesFile.FileName);
 
     // ---- finding the place ----
 
@@ -70,7 +72,7 @@ public class SettingsOverridesLocationTests {
         settings.DefaultStoreId = settings.ContainerSettings![1].Id;
         var location = SettingsOverridesLocation.Resolve(settings, root);
         Assert.AreEqual(Path.GetFullPath(fileIn(root, "second")), location.DiskPath);
-        Assert.AreEqual("second/" + SettingsOverridesFile.FileName, location.Display);
+        Assert.AreEqual("second/overrides/" + SettingsOverridesFile.FileName, location.Display);
         Assert.AreEqual(settings.ContainerSettings[1].IoDatabase, location.IoId);
         Assert.IsNull(location.Note);
     }
@@ -111,6 +113,43 @@ public class SettingsOverridesLocationTests {
         } finally {
             await host.DisposeAsync();
         }
+    }
+
+    [TestMethod]
+    public async Task AFileAtTheStorageRoot_IsMovedIntoTheOverridesFolderAtStart() {
+        var root = newRoot("legacy");
+        var settings = diskSettings("db");
+        Directory.CreateDirectory(Path.Combine(root, "db"));
+        // as an older version left it: at the root of the database's storage, with a comment of its own
+        File.WriteAllText(legacyFileIn(root, "db"), "// kept by hand\n{ \"Description\": \"From the old place\" }\n");
+        var host = start(root, settings);
+        try {
+            Assert.IsFalse(File.Exists(legacyFileIn(root, "db")), "moved away from the root");
+            var moved = File.ReadAllText(fileIn(root, "db"));
+            StringAssert.Contains(moved, "// kept by hand", "moved as it was, comments and all");
+            Assert.AreEqual("From the old place", host.Server.Settings.Description);
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
+    public void AFileAtTheStorageRoot_IsReadThere_AndTheNextSaveMovesIt() {
+        // what the CLI does, and the server when the move at start failed: read where it is
+        var root = newRoot("legacy-read");
+        var settings = diskSettings("db");
+        Directory.CreateDirectory(Path.Combine(root, "db"));
+        File.WriteAllText(legacyFileIn(root, "db"), "{ \"Description\": \"From the old place\" }");
+        var location = SettingsOverridesLocation.Resolve(settings, root);
+        var file = SettingsOverridesFile.Open(location, settings, _ => { }, _ => { }, out var effective);
+        Assert.AreEqual("From the old place", effective.Description);
+        Assert.AreEqual("db/" + SettingsOverridesFile.FileName, file.Display, "says where it actually is");
+        var layer = SettingsOverridesFile.ToJson(effective);
+        layer["Description"] = "Changed";
+        Assert.IsTrue(file.Save(layer));
+        Assert.IsFalse(File.Exists(legacyFileIn(root, "db")));
+        StringAssert.Contains(File.ReadAllText(fileIn(root, "db")), "Changed");
+        Assert.AreEqual("db/overrides/" + SettingsOverridesFile.FileName, file.Display);
     }
 
     [TestMethod]

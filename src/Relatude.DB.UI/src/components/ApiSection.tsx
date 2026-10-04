@@ -6,10 +6,11 @@ import {
   IconBraces,
   IconCode,
   IconCompass,
+  IconCube3dSphere,
   IconDeviceFloppy,
   IconDownload,
-  IconExternalLink,
   IconEye,
+  IconFileCode,
   IconFlask,
   IconLayoutList,
   IconListTree,
@@ -19,7 +20,6 @@ import {
   IconSettings,
   IconTrash,
   IconWand,
-  IconWorldWww,
 } from "@tabler/icons-react";
 import "../api.css";
 import { lint } from "../code/lint";
@@ -153,10 +153,6 @@ export function ApiSection({ db }: { db: DatabaseInfo }) {
             info={info}
             drafts={drafts}
             onOpen={setTab}
-            onExplore={(id) => {
-              setViews((v) => ({ ...v, [id]: "explorer" }));
-              setTab(id);
-            }}
             onNew={() => setTab(newTab)}
             onReload={reload}
           />
@@ -187,18 +183,15 @@ function Overview({
   info,
   drafts,
   onOpen,
-  onExplore,
   onNew,
   onReload,
 }: {
   info: EndpointsInfo;
   drafts: Record<string, EndpointDefinition>;
   onOpen: (id: string) => void;
-  onExplore: (id: string) => void;
   onNew: () => void;
   onReload: () => void;
 }) {
-  const origin = typeof window === "undefined" ? "" : window.location.origin;
   return (
     <div className="logs-body">
       <section className="panel">
@@ -244,35 +237,14 @@ function Overview({
                     </span>
                   )}
                 </span>
-                <span className="mono">
-                  {e.url &&
-                    (e.introspection ? (
-                      <a href={origin + e.url + "?sdl"} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} title="The schema as SDL, in a new tab">
-                        {e.url} <IconExternalLink size={12} stroke={1.8} />
-                      </a>
-                    ) : (
-                      <span title="Introspection is off, so the schema is not served">{e.url}</span>
-                    ))}
-                </span>
+                <span className="mono">{e.url}</span>
                 <span>{e.error ? "" : e.mode === "WholeDatamodel" ? "Whole datamodel" + (e.exactNames ? ", exact names" : "") : "Selected types"}</span>
                 <span className="num">{e.error ? "" : e.typeCount}</span>
                 <span className="num">{e.error ? "" : e.viewCount}</span>
                 <span>{e.error ? "" : e.allowMutations ? "allowed" : "read only"}</span>
                 <span className="muted mono">{e.file}</span>
-                <span>
-                  {e.id && !e.error && (
-                    <button
-                      className="action-button api-explore"
-                      title="Explore the endpoint: build, run and read about queries"
-                      onClick={(ev) => {
-                        ev.stopPropagation();
-                        onExplore(e.id!);
-                      }}
-                    >
-                      <IconCompass size={14} stroke={1.8} /> Explore
-                    </button>
-                  )}
-                  {e.id && !e.error && <PublicPageLink page={publicPage(e.url, e.enabled, e.explorer, e.facets, e.introspection, false)} />}
+                <span className="api-row-pages">
+                  {e.id && !e.error && <PublicPageButtons pages={e} look="row" />}
                 </span>
               </div>
             ))}
@@ -337,7 +309,9 @@ function EndpointEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeId, endpointId, saved]);
 
-  const base = useMemo(() => saved ?? (endpointId ? null : newEndpointDefinition()), [saved, endpointId]);
+  // a new endpoint is named and placed apart from the others when its tab opens, and keeps that while it is edited
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const base = useMemo(() => saved ?? (endpointId ? null : newEndpointDefinition(info)), [saved, endpointId]);
   const current = draft ?? base;
   const dirty = !!draft && (!base || JSON.stringify(draft) !== JSON.stringify(base));
   const currentJson = current ? JSON.stringify(current) : null;
@@ -402,10 +376,8 @@ function EndpointEditor({
     }
   }
 
-  // the page serves the endpoint as it is saved
-  const page = saved
-    ? publicPage(normalizeUrl(saved.url), saved.enabled, !!saved.enableExplorer, !!saved.enableFacetSearch, saved.enableIntrospection, dirty)
-    : { href: null, reason: "Save the endpoint first: the page serves the saved endpoint." };
+  // the url serves the endpoint as it is saved, so a new one has nothing there yet
+  const pages = saved ? publicPagesOf(saved) : null;
   const errors = preview?.issues.filter((i) => i.isError) ?? [];
   const warnings = [...(preview?.issues.filter((i) => !i.isError).map((i) => i.message) ?? []), ...(preview?.warnings ?? [])];
   const status = errors.length > 0 ? errors[0].message + (errors.length > 1 ? ` (+${errors.length - 1} more)` : "") : dirty ? "Unsaved changes" : endpointId ? "Saved" : "New endpoint";
@@ -440,7 +412,7 @@ function EndpointEditor({
           {previewBusy && <IconRefresh size={13} stroke={1.8} className="spinning" />}
           {status}
         </span>
-        <PublicPageLink page={page} labelled />
+        <PublicPageButtons pages={pages} look="bar" unsaved={dirty} />
         <Switch label="Enabled" checked={current.enabled} onChange={(v) => update({ enabled: v })} />
         <button className="action-button" onClick={() => onDraft(null)} disabled={!dirty}>
           <IconArrowBackUp size={15} stroke={1.8} /> Revert
@@ -463,12 +435,12 @@ function EndpointEditor({
         </div>
       )}
       <div className={"api-editor-body" + (view === "try" || view === "code" || view === "json" || view === "explorer" ? " fill" : "")}>
-        {view === "settings" && <SettingsForm def={current} adminRoot={info.adminRoot} onChange={update} />}
+        {view === "settings" && <SettingsForm def={current} adminRoot={info.adminRoot} catalog={info.catalog} onChange={update} />}
         {view === "types" && <TypesEditor def={current} catalog={info.catalog} onChange={update} />}
         {view === "views" && <ViewsEditor def={current} onChange={update} />}
         {view === "code" && <CodeView def={current} preview={preview} busy={previewBusy} open={info.open} />}
         {view === "try" && <TryIt storeId={storeId} def={current} preview={preview} open={info.open} />}
-        {view === "explorer" && <AdminExplorer storeId={storeId} endpointKey={endpointId ?? "new"} def={current} open={info.open} tools={<PublicPageLink page={page} labelled small />} />}
+        {view === "explorer" && <AdminExplorer storeId={storeId} endpointKey={endpointId ?? "new"} def={current} open={info.open} tools={<PublicPageButtons pages={pages} look="toolbar" unsaved={dirty} />} />}
         {view === "json" && <JsonView def={current} onChange={(d) => onDraft(d)} />}
       </div>
     </div>
@@ -477,9 +449,31 @@ function EndpointEditor({
 
 // ---- settings ----
 
-function SettingsForm({ def, adminRoot, onChange }: { def: EndpointDefinition; adminRoot: string; onChange: (patch: Partial<EndpointDefinition>) => void }) {
+function SettingsForm({
+  def,
+  adminRoot,
+  catalog,
+  onChange,
+}: {
+  def: EndpointDefinition;
+  adminRoot: string;
+  catalog: EndpointsInfo["catalog"];
+  onChange: (patch: Partial<EndpointDefinition>) => void;
+}) {
   const origin = typeof window === "undefined" ? "" : window.location.origin;
   const url = normalizeUrl(def.url);
+  // the types the explorer and the facet search can open on: the exposed ones, in the order they were picked
+  const byId = new Map((catalog?.types ?? []).map((t) => [t.id, t]));
+  const exposed =
+    def.mode === "WholeDatamodel"
+      ? (catalog?.types ?? []).filter((t) => def.includeSystemTypes || !t.isSystem).map((t) => ({ id: t.id, label: t.name }))
+      : def.types.flatMap((t) => {
+          const model = byId.get(t.nodeTypeId);
+          if (!model) return [];
+          return [{ id: t.nodeTypeId, label: model.name + (t.name && t.name !== model.name ? ` (${t.name})` : "") }];
+        });
+  const defaultType = def.defaultNodeTypeId ?? null;
+  const defaultMissing = !!defaultType && !exposed.some((t) => t.id === defaultType);
   const number = (key: "maxQueryDepth" | "maxIncludeDepth" | "defaultPageSize" | "maxPageSize", label: string, hint: string) => (
     <label className="clog-field">
       <span className="clog-field-label">{label}</span>
@@ -532,6 +526,23 @@ function SettingsForm({ def, adminRoot, onChange }: { def: EndpointDefinition; a
             {def.mode === "Selected" ? "Only what is picked under Types is exposed; names can be changed there." : "Every type and property, following the datamodel as it changes."}
           </span>
         </label>
+        <label className="clog-field">
+          <span className="clog-field-label">Default type</span>
+          <select className="select" value={defaultType ?? ""} onChange={(e) => onChange({ defaultNodeTypeId: e.target.value || null })}>
+            <option value="">Automatic</option>
+            {exposed.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label}
+              </option>
+            ))}
+            {defaultMissing && <option value={defaultType}>{(byId.get(defaultType)?.name ?? defaultType) + " (not exposed)"}</option>}
+          </select>
+          <span className={"clog-field-hint" + (defaultMissing ? " bad" : "")}>
+            {defaultMissing
+              ? "The endpoint does not expose this type, so the explorer and the facet search choose one themselves."
+              : "The type the explorer's first query and guide, and the facet search's pivot, start on. Automatic: the first exposed type in the pivot, the one with the most to show in the explorer."}
+          </span>
+        </label>
         <div className="clog-field api-switches">
           <span className="clog-field-label">Names and features</span>
           <Switch label="Use names exactly as in the datamodel" checked={def.exactNames} onChange={(v) => onChange({ exactNames: v })} />
@@ -544,38 +555,8 @@ function SettingsForm({ def, adminRoot, onChange }: { def: EndpointDefinition; a
           <span className="clog-field-hint">
             {def.exactNames ? "Type Article, field Title, root fields Article / Articles / CreateArticle." : "Type Article, field title, root fields article / articles / createArticle."}
           </span>
-          {def.enableExplorer && (
-            <span className={"clog-field-hint" + (def.enableIntrospection ? "" : " bad")}>
-              {!def.enableIntrospection ? (
-                "The explorer reads the schema through introspection, which is off: the page will say so and stay empty."
-              ) : url ? (
-                <>
-                  A browser opening{" "}
-                  <a className="api-link" href={origin + url} target="_blank" rel="noreferrer">
-                    {origin + url} <IconExternalLink size={12} stroke={1.8} />
-                  </a>{" "}
-                  gets the explorer{def.apiKey ? ", which asks for the API key" : ""}. Clients posting queries are not affected. Save first: the page serves the saved endpoint.
-                </>
-              ) : (
-                "A browser opening the url gets the explorer."
-              )}
-            </span>
-          )}
-          {def.enableFacetSearch && (
-            <span className="clog-field-hint">
-              {url ? (
-                <>
-                  A browser opening{" "}
-                  <a className="api-link" href={origin + url} target="_blank" rel="noreferrer">
-                    {origin + url} <IconExternalLink size={12} stroke={1.8} />
-                  </a>{" "}
-                  gets a facet search of the exposed types beside a visual pivot of them, in 3D{def.enableExplorer ? ", with the explorer as a second tab" : ""}. Only the exposed types and properties take part, under their datamodel names; the
-                  text is matched by words only.{def.apiKey ? " The page asks for the API key." : ""}
-                </>
-              ) : (
-                "A browser opening the url gets a facet search of the exposed types, as a visual pivot."
-              )}
-            </span>
+          {def.enableExplorer && !def.enableIntrospection && (
+            <span className="clog-field-hint bad">The explorer reads the schema through introspection, which is off: the page will say so and stay empty.</span>
           )}
         </div>
         <label className="clog-field">
@@ -1087,47 +1068,54 @@ function AdminExplorer({ storeId, endpointKey, def, open, tools }: { storeId: st
   return <GraphQLExplorer source={source} tools={tools} />;
 }
 
-// ---- the public page ----
+// ---- the public side ----
 
-interface PublicPage {
-  /** where the page is, or null when it is not served */
-  href: string | null;
-  /** why not, or what to know before opening it */
-  reason: string;
+/** What decides what the endpoint serves a browser on its url: the saved definition's switches. */
+interface PublicPages {
+  url: string | null;
+  enabled: boolean;
+  explorer: boolean;
+  facets: boolean;
+  introspection: boolean;
+  apiKey?: boolean;
 }
 
-/** Whether the endpoint's page - the facet search, the explorer or both - is served on its url, and if not, why not. */
-function publicPage(url: string | null, enabled: boolean, explorer: boolean, facets: boolean, introspection: boolean, unsaved: boolean): PublicPage {
-  if (!url) return { href: null, reason: "The endpoint has no url." };
-  if (!explorer && !facets) return { href: null, reason: "The page is off: switch on the explorer page or the facet search under Settings, and save." };
-  if (!enabled) return { href: null, reason: "The endpoint is switched off, so its url answers nothing." };
-  // the facet search reads no schema; the explorer does
-  if (!facets && !introspection) return { href: null, reason: "Introspection is off, so the page cannot read the schema." };
-  const href = window.location.origin + url;
-  const what = facets ? (explorer ? "the facet search and the explorer" : "the facet search") : "the explorer page";
-  return { href, reason: `Open ${what} at ${href}, as anyone with a browser sees it.` + (unsaved ? " It serves the saved endpoint: the changes here are not on it yet." : "") };
+function publicPagesOf(def: EndpointDefinition): PublicPages {
+  return {
+    url: normalizeUrl(def.url),
+    enabled: def.enabled,
+    explorer: !!def.enableExplorer,
+    facets: !!def.enableFacetSearch,
+    introspection: def.enableIntrospection,
+    apiKey: !!def.apiKey,
+  };
 }
 
-/** Opens the endpoint's explorer page in a new tab; shown off, with the reason, when there is no page to open. */
-function PublicPageLink({ page, labelled, small }: { page: PublicPage; labelled?: boolean; small?: boolean }) {
-  const content = (
-    <>
-      <IconWorldWww size={small ? 14 : 16} stroke={1.8} />
-      {labelled && <span>Public page</span>}
-    </>
-  );
-  const className = "icon-button api-public-page" + (labelled ? " labelled" : "") + (small ? " small" : "");
-  if (!page.href) {
-    return (
-      <button className={className} disabled title={page.reason} onClick={(e) => e.stopPropagation()}>
-        {content}
-      </button>
-    );
-  }
-  return (
-    <a className={className} href={page.href} target="_blank" rel="noreferrer" title={page.reason} onClick={(e) => e.stopPropagation()}>
-      {content}
+/**
+ * The endpoint's url as a browser sees it, one button per thing served there - the explorer, the facet search's visual
+ * pivot and the schema as SDL - each opening it in a new tab. Only the ones that answer are shown: a switched off
+ * endpoint answers nothing, the explorer reads the schema through introspection, and ?sdl asks for the API key like
+ * any other request, which a browser opening it does not send. Drawn as a list row's buttons, in the editor's bar,
+ * or in the explorer's toolbar (which can fill the window, bar and all); `unsaved` says the page is not what the
+ * editor holds.
+ */
+function PublicPageButtons({ pages: e, look, unsaved }: { pages: PublicPages | null; look: "row" | "bar" | "toolbar"; unsaved?: boolean }) {
+  if (!e || !e.url || !e.enabled) return null;
+  const href = window.location.origin + e.url;
+  const iconSize = look === "bar" ? 15 : 14;
+  const className = (look === "row" ? "action-button" : "icon-button labelled" + (look === "toolbar" ? " small" : "")) + " api-page-button";
+  const note = unsaved ? " It serves the saved endpoint: the changes here are not on it yet." : "";
+  const button = (target: string, icon: ReactNode, label: string, title: string) => (
+    <a className={className} href={target} target="_blank" rel="noreferrer" title={title + note} onClick={(ev) => ev.stopPropagation()}>
+      {icon} {label}
     </a>
+  );
+  return (
+    <>
+      {e.explorer && e.introspection && button(href + "?explorer", <IconCompass size={iconSize} stroke={1.8} />, "Explore", `Open the explorer at ${href}, as anyone with a browser sees it.`)}
+      {e.facets && button(href, <IconCube3dSphere size={iconSize} stroke={1.8} />, "Pivot", `Open the facet search and its visual pivot at ${href}, as anyone with a browser sees it.`)}
+      {e.introspection && !e.apiKey && button(href + "?sdl", <IconFileCode size={iconSize} stroke={1.8} />, "SDL", `Open the schema as SDL at ${href}?sdl.`)}
+    </>
   );
 }
 

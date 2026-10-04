@@ -120,9 +120,9 @@ function DatabaseCard({
   async function toggle() {
     if (isOpen) {
       const confirmed = await showConfirm(
-        `Close ${db.name}?`,
-        "The application cannot read or write this database until it is opened again. Anything not yet flushed is written out first, so nothing is lost.",
-        { confirmLabel: "Close database", danger: true },
+        `Stop ${db.name}?`,
+        "The application cannot read or write this database until it is started again. Anything not yet flushed is written out first, so nothing is lost.",
+        { confirmLabel: "Stop", danger: true },
       );
       if (!confirmed.ok) return;
     }
@@ -130,7 +130,7 @@ function DatabaseCard({
     try {
       await (isOpen ? closeStore(db.id) : openStore(db.id));
     } catch (e) {
-      await showError(isOpen ? "Could not close the database" : "Could not open the database", e instanceof Error ? e.message : String(e));
+      await showError(isOpen ? "Could not stop the database" : "Could not start the database", e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
       onDone(); // a failed open leaves the database in Error, which the row should show

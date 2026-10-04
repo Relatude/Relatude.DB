@@ -39,6 +39,9 @@ public static class FileKeyUtility {
     /// </summary>
     public const string DatamodelsFolderName = "datamodels";
     public const string GraphQLFolderName = "graphql";
+    /// <summary>The folder relatude.db.overrides.json is kept in - the settings changed in the admin UI -
+    /// below the storage root of the default database.</summary>
+    public const string OverridesFolderName = "overrides";
     /// <summary>The folder the file conversion engine caches its converted files in. Not a system
     /// folder: like the index and file store folders it owns its content and is not listed by
     /// <see cref="IIOProvider.GetFiles"/>.</summary>
@@ -47,7 +50,7 @@ public static class FileKeyUtility {
     /// onto its real key only once every byte of it is there. Leading dot so it cannot collide with
     /// a folder of the website project, which the admin UI uploads into as well.</summary>
     public const string UploadFolderName = ".uploads";
-    public static readonly string[] SystemFolderNames = [DataFolderName, StateFolderName, BackupFolderName, LogFolderName, DatamodelsFolderName, GraphQLFolderName];
+    public static readonly string[] SystemFolderNames = [DataFolderName, StateFolderName, BackupFolderName, LogFolderName, DatamodelsFolderName, GraphQLFolderName, OverridesFolderName];
 
     /// <summary>
     /// The folders below the storage root holding data that exists nowhere else: the database log
@@ -460,6 +463,7 @@ public static class FileKeyUtility {
             UploadFolderName => "Uploads still arriving",
             multiFileStoreFolderPattern => "File store",
             LogFolderName => "Logs",
+            OverridesFolderName => "Settings changed in the admin UI",
             var s when s.MatchesWildcard(indexStoreFolderPattern) => "Indexes",
             indexEngineNativeKvFolder => "Native index engine",
             indexEngineSqliteFolder => "Sqlite index engine",

@@ -300,7 +300,9 @@ public static class IDataStoreExtensions {
         }
         return false;
     }
-    public static void BackUpNow(this IDataStore store, bool truncate, bool keepForever, IIOProvider? destination = null) {
+    /// <summary>Queues a backup: a copy (or a truncated rewrite) of the log into the backup folder. The
+    /// batch is queued under <paramref name="jobId"/>, which is how a caller can follow it in the task queue.</summary>
+    public static void BackUpNow(this IDataStore store, bool truncate, bool keepForever, IIOProvider? destination = null, string jobId = "Backup") {
         if (destination == null) destination = store.IOBackup;
         var fileKey = FileKeyUtility.WAL_GetFileKeyForBackup(DateTime.UtcNow, keepForever);
         var task = new RewriteTask() {
@@ -310,7 +312,7 @@ public static class IDataStoreExtensions {
             IO = destination,
             Truncate = truncate,
         };
-        store.EnqueueTask(task, "Backup");
+        store.EnqueueTask(task, jobId);
     }
     public static void UpdateProperty(this IDataStore store, Guid nodeId, Guid propertyId, object value, bool? flushToDisk = null) {
         var transaction = new TransactionData();

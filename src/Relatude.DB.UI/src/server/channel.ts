@@ -49,6 +49,23 @@ export async function send<T = unknown>(type: string, payload?: unknown, signal?
   return (await response.json()) as T;
 }
 
+/**
+ * A command sent as the page goes away (pagehide): keepalive lets the request outlive the page, and
+ * nothing waits for an answer - there is nobody left to read it.
+ */
+export function leave(type: string, payload?: unknown): void {
+  try {
+    void fetch(`${base}/command`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type, payload: payload ?? null }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+    // a page on its way out has no one to tell
+  }
+}
+
 // fired when a command is rejected with 401, so the app can drop back to the login screen
 const unauthorizedHandlers = new Set<() => void>();
 

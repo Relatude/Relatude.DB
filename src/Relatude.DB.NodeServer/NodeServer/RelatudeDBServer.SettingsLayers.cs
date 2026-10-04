@@ -47,6 +47,20 @@ public partial class RelatudeDBServer {
         return SettingsOverridesLocation.Resolve(described, _rootDataFolderPath);
     }
 
+    // Older versions kept the file at the root of the database's storage; it now has a folder of its
+    // own. Moved once, here at start, so it is found where the settings page says it is. A move that
+    // fails is no reason not to start: the file is then read where it is, and the next save moves it.
+    void moveOverridesFromLegacyPlace(SettingsOverridesLocation location) {
+        try {
+            if (SettingsOverridesFile.MoveFromLegacyPlace(location)) {
+                Log("Moved " + SettingsOverridesFile.FileName + " into its own folder: " + location.Display + ".");
+            }
+        } catch (Exception err) {
+            startupWarning("Could not move " + SettingsOverridesFile.FileName + " into " + location.Display + " (" + err.Message
+                + "). It is read where it is, and moved with the next save from the admin UI.");
+        }
+    }
+
     /// <summary>
     /// Layers one and two: relatude.db.json, and the overrides file merged over it. A file that is not
     /// valid JSON stops the start. Storage that cannot be reached does not: the server starts on
@@ -62,6 +76,7 @@ public partial class RelatudeDBServer {
         try {
             location = resolveOverridesLocation(fileSettings);
             if (location.Note != null) Log(location.Note);
+            moveOverridesFromLegacyPlace(location);
             _overridesFile = SettingsOverridesFile.Open(location, fileSettings, Log, startupWarning, out var effective);
             return effective;
         } catch (Exception err) when (err is not SettingsOverridesFileInvalidException) {
@@ -69,7 +84,7 @@ public partial class RelatudeDBServer {
             var reason = "the overrides file in " + where + " could not be read when the server started (" + err.Message
                 + "). The settings in force come from " + Defaults.SettingsFileName + " and configuration alone; restart once the storage can be reached.";
             startupWarning("Settings changed in the admin UI are not applied: " + reason);
-            _overridesFile = SettingsOverridesFile.ForUnavailable(location ?? SettingsOverridesLocation.OnDisk(SettingsOverridesFile.FallbackRelativePath, _rootDataFolderPath),
+            _overridesFile = SettingsOverridesFile.ForUnavailable(location ?? SettingsOverridesLocation.Fallback(_rootDataFolderPath),
                 fileSettings, reason);
             return fileSettings;
         }

@@ -207,7 +207,8 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     fetchIoList(db.id)
       .then((list) => {
         setIos(list);
-        setIoId(list[0]?.id ?? null);
+        // the storage the database's log file is on: where its own data is, so the obvious place to look
+        setIoId((list.find((candidate) => candidate.roles?.includes("database")) ?? list[0])?.id ?? null);
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
     // names are a nicety: a database that cannot answer just keeps showing guids
@@ -228,6 +229,11 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   useEffect(() => {
     openPath.current = path;
   }, [path]);
+  // the listings as they are now, for the same reason (see afterItemsArrived)
+  const listingsNow = useRef(listings);
+  useEffect(() => {
+    listingsNow.current = listings;
+  }, [listings]);
   const loadFolder = useCallback(
     (io: string, folderPath: string) => {
       fetchFolder(io, folderPath)
@@ -690,7 +696,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     }
   }
 
-  // ---- move or copy: the same selection, into another storage ----
+  // ---- move or copy: the same selection, into another folder of this storage or into another storage ----
 
   // the selection the move dialog is open on, and whether it was opened to move or to copy
   const [moving, setMoving] = useState<{ what: ActOn; mode: "move" | "copy" } | null>(null);
@@ -706,7 +712,10 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     if (!ioId) return;
     const from = ioId;
     const target = ios.find((candidate) => candidate.id === choice.toIoId);
-    const where = (target?.name ?? "the other storage") + (choice.targetPath ? ` / ${choice.targetPath}` : "");
+    const same = choice.toIoId === from;
+    const where = same
+      ? choice.targetPath || `the root of ${target?.name ?? "this storage"}`
+      : (target?.name ?? "the other storage") + (choice.targetPath ? ` / ${choice.targetPath}` : "");
     if (what.touchesPrimary && !choice.keepOriginals && !(await confirmPrimaryMove(what.label, where))) return;
     // the file in the viewer goes too: its unsaved changes would be saved into a file that is gone
     const takesViewed = viewFile !== null && !choice.keepOriginals && what.fileKeys.includes(viewFile.key);
@@ -732,6 +741,9 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     );
     // a copy leaves everything where it was; a move, even a cancelled one, may have taken some of it
     if (!choice.keepOriginals) afterItemsLeft(from, what.topFolders, what.fileKeys);
+    // within one storage the tree on screen is the target's as well: the folder it went into, and the
+    // folders above it, have something new in them
+    if (same) afterItemsArrived(from, choice.targetPath);
     if (!result) return;
     const summary = moveSummary(result, choice.keepOriginals ? "Copied" : "Moved", where);
     if (result.filesFailed > 0) {
@@ -741,6 +753,17 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     } else {
       setMessage(summary);
     }
+  }
+
+  // What a move or copy within the storage on screen brought: the listings of the target folder and
+  // of every folder above it that is loaded are asked for again, so new folders show in the tree.
+  function afterItemsArrived(io: string, targetPath: string) {
+    if (shownIo.current !== io) return;
+    const segments = targetPath === "" ? [] : targetPath.split("/");
+    const chain = ["", ...segments.map((_, i) => segments.slice(0, i + 1).join("/"))];
+    setTreeSizes({});
+    setDeepFiles(null);
+    for (const folder of chain) if (listingsNow.current[folder] || folder === openPath.current) loadFolder(io, folder);
   }
 
   // ---- delete: the selected files of the open folder and the ticked folders, in one go ----
@@ -1025,7 +1048,8 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   }
 
   const deletable = files.filter((f) => selected.has(f.key)).length + [...selectedFolders].filter((f) => f !== "").length;
-  const moveTargets = ios.filter((candidate) => candidate.id !== ioId);
+  // every storage, this one included: a move or a copy can go to another folder of the same storage
+  const moveTargets = ios;
   const compact = viewFile !== null; // the viewer is open: the list keeps the name and the size
   // the viewer may take everything but the tree, the bars and a readable list: a stored width from
   // a wider window is cut down to that here, and the drag never grows it past it
@@ -1184,14 +1208,17 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
             <IconHistory size={14} stroke={1.8} className="tone-data" /> Go back in time…
           </button>
         )}
-        {/* only where there is somewhere to move to: every database has its storage and the server
-            root, so in practice always */}
+        {/* to another folder of this storage or into another one: the dialog asks which */}
         {deletable > 0 && moveTargets.length > 0 && (
           <>
-            <button className="action-button" onClick={() => onMoveSelected("copy")} title="Copy the selected files and folders into another storage, leaving them here as well">
+            <button
+              className="action-button"
+              onClick={() => onMoveSelected("copy")}
+              title="Copy the selected files and folders to another folder or another storage, leaving them here as well"
+            >
               <IconCopy size={14} stroke={1.8} className="tone-accent" /> Copy {deletable} selected…
             </button>
-            <button className="action-button" onClick={() => onMoveSelected("move")} title="Move the selected files and folders into another storage">
+            <button className="action-button" onClick={() => onMoveSelected("move")} title="Move the selected files and folders to another folder or another storage">
               <IconFileExport size={14} stroke={1.8} className="tone-accent" /> Move {deletable} selected…
             </button>
           </>
@@ -1207,7 +1234,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
         <section className="panel files-tree" style={{ minWidth: 0 }}>
           <FolderNode
             path=""
-            name={projectRoot ? "[Server root]" : "Storage root"}
+            name={io?.name ?? "Storage root"}
             hasSubFolders
             isPrimaryData={false}
             depth={0}
@@ -1377,6 +1404,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
           targets={moveTargets}
           what={moving.what.label}
           fromPath={path}
+          allInOpenFolder={moving.what.fileKeys.every((key) => parentOf(key) === path) && moving.what.topFolders.every((folder) => parentOf(folder) === path)}
           touchesPrimary={moving.what.touchesPrimary}
           show={showPath}
           onCancel={() => setMoving(null)}

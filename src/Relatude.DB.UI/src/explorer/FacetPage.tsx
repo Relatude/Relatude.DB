@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IconSearch, IconX } from "@tabler/icons-react";
 import { VisualPivotView, emptyVisual } from "../components/VisualPivotView";
 import type { PivotBase } from "../components/PivotView";
@@ -7,10 +7,12 @@ import { useLiveResult } from "../server/hooks";
 import { formatCount } from "../format";
 import type { VisualDefinition } from "../queryTabs";
 import type { FacetModel, FacetSearchRequest, FacetSource } from "./facetSource";
+import { NodeDialog } from "./NodeDialog";
 
 // The facet search of a GraphQL endpoint, on the endpoint's own url: a rail of facets over the exposed types and the
-// admin UI's visual pivot beside it, in its simple form - nothing to open, select or edit, only the picture, which
-// starts as a slowly turning 3D bar chart of the type and answers every facet with its cards flying in and out.
+// admin UI's visual pivot beside it, in its simple form - nothing to select or edit, only the picture, which starts
+// as a slowly turning 3D bar chart of the type and answers every facet with its cards flying in and out. A click on a
+// card opens a dialog of its node's properties (NodeDialog).
 // The server keeps it to what the endpoint exposes (NodeServer/GraphQL/GraphQLFacetSearch.cs).
 
 /** how long the search box waits for the typing to stop before the picture is asked again: every answer moves every card */
@@ -63,7 +65,7 @@ export function FacetPage({ source }: { source: FacetSource }) {
   }, [source]);
 
   const [typeId, setTypeId] = useState<string | null>(null);
-  const type = model ? (model.types.find((t) => t.id === typeId) ?? model.types[0] ?? null) : null;
+  const type = model ? (model.types.find((t) => t.id === (typeId ?? model.defaultTypeId)) ?? model.types[0] ?? null) : null;
   const [typed, setTyped] = useState("");
   const [text, setText] = useState("");
   useEffect(() => {
@@ -72,6 +74,10 @@ export function FacetPage({ source }: { source: FacetSource }) {
   }, [typed]);
   const [selections, setSelections] = useState<FacetSelection[]>([]);
   const [expanded, setExpanded] = useState<string[]>([]);
+  // the node whose dialog is open, by the internal id its card was drawn with; the picture marks that card meanwhile
+  const [openNode, setOpenNode] = useState<number | null>(null);
+  const closeNode = useCallback(() => setOpenNode(null), []);
+  const openedCards = useMemo(() => (openNode === null ? [] : [openNode]), [openNode]);
 
   const request = useMemo<FacetSearchRequest | null>(
     () => (type ? { typeId: type.id, text, selections, expanded } : null),
@@ -240,11 +246,25 @@ export function FacetPage({ source }: { source: FacetSource }) {
       </aside>
       <div className="query-results panel fp-picture">
         {base && shown ? (
-          <VisualPivotView key={type.id} base={base} definition={shown} onChange={changeDefinition} fullscreen={fullscreen} onToggleFullscreen={toggleFullscreen} head={dimensions} source={source} simple />
+          <VisualPivotView
+            key={type.id}
+            base={base}
+            definition={shown}
+            onChange={changeDefinition}
+            fullscreen={fullscreen}
+            onToggleFullscreen={toggleFullscreen}
+            head={dimensions}
+            source={source}
+            simple
+            onOpen={(id) => setOpenNode(id)}
+            selected={openedCards}
+          />
         ) : (
           <div className="fp-message muted">{error ?? "Loading the picture…"}</div>
         )}
       </div>
+      {/* inside the row, so it is seen when the row fills the screen */}
+      {openNode !== null && <NodeDialog source={source} nodeId={openNode} onClose={closeNode} />}
     </div>
   );
 }

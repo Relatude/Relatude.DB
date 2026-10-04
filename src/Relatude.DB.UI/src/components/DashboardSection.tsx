@@ -229,9 +229,9 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   // so it is asked about first (see confirm-dialogs rule) - and never a second click on the same spot
   async function onClose() {
     const choice = await showConfirm(
-      "Close the database?",
-      "Every index is flushed and the file is released. Nothing is lost, but nothing is served from this database until it is opened again - which replays the log and takes a while on a large one.",
-      { confirmLabel: "Close", danger: true },
+      "Stop the database?",
+      "Every index is flushed and the file is released. Nothing is lost, but nothing is served from this database until it is started again - which replays the log and takes a while on a large one.",
+      { confirmLabel: "Stop", danger: true },
     );
     if (!choice.ok) return;
     setOpenBusy(true);
@@ -241,7 +241,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
       setKick((k) => k + 1);
       await loadInfo();
     } catch (e) {
-      showError("Could not close the database", e instanceof Error ? e.message : String(e));
+      showError("Could not stop the database", e instanceof Error ? e.message : String(e));
     } finally {
       setOpenBusy(false);
     }
@@ -519,6 +519,12 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
             {info.startupError.timeUtc ? ` · ${formatTime(info.startupError.timeUtc)}` : ""}
           </div>
           <div>{info.startupError.message}</div>
+          {info.startupError.restart?.dueUtc && (
+            <div className="startup-exception-restart">
+              Another process held one of its files, so the server restarts itself at {formatTime(info.startupError.restart.dueUtc)} to
+              try again ({info.startupError.restart.attempt} of {info.startupError.restart.attempts}).
+            </div>
+          )}
         </div>
       )}
 

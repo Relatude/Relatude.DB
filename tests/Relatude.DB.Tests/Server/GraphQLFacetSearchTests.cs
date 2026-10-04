@@ -111,6 +111,16 @@ public class GraphQLFacetSearchTests {
             Assert.AreEqual(cardIds[0], BinaryPrimitives.ReadInt32LittleEndian(images.Bytes));
             Assert.AreEqual(2, images.Bytes[4], "status: no picture");
 
+            // a click on a card: its node as the endpoint shows it - the title under its datamodel name, not the size
+            var node = json(await send(host, "node", new { id = cardIds[0] }));
+            Assert.AreEqual(nameof(DemoArticle), prop(node, "type").GetString());
+            Assert.AreEqual(store.Datastore.GetGuid(cardIds[0]), prop(node, "id").GetGuid());
+            var shown = prop(node, "properties").EnumerateArray().ToArray();
+            CollectionAssert.AreEqual(new[] { "Title" }, shown.Select(p => prop(p, "name").GetString()).ToArray());
+            Assert.AreEqual(prop(node, "name").GetString(), prop(shown[0], "value").GetString(), "named from the title, the one thing it shows");
+            CollectionAssert.Contains(_titles, prop(shown[0], "value").GetString());
+            Assert.AreEqual(404, (await send(host, "node", new { id = int.MaxValue })).Status);
+
             // a type the endpoint does not expose is not searched, and an unknown request is not answered
             Assert.AreEqual(400, (await send(host, "search", new { typeId = Guid.NewGuid(), text = "" })).Status);
             Assert.AreEqual(404, (await send(host, "nonsense", new { })).Status);

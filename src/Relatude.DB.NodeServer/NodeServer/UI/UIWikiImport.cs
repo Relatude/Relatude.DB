@@ -35,12 +35,16 @@ sealed class UIWikiImport {
     ];
 
     readonly RelatudeDBServer _server;
-    internal UIWikiImport(RelatudeDBServer server) => _server = server;
+    readonly UISharedTasks _shared;
+    internal UIWikiImport(RelatudeDBServer server, UISharedTasks shared) {
+        _server = server;
+        _shared = shared;
+    }
 
     internal void Register(UICommands commands) {
         commands.Register("wiki-info", ctx => info(ctx.Payload<StorePayload>()));
         commands.Register("wiki-browse", ctx => browse(ctx.Payload<BrowsePayload>()));
-        commands.Register("wiki-start", ctx => start(ctx.Payload<StartPayload>()));
+        commands.Register("wiki-start", ctx => start(ctx.Payload<StartPayload>(), ctx));
         commands.Register("wiki-progress", ctx => progress(ctx.Payload<JobPayload>()));
         commands.Register("wiki-cancel", ctx => cancel(ctx.Payload<JobPayload>()));
     }
@@ -89,7 +93,7 @@ sealed class UIWikiImport {
         return new { Exists = true, Bytes = size(path), Message = string.Empty };
     }
 
-    object start(StartPayload p) {
+    object start(StartPayload p, UICommandContext ctx) {
         var store = openStore(p.StoreId);
         if (!WikiCorpusImporter.IsSupportedBy(store)) throw new Exception(noWikiTypeMessage);
 
@@ -117,6 +121,7 @@ sealed class UIWikiImport {
             ImportLinks = p.ImportLinks,
         };
         var job = FileScanJobs.Start(p.StoreId, jobKind, j => run(store, options, j));
+        _shared.Attach(_shared.RefOf(ctx, p.StoreId, "Import Wikipedia corpus"), job);
         return new { JobId = job.Id };
     }
 

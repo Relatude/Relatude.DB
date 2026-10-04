@@ -16,6 +16,8 @@ export interface FacetModel {
   description: string | null;
   /** the types that can be searched, in the order of the endpoint's schema */
   types: FacetTypeInfo[];
+  /** the type the page opens on: the one the endpoint's owner picked, else the first */
+  defaultTypeId?: string | null;
   /** how many cards the picture may hold */
   maxCards: number;
 }
@@ -38,9 +40,37 @@ export interface FacetSearchResult {
   facets: Facet[];
 }
 
+/** One property of a node, as the endpoint shows it: a value as text, or the nodes it leads to by name. */
+export interface FacetNodeProperty {
+  id: string;
+  /** the datamodel's name */
+  name: string;
+  /** what kind of property it is: String, Integer, Relation (many), Reference... */
+  kind: string;
+  /** the value as text, "" when it has none; null for a relation or reference, and for a value that could not be read */
+  value: string | null;
+  /** the first related or referenced nodes the endpoint shows, by name */
+  nodes: string[] | null;
+  /** how many nodes it leads to in all */
+  count: number | null;
+}
+
+/** A card's node, for the dialog a click on it opens. */
+export interface FacetNode {
+  id: string;
+  /** the type it is seen as: its own, or the nearest the endpoint exposes */
+  type: string;
+  name: string;
+  createdUtc: string;
+  changedUtc: string;
+  properties: FacetNodeProperty[];
+}
+
 export interface FacetSource extends VisualSource {
   model(signal?: AbortSignal): Promise<FacetModel>;
   search(request: FacetSearchRequest): Promise<FacetSearchResult>;
+  /** the node a card was drawn for, by the internal id the picture knows it by */
+  node(id: number, signal?: AbortSignal): Promise<FacetNode>;
 }
 
 /** A request the endpoint turned down; `status` 401 is a missing or wrong API key. */
@@ -74,6 +104,7 @@ export function createFacetSource(url: string, apiKey: string, onUnauthorized: (
     tiles: false,
     model: (signal) => json<FacetModel>("model", undefined, signal),
     search: (request) => json<FacetSearchResult>("search", request),
+    node: (id, signal) => json<FacetNode>("node", { id }, signal),
     pivotModel: (typeId) => json<PivotModel>("pivot-model", { typeId }),
     visual: (request: VisualRequest) =>
       json<VisualResult>("visual", {

@@ -47,6 +47,8 @@ export interface EndpointDefinition {
   enableFacetSearch?: boolean;
   /** how many nodes the facet search's picture may hold */
   maxFacetCards?: number;
+  /** the node type the explorer's first query and guide, and the facet search, open on; null lets them choose */
+  defaultNodeTypeId?: string | null;
   includeSystemTypes: boolean;
   apiKey?: string | null;
   maxQueryDepth: number;
@@ -72,6 +74,8 @@ export interface EndpointSummary {
   facets: boolean;
   /** introspection is on: the schema is told, as __schema and as ?sdl */
   introspection: boolean;
+  /** requests must carry the endpoint's API key, so a browser opening ?sdl is turned away */
+  apiKey?: boolean;
   typeCount: number;
   viewCount: number;
   /** set when the file could not be read; the other fields are then placeholders */
@@ -105,6 +109,8 @@ export interface EndpointsInfo {
   adminRoot: string;
   endpoints: EndpointSummary[];
   catalog: { types: CatalogType[] } | null;
+  /** the urls every endpoint on the server answers on, every database's: a new endpoint is given one not among them */
+  usedUrls?: string[];
 }
 
 export interface EndpointIssue {
@@ -205,7 +211,21 @@ export function executeEndpoint(
   return send<{ result: unknown }>("graphql-execute", { storeId, ...request });
 }
 
-export function newEndpointDefinition(): EndpointDefinition {
+/**
+ * A new endpoint, named and placed so that it can be saved as it is: "GraphQL endpoint" on /graphql, or the first
+ * "GraphQL endpoint n" on /graphqln whose name no endpoint of the database has and whose url no endpoint of the
+ * server answers on.
+ */
+export function newEndpointDefinition(info: Pick<EndpointsInfo, "endpoints" | "usedUrls">): EndpointDefinition {
+  const names = new Set(info.endpoints.map((e) => e.name.trim().toLowerCase()));
+  const urls = new Set([...(info.usedUrls ?? []), ...info.endpoints.map((e) => e.url ?? "")].map((u) => u.toLowerCase()));
+  let n = 1;
+  while (names.has(n === 1 ? "graphql endpoint" : "graphql endpoint " + n) || urls.has(n === 1 ? "/graphql" : "/graphql" + n)) n++;
+  return { ...endpointDefaults(), name: n === 1 ? "GraphQL endpoint" : "GraphQL endpoint " + n, url: n === 1 ? "/graphql" : "/graphql" + n };
+}
+
+/** What every field of a definition is when nothing says otherwise. */
+function endpointDefaults(): EndpointDefinition {
   return {
     name: "",
     url: "/graphql",
@@ -231,7 +251,7 @@ export function newEndpointDefinition(): EndpointDefinition {
 
 /** Fills in what a hand-written file may leave out, so the form has every field. */
 export function normalizeDefinition(d: Partial<EndpointDefinition>): EndpointDefinition {
-  const base = newEndpointDefinition();
+  const base = endpointDefaults();
   return {
     ...base,
     ...d,

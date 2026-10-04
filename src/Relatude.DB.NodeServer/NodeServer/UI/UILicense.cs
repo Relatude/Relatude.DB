@@ -41,8 +41,8 @@ sealed class UILicense(RelatudeDBServer server) {
         // Only the API key is pasted in. Before it is saved it is checked with the license server,
         // whose answer names the license - and so the license key, which is saved beside it. A key
         // the server does not take is refused here with its reason rather than saved. Either way to a
-        // license - this or pairing - also tells the sign-in its public address, when it has none: the
-        // address the page is used on (LicenseLogin.RememberPublicUrl).
+        // license - this or pairing - also tells the sign-in that the address the page is used on is one
+        // of its public addresses (LicenseLogin.RememberPublicUrl), as opening the admin UI does.
         commands.Register("license-look-up", async ctx => {
             var found = await lookUp(ctx.Payload<LookUpPayload>().ApiKey, ctx.Http.RequestAborted);
             server.LicenseLogin.RememberPublicUrl(ctx.Http);

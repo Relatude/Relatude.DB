@@ -357,6 +357,12 @@ a {
   border-color: var(--danger);
 }
 
+/* a task another session runs (another tab, another user, this tab before a reload): the same chip,
+   its border dashed - it is being watched from here, not run from here */
+.task-chip.remote {
+  border-style: dashed;
+}
+
 .task-chip-open {
   display: flex;
   align-items: center;
@@ -2308,6 +2314,11 @@ a {
   font-weight: 600;
 }
 
+.startup-exception-restart {
+  margin-top: 4px;
+  color: var(--text-soft);
+}
+
 /* ---- the drives, in the last squares of the host facts ---- */
 
 .host-disk .fact-k,
@@ -3410,6 +3421,12 @@ a.action-button {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 7px;
+}
+
+/* who started a task this tab only follows, under the title */
+.dialog-origin {
+  margin: -6px 0 10px;
+  font-size: 11.5px;
 }
 
 .dialog-label {

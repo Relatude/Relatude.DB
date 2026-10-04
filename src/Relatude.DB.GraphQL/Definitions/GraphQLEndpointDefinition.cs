@@ -45,6 +45,12 @@ public sealed class GraphQLEndpointDefinition {
     /// <summary>How many nodes the facet search's picture may hold; a larger result shows its first ones.</summary>
     public int MaxFacetCards { get; set; } = DefaultMaxFacetCards;
     public const int DefaultMaxFacetCards = 200_000;
+    /// <summary>
+    /// The node type the explorer's first query and guide, and the facet search's page, open on. Null, or a type the
+    /// endpoint does not expose, leaves the choice to them: the facet search opens on the first exposed type, the
+    /// explorer on the type with the most to show.
+    /// </summary>
+    public Guid? DefaultNodeTypeId { get; set; }
     /// <summary>Whole-datamodel mode only: also expose the built-in system node types (users, groups, cultures...).</summary>
     public bool IncludeSystemTypes { get; set; }
     /// <summary>When set, requests must carry it in an "X-Api-Key" header or as a bearer token.</summary>

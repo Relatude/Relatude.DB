@@ -87,14 +87,18 @@ public partial class RelatudeDBServer {
     /// that callers on a request thread should start it on a background thread and watch
     /// <see cref="RestartCount"/> instead of waiting for it.</para>
     /// </summary>
-    public async Task<bool> SoftRestartAsync() {
+    public Task<bool> SoftRestartAsync() {
         if (!AllowedRestarts.HasFlag(RestartOptions.Soft)) throw new InvalidOperationException("Soft restart is disabled by ServerOptions.AllowedRestarts. ");
+        return softRestartAsync("Soft restart requested.");
+    }
+    // AllowedRestarts governs the admin UI; the server's own restarts (see ServerOptions.StartupRestartAttempts) come here directly
+    async Task<bool> softRestartAsync(string reason) {
         if (IsShuttingDown) return false;
         if (Interlocked.CompareExchange(ref _restartPhase, 1, 0) != 0) return false; // one at a time
         var sw = Stopwatch.StartNew();
         var timeout = Options?.ShutdownTimeout ?? ServerOptions.DefaultShutdownTimeout;
         try {
-            logRestart("Soft restart requested. Holding application requests.");
+            logRestart(reason + " Holding application requests.");
             drainRequests(timeout / 4);
             // a database still replaying its log cannot be flushed, and disposing it pulls the WAL and
             // the indexes out from under the opening thread - the same reason the shutdown waits

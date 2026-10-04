@@ -266,9 +266,16 @@ sealed class UIDashboard {
             .Select(a => (object)new { Category = a.Category.ToString(), a.Description, a.PercentageProgress })];
     }
 
-    static object? startupError(NodeStoreContainer c) {
+    object? startupError(NodeStoreContainer c) {
         if (c.StartUpException == null) return null;
-        return new { TimeUtc = utc(c.StartUpExceptionDateTimeUTC), c.StartUpException.Message };
+        // a lock on the default database's files at startup makes the server restart itself, and
+        // the page says when, so nobody starts it by hand a minute before it would have
+        var restart = c == _server.DefaultContainer ? _server.ScheduledStartupRestart : null;
+        return new {
+            TimeUtc = utc(c.StartUpExceptionDateTimeUTC),
+            c.StartUpException.Message,
+            Restart = restart == null ? null : new { DueUtc = utc(restart.DueUtc), restart.Attempt, restart.Attempts },
+        };
     }
 
     /// <summary>The engines actually behind this database, named as one line each: which ones are in

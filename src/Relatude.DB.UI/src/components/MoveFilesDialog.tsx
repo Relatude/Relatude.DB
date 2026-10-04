@@ -14,9 +14,10 @@ export interface MoveChoice {
 interface Props {
   mode: "move" | "copy"; // what the button that opened the dialog asked for; the dialog can switch it
   source: IoInfo;
-  targets: IoInfo[]; // every other storage of the database, never empty
+  targets: IoInfo[]; // every storage of the database, the source among them
   what: string; // "3 files and 2 folders"
   fromPath: string; // the open folder, which the target folder starts out as
+  allInOpenFolder: boolean; // everything selected sits directly in the open folder (nothing from a deep listing or a ticked folder elsewhere)
   touchesPrimary: boolean; // some of it is the database's own data
   show: (path: string) => string; // a path as the Files view shows it (friendly names)
   onCancel: () => void;
@@ -26,11 +27,13 @@ interface Props {
 const targetKey = "filesMoveTarget"; // the storage moved into last, offered first next time
 
 /**
- * Where the selection of the Files view goes - moved or copied: which storage, which folder in it,
- * and what happens to a file that is there already. Move and Copy each have a button in the toolbar,
- * and the switch at the top of the dialog changes between them without starting over. The folder starts out as the one open here, so a move from one
+ * Where the selection of the Files view goes - moved or copied: which storage (this one, for another
+ * folder of it, or another), which folder in it, and what happens to a file that is there already.
+ * Move and Copy each have a button in the toolbar, and the switch at the top of the dialog changes
+ * between them without starting over. The folder starts out as the one open here, so a move from one
  * storage to another keeps the layout it had, and can be typed - a folder not there yet is made - or
- * picked from the target's own tree below the field.
+ * picked from the target's own tree below the field. A copy into the very folder it comes from is
+ * given names of its own ("name - Copy.ext"); a move there would change nothing, and is not offered.
  *
  * The dialog is its own confirmation, the way the time travel dialog is: it says what will happen,
  * and the button is what does it. Only a move out of the database's own data folders is asked about
@@ -44,7 +47,7 @@ export function MoveFilesDialog(p: Props) {
     } catch {
       // storage blocked: the first one it is
     }
-    return p.targets.find((t) => t.id === remembered)?.id ?? p.targets[0].id;
+    return (p.targets.find((t) => t.id === remembered) ?? p.targets.find((t) => t.id === p.source.id) ?? p.targets[0]).id;
   });
   const target = p.targets.find((t) => t.id === toIoId) ?? p.targets[0];
   const [folder, setFolder] = useState(p.fromPath);
@@ -52,7 +55,11 @@ export function MoveFilesDialog(p: Props) {
   const [keep, setKeep] = useState(p.mode === "copy");
   const plain = target.kind === "projectRoot";
   const targetPath = normalizeFolder(folder);
-  const problem = folderProblem(folder, plain);
+  const same = target.id === p.source.id;
+  // into the folder it all is in already: a move would leave everything where it is, a copy makes
+  // copies beside the originals
+  const intoItself = same && p.allInOpenFolder && targetPath === normalizeFolder(p.fromPath);
+  const problem = folderProblem(folder, plain) ?? (intoItself && !keep ? "That is the folder they are in - pick the one to move them to." : null);
   const verb = keep ? "Copy" : "Move";
 
   function submit() {
@@ -79,7 +86,7 @@ export function MoveFilesDialog(p: Props) {
         }}
       >
         <h3>
-          {verb} {p.what} to another storage
+          {verb} {p.what}
           <DialogTools onClose={p.onCancel} closeTitle="Cancel" />
         </h3>
         <div className="module-switch compact move-mode" role="tablist" aria-label="Move or copy">
@@ -92,8 +99,12 @@ export function MoveFilesDialog(p: Props) {
         </div>
         <div className="dialog-body">
           {keep
-            ? `Copies ${p.what} from ${p.source.name}; nothing here is changed.`
-            : `Moves ${p.what} out of ${p.source.name}. Each file is copied, checked and only then deleted here, so it is always in one place or the other; a file that is in use stays where it is.`}{" "}
+            ? same
+              ? `Copies ${p.what} within ${p.source.name}; nothing here is changed.`
+              : `Copies ${p.what} from ${p.source.name}; nothing here is changed.`
+            : same
+              ? `Moves ${p.what} to another folder of ${p.source.name}. A file that is in use stays where it is.`
+              : `Moves ${p.what} out of ${p.source.name}. Each file is copied, checked and only then deleted here, so it is always in one place or the other; a file that is in use stays where it is.`}{" "}
           Folders arrive with everything in them.
         </div>
         <label className="dialog-field">
@@ -101,7 +112,7 @@ export function MoveFilesDialog(p: Props) {
           <select className="select" value={target.id} onChange={(e) => setToIoId(e.target.value)}>
             {p.targets.map((candidate) => (
               <option key={candidate.id} value={candidate.id}>
-                {candidate.kind === "projectRoot" ? candidate.name : `${candidate.name} (${candidate.type})`}
+                {(candidate.kind === "projectRoot" ? candidate.name : `${candidate.name} (${candidate.type})`) + (candidate.id === p.source.id ? " - this storage" : "")}
               </option>
             ))}
           </select>
@@ -122,7 +133,13 @@ export function MoveFilesDialog(p: Props) {
             spellCheck={false}
             autoComplete="off"
           />
-          {problem ? <span className="dialog-error">{problem}</span> : <span className="muted">Pick a folder below, or type one - folders that are not there yet are made.</span>}
+          {problem ? (
+            <span className="dialog-error">{problem}</span>
+          ) : intoItself ? (
+            <span className="muted">The folder they are in: each copy is named after its original, with &quot; - Copy&quot; added.</span>
+          ) : (
+            <span className="muted">Pick a folder below, or type one - folders that are not there yet are made.</span>
+          )}
         </label>
         <TargetFolders key={target.id} io={target} value={targetPath} onPick={setFolder} show={p.show} />
         <div className="move-options">
@@ -241,7 +258,7 @@ function TargetFolders({ io, value, onPick, show }: { io: IoInfo; value: string;
     );
   }
 
-  return <div className="move-tree">{row("", io.kind === "projectRoot" ? "[Server root]" : "Storage root", 0, true)}</div>;
+  return <div className="move-tree">{row("", io.name, 0, true)}</div>;
 }
 
 // "", "a", "a/b" for "a/b/c": the folders to open for c to show - and the root at least, so its

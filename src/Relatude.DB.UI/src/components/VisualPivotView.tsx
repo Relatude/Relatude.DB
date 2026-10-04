@@ -257,7 +257,7 @@ export function VisualPivotView({
   /**
    * The picture on its own, to be looked at rather than worked with - the facet page of a GraphQL
    * endpoint: the builder keeps the colour, the bars and the depth and drops the rest of its knobs,
-   * and the query is never shown. Nothing opens or selects cards there either (no onOpen).
+   * and the query is never shown. Nothing selects cards there; a click opens what the page opens for one (onOpen).
    */
   simple?: boolean;
 }) {

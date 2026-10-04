@@ -121,16 +121,19 @@ sealed class UIGraphQL(RelatudeDBServer server) {
             state = c.StateName,
             adminRoot = server.ApiUrlRoot,
             endpoints = files.Select(f => f.Definition == null
-                ? new EndpointSummary(null, f.FileName, f.FileName, null, false, "Selected", false, false, false, false, false, 0, 0, f.Error)
+                ? new EndpointSummary(null, f.FileName, f.FileName, null, false, "Selected", false, false, false, false, false, false, 0, 0, f.Error)
                 : new EndpointSummary(f.Definition.Id, f.Definition.Name, f.FileName, f.Definition.Url, f.Definition.Enabled, f.Definition.Mode.ToString(),
                     f.Definition.ExactNames, f.Definition.AllowMutations, f.Definition.EnableExplorer, f.Definition.EnableFacetSearch, f.Definition.EnableIntrospection,
+                    !string.IsNullOrEmpty(f.Definition.ApiKey),
                     f.Definition.Mode == GraphQLEndpointMode.WholeDatamodel ? (dm == null ? 0 : exposableTypes(dm, f.Definition.IncludeSystemTypes).Count()) : f.Definition.Types.Count,
                     f.Definition.Views.Count, null)).ToList(),
             catalog = dm == null ? null : catalog(dm),
+            // a url is the server's, across every database, so a new endpoint is given one nobody answers on yet
+            usedUrls = server.GraphQL.AllDefinitions().Select(d => GraphQLEndpointDefinition.NormalizeUrl(d.Url)).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
         };
     }
 
-    sealed record EndpointSummary(Guid? Id, string Name, string File, string? Url, bool Enabled, string Mode, bool ExactNames, bool AllowMutations, bool Explorer, bool Facets, bool Introspection, int TypeCount, int ViewCount, string? Error);
+    sealed record EndpointSummary(Guid? Id, string Name, string File, string? Url, bool Enabled, string Mode, bool ExactNames, bool AllowMutations, bool Explorer, bool Facets, bool Introspection, bool ApiKey, int TypeCount, int ViewCount, string? Error);
 
     static IEnumerable<NodeTypeModel> exposableTypes(Datamodel dm, bool includeSystem)
         => dm.NodeTypes.Values.Where(t => t.Id != NodeConstants.BaseNodeTypeId && !t.Hidden && !t.IsInnerNode && (includeSystem || t.Namespace != "Relatude.DB.Native.Models"));

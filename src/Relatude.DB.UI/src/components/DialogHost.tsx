@@ -3,10 +3,14 @@ import { createPortal } from "react-dom";
 import { IconAlertTriangle, IconCheck, IconLoader2, IconMinus, IconX } from "@tabler/icons-react";
 import { DialogTools } from "./DialogTools";
 import { SpeedGraph } from "./SpeedGraph";
+import { useLive } from "../live";
+import { formatTime } from "../format";
+import type { SharedTaskInfo } from "../server/sharedTasks";
 import {
   acceptChoice,
   acceptConfirm,
   acceptPrompt,
+  applySharedTasks,
   cancelProgress,
   closeDialog,
   dismissProgress,
@@ -206,10 +210,19 @@ function percentOf(task: ProgressState): number | null {
   return task.total != null && task.total > 0 ? Math.min(100, Math.round((task.done / task.total) * 100)) : null;
 }
 
+// "Started by ole at 14:02", for a task this tab only follows
+function startedBy(task: ProgressState): string | null {
+  if (!task.remote) return null;
+  const at = formatTime(task.remote.startedUtc);
+  return task.remote.startedBy ? `Started by ${task.remote.startedBy}, ${at}` : `Started ${at}`;
+}
+
 function ProgressDialog({ dialog }: { dialog: ProgressState }) {
   const running = dialog.status === "running";
   const pct = percentOf(dialog);
   const canMinimize = running && dialog.minimizable;
+  const canCancel = running && dialog.cancellable;
+  const origin = startedBy(dialog);
   return (
     // a task that may be put away is not truly modal: clicking beside it puts it in the bar rather
     // than doing nothing, the way the button does
@@ -218,13 +231,14 @@ function ProgressDialog({ dialog }: { dialog: ProgressState }) {
         <h3>
           {dialog.title}
           {/* the cross does what the button below it does: a running task is closed by cancelling
-              it, a finished one by dismissing it */}
+              it, a finished one by dismissing it - and one nothing can stop is put away */}
           <DialogTools
             onMinimize={canMinimize ? () => minimizeProgress(dialog.id) : undefined}
-            onClose={running ? () => cancelProgress(dialog.id) : closeDialog}
-            closeTitle={running ? "Cancel" : "Close"}
+            onClose={canCancel ? () => cancelProgress(dialog.id) : running ? () => minimizeProgress(dialog.id) : closeDialog}
+            closeTitle={canCancel ? "Cancel" : running ? "Minimize" : "Close"}
           />
         </h3>
+        {origin && <div className="dialog-origin muted">{origin}</div>}
         <div className="dialog-label" title={dialog.message ?? dialog.label}>
           {dialog.message ?? dialog.label ?? ""}
         </div>
@@ -244,9 +258,15 @@ function ProgressDialog({ dialog }: { dialog: ProgressState }) {
           </span>
           <div className="header-spacer" />
           {running ? (
-            <button className="action-button" onClick={() => cancelProgress(dialog.id)}>
-              Cancel
-            </button>
+            canCancel ? (
+              <button className="action-button" onClick={() => cancelProgress(dialog.id)}>
+                Cancel
+              </button>
+            ) : canMinimize ? (
+              <button className="action-button" onClick={() => minimizeProgress(dialog.id)} title="It runs on the server until it is done; put it in the top bar meanwhile">
+                Minimize
+              </button>
+            ) : null
           ) : (
             <button className="action-button" onClick={closeDialog}>
               Close
@@ -263,8 +283,13 @@ function ProgressDialog({ dialog }: { dialog: ProgressState }) {
  * holding the UI still, but it still has to be somewhere: one chip per task, counting where the
  * dialog was counting, clicked to bring the dialog back. A finished one says how it went and takes
  * itself away shortly after; a failed one stays until it has been read.
+ *
+ * The bar is also where the long jobs of every other session show up: it follows the server's task
+ * board (see dialogs.ts, applySharedTasks), on a cadence of its own - the refresh rate in the top bar
+ * is about the pages, and pausing them must not freeze a chip that is counting.
  */
 export function MinimizedProgress() {
+  useLive<SharedTaskInfo[]>("shared-tasks", null, (list) => applySharedTasks(Array.isArray(list) ? list : []), { fixedMs: 1000 });
   const tasks = useSyncExternalStore(subscribeDialogs, getMinimizedProgress);
   if (tasks.length === 0) return null;
   return (
@@ -273,9 +298,11 @@ export function MinimizedProgress() {
         const pct = percentOf(task);
         const running = task.status === "running";
         const line = task.message ?? task.label;
+        const origin = startedBy(task);
+        const tip = [line ? `${task.title} - ${line}` : task.title, origin].filter(Boolean).join("\n");
         return (
-          <div key={task.id} className={"task-chip " + task.status}>
-            <button className="task-chip-open" onClick={() => restoreProgress(task.id)} title={line ? `${task.title} - ${line}` : task.title}>
+          <div key={task.id} className={"task-chip " + task.status + (task.remote ? " remote" : "")}>
+            <button className="task-chip-open" onClick={() => restoreProgress(task.id)} title={tip}>
               <span className="task-chip-icon">
                 {task.status === "error" ? (
                   <IconAlertTriangle size={13} stroke={2} />
@@ -293,9 +320,11 @@ export function MinimizedProgress() {
               </span>
             </button>
             {running ? (
-              <button className="icon-button task-chip-side" onClick={() => cancelProgress(task.id)} title="Cancel">
-                <IconX size={13} stroke={2} />
-              </button>
+              task.cancellable && (
+                <button className="icon-button task-chip-side" onClick={() => cancelProgress(task.id)} title="Cancel">
+                  <IconX size={13} stroke={2} />
+                </button>
+              )
             ) : (
               <button className="icon-button task-chip-side" onClick={() => dismissProgress(task.id)} title="Dismiss">
                 <IconX size={13} stroke={2} />

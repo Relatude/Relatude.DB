@@ -23,6 +23,7 @@ namespace Relatude.DB.NodeServer.GraphQL;
 ///   POST visual       {typeId, text, selections, properties, sortBy, sortDescending}: the cards, as the admin picture gets them
 ///   POST cards        {ids}: the names and picture properties of the cards on screen
 ///   POST card-images  {level, items}: their pictures, streamed (no tiles)
+///   POST node         {id}: one card's node, its properties as text, for the dialog a click on a card opens
 ///
 /// Three things differ from the admin UI, and all three are about who is asking. The search reads in the endpoint's
 /// query context, so it sees what a GraphQL query of the endpoint sees and not what an administrator does. Only the
@@ -39,6 +40,7 @@ public sealed class GraphQLFacetSearch : IGraphQLFacetSearch {
     static readonly JsonSerializerOptions _read = new(RelatudeDBJsonOptions.Default) { PropertyNameCaseInsensitive = true };
 
     sealed class BadRequest(string message) : Exception(message) { }
+    sealed class NotFound(string message) : Exception(message) { }
 
     public async Task HandleAsync(HttpContext http, RelatudeGraphQL endpoint, string action, QueryContext? queryContext) {
         var store = nodeStoreOf(endpoint.Store);
@@ -66,6 +68,11 @@ public sealed class GraphQLFacetSearch : IGraphQLFacetSearch {
                         await write(http, UIQuery.CardsOf(store, request.Ids, queryContext, rulesOf(scope)));
                         return;
                     }
+                case "node": {
+                        var request = await read<NodeRequest>(http);
+                        await write(http, node(store, scope, request.Id, queryContext));
+                        return;
+                    }
                 case "card-images": {
                         var request = await read<CardImagesRequest>(http);
                         // no tiles: the page draws its cards as solids, whose faces have no part of a picture "in view"
@@ -80,7 +87,7 @@ public sealed class GraphQLFacetSearch : IGraphQLFacetSearch {
         } catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested) {
             // the page moved on: what it no longer wants is simply not sent
         } catch (Exception ex) when (!http.Response.HasStarted) {
-            var status = ex is BadRequest or JsonException ? StatusCodes.Status400BadRequest : StatusCodes.Status500InternalServerError;
+            var status = ex is BadRequest or JsonException ? StatusCodes.Status400BadRequest : ex is NotFound ? StatusCodes.Status404NotFound : StatusCodes.Status500InternalServerError;
             await GraphQLHttpHandler.WriteErrorsAsync(http, status, ex.Message);
         }
     }
@@ -103,10 +110,10 @@ public sealed class GraphQLFacetSearch : IGraphQLFacetSearch {
         await JsonSerializer.SerializeAsync(http.Response.Body, value, RelatudeDBJsonOptions.Default, http.RequestAborted);
     }
 
-    /// <summary>The type asked for when it is one the endpoint exposes; its first type when none is named.</summary>
+    /// <summary>The type asked for when it is one the endpoint exposes; the type the page opens on when none is named.</summary>
     static NodeTypeModel typeOf(GraphQLFacetScope scope, Guid? typeId) {
-        if (scope.Types.Count == 0) throw new BadRequest("The endpoint exposes no node types to search.");
-        if (typeId is not Guid id) return scope.Types[0];
+        if (scope.DefaultType == null) throw new BadRequest("The endpoint exposes no node types to search.");
+        if (typeId is not Guid id) return scope.DefaultType;
         return scope.Types.FirstOrDefault(t => t.Id == id) ?? throw new BadRequest("The endpoint does not expose that type.");
     }
 
@@ -127,6 +134,7 @@ public sealed class GraphQLFacetSearch : IGraphQLFacetSearch {
             Name = string.IsNullOrWhiteSpace(definition.Name) ? "GraphQL" : definition.Name.Trim(),
             definition.Description,
             Types = endpoint.FacetScope.Types.Select(t => new { t.Id, Name = t.CodeName, Count = count(s, t, ctx) }).ToArray(),
+            DefaultTypeId = endpoint.FacetScope.DefaultType?.Id,
             MaxCards = Math.Max(1, definition.MaxFacetCards),
         };
     }
@@ -209,7 +217,83 @@ public sealed class GraphQLFacetSearch : IGraphQLFacetSearch {
         return await UIQuery.VisualOf(s, payload, ctx, Math.Max(1, maxCards));
     }
 
+    /// <summary>How many related or referenced nodes a property lists by name; the rest are counted.</summary>
+    const int maxListedNodes = 20;
+    /// <summary>How much of a text is sent: the dialog is for reading a node, not for downloading its content.</summary>
+    const int maxTextLength = 2000;
+
+    /// <summary>
+    /// One card's node as the endpoint shows it, for the dialog a click on a card opens: the type it is seen as, the
+    /// system fields every node has in the schema, and the properties behind its type's fields, under their datamodel
+    /// names, as text. Read in the endpoint's query context, so a node the endpoint's readers may not see is not found,
+    /// and a related or referenced node is only named when the endpoint shows it too; a long relation lists its first
+    /// few and counts the rest, and a long text is cut.
+    /// </summary>
+    static object node(NodeStore s, GraphQLFacetScope scope, int id, QueryContext? ctx) {
+        var dm = s.Datastore.Datamodel;
+        if (!s.Datastore.TryGet(id, out var n, ctx) || scope.SeenAs(n.NodeType) is not NodeTypeModel seenAs) throw new NotFound("The node is not shown by this endpoint.");
+        string nameOf(INodeData node) => UIQuery.nameOf(dm, node, propertyId => scope.Shows(node.NodeType, propertyId)).Name;
+        string[] namesOf(IEnumerable<Guid> ids) {
+            var names = new List<string>();
+            foreach (var related in ids.Where(g => g != Guid.Empty).Take(maxListedNodes)) {
+                if (s.Datastore.TryGet(related, out var r, ctx) && scope.ShowsType(r.NodeType)) names.Add(nameOf(r));
+            }
+            return [.. names];
+        }
+        var properties = new List<NodeProperty>();
+        foreach (var p in scope.PropertiesShown(n.NodeType)) {
+            if (p.Internal) continue;
+            var kind = p switch {
+                RelationPropertyModel r => r.IsMany ? "Relation (many)" : "Relation",
+                ReferencesPropertyModel => "References",
+                ReferencePropertyModel => "Reference",
+                IntegerPropertyModel { IsEnum: true } => "Enum",
+                _ => p.PropertyType.ToString(),
+            };
+            try {
+                switch (p) {
+                    case RelationPropertyModel r: {
+                            var count = s.Datastore.GetRelatedCountFromPropertyId(p.Id, n.Id, ctx);
+                            var names = count == 0 ? [] : namesOf(s.Datastore.GetRelatedNodeIdsFromRelationId(r.RelationId, n.Id, r.FromTargetToSource, ctx));
+                            properties.Add(new NodeProperty(p.Id, p.CodeName, kind, null, names, count));
+                            break;
+                        }
+                    case ReferencePropertyModel: {
+                            var names = n.TryGetValue(p.Id, out var value) && value is Guid one ? namesOf([one]) : [];
+                            properties.Add(new NodeProperty(p.Id, p.CodeName, kind, null, names, names.Length));
+                            break;
+                        }
+                    case ReferencesPropertyModel: {
+                            var ids = n.TryGetValue(p.Id, out var value) && value is Guid[] many ? many : [];
+                            properties.Add(new NodeProperty(p.Id, p.CodeName, kind, null, namesOf(ids), ids.Length));
+                            break;
+                        }
+                    default: {
+                            var text = n.TryGetValue(p.Id, out var value) ? UIQuery.display(p, value) : "";
+                            if (text.Length > maxTextLength) text = text[..maxTextLength] + "…";
+                            properties.Add(new NodeProperty(p.Id, p.CodeName, kind, text, null, null));
+                            break;
+                        }
+                }
+            } catch {
+                properties.Add(new NodeProperty(p.Id, p.CodeName, kind, null, null, null)); // one value the store cannot read must not lose the others
+            }
+        }
+        return new {
+            n.Id,
+            Type = seenAs.CodeName,
+            Name = nameOf(n),
+            n.CreatedUtc,
+            n.ChangedUtc,
+            Properties = properties,
+        };
+    }
+
+    /// <summary>One property of a node in the dialog: a value as text, or the nodes it leads to by name with how many there are.</summary>
+    sealed record NodeProperty(Guid Id, string Name, string Kind, string? Value, string[]? Nodes, int? Count);
+
     sealed record TypeRequest(Guid? TypeId);
+    sealed record NodeRequest(int Id);
     sealed record SearchRequest(Guid? TypeId, string? Text, UIQuery.FacetSelection[]? Selections, Guid[]? Expanded);
     sealed record VisualRequest(Guid? TypeId, string? Text, UIQuery.FacetSelection[]? Selections, UIQuery.VisualLevelPayload[]? Properties,
         Guid? SortBy = null, bool SortDescending = false, int MaxCards = 0);

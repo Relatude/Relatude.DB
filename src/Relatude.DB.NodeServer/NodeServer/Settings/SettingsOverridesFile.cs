@@ -18,7 +18,7 @@ namespace Relatude.DB.NodeServer.Settings;
 /// over relatude.db.json, and the RelatudeDB configuration section over both. A deployment that
 /// replaces relatude.db.json keeps what was changed here, and relatude.db.json keeps its comments.</para>
 ///
-/// <para>The file is kept with the default database, at the root of its storage, unless
+/// <para>The file is kept with the default database, in the overrides folder of its storage, unless
 /// <see cref="ServerOptions.SettingsOverridesFilePath"/> names a file; see
 /// <see cref="SettingsOverridesLocation"/> for how that is found.</para>
 ///
@@ -29,8 +29,10 @@ namespace Relatude.DB.NodeServer.Settings;
 public sealed class SettingsOverridesFile {
     public const string FileName = "relatude.db.overrides.json";
     /// <summary>Where the file is kept when there is no default database to keep it with: relative to
-    /// the root data folder, where a new installation's database folder would be.</summary>
-    public static readonly string FallbackRelativePath = Path.Combine(Defaults.DataFolderPath, FileName);
+    /// the root data folder, in the overrides folder of where a new installation's database folder would be.</summary>
+    public static readonly string FallbackRelativePath = Path.Combine(Defaults.DataFolderPath, SettingsOverridesLocation.FolderName, FileName);
+    /// <summary>The same, as older versions had it: in that folder itself.</summary>
+    public static readonly string LegacyFallbackRelativePath = Path.Combine(Defaults.DataFolderPath, FileName);
 
     static readonly TimeSpan _writeTimeout = TimeSpan.FromSeconds(10);
     const string _header =
@@ -39,6 +41,9 @@ public sealed class SettingsOverridesFile {
         + "// on every save from the settings pages; use \"Move into relatude.db.json\" there to make a change permanent.\n";
 
     SettingsOverridesLocation _location;
+    // where the file was read from when that was the place older versions kept it: taken away once
+    // the file has been written where it belongs
+    SettingsOverridesLocation? _readFromLegacy;
     readonly string? _unavailable;
     JsonObject _base;
     JsonObject _patch;
@@ -54,7 +59,7 @@ public sealed class SettingsOverridesFile {
     /// <summary>Where the file is.</summary>
     public SettingsOverridesLocation Location => _location;
     /// <summary>Where the file is, for people.</summary>
-    public string Display => _location.Display;
+    public string Display => (_readFromLegacy ?? _location).Display;
     /// <summary>Why the file could not be read at start, when it could not. The server then runs without
     /// it and refuses to save, since a save would write over what the file holds.</summary>
     public string? Unavailable => _unavailable;
@@ -83,6 +88,13 @@ public sealed class SettingsOverridesFile {
         out RelatudeDBServerSettings effective) {
         var baseJson = ToJson(fileSettings);
         var read = readFile(location);
+        // not where it belongs, but where an older version put it: read from there, and moved by the
+        // next save (the server moves it at start already, see MoveFromLegacyPlace)
+        SettingsOverridesLocation? legacy = null;
+        if (read == null && location.Legacy is { } old && exists(old)) {
+            read = readFile(old);
+            legacy = old;
+        }
         effective = fileSettings;
         if (read == null) return new SettingsOverridesFile(location, baseJson, new JsonObject());
         var patch = normalizeObject(read, typeof(RelatudeDBServerSettings), "", warn);
@@ -98,7 +110,7 @@ public sealed class SettingsOverridesFile {
         // what the file says once read: values written the way the settings write them, and nothing
         // that changes nothing, so the page and the next save see the same difference
         var normalized = SettingsPatch.Diff(baseJson, ToJson(applied));
-        var file = new SettingsOverridesFile(location, baseJson, normalized);
+        var file = new SettingsOverridesFile(location, baseJson, normalized) { _readFromLegacy = legacy };
         if (file.Entries.Count == 0) return file;
         effective = applied;
         info("Settings from " + location.Display + " applied: " + string.Join(", ", file.Entries.Select(e => SettingsPatch.Display(e.Path)
@@ -120,11 +132,36 @@ public sealed class SettingsOverridesFile {
     public bool Save(JsonObject fileLayer) {
         requireAvailable();
         var next = SettingsPatch.Diff(_base, fileLayer);
-        if (JsonNode.DeepEquals(next, _patch) && (next.Count > 0) == exists(_location)) return false;
+        if (JsonNode.DeepEquals(next, _patch) && (next.Count > 0) == exists(_location) && _readFromLegacy == null) return false;
         write(_location, next);
         _patch = next;
         _entries = null;
+        leaveLegacyPlace();
         return true;
+    }
+
+    /// <summary>
+    /// Moves a file older versions kept at the storage root into the overrides folder, where
+    /// <paramref name="location"/> says it belongs: written there first, then taken away from the root.
+    /// The text goes across as it is, comments and all. Does nothing when there is no such file, or when
+    /// there already is one in the overrides folder. Returns true when it moved the file.
+    /// </summary>
+    public static bool MoveFromLegacyPlace(SettingsOverridesLocation location) {
+        if (location.Legacy is not { } legacy || exists(location) || !exists(legacy)) return false;
+        var text = readText(legacy);
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        writeText(location, text);
+        writeText(legacy, null);
+        return true;
+    }
+    void leaveLegacyPlace() {
+        if (_readFromLegacy == null) return;
+        try {
+            writeText(_readFromLegacy, null);
+        } catch {
+            // the file is where it belongs now; the copy left behind is read no more
+        }
+        _readFromLegacy = null;
     }
 
     /// <summary>relatude.db.json as it would be with the entries <paramref name="keep"/> accepts merged
@@ -151,6 +188,7 @@ public sealed class SettingsOverridesFile {
         if (location.SameAs(_location)) return false;
         if (_patch.Count > 0) write(location, _patch);
         write(_location, new JsonObject()); // an empty patch deletes the file
+        leaveLegacyPlace();
         _location = location;
         return true;
     }
@@ -195,17 +233,19 @@ public sealed class SettingsOverridesFile {
     // ---- the file ----
 
     static bool exists(SettingsOverridesLocation location)
-        => location.DiskPath != null ? File.Exists(location.DiskPath) : location.Io!.Exists(SettingsOverridesLocation.FileKey);
+        => location.DiskPath != null ? File.Exists(location.DiskPath) : location.Io!.Exists(location.Key);
 
-    static JsonObject? readFile(SettingsOverridesLocation location) {
-        string? text;
+    static string? readText(SettingsOverridesLocation location) {
         if (location.DiskPath != null) {
             var path = location.DiskPath;
-            text = File.Exists(path) ? FileOpenRetry.Open(path, () => File.ReadAllText(path)) : null;
-        } else {
-            var io = location.Io!;
-            text = io.ExistsAndIsNotEmpty(SettingsOverridesLocation.FileKey) ? io.ReadAllTextUTF8(SettingsOverridesLocation.FileKey) : null;
+            return File.Exists(path) ? FileOpenRetry.Open(path, () => File.ReadAllText(path)) : null;
         }
+        var io = location.Io!;
+        return io.ExistsAndIsNotEmpty(location.Key) ? io.ReadAllTextUTF8(location.Key) : null;
+    }
+
+    static JsonObject? readFile(SettingsOverridesLocation location) {
+        var text = readText(location);
         if (string.IsNullOrWhiteSpace(text)) return null;
         try {
             var node = JsonNode.Parse(text, null, new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
@@ -217,8 +257,11 @@ public sealed class SettingsOverridesFile {
     }
 
     // an empty patch deletes the file
-    static void write(SettingsOverridesLocation location, JsonObject patch) {
-        var text = patch.Count == 0 ? null : _header + patch.ToJsonString(LocalSettingsLoaderFile.JsonOptions) + Environment.NewLine;
+    static void write(SettingsOverridesLocation location, JsonObject patch)
+        => writeText(location, patch.Count == 0 ? null : _header + patch.ToJsonString(LocalSettingsLoaderFile.JsonOptions) + Environment.NewLine);
+
+    // null deletes the file
+    static void writeText(SettingsOverridesLocation location, string? text) {
         if (location.DiskPath != null) {
             var path = location.DiskPath;
             if (text == null) {
@@ -236,8 +279,8 @@ public sealed class SettingsOverridesFile {
         }
         // blob storage and memory: a provider can only delete and write again
         var io = location.Io!;
-        if (text == null) io.DeleteFileIfItExists(SettingsOverridesLocation.FileKey);
-        else io.WriteAllTextUTF8(SettingsOverridesLocation.FileKey, text);
+        if (text == null) io.DeleteFileIfItExists(location.Key);
+        else io.WriteAllTextUTF8(location.Key, text);
     }
 
     // ---- reading what was written by hand ----

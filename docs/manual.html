@@ -3190,7 +3190,7 @@ own description of itself — usually written by a developer, kept in source con
 the application — while what an administrator changes belongs to the installation. So every save from
 the settings pages compares the settings in force with <code>relatude.db.json</code> as it was read, and writes
 only the difference to <code>relatude.db.overrides.json</code>, kept with the default database:</p>
-<div class="codehilite"><pre><span></span><code><span class="c1">// relatude.db/relatude.db.overrides.json, beside the default database&#39;s data/ and state/ folders</span>
+<div class="codehilite"><pre><span></span><code><span class="c1">// relatude.db/overrides/relatude.db.overrides.json, beside the default database&#39;s data/ and state/ folders</span>
 <span class="p">{</span>
 <span class="w">  </span><span class="s">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Production&quot;</span><span class="p">,</span>
 <span class="w">  </span><span class="s">&quot;ContainerSettings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
@@ -3265,11 +3265,13 @@ the server's settings and every database's — with both values side by side:</p
 <li><strong>Discard</strong> puts back what <code>relatude.db.json</code> says for the selected entries — a value, a removed
   element restored, an added element taken out again — and saves.</li>
 </ul>
-<p><strong>Where the file is.</strong> It is kept with the default database — the one <code>DefaultStoreId</code> names — at the
-root of the storage provider that database keeps its files in. On local disk that is beside its
-<code>data/</code>, <code>state/</code> and <code>log/</code> folders, so with the default settings <code>relatude.db/relatude.db.overrides.json</code>;
-on Azure Blob storage it is a blob in the database's container. Wherever the database's files go, the
-admin UI's changes go with them.</p>
+<p><strong>Where the file is.</strong> It is kept with the default database — the one <code>DefaultStoreId</code> names — in an
+<code>overrides/</code> folder at the root of the storage provider that database keeps its files in. On local
+disk that folder is beside its <code>data/</code>, <code>state/</code> and <code>log/</code> folders, so with the default settings
+<code>relatude.db/overrides/relatude.db.overrides.json</code>; on Azure Blob storage it is a blob under
+<code>overrides/</code> in the database's container. Wherever the database's files go, the admin UI's changes go
+with them. Earlier versions kept the file at the root of the storage itself; the server moves such a
+file into <code>overrides/</code> when it starts, and finds it at the root until then.</p>
 <p>The file has to be found before the settings are put together, so the default database is looked up
 in <code>relatude.db.json</code> with the configuration section over it — never with the overrides file itself.
 Changing the default database, its storage provider or that provider's folder in the admin UI moves
@@ -3278,7 +3280,7 @@ and the next start finds it there. Moving such a change into <code>relatude.db.j
 to the new place. Values set by the settings callbacks are not consulted, as they run later. If you
 change the database's folder in <code>relatude.db.json</code> by hand, move the file together with the
 database's own files. With no database to follow, the file is kept at
-<code>relatude.db/relatude.db.overrides.json</code> below the root data folder.</p>
+<code>relatude.db/overrides/relatude.db.overrides.json</code> below the root data folder.</p>
 <p>If the storage cannot be reached when the server starts — a blob service that is down, say — the
 server starts anyway, on <code>relatude.db.json</code> and configuration alone, and the settings pages say so and
 refuse to save until a restart can read the file, since a save would write over it.</p>
@@ -3550,6 +3552,10 @@ indistinguishable by timing.</p>
 <tr>
 <td><strong>Logs</strong></td>
 <td>Logs of your own: define one, and read what the application recorded into it as graphs, entries and the spread of a column's values. The <strong>Built-in logs</strong> switch shows the Activity logs here too, read only. See <a href="#32-logs-recording-what-the-application-does">§32</a>.</td>
+</tr>
+<tr>
+<td><strong>API</strong></td>
+<td>GraphQL endpoints over the database: each one a url, the types and properties it exposes and under which names, views, mutations, an API key, generated client code, and an explorer to try queries. See <a href="#33-graphql-endpoints">§33</a>.</td>
 </tr>
 <tr>
 <td><strong>Memory</strong> (on the dashboard)</td>
@@ -6293,6 +6299,878 @@ every count kept).</p>
 handful of towns — driving by day, stopping now and then, parked at night, with the odd fix hundreds of
 kilometres off — so every one of these has something to show before the application records anything.</p>
 <hr />
+<h1 id="part-v-apis">Part V — APIs<a class="anchor" href="#part-v-apis" aria-label="Link to this section">#</a></h1>
+<h2 id="33-graphql-endpoints">33. GraphQL endpoints<a class="anchor" href="#33-graphql-endpoints" aria-label="Link to this section">#</a></h2>
+<p>A database can answer GraphQL. An endpoint is generated from the datamodel: every node type it
+exposes becomes a GraphQL type with a field per property, one root field that fetches a node by id
+and one that pages through nodes with filters, text search and ordering. Relations become fields a
+query can follow as deep as its selection goes. If you allow mutations, there are also root fields that
+create, update and delete nodes. You write no resolvers and compile nothing: the schema is built
+from the datamodel when the endpoint is first asked, and built again when the datamodel or the
+endpoint changes.</p>
+<div class="codehilite"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="n">events</span><span class="p">(</span><span class="n">filter</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">price</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">gte</span><span class="p">:</span><span class="w"> </span><span class="mi">200</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">},</span><span class="w"> </span><span class="n">orderBy</span><span class="p">:</span><span class="w"> </span><span class="no">starts</span><span class="p">,</span><span class="w"> </span><span class="n">pageSize</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">totalCount</span>
+<span class="w">    </span><span class="n">items</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">id</span><span class="w"> </span><span class="n">title</span><span class="w"> </span><span class="n">starts</span><span class="w"> </span><span class="n">price</span><span class="w"> </span><span class="n">venue</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">name</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>There are two ways to have one:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Defined in the admin UI</strong></td>
+<td>The database's <strong>API</strong> page. Each database can have any number of endpoints, each on its own url. An endpoint chooses the types and properties it shows and what to call them, and can have views, an API key, mutations, a public explorer page and a facet search. Each endpoint is a JSON file in the database's <code>graphql</code> folder, served by a middleware that <code>UseRelatudeDB</code> installs, so there is no code to write. See <a href="#331-an-endpoint-in-the-admin-ui">§33.1</a>.</td>
+</tr>
+<tr>
+<td><strong>Code-first</strong></td>
+<td><code>app.MapRelatudeDBGraphQL("/graphql")</code> maps one route over the whole datamodel, configured in <code>Program.cs</code>. See <a href="#339-code-first-mapping-an-endpoint-in-programcs">§33.9</a>.</td>
+</tr>
+</tbody>
+</table>
+<p>Both use the <code>Relatude.DB.GraphQL</code> library, which ships in the <code>Relatude.DB.Server</code> package. It has no
+third-party dependency: it does its own parsing, validation, execution and introspection.</p>
+<p>Each root field becomes <strong>one</strong> query against the store. The filter, search, ordering, paging and
+every relation the selection follows are translated into a single query text with <code>Include</code> paths,
+in the query language of <a href="#19-query-anatomy">§19</a>–<a href="#26-sorting-paging-and-result-sets">§26</a>. Every
+value from the request goes in as a parameter, never into the query text. So a page of 25 events
+with their venues and hosts is one query, not 51.</p>
+<h3 id="331-an-endpoint-in-the-admin-ui">33.1 An endpoint in the admin UI<a class="anchor" href="#331-an-endpoint-in-the-admin-ui" aria-label="Link to this section">#</a></h3>
+<p>Open a database, choose <strong>API</strong> in the menu, then <strong>New endpoint</strong>. A new endpoint is called
+<em>GraphQL endpoint</em> and answers on <code>/graphql</code>, with a number added when that name or url is taken.
+It starts in the mode that exposes the types you choose, with none chosen yet. The editor has seven
+views:</p>
+<table>
+<thead>
+<tr>
+<th>View</th>
+<th>What it is for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Settings</strong></td>
+<td>The name, url, description, mode, switches and limits of <a href="#332-the-definition-file">§33.2</a>, and the API key (the wand button generates one).</td>
+</tr>
+<tr>
+<td><strong>Types</strong></td>
+<td>The node types and properties to expose, and the names they appear under: the GraphQL type name, the two root field names and a name per field. Mark a type <strong>Read only</strong> to leave it out of the mutations. This view is only used in the <em>Selected types and properties</em> mode.</td>
+</tr>
+<tr>
+<td><strong>Views</strong></td>
+<td>Root fields defined by a query (<a href="#335-views">§33.5</a>).</td>
+</tr>
+<tr>
+<td><strong>Code</strong></td>
+<td>Generated code to copy or download: the schema as SDL, TypeScript types and a TypeScript client, and C# types and a C# client.</td>
+</tr>
+<tr>
+<td><strong>Try it</strong></td>
+<td>Runs a query. Pick a type and an example query to start from.</td>
+</tr>
+<tr>
+<td><strong>Explorer</strong></td>
+<td>The explorer of <a href="#338-the-explorer-and-the-facet-page">§33.8</a>.</td>
+</tr>
+<tr>
+<td><strong>Json</strong></td>
+<td>The definition file itself, editable as text.</td>
+</tr>
+</tbody>
+</table>
+<p>Every view works on the <strong>draft</strong>, the unsaved version of the endpoint, so you can see the schema a
+change gives before you save it. Warnings under the bar say what the schema builder left out or
+renamed, for example a type that is no longer in the datamodel, a relation to a type the endpoint
+does not expose, or a name that is already taken. <strong>Save</strong> writes the file, and the next request is
+answered with the new schema; no restart is needed. Some problems are errors that block saving: a
+url that another endpoint on the server already uses, a page size below 1, or a view whose query
+does not parse.</p>
+<p>The endpoint list shows each endpoint's url, mode, number of types and views, whether it takes
+mutations, and its file. Buttons on each row open the endpoint's public pages:</p>
+<ul>
+<li><strong>Explore</strong> opens the explorer and <strong>Pivot</strong> opens the facet page, when they are switched on
+  (<a href="#338-the-explorer-and-the-facet-page">§33.8</a>).</li>
+<li><strong>SDL</strong> shows the schema as text, when introspection is on and the endpoint has no API key.</li>
+</ul>
+<p>The endpoints are served by a middleware that <code>UseRelatudeDB</code> installs after its own authorization
+middleware. An endpoint's url can be any path the admin UI does not use. No two endpoints may share
+a url, even across databases. While the endpoint's database is not open, its url answers <code>503</code>.</p>
+<blockquote>
+<p><strong>The url is public.</strong> The admin UI's login does not cover an endpoint. Protect it with an API key
+or a reverse proxy, or expose only what anyone may see (<a href="#3310-who-reads-and-the-limits">§33.10</a>).</p>
+</blockquote>
+<h3 id="332-the-definition-file">33.2 The definition file<a class="anchor" href="#332-the-definition-file" aria-label="Link to this section">#</a></h3>
+<p>An endpoint is its file: <code>graphql/&lt;name&gt;.json</code> on the database's <code>IoDatabase</code> storage provider, next
+to the database's own files. Every <code>.json</code> file in that folder is an endpoint, so you can also write a
+definition by hand, copy it from another database or keep it in source control. <strong>Reload from disk</strong>
+on the API page reads the folder again. A file without an <code>id</code> gets one derived from its file name.
+A file that cannot be read as a definition stays in the list, marked with what is wrong with it.
+The reader is lenient: comments and trailing commas are allowed, property names can be in any case,
+and enum values are written by name.</p>
+<div class="codehilite"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Public API&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Events and venues for the web site.&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;url&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/api/graphql&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Selected&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;allowMutations&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;enableExplorer&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;enableFacetSearch&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;apiKey&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;defaultPageSize&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">25</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;maxPageSize&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">200</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;types&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;nodeTypeId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0c7f9a52-1e4b-4f0a-9a7e-3d1c2b5e8f61&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// IEvent</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Event&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;properties&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;propertyId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;5a1d3c7e-2b9f-4e61-8c0d-7f3e1a2b4c59&quot;</span><span class="w"> </span><span class="p">},</span><span class="w">                    </span><span class="c1">// Title</span>
+<span class="w">        </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;propertyId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;9e2b4d61-7c3a-4f58-b1e0-2d6f8a9c3e17&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;starts&quot;</span><span class="w"> </span><span class="p">},</span><span class="w">  </span><span class="c1">// StartsUtc</span>
+<span class="w">        </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;propertyId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;3c8e1f27-6d4b-4a90-9e5c-1b7d2f4a6e83&quot;</span><span class="w"> </span><span class="p">},</span><span class="w">                    </span><span class="c1">// Price</span>
+<span class="w">        </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;propertyId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;7b4f2e91-3a6c-4d18-8f2b-5e9c1d3a7b46&quot;</span><span class="w"> </span><span class="p">},</span><span class="w">                    </span><span class="c1">// Status</span>
+<span class="w">        </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;propertyId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1f6a8c34-9b2e-4c57-a3d1-6e4b7f9c2a08&quot;</span><span class="w"> </span><span class="p">}</span><span class="w">                     </span><span class="c1">// Venue</span>
+<span class="w">      </span><span class="p">]</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;nodeTypeId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;4d2e6b81-8f3a-4c19-b7e2-9a5c3d1f6e24&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// IVenue</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Venue&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;readOnly&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;properties&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;views&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;upcoming&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;query&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;IEvent.Where(e =&gt; e.Status == 1)&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Published events.&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>Types and properties are referenced by their <strong>datamodel ids</strong>, not their names, so renaming a
+property in the model does not break the endpoint. A field that is named in the definition keeps
+that name; a field whose name is derived follows the rename. The Types view of the editor fills
+in the ids, so a file is usually easiest to start there.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>id</code></td>
+<td>from the file name</td>
+<td>Identifies the endpoint.</td>
+</tr>
+<tr>
+<td><code>name</code>, <code>description</code></td>
+<td></td>
+<td>Shown in the admin UI, the explorer and the generated code. The file is named after <code>name</code>.</td>
+</tr>
+<tr>
+<td><code>url</code></td>
+<td><code>/graphql</code></td>
+<td>The path the endpoint answers on. Case and a trailing slash do not matter.</td>
+</tr>
+<tr>
+<td><code>enabled</code></td>
+<td><code>true</code></td>
+<td>When <code>false</code>, the url is not answered and the request passes on to the application.</td>
+</tr>
+<tr>
+<td><code>mode</code></td>
+<td><code>Selected</code></td>
+<td><code>Selected</code> exposes only what <code>types</code> lists. <code>WholeDatamodel</code> exposes every node type and property and follows the datamodel as it changes; <code>types</code> is then ignored.</td>
+</tr>
+<tr>
+<td><code>exactNames</code></td>
+<td><code>false</code></td>
+<td>Use the datamodel's names verbatim instead of GraphQL-style names (<a href="#333-the-schema">§33.3</a>).</td>
+</tr>
+<tr>
+<td><code>allowMutations</code></td>
+<td><code>false</code></td>
+<td>Adds create, update and delete fields (<a href="#336-mutations">§33.6</a>).</td>
+</tr>
+<tr>
+<td><code>enableIntrospection</code></td>
+<td><code>true</code></td>
+<td>Answers <code>__schema</code> and <code>__type</code>, serves the schema as text on <code>?sdl</code>, and gives the explorer its data. When off, clients cannot read the schema, but queries still work.</td>
+</tr>
+<tr>
+<td><code>enableGetRequests</code></td>
+<td><code>true</code></td>
+<td>Accepts <code>GET ?query=</code> requests. POST requests are always accepted.</td>
+</tr>
+<tr>
+<td><code>enableExplorer</code></td>
+<td><code>false</code></td>
+<td>Serves the explorer page on the url (<a href="#338-the-explorer-and-the-facet-page">§33.8</a>).</td>
+</tr>
+<tr>
+<td><code>enableFacetSearch</code></td>
+<td><code>false</code></td>
+<td>Serves the facet search and its visual pivot page on the url (<a href="#338-the-explorer-and-the-facet-page">§33.8</a>).</td>
+</tr>
+<tr>
+<td><code>maxFacetCards</code></td>
+<td>200,000</td>
+<td>The most nodes the facet page draws.</td>
+</tr>
+<tr>
+<td><code>defaultNodeTypeId</code></td>
+<td>none</td>
+<td>The type the explorer and the facet page open on. Without it they choose one themselves.</td>
+</tr>
+<tr>
+<td><code>includeSystemTypes</code></td>
+<td><code>false</code></td>
+<td>In whole-datamodel mode only: also expose the built-in users, groups, collections and cultures.</td>
+</tr>
+<tr>
+<td><code>apiKey</code></td>
+<td>none</td>
+<td>When set, every request must carry this key (<a href="#337-over-http">§33.7</a>).</td>
+</tr>
+<tr>
+<td><code>maxQueryDepth</code></td>
+<td>16</td>
+<td>How deeply a query's selection may nest, fragments included.</td>
+</tr>
+<tr>
+<td><code>maxIncludeDepth</code></td>
+<td>8</td>
+<td>How many relations deep a selection may follow.</td>
+</tr>
+<tr>
+<td><code>defaultPageSize</code>, <code>maxPageSize</code></td>
+<td>25, 200</td>
+<td>The page size used when a query asks for none, and the largest page size allowed. A larger <code>pageSize</code> is cut down to the maximum, not refused.</td>
+</tr>
+<tr>
+<td><code>types[]</code></td>
+<td></td>
+<td>Selected mode only. Each entry has <code>nodeTypeId</code>; <code>name</code>, the GraphQL type name; <code>singleName</code> and <code>listName</code>, the two root field names; <code>readOnly</code>; and <code>properties</code>. <code>null</code> exposes every property of the type; a list exposes only those properties, each with a <code>propertyId</code> and an optional field <code>name</code>.</td>
+</tr>
+<tr>
+<td><code>views[]</code></td>
+<td></td>
+<td>Each view has <code>name</code>, <code>query</code> and <code>description</code> (<a href="#335-views">§33.5</a>).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="333-the-schema">33.3 The schema<a class="anchor" href="#333-the-schema" aria-label="Link to this section">#</a></h3>
+<p>Every exposed node type gets a GraphQL type, plus two root fields on <code>Query</code>:</p>
+<ul>
+<li>one that fetches a single node by its id, for example <code>event(id: ID!)</code>;</li>
+<li>one that returns a page of nodes, for example <code>events(filter, search, orderBy, descending, page, pageSize, ids)</code>.</li>
+</ul>
+<p>Every node type also has four system fields, from the <code>Node</code> interface that all node types
+implement: <code>id</code> (the node's public <code>Guid</code>), <code>displayName</code>, <code>createdUtc</code> and <code>changedUtc</code>. Here is
+the schema of the endpoint above, trimmed:</p>
+<div class="codehilite"><pre><span></span><code>type Query {
+  event(id: ID!): Event
+  events(filter: EventFilterInput, search: String, orderBy: EventOrderBy, descending: Boolean = false,
+         page: Int = 0, pageSize: Int, ids: [ID!]): EventResult!
+  venue(id: ID!): Venue
+  venues(filter: VenueFilterInput, search: String, orderBy: VenueOrderBy, descending: Boolean = false,
+         page: Int = 0, pageSize: Int, ids: [ID!]): VenueResult!
+  upcoming(filter: EventFilterInput, search: String, orderBy: EventOrderBy, descending: Boolean = false,
+           page: Int = 0, pageSize: Int, ids: [ID!]): EventResult!
+}
+
+interface Event implements Node {
+  id: ID!
+  displayName: String
+  createdUtc: DateTime!
+  changedUtc: DateTime!
+  price: Decimal!
+  starts: DateTime!
+  status: EventStatus!
+  title: String
+  venue: Venue
+}
+
+type EventNode implements Node &amp; Event { ... }   # the same fields
+
+interface Venue implements Node {
+  ...
+  capacity: Int!
+  events(top: Int): [Event!]!
+  location: GeoCoordinate
+  name: String
+}
+
+type EventResult {
+  items: [Event!]!
+  totalCount: Int!
+  pageIndex: Int!
+  pageSize: Int
+  durationMs: Float!
+}
+
+enum EventOrderBy { price starts status title }
+enum EventStatus { Draft Published SoldOut Cancelled }
+
+input EventFilterInput {
+  price: DecimalFilterInput
+  starts: DateTimeFilterInput
+  status: EventStatusFilterInput
+  title: StringFilterInput
+  venue: RelatedNodeFilterInput
+  and: [EventFilterInput!]
+  or: [EventFilterInput!]
+  not: EventFilterInput
+}
+</code></pre></div>
+
+<p><strong>Names.</strong> By default the names follow GraphQL conventions. Types keep their datamodel name, and
+fields and root fields are camelCase, with the list field in the plural: type <code>Article</code>, field
+<code>title</code>, root fields <code>article</code> and <code>articles</code>, mutation <code>createArticle</code>. With <code>exactNames</code> on, names
+are copied verbatim: field <code>Title</code>, root fields <code>Article</code> and <code>Articles</code>, mutation <code>CreateArticle</code>.
+A system field keeps its name in both modes. A property whose derived name collides with a system
+field gets <code>Value</code> added, so a property called <code>DisplayName</code> becomes <code>displayNameValue</code>.</p>
+<p>When a name is already taken, the next free one is used: <code>_2</code> is added to the name, and the schema
+builder warns. Names are claimed in a fixed order, so the same model always gives the same schema.</p>
+<p>An inherited property keeps the field name of the base type that exposes it, because the base
+type's GraphQL interface is a contract its subtypes must keep. If a subtype renames that field, the
+rename is ignored with a warning.</p>
+<blockquote>
+<p><strong>Interface-first models get unusual names unless you rename.</strong> This manual's model is made of
+interfaces (<code>IEvent</code>, <code>IVenue</code>, …), and in whole-datamodel mode they show up as such: the GraphQL
+interface <code>IEvent</code> and the root fields <code>iEvent</code> and <code>iEvents</code>. In the <em>Selected</em> mode, name the type
+<code>Event</code>, as the file above does, to get <code>event</code>, <code>events</code> and <code>createEvent</code>.</p>
+</blockquote>
+<p><strong>Interfaces and the types of nodes.</strong> A datamodel interface becomes a GraphQL interface. GraphQL
+does not allow a value whose type is an interface, but a node created as an interface
+(<code>db.Create&lt;IEvent&gt;()</code>) has exactly that type. So each exposed interface also gets an object type
+for its nodes. The object type drops a leading <code>I</code> from the name (<code>IEvent</code> gives <code>Event</code>) or, when
+it cannot, adds <code>Node</code> (<code>Event</code> gives <code>EventNode</code>), as in the schema above. Queries normally use the
+interface name; <code>__typename</code> returns the object type.</p>
+<p>A class with exposed subclasses gets an interface as well, named <code>&lt;Class&gt;Interface</code>, so that a field
+of the class's type can return the subclasses' nodes. Use <code>... on Subclass { }</code> in a query to read
+the fields only a subclass has. A node of a subtype the endpoint does not expose is shown as its
+nearest exposed ancestor. A query for <code>events</code> therefore never returns <code>null</code> items just because
+some events are of a type the endpoint leaves out.</p>
+<p><strong>How properties map:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Datamodel property</th>
+<th>GraphQL field</th>
+<th><code>filter</code> operators</th>
+<th>In <code>orderBy</code></th>
+<th>Mutation input</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bool</code></td>
+<td><code>Boolean!</code></td>
+<td><code>eq</code> <code>ne</code></td>
+<td>yes</td>
+<td><code>Boolean</code></td>
+</tr>
+<tr>
+<td><code>int</code></td>
+<td><code>Int!</code></td>
+<td><code>eq</code> <code>ne</code> <code>gt</code> <code>gte</code> <code>lt</code> <code>lte</code> <code>in</code> <code>nin</code></td>
+<td>yes</td>
+<td><code>Int</code></td>
+</tr>
+<tr>
+<td>enum (<code>int</code> with an enum type)</td>
+<td>the enum, by name</td>
+<td><code>eq</code> <code>ne</code> <code>in</code> <code>nin</code></td>
+<td>yes</td>
+<td>the enum</td>
+</tr>
+<tr>
+<td><code>long</code></td>
+<td><code>Long!</code></td>
+<td>as <code>int</code></td>
+<td>yes</td>
+<td><code>Long</code></td>
+</tr>
+<tr>
+<td><code>double</code>, <code>float</code></td>
+<td><code>Float!</code></td>
+<td>as <code>int</code></td>
+<td>yes</td>
+<td><code>Float</code></td>
+</tr>
+<tr>
+<td><code>decimal</code></td>
+<td><code>Decimal!</code></td>
+<td>as <code>int</code></td>
+<td>yes</td>
+<td><code>Decimal</code></td>
+</tr>
+<tr>
+<td><code>string</code></td>
+<td><code>String</code></td>
+<td><code>eq</code> <code>ne</code> <code>in</code> <code>nin</code></td>
+<td>yes</td>
+<td><code>String</code></td>
+</tr>
+<tr>
+<td><code>DateTime</code>, <code>DateTimeOffset</code></td>
+<td><code>DateTime!</code>, an ISO-8601 UTC string</td>
+<td><code>eq</code> <code>ne</code> <code>gt</code> <code>gte</code> <code>lt</code> <code>lte</code></td>
+<td>yes</td>
+<td><code>DateTime</code></td>
+</tr>
+<tr>
+<td><code>TimeSpan</code></td>
+<td><code>String!</code></td>
+<td>–</td>
+<td>–</td>
+<td><code>String</code>, for example <code>"01:30:00"</code></td>
+</tr>
+<tr>
+<td><code>Guid</code></td>
+<td><code>ID!</code></td>
+<td><code>eq</code> <code>ne</code> <code>in</code> <code>nin</code></td>
+<td>–</td>
+<td><code>ID</code></td>
+</tr>
+<tr>
+<td><code>string[]</code>, <code>Guid[]</code>, enum <code>[]</code></td>
+<td><code>[String!]!</code>, <code>[ID!]!</code>, <code>[Enum!]!</code></td>
+<td>–</td>
+<td>–</td>
+<td>a list</td>
+</tr>
+<tr>
+<td><code>GeoCoordinate</code></td>
+<td><code>GeoCoordinate { latitude longitude }</code>, null when unset</td>
+<td>–</td>
+<td>–</td>
+<td><code>GeoCoordinateInput</code></td>
+</tr>
+<tr>
+<td><code>FileValue</code></td>
+<td><code>FileInfo { name size width height contentType }</code>, null when empty</td>
+<td>–</td>
+<td>–</td>
+<td>–</td>
+</tr>
+<tr>
+<td>relation, "one" side</td>
+<td>the related type</td>
+<td><code>eq</code> <code>in</code> (by id)</td>
+<td>–</td>
+<td><code>ID</code></td>
+</tr>
+<tr>
+<td>relation, "many" side</td>
+<td><code>[T!]!</code> with a <code>top</code> argument</td>
+<td><code>eq</code> <code>in</code> (by id)</td>
+<td>–</td>
+<td><code>[ID!]</code>, which replaces the whole set</td>
+</tr>
+<tr>
+<td><code>Reference&lt;T&gt;</code></td>
+<td><code>T</code></td>
+<td><code>eq</code> <code>in</code> (by id)</td>
+<td>–</td>
+<td><code>ID</code></td>
+</tr>
+<tr>
+<td><code>References&lt;T&gt;</code></td>
+<td><code>[T!]!</code> with a <code>top</code> argument</td>
+<td>–</td>
+<td>–</td>
+<td><code>[ID!]</code></td>
+</tr>
+<tr>
+<td><code>Embedded</code>, <code>EmbeddedMap</code>, <code>byte[]</code>, <code>float[]</code>, <code>object</code></td>
+<td>left out</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>For a relation or reference to a type the endpoint does not expose, the field is left out, with a
+warning in <em>Selected</em> mode. The filter on that relation stays, since it only takes an id.</p>
+<h3 id="334-querying">33.4 Querying<a class="anchor" href="#334-querying" aria-label="Link to this section">#</a></h3>
+<p>A list root field returns a result object: the nodes of the page in <code>items</code>, the number of matches
+before paging in <code>totalCount</code>, the page index and size actually used, and <code>durationMs</code>, the time the
+store spent on it. Its arguments are:</p>
+<table>
+<thead>
+<tr>
+<th>Argument</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>filter</code></td>
+<td>Conditions on the type's fields. All given conditions must match; <code>and</code>, <code>or</code> and <code>not</code> combine them.</td>
+</tr>
+<tr>
+<td><code>search</code></td>
+<td>Free-text search: the same matching as <code>WhereSearch</code> (<a href="#21-text-and-semantic-search">§21</a>). It is a filter, so the result is not ordered by relevance.</td>
+</tr>
+<tr>
+<td><code>orderBy</code>, <code>descending</code></td>
+<td>Order by one field; only orderable fields are in the enum. Without <code>orderBy</code> the nodes come in the store's order.</td>
+</tr>
+<tr>
+<td><code>page</code>, <code>pageSize</code></td>
+<td>A zero-based page index, and the page size (<code>defaultPageSize</code> when not given, capped at <code>maxPageSize</code>).</td>
+</tr>
+<tr>
+<td><code>ids</code></td>
+<td>Restricts the result to the given node ids.</td>
+</tr>
+</tbody>
+</table>
+<div class="codehilite"><pre><span></span><code><span class="k">query</span><span class="w"> </span><span class="nf">Upcoming</span><span class="p">(</span><span class="nv">$from</span><span class="p">:</span><span class="w"> </span><span class="nc">DateTime</span><span class="p">!)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="n">events</span><span class="p">(</span><span class="n">filter</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">starts</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">gte</span><span class="p">:</span><span class="w"> </span><span class="nv">$from</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">},</span><span class="w"> </span><span class="n">orderBy</span><span class="p">:</span><span class="w"> </span><span class="no">starts</span><span class="p">,</span><span class="w"> </span><span class="n">pageSize</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">totalCount</span>
+<span class="w">    </span><span class="n">items</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">id</span><span class="w"> </span><span class="n">title</span><span class="w"> </span><span class="n">starts</span><span class="w"> </span><span class="n">price</span><span class="w"> </span><span class="n">venue</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">name</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;data&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;events&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;totalCount&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;items&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">        </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;7e51b1dd-a7a1-4c99-b16b-4f373ab2573b&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;title&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Concert 2&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;starts&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-11-02T19:00:00.0000000Z&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;price&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">200</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;venue&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Opera House&quot;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1459bd5a-9b4d-48c1-8c49-288fff8d5a2e&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;title&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Concert 3&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;starts&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-11-03T19:00:00.0000000Z&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;price&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">300</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;venue&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Opera House&quot;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
+<span class="w">      </span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;extensions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;durationMs&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">46.223</span><span class="w"> </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>The filter is an object with one entry per field, each holding operators. Several operators on one
+field must all match, so <code>{ price: { gte: 100, lt: 300 } }</code> is a range. Write enum values by name.
+Relations and references are filtered by the related node's id, with <code>eq</code> or <code>in</code>. On the "many"
+side, the condition means that one of the related nodes has that id:</p>
+<div class="codehilite"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nl">cheapOrSoldOut</span><span class="p">:</span><span class="w"> </span><span class="n">events</span><span class="p">(</span><span class="n">filter</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">or</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">price</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">lt</span><span class="p">:</span><span class="w"> </span><span class="mi">150</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">status</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">eq</span><span class="p">:</span><span class="w"> </span><span class="no">SoldOut</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w"> </span><span class="p">})</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">totalCount</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="nl">notAtTheOpera</span><span class="p">:</span><span class="w">  </span><span class="n">events</span><span class="p">(</span><span class="n">filter</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">not</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">venue</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">eq</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0b6e…&quot;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">})</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">totalCount</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="nl">some</span><span class="p">:</span><span class="w">           </span><span class="n">events</span><span class="p">(</span><span class="n">filter</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">status</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">in</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="no">Published</span><span class="p">,</span><span class="w"> </span><span class="no">SoldOut</span><span class="p">]</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">})</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">totalCount</span><span class="w"> </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><code>in: []</code> matches nothing and <code>nin: []</code> excludes nothing. Strings are matched by equality only, so
+there are no <code>contains</code>, <code>startsWith</code> or case-insensitive operators. Use <code>search</code> to match text.</p>
+<p><strong>Following relations.</strong> Select a relation field to get the related nodes. The relations a
+selection follows are added to the root field's query as <code>Include</code> paths, so they are loaded with
+it rather than by one query per item. A "many" field returns all its related nodes unless <code>top</code>
+limits them:</p>
+<div class="codehilite"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="n">venues</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">items</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="n">name</span>
+<span class="w">      </span><span class="n">events</span><span class="p">(</span><span class="n">top</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">title</span><span class="w"> </span><span class="n">starts</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>Nested lists cannot be filtered or ordered. A query that needs that should start from the other
+side, for example <code>events(filter: { venue: { eq: $venue } }, orderBy: starts)</code>.</p>
+<p><strong>The rest of GraphQL</strong> works as the specification says: variables (with defaults), aliases (which
+also let one query ask for the same list twice with different arguments), named and inline
+fragments, <code>@include</code> and <code>@skip</code>, <code>__typename</code>, several root fields in one request, and documents
+with several operations together with <code>operationName</code>. Subscriptions are not supported.</p>
+<p>Errors follow the GraphQL convention. A request that cannot run at all is answered with <code>errors</code> and
+no <code>data</code>: a syntax error, an unknown field, a wrong variable, or a query deeper than the limits.
+For example:</p>
+<div class="codehilite"><pre><span></span><code><span class="p">{</span><span class="w"> </span><span class="nt">&quot;errors&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Field \&quot;nope\&quot; is not defined on type \&quot;Event\&quot;.&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;locations&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;line&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;column&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+
+<p>A root field that fails while running, such as a malformed id or a rejected mutation, becomes <code>null</code>
+with an error that carries its <code>path</code>, and the other root fields of the request still answer.</p>
+<h3 id="335-views">33.5 Views<a class="anchor" href="#335-views" aria-label="Link to this section">#</a></h3>
+<p>A view is a root field defined by a query. It returns the same result type as the type's list field
+and takes the same arguments, so a client can still filter, search, order and page within it. The
+view's own query is applied first:</p>
+<div class="codehilite"><pre><span></span><code><span class="nt">&quot;views&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">  </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;upcoming&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;query&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;IEvent.Where(e =&gt; e.Status == 1)&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Published events.&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="w">  </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;jazz&quot;</span><span class="p">,</span><span class="w">     </span><span class="nt">&quot;query&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;IEvent.WhereSearch(\&quot;jazz\&quot;).OrderBy(e =&gt; e.StartsUtc)&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="p">]</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code><span class="p">{</span><span class="w"> </span><span class="n">upcoming</span><span class="p">(</span><span class="n">orderBy</span><span class="p">:</span><span class="w"> </span><span class="no">starts</span><span class="p">,</span><span class="w"> </span><span class="n">pageSize</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">totalCount</span><span class="w"> </span><span class="n">items</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">title</span><span class="w"> </span><span class="n">starts</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+
+<p>The query is written in the text form of the query language (<a href="#20-filtering-with-where">§20</a>). It
+starts with a type's code name, without its namespace, and uses the datamodel's property names, not
+the endpoint's renames. Enum values are written as their numbers. A view can only use methods that
+keep the result a set of nodes the endpoint can page:</p>
+<p><code>Where</code>, <code>WhereSearch</code>, <code>WhereInIds</code>, <code>WhereIn</code>, <code>WhereTypes</code>, <code>Relates</code>, <code>RelatesNot</code>,
+<code>RelatesAny</code>, <code>OrderBy</code>, <code>WhereCulture</code>, <code>WhereCultureFallback</code>, <code>WhereHidden</code> and <code>Traverse</code>.</p>
+<p><code>Page</code>, <code>Include</code>, <code>Select</code> and <code>Count</code> are not allowed, because the endpoint adds paging and
+includes itself. The editor checks each view when it is saved. The view's type must be exposed by
+the endpoint, or the view is left out with a warning. A view is a fixed query, so it is the way to
+give clients a selection they cannot build themselves: an <code>or</code> across relations, a traversal, or
+a culture.</p>
+<h3 id="336-mutations">33.6 Mutations<a class="anchor" href="#336-mutations" aria-label="Link to this section">#</a></h3>
+<p>With <code>allowMutations</code> on, every exposed type that can be created gets three fields on <code>Mutation</code>:</p>
+<div class="codehilite"><pre><span></span><code>type Mutation {
+  createEvent(input: EventInput!): EventNode
+  updateEvent(id: ID!, input: EventInput!): Event
+  deleteEvent(id: ID!): Boolean!
+}
+
+input EventInput { price: Decimal  starts: DateTime  status: EventStatus  title: String  venue: ID }
+</code></pre></div>
+
+<p>Types marked <code>readOnly</code> are left out, which is why there is no <code>createVenue</code> here. So are interfaces
+that a class implements, because their nodes are created as the classes. The input has the same
+field names as the output type, minus files and anything else from the last rows of the property
+table in <a href="#333-the-schema">§33.3</a>.</p>
+<div class="codehilite"><pre><span></span><code><span class="k">mutation</span><span class="w"> </span><span class="nf">NewEvent</span><span class="p">(</span><span class="nv">$venue</span><span class="p">:</span><span class="w"> </span><span class="nb">ID</span><span class="p">!)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="n">createEvent</span><span class="p">(</span><span class="n">input</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Late show&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">price</span><span class="p">:</span><span class="w"> </span><span class="mi">250</span><span class="p">,</span><span class="w"> </span><span class="n">status</span><span class="p">:</span><span class="w"> </span><span class="no">Published</span><span class="p">,</span>
+<span class="w">                       </span><span class="n">starts</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2026-12-01T21:00:00Z&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">venue</span><span class="p">:</span><span class="w"> </span><span class="nv">$venue</span><span class="w"> </span><span class="p">})</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">id</span>
+<span class="w">    </span><span class="n">title</span>
+<span class="w">    </span><span class="n">venue</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">name</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<ul>
+<li><strong>create</strong> inserts a node with a new id. A property the input does not set gets the type's default
+  value, as in the admin UI's editor. The new node is read back and returned, so the selection can
+  follow its relations.</li>
+<li><strong>update</strong> changes only the fields the input gives. <code>null</code> clears a field, which means it gets the
+  type's default value. A relation field replaces the whole set of related nodes, and <code>null</code> or <code>[]</code>
+  removes them all. If no node has the id, the result is <code>null</code> with an error.</li>
+<li><strong>delete</strong> returns <code>true</code>, or <code>false</code> when no node has the id.</li>
+</ul>
+<p>Relations and references take the related node's id. Relations are set, not added: giving an event
+a new venue moves it from its old one, and listing an event in a venue's <code>events</code> moves it there
+from wherever it was.</p>
+<p>Each mutation field is one transaction, and the fields of a request run in the order written. They
+run through the <code>NodeStore</code>, so the transaction plugins of <a href="#15-transactions">§15</a> see them, and the
+datamodel's validation rules (<a href="#3-scalar-properties-and-their-attributes">§3</a>) apply. A change that
+is rejected becomes an error on its field. There are no file uploads through GraphQL: upload files
+as described in <a href="#17-uploading-files">§17</a> and keep the id.</p>
+<p>An endpoint that allows mutations without an API key lets anyone who can reach its url change
+data. The editor warns about this, and so should you.</p>
+<h3 id="337-over-http">33.7 Over HTTP<a class="anchor" href="#337-over-http" aria-label="Link to this section">#</a></h3>
+<table>
+<thead>
+<tr>
+<th>Request</th>
+<th>Answer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST {url}</code> with <code>{"query", "operationName", "variables"}</code> as <code>application/json</code></td>
+<td>The result, as <code>application/graphql-response+json</code>.</td>
+</tr>
+<tr>
+<td><code>POST {url}</code> with the query as the body, <code>Content-Type: application/graphql</code></td>
+<td>The same.</td>
+</tr>
+<tr>
+<td><code>GET {url}?query=…&amp;variables=…&amp;operationName=…</code></td>
+<td>The same, when <code>enableGetRequests</code> is on. Otherwise <code>405</code>.</td>
+</tr>
+<tr>
+<td><code>GET {url}?sdl</code></td>
+<td>The schema as SDL text, when introspection is on. Otherwise <code>403</code>.</td>
+</tr>
+<tr>
+<td><code>GET {url}</code> from a browser (<code>Accept: text/html</code>), or <code>?explorer</code></td>
+<td>The explorer or the facet page, when switched on (<a href="#338-the-explorer-and-the-facet-page">§33.8</a>).</td>
+</tr>
+<tr>
+<td><code>OPTIONS {url}</code></td>
+<td><code>204</code> with <code>Allow: GET, POST, OPTIONS</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>The status codes are:</p>
+<ul>
+<li><code>200</code> when there is <code>data</code>, even if some fields failed;</li>
+<li><code>400</code> when the request produced no data at all (syntax, validation, variables) or the body is not valid JSON;</li>
+<li><code>401</code> when the API key is missing or wrong;</li>
+<li><code>503</code> while the database is not open.</li>
+</ul>
+<p>Every answer carries <code>extensions.durationMs</code>, the time the request took on the server.</p>
+<p>With an <code>apiKey</code> set, every request must carry it, either in an <code>X-Api-Key</code> header or as
+<code>Authorization: Bearer &lt;key&gt;</code>. The key is compared in constant time. The explorer and facet pages are themselves served without the key, because the page is
+where the key is typed in; everything the page then reads requires it.</p>
+<div class="codehilite"><pre><span></span><code>curl<span class="w"> </span>-s<span class="w"> </span>https://example.com/api/graphql<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;X-Api-Key: </span><span class="nv">$KEY</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;query&quot;:&quot;query($n:Int){ events(pageSize:$n){ totalCount items { title } } }&quot;,&quot;variables&quot;:{&quot;n&quot;:5}}&#39;</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code><span class="kd">const</span><span class="w"> </span><span class="nx">response</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">fetch</span><span class="p">(</span><span class="s2">&quot;/api/graphql&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nx">method</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;POST&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">headers</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="s2">&quot;Content-Type&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;application/json&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;X-Api-Key&quot;</span><span class="o">:</span><span class="w"> </span><span class="nx">apiKey</span><span class="w"> </span><span class="p">},</span>
+<span class="w">  </span><span class="nx">body</span><span class="o">:</span><span class="w"> </span><span class="kt">JSON.stringify</span><span class="p">({</span><span class="w"> </span><span class="nx">query</span><span class="p">,</span><span class="w"> </span><span class="nx">variables</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="kr">from</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;2026-11-01T00:00:00Z&quot;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}),</span>
+<span class="p">});</span>
+<span class="kd">const</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">data</span><span class="p">,</span><span class="w"> </span><span class="nx">errors</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">response</span><span class="p">.</span><span class="nx">json</span><span class="p">();</span>
+</code></pre></div>
+
+<p>The editor's <strong>Code</strong> view writes typed clients like this for you, in TypeScript and C#, from the
+endpoint's schema. A browser on another origin needs the application's own <code>UseCors</code>, called before
+<code>UseRelatudeDB</code>. The CORS middleware answers the browser's preflight request itself, so the
+endpoint never sees it.</p>
+<h3 id="338-the-explorer-and-the-facet-page">33.8 The explorer and the facet page<a class="anchor" href="#338-the-explorer-and-the-facet-page" aria-label="Link to this section">#</a></h3>
+<p>Two switches put a page on the endpoint's url for a browser that opens it. When both are on, the
+page has a tab for each, and <code>?explorer</code> opens the explorer directly.</p>
+<p><strong>The explorer</strong> (<code>enableExplorer</code>) is a page for building, running and reading about queries,
+similar to GraphiQL. It has:</p>
+<ul>
+<li>a tree of the schema to build a query by ticking fields, and documentation for every type and
+  field;</li>
+<li>an editor with completion and validation that suggests the name you probably meant. <strong>Ctrl+Enter</strong>
+  runs the query and <strong>Shift+Alt+F</strong> formats it;</li>
+<li>the result as JSON or as a table, with tabs and a history;</li>
+<li>for any query, the code to run it in curl, PowerShell, JavaScript, TypeScript, C#, Python, Java
+  and Go, either the whole client or only the model or the connection code;</li>
+<li>a guide of runnable examples, written with the endpoint's own names and, where possible, the ids
+  and values of real nodes: paging, one node by id, each kind of filter, enums, search, ordering,
+  relations and relation filters, files, positions, variables, aliases, fragments, directives,
+  several root fields, the views and the mutations.</li>
+</ul>
+<p>The explorer reads the schema through introspection, so it stays empty when introspection is off.
+If the endpoint has an API key, the page asks for it and keeps it for the browser session. The same
+explorer is the <strong>Explorer</strong> view in the admin UI's editor, where it runs against the draft.</p>
+<p><strong>The facet page</strong> (<code>enableFacetSearch</code>) is the admin UI's faceted search
+(<a href="#28-faceted-search">§28</a>) as a public page: a facet rail on one side and a visual pivot of the
+matching nodes in 3D, with a switch to 2D. Clicking a card opens the node, showing the properties
+the endpoint exposes. It only uses what the endpoint exposes. The types are the endpoint's types,
+in the definition's order, and the page opens on <code>defaultNodeTypeId</code>, or on the first type when
+that is not set. The facets are those
+the query engine offers for the type, limited to the exposed properties. A selection, grouping or
+sort on anything else is ignored. A facet on a reference or relation needs the target type to be
+exposed as well.</p>
+<p>The facet page differs from the admin UI's query section in three ways:</p>
+<ul>
+<li>it uses the datamodel's names, because the endpoint's renames only apply to its schema;</li>
+<li>it matches text by words only. A semantic search embeds the text with the AI provider, which
+  would be a paid call per keystroke on a page anyone can open;</li>
+<li>it draws at most <code>maxFacetCards</code> nodes (200,000 by default); a larger result shows its first ones.</li>
+</ul>
+<p>The facet page's requests are <code>?facets=&lt;action&gt;</code> on the same url, behind the same API key. They need
+a host that answers them. The Relatude.DB server does this for the endpoints of the API page; a
+code-first endpoint gets it from <code>RelatudeDBServer.GraphQL.FacetSearch</code> (<a href="#339-code-first-mapping-an-endpoint-in-programcs">§33.9</a>).</p>
+<h3 id="339-code-first-mapping-an-endpoint-in-programcs">33.9 Code-first: mapping an endpoint in Program.cs<a class="anchor" href="#339-code-first-mapping-an-endpoint-in-programcs" aria-label="Link to this section">#</a></h3>
+<p><code>MapRelatudeDBGraphQL</code> maps one route that reflects the <strong>whole datamodel</strong> in GraphQL-style names,
+with its options set in code:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Datamodels</span><span class="p">;</span><span class="w">    </span><span class="c1">// QueryContext</span>
+<span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.GraphQL</span><span class="p">;</span>
+<span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.NodeServer</span><span class="p">;</span>
+
+<span class="n">app</span><span class="p">.</span><span class="n">UseRelatudeDB</span><span class="p">();</span>
+<span class="n">app</span><span class="p">.</span><span class="n">MapRelatudeDBGraphQL</span><span class="p">(</span><span class="s">&quot;/graphql&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">o</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// which store answers; the default resolves IDataStore from the request&#39;s services</span>
+<span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">StoreResolver</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">RelatudeDBRuntime</span><span class="p">.</span><span class="n">Database</span><span class="p">.</span><span class="n">Datastore</span><span class="p">;</span>
+<span class="w">    </span><span class="c1">// run mutations through the NodeStore, so transaction plugins see them</span>
+<span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">TransactionExecutor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">_</span><span class="p">,</span><span class="w"> </span><span class="n">transaction</span><span class="p">,</span><span class="w"> </span><span class="n">_</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">RelatudeDBRuntime</span><span class="p">.</span><span class="n">Database</span><span class="p">.</span><span class="n">Execute</span><span class="p">(</span><span class="n">transaction</span><span class="p">);</span>
+<span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">QueryContextFactory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">http</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">QueryContext</span><span class="p">.</span><span class="n">Default</span><span class="p">.</span><span class="n">Culture</span><span class="p">(</span><span class="n">http</span><span class="p">.</span><span class="n">Request</span><span class="p">.</span><span class="n">Query</span><span class="p">[</span><span class="s">&quot;culture&quot;</span><span class="p">].</span><span class="n">FirstOrDefault</span><span class="p">());</span>
+<span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">TypeFilter</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">type</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">type</span><span class="p">.</span><span class="n">CodeName</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="s">&quot;IAttendee&quot;</span><span class="p">;</span><span class="w">   </span><span class="c1">// keep a type out of the schema</span>
+<span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">EnableExplorer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">true</span><span class="p">;</span>
+<span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">EnableFacetSearch</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">true</span><span class="p">;</span>
+<span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">FacetSearch</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">RelatudeDBRuntime</span><span class="p">.</span><span class="n">Server</span><span class="p">.</span><span class="n">GraphQL</span><span class="p">.</span><span class="n">FacetSearch</span><span class="p">;</span>
+<span class="p">});</span>
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>StoreResolver</code></td>
+<td><code>IDataStore</code> from the request's services</td>
+<td>The store to answer from. <code>AddRelatudeDB</code> does not register an <code>IDataStore</code>, so a Relatude.DB server app sets this, as above. While it returns <code>null</code> or throws (for example before the database is open), the route answers <code>503</code>.</td>
+</tr>
+<tr>
+<td><code>QueryContextFactory</code></td>
+<td>none (the store's default context)</td>
+<td>The query context per request: user, culture, unpublished or hidden nodes (<a href="#29-cultures-visibility-and-scoped-stores">§29</a>).</td>
+</tr>
+<tr>
+<td><code>TransactionExecutor</code></td>
+<td><code>IDataStore.Execute</code></td>
+<td>Runs a mutation's transaction. The default goes straight to the data store and skips transaction plugins.</td>
+</tr>
+<tr>
+<td><code>TypeFilter</code></td>
+<td>none</td>
+<td>Return <code>false</code> to keep a node type out of the schema.</td>
+</tr>
+<tr>
+<td><code>AllowMutations</code>, <code>EnableIntrospection</code>, <code>EnableGetRequests</code>, <code>EnableExplorer</code>, <code>EnableFacetSearch</code>, <code>MaxFacetCards</code>, <code>IncludeSystemTypes</code>, <code>MaxQueryDepth</code>, <code>MaxIncludeDepth</code>, <code>DefaultPageSize</code>, <code>MaxPageSize</code></td>
+<td>as in <a href="#332-the-definition-file">§33.2</a></td>
+<td>The same settings as the definition file.</td>
+</tr>
+<tr>
+<td><code>FacetSearch</code></td>
+<td>none</td>
+<td>What answers the facet page's requests.</td>
+</tr>
+</tbody>
+</table>
+<p>The schema is built once per store and built again when the store is replaced, for example by a
+soft restart.</p>
+<p>The library can also be used without HTTP. <code>RelatudeGraphQL</code> takes a data store and an options object
+or a definition:</p>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">gql</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RelatudeGraphQL</span><span class="p">(</span><span class="n">db</span><span class="p">.</span><span class="n">Datastore</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">GraphQLOptions</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">AllowMutations</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">true</span><span class="w"> </span><span class="p">});</span>
+<span class="n">GraphQLResult</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">gql</span><span class="p">.</span><span class="n">Execute</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">GraphQLRequest</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">Query</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;{ iEvents { totalCount } }&quot;</span><span class="w"> </span><span class="p">});</span>
+<span class="kt">string</span><span class="w"> </span><span class="n">json</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">result</span><span class="p">.</span><span class="n">ToJson</span><span class="p">();</span>
+<span class="kt">string</span><span class="w"> </span><span class="n">sdl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">gql</span><span class="p">.</span><span class="n">ToSDL</span><span class="p">();</span>
+<span class="n">IReadOnlyList</span><span class="o">&lt;</span><span class="kt">string</span><span class="o">&gt;</span><span class="w"> </span><span class="n">warnings</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">gql</span><span class="p">.</span><span class="n">Warnings</span><span class="p">;</span><span class="w">   </span><span class="c1">// what the schema builder left out or renamed</span>
+</code></pre></div>
+
+<p>An instance is immutable and safe to share. Its schema is the one the datamodel had when it was
+built.</p>
+<h3 id="3310-who-reads-and-the-limits">33.10 Who reads, and the limits<a class="anchor" href="#3310-who-reads-and-the-limits" aria-label="Link to this section">#</a></h3>
+<p><strong>Who reads.</strong> An endpoint defined in the admin UI queries in the database's default query context:
+no user, and no unpublished or hidden nodes. It sees what anyone may see. A code-first endpoint
+reads in the context its <code>QueryContextFactory</code> returns for the request. Either way, the endpoint
+shows a subset of the datamodel, never more than its context can read, and the facet page reads in
+the same context.</p>
+<p><strong>Keeping it closed.</strong> The switches that matter:</p>
+<ul>
+<li><code>apiKey</code> keeps out every request without the key, including the facet page's data.</li>
+<li>With <code>enableIntrospection</code> off, the schema is not served: <code>__schema</code> and <code>__type</code> fail, <code>?sdl</code>
+  answers <code>403</code>, and the explorer stays empty. Clients that already know the queries are unaffected.</li>
+<li>With <code>enableGetRequests</code> off, queries are only accepted as POST requests, so a query cannot be put
+  in a link.</li>
+<li>Leave <code>allowMutations</code> off unless the endpoint has a key, and mark types that clients must not
+  change as <code>readOnly</code>.</li>
+</ul>
+<p><strong>The limits</strong> keep one request from costing too much:</p>
+<ul>
+<li><code>maxQueryDepth</code> caps how deeply a selection nests;</li>
+<li><code>maxIncludeDepth</code> caps how many relations deep it goes;</li>
+<li><code>maxPageSize</code> caps the page size.</li>
+</ul>
+<p>A request over a depth limit is refused as a whole, with an error and no data. A page size over
+the maximum is cut down to it. A "many" relation field without <code>top</code> returns all its related nodes, so a model
+where one node has thousands of partners is better served by querying from the other side, or by a
+view.</p>
+<hr />
 <h2 id="where-to-look-when-this-manual-runs-out">Where to look when this manual runs out<a class="anchor" href="#where-to-look-when-this-manual-runs-out" aria-label="Link to this section">#</a></h2>
 <p>The public documentation is still thin and the API is pre-1.0. When something here does not match
 your build, read the source — it is small and well commented:</p>
@@ -6364,6 +7242,10 @@ your build, read the source — it is small and well commented:</p>
 <td>Logs, statistics and HyperLogLog</td>
 <td><code>src/Relatude.DB.Logger/Logging/</code> — <code>ICustomLogs.cs</code>, <code>LogSettings.cs</code>, <code>LogValues.cs</code>, <code>Statistics/HyperLogLog.cs</code></td>
 </tr>
+<tr>
+<td>GraphQL endpoints</td>
+<td><code>src/Relatude.DB.GraphQL/</code> — <code>Definitions/GraphQLEndpointDefinition.cs</code>, <code>GraphQLOptions.cs</code>, <code>Schema/SchemaBuilder.cs</code>, <code>Endpoints/GraphQLHttpHandler.cs</code>; the server side in <code>src/Relatude.DB.NodeServer/NodeServer/GraphQL/</code></td>
+</tr>
 </tbody>
 </table>
 <p>For measured numbers rather than API surface, see the
@@ -6378,7 +7260,7 @@ corpus size and cache budget, with throughput, recall, restart cost and memory f
 (function () {
   "use strict";
 
-  var NAV = [{"level": 1, "text": "Data Modelling & Querying with Relatude.DB", "id": "data-modelling-querying-with-relatudedb", "children": []}, {"level": 1, "text": "Part I — Data modelling", "id": "part-i-data-modelling", "children": [{"level": 2, "text": "1. The mental model", "id": "1-the-mental-model", "children": [{"level": 3, "text": "Interfaces are the model", "id": "interfaces-are-the-model", "children": []}]}, {"level": 2, "text": "2. Your first node type", "id": "2-your-first-node-type", "children": [{"level": 3, "text": "Why interfaces are the better default", "id": "why-interfaces-are-the-better-default", "children": []}, {"level": 3, "text": "Multiple inheritance with interfaces", "id": "multiple-inheritance-with-interfaces", "children": []}, {"level": 3, "text": "Querying across the hierarchy", "id": "querying-across-the-hierarchy", "children": []}, {"level": 3, "text": "Two constraints to design around", "id": "two-constraints-to-design-around", "children": []}, {"level": 3, "text": "When you do want a class", "id": "when-you-do-want-a-class", "children": []}, {"level": 3, "text": "Optional: stable type ids", "id": "optional-stable-type-ids", "children": []}]}, {"level": 2, "text": "3. Scalar properties and their attributes", "id": "3-scalar-properties-and-their-attributes", "children": [{"level": 3, "text": "The attribute catalogue", "id": "the-attribute-catalogue", "children": []}, {"level": 3, "text": "Strings", "id": "strings", "children": []}, {"level": 3, "text": "Numbers", "id": "numbers", "children": []}, {"level": 3, "text": "Enums", "id": "enums", "children": []}, {"level": 3, "text": "Validation happens on write", "id": "validation-happens-on-write", "children": []}, {"level": 3, "text": "3.1 Overriding attributes", "id": "31-overriding-attributes", "children": []}]}, {"level": 2, "text": "4. Marker properties", "id": "4-marker-properties", "children": [{"level": 3, "text": "What lives in NodeMeta", "id": "what-lives-in-nodemeta", "children": []}, {"level": 3, "text": "Querying by the node's own dates", "id": "querying-by-the-nodes-own-dates", "children": []}]}, {"level": 2, "text": "5. Geo coordinates", "id": "5-geo-coordinates", "children": [{"level": 3, "text": "Constructing and reading", "id": "constructing-and-reading", "children": []}, {"level": 3, "text": "The empty value", "id": "the-empty-value", "children": []}, {"level": 3, "text": "Distance and radius tests", "id": "distance-and-radius-tests", "children": []}, {"level": 3, "text": "How it is stored (and what that implies)", "id": "how-it-is-stored-and-what-that-implies", "children": []}, {"level": 3, "text": "JSON shape", "id": "json-shape", "children": []}, {"level": 3, "text": "Seeing them", "id": "seeing-them", "children": []}]}, {"level": 2, "text": "6. Files", "id": "6-files", "children": []}, {"level": 2, "text": "7. Embedded data", "id": "7-embedded-data", "children": [{"level": 3, "text": "Embedded<T> — a collection keyed by the embedded object's own Guid Id", "id": "embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id", "children": []}, {"level": 3, "text": "EmbeddedMap<TKey, TValue> — a collection keyed by a property of the value", "id": "embeddedmap-a-collection-keyed-by-a-property-of-the-value", "children": []}, {"level": 3, "text": "Working with an embedded map", "id": "working-with-an-embedded-map", "children": []}]}, {"level": 2, "text": "8. References — lightweight pointers", "id": "8-references-lightweight-pointers", "children": [{"level": 3, "text": "Reading and writing a Reference<T>", "id": "reading-and-writing-a-reference", "children": []}, {"level": 3, "text": "Reading and writing a References<T>", "id": "reading-and-writing-a-references", "children": []}]}, {"level": 2, "text": "9. Relations — the graph edges", "id": "9-relations-the-graph-edges", "children": [{"level": 3, "text": "The five shapes", "id": "the-five-shapes", "children": []}, {"level": 3, "text": "Using them on node types", "id": "using-them-on-node-types", "children": []}, {"level": 3, "text": "The \"one\" side API", "id": "the-one-side-api", "children": []}, {"level": 3, "text": "The \"many\" side API", "id": "the-many-side-api", "children": []}, {"level": 3, "text": "9.1 Relation lists are ordered", "id": "91-relation-lists-are-ordered", "children": []}, {"level": 3, "text": "Relation options", "id": "relation-options", "children": []}]}, {"level": 2, "text": "10. Choosing between relation, reference and embedded", "id": "10-choosing-between-relation-reference-and-embedded", "children": []}, {"level": 2, "text": "11. The complete example model", "id": "11-the-complete-example-model", "children": [{"level": 3, "text": "11.1 The same model with facet interfaces", "id": "111-the-same-model-with-facet-interfaces", "children": []}]}, {"level": 2, "text": "12. Registering the model & the admin UI", "id": "12-registering-the-model-the-admin-ui", "children": [{"level": 3, "text": "Server-hosted (the usual case)", "id": "server-hosted-the-usual-case", "children": []}, {"level": 3, "text": "relatude.db.json", "id": "relatudedbjson", "children": []}, {"level": 3, "text": "12.1 Every setting in relatude.db.json", "id": "121-every-setting-in-relatudedbjson", "children": []}, {"level": 3, "text": "Overriding settings from configuration", "id": "overriding-settings-from-configuration", "children": []}, {"level": 3, "text": "Changes made in the admin UI: relatude.db.overrides.json", "id": "changes-made-in-the-admin-ui-relatudedboverridesjson", "children": []}, {"level": 3, "text": "Options and events in Program.cs", "id": "options-and-events-in-programcs", "children": []}, {"level": 3, "text": "Two ways to register a datamodel", "id": "two-ways-to-register-a-datamodel", "children": []}, {"level": 3, "text": "The admin UI", "id": "the-admin-ui", "children": []}, {"level": 3, "text": "Programmatic / embedded", "id": "programmatic-embedded", "children": []}, {"level": 3, "text": "What the model builder validates", "id": "what-the-model-builder-validates", "children": []}, {"level": 3, "text": "Do not redefine the native types", "id": "do-not-redefine-the-native-types", "children": []}]}]}, {"level": 1, "text": "Part II — Writing data", "id": "part-ii-writing-data", "children": [{"level": 2, "text": "13. Create, insert, update, delete", "id": "13-create-insert-update-delete", "children": [{"level": 3, "text": "Read", "id": "read", "children": []}, {"level": 3, "text": "Update, upsert, delete", "id": "update-upsert-delete", "children": []}]}, {"level": 2, "text": "14. Relating nodes", "id": "14-relating-nodes", "children": [{"level": 3, "text": "Which verb", "id": "which-verb", "children": []}]}, {"level": 2, "text": "15. Transactions", "id": "15-transactions", "children": [{"level": 3, "text": "Transaction plugins", "id": "transaction-plugins", "children": []}]}, {"level": 2, "text": "16. Older versions of a node", "id": "16-older-versions-of-a-node", "children": [{"level": 3, "text": "16.1 Reverting the database to an earlier point", "id": "161-reverting-the-database-to-an-earlier-point", "children": []}]}, {"level": 2, "text": "17. Uploading files", "id": "17-uploading-files", "children": [{"level": 3, "text": "Very large files", "id": "very-large-files", "children": []}, {"level": 3, "text": "Serving and converting", "id": "serving-and-converting", "children": []}, {"level": 3, "text": "Light and dark mode", "id": "light-and-dark-mode", "children": []}, {"level": 3, "text": "Serving it", "id": "serving-it", "children": []}]}, {"level": 2, "text": "18. URLs and the URL manager", "id": "18-urls-and-the-url-manager", "children": [{"level": 3, "text": "Configuring it", "id": "configuring-it", "children": []}, {"level": 3, "text": "Where the path comes from", "id": "where-the-path-comes-from", "children": []}, {"level": 3, "text": "Address uniqueness", "id": "address-uniqueness", "children": []}, {"level": 3, "text": "Page URL formats", "id": "page-url-formats", "children": []}, {"level": 3, "text": "Prefixes", "id": "prefixes", "children": []}, {"level": 3, "text": "18.1 Asset URLs: files, variants and deeplinks", "id": "181-asset-urls-files-variants-and-deeplinks", "children": []}, {"level": 3, "text": "18.2 Links inside HTML and Markdown", "id": "182-links-inside-html-and-markdown", "children": []}, {"level": 3, "text": "Writing your own manager", "id": "writing-your-own-manager", "children": []}, {"level": 3, "text": "The middleware that serves it", "id": "the-middleware-that-serves-it", "children": []}]}]}, {"level": 1, "text": "Part III — Querying", "id": "part-iii-querying", "children": [{"level": 2, "text": "19. Query anatomy", "id": "19-query-anatomy", "children": [{"level": 3, "text": "Queries are immutable", "id": "queries-are-immutable", "children": []}, {"level": 3, "text": "Entry points", "id": "entry-points", "children": []}, {"level": 3, "text": "Executing", "id": "executing", "children": []}]}, {"level": 2, "text": "20. Filtering with Where", "id": "20-filtering-with-where", "children": []}, {"level": 2, "text": "21. Text and semantic search", "id": "21-text-and-semantic-search", "children": [{"level": 3, "text": "WhereSearch — search as a filter", "id": "wheresearch-search-as-a-filter", "children": []}, {"level": 3, "text": "Search — search as ranking", "id": "search-search-as-ranking", "children": []}, {"level": 3, "text": "What actually gets searched", "id": "what-actually-gets-searched", "children": []}]}, {"level": 2, "text": "22. Geo queries", "id": "22-geo-queries", "children": [{"level": 3, "text": "Sorting by distance", "id": "sorting-by-distance", "children": []}, {"level": 3, "text": "A widening search", "id": "a-widening-search", "children": []}, {"level": 3, "text": "Things to remember about geo filters", "id": "things-to-remember-about-geo-filters", "children": []}]}, {"level": 2, "text": "23. Relation filters", "id": "23-relation-filters", "children": []}, {"level": 2, "text": "24. Eager loading: Include and Preload", "id": "24-eager-loading-include-and-preload", "children": [{"level": 3, "text": "Going deeper: ThenInclude / ThenPreload", "id": "going-deeper-theninclude-thenpreload", "children": []}, {"level": 3, "text": "Filtering what gets included", "id": "filtering-what-gets-included", "children": []}, {"level": 3, "text": "When you only need ids", "id": "when-you-only-need-ids", "children": []}]}, {"level": 2, "text": "25. Graph traversal and shortest path", "id": "25-graph-traversal-and-shortest-path", "children": [{"level": 3, "text": "Traverse", "id": "traverse", "children": []}, {"level": 3, "text": "ShortestPath", "id": "shortestpath", "children": []}]}, {"level": 2, "text": "26. Sorting, paging and result sets", "id": "26-sorting-paging-and-result-sets", "children": [{"level": 3, "text": "Paging", "id": "paging", "children": []}, {"level": 3, "text": "ResultSet<T>", "id": "resultset", "children": []}]}, {"level": 2, "text": "27. Aggregates", "id": "27-aggregates", "children": []}, {"level": 2, "text": "28. Faceted search", "id": "28-faceted-search", "children": [{"level": 3, "text": "Applying the user's selection", "id": "applying-the-users-selection", "children": []}, {"level": 3, "text": "Facet declaration methods", "id": "facet-declaration-methods", "children": []}, {"level": 3, "text": "Where the un-named facets come from", "id": "where-the-un-named-facets-come-from", "children": []}, {"level": 3, "text": "28.1 Pivot tables", "id": "281-pivot-tables", "children": []}, {"level": 3, "text": "28.2 GroupBy", "id": "282-groupby", "children": []}]}, {"level": 2, "text": "29. Cultures, visibility and scoped stores", "id": "29-cultures-visibility-and-scoped-stores", "children": []}, {"level": 2, "text": "30. Pitfalls and gotchas", "id": "30-pitfalls-and-gotchas", "children": []}]}, {"level": 1, "text": "Part IV — Tooling", "id": "part-iv-tooling", "children": [{"level": 2, "text": "31. The command line tool", "id": "31-the-command-line-tool", "children": [{"level": 3, "text": "Two things every command needs to know", "id": "two-things-every-command-needs-to-know", "children": []}, {"level": 3, "text": "The commands", "id": "the-commands", "children": []}, {"level": 3, "text": "What it does not do", "id": "what-it-does-not-do", "children": []}, {"level": 3, "text": "Things worth knowing", "id": "things-worth-knowing", "children": []}]}, {"level": 2, "text": "32. Logs — recording what the application does", "id": "32-logs-recording-what-the-application-does", "children": [{"level": 3, "text": "32.1 Defining a log", "id": "321-defining-a-log", "children": []}, {"level": 3, "text": "32.2 Recording from the application", "id": "322-recording-from-the-application", "children": []}, {"level": 3, "text": "32.3 Statistics", "id": "323-statistics", "children": []}, {"level": 3, "text": "32.4 Estimated unique counts: HyperLogLog", "id": "324-estimated-unique-counts-hyperloglog", "children": []}, {"level": 3, "text": "32.5 Reading a log", "id": "325-reading-a-log", "children": []}, {"level": 3, "text": "32.6 Changing a definition", "id": "326-changing-a-definition", "children": []}, {"level": 3, "text": "32.7 Files, limits and cleaning up", "id": "327-files-limits-and-cleaning-up", "children": []}, {"level": 3, "text": "32.8 Positions", "id": "328-positions", "children": []}]}, {"level": 2, "text": "Where to look when this manual runs out", "id": "where-to-look-when-this-manual-runs-out", "children": []}]}];
+  var NAV = [{"level": 1, "text": "Data Modelling & Querying with Relatude.DB", "id": "data-modelling-querying-with-relatudedb", "children": []}, {"level": 1, "text": "Part I — Data modelling", "id": "part-i-data-modelling", "children": [{"level": 2, "text": "1. The mental model", "id": "1-the-mental-model", "children": [{"level": 3, "text": "Interfaces are the model", "id": "interfaces-are-the-model", "children": []}]}, {"level": 2, "text": "2. Your first node type", "id": "2-your-first-node-type", "children": [{"level": 3, "text": "Why interfaces are the better default", "id": "why-interfaces-are-the-better-default", "children": []}, {"level": 3, "text": "Multiple inheritance with interfaces", "id": "multiple-inheritance-with-interfaces", "children": []}, {"level": 3, "text": "Querying across the hierarchy", "id": "querying-across-the-hierarchy", "children": []}, {"level": 3, "text": "Two constraints to design around", "id": "two-constraints-to-design-around", "children": []}, {"level": 3, "text": "When you do want a class", "id": "when-you-do-want-a-class", "children": []}, {"level": 3, "text": "Optional: stable type ids", "id": "optional-stable-type-ids", "children": []}]}, {"level": 2, "text": "3. Scalar properties and their attributes", "id": "3-scalar-properties-and-their-attributes", "children": [{"level": 3, "text": "The attribute catalogue", "id": "the-attribute-catalogue", "children": []}, {"level": 3, "text": "Strings", "id": "strings", "children": []}, {"level": 3, "text": "Numbers", "id": "numbers", "children": []}, {"level": 3, "text": "Enums", "id": "enums", "children": []}, {"level": 3, "text": "Validation happens on write", "id": "validation-happens-on-write", "children": []}, {"level": 3, "text": "3.1 Overriding attributes", "id": "31-overriding-attributes", "children": []}]}, {"level": 2, "text": "4. Marker properties", "id": "4-marker-properties", "children": [{"level": 3, "text": "What lives in NodeMeta", "id": "what-lives-in-nodemeta", "children": []}, {"level": 3, "text": "Querying by the node's own dates", "id": "querying-by-the-nodes-own-dates", "children": []}]}, {"level": 2, "text": "5. Geo coordinates", "id": "5-geo-coordinates", "children": [{"level": 3, "text": "Constructing and reading", "id": "constructing-and-reading", "children": []}, {"level": 3, "text": "The empty value", "id": "the-empty-value", "children": []}, {"level": 3, "text": "Distance and radius tests", "id": "distance-and-radius-tests", "children": []}, {"level": 3, "text": "How it is stored (and what that implies)", "id": "how-it-is-stored-and-what-that-implies", "children": []}, {"level": 3, "text": "JSON shape", "id": "json-shape", "children": []}, {"level": 3, "text": "Seeing them", "id": "seeing-them", "children": []}]}, {"level": 2, "text": "6. Files", "id": "6-files", "children": []}, {"level": 2, "text": "7. Embedded data", "id": "7-embedded-data", "children": [{"level": 3, "text": "Embedded<T> — a collection keyed by the embedded object's own Guid Id", "id": "embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id", "children": []}, {"level": 3, "text": "EmbeddedMap<TKey, TValue> — a collection keyed by a property of the value", "id": "embeddedmap-a-collection-keyed-by-a-property-of-the-value", "children": []}, {"level": 3, "text": "Working with an embedded map", "id": "working-with-an-embedded-map", "children": []}]}, {"level": 2, "text": "8. References — lightweight pointers", "id": "8-references-lightweight-pointers", "children": [{"level": 3, "text": "Reading and writing a Reference<T>", "id": "reading-and-writing-a-reference", "children": []}, {"level": 3, "text": "Reading and writing a References<T>", "id": "reading-and-writing-a-references", "children": []}]}, {"level": 2, "text": "9. Relations — the graph edges", "id": "9-relations-the-graph-edges", "children": [{"level": 3, "text": "The five shapes", "id": "the-five-shapes", "children": []}, {"level": 3, "text": "Using them on node types", "id": "using-them-on-node-types", "children": []}, {"level": 3, "text": "The \"one\" side API", "id": "the-one-side-api", "children": []}, {"level": 3, "text": "The \"many\" side API", "id": "the-many-side-api", "children": []}, {"level": 3, "text": "9.1 Relation lists are ordered", "id": "91-relation-lists-are-ordered", "children": []}, {"level": 3, "text": "Relation options", "id": "relation-options", "children": []}]}, {"level": 2, "text": "10. Choosing between relation, reference and embedded", "id": "10-choosing-between-relation-reference-and-embedded", "children": []}, {"level": 2, "text": "11. The complete example model", "id": "11-the-complete-example-model", "children": [{"level": 3, "text": "11.1 The same model with facet interfaces", "id": "111-the-same-model-with-facet-interfaces", "children": []}]}, {"level": 2, "text": "12. Registering the model & the admin UI", "id": "12-registering-the-model-the-admin-ui", "children": [{"level": 3, "text": "Server-hosted (the usual case)", "id": "server-hosted-the-usual-case", "children": []}, {"level": 3, "text": "relatude.db.json", "id": "relatudedbjson", "children": []}, {"level": 3, "text": "12.1 Every setting in relatude.db.json", "id": "121-every-setting-in-relatudedbjson", "children": []}, {"level": 3, "text": "Overriding settings from configuration", "id": "overriding-settings-from-configuration", "children": []}, {"level": 3, "text": "Changes made in the admin UI: relatude.db.overrides.json", "id": "changes-made-in-the-admin-ui-relatudedboverridesjson", "children": []}, {"level": 3, "text": "Options and events in Program.cs", "id": "options-and-events-in-programcs", "children": []}, {"level": 3, "text": "Two ways to register a datamodel", "id": "two-ways-to-register-a-datamodel", "children": []}, {"level": 3, "text": "The admin UI", "id": "the-admin-ui", "children": []}, {"level": 3, "text": "Programmatic / embedded", "id": "programmatic-embedded", "children": []}, {"level": 3, "text": "What the model builder validates", "id": "what-the-model-builder-validates", "children": []}, {"level": 3, "text": "Do not redefine the native types", "id": "do-not-redefine-the-native-types", "children": []}]}]}, {"level": 1, "text": "Part II — Writing data", "id": "part-ii-writing-data", "children": [{"level": 2, "text": "13. Create, insert, update, delete", "id": "13-create-insert-update-delete", "children": [{"level": 3, "text": "Read", "id": "read", "children": []}, {"level": 3, "text": "Update, upsert, delete", "id": "update-upsert-delete", "children": []}]}, {"level": 2, "text": "14. Relating nodes", "id": "14-relating-nodes", "children": [{"level": 3, "text": "Which verb", "id": "which-verb", "children": []}]}, {"level": 2, "text": "15. Transactions", "id": "15-transactions", "children": [{"level": 3, "text": "Transaction plugins", "id": "transaction-plugins", "children": []}]}, {"level": 2, "text": "16. Older versions of a node", "id": "16-older-versions-of-a-node", "children": [{"level": 3, "text": "16.1 Reverting the database to an earlier point", "id": "161-reverting-the-database-to-an-earlier-point", "children": []}]}, {"level": 2, "text": "17. Uploading files", "id": "17-uploading-files", "children": [{"level": 3, "text": "Very large files", "id": "very-large-files", "children": []}, {"level": 3, "text": "Serving and converting", "id": "serving-and-converting", "children": []}, {"level": 3, "text": "Light and dark mode", "id": "light-and-dark-mode", "children": []}, {"level": 3, "text": "Serving it", "id": "serving-it", "children": []}]}, {"level": 2, "text": "18. URLs and the URL manager", "id": "18-urls-and-the-url-manager", "children": [{"level": 3, "text": "Configuring it", "id": "configuring-it", "children": []}, {"level": 3, "text": "Where the path comes from", "id": "where-the-path-comes-from", "children": []}, {"level": 3, "text": "Address uniqueness", "id": "address-uniqueness", "children": []}, {"level": 3, "text": "Page URL formats", "id": "page-url-formats", "children": []}, {"level": 3, "text": "Prefixes", "id": "prefixes", "children": []}, {"level": 3, "text": "18.1 Asset URLs: files, variants and deeplinks", "id": "181-asset-urls-files-variants-and-deeplinks", "children": []}, {"level": 3, "text": "18.2 Links inside HTML and Markdown", "id": "182-links-inside-html-and-markdown", "children": []}, {"level": 3, "text": "Writing your own manager", "id": "writing-your-own-manager", "children": []}, {"level": 3, "text": "The middleware that serves it", "id": "the-middleware-that-serves-it", "children": []}]}]}, {"level": 1, "text": "Part III — Querying", "id": "part-iii-querying", "children": [{"level": 2, "text": "19. Query anatomy", "id": "19-query-anatomy", "children": [{"level": 3, "text": "Queries are immutable", "id": "queries-are-immutable", "children": []}, {"level": 3, "text": "Entry points", "id": "entry-points", "children": []}, {"level": 3, "text": "Executing", "id": "executing", "children": []}]}, {"level": 2, "text": "20. Filtering with Where", "id": "20-filtering-with-where", "children": []}, {"level": 2, "text": "21. Text and semantic search", "id": "21-text-and-semantic-search", "children": [{"level": 3, "text": "WhereSearch — search as a filter", "id": "wheresearch-search-as-a-filter", "children": []}, {"level": 3, "text": "Search — search as ranking", "id": "search-search-as-ranking", "children": []}, {"level": 3, "text": "What actually gets searched", "id": "what-actually-gets-searched", "children": []}]}, {"level": 2, "text": "22. Geo queries", "id": "22-geo-queries", "children": [{"level": 3, "text": "Sorting by distance", "id": "sorting-by-distance", "children": []}, {"level": 3, "text": "A widening search", "id": "a-widening-search", "children": []}, {"level": 3, "text": "Things to remember about geo filters", "id": "things-to-remember-about-geo-filters", "children": []}]}, {"level": 2, "text": "23. Relation filters", "id": "23-relation-filters", "children": []}, {"level": 2, "text": "24. Eager loading: Include and Preload", "id": "24-eager-loading-include-and-preload", "children": [{"level": 3, "text": "Going deeper: ThenInclude / ThenPreload", "id": "going-deeper-theninclude-thenpreload", "children": []}, {"level": 3, "text": "Filtering what gets included", "id": "filtering-what-gets-included", "children": []}, {"level": 3, "text": "When you only need ids", "id": "when-you-only-need-ids", "children": []}]}, {"level": 2, "text": "25. Graph traversal and shortest path", "id": "25-graph-traversal-and-shortest-path", "children": [{"level": 3, "text": "Traverse", "id": "traverse", "children": []}, {"level": 3, "text": "ShortestPath", "id": "shortestpath", "children": []}]}, {"level": 2, "text": "26. Sorting, paging and result sets", "id": "26-sorting-paging-and-result-sets", "children": [{"level": 3, "text": "Paging", "id": "paging", "children": []}, {"level": 3, "text": "ResultSet<T>", "id": "resultset", "children": []}]}, {"level": 2, "text": "27. Aggregates", "id": "27-aggregates", "children": []}, {"level": 2, "text": "28. Faceted search", "id": "28-faceted-search", "children": [{"level": 3, "text": "Applying the user's selection", "id": "applying-the-users-selection", "children": []}, {"level": 3, "text": "Facet declaration methods", "id": "facet-declaration-methods", "children": []}, {"level": 3, "text": "Where the un-named facets come from", "id": "where-the-un-named-facets-come-from", "children": []}, {"level": 3, "text": "28.1 Pivot tables", "id": "281-pivot-tables", "children": []}, {"level": 3, "text": "28.2 GroupBy", "id": "282-groupby", "children": []}]}, {"level": 2, "text": "29. Cultures, visibility and scoped stores", "id": "29-cultures-visibility-and-scoped-stores", "children": []}, {"level": 2, "text": "30. Pitfalls and gotchas", "id": "30-pitfalls-and-gotchas", "children": []}]}, {"level": 1, "text": "Part IV — Tooling", "id": "part-iv-tooling", "children": [{"level": 2, "text": "31. The command line tool", "id": "31-the-command-line-tool", "children": [{"level": 3, "text": "Two things every command needs to know", "id": "two-things-every-command-needs-to-know", "children": []}, {"level": 3, "text": "The commands", "id": "the-commands", "children": []}, {"level": 3, "text": "What it does not do", "id": "what-it-does-not-do", "children": []}, {"level": 3, "text": "Things worth knowing", "id": "things-worth-knowing", "children": []}]}, {"level": 2, "text": "32. Logs — recording what the application does", "id": "32-logs-recording-what-the-application-does", "children": [{"level": 3, "text": "32.1 Defining a log", "id": "321-defining-a-log", "children": []}, {"level": 3, "text": "32.2 Recording from the application", "id": "322-recording-from-the-application", "children": []}, {"level": 3, "text": "32.3 Statistics", "id": "323-statistics", "children": []}, {"level": 3, "text": "32.4 Estimated unique counts: HyperLogLog", "id": "324-estimated-unique-counts-hyperloglog", "children": []}, {"level": 3, "text": "32.5 Reading a log", "id": "325-reading-a-log", "children": []}, {"level": 3, "text": "32.6 Changing a definition", "id": "326-changing-a-definition", "children": []}, {"level": 3, "text": "32.7 Files, limits and cleaning up", "id": "327-files-limits-and-cleaning-up", "children": []}, {"level": 3, "text": "32.8 Positions", "id": "328-positions", "children": []}]}]}, {"level": 1, "text": "Part V — APIs", "id": "part-v-apis", "children": [{"level": 2, "text": "33. GraphQL endpoints", "id": "33-graphql-endpoints", "children": [{"level": 3, "text": "33.1 An endpoint in the admin UI", "id": "331-an-endpoint-in-the-admin-ui", "children": []}, {"level": 3, "text": "33.2 The definition file", "id": "332-the-definition-file", "children": []}, {"level": 3, "text": "33.3 The schema", "id": "333-the-schema", "children": []}, {"level": 3, "text": "33.4 Querying", "id": "334-querying", "children": []}, {"level": 3, "text": "33.5 Views", "id": "335-views", "children": []}, {"level": 3, "text": "33.6 Mutations", "id": "336-mutations", "children": []}, {"level": 3, "text": "33.7 Over HTTP", "id": "337-over-http", "children": []}, {"level": 3, "text": "33.8 The explorer and the facet page", "id": "338-the-explorer-and-the-facet-page", "children": []}, {"level": 3, "text": "33.9 Code-first: mapping an endpoint in Program.cs", "id": "339-code-first-mapping-an-endpoint-in-programcs", "children": []}, {"level": 3, "text": "33.10 Who reads, and the limits", "id": "3310-who-reads-and-the-limits", "children": []}]}, {"level": 2, "text": "Where to look when this manual runs out", "id": "where-to-look-when-this-manual-runs-out", "children": []}]}];
   // v2: the default collapse state changed, and the key is versioned so readers
   // carrying a v1 payload get the new default rather than their old tree.
   var KEY = "relatude-manual-state-v2";

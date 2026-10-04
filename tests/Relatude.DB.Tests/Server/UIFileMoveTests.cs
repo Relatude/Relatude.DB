@@ -207,6 +207,66 @@ public class UIFileMoveTests {
     }
 
     [TestMethod]
+    public async Task WithinOneStorage_MovesToAnotherFolder_AndCopiesBesideTheOriginalsGetNamesOfTheirOwn() {
+        var s = start("within");
+        try {
+            File.WriteAllText(Path.Combine(s.DiskFolder, "a.txt"), "a");
+            Directory.CreateDirectory(Path.Combine(s.DiskFolder, "docs"));
+            File.WriteAllText(Path.Combine(s.DiskFolder, "docs", "x.txt"), "x");
+
+            // a move to another folder of the same disk storage: renamed across
+            var (moved, _) = await waitFor(s.Host, await startMove(s.Host, new {
+                FromIoId = s.DiskIo, ToIoId = s.DiskIo, BasePath = "", Files = new[] { "a.txt" }, TargetPath = "sub",
+            }));
+            Assert.AreEqual(1, moved.GetProperty("filesMoved").GetInt32(), moved.ToString());
+            Assert.AreEqual("a", File.ReadAllText(Path.Combine(s.DiskFolder, "sub", "a.txt")));
+            Assert.IsFalse(File.Exists(Path.Combine(s.DiskFolder, "a.txt")));
+
+            // a copy into the folder it is in: a name of its own, and another one the next time
+            for (var i = 0; i < 2; i++) {
+                var (copied, _) = await waitFor(s.Host, await startMove(s.Host, new {
+                    FromIoId = s.DiskIo, ToIoId = s.DiskIo, BasePath = "sub", Files = new[] { "sub/a.txt" }, TargetPath = "sub", KeepOriginals = true,
+                }));
+                Assert.AreEqual(1, copied.GetProperty("filesMoved").GetInt32(), copied.ToString());
+            }
+            Assert.AreEqual("a", File.ReadAllText(Path.Combine(s.DiskFolder, "sub", "a - Copy.txt")));
+            Assert.AreEqual("a", File.ReadAllText(Path.Combine(s.DiskFolder, "sub", "a - Copy (2).txt")));
+            Assert.AreEqual("a", File.ReadAllText(Path.Combine(s.DiskFolder, "sub", "a.txt")), "the original stays");
+
+            // a folder copied into its own parent
+            var (folderCopy, _) = await waitFor(s.Host, await startMove(s.Host, new {
+                FromIoId = s.DiskIo, ToIoId = s.DiskIo, BasePath = "", Folders = new[] { "docs" }, TargetPath = "", KeepOriginals = true,
+            }));
+            Assert.AreEqual("done", folderCopy.GetProperty("state").GetString(), folderCopy.ToString());
+            Assert.AreEqual("x", File.ReadAllText(Path.Combine(s.DiskFolder, "docs - Copy", "x.txt")));
+            Assert.AreEqual("x", File.ReadAllText(Path.Combine(s.DiskFolder, "docs", "x.txt")));
+
+            // a folder into itself, and a move that would leave everything where it is: refused at the start
+            var (status, json) = await send(s.Host, "io-move-start", new {
+                FromIoId = s.DiskIo, ToIoId = s.DiskIo, BasePath = "", Folders = new[] { "docs" }, TargetPath = "docs/deeper", KeepOriginals = true,
+            });
+            Assert.AreEqual(500, status);
+            StringAssert.Contains(json.GetProperty("error").GetString(), "inside");
+            (status, json) = await send(s.Host, "io-move-start", new {
+                FromIoId = s.DiskIo, ToIoId = s.DiskIo, BasePath = "sub", Files = new[] { "sub/a.txt" }, TargetPath = "sub",
+            });
+            Assert.AreEqual(500, status);
+            StringAssert.Contains(json.GetProperty("error").GetString(), "already in that folder");
+
+            // within a storage with no folders on disk (memory): renamed by key
+            s.Memory.WriteAllBytes(key("m/one.bin"), [1, 2, 3]);
+            var (inMemory, _) = await waitFor(s.Host, await startMove(s.Host, new {
+                FromIoId = s.MemoryIo, ToIoId = s.MemoryIo, BasePath = "m", Folders = new[] { "m" }, TargetPath = "n",
+            }));
+            Assert.AreEqual(1, inMemory.GetProperty("filesMoved").GetInt32(), inMemory.ToString());
+            CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, s.Memory.ReadAllBytes(key("n/m/one.bin")));
+            Assert.IsFalse(s.Memory.Exists(key("m/one.bin")));
+        } finally {
+            await stop(s);
+        }
+    }
+
+    [TestMethod]
     public async Task AFileBeingWritten_StaysWhereItIs() {
         var s = start("held");
         try {

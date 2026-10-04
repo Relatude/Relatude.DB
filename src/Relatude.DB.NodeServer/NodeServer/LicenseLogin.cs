@@ -17,7 +17,8 @@ namespace Relatude.DB.NodeServer;
 /// it, used only while the license server has not answered.</para>
 /// <para>The sign-in is a redirect in three steps, started by the login page rather than by a link.
 /// The page tells this server the address it is open on (<see cref="BeginAsync"/>), and the server
-/// takes it only when it is one of its own (<see cref="returnAddress"/>). It keeps a random ticket
+/// takes it only when it is one of its own, by its settings or by an approval in Relatude Services
+/// (<see cref="returnAddress"/>). It keeps a random ticket
 /// for the sign-in in memory and puts it in the browser's cookie, and tells the license server, over
 /// the back channel with its API key, that a browser is about to come, where to send it back, and
 /// the hash of a secret only this process holds. The license server answers with a sign-in url,
@@ -38,6 +39,8 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     sealed record LoginRequestCreated(string RequestId, string LoginUrl, DateTime ExpiresUtc);
     sealed record TokenRequest(Guid ApiKey, string Code, string State, string CodeVerifier); // State: the request id, so the code is redeemable only for the sign-in it came from
     sealed record TokenResult(Guid Subject, string Name, string Email, string Mobile, Guid LicenseId, string LicenseName, Guid InstallationId, string InstallationKey, string Role, DateTime IssuedUtc, DateTime ExpiresUtc);
+    sealed record ApprovedAddressesRequest(Guid ApiKey, string InstallationKey);
+    sealed record ApprovedAddressesAnswer(string[]? Addresses); // authorities: the host, plus the port when it is not 443
     sealed record Heartbeat(Guid ApiKey, string InstallationKey, string? Name, int Nodes, string? ServerName, string? MachineName, string? BuildVersion);
     sealed record SmsSenderAnswer(bool Allowed, string? Reason);
     sealed record Refusal(string? Reason);
@@ -190,10 +193,17 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
         if (!SignInAvailable || !tryGetApiKey(out var apiKey)) return refused("Sign-in with Relatude Services is not enabled on this server.");
         var returnTo = returnAddress(context, begin?.Url);
         if (returnTo.Refusal is { } refusal) return refused(refusal);
-        var redirectUri = returnTo.Base + server.ApiUrlPublic + "license-login/callback/";
         // the same question the heartbeat asks, and here it also answers the user faster than
         // waiting out the http timeout would
         if (!await TcpProbe.IsListeningAsync(baseUrl, cancellationToken: context.RequestAborted)) return refused(unreachable("start"));
+        var returnBase = returnTo.Base;
+        if (returnTo.Check is { } check) {
+            var (approved, failure) = await isApprovedAddressAsync(apiKey, check.Authority, context.RequestAborted);
+            if (failure != null) return refused(failure);
+            if (!approved) return refused(check.Refusal);
+            returnBase = check.Base;
+        }
+        var redirectUri = returnBase + server.ApiUrlPublic + "license-login/callback/";
         // The license key goes with the API key, and the license server only takes the one the API
         // key belongs to - so it is that one, found from the API key the first time it is needed.
         if (_known is not { } known || known.ApiKey != apiKey) {
@@ -275,13 +285,22 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     /// <summary>OAuth's S256 code challenge: the SHA-256 of the verifier, base64url without padding.</summary>
     static string challengeOf(string verifier) => Base64Url.EncodeToString(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
 
-    /// <summary>Where the browser comes back to, as <see cref="returnAddress"/> decides it: the base to build the callback url on, or why the sign-in cannot start. One is set.</summary>
-    sealed record ReturnAddress(string? Base, string? Refusal);
+    /// <summary>
+    /// Where the browser comes back to, as <see cref="returnAddress"/> decides it: the base to build the
+    /// callback url on, why the sign-in cannot start, or - for an address this server's own settings do
+    /// not know - what to ask Relatude Services about it. One is set.
+    /// </summary>
+    sealed record ReturnAddress(string? Base, string? Refusal, ApprovalCheck? Check = null);
+    /// <summary>An https address the settings do not list: its authority as Relatude Services writes approved
+    /// hosts, the base to come back to if it is approved there, and the refusal if it is not.</summary>
+    sealed record ApprovalCheck(string Authority, string Base, string Refusal);
 
     /// <summary>
     /// Where the license server sends the browser back to with the code: the address the login page
     /// says it is open on, once it is found to be one of this server's own - one listed in
-    /// <see cref="RelatudeDBServerSettings.PublicUrl"/>, or a loopback address the request came in on.
+    /// <see cref="RelatudeDBServerSettings.PublicUrl"/>, a loopback address the request came in on, or
+    /// one approved for this installation in Relatude Services (<see cref="isApprovedAddressAsync"/>),
+    /// which is what the <see cref="ReturnAddress.Check"/> of the answer asks.
     /// <para>What the page says is checked rather than trusted, because whoever sends the request
     /// chooses it, as they choose the host name in it. A server that returned to any address it was
     /// told would register a sign-in that comes back to an address of the sender's choosing. Should
@@ -295,8 +314,12 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     /// is one, it has to agree.</para>
     /// <para>PublicUrl may hold several addresses: one server, or several sharing one settings file,
     /// reached on more than one name. The page's address picks among them, so a sign-in returns to the
-    /// address it was started on. One started on an address that is not listed is refused, naming the
-    /// address to use - it is never sent on to another site.</para>
+    /// address it was started on. It fills itself in: every https address a signed-in admin uses is
+    /// added to it (<see cref="RememberPublicUrl"/>). An https address that is not listed is asked about
+    /// in Relatude Services, where someone with access to the license may have approved it for this
+    /// installation; that answer comes from the license server over the back channel, never from the
+    /// request. One that is neither is refused, saying how to add it - it is never sent on to another
+    /// site, and the license server is never asked to send a code there.</para>
     /// </summary>
     ReturnAddress returnAddress(HttpContext context, string? pageUrl) {
         if (!Uri.TryCreate(pageUrl, UriKind.Absolute, out var page) || (page.Scheme != Uri.UriSchemeHttps && page.Scheme != Uri.UriSchemeHttp))
@@ -306,22 +329,42 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
         if (sentFrom.Length > 0 && !string.Equals(sentFrom, origin, StringComparison.OrdinalIgnoreCase))
             return new(null, "The sign-in was started from another address than the login page is open on. Reload it and try again.");
         if (page.IsLoopback && isLoopback(context.Request)) return new(origin, null);
-        var listed = publicUrlsIn(settings.PublicUrl);
-        if (listed.Length == 0) {
-            return new(null, "Sign-in with Relatude Services is not set up for this address yet: the server's public address (PublicUrl) is not set. "
-                + "It is filled in when the API key is saved or the installation is paired on the Relatude Services page, or it can be set in the settings. Until then, use the master login.");
-        }
         var addresses = new List<PublicAddress>();
-        foreach (var address in listed) {
+        foreach (var address in publicUrlsIn(settings.PublicUrl)) {
             if (!tryPublicBase(address, out var publicUri, out var publicBase))
                 return new(null, "The public address " + address + " in the settings (PublicUrl) is not one the sign-in can return to: each address has to be an https address such as https://db.example.com. Fix it in the settings, or use the master login.");
             addresses.Add(new(publicUri, publicBase));
         }
         var match = addresses.FirstOrDefault(a => a.Uri.Scheme == page.Scheme && a.Uri.Port == page.Port && string.Equals(a.Uri.Host, page.Host, StringComparison.OrdinalIgnoreCase));
         if (match != null) return new(match.Base, null);
-        return new(null, origin + " is not one of this server's public addresses (PublicUrl), so sign-in with Relatude Services cannot come back here. "
-            + "Sign in on " + addresses[0].Base + " instead, or add " + origin + " to the public addresses in the settings.");
+        if (page.Scheme != Uri.UriSchemeHttps) {
+            // the license server sends a browser back only to https, or to http on this machine
+            return new(null, "Sign-in with Relatude Services comes back only to an https address, and " + origin + " is not one. "
+                + "Open the admin UI on its https address" + (addresses.Count > 0 ? ", " + addresses[0].Base + "," : "") + " or use the master login.");
+        }
+        // a loopback page asked for from elsewhere: no address in Relatude Services can vouch for that
+        if (page.IsLoopback) return new(null, notOurs(origin, addresses));
+        // Behind a proxy that adds a path in front, the browser's path to the admin UI is longer than
+        // this server's own, but the base is taken from the request rather than from the page all the
+        // same: the authority is what was approved, and the path after it is the sender's to choose.
+        return new(null, null, new(authorityOf(page), origin + context.Request.PathBase.Value, notOurs(origin, addresses)));
     }
+
+    /// <summary>
+    /// Why the sign-in cannot come back to <paramref name="origin"/>, and the ways to change that - the
+    /// master login only where it can be used from another machine, since that is where this page is.
+    /// </summary>
+    string notOurs(string origin, List<PublicAddress> addresses) {
+        var masterLogin = settings.AllowMasterLoginOutsideLocalhost && !string.IsNullOrEmpty(settings.MasterUserName) && !string.IsNullOrEmpty(settings.MasterPassword);
+        return origin + " is not one of this server's public addresses, so sign-in with Relatude Services cannot come back here. "
+            + (addresses.Count > 0 ? "Sign in on " + addresses[0].Base + " instead, or add this one: " : "To add it, ")
+            + "approve it for this installation under Installations on the license's page in Relatude Services, "
+            + (masterLogin ? "sign in here once with the master login, " : "")
+            + "or list it in the public addresses (PublicUrl) in the settings.";
+    }
+
+    /// <summary>An address the way Relatude Services writes an approved host: the host in lower case, and the port when it is not the scheme's own.</summary>
+    static string authorityOf(Uri uri) => uri.IsDefaultPort ? uri.Host.ToLowerInvariant() : uri.Host.ToLowerInvariant() + ":" + uri.Port;
 
     /// <summary>One of the addresses in PublicUrl, parsed, and written the way the callback url is built on.</summary>
     sealed record PublicAddress(Uri Uri, string Base);
@@ -331,27 +374,81 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     static string[] publicUrlsIn(string? value) => string.IsNullOrWhiteSpace(value) ? []
         : value.Split([',', ';', ' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
+    /// <summary>The addresses approved for this installation in Relatude Services, as last asked, for one API key and installation key.</summary>
+    sealed record ApprovedAddresses(Guid ApiKey, string InstallationKey, string[] Authorities, DateTime AskedUtc);
+    volatile ApprovedAddresses? _approvedAddresses;
+    /// <summary>How long an address found approved is taken as approved without asking again.</summary>
+    static readonly TimeSpan _approvedAddressLifetime = TimeSpan.FromSeconds(30);
+    /// <summary>How long an address found not approved is refused without asking again, which is what
+    /// keeps anyone who can open the login page from turning every request into one to the license server.</summary>
+    static readonly TimeSpan _approvedAddressRecheck = TimeSpan.FromSeconds(3);
+
     /// <summary>
-    /// Fills in <see cref="RelatudeDBServerSettings.PublicUrl"/>, when it is not set yet, from the
-    /// address the Relatude Services page is being used on. It is asked as the API key is saved or the
-    /// installation paired, by someone signed in to this admin UI - the one kind of request whose host
-    /// name can be taken at its word. A loopback address is not remembered: it is right only on this
-    /// machine, where the sign-in needs no public address. Nor is one that is not https, and a value
-    /// that configuration decides is left alone.
+    /// Whether <paramref name="authority"/> is approved for this installation in Relatude Services, or
+    /// why that could not be found out. Someone with access to the license approves an address in the
+    /// portal, or on the sign-in page of a sign-in started on an address this server knows - so it is
+    /// people with access to the license who vouch for it, not whoever sent the request naming it. A
+    /// license server from before the question was asked answers none.
+    /// </summary>
+    async Task<(bool Approved, string? Failure)> isApprovedAddressAsync(Guid apiKey, string authority, CancellationToken cancellationToken) {
+        var key = installationKey;
+        bool listed(ApprovedAddresses known) => known.Authorities.Any(a => string.Equals(a, authority, StringComparison.OrdinalIgnoreCase));
+        if (_approvedAddresses is { } cached && cached.ApiKey == apiKey && cached.InstallationKey == key) {
+            var age = DateTime.UtcNow - cached.AskedUtc;
+            if (age < _approvedAddressLifetime && listed(cached)) return (true, null);
+            if (age < _approvedAddressRecheck) return (false, null);
+        }
+        try {
+            using var response = await http.PostAsJsonAsync(baseUrl + "/api/connect/approved-addresses", new ApprovedAddressesRequest(apiKey, key), _json, cancellationToken);
+            string[] authorities;
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound) authorities = []; // a license server that does not know the question
+            else if (!response.IsSuccessStatusCode) return (false, "Relatude Services refused the sign-in: " + await reasonOf(response));
+            else authorities = (await response.Content.ReadFromJsonAsync<ApprovedAddressesAnswer>(_json, cancellationToken))?.Addresses ?? [];
+            var known = new ApprovedAddresses(apiKey, key, authorities, DateTime.UtcNow);
+            _approvedAddresses = known;
+            return (listed(known), null);
+        } catch (Exception err) when (err is HttpRequestException or TaskCanceledException or JsonException) {
+            RelatudeDBServer.Trace("Sign-in with Relatude.License could not ask which addresses are approved: " + err.Message);
+            return (false, _couldNotReach);
+        }
+    }
+
+    /// <summary>
+    /// Adds the address this request came in on to <see cref="RelatudeDBServerSettings.PublicUrl"/>,
+    /// unless it is there already. Asked only for requests from someone signed in to this admin UI - a
+    /// master login, a session opening the admin UI, the API key saved or the installation paired on the
+    /// Relatude Services page - the one kind of request whose host name can be taken at its word: it was
+    /// sent by the admin's own browser, which names the address it is on, and a page elsewhere cannot
+    /// make it name another. So the public addresses fill themselves in, one for each address the admin
+    /// UI is used on. A loopback address is not remembered: it is right only on this machine, where the
+    /// sign-in needs no public address. Nor is one that is not https, and a value that configuration
+    /// decides is left alone. Nothing here throws: the settings file not being writable leaves the
+    /// address remembered until the next start, and says so.
     /// </summary>
     public void RememberPublicUrl(HttpContext context) {
+        var seen = context.Request.Scheme + "://" + context.Request.Host.Value + context.Request.PathBase.Value;
+        if (!tryPublicBase(seen, out var uri, out var publicBase) || uri.IsLoopback) return;
+        if (isListed(settings.PublicUrl, uri)) return; // the usual case, answered without the lock
         lock (_rememberLock) {
-            if (!string.IsNullOrWhiteSpace(settings.PublicUrl)) return;
+            var current = settings.PublicUrl;
+            if (isListed(current, uri)) return;
             if (server.DecidedOutsideTheSettingsFiles(nameof(RelatudeDBServerSettings.PublicUrl)) != null) return;
-            var seen = context.Request.Scheme + "://" + context.Request.Host.Value + context.Request.PathBase.Value;
-            if (!tryPublicBase(seen, out var uri, out var publicBase) || uri.IsLoopback) return;
-            settings.PublicUrl = publicBase;
-            server.UpdateWAFServerSettingsFile();
-            RelatudeDBServer.Trace("Sign-in with Relatude.License will send browsers back to " + publicBase + ", the address the Relatude Services page was used on. "
-                + "Change PublicUrl in the settings if that is not this server's public address, or add the other addresses it is reached on, separated by commas.");
+            settings.PublicUrl = string.IsNullOrWhiteSpace(current) ? publicBase : current.Trim() + ", " + publicBase;
+            try {
+                server.UpdateWAFServerSettingsFile();
+            } catch (Exception err) {
+                RelatudeDBServer.Trace("The public address " + publicBase + " could not be saved to the settings (" + err.Message + "). It is used until the server restarts.");
+            }
+            RelatudeDBServer.Trace("Sign-in with Relatude.License may now send browsers back to " + publicBase + ", an address the admin UI was used on by a signed-in admin. "
+                + "Remove it from PublicUrl in the settings if it is not one of this server's public addresses.");
         }
     }
     readonly object _rememberLock = new();
+
+    /// <summary>Whether PublicUrl lists an address with the scheme, host and port of <paramref name="uri"/> - what a sign-in started on it would be matched by.</summary>
+    static bool isListed(string? publicUrl, Uri uri) =>
+        publicUrlsIn(publicUrl).Any(a => tryPublicBase(a, out var listed, out _)
+            && listed.Scheme == uri.Scheme && listed.Port == uri.Port && string.Equals(listed.Host, uri.Host, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>A public address as the sign-in can use it: absolute, https - or http on a loopback host - with no query, fragment or user name, written without a trailing slash.</summary>
     static bool tryPublicBase(string? value, out Uri uri, out string publicBase) {

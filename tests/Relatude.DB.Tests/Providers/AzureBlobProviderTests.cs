@@ -131,6 +131,20 @@ public class AzureBlobProviderTests {
     }
 
     [TestMethod]
+    public async Task FolderListingShowsTheSizeOfAFileJustWritten() {
+        requireAzurite();
+        var io = new AzureBlobIOProvider(newContainerName(), _connectionString, lockBlob: false);
+        // the listing prefers the provider's tracked meta, which the closing stream updates: it used
+        // to reset the size to 0 there, so an upload read "0 KB" until something re-synced the list
+        using (var a = io.OpenAppend(["uploads", "photo.jpg"])) a.Append(bytes("twelve bytes"));
+        var folder = await io.GetFolderAsync(["uploads"], recursive: false, withFiles: true);
+        Assert.AreEqual(12, folder.Files.Single().Size);
+        io.CopyFile(["uploads", "photo.jpg"], ["uploads", "copy.jpg"]);
+        folder = await io.GetFolderAsync(["uploads"], recursive: false, withFiles: true);
+        Assert.AreEqual(12, folder.Files.Single(f => f.Key.EndsWith("copy.jpg")).Size);
+    }
+
+    [TestMethod]
     public void LargeFlushIsSplitIntoMultipleAppendBlocks() {
         requireAzurite();
         var io = new AzureBlobIOProvider(newContainerName(), _connectionString, lockBlob: false);

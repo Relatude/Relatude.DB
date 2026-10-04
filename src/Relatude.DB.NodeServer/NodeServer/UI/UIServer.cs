@@ -30,9 +30,13 @@ public sealed class UIServer {
     public UICommands Commands { get; }
     /// <summary>What the pages follow, sampled here and pushed on the stream rather than polled.</summary>
     public UILiveFeeds Feeds { get; }
+    /// <summary>The long jobs started from the UI, where every session can see them (see UISharedTasks).</summary>
+    public UISharedTasks Shared { get; }
     internal UIServer(RelatudeDBServer server) {
         _server = server;
         Commands = new UICommands(server);
+        Shared = new UISharedTasks(server);
+        Shared.Register(Commands);
         registerBuiltInCommands();
         new UISettings(server).Register(Commands);
         new UILicense(server).Register(Commands);
@@ -41,12 +45,12 @@ public sealed class UIServer {
         _customLogs = new UICustomLogs(server);
         _customLogs.Register(Commands);
         _transfer = new UIFileTransfer(server);
-        new UIFileMove(server).Register(Commands);
+        new UIFileMove(server, Shared).Register(Commands);
         new UIDashboard(server).Register(Commands);
         new UIMemory(server).Register(Commands);
         new UITasks(server).Register(Commands);
-        new UIDemo(server).Register(Commands);
-        new UIWikiImport(server).Register(Commands);
+        new UIDemo(server, Shared).Register(Commands);
+        new UIWikiImport(server, Shared).Register(Commands);
         new UIRevert(server).Register(Commands);
         new UIDatamodel(server).Register(Commands);
         new UIDatabases(server).Register(Commands);
@@ -541,6 +545,47 @@ public sealed class UIServer {
         return count(datastore.TaskQueue) + count(datastore.TaskQueuePersisted);
     }
 
+    // What a storage is to the database: "database" holds its log file (the data folder), "files" a
+    // multi file store (the files folder), and the rest say where the other roles went. The Files view
+    // opens on the "database" one.
+    static string[] rolesOf(Settings.NodeStoreContainerSettings s, Guid ioId) {
+        var roles = new List<string>();
+        if (s.IoDatabase == ioId) roles.Add("database");
+        if (s.IoDatabaseSecondary == ioId) roles.Add("secondary");
+        if (s.IoIndexes == ioId) roles.Add("indexes");
+        if (multiFileStoreOn(s, ioId)) roles.Add("files");
+        if (s.IoBackup == ioId) roles.Add("backup");
+        if (s.IoLog == ioId) roles.Add("log");
+        return [.. roles];
+    }
+    // whether a multi file store keeps its files on this storage: a configured one, or the implicit
+    // default the database falls back to on its own storage when no configured store is the default
+    static bool multiFileStoreOn(Settings.NodeStoreContainerSettings s, Guid ioId) {
+        var stores = s.FileStoreSettings ?? [];
+        if (stores.Any(fs => fs.IoProviderId == ioId && fs.StoreType == FileStoreEngine.MultiFile)) return true;
+        var defaultId = s.LocalSettings?.DefaultFileStore;
+        return s.IoDatabase == ioId && !stores.Any(fs => fs.Id == defaultId);
+    }
+    // The folders that hold the only copy of something - data/ for the log, files/ for the multi file
+    // store - are that only on the storage a database actually keeps them on: the same names anywhere
+    // else are a copy or something left behind, and warning about them there cries wolf. Any database
+    // on the server counts, since storages are shared by id.
+    HashSet<string> activePrimaryFolders(Guid ioId) {
+        var active = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in _server.Settings.ContainerSettings ?? []) {
+            if (s.IoDatabase == ioId || s.IoDatabaseSecondary == ioId) active.Add(FileKeyUtility.DataFolderName);
+            if (multiFileStoreOn(s, ioId)) active.Add(FileKeyUtility.MultiFileStoreFolderKey);
+        }
+        return active;
+    }
+    // top: the first segment of the folder's path below the storage root, which is what decides
+    // whether it is a primary data folder (null for the root itself)
+    static void keepPrimaryDataWhereActive(FolderMeta folder, string? top, HashSet<string> active) {
+        if (folder.IsPrimaryData && (top == null || !active.Contains(top))) folder.IsPrimaryData = false;
+        foreach (var sub in folder.SubFolders) keepPrimaryDataWhereActive(sub, top ?? sub.Name, active);
+    }
+    // what a database is called in the UI: its name, or its id where it has none
+    static string displayName(NodeStoreContainer c) => string.IsNullOrEmpty(c.Settings.Name) ? c.Settings.Id.ToString() : c.Settings.Name;
     NodeStoreContainer getContainer(Guid storeId) {
         if (!_server.Containers.TryGetValue(storeId, out var c)) throw new Exception("Container not found. ");
         return c;
@@ -799,6 +844,9 @@ public sealed class UIServer {
         // not one, so the UI must not offer to end it
         Commands.Register("whoami", ctx => {
             var (userName, viaLocalhost, via) = _server.Authentication.Describe(ctx.Http);
+            // asked as the admin UI opens: an address a signed-in admin uses it on is one sign-in with
+            // Relatude Services may come back to (the localhost bypass is nobody, so it adds nothing)
+            if (userName != null) _server.LicenseLogin.RememberPublicUrl(ctx.Http);
             return new {
                 UserName = userName,
                 ViaLocalhost = viaLocalhost,
@@ -936,6 +984,7 @@ public sealed class UIServer {
                 CanRenameFile = io.IOType != IOTypes.AzureBlobStorage,
                 CanRenameFolder = io.IOType != IOTypes.AzureBlobStorage,
                 SupportsEmptyFolders = io.IOType == IOTypes.LocalDisk,
+                Roles = rolesOf(c.Settings, io.Id),
             }).ToList();
             var root = _server.ProjectRootIO;
             list.Add(new IoInfo {
@@ -992,7 +1041,10 @@ public sealed class UIServer {
         // tree below it when recursive (used to plan folder downloads)
         Commands.Register("io-folder", async ctx => {
             var p = ctx.Payload<IoFolderPayload>();
-            return (object?)await _server.GetIO(p.IoId).GetFolderAsync(splitFolderPath(p.Path), p.Recursive, true);
+            var path = splitFolderPath(p.Path);
+            var folder = await _server.GetIO(p.IoId).GetFolderAsync(path, p.Recursive, true);
+            keepPrimaryDataWhereActive(folder, path.Length > 0 ? path[0] : null, activePrimaryFolders(p.IoId));
+            return (object?)folder;
         });
         // recursive size and counts, on demand: walking a big tree can take a while
         Commands.Register("io-folder-size", async ctx => {
@@ -1057,7 +1109,12 @@ public sealed class UIServer {
             var c = getContainer(p.StoreId);
             var store = c.Store ?? throw new Exception("The database must be open to create a backup. ");
             if (store.State != DataStoreState.Open) throw new Exception("The database must be open to create a backup. ");
-            store.Datastore.BackUpNow(p.Truncate, p.KeepForever, _server.GetIO(getBackupIoId(c)));
+            // queued under a job id of its own when the UI shares the task, so the task can follow
+            // the batch through the queue rather than guess from the files that appear
+            var task = Shared.RefOf(ctx, p.StoreId, "Backup " + displayName(c));
+            var jobId = task is SharedTaskRef t ? "ui:" + t.Id.ToString("N") : "Backup";
+            store.Datastore.BackUpNow(p.Truncate, p.KeepForever, _server.GetIO(getBackupIoId(c)), jobId);
+            Shared.AttachBatch(task, c, store.Datastore, jobId, "Writing the backup…", "Backup written.");
             return (object?)new { Done = true };
         });
         // copies a backup into place as the next WAL file key (the old current file is kept)
@@ -1285,9 +1342,13 @@ public sealed class UIServer {
         // the queue count in db-maintenance-info is what says when the work is done.
         Commands.Register("db-rebuild-text-index", ctx => {
             var p = ctx.Payload<IoListPayload>();
-            var store = getContainer(p.StoreId).Store ?? throw new Exception("The database must be open. ");
+            var c = getContainer(p.StoreId);
+            var store = c.Store ?? throw new Exception("The database must be open. ");
             if (store.State != DataStoreState.Open) throw new Exception("The database must be open. ");
-            return (object?)new { Queued = store.Datastore.ReIndexAllText() };
+            var task = Shared.RefOf(ctx, p.StoreId, "Rebuild the text index of " + displayName(c));
+            var queued = Shared.Run(task, "Queueing every indexed node…", store.Datastore.ReIndexAllText,
+                n => n == 0 ? "No node type has text indexing turned on." : $"Queued {n:N0} nodes; the tasks run in the background.");
+            return (object?)new { Queued = queued };
         });
         Commands.Register("db-delete-unused", ctx => {
             var p = ctx.Payload<IoListPayload>();
@@ -1314,6 +1375,19 @@ public sealed class UIServer {
             var c = getContainer(p.StoreId);
             var store = c.Store ?? throw new Exception("The database must be open. ");
             if (store.State != DataStoreState.Open) throw new Exception("The database must be open. ");
+            var task = Shared.RefOf(ctx, p.StoreId, "Truncate " + displayName(c));
+            if (task is SharedTaskRef t && store.Datastore is DataStoreLocal local) {
+                // queued under a job id of its own, so the task can follow the rewrite through the
+                // queue: it is done when its batch is gone, however long it waited for its turn
+                var jobId = "ui:" + t.Id.ToString("N");
+                if (local.EnqueueLogTruncation(!p.KeepOld, jobId)) {
+                    Shared.AttachBatch(task, c, local, jobId, "Rewriting the database file…", p.KeepOld ? "Truncated. The old file is kept." : "Truncated.");
+                } else {
+                    Shared.Attach(task, () => new SharedTaskProgress(UISharedTasks.Done, null, 0, null, null,
+                        "Nothing was truncated: the log holds nothing that can be dropped, or a revert window is open."));
+                }
+                return (object?)new { Done = true };
+            }
             var options = MaintenanceAction.TruncateLog;
             if (!p.KeepOld) options |= MaintenanceAction.DeleteOldLogs;
             await store.MaintenanceAsync(options);
@@ -1324,7 +1398,11 @@ public sealed class UIServer {
             var c = getContainer(p.StoreId);
             var store = c.Store ?? throw new Exception("The database must be open. ");
             if (store.State != DataStoreState.Open) throw new Exception("The database must be open. ");
-            store.Datastore.SaveIndexStates();
+            var task = Shared.RefOf(ctx, p.StoreId, "Update state snapshot of " + displayName(c));
+            Shared.Run(task, "Writing the state snapshot…", () => {
+                store.Datastore.SaveIndexStates();
+                return true;
+            }, _ => "State snapshot updated.");
             return (object?)new { Done = true };
         });
         // the database is a single WAL file; downloading it is a copy of the database, and every
@@ -1390,8 +1468,11 @@ public sealed class UIServer {
         // asked for on demand rather than reported with the rest of the maintenance numbers.
         Commands.Register("db-converted-info", async ctx => {
             var p = ctx.Payload<IoListPayload>();
-            var (io, folder) = convertedCache(getContainer(p.StoreId));
-            var (files, bytes) = await folderTotals(io, folder);
+            var c = getContainer(p.StoreId);
+            var (io, folder) = convertedCache(c);
+            var task = Shared.RefOf(ctx, p.StoreId, "Converted files in " + displayName(c));
+            var (files, bytes) = await Shared.RunAsync(task, "Measuring the converted file cache…", () => folderTotals(io, folder),
+                r => $"{r.Files:N0} converted files.");
             return (object?)new { Files = files, Bytes = bytes };
         });
         Commands.Register("db-delete-converted", async ctx => {
@@ -1400,11 +1481,14 @@ public sealed class UIServer {
             var store = c.Store ?? throw new Exception("The database must be open. ");
             if (store.State != DataStoreState.Open) throw new Exception("The database must be open. ");
             var (io, folder) = convertedCache(c);
-            var (filesBefore, bytesBefore) = await folderTotals(io, folder);
-            // the store's own call, so the engine drops its in memory copies of the small files too
-            store.Datastore.ClearAllCachedConversions();
-            var (filesAfter, bytesAfter) = await folderTotals(io, folder);
-            return (object?)new { Deleted = filesBefore - filesAfter, Freed = bytesBefore - bytesAfter, Remaining = filesAfter };
+            var task = Shared.RefOf(ctx, p.StoreId, "Delete converted files in " + displayName(c));
+            return await Shared.RunAsync(task, "Deleting…", async () => {
+                var (filesBefore, bytesBefore) = await folderTotals(io, folder);
+                // the store's own call, so the engine drops its in memory copies of the small files too
+                store.Datastore.ClearAllCachedConversions();
+                var (filesAfter, bytesAfter) = await folderTotals(io, folder);
+                return (object?)new { Deleted = filesBefore - filesAfter, Freed = bytesBefore - bytesAfter, Remaining = filesAfter };
+            }, _ => "The converted files were deleted.");
         });
         // Where a database keeps its uploaded files, so the UI can download a file storage the way
         // it downloads a storage folder. Read from the settings rather than the open store, so the
@@ -1467,6 +1551,7 @@ public sealed class UIServer {
                     (object)await local.FindMissingFilesAsync(j.SetProgress, j.Cancellation.Token)),
                 _ => throw new Exception("Unknown file scan: " + p.Scan),
             };
+            Shared.Attach(Shared.RefOf(ctx, p.StoreId, "Missing and redundant files in " + displayName(getContainer(p.StoreId))), job);
             return (object?)new { JobId = job.Id };
         });
         Commands.Register("files-scan-progress", ctx => {
@@ -1607,6 +1692,8 @@ sealed class IoInfo {
     public bool SupportsEmptyFolders { get; init; }
     /// <summary>The folder on the server, only for the project root: the UI names it in its notice.</summary>
     public string? LocalPath { get; init; }
+    /// <summary>What the database keeps there: "database", "secondary", "indexes", "files", "backup", "log".</summary>
+    public string[] Roles { get; init; } = [];
 }
 sealed record ZipRequestPayload(Guid IoId, string[] Keys, string? BasePath);
 sealed record IoDeleteFilesPayload(Guid IoId, string[] Keys);

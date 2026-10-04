@@ -184,7 +184,7 @@ Any of it can be overridden per environment from standard ASP.NET configuration:
 section with the same shape as the file — in `appsettings.json`, `appsettings.Development.json`,
 environment variables or user secrets — wins over `relatude.db.json`, and what it supplies is never
 written back to the file. Credentials belong there, not in the file. What you change in the admin UI
-is kept apart as well, in `relatude.db.overrides.json` beside the default database's own files, so
+is kept apart as well, in `overrides/relatude.db.overrides.json` beside the default database's own files, so
 `relatude.db.json` stays as you deployed it until you move those changes into it from the settings page.
 
 ---
@@ -327,8 +327,8 @@ assignment.
   `Relatude.DB.Plugins.FFMpeg` for video.
 - **Geo** — coordinate properties with radius filters and sort-by-distance.
 - **Extras** — cultures and fallbacks, revisions, per-property read/write access, transaction plugins,
-  and a GraphQL **read** endpoint generated from your model
-  (`app.MapRelatudeDBGraphQL("/graphql")`; there are no GraphQL mutations).
+  and GraphQL endpoints generated from your model: defined on the admin UI's **API** page, or mapped
+  in code with `app.MapRelatudeDBGraphQL("/graphql")`. They are read-only unless you allow mutations.
 
 ---
 

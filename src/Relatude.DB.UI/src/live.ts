@@ -116,6 +116,12 @@ export interface LiveOptions {
    * than this anyway.
    */
   minMs?: number;
+  /**
+   * A cadence of its own, whatever the top bar says - paused included. For what is not a page's
+   * picture but the UI's own bookkeeping (the shared task chips), which must not stop when somebody
+   * pauses the dashboards.
+   */
+  fixedMs?: number;
   /** What to do with a sample that failed. Without it a failure leaves the page on its last picture. */
   onError?: (message: string) => void;
 }
@@ -129,9 +135,9 @@ export interface LiveOptions {
  * payload does have to be the same shape from render to render, or every render restarts the feed.
  */
 export function useLive<T = unknown>(type: string, payload: unknown, apply: (data: T) => void, options: LiveOptions = {}): void {
-  const { enabled = true, once = false, minMs = 0, onError, restartOn } = options;
+  const { enabled = true, once = false, minMs = 0, fixedMs, onError, restartOn } = options;
   const global = useRefreshInterval();
-  const everyMs = once || global === 0 ? 0 : Math.max(global, minMs);
+  const everyMs = once ? 0 : fixedMs ? fixedMs : global === 0 ? 0 : Math.max(global, minMs);
   const restart = stableKey(restartOn ?? null);
   const key = stableKey(payload);
   const sent = useMemo(() => (key === undefined ? null : (JSON.parse(key) as unknown)), [key]);

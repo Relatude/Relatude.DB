@@ -15,6 +15,9 @@ export interface IoInfo {
   // false where folders are key prefixes (memory, blob storage): an empty folder is not stored
   supportsEmptyFolders: boolean;
   localPath?: string | null; // the project root's folder on the server
+  // what the database keeps there: "database" (its log file, data/), "files" (a multi file store,
+  // files/), "secondary", "indexes", "backup", "log"
+  roles?: string[];
 }
 
 export interface FileInfo {
@@ -647,7 +650,7 @@ const movePollMs = 400;
  */
 export async function moveFiles(ctl: ProgressController, request: MoveRequest): Promise<MoveResult> {
   ctl.set({ label: "Listing what to move…", total: null });
-  const { jobId } = await send<{ jobId: string }>("io-move-start", request);
+  const { jobId } = await send<{ jobId: string }>("io-move-start", { ...request, taskId: ctl.taskId });
   const samples: MoveSample[] = [];
   let cancelled = false;
   let misses = 0;

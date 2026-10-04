@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Relatude.DB.Datamodels;
+using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.GraphQL.Schema;
 
 namespace Relatude.DB.GraphQL.Endpoints;
@@ -18,6 +19,10 @@ public sealed class GraphQLFacetScope {
     /// <summary>The searchable types: in the order they were picked in Selected mode, in the schema's order otherwise.</summary>
     public IReadOnlyList<NodeTypeModel> Types { get; }
 
+    /// <summary>The type the page opens on: the definition's <see cref="GraphQLEndpointDefinition.DefaultNodeTypeId"/>
+    /// when the endpoint exposes it, else the first of <see cref="Types"/>; null when there are none.</summary>
+    public NodeTypeModel? DefaultType { get; }
+
     GraphQLFacetScope(GqlSchema schema) {
         _schema = schema;
         var types = schema.QueryType.Fields
@@ -31,6 +36,7 @@ public sealed class GraphQLFacetScope {
             types = [.. types.OrderBy(t => picked.TryGetValue(t.Id, out var at) ? at : int.MaxValue)];
         }
         Types = types;
+        DefaultType = types.FirstOrDefault(t => t.Id == schema.Definition.DefaultNodeTypeId) ?? types.FirstOrDefault();
         foreach (var type in types) {
             var properties = new HashSet<Guid>();
             foreach (var exposed in types) {
@@ -67,4 +73,15 @@ public sealed class GraphQLFacetScope {
 
     /// <summary>Whether a node of the given type is seen through the endpoint at all.</summary>
     public bool ShowsType(Guid nodeTypeId) => _schema.ObjectTypesByNodeTypeId.ContainsKey(nodeTypeId);
+
+    /// <summary>The type a node of the given type is seen as: itself, or its nearest exposed ancestor; null when the
+    /// endpoint does not show it. What the node is called on the page, so a type the endpoint keeps out is not named.</summary>
+    public NodeTypeModel? SeenAs(Guid nodeTypeId) => _schema.ObjectTypesByNodeTypeId.TryGetValue(nodeTypeId, out var type) ? type.NodeType : null;
+
+    /// <summary>The properties a node of the given type is shown with, in the order of its type's fields; empty when
+    /// the endpoint does not show the type. Relation and reference fields are only there when their target is exposed.</summary>
+    public IReadOnlyList<PropertyModel> PropertiesShown(Guid nodeTypeId) {
+        if (!_schema.ObjectTypesByNodeTypeId.TryGetValue(nodeTypeId, out var type)) return [];
+        return [.. type.Fields.Where(f => f.Property != null).Select(f => f.Property!).DistinctBy(p => p.Id)];
+    }
 }

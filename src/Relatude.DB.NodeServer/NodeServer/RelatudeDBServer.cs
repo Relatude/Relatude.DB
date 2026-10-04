@@ -182,7 +182,13 @@ public partial class RelatudeDBServer {
         await loadSettingsAndCreateContainersAsync(firstStart: true);
         cleanUploadFolders();
         prepareAutoOpen();
-        runAutoOpen();
+        watchStartupOfDefault();
+        _startingUp = true; // a database that holds the start up fails it, and that leaves no process to restart
+        try {
+            runAutoOpen();
+        } finally {
+            _startingUp = false;
+        }
         _authentication = new(this);
         _licenseLogin = new(this);
         _licenseLogin.StartHeartbeat(); // reports in only once the license and API keys are set; harmless without them
@@ -319,6 +325,7 @@ public partial class RelatudeDBServer {
     public void BeginShutdown() {
         if (Interlocked.CompareExchange(ref _shutdownPhase, 1, 0) != 0) return; // already stopping or stopped
         _licenseLogin?.Dispose(); // no heartbeat on databases that are closing
+        endStartupRestarts(); // a restart scheduled for a database that failed to open would reopen it behind the shutdown
         logShutdown("Server stopping, flushing databases.");
         foreach (var container in GetContainers()) {
             if (!container.IsOpen()) continue;
@@ -414,11 +421,13 @@ public partial class RelatudeDBServer {
             }
             openWaitingForAnotherProcessIfNeeded(container);
             Log("Database \"" + container.Settings.Name + "\" opened in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms.");
+            if (container == _defaultContainer) onDefaultAutoOpened();
         } catch (Exception err) {
             container.StartUpException = err;
             container.StartUpExceptionDateTimeUTC = DateTime.UtcNow;
             Log("An error occurred while opening \"" + container.Settings.Name + "\". " + err.Message);
             Console.WriteLine(err.Message);
+            if (container == _defaultContainer) onDefaultAutoOpenFailed(container, err, failsTheStart: throwException && _startingUp);
             if (throwException) throw;
         } finally {
             Interlocked.Decrement(ref _remaingToAutoOpenCount);
@@ -687,4 +696,24 @@ public class ServerOptions {
     /// </summary>
     public TimeSpan AutoOpenRetryTimeout { get; set; } = DefaultAutoOpenRetryTimeout;
     public static TimeSpan DefaultAutoOpenRetryTimeout => TimeSpan.FromSeconds(120);
+
+    /// <summary>
+    /// How many times the server restarts itself - a soft restart of every database, see
+    /// <see cref="RelatudeDBServer.SoftRestartAsync"/> - when the default database failed to open at
+    /// startup because another process still held one of its files, each after
+    /// <see cref="StartupRestartDelay"/>.
+    /// <para>The last line of defence for a host that recycles with the processes overlapping, Azure App
+    /// Service above all: the individual file opens wait (<c>FileOpenRetry</c>) and the whole open is
+    /// retried for <see cref="AutoOpenRetryTimeout"/>, yet a file the old process held at the wrong
+    /// moment can still fail an index, and minutes later the same start goes through. Applies only to
+    /// the auto-open of the default database, only to a lock, and only until it has opened once; a
+    /// database that opens with "Hold requests until open" fails the start itself instead, leaving it
+    /// to the host to start a new process. Set it to 0 to turn this off. Not subject to
+    /// <see cref="AllowedRestarts"/>, which governs the admin UI. Defaults to 2.</para>
+    /// </summary>
+    public int StartupRestartAttempts { get; set; } = DefaultStartupRestartAttempts;
+    public static int DefaultStartupRestartAttempts => 2;
+    /// <summary>How long the server waits before each restart of <see cref="StartupRestartAttempts"/>. Defaults to 3 minutes.</summary>
+    public TimeSpan StartupRestartDelay { get; set; } = DefaultStartupRestartDelay;
+    public static TimeSpan DefaultStartupRestartDelay => TimeSpan.FromMinutes(3);
 }

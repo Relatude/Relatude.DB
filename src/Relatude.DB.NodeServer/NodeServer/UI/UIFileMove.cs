@@ -3,7 +3,8 @@ using System.Buffers;
 using System.Diagnostics;
 namespace Relatude.DB.NodeServer.UI;
 /// <summary>
-/// Moving files and folders from one storage (IO provider) to another, for the Files view:
+/// Moving or copying files and folders to another storage (IO provider), or to another folder of the
+/// same one, for the Files view:
 /// <code>
 ///   io-move-start      plans the move and starts it as a job, answers the job's id
 ///   io-move-progress   where it stands, and the byte counts sampled since the last poll
@@ -18,6 +19,9 @@ namespace Relatude.DB.NodeServer.UI;
 /// length and flushed, and only then is the original deleted. An original that cannot be deleted
 /// (something holds it open) takes its copy away again rather than leave the file in both places.
 /// A folder is removed once nothing is left in it.</para>
+/// <para>Within one storage a copy that would land on its own original - copied into the folder it is
+/// in - is given a name of its own ("name - Copy.ext"), the way a file manager does; a move into the
+/// folder something already is in leaves it there and says so.</para>
 /// <para>The samples are what the dialog draws its speed from: the bytes moved and passed over so far,
 /// read every quarter of a second on the server's own clock, so a poll that is late - a background
 /// tab is only given a timer every second or so - leaves no gap in the picture.</para>
@@ -32,10 +36,14 @@ sealed class UIFileMove {
     const int listedMax = 1000;
     static readonly Dictionary<Guid, MoveJob> _jobs = [];
     readonly RelatudeDBServer _server;
-    internal UIFileMove(RelatudeDBServer server) => _server = server;
+    readonly UISharedTasks _shared;
+    internal UIFileMove(RelatudeDBServer server, UISharedTasks shared) {
+        _server = server;
+        _shared = shared;
+    }
 
     internal void Register(UICommands commands) {
-        commands.Register("io-move-start", ctx => start(ctx.Payload<MoveStartPayload>()));
+        commands.Register("io-move-start", ctx => start(ctx.Payload<MoveStartPayload>(), ctx));
         commands.Register("io-move-progress", ctx => progress(ctx.Payload<MoveProgressPayload>()));
         commands.Register("io-move-cancel", ctx => {
             get(ctx.Payload<MoveProgressPayload>().JobId).Cancellation.Cancel();
@@ -55,8 +63,8 @@ sealed class UIFileMove {
     /// and that the target is not inside a folder being moved - so a move that cannot work fails on
     /// the button rather than in the dialog, then starts the job.
     /// </summary>
-    object start(MoveStartPayload p) {
-        if (p.FromIoId == p.ToIoId) throw new Exception("The files are already in that storage. ");
+    object start(MoveStartPayload p, UICommandContext ctx) {
+        var same = p.FromIoId == p.ToIoId;
         var from = _server.GetIO(p.FromIoId);
         var to = _server.GetIO(p.ToIoId);
         var target = split(p.TargetPath);
@@ -68,6 +76,16 @@ sealed class UIFileMove {
         var files = (p.Files ?? []).Select(split).Where(f => f.Length > 0).Distinct(KeyComparer.Instance)
             .Where(f => !folders.Any(folder => isBelow(f, folder))).ToList();
         if (files.Count + folders.Count == 0) throw new Exception("Nothing to move. ");
+        if (same) {
+            // a folder into itself, or below itself: the copy would be inside what it copies
+            var into = folders.FirstOrDefault(f => target.IsSameKey(f) || isBelow(target, f));
+            if (into != null) throw new Exception($"The target folder is inside {into.AsKeyString()}, which is being {(p.KeepOriginals ? "copied" : "moved")}. ");
+            // a move that would leave everything exactly where it is
+            var basePath = split(p.BasePath);
+            if (!p.KeepOriginals && folders.All(f => f[..^1].IsSameKey(target)) && files.All(f => targetOf(f, basePath, target).IsSameKey(f))) {
+                throw new Exception("They are already in that folder. ");
+            }
+        }
         // Two storages can be the same folder on disk seen twice - the website project folder holds
         // the database's own folder, usually. A folder moved into itself would be deleted with its
         // copy inside it once the move is done.
@@ -83,6 +101,9 @@ sealed class UIFileMove {
             foreach (var old in _jobs.Values.Where(j => j.Finished && DateTime.UtcNow - j.StartedUtc > TimeSpan.FromHours(1)).ToArray()) _jobs.Remove(old.Id);
             _jobs[job.Id] = job;
         }
+        var items = files.Count + folders.Count;
+        _shared.Attach(_shared.RefOf(ctx, null, (p.KeepOriginals ? "Copy " : "Move ") + items + (items == 1 ? " item" : " items")),
+            () => sharedProgress(job), job.Cancellation.Cancel);
         _ = Task.Run(() => runAsync(job, from, to, split(p.BasePath), target, files, folders));
         return new { JobId = job.Id };
     }
@@ -110,11 +131,36 @@ sealed class UIFileMove {
         };
     }
 
+    // where the move stands, as every session's top bar shows it (see UISharedTasks)
+    static SharedTaskProgress sharedProgress(MoveJob job) {
+        var verb = job.Request.KeepOriginals ? "Copied" : "Moved";
+        var status = job.State switch {
+            MoveJob.Done => UISharedTasks.Done,
+            MoveJob.Cancelled => UISharedTasks.Cancelled,
+            MoveJob.Failed => UISharedTasks.Failed,
+            _ => UISharedTasks.Running,
+        };
+        var total = job.State == MoveJob.Listing ? (double?)null : job.BytesTotal;
+        var done = Interlocked.Read(ref job.BytesTransferred) + Interlocked.Read(ref job.BytesPassed);
+        var meta = job.FilesTotal > 0 ? $"{job.FilesMoved + job.FilesSkipped + job.FilesFailed:N0} of {job.FilesTotal:N0} files" : null;
+        var message = job.State switch {
+            MoveJob.Done => $"{verb} {job.FilesMoved:N0} of {job.FilesTotal:N0} files"
+                + (job.FilesSkipped > 0 ? $", {job.FilesSkipped:N0} already there" : "")
+                + (job.FilesFailed > 0 ? $", {job.FilesFailed:N0} failed" : "") + ".",
+            MoveJob.Failed => job.Error,
+            MoveJob.Cancelled => "Cancelled.",
+            _ => null,
+        };
+        return new SharedTaskProgress(status, job.State == MoveJob.Tidying ? "Removing the emptied folders…" : job.Current, done, total, meta, message);
+    }
+
     async Task runAsync(MoveJob job, IIOProvider from, IIOProvider to, string[] basePath, string[] target, List<string[]> files, List<string[]> folders) {
         var token = job.Cancellation.Token;
         try {
-            var plan = await planAsync(job, from, to, basePath, target, files, folders, token);
-            job.FilesTotal = plan.Files.Count + job.FilesFailed; // a selected file that was not found counts as one that failed
+            var plan = await planAsync(job, from, to, ReferenceEquals(from, to), basePath, target, files, folders, token);
+            // a selected file that was not found counts as one that failed, and one that is already
+            // where it is being moved to (within one storage) as one that was skipped
+            job.FilesTotal = plan.Files.Count + job.FilesFailed + job.FilesSkipped;
             job.BytesTotal = plan.Files.Sum(f => f.Size);
             job.State = MoveJob.Moving;
             // an empty folder has nothing to carry it across where folders are real, so it is made
@@ -164,15 +210,27 @@ sealed class UIFileMove {
     /// with everything below it. Sizes and the open stream counts come from the listings, which is
     /// what a file in use is told by without opening it - opening a held file waits for it.
     /// </summary>
-    static async Task<Plan> planAsync(MoveJob job, IIOProvider from, IIOProvider to, string[] basePath, string[] target,
+    static async Task<Plan> planAsync(MoveJob job, IIOProvider from, IIOProvider to, bool same, string[] basePath, string[] target,
         List<string[]> files, List<string[]> folders, CancellationToken token) {
         var planned = new List<PlannedFile>();
         var targetFolders = new List<string[]>();
+        var keep = job.Request.KeepOriginals;
+        // the folder names already in the target folder, for a copy that lands on its own original:
+        // read once, and the names given out are added as they go
+        HashSet<string>? takenFolders = null;
         foreach (var folder in folders) {
             token.ThrowIfCancellationRequested();
             job.Current = folder.AsKeyString();
-            var meta = await from.GetFolderAsync(folder, true, true);
             string[] into = [.. target, folder[^1]];
+            if (same && into.IsSameKey(folder)) {
+                if (!keep) { // moved into the folder it is in: nothing to do
+                    job.AddLine(job.Skipped, folder.AsKeyString() + "/");
+                    continue;
+                }
+                takenFolders ??= namesIn(await to.GetFolderAsync(target, false, false), files: false);
+                into = [.. target, FreeName(folder[^1], takenFolders, isFile: false)];
+            }
+            var meta = await from.GetFolderAsync(folder, true, true);
             void walk(FolderMeta f, string[] targetFolder) {
                 targetFolders.Add(targetFolder);
                 foreach (var file in f.Files) {
@@ -189,10 +247,20 @@ sealed class UIFileMove {
             var meta = await from.GetFolderAsync(group.Key.SplitKey(), false, true);
             var byKey = new Dictionary<string, FileMeta>(StringComparer.OrdinalIgnoreCase);
             foreach (var file in meta.Files) byKey[file.Key] = file;
+            HashSet<string>? takenFiles = null; // the folder's own file names, for copies made beside their originals
             foreach (var key in group) {
-                var relative = isBelow(key, basePath) ? key[basePath.Length..] : [key[^1]];
                 if (byKey.TryGetValue(key.AsKeyString(), out var file)) {
-                    planned.Add(new PlannedFile(key, [.. target, .. relative], file.Size, file.Readers, file.Writers));
+                    var destination = targetOf(key, basePath, target);
+                    if (same && destination.IsSameKey(key)) {
+                        if (!keep) { // already where it is being moved to
+                            job.AddLine(job.Skipped, key.AsKeyString());
+                            Interlocked.Increment(ref job.FilesSkipped);
+                            continue;
+                        }
+                        takenFiles ??= namesIn(meta, files: true);
+                        destination = [.. destination[..^1], FreeName(key[^1], takenFiles, isFile: true)];
+                    }
+                    planned.Add(new PlannedFile(key, destination, file.Size, file.Readers, file.Writers));
                 } else {
                     job.AddLine(job.Errors, key.AsKeyString() + ": the file was not found");
                     Interlocked.Increment(ref job.FilesFailed);
@@ -231,7 +299,7 @@ sealed class UIFileMove {
             // the same file seen through two storages: copying it onto itself would destroy it
             if (from.TryGetLocalFilePath(file.Source, out var sourceLocal) && to.TryGetLocalFolderPath(file.Target, out var targetLocal)
                 && string.Equals(Path.GetFullPath(sourceLocal), Path.GetFullPath(targetLocal), StringComparison.OrdinalIgnoreCase)) {
-                fail("it is the same file in both storages");
+                fail(ReferenceEquals(from, to) ? "it is already there" : "it is the same file in both storages");
                 return;
             }
             var replacing = to.Exists(file.Target);
@@ -252,6 +320,14 @@ sealed class UIFileMove {
                     return;
                 }
             }
+            // within one storage that renames without a local path (memory): the same, by key
+            if (!keep && ReferenceEquals(from, to) && sourceLocal == null && from.CanRenameFile && file.Readers == 0) {
+                if (replacing) to.DeleteFileIfItExists(file.Target);
+                from.RenameFile(file.Source, file.Target);
+                Interlocked.Add(ref job.BytesTransferred, file.Size);
+                job.Settle(file.Size);
+                return;
+            }
             await copyAsync(job, from, to, file, copied, token);
             if (!keep) {
                 try {
@@ -269,6 +345,22 @@ sealed class UIFileMove {
             throw;
         } catch (Exception e) {
             fail(e is IOException ? "it is in use (" + e.Message.Trim() + ")" : e.Message.Trim());
+        }
+    }
+
+    // where a selected file goes: the path it has below the open folder, in the target folder
+    static string[] targetOf(string[] key, string[] basePath, string[] target) =>
+        [.. target, .. isBelow(key, basePath) ? key[basePath.Length..] : [key[^1]]];
+    static HashSet<string> namesIn(FolderMeta folder, bool files) =>
+        new(files ? folder.Files.Select(f => f.KeyOf()[^1]) : folder.SubFolders.Select(f => f.Name), StringComparer.OrdinalIgnoreCase);
+    /// <summary>"name - Copy.ext", then "name - Copy (2).ext" and on, whichever is not taken yet; the
+    /// name given out is taken from then on. A folder keeps its dots: only a file has an extension.</summary>
+    internal static string FreeName(string name, HashSet<string> taken, bool isFile) {
+        var dot = isFile ? name.LastIndexOf('.') : -1;
+        var (stem, extension) = dot > 0 ? (name[..dot], name[dot..]) : (name, "");
+        for (var n = 1; ; n++) {
+            var candidate = stem + " - Copy" + (n == 1 ? "" : $" ({n})") + extension;
+            if (taken.Add(candidate)) return candidate;
         }
     }
 

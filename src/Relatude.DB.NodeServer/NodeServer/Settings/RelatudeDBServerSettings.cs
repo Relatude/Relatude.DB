@@ -35,14 +35,16 @@ public class RelatudeDBServerSettings {
     /// fallback. See <see cref="LicenseLogin"/>.</summary>
     public bool AllowLicenseeAdminLogin { get; set; } = false;
     /// <summary>
-    /// The address this server is reached on, such as https://db.example.com: where "Sign in with
-    /// Relatude.License" sends the browser back to, with its one-time code. The sign-in never takes
-    /// that address from a request, whose host name is whatever its sender chose, so without this it
-    /// works only on a loopback address (see <see cref="LicenseLogin.BeginAsync"/>). The Relatude Services page
-    /// fills it in from the address it is used on when the API key is saved or the installation is paired.
-    /// <para>It may list several addresses separated by commas, for a server reached on more than one
-    /// name or several sites sharing one settings file: a sign-in returns to the listed address its
-    /// login page is open on, and one started on an address that is not listed is refused.</para>
+    /// The addresses this server is reached on, such as https://db.example.com: where "Sign in with
+    /// Relatude.License" may send the browser back to, with its one-time code. The sign-in never takes
+    /// that address from the request that starts it, whose host name is whatever its sender chose (see
+    /// <see cref="LicenseLogin.BeginAsync"/>). It fills itself in: every https address a signed-in admin
+    /// uses the admin UI on is added (<see cref="LicenseLogin.RememberPublicUrl"/>). Besides these, a
+    /// sign-in may come back to a loopback address, and to one approved for this installation in
+    /// Relatude Services.
+    /// <para>The addresses are separated by commas, for a server reached on more than one name or
+    /// several sites sharing one settings file: a sign-in returns to the address its login page is open
+    /// on, and one started on an address that is neither listed nor approved is refused.</para>
     /// </summary>
     public string? PublicUrl { get; set; }
     /// <summary>
