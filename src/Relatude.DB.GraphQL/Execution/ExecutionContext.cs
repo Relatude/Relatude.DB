@@ -15,6 +15,8 @@ internal sealed class ExecutionContext {
     public required Dictionary<string, FragmentDefinition> Fragments { get; init; }
     public Dictionary<string, object?> Variables { get; set; } = [];
     public QueryContext? QueryContext { get; init; }
+    /// <summary>Scheme, host and path base of the request (see <see cref="GraphQLRequest.Origin"/>); null outside HTTP.</summary>
+    public string? Origin { get; init; }
     public List<GraphQLError> Errors { get; } = [];
 
     public void AddError(string message, AstNode? node, IEnumerable<object>? path) {

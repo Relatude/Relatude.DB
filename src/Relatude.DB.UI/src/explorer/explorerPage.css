@@ -21,6 +21,11 @@
 .gxp-mark {
   display: inline-flex;
   color: var(--nav-pink);
+  text-decoration: none;
+}
+
+.gxp-mark:hover {
+  opacity: 0.75;
 }
 
 .gxp-name {

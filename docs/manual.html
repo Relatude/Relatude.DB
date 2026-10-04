@@ -6756,7 +6756,7 @@ some events are of a type the endpoint leaves out.</p>
 </tr>
 <tr>
 <td><code>FileValue</code></td>
-<td><code>FileInfo { name size width height contentType }</code>, null when empty</td>
+<td><code>FileInfo { name size width height contentType url }</code>, null when empty</td>
 <td>–</td>
 <td>–</td>
 <td>–</td>
@@ -6887,6 +6887,35 @@ limits them:</p>
 
 <p>Nested lists cannot be filtered or ordered. A query that needs that should start from the other
 side, for example <code>events(filter: { venue: { eq: $venue } }, orderBy: starts)</code>.</p>
+<p><strong>Files.</strong> A file property gives a <code>FileInfo</code>: the file's <code>name</code>, <code>size</code>, <code>contentType</code>, <code>width</code> and
+<code>height</code>, and <code>url</code>, where the file is served. That is the URL <code>db.GetUrl(file)</code> gives
+(<a href="#181-asset-urls-files-variants-and-deeplinks">§18.1</a>). With any of <code>width</code>, <code>height</code>, <code>crop</code>
+(<code>Fill</code>, <code>Fit</code>, <code>Stretch</code>, <code>Auto</code>), <code>format</code> (<code>Jpeg</code>, <code>Png</code>, <code>Webp</code>, <code>Avif</code>, <code>Gif</code>) or <code>quality</code>, the
+URL is for an image made from the file instead: resized, cropped or converted, and for a video a
+frame of it, as <code>db.GetUrl(file, new FileAdjustmentImage { … })</code> gives it. The query only makes the
+URL; the image is made the first time the URL is requested. With aliases, one query asks for several
+sizes. If <code>Venue</code> had a <code>[FileProperty] FileValue Photo</code>:</p>
+<div class="codehilite"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="n">venues</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">items</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="n">name</span>
+<span class="w">      </span><span class="n">photo</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">url</span>
+<span class="w">        </span><span class="nl">thumbnail</span><span class="p">:</span><span class="w"> </span><span class="n">url</span><span class="p">(</span><span class="n">width</span><span class="p">:</span><span class="w"> </span><span class="mi">320</span><span class="p">,</span><span class="w"> </span><span class="n">height</span><span class="p">:</span><span class="w"> </span><span class="mi">180</span><span class="p">,</span><span class="w"> </span><span class="n">crop</span><span class="p">:</span><span class="w"> </span><span class="no">Fill</span><span class="p">)</span>
+<span class="w">        </span><span class="nl">large</span><span class="p">:</span><span class="w"> </span><span class="n">url</span><span class="p">(</span><span class="n">width</span><span class="p">:</span><span class="w"> </span><span class="mi">1600</span><span class="p">,</span><span class="w"> </span><span class="n">format</span><span class="p">:</span><span class="w"> </span><span class="no">Webp</span><span class="p">,</span><span class="w"> </span><span class="n">quality</span><span class="p">:</span><span class="w"> </span><span class="mi">80</span><span class="p">)</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>Files that are neither images nor videos ignore the image arguments and get the plain URL. Without
+<code>format</code>, the server picks the format as described in
+<a href="#image-variants-adapt-by-default">Image variants adapt by default</a>. URLs are relative unless the URL
+manager has been given a host (<code>PrimaryBaseAddress</code> or <code>BaseAddressAssets</code>). For clients on another
+origin, <code>url(absolute: true)</code> puts the scheme and host the request came in on in front of a relative
+URL. The endpoint only hands the URL out. Serving it is the web application's job, as for any asset
+URL (<a href="#18-urls-and-the-url-manager">§18</a>).</p>
 <p><strong>The rest of GraphQL</strong> works as the specification says: variables (with defaults), aliases (which
 also let one query ask for the same list twice with different arguments), named and inline
 fragments, <code>@include</code> and <code>@skip</code>, <code>__typename</code>, several root fields in one request, and documents

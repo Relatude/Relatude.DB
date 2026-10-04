@@ -1,5 +1,7 @@
+using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
+using Relatude.DB.FileConversion;
 using Relatude.DB.GraphQL.Endpoints;
 
 namespace Relatude.DB.GraphQL.Schema;
@@ -27,7 +29,7 @@ internal sealed class SchemaBuilder {
     readonly bool _exact;
     readonly List<string> _warnings = [];
     readonly NameRegistry _typeNames = new("Int", "Float", "String", "Boolean", "ID", "DateTime", "Long", "Decimal",
-        "Query", "Mutation", "Node", "FileInfo", "GeoCoordinate", "GeoCoordinateInput", "RelatedNodeFilterInput");
+        "Query", "Mutation", "Node", "FileInfo", "ImageFormat", "ImageCropMode", "GeoCoordinate", "GeoCoordinateInput", "RelatedNodeFilterInput");
     readonly List<GqlNamedType> _allTypes = [];
     readonly Dictionary<Guid, ExposedType> _exposedById = [];
     readonly Dictionary<Guid, GqlObjectType> _objectTypes = [];
@@ -433,9 +435,45 @@ internal sealed class SchemaBuilder {
             new GqlField { Name = "width", Type = nn(_scalars.Int), Source = FieldSource.FileWidth, Description = "Image/video width in pixels; 0 when not applicable." },
             new GqlField { Name = "height", Type = nn(_scalars.Int), Source = FieldSource.FileHeight, Description = "Image/video height in pixels; 0 when not applicable." },
             new GqlField { Name = "contentType", Type = _scalars.String, Source = FieldSource.FileContentType },
+            createFileUrlField(),
         ]);
         _allTypes.Add(t);
         return t;
+    }
+
+    /// <summary>
+    /// The url the store gives the file: as uploaded, or, with any of the image arguments, an image made from it (for a
+    /// video, a frame taken out of it). The url is only built here; the image is made when the url is first requested.
+    /// </summary>
+    GqlField createFileUrlField() {
+        var format = new GqlEnumType { Name = "ImageFormat", Description = "The format of an image made from a file." };
+        foreach (var f in (FileFormat[])[FileFormat.Jpeg, FileFormat.Png, FileFormat.Webp, FileFormat.Avif, FileFormat.Gif]) {
+            format.Values.Add(new GqlEnumValue { Name = f.ToString(), IntValue = (int)f });
+        }
+        var crop = new GqlEnumType {
+            Name = "ImageCropMode",
+            Description = "How an image is fitted to the width and height asked for: Fill crops to fill them, Fit keeps all of it inside them, "
+                + "Stretch distorts it to fill them, Auto chooses between Fill and Fit from the image.",
+        };
+        foreach (var m in Enum.GetValues<ImageCropMode>()) crop.Values.Add(new GqlEnumValue { Name = m.ToString(), IntValue = (int)m });
+        _allTypes.Add(format);
+        _allTypes.Add(crop);
+        return new GqlField {
+            Name = "url", Type = nn(_scalars.String), Source = FieldSource.FileUrl,
+            Description = "Where the file is served. With width, height, crop, format or quality the url is for an image made from it: "
+                + "resized, cropped or converted (for a video, a frame of it). Those arguments are ignored for other kinds of files.",
+            Arguments = {
+                new GqlArgument { Name = "width", Type = _scalars.Int, Description = "Width of the image in pixels." },
+                new GqlArgument { Name = "height", Type = _scalars.Int, Description = "Height of the image in pixels." },
+                new GqlArgument { Name = "crop", Type = crop, Description = "How the image is fitted to width and height when both are given." },
+                new GqlArgument { Name = "format", Type = format, Description = "The image format; without it the server picks one (the original file when nothing else is asked for)." },
+                new GqlArgument { Name = "quality", Type = _scalars.Int, Description = "Quality from 0 to 100, for lossy formats." },
+                new GqlArgument {
+                    Name = "absolute", Type = _scalars.Boolean, DefaultValue = false, HasDefaultValue = true,
+                    Description = "Adds the scheme and host the request came in on when the url is relative.",
+                },
+            },
+        };
     }
 
     GqlObjectType createGeoType() {

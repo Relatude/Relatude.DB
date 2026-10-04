@@ -98,6 +98,7 @@ public static class GraphQLHttpHandler {
             await writeErrors(http, StatusCodes.Status405MethodNotAllowed, "Use GET or POST.");
             return;
         }
+        request.Origin = OriginOf(http.Request);
         var result = executor.Execute(request, queryContext);
         // a request that produced no data at all (syntax, validation, variables) is the client's mistake
         http.Response.StatusCode = result.Data == null && result.Errors != null ? StatusCodes.Status400BadRequest : StatusCodes.Status200OK;
@@ -134,6 +135,9 @@ public static class GraphQLHttpHandler {
     }
 
     static readonly JsonSerializerOptions _requestJson = new() { PropertyNameCaseInsensitive = true };
+
+    /// <summary>Scheme, host and path base of a request: what <c>url(absolute: true)</c> puts in front of a relative file url.</summary>
+    public static string OriginOf(HttpRequest request) => request.Scheme + "://" + request.Host + request.PathBase;
 
     public static bool IsAuthorized(HttpContext http, GraphQLEndpointDefinition definition) {
         if (string.IsNullOrEmpty(definition.ApiKey)) return true;

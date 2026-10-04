@@ -300,11 +300,15 @@ public static class ExplorerGuide {
                         items {
                           id
                           displayName
-                          {{fileRoot.Field.Name}} { name size contentType width height }
+                          {{fileRoot.Field.Name}} {
+                            name size contentType width height
+                            url
+                            thumbnail: url(width: 200, height: 200, crop: Fill)
+                          }
                         }
                       }
                     }
-                    """, note: $"{fileRoot.Field.Name} is null on a {fileRoot.Root.Type.Name} without a file.");
+                    """, note: $"{fileRoot.Field.Name} is null on a {fileRoot.Root.Type.Name} without a file. url is where the file is served; with width, height, crop, format or quality it is an image made from the file when the url is first requested. url(absolute: true) adds the host.");
             } else gap("files", "No exposed type has a file property.");
 
             var geoRoot = roots.Select(r => (Root: r, Field: r.Type.Fields.FirstOrDefault(f => f.Source == FieldSource.GeoProperty))).OrderByDescending(x => x.Root.Node != null).FirstOrDefault(x => x.Field != null);

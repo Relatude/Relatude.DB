@@ -3,9 +3,7 @@ import { IconBook, IconChevronLeft, IconChevronRight, IconDeviceDesktop, IconExt
 import { sections, type Section } from "../navigation";
 import { licenseAttention, type LicenseStatus } from "../server/license";
 import { fetchWhoAmI, type DatabaseInfo, type WhoAmI } from "../server/serverInfo";
-
-/** The Relatude.DB site, where the manual is: the one link in the rail that leaves the UI. */
-const manualUrl = "https://db.relatude.com";
+import { siteUrl } from "../siteLinks";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -58,7 +56,8 @@ export function Sidebar({ collapsed, onToggleCollapsed, databases, activeDb, lic
             <span className="full">Help</span>
             <span className="short">?</span>
           </div>
-          <a className="nav-item nav-tone-gray" href={manualUrl} target="_blank" rel="noreferrer" title="The Relatude.DB manual — opens in a new tab">
+          {/* the Relatude.DB site, where the manual is: the one link in the rail that leaves the UI */}
+          <a className="nav-item nav-tone-gray" href={siteUrl} target="_blank" rel="noreferrer" title="The Relatude.DB manual — opens in a new tab">
             <IconBook size={16} stroke={1.8} />
             <span className="label">Manual</span>
             <IconExternalLink className="nav-ext" size={12} stroke={1.8} />

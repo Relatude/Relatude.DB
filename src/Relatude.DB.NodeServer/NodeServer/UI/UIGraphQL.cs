@@ -83,7 +83,9 @@ sealed class UIGraphQL(RelatudeDBServer server) {
                 var file = server.GraphQL.Find(c.Settings.Id, id) ?? throw new Exception("The endpoint was not found.");
                 executor = server.GraphQL.GetExecutor(c, file.Definition!);
             } else throw new Exception("Pass the endpoint id or a definition.");
-            var result = executor.Execute(new GraphQLRequest { Query = p.Query, Variables = p.Variables, OperationName = p.OperationName });
+            var result = executor.Execute(new GraphQLRequest {
+                Query = p.Query, Variables = p.Variables, OperationName = p.OperationName, Origin = GraphQLHttpHandler.OriginOf(ctx.Http.Request),
+            });
             return (object?)new { result = JsonDocument.Parse(result.ToJson()).RootElement.Clone() };
         });
     }

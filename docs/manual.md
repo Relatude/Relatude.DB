@@ -5194,7 +5194,7 @@ some events are of a type the endpoint leaves out.
 | `Guid` | `ID!` | `eq` `ne` `in` `nin` | – | `ID` |
 | `string[]`, `Guid[]`, enum `[]` | `[String!]!`, `[ID!]!`, `[Enum!]!` | – | – | a list |
 | `GeoCoordinate` | `GeoCoordinate { latitude longitude }`, null when unset | – | – | `GeoCoordinateInput` |
-| `FileValue` | `FileInfo { name size width height contentType }`, null when empty | – | – | – |
+| `FileValue` | `FileInfo { name size width height contentType url }`, null when empty | – | – | – |
 | relation, "one" side | the related type | `eq` `in` (by id) | – | `ID` |
 | relation, "many" side | `[T!]!` with a `top` argument | `eq` `in` (by id) | – | `[ID!]`, which replaces the whole set |
 | `Reference<T>` | `T` | `eq` `in` (by id) | – | `ID` |
@@ -5278,6 +5278,38 @@ limits them:
 
 Nested lists cannot be filtered or ordered. A query that needs that should start from the other
 side, for example `events(filter: { venue: { eq: $venue } }, orderBy: starts)`.
+
+**Files.** A file property gives a `FileInfo`: the file's `name`, `size`, `contentType`, `width` and
+`height`, and `url`, where the file is served. That is the URL `db.GetUrl(file)` gives
+([§18.1](#181-asset-urls-files-variants-and-deeplinks)). With any of `width`, `height`, `crop`
+(`Fill`, `Fit`, `Stretch`, `Auto`), `format` (`Jpeg`, `Png`, `Webp`, `Avif`, `Gif`) or `quality`, the
+URL is for an image made from the file instead: resized, cropped or converted, and for a video a
+frame of it, as `db.GetUrl(file, new FileAdjustmentImage { … })` gives it. The query only makes the
+URL; the image is made the first time the URL is requested. With aliases, one query asks for several
+sizes. If `Venue` had a `[FileProperty] FileValue Photo`:
+
+```graphql
+{
+  venues {
+    items {
+      name
+      photo {
+        url
+        thumbnail: url(width: 320, height: 180, crop: Fill)
+        large: url(width: 1600, format: Webp, quality: 80)
+      }
+    }
+  }
+}
+```
+
+Files that are neither images nor videos ignore the image arguments and get the plain URL. Without
+`format`, the server picks the format as described in
+[Image variants adapt by default](#image-variants-adapt-by-default). URLs are relative unless the URL
+manager has been given a host (`PrimaryBaseAddress` or `BaseAddressAssets`). For clients on another
+origin, `url(absolute: true)` puts the scheme and host the request came in on in front of a relative
+URL. The endpoint only hands the URL out. Serving it is the web application's job, as for any asset
+URL ([§18](#18-urls-and-the-url-manager)).
 
 **The rest of GraphQL** works as the specification says: variables (with defaults), aliases (which
 also let one query ask for the same list twice with different arguments), named and inline

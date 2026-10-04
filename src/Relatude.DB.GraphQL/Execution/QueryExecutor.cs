@@ -38,7 +38,7 @@ internal static class QueryExecutor {
             }
             var ctx = new ExecutionContext {
                 Host = host, Schema = host.Schema, Endpoint = host.Definition, Store = store,
-                Document = document, Fragments = fragments, QueryContext = queryContext,
+                Document = document, Fragments = fragments, QueryContext = queryContext, Origin = request.Origin,
             };
             DocumentWalker.EnsureNoFragmentCycles(ctx);
             var depth = DocumentWalker.MaxDepth(ctx, op.SelectionSet);

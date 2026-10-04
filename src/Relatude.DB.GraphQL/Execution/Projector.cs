@@ -1,6 +1,8 @@
 using System.Collections;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
+using Relatude.DB.Datamodels.Properties;
+using Relatude.DB.FileConversion;
 using Relatude.DB.GraphQL.Language;
 using Relatude.DB.GraphQL.Schema;
 
@@ -73,7 +75,7 @@ internal static class Projector {
                     var p = field.Property!;
                     var value = node.TryGetValue(p.Id, out var raw) ? raw : null;
                     if (value is not FileValue file || file.IsEmpty) return null;
-                    return projectFile(ctx, file, field, cf);
+                    return projectFile(ctx, node, file, field, cf, path);
                 }
             case FieldSource.GeoProperty: {
                     var p = field.Property!;
@@ -112,7 +114,7 @@ internal static class Projector {
         }
     }
 
-    static object projectFile(ExecutionContext ctx, FileValue file, GqlField field, CollectedField cf) {
+    static object projectFile(ExecutionContext ctx, INodeData node, FileValue file, GqlField field, CollectedField cf, List<object> path) {
         var fileType = (GqlObjectType)field.Type.UnwrapNamed();
         var collected = DocumentWalker.CollectFields(ctx, name => name == fileType.Name, cf.SelectionSets);
         var result = new Dictionary<string, object?>(collected.Count);
@@ -120,6 +122,19 @@ internal static class Projector {
             var name = c.First.Name;
             if (name == "__typename") { result[c.Key] = fileType.Name; continue; }
             if (!fileType.TryGetField(name, out var fd)) { result[c.Key] = null; continue; }
+            if (fd.Source == FieldSource.FileUrl) {
+                // a url the store cannot give fails that field alone, not the rest of the file
+                try {
+                    result[c.Key] = fileUrl(ctx, node, field.Property!, file, fd, c.First);
+                } catch (GraphQLFieldException fe) {
+                    result[c.Key] = null;
+                    ctx.AddError(fe.Message, c.First, [.. path, c.Key]);
+                } catch (Exception ex) {
+                    result[c.Key] = null;
+                    ctx.AddError("The url of the file could not be made: " + ex.Message, c.First, [.. path, c.Key]);
+                }
+                continue;
+            }
             result[c.Key] = fd.Source switch {
                 FieldSource.FileName => file.Name,
                 FieldSource.FileSize => file.Size,
@@ -130,6 +145,38 @@ internal static class Projector {
             };
         }
         return result;
+    }
+
+    /// <summary>The store's url for the file, or for an image made from it when an image argument is given.</summary>
+    static string fileUrl(ExecutionContext ctx, INodeData node, PropertyModel property, FileValue file, GqlField urlField, FieldNode fieldNode) {
+        var args = Arguments.Resolve(ctx, urlField, fieldNode);
+        var absolute = Arguments.GetBool(args, "absolute");
+        var propertyPath = new PropertyPath(node.IdKey, property.Id);
+        var adjustment = imageAdjustment(args, file);
+        var url = adjustment == null
+            ? ctx.Store.GetUrl(propertyPath, absolute, ctx.QueryContext)
+            : ctx.Store.GetUrl(propertyPath, adjustment, absolute, ctx.QueryContext);
+        // the url manager only makes urls absolute when it is given a host, so the one the request came in on is used
+        if (absolute && !string.IsNullOrEmpty(ctx.Origin) && !url.Contains("://", StringComparison.Ordinal)) {
+            url = ctx.Origin.TrimEnd('/') + (url.StartsWith('/') ? url : "/" + url);
+        }
+        return url;
+    }
+
+    /// <summary>The image asked for by the url field's arguments; null when none is given or the file makes no images.</summary>
+    static FileAdjustmentImage? imageAdjustment(Dictionary<string, object?> args, FileValue file) {
+        var width = Arguments.GetInt(args, "width");
+        var height = Arguments.GetInt(args, "height");
+        var quality = Arguments.GetInt(args, "quality");
+        var crop = args.GetValueOrDefault("crop") as GqlEnumValue;
+        var format = args.GetValueOrDefault("format") as GqlEnumValue;
+        if (width == null && height == null && quality == null && crop == null && format == null) return null;
+        if (file.FileType is not (FileType.Image or FileType.Video)) return null; // a frame is taken out of a video
+        var adjustment = new FileAdjustmentImage { Width = width, Height = height, Quality = quality };
+        if (crop != null) adjustment.CropMode = (ImageCropMode)crop.IntValue;
+        if (format != null) adjustment.RequestedFormat = (FileFormat)format.IntValue;
+        adjustment.BasicSanitization();
+        return adjustment;
     }
 
     static object projectGeo(ExecutionContext ctx, GeoCoordinate geo, GqlField field, CollectedField cf) {
@@ -153,7 +200,7 @@ internal static class Projector {
         try { return file.ContentType; } catch { return null; }
     }
 
-    static object? safeDefault(NodeTypeModel type, Datamodels.Properties.PropertyModel p) {
+    static object? safeDefault(NodeTypeModel type, PropertyModel p) {
         try { return type.GetDefaultValue(p); } catch { return null; } // the node type may override the default
     }
 

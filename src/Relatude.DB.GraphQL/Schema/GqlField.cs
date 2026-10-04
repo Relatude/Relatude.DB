@@ -27,6 +27,7 @@ public enum FieldSource {
     WrapperItems, WrapperTotalCount, WrapperPageIndex, WrapperPageSize, WrapperExecutionTimeMs,
     // fields of the shared FileInfo type (source value is a FileValue)
     FileName, FileSize, FileWidth, FileHeight, FileContentType,
+    FileUrl,             // the store's url for the file, or for a resized image of it when asked
     // fields of the shared GeoCoordinate type
     GeoLatitude, GeoLongitude,
 }

@@ -4,6 +4,7 @@ import { DialogHost } from "../components/DialogHost";
 import { GraphQLExplorer, type ExplorerSource } from "../components/GraphQLExplorer";
 import { LogoMark } from "../components/Logo";
 import type { ExplorerData } from "../server/graphql";
+import { siteUrl } from "../siteLinks";
 import { applyTheme, getInitialTheme, type Theme } from "../theme";
 import { FacetPage } from "./FacetPage";
 import { createFacetSource } from "./facetSource";
@@ -120,9 +121,9 @@ export function ExplorerPage() {
   return (
     <div className="gxp">
       <header className="gxp-head">
-        <span className="gxp-mark" title="Relatude.DB">
+        <a className="gxp-mark" href={siteUrl} target="_blank" rel="noreferrer" title="Relatude.DB - db.relatude.com, opens in a new tab">
           <LogoMark height={14} />
-        </span>
+        </a>
         <span className="gxp-name">{config.name}</span>
         <span className="gxp-url">{config.url}</span>
         {config.description && <span className="gxp-description">{config.description}</span>}

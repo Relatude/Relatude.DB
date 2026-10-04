@@ -9,7 +9,7 @@
     <ServerGarbageCollection>true</ServerGarbageCollection>
     <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
     <GarbageCollectionAdaptationMode>0</GarbageCollectionAdaptationMode>
-    <Version>0.4.2.209</Version>
+    <Version>0.4.2.210</Version>
   </PropertyGroup>
 
   <ItemGroup>

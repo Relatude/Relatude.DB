@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { IconExternalLink, IconPlayerPlay, IconPointer } from "@tabler/icons-react";
+import { IconBook, IconExternalLink, IconPlayerPlay, IconPointer } from "@tabler/icons-react";
 import { highlight } from "../code/highlight";
 import type { GuideExample } from "../server/graphql";
+import { manualUrl } from "../siteLinks";
 
 // The Guide panel: what the explorer can do and what the endpoint can answer, topic by topic. Each GraphQL
 // topic carries an example written by the server for this endpoint (GraphQLGuide.cs), with its names and,
@@ -121,7 +122,7 @@ export const guideSections: Section[] = [
       { id: "relation-filter", title: "Filtering by a related node", text: "A relation in a filter takes the id of the node at the other end: eq for one, in for any of several." },
       { id: "ids", title: "Given ids", text: "ids limits a list to the nodes with these ids, fetched in one request." },
       { id: "views", title: "Views", text: "A view is a list defined by a query in the endpoint's settings. It takes the same arguments as the list of its type." },
-      { id: "files", title: "Files", text: "A file property gives the file's name, size and content type, and for images and videos their width and height." },
+      { id: "files", title: "Files", text: "A file property gives the file's name, size and content type, for images and videos their width and height, and the url the file is served on - or, with width, height, crop, format or quality, the url of a resized image made from it." },
       { id: "geo", title: "Positions", text: "A position property gives latitude and longitude." },
     ],
   },
@@ -210,6 +211,13 @@ export function ExplorerGuide({
   const common = [...counts].filter(([, n]) => n >= 3).map(([reason]) => reason);
   return (
     <div className="gx-guide">
+      <a className="gx-guide-manual" href={manualUrl("33-graphql-endpoints")} target="_blank" rel="noreferrer" title="The Relatude.DB manual's chapter on GraphQL endpoints - opens in a new tab">
+        <IconBook size={14} stroke={1.8} />
+        <span>
+          The full manual: <b>GraphQL endpoints</b>
+        </span>
+        <IconExternalLink size={12} stroke={1.8} />
+      </a>
       {common.length > 0 && (
         <div className="gx-guide-notice">
           {common.map((reason) => (
