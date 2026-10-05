@@ -137,7 +137,7 @@ namespace Relatude.Datamodels {
 
         [TestMethod]
         public void JsonFileSource_EmptyFilepathUsesDefaultFolder() {
-            var folder = Path.Combine(_root, DatamodelSourceLoader.DefaultJsonFolder);
+            var folder = Path.Combine(_root, DatamodelSourceLoader.DefaultPath(jsonSource(null)));
             Directory.CreateDirectory(folder);
             File.WriteAllText(Path.Combine(folder, "library.json"), buildJsonModel());
             var dm = new Datamodel();
@@ -145,6 +145,35 @@ namespace Relatude.Datamodels {
             dm.EnsureInitalization();
             Assert.IsTrue(dm.NodeTypesByFullName.ContainsKey("Relatude.SourceLoaderModels.SlAuthor"));
             Assert.AreEqual("library.json", dm.NodeTypesByFullName["Relatude.SourceLoaderModels.SlAuthor"].DatamodelSourceFilename);
+        }
+
+        [TestMethod]
+        public void JsonFileSource_DefaultPath_IsAFolderOfItsOwnNamedAfterTheSource() {
+            var id = new Guid("11111111-0000-0000-0000-000000000009");
+            string folderOf(string? name) => DatamodelSourceLoader.DefaultPath(new DatamodelSource { Id = id, Name = name, Type = DatamodelSourceType.RuntimeTypes });
+            Assert.AreEqual("relatude.db/modelsources/JsonModel", DatamodelSourceLoader.DefaultPath(jsonSource(null)));
+            Assert.AreEqual("relatude.db/modelsources/JsonModel/library.json", DatamodelSourceLoader.DefaultPath(jsonSource(null, "library.json")), "Reference names a file in it");
+            Assert.AreEqual("relatude.db/modelsources/Shop Models", folderOf("Shop Models"));
+            Assert.AreEqual("relatude.db/modelsources/a_b_c_d", folderOf("a/b\\c:d"), "separators and what Windows refuses become '_' on every system");
+            Assert.AreEqual("relatude.db/modelsources/v1.2", folderOf("  v1.2. . "), "trailing dots and spaces go, as Windows would drop them");
+            Assert.AreEqual("relatude.db/modelsources/_con", folderOf("con"), "a name Windows reserves");
+            Assert.AreEqual("relatude.db/modelsources/_NUL.json", folderOf("NUL.json"), "reserved with an extension too");
+            Assert.AreEqual("relatude.db/modelsources/" + id, folderOf(".."), "never a way out of the folder");
+            Assert.AreEqual("relatude.db/modelsources/" + id, folderOf(null));
+            Assert.AreEqual("relatude.db/modelsources/" + id, folderOf("   "));
+        }
+
+        [TestMethod]
+        public void JsonFileSource_EmptyFilepath_NamesTheOldDefaultFolderWhenItIsStillThere() {
+            var legacy = Path.Combine(_root, "Models", "Json");
+            Directory.CreateDirectory(legacy);
+            File.WriteAllText(Path.Combine(legacy, "library.json"), buildJsonModel());
+            var dm = new Datamodel();
+            DatamodelSourceLoader.Load(dm, jsonSource(null), _root);
+            Assert.IsFalse(dm.NodeTypes.Values.Any(t => t.CodeName == "SlAuthor"), "the old folder is not read without being named");
+            var notice = dm.SourceNotices.Single();
+            StringAssert.Contains(notice, "set Filepath to \"Models/Json\"");
+            StringAssert.Contains(notice, "relatude.db/modelsources/JsonModel");
         }
 
         [TestMethod]
@@ -303,7 +332,7 @@ namespace Relatude.Datamodels {
             var gen = new Datamodel();
             gen.Add<Relatude.SourceLoaderModels.JsonGen.SlReview>();
             var json = DatamodelJson.Serialize(gen).Replace("Relatude.SourceLoaderModels.JsonGen", "Relatude.SourceLoaderModels.JsonPoco");
-            var folder = Path.Combine(_root, DatamodelSourceLoader.DefaultJsonFolder);
+            var folder = Path.Combine(_root, DatamodelSourceLoader.DefaultPath(jsonSource(null)));
             Directory.CreateDirectory(folder);
             File.WriteAllText(Path.Combine(folder, "review.json"), json);
 
@@ -334,7 +363,7 @@ namespace Relatude.Datamodels {
             gen.Add<Relatude.SourceLoaderModels.RuntimeGen.RtNote>();
             gen.Add<Relatude.SourceLoaderModels.RuntimeGen.RtFolderNotes>();
             var json = DatamodelJson.Serialize(gen).Replace("Relatude.SourceLoaderModels.RuntimeGen", ns);
-            var folder = Path.Combine(_root, DatamodelSourceLoader.DefaultJsonFolder);
+            var folder = Path.Combine(_root, DatamodelSourceLoader.DefaultPath(jsonSource(null)));
             Directory.CreateDirectory(folder);
             File.WriteAllText(Path.Combine(folder, "notes.json"), json);
 

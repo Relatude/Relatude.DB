@@ -8,6 +8,7 @@ import { ColorField } from "./ColorField";
 import { CodeTab } from "./DatamodelCodeTab";
 import {
   allProperties,
+  defaultSourcePath,
   fullName,
   hasWildcard,
   newGuid,
@@ -18,6 +19,7 @@ import {
   scanAssemblies,
   scanNamespaces,
   sourceColors,
+  sourcePath,
   type AssemblyScan,
   type FieldDef,
   type ModelJson,
@@ -129,6 +131,8 @@ interface FieldProps {
   autoFocus?: boolean;
   /** called once the field has taken the keyboard, so the caller can clear the flag */
   onFocused?: () => void;
+  /** for text: what an empty field stands for */
+  placeholder?: string;
 }
 
 /**
@@ -149,7 +153,7 @@ interface FrameOverride {
  * Renders one schema field. The value lives in the model object under field.path; an unset value
  * shows the default the server read off a fresh model object, which is what the engine will use.
  */
-export function FieldEditor({ field, value, onChange, disabled, ctx, typeId, fallbackColor, autoFocus, onFocused, frame }: FieldProps & { frame?: FrameOverride }) {
+export function FieldEditor({ field, value, onChange, disabled, ctx, typeId, fallbackColor, autoFocus, onFocused, placeholder, frame }: FieldProps & { frame?: FrameOverride }) {
   const focusRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   // only text fields carry the ref; asking a select or a checkbox for the keyboard would be noise
   useEffect(() => {
@@ -331,6 +335,7 @@ export function FieldEditor({ field, value, onChange, disabled, ctx, typeId, fal
           className="text-input dm-wide"
           type="text"
           value={current === null || current === undefined ? "" : String(current)}
+          placeholder={placeholder}
           disabled={off}
           onChange={(e) => onChange(e.target.value === "" && field.optional ? null : e.target.value)}
         />
@@ -921,7 +926,7 @@ export function SourcePickerDialog({ what, sources, ctx, onPick, onClose }: { wh
             const color = ctx.colors.get(s.Id) ?? "#888";
             const types = Object.values(ctx.model.NodeTypes).filter((t) => t.DatamodelSourceId === s.Id && t.Id !== ctx.baseTypeId).length;
             const relations = Object.values(ctx.model.Relations).filter((r) => r.DatamodelSourceId === s.Id).length;
-            const path = info?.resolvedPath ?? s.Filepath ?? s.SourceCodePath;
+            const path = sourcePath(s, info);
             return (
               <button key={s.Id} type="button" className="dm-source-card" style={{ borderLeftColor: color }} onClick={() => onPick(s)}>
                 <div className="dm-source-card-head">
@@ -1494,6 +1499,8 @@ export function SourceEditor({ source, info, ctx, locked, onDelete }: { source: 
                     disabled={disabled}
                     ctx={ctx}
                     fallbackColor={autoColor}
+                    // an empty path is the source's own folder: say which (the server's word for a source it knows)
+                    placeholder={f.path === "Filepath" && !source.FileIO ? (info?.resolvedPath ?? defaultSourcePath(source)) : undefined}
                     onChange={(v) => set(f.path, v)}
                   />
                 );

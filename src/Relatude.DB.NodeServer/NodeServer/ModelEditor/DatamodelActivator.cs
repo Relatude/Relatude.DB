@@ -87,8 +87,12 @@ public sealed class DatamodelActivator {
         // 4. compiled sources: the model is on disk, the running application still has the old one
         if (plan.RequiresRebuild) {
             var existing = _drafts.PeekDraft();
+            var kept = DatamodelJson.Deserialize(draftJson);
+            // the path a renamed source was given in the settings (see the validator), or the next
+            // activation of this draft would take it away again
+            DatamodelSourceWriter.KeepDefaultPaths(DatamodelSourceWriter.DefaultPaths(active.Sources), kept.Sources);
             _drafts.SaveDraft(new DatamodelDraft {
-                Model = DatamodelJson.Deserialize(draftJson),
+                Model = kept,
                 Checksum = validation.DraftChecksum,
                 BaseChecksum = existing?.BaseChecksum ?? validation.ActiveChecksum,
                 AwaitingRebuild = true,

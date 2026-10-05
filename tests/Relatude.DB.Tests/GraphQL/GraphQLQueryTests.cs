@@ -255,4 +255,37 @@ public class GraphQLQueryTests {
             Assert.AreEqual(all.Count(a => a.IntegerNum % 2 == 1), Get(data, "articles", "totalCount")); // odd articles -> bob
         } finally { store.Dispose(); }
     }
+
+    [TestMethod]
+    public void RelationFilter_IdAlias_MatchesEqAndIn() {
+        var (store, gql, all) = Open();
+        try {
+            var users = store.Query<Relatude.Utils.User>().Execute().ToList();
+            var bob = users.First(u => u.Username == "bob");
+            var alice = users.First(u => u.Username == "alice");
+            var data = RequireData(gql.Execute($$"""
+                {
+                  aliasEq: articles(filter: { author: { id: { eq: "{{bob.Id}}" } } }) { totalCount }
+                  aliasIn: articles(filter: { author: { id: { in: ["{{bob.Id}}", "{{alice.Id}}"] } } }) { totalCount }
+                  aliasNot: articles(filter: { not: { author: { id: { eq: "{{bob.Id}}" } } } }) { totalCount }
+                }
+                """));
+            Assert.AreEqual(all.Count(a => a.IntegerNum % 2 == 1), Get(data, "aliasEq", "totalCount"), "{ id: { eq } } is the same as { eq }");
+            Assert.AreEqual(all.Count, Get(data, "aliasIn", "totalCount"));
+            Assert.AreEqual(all.Count(a => a.IntegerNum % 2 == 0), Get(data, "aliasNot", "totalCount"));
+        } finally { store.Dispose(); }
+    }
+
+    [TestMethod]
+    public void RelationFilter_IdAlias_WorksThroughVariables() {
+        var (store, gql, all) = Open();
+        try {
+            var bob = store.Query<Relatude.Utils.User>().Execute().First(u => u.Username == "bob");
+            var data = RequireData(gql.Execute(new GraphQLRequest {
+                Query = "query Q($f: ArticleFilterInput) { articles(filter: $f) { totalCount } }",
+                Variables = JsonSerializer.SerializeToElement(new { f = new { author = new { id = new { eq = bob.Id.ToString() } } } }),
+            }));
+            Assert.AreEqual(all.Count(a => a.IntegerNum % 2 == 1), Get(data, "articles", "totalCount"));
+        } finally { store.Dispose(); }
+    }
 }

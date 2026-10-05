@@ -18,7 +18,16 @@ namespace Relatude.DB.Datamodels;
 /// not resolve, JSON that is invalid, C# that does not compile - still throws.
 /// </summary>
 public static class DatamodelSourceLoader {
-    public const string DefaultJsonFolder = "Models/Json";
+    /// <summary>
+    /// The folder, relative to the settings folder, that the model files of a runtime types source with no
+    /// <see cref="DatamodelSource.Filepath"/> go into: one subfolder per source, named after it
+    /// (<see cref="DefaultPath"/>). It sits in the default database's folder, beside datamodels/ where the
+    /// editor keeps its drafts and history.
+    /// </summary>
+    public const string DefaultRuntimeTypesFolder = "relatude.db/" + FileKeyUtility.ModelSourcesFolderName;
+    /// <summary>Where runtime types sources without a Filepath read from before October 2026, named in the
+    /// note an empty source leaves when that folder is still there.</summary>
+    const string legacyJsonFolder = "Models/Json";
     public const string DefaultCSharpFolder = "Models/CSharp";
     /// <param name="dm">The datamodel the source is combined into.</param>
     /// <param name="source">The source to load.</param>
@@ -150,8 +159,12 @@ public static class DatamodelSourceLoader {
             dm.AddDatamodel(deserialize(io.ReadAllTextUTF8(key), source.Reference), source.Id, source.Reference);
             return;
         }
-        var (files, baseFolder, emptyReason) = ResolveFiles(source, rootFolder, DefaultJsonFolder, "*.json");
+        var (files, baseFolder, emptyReason) = ResolveFiles(ResolveFilePath(source, rootFolder), DefaultPath(source), "*.json");
         if (emptyReason != null) {
+            // the default folder moved: a source configured without a path may still have its files in the old one
+            if (string.IsNullOrEmpty(source.Filepath) && Directory.Exists(Path.Combine(rootFolder, legacyJsonFolder))) emptyReason +=
+                "Until October 2026 a source without a Filepath read from \"" + legacyJsonFolder + "\", which exists: set Filepath to \""
+                + legacyJsonFolder + "\" to go on reading from there, or move its files into \"" + DefaultPath(source) + "\". ";
             note(dm, source, emptyReason);
             return;
         }
@@ -201,7 +214,7 @@ public static class DatamodelSourceLoader {
     // Compiles the source's C# files into one assembly and takes its model types. Only reached through
     // LoadCSharpFiles: see there for why compiling model code at open is no longer a source kind.
     static void loadCSharpSource(Datamodel dm, DatamodelSource source, string rootFolder) {
-        var (files, baseFolder, emptyReason) = ResolveFiles(source, rootFolder, DefaultCSharpFolder, "*.cs");
+        var (files, baseFolder, emptyReason) = ResolveFiles(ResolveFilePath(source, rootFolder, DefaultCSharpFolder), DefaultCSharpFolder, "*.cs");
         if (emptyReason != null) {
             note(dm, source, emptyReason);
             return; // nothing to compile: an empty source, ready for the editor to write the first type into
@@ -235,15 +248,14 @@ public static class DatamodelSourceLoader {
         }
     }
     /// <summary>
-    /// Filepath may name a file or a folder (all matching files, recursively). When empty, the
-    /// default folder is used, combined with Reference when set. Relative paths resolve against
-    /// the folder holding the settings file. Also returns the folder filenames are stored relative
-    /// to, and - when there is nothing to read - why, since that is a note rather than an error:
-    /// the folder of a source that has just been added does not exist until its first type is
-    /// written into it.
+    /// The files at a resolved source path (<see cref="ResolveFilePath(DatamodelSource, string)"/>),
+    /// which may name a file or a folder (all matching files, recursively). Also returns the folder
+    /// filenames are stored relative to, and - when there is nothing to read - why, since that is a
+    /// note rather than an error: the folder of a source that has just been added does not exist
+    /// until its first type is written into it. <paramref name="defaultPath"/> is what an empty
+    /// Filepath stands for, named in that note.
     /// </summary>
-    public static (List<string> files, string baseFolder, string? emptyReason) ResolveFiles(DatamodelSource source, string rootFolder, string defaultFolder, string pattern) {
-        var path = ResolveFilePath(source, rootFolder, defaultFolder);
+    public static (List<string> files, string baseFolder, string? emptyReason) ResolveFiles(string path, string defaultPath, string pattern) {
         if (File.Exists(path)) return ([path], Path.GetDirectoryName(path)!, null);
         if (Directory.Exists(path)) {
             var files = Directory.GetFiles(path, pattern, SearchOption.AllDirectories)
@@ -256,14 +268,18 @@ public static class DatamodelSourceLoader {
         var baseFolder = Path.HasExtension(path) ? Path.GetDirectoryName(path)! : path;
         return ([], baseFolder, "the path \"" + path + "\" does not exist, so it is loaded as an empty source. "
             + "Set Filepath to a " + pattern + " file or a folder holding such files if that is not intended "
-            + "(relative paths resolve against the settings folder; when Filepath is empty, \"" + defaultFolder + "\" is used). ");
+            + "(relative paths resolve against the settings folder; when Filepath is empty, \"" + defaultPath + "\" is used). ");
     }
+    /// <summary>
+    /// The absolute file or folder path a runtime types source reads from, whether or not it exists yet:
+    /// Filepath, else <see cref="DefaultPath"/>, resolved against the settings folder.
+    /// </summary>
+    public static string ResolveFilePath(DatamodelSource source, string rootFolder) => ResolveFilePath(source, rootFolder, DefaultFolder(source));
     /// <summary>
     /// The absolute file or folder path a file based source reads from, whether or not it exists yet:
     /// Filepath, else the default folder combined with Reference, else the default folder, resolved
-    /// against the settings folder. The default folder for the source's type is
-    /// <see cref="DefaultJsonFolder"/> for a runtime source, <see cref="DefaultCSharpFolder"/> for the
-    /// editor's dry run over C# files.
+    /// against the settings folder. The default folder is <see cref="DefaultFolder"/> for a runtime
+    /// source and <see cref="DefaultCSharpFolder"/> for the editor's dry run over C# files.
     /// </summary>
     public static string ResolveFilePath(DatamodelSource source, string rootFolder, string defaultFolder) {
         var path = !string.IsNullOrEmpty(source.Filepath) ? source.Filepath
@@ -272,4 +288,37 @@ public static class DatamodelSourceLoader {
         if (!Path.IsPathRooted(path)) path = Path.GetFullPath(Path.Combine(rootFolder, path));
         return path;
     }
+    /// <summary>
+    /// The folder a runtime types source with no Filepath reads from, relative to the settings folder:
+    /// relatude.db/modelsources/{name} (<see cref="DefaultRuntimeTypesFolder"/>, <see cref="FolderNameOf"/>).
+    /// It follows the name, so a source renamed without a Filepath would look for its files in a folder
+    /// of the new name; the data model editor and the settings page write the old folder into the
+    /// source's Filepath when they rename one.
+    /// </summary>
+    public static string DefaultFolder(DatamodelSource source) => DefaultRuntimeTypesFolder + "/" + FolderNameOf(source);
+    /// <summary>
+    /// What a runtime types source with no Filepath reads, relative to the settings folder: its
+    /// <see cref="DefaultFolder"/>, or the file <see cref="DatamodelSource.Reference"/> names in it.
+    /// </summary>
+    public static string DefaultPath(DatamodelSource source) =>
+        string.IsNullOrEmpty(source.Reference) ? DefaultFolder(source) : DefaultFolder(source) + "/" + source.Reference;
+    /// <summary>
+    /// The name of a source's own folder below <see cref="DefaultRuntimeTypesFolder"/>: the source's name,
+    /// with what no file system takes in a name (path separators, &lt; &gt; : " | ? * and control
+    /// characters) made '_' and the trailing dots and spaces Windows would drop left off - the same on
+    /// every system, so one settings file names one folder wherever it runs. A name that leaves nothing,
+    /// or nothing but dots, gives the source id instead, and a name Windows reserves (CON, NUL, COM1...)
+    /// gets a '_' in front.
+    /// </summary>
+    public static string FolderNameOf(DatamodelSource source) {
+        var name = new string((source.Name ?? "").Trim().Select(c => c < ' ' || "<>:\"/\\|?*".Contains(c) ? '_' : c).ToArray()).TrimEnd('.', ' ');
+        if (name.Trim('.').Length == 0) return source.Id.ToString();
+        if (reservedNames.Contains(name.Split('.')[0].TrimEnd(' '))) name = "_" + name;
+        return name;
+    }
+    static readonly HashSet<string> reservedNames = new(StringComparer.OrdinalIgnoreCase) {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    };
 }

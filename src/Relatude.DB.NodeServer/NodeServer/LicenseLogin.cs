@@ -89,7 +89,9 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
         bool SignInEnabled, bool HeartbeatDisabled, DateTime? LastContactUtc,
         LicenseInfo? License,
         /// <summary>A pairing this server is still waiting on, so a page that has just loaded takes it up rather than starting a second one.</summary>
-        PairingHandle? Pairing);
+        PairingHandle? Pairing,
+        /// <summary>The key Relatude Services knows this installation by, so it can be found there.</summary>
+        InstallationInfo Installation);
 
     /// <summary>
     /// What the license server says about one API key: <c>valid</c> with the license it belongs to -
@@ -147,20 +149,45 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     volatile KnownLicense? _known; // a reference, so a read never sees half of a write
     string baseUrl => (string.IsNullOrWhiteSpace(settings.ServicesServerUrl) ? Defaults.ServicesServerUrl : settings.ServicesServerUrl).TrimEnd('/');
     /// <summary>
-    /// What this installation calls itself towards the license server: the persisted server id and the
-    /// machine fingerprint, joined. The id alone travels with relatude.db.json, so a settings file copied
-    /// to five servers would look like one installation; the fingerprint alone is shared by every
-    /// installation on one machine and changes when the hardware does. Together they count what the
-    /// license server wants counted: a settings file running on N machines shows as N installations
-    /// with the same id, N sites on one machine as N installations with the same fingerprint.
+    /// The key Relatude Services knows this installation by, and what it is made of, for the Relatude
+    /// Services page: <c>server id:host id:data id</c>.
     /// </summary>
-    string installationKey => settings.Id.ToString() + ":" + fingerprint;
+    /// <param name="Key">What the heartbeat, the sign-in and a pairing send.</param>
+    /// <param name="ServerId">The Id in relatude.db.json.</param>
+    /// <param name="HostId">The fingerprint of the host, see <see cref="InstallationIdentity"/>.</param>
+    /// <param name="Host">What <paramref name="HostId"/> is calculated from: the Azure App Service app and slot, or this machine.</param>
+    /// <param name="DataId">The id kept with the default database, see <see cref="InstallationDataId"/>; null when it could not be kept.</param>
+    /// <param name="DataIdPlace">Where <paramref name="DataId"/> is kept.</param>
+    /// <param name="DataIdProblem">Why there is no <paramref name="DataId"/>.</param>
+    public sealed record InstallationInfo(string Key, Guid ServerId, string HostId, string Host, string? DataId, string DataIdPlace, string? DataIdProblem);
+
+    readonly InstallationDataId _dataId = new(server);
+
+    /// <summary>
+    /// What this installation calls itself towards the license server: the persisted server id, the
+    /// host fingerprint and the id kept with the default database, joined. The server id alone travels
+    /// with relatude.db.json, so a settings file published to five servers or apps would look like one
+    /// installation. The host fingerprint is shared by every application on one machine - on Azure App
+    /// Service it is the app and slot instead, which a move to another worker leaves alone - and the
+    /// data id tells apart the applications that share both, since each keeps its own data. Together
+    /// they count what the license server wants counted: one installation per application and host.
+    /// </summary>
+    public InstallationInfo DescribeInstallation() {
+        var data = _dataId.Get();
+        var host = fingerprint.ToLowerInvariant();
+        var key = settings.Id.ToString("D") + ":" + host + (data.Id == null ? "" : ":" + data.Id);
+        return new InstallationInfo(key, settings.Id, host, InstallationIdentity.Describe(), data.Id, data.Place, data.Problem);
+    }
+    string installationKey => DescribeInstallation().Key;
+    /// <summary>The settings were read again (a soft restart), and may name another default database to keep the data id with.</summary>
+    internal void ForgetInstallationDataId() => _dataId.Forget();
     /// <summary>
     /// InstallationIdentity.Get() is deterministic and cached after the first call, but that first call
     /// reads hardware identifiers and may spawn a process (up to three seconds on Windows), so
-    /// <see cref="StartHeartbeat"/> warms it up off the request path.
+    /// <see cref="StartHeartbeat"/> warms it up off the request path. On Azure App Service it is read
+    /// from the environment and costs nothing.
     /// </summary>
-    static string fingerprint => Relatude.DB.Common.InstallationIdentity.Get();
+    static string fingerprint => InstallationIdentity.Get();
 
     /// <summary>What the login page asks before it decides whether to show the button.</summary>
     public object DescribeOptions() => new { Available = SignInAvailable, ServerUrl = SignInAvailable ? baseUrl : null };
@@ -531,10 +558,11 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
         var savedLicenseKey = string.IsNullOrWhiteSpace(settings.LicenseKey) ? null : settings.LicenseKey.Trim();
         var hasApiKey = !string.IsNullOrWhiteSpace(settings.ApiKey);
         var apiKeyStart = startOf(settings.ApiKey);
+        var installation = DescribeInstallation();
         // an answer for the API key decides the license key, whatever the settings say
         LicenseStatus state(string name, string? reason, LicenseInfo? license = null) => new(
             name, reason, baseUrl, savedLicenseKey != null, hasApiKey, apiKeyStart, license?.Id.ToString("D") ?? savedLicenseKey,
-            settings.AllowLicenseeAdminLogin, settings.DisableHeartbeat, LastHeartbeatUtc, license, PendingPairing);
+            settings.AllowLicenseeAdminLogin, settings.DisableHeartbeat, LastHeartbeatUtc, license, PendingPairing, installation);
 
         if (!hasApiKey) return state("missing", savedLicenseKey == null ? "No API key is set." : "A license key is set, but no API key.");
         if (!tryGetApiKey(out var apiKey)) return state("malformed", "The API key is not a guid, so the license server has not been asked.");

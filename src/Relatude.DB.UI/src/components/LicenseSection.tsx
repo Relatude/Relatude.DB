@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   IconAlertTriangle,
   IconCircleCheck,
@@ -34,6 +34,7 @@ import {
   type AiCompletionResult,
   type AiEmbeddingResult,
   type SmsReceipt,
+  type InstallationInfo,
   type LicenseAccount,
   type LicenseStatus,
   type PairingHandle,
@@ -41,6 +42,7 @@ import {
 import { formatTime } from "../format";
 import { Loading } from "./Loading";
 import { FoldHead } from "./LogsSection";
+import { CopyText } from "./CopyText";
 
 /**
  * The Services module: the Relatude Services account this installation runs under - whether it has
@@ -430,6 +432,7 @@ function LicensePanel({ status, onReload }: { status: LicenseStatus; onReload: (
               }}
             />
           </Field>
+          {status.installation && <InstallationKey installation={status.installation} />}
         </div>
         <div className="license-keys-column">
           <Field
@@ -901,6 +904,45 @@ function Waiting({ pairing, saving, onStop }: { pairing: PairingHandle; saving: 
       <button className="action-button" onClick={onStop} disabled={saving}>
         Stop waiting
       </button>
+    </div>
+  );
+}
+
+/**
+ * The key Relatude Services knows this installation by, to look it up there: read only, with a copy
+ * button. Not a `Field`, whose `<label>` would pass any click on the key to the button in it. The parts
+ * break at their colons when the column is narrow, and the line under it says what each one is, so
+ * two installations that look alike in the portal can be told apart by the part they share.
+ */
+function InstallationKey({ installation }: { installation: InstallationInfo }) {
+  const parts = installation.key.split(":");
+  return (
+    <div className="license-field">
+      <span className="license-field-label">Installation key</span>
+      <div className="license-installation">
+        <code className="license-installation-key">
+          {parts.map((part, i) => (
+            <Fragment key={i}>
+              {i > 0 && (
+                <>
+                  :<wbr />
+                </>
+              )}
+              {part}
+            </Fragment>
+          ))}
+        </code>
+        <CopyText text={installation.key} title="Copy the installation key" small />
+      </div>
+      <span className="license-muted license-field-hint">
+        What Relatude Services knows this installation by: the server id from relatude.db.json, the host ({installation.host})
+        {installation.dataId ? ` and an id kept in ${installation.dataIdPlace}.` : "."}
+      </span>
+      {installation.dataIdProblem && (
+        <span className="license-field-hint license-installation-problem">
+          No id could be kept in {installation.dataIdPlace}, so the key goes without one: {installation.dataIdProblem}
+        </span>
+      )}
     </div>
   );
 }

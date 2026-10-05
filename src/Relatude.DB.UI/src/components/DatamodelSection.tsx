@@ -413,7 +413,8 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
       if (info) {
         // the draft may have changed what decides writability (the kind, or a compiled source's code
         // folder); the server's verdict only holds while the definition it judged is the one shown
-        const sameDefinition = info.type === s.Type && (info.sourceCodePath ?? "") === (s.SourceCodePath ?? "") && info.generateModelFile === !!s.GenerateModelFile;
+        const sameDefinition =
+          info.type === s.Type && (info.sourceCodePath ?? "") === (s.SourceCodePath ?? "") && info.generateModelFile === !!s.GenerateModelFile && (info.filepath ?? "") === (s.Filepath ?? "") && (info.fileIO ?? "") === (s.FileIO ?? "");
         if (sameDefinition) return { ...info, name: s.Name || info.name, enabled: s.Enabled, color: s.Color ?? null };
         const writable = s.Type !== "Code" && (!compiled || !!s.SourceCodePath);
         return {
@@ -422,6 +423,8 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
           enabled: s.Enabled,
           color: s.Color ?? null,
           type: s.Type,
+          filepath: s.Filepath ?? null,
+          fileIO: s.FileIO ?? null,
           sourceCodePath: s.SourceCodePath ?? null,
           generateModelFile: !!s.GenerateModelFile,
           writable,
@@ -781,7 +784,8 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     if (!model) return;
     const id = newGuid();
     update((m) => {
-      m.Sources.push({ Id: id, Name: uniqueName("New source", (n) => m.Sources.some((s) => (s.Name ?? "") === n)), Type: "RuntimeTypes", Filepath: "Models/Json", Enabled: true });
+      // no Filepath: the source gets a folder of its own, named after it (defaultSourcePath)
+      m.Sources.push({ Id: id, Name: uniqueName("New source", (n) => m.Sources.some((s) => (s.Name ?? "") === n)), Type: "RuntimeTypes", Enabled: true });
     });
     setSelection({ kind: "source", id });
     setView("sources");

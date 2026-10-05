@@ -189,6 +189,8 @@ sealed class UILicense(RelatudeDBServer server) {
             status.LastContactUtc,
             status.License,
             status.Pairing,
+            // what Relatude Services knows this installation by, so it can be found there
+            status.Installation,
             // where the AI test panel sends its calls, when a database here names an address of its own
             AiServiceUrl = configuredAiServiceUrl(),
             // which of the fields the page offers are decided by configuration, and so cannot be

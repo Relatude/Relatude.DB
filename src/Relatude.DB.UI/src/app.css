@@ -11483,6 +11483,31 @@ body.pg-resizing {
   color: var(--text);
 }
 
+/* the key Relatude Services knows this installation by: read only, beside its copy button, its
+   parts breaking at their colons when the column is narrow */
+.license-installation {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.license-installation-key {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: var(--badge-bg);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.license-installation-problem {
+  color: var(--danger);
+}
+
 .license-keys-footer {
   display: flex;
   align-items: center;

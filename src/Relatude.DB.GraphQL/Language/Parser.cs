@@ -189,7 +189,7 @@ public sealed class Parser {
         while (!skip(TokenKind.ParenR)) {
             var start = _tok.Start;
             var name = expectName();
-            expect(TokenKind.Colon, "\":\"");
+            expect(TokenKind.Colon, $"\":\" after \"{name}\"");
             list.Add(new Argument { Position = start, Name = name, Value = parseValue(constant) });
         }
         return list;
@@ -230,8 +230,10 @@ public sealed class Parser {
                     while (!skip(TokenKind.BraceR)) {
                         if (peek(TokenKind.EndOfFile)) throw error("expected \"}\" but found end of document");
                         var fieldStart = _tok.Start;
+                        // "{ { eq: 1 } }" is a common slip: say what an input object holds
+                        if (!peek(TokenKind.Name)) throw error($"expected an input field name but found {describe(_tok)}: each value inside {{ }} needs a name in front, as in {{ eq: \"...\" }}");
                         var name = expectName();
-                        expect(TokenKind.Colon, "\":\"");
+                        expect(TokenKind.Colon, $"\":\" after \"{name}\"");
                         obj.Fields.Add(new ObjectField { Position = fieldStart, Name = name, Value = parseValue(constant) });
                     }
                     return obj;

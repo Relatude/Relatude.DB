@@ -72,7 +72,7 @@ internal static class QueryExecutor {
                     throw;
                 } catch (GraphQLFieldException fe) {
                     data[cf.Key] = null;
-                    ctx.AddError(fe.Message, cf.First, path);
+                    ctx.AddError(fe.Message, fe.Node ?? cf.First, path);
                 } catch (Exception ex) {
                     data[cf.Key] = null;
                     ctx.AddError(ex.Message, cf.First, path);

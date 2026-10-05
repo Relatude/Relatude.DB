@@ -159,6 +159,33 @@ public static class DatamodelSourceWriter {
     public static string Fingerprint(RelationModel relation) => DatamodelJson.CanonicalJson(relation, DatamodelJson.CompareOptions);
     static string definition(DatamodelSource source) => JsonSerializer.Serialize(source, DatamodelJson.Options);
 
+    /// <summary>
+    /// What the runtime types sources that name no path of their own read from
+    /// (<see cref="DatamodelSourceLoader.DefaultPath"/>), by source id: the "before" that
+    /// <see cref="KeepDefaultPaths"/> compares with.
+    /// </summary>
+    public static Dictionary<Guid, string> DefaultPaths(IEnumerable<DatamodelSource>? sources) {
+        var paths = new Dictionary<Guid, string>();
+        foreach (var s in sources ?? []) if (readsDefaultPath(s)) paths[s.Id] = DatamodelSourceLoader.DefaultPath(s);
+        return paths;
+    }
+    /// <summary>
+    /// A runtime types source without a Filepath reads from a folder named after it, so renaming it would
+    /// leave its files in the old folder and load it empty. Every such source whose default path is no
+    /// longer the one in <paramref name="before"/> gets that path as its Filepath, and goes on reading its
+    /// files where they are. Returns the sources given a Filepath.
+    /// </summary>
+    public static List<DatamodelSource> KeepDefaultPaths(Dictionary<Guid, string> before, IEnumerable<DatamodelSource>? sources) {
+        var kept = new List<DatamodelSource>();
+        foreach (var s in sources ?? []) {
+            if (!readsDefaultPath(s) || !before.TryGetValue(s.Id, out var path) || path == DatamodelSourceLoader.DefaultPath(s)) continue;
+            s.Filepath = path;
+            kept.Add(s);
+        }
+        return kept;
+    }
+    static bool readsDefaultPath(DatamodelSource s) => s.Type == DatamodelSourceType.RuntimeTypes && s.FileIO == null && string.IsNullOrEmpty(s.Filepath);
+
     /// <summary>Whether the source's code folder is generated as a whole by the editor rather than edited in place.</summary>
     public static bool IsGeneratedFolder(DatamodelSource source) => source.Type == DatamodelSourceType.CompiledTypes && source.GenerateModelFile;
 
@@ -260,7 +287,7 @@ public static class DatamodelSourceWriter {
             baseFolder = DatamodelSourceLoader.ResolveSourceCodeFolder(source, rootFolder)!;
             fileByFullName = ModelSourceFiles.MapTypesToFiles(baseFolder);
         } else {
-            var target = DatamodelSourceLoader.ResolveFilePath(source, rootFolder, DatamodelSourceLoader.DefaultJsonFolder);
+            var target = DatamodelSourceLoader.ResolveFilePath(source, rootFolder);
             if (File.Exists(target) || (!Directory.Exists(target) && target.EndsWith(ext, StringComparison.OrdinalIgnoreCase))) {
                 singleFile = Path.GetFileName(target);
                 baseFolder = Path.GetDirectoryName(target)!;

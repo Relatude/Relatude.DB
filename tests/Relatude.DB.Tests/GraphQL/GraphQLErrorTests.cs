@@ -80,6 +80,65 @@ public class GraphQLErrorTests {
     }
 
     [TestMethod]
+    public void UnknownInputField_SaysWhatIsValid_AndPointsAtIt() {
+        var (store, gql, _) = Open();
+        try {
+            var result = gql.Execute("""
+                {
+                  articles(filter: {
+                    author: { username: { eq: "bob" } }
+                  }) { totalCount }
+                }
+                """);
+            Assert.IsNull(result.Data!["articles"]);
+            var error = result.Errors![0];
+            StringAssert.Contains(error.Message, "Unknown field \"username\" on input type \"RelatedNodeFilterInput\".");
+            StringAssert.Contains(error.Message, "Valid fields: eq, in, id.");
+            StringAssert.Contains(error.Message, "takes the id of the related node", "the type's usage hint follows");
+            Assert.AreEqual(3, error.Locations![0].Line, "the error points at the unknown field, not the root field");
+            Assert.AreEqual(15, error.Locations[0].Column);
+            CollectionAssert.AreEqual(new object[] { "articles" }, error.Path);
+        } finally { store.Dispose(); }
+    }
+
+    [TestMethod]
+    public void UnknownInputField_SuggestsACloseName() {
+        var (store, gql, _) = Open();
+        try {
+            var typo = gql.Execute("{ articles(filter: { integerNun: { eq: 1 } }) { totalCount } }");
+            StringAssert.Contains(typo.Errors![0].Message, "Did you mean \"integerNum\"?");
+            var casing = gql.Execute("{ articles(filter: { integerNum: { EQ: 1 } }) { totalCount } }");
+            StringAssert.Contains(casing.Errors![0].Message, "Did you mean \"eq\"?");
+            var far = gql.Execute("{ articles(filter: { integerNum: { between: 1 } }) { totalCount } }");
+            Assert.IsFalse(far.Errors![0].Message.Contains("Did you mean"), far.Errors[0].Message);
+        } finally { store.Dispose(); }
+    }
+
+    [TestMethod]
+    public void UnknownInputField_InAVariable_GetsTheSameHint() {
+        var (store, gql, _) = Open();
+        try {
+            var result = gql.Execute(new GraphQLRequest {
+                Query = "query Q($f: ArticleFilterInput) { articles(filter: $f) { totalCount } }",
+                Variables = JsonSerializer.SerializeToElement(new { f = new { author = new { name = new { eq = "bob" } } } }),
+            });
+            Assert.IsNull(result.Data);
+            StringAssert.Contains(result.Errors![0].Message, "$f");
+            StringAssert.Contains(result.Errors[0].Message, "Valid fields: eq, in, id.");
+        } finally { store.Dispose(); }
+    }
+
+    [TestMethod]
+    public void BadScalarInAFilter_PointsAtTheValue() {
+        var (store, gql, _) = Open();
+        try {
+            var result = gql.Execute("{ articles(filter: { integerNum: { eq: \"x\" } }) { totalCount } }");
+            Assert.AreEqual(1, result.Errors![0].Locations![0].Line);
+            Assert.AreEqual(40, result.Errors[0].Locations![0].Column, result.Errors[0].Message);
+        } finally { store.Dispose(); }
+    }
+
+    [TestMethod]
     public void VariableTypeMismatch_IsARequestError() {
         var (store, gql, _) = Open();
         try {

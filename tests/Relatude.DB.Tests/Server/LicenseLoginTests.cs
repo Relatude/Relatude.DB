@@ -383,6 +383,7 @@ public class LicenseLoginTests {
             Assert.IsTrue(_stub.AddressQuestions.TryDequeue(out var asked));
             Assert.AreEqual(_apiKey, asked.GetProperty("apiKey").GetGuid());
             Assert.AreEqual(posted.GetProperty("installationKey").GetString(), asked.GetProperty("installationKey").GetString(), "asked about this installation");
+            Assert.AreEqual(host.Server.LicenseLogin.DescribeInstallation().Key, posted.GetProperty("installationKey").GetString(), "the key the Services page shows is the one sent");
 
             Assert.IsNotNull((await host.Server.LicenseLogin.BeginAsync(request("internal:8080"), new("https://portal.example.com:8443/relatude.db/"))).LoginUrl);
             Assert.IsTrue(_stub.AddressQuestions.IsEmpty, "an approved address is not asked about again straight away");

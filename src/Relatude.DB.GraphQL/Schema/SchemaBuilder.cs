@@ -29,7 +29,8 @@ internal sealed class SchemaBuilder {
     readonly bool _exact;
     readonly List<string> _warnings = [];
     readonly NameRegistry _typeNames = new("Int", "Float", "String", "Boolean", "ID", "DateTime", "Long", "Decimal",
-        "Query", "Mutation", "Node", "FileInfo", "ImageFormat", "ImageCropMode", "GeoCoordinate", "GeoCoordinateInput", "RelatedNodeFilterInput");
+        "Query", "Mutation", "Node", "FileInfo", "ImageFormat", "ImageCropMode", "GeoCoordinate", "GeoCoordinateInput", "RelatedNodeFilterInput",
+        "RelatedNodeIdFilterInput");
     readonly List<GqlNamedType> _allTypes = [];
     readonly Dictionary<Guid, ExposedType> _exposedById = [];
     readonly Dictionary<Guid, GqlObjectType> _objectTypes = [];
@@ -732,14 +733,23 @@ internal sealed class SchemaBuilder {
         return input;
     }
 
+    const string _relatedNodeUsage = "A relation or reference filter takes the id of the related node: { eq: \"<id>\" }, { in: [\"<id>\", ...] } "
+        + "or { id: { eq: \"<id>\" } }. To filter on other fields of the related node, find its ids with a query on that type first.";
+
     GqlInputObjectType relatedNodeFilterInput() {
         const string name = "RelatedNodeFilterInput";
         if (_sharedInputs.TryGetValue(name, out var existing)) return existing;
-        var input = new GqlInputObjectType { Name = name, Description = "Filters on the id of the related node." };
+        var input = new GqlInputObjectType { Name = name, Description = "Filters on the id of the related node.", UsageHint = _relatedNodeUsage };
         input.InputFields.Add(new GqlInputField { Name = "eq", Type = _scalars.Id, Op = FilterOp.RelEq });
         input.InputFields.Add(new GqlInputField { Name = "in", Type = listOf(nn(_scalars.Id)), Op = FilterOp.RelIn });
+        // the shape many GraphQL APIs use, { id: { eq } }, means the same as { eq }
+        var idInput = new GqlInputObjectType { Name = "RelatedNodeIdFilterInput", Description = "The id of the related node.", UsageHint = _relatedNodeUsage };
+        idInput.InputFields.Add(new GqlInputField { Name = "eq", Type = _scalars.Id, Op = FilterOp.RelEq });
+        idInput.InputFields.Add(new GqlInputField { Name = "in", Type = listOf(nn(_scalars.Id)), Op = FilterOp.RelIn });
+        input.InputFields.Add(new GqlInputField { Name = "id", Type = idInput, Op = FilterOp.RelId, Description = "The same as eq and in on this input." });
         _sharedInputs.Add(name, input);
         _allTypes.Add(input);
+        _allTypes.Add(idInput);
         return input;
     }
 

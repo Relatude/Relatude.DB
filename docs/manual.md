@@ -2320,7 +2320,7 @@ deployments of the same binary:
     "Type": "CompiledTypes",           // see the table below
     "Namespace": "VenueApp.Models",    // one namespace, or a pattern: "VenueApp.Models.*" takes it and everything under it
     "Reference": "VenueApp",           // assembly name; null means the current project (the entry assembly)
-    "Filepath": null,                  // model file or folder, for RuntimeTypes
+    "Filepath": null,                  // RuntimeTypes: model file or folder; null = relatude.db/modelsources/{Name}
     "FileIO": null,                    // legacy: read a model file through an IO provider instead
     "SourceCodePath": null,            // CompiledTypes: the folder with the C# files, for the model editor
     "GenerateModelFile": false,        // CompiledTypes: the model editor owns that folder and regenerates it
@@ -2333,7 +2333,7 @@ deployments of the same binary:
 | `Type` | What it does |
 |---|---|
 | `CompiledTypes` | loads the assembly named by `Reference` (or the entry assembly — the current project — when it is null or empty) and adds every type whose namespace matches `Namespace`. `Namespace` is required: one namespace, or a pattern in which `*` stands for any run of characters — `VenueApp.Models.*` takes `VenueApp.Models` and every namespace under it, `VenueApp.*.Models` takes `VenueApp.Web.Models` and `VenueApp.Api.Models`. Called `AssemblyNameReference`, and then `TypeReference`, before September 2026; both old names still read, and a settings file carrying one is rewritten to `CompiledTypes` when it is loaded. The single-type `TypeNameReference` kind was removed at the same time: name the type's namespace instead. |
-| `RuntimeTypes` | reads model files from disk when the database opens: serialised `Datamodel` JSON, in the form the model editor writes, so the model can change without rebuilding the application. `Filepath` may name a file or a folder (searched recursively); the default folder is `Models/Json`. Each node type still needs a backing CLR class of the same full name at runtime for the mapper to compile against. Called `JsonFile`, and then `TextFiles`, before September 2026 — and a `TextFiles` source could also hold `.cs` files compiled while the database opened, chosen by a `FileFormat` key. That kind is gone: **a source of any of the old file kinds is dropped from the settings file when it is loaded**, along with the `FileFormat` key, so a model kept in files is added again as a `RuntimeTypes` source (from the model editor, or by hand). |
+| `RuntimeTypes` | reads model files from disk when the database opens: serialised `Datamodel` JSON, in the form the model editor writes, so the model can change without rebuilding the application. `Filepath` may name a file or a folder (searched recursively). Left empty, the source gets a folder of its own named after it, `relatude.db/modelsources/{Name}`, beside the default database's files (characters no file system takes become `_`); renaming such a source in the admin UI writes that folder into `Filepath`, so its files are not left behind. Until October 2026 the default was `Models/Json`, for every source alike. Each node type still needs a backing CLR class of the same full name at runtime for the mapper to compile against. Called `JsonFile`, and then `TextFiles`, before September 2026 — and a `TextFiles` source could also hold `.cs` files compiled while the database opened, chosen by a `FileFormat` key. That kind is gone: **a source of any of the old file kinds is dropped from the settings file when it is loaded**, along with the `FileFormat` key, so a model kept in files is added again as a `RuntimeTypes` source (from the model editor, or by hand). |
 | `Code` | **reserved.** It is the id stamped on types added from `OnDatamodelInit`, and configuring it as a source throws. |
 
 Relative `Filepath` values resolve against the root data folder. Every source must carry a unique
@@ -5246,8 +5246,11 @@ query Upcoming($from: DateTime!) {
 
 The filter is an object with one entry per field, each holding operators. Several operators on one
 field must all match, so `{ price: { gte: 100, lt: 300 } }` is a range. Write enum values by name.
-Relations and references are filtered by the related node's id, with `eq` or `in`. On the "many"
-side, the condition means that one of the related nodes has that id:
+Relations and references are filtered by the related node's id, with `eq` or `in`.
+`{ venue: { id: { eq: "0b6e…" } } }` means the same as `{ venue: { eq: "0b6e…" } }`, for clients used
+to that form. Only the id can be filtered on: to filter on the venue's name, find the venue ids with
+a `venues` query first. On the "many" side, the condition means that one of the related nodes has
+that id:
 
 ```graphql
 {
@@ -5325,7 +5328,13 @@ For example:
 ```
 
 A root field that fails while running, such as a malformed id or a rejected mutation, becomes `null`
-with an error that carries its `path`, and the other root fields of the request still answer.
+with an error that carries its `path`, and the other root fields of the request still answer. When
+an argument value is wrong, the error's location points at that part of the value, and an unknown
+field in an input object is answered with the fields that are valid there:
+
+```json
+{ "message": "Unknown field \"name\" on input type \"RelatedNodeFilterInput\". Valid fields: eq, in, id. A relation or reference filter takes the id of the related node: …" }
+```
 
 ### 33.5 Views
 

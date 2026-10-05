@@ -28,7 +28,7 @@ internal static class Projector {
                 result[cf.Key] = projectField(ctx, node, typeModel, field, cf, fieldPath);
             } catch (GraphQLFieldException fe) {
                 result[cf.Key] = null;
-                ctx.AddError(fe.Message, cf.First, fieldPath);
+                ctx.AddError(fe.Message, fe.Node ?? cf.First, fieldPath);
             } catch (Exception ex) {
                 result[cf.Key] = null;
                 ctx.AddError("Field resolution failed: " + ex.Message, cf.First, fieldPath);
@@ -128,7 +128,7 @@ internal static class Projector {
                     result[c.Key] = fileUrl(ctx, node, field.Property!, file, fd, c.First);
                 } catch (GraphQLFieldException fe) {
                     result[c.Key] = null;
-                    ctx.AddError(fe.Message, c.First, [.. path, c.Key]);
+                    ctx.AddError(fe.Message, fe.Node ?? c.First, [.. path, c.Key]);
                 } catch (Exception ex) {
                     result[c.Key] = null;
                     ctx.AddError("The url of the file could not be made: " + ex.Message, c.First, [.. path, c.Key]);

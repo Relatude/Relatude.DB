@@ -148,7 +148,7 @@ sealed class UIDatamodel {
                 } else if (s.IsJsonFiles && s.FileIO != null) {
                     resolved = "provider " + s.FileIO + " / " + s.Reference;
                 } else if (s.Type == DatamodelSourceType.RuntimeTypes) {
-                    resolved = DatamodelSourceLoader.ResolveFilePath(s, root, DatamodelSourceLoader.DefaultJsonFolder);
+                    resolved = DatamodelSourceLoader.ResolveFilePath(s, root);
                     exists = File.Exists(resolved) || Directory.Exists(resolved);
                 }
             } catch { }

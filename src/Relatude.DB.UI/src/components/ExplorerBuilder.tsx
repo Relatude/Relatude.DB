@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { IconBook2, IconChevronDown, IconChevronRight, IconVariable, IconVariableOff, IconX } from "@tabler/icons-react";
+import { IconBook2, IconChevronRight, IconVariable, IconVariableOff, IconX } from "@tabler/icons-react";
 import { argumentValue, selectionAt, updateValue, valueAt, type BuildPath, type ValuePath } from "../graphql/build";
 import { printValue, type OperationNode, type OperationType, type ValueNode } from "../graphql/language";
 import { isList, isNonNull, isRequired, listItem, namedType, stripNonNull, type ArgInfo, type FieldInfo, type Schema } from "../graphql/schema";
 
 // The Build panel: what the endpoint offers as a tree to tick. A ticked field shows its arguments, each
 // with an input that fits its type, and the fields of what it returns. Every change is made to the query
-// text (see graphql/build.ts), so the tree and the editor never disagree.
+// text (see graphql/build.ts), so the tree and the editor never disagree. A branch can also be opened
+// with its chevron just to look inside, without selecting anything.
 
 export interface BuilderActions {
   toggle(kind: OperationType, path: BuildPath, on: boolean): void;
@@ -25,7 +26,15 @@ interface Ctx {
   variables: Record<string, unknown>;
   editable: boolean;
   actions: BuilderActions;
+  /** whether a branch is open: what its chevron was last set to, else open while it is selected */
+  isOpen(path: BuildPath, included: boolean): boolean;
+  /** opens or closes a branch; null lets it follow its selection again */
+  setOpen(path: BuildPath, open: boolean | null): void;
 }
+
+// branch indent per level, and the caret's box: big enough to hit without aiming
+const indent = 16;
+const caretSize = 20;
 
 export function ExplorerBuilder({
   schema,
@@ -48,9 +57,24 @@ export function ExplorerBuilder({
   onReset: () => void;
 }) {
   const [filter, setFilter] = useState("");
+  // branches opened or closed by their chevron, by operation kind and path; one left out follows its selection
+  const [opened, setOpened] = useState<Record<string, boolean>>({});
   const editable = !error;
-  const query = { schema, kind: "query" as const, op: queryOp, samples, variables, editable, actions };
-  const mutation = { schema, kind: "mutation" as const, op: mutationOp, samples, variables, editable, actions };
+  const branches = (kind: OperationType) => {
+    const key = (path: BuildPath) => kind + " " + path.join(".");
+    return {
+      isOpen: (path: BuildPath, included: boolean) => opened[key(path)] ?? included,
+      setOpen: (path: BuildPath, open: boolean | null) =>
+        setOpened((o) => {
+          const next = { ...o };
+          if (open === null) delete next[key(path)];
+          else next[key(path)] = open;
+          return next;
+        }),
+    };
+  };
+  const query: Ctx = { schema, kind: "query", op: queryOp, samples, variables, editable, actions, ...branches("query") };
+  const mutation: Ctx = { schema, kind: "mutation", op: mutationOp, samples, variables, editable, actions, ...branches("mutation") };
   const match = (f: FieldInfo) => !filter || f.name.toLowerCase().includes(filter.toLowerCase()) || namedType(f.type).toLowerCase().includes(filter.toLowerCase());
   const roots = schema.fields(schema.queryType).filter((f) => !f.name.startsWith("__"));
   const mutations = schema.mutationType ? schema.fields(schema.mutationType) : [];
@@ -110,18 +134,42 @@ function kindBadge(f: FieldInfo): string | null {
   }
 }
 
+/** The chevron that opens a branch to look inside it, selected or not. */
+function Caret({ open, label, onToggle }: { open: boolean; label: string; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className={"gx-caret" + (open ? " open" : "")}
+      onClick={onToggle}
+      aria-expanded={open}
+      aria-label={(open ? "Close " : "Open ") + label}
+      title={open ? "Close" : "Open to see what is inside"}
+    >
+      <IconChevronRight size={16} stroke={2.2} />
+    </button>
+  );
+}
+
+/** Ticks or unticks a row; ticking opens it, whatever its chevron was last left at. */
+function select(ctx: Ctx, path: BuildPath, included: boolean) {
+  if (!ctx.editable) return;
+  if (!included) ctx.setOpen(path, null);
+  ctx.actions.toggle(ctx.kind, path, !included);
+}
+
 function FieldRow({ ctx, path, field, depth }: { ctx: Ctx; path: BuildPath; field: FieldInfo; depth: number }) {
   const sel = selectionAt(ctx.op, path);
   const included = !!sel;
   const named = namedType(field.type);
   const composite = ctx.schema.isComposite(named);
+  const open = composite && ctx.isOpen(path, included);
   const badge = kindBadge(field);
-  const toggle = () => ctx.editable && ctx.actions.toggle(ctx.kind, path, !included);
+  const toggle = () => select(ctx, path, included);
   return (
     <>
-      <div className={"gx-row" + (included ? " on" : "")} style={{ paddingLeft: 4 + depth * 14 }} title={field.description ?? undefined}>
+      <div className={"gx-row" + (included ? " on" : "")} style={{ paddingLeft: 4 + depth * indent }} title={field.description ?? undefined}>
+        {composite ? <Caret open={open} label={field.name} onToggle={() => ctx.setOpen(path, !open)} /> : <span className="gx-caret-space" />}
         <input type="checkbox" checked={included} disabled={!ctx.editable} onChange={toggle} aria-label={"Select " + field.name} />
-        <span className="gx-caret">{composite ? included ? <IconChevronDown size={12} stroke={2} /> : <IconChevronRight size={12} stroke={2} /> : null}</span>
         <button className="gx-name" onClick={toggle} disabled={!ctx.editable}>
           {field.name}
           {field.args.length > 0 && (
@@ -142,14 +190,14 @@ function FieldRow({ ctx, path, field, depth }: { ctx: Ctx; path: BuildPath; fiel
           {field.type}
         </button>
       </div>
-      {included && field.args.length > 0 && (
-        <div className="gx-args" style={{ marginLeft: 22 + depth * 14 }}>
+      {included && (open || !composite) && field.args.length > 0 && (
+        <div className="gx-args" style={{ marginLeft: 4 + caretSize + 3 + depth * indent }}>
           {field.args.map((a) => (
             <ArgRow key={a.name} ctx={ctx} path={path} field={field} arg={a} value={argumentValue(sel, a.name)} />
           ))}
         </div>
       )}
-      {included && composite && <Children ctx={ctx} path={path} typeName={named} depth={depth + 1} />}
+      {open && <Children ctx={ctx} path={path} typeName={named} depth={depth + 1} />}
     </>
   );
 }
@@ -182,13 +230,14 @@ function Children({ ctx, path, typeName, depth }: { ctx: Ctx; path: BuildPath; t
 
 function FragmentRow({ ctx, path, typeName, parentType, depth }: { ctx: Ctx; path: BuildPath; typeName: string; parentType: string; depth: number }) {
   const included = !!selectionAt(ctx.op, path);
+  const open = ctx.isOpen(path, included);
   const own = ctx.schema.fields(typeName).filter((f) => !ctx.schema.field(parentType, f.name));
-  const toggle = () => ctx.editable && ctx.actions.toggle(ctx.kind, path, !included);
+  const toggle = () => select(ctx, path, included);
   return (
     <>
-      <div className={"gx-row gx-fragment" + (included ? " on" : "")} style={{ paddingLeft: 4 + depth * 14 }} title={`Fields only a ${typeName} has`}>
+      <div className={"gx-row gx-fragment" + (included ? " on" : "")} style={{ paddingLeft: 4 + depth * indent }} title={`Fields only a ${typeName} has`}>
+        <Caret open={open} label={"the fields of " + typeName} onToggle={() => ctx.setOpen(path, !open)} />
         <input type="checkbox" checked={included} disabled={!ctx.editable} onChange={toggle} aria-label={"Select fields of " + typeName} />
-        <span className="gx-caret">{included ? <IconChevronDown size={12} stroke={2} /> : <IconChevronRight size={12} stroke={2} />}</span>
         <button className="gx-name" onClick={toggle} disabled={!ctx.editable}>
           … on {typeName}
         </button>
@@ -197,9 +246,9 @@ function FragmentRow({ ctx, path, typeName, parentType, depth }: { ctx: Ctx; pat
           <IconBook2 size={12} stroke={1.8} />
         </button>
       </div>
-      {included && own.map((f) => <FieldRow key={f.name} ctx={ctx} path={[...path, f.name]} field={f} depth={depth + 1} />)}
-      {included && own.length === 0 && (
-        <div className="gx-row muted" style={{ paddingLeft: 4 + (depth + 1) * 14 }}>
+      {open && own.map((f) => <FieldRow key={f.name} ctx={ctx} path={[...path, f.name]} field={f} depth={depth + 1} />)}
+      {open && own.length === 0 && (
+        <div className="gx-row muted" style={{ paddingLeft: 4 + caretSize + 3 + (depth + 1) * indent }}>
           {typeName} has no fields of its own.
         </div>
       )}

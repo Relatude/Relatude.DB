@@ -205,14 +205,15 @@ namespace Relatude.GraphQL {
             gen.Add<RuntimeGen.IGqlRtThing>();
             gen.Add<RuntimeGen.GqlRtFolder>();
             var json = DatamodelJson.Serialize(gen).Replace("Relatude.GraphQL.RuntimeGen", Namespace);
-            var folder = Path.Combine(_root, DatamodelSourceLoader.DefaultJsonFolder);
+            var source = new DatamodelSource {
+                Id = new Guid("22222222-0000-0000-0000-000000000001"), Name = "Json", Type = DatamodelSourceType.RuntimeTypes,
+            };
+            var folder = Path.Combine(_root, DatamodelSourceLoader.DefaultPath(source));
             Directory.CreateDirectory(folder);
             File.WriteAllText(Path.Combine(folder, "model.json"), json);
 
             var dm = new Datamodel();
-            DatamodelSourceLoader.Load(dm, new DatamodelSource {
-                Id = new Guid("22222222-0000-0000-0000-000000000001"), Name = "Json", Type = DatamodelSourceType.RuntimeTypes,
-            }, _root);
+            DatamodelSourceLoader.Load(dm, source, _root);
             Assert.IsFalse(AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetType(Namespace + ".IGqlRtTopic", false) != null),
                 "the test needs types no loaded assembly declares");
             var dataFolder = Path.Combine(_root, "data");

@@ -117,6 +117,9 @@ public class GraphQLParserTests {
     [DataRow("{ a(x: $v) } fragment on on Article { id }", "may not be named")]
     [DataRow("{ a @ }", "expected a name")]
     [DataRow("{ ~ }", "unexpected character")]
+    [DataRow("{ a(f: { { eq: 1 } }) }", "each value inside { } needs a name")]
+    [DataRow("{ a(f: { b { eq: 1 } }) }", "expected \":\" after \"b\"")]
+    [DataRow("{ a(f { eq: 1 }) }", "expected \":\" after \"f\"")]
     public void Syntax_Errors_Are_Reported_With_Position(string text, string expected) {
         var ex = Assert.ThrowsExactly<GraphQLSyntaxException>(() => Parser.Parse(text));
         StringAssert.Contains(ex.Message.ToLowerInvariant(), expected);

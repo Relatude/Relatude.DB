@@ -70,6 +70,26 @@ export interface LicenseInfo {
   active: boolean;
 }
 
+/**
+ * The key Relatude Services knows this installation by - the heartbeat, the sign-in and a pairing all
+ * send it - and what it is made of: "server id:host id:data id".
+ */
+export interface InstallationInfo {
+  key: string;
+  /** the Id in relatude.db.json, which travels with the file */
+  serverId: string;
+  /** the fingerprint of the host */
+  hostId: string;
+  /** what the host id is calculated from: the Azure App Service app and slot, or "this machine" */
+  host: string;
+  /** the random id kept with the default database, which tells apart applications that share the other two; null when it could not be kept */
+  dataId: string | null;
+  /** where the data id is kept */
+  dataIdPlace: string;
+  /** why there is no data id */
+  dataIdProblem: string | null;
+}
+
 export interface LicenseStatus {
   state: LicenseState;
   /** why, for every state but "valid" */
@@ -98,6 +118,8 @@ export interface LicenseStatus {
    * left off instead of starting a second one.
    */
   pairing: PairingHandle | null;
+  /** What Relatude Services knows this installation by, so it can be found there. Missing from an older server. */
+  installation?: InstallationInfo | null;
   /**
    * The Relatude AI service address a database here is set up to use, which the AI test starts
    * from; null when none names one, and the hosted service is meant.

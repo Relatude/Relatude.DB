@@ -61,6 +61,18 @@ public class GraphQLReferenceTests {
     }
 
     [TestMethod]
+    public void ReferenceFilter_IdAlias() {
+        var (store, gql, brand, _) = open();
+        try {
+            var data = RequireData(gql.Execute($$"""
+                { plainRefProducts(filter: { brand: { id: { eq: "{{brand.Id}}" } } }) { totalCount items { name } } }
+                """));
+            Assert.AreEqual(1, Get(data, "plainRefProducts", "totalCount"));
+            Assert.AreEqual("P1", Get(data, "plainRefProducts", "items", 0, "name"));
+        } finally { store.Dispose(); }
+    }
+
+    [TestMethod]
     public void ManyReference_TopArgument_CapsResults() {
         var (store, gql, _, _) = open();
         try {

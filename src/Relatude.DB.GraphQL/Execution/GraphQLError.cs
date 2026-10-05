@@ -1,3 +1,5 @@
+using Relatude.DB.GraphQL.Language;
+
 namespace Relatude.DB.GraphQL;
 
 public sealed class ErrorLocation {
@@ -18,6 +20,10 @@ internal sealed class GraphQLRequestException(GraphQLError error) : Exception(er
     public GraphQLError Error { get; } = error;
 }
 
-/// <summary>Thrown while resolving a single field: the field becomes null and an error is recorded.</summary>
-internal sealed class GraphQLFieldException(string message) : Exception(message) {
+/// <summary>
+/// Thrown while resolving a single field: the field becomes null and an error is recorded.
+/// <see cref="Node"/>, when set, is the part of the document the error points at instead of the field, such as a bad argument value.
+/// </summary>
+internal sealed class GraphQLFieldException(string message, AstNode? node = null) : Exception(message) {
+    public AstNode? Node { get; } = node;
 }

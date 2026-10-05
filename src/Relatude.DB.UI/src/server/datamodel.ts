@@ -491,6 +491,27 @@ export function namespaceBase(pattern: string | null | undefined): string | null
   return head.length === 0 ? null : head;
 }
 
+/** Where runtime types sources that name no path keep their model files, one folder each, relative to the settings folder. Mirrors DatamodelSourceLoader.DefaultRuntimeTypesFolder. */
+export const runtimeTypesFolder = "relatude.db/modelsources";
+const reservedFolderNames = new Set(["CON", "PRN", "AUX", "NUL", ...[1, 2, 3, 4, 5, 6, 7, 8, 9].flatMap((n) => ["COM" + n, "LPT" + n])]);
+/** What a runtime types source with no Filepath reads, relative to the settings folder: a folder named after it. Mirrors DatamodelSourceLoader.DefaultPath and FolderNameOf. */
+export function defaultSourcePath(s: { Id: string; Name?: string | null; Reference?: string | null }): string {
+  let name = Array.from((s.Name ?? "").trim(), (c) => (c < " " || '<>:"/\\|?*'.includes(c) ? "_" : c))
+    .join("")
+    .replace(/[. ]+$/, "");
+  if (name.replace(/^\.+|\.+$/g, "").length === 0) name = s.Id;
+  else if (reservedFolderNames.has(name.split(".")[0].trimEnd().toUpperCase())) name = "_" + name;
+  const folder = runtimeTypesFolder + "/" + name;
+  return s.Reference ? folder + "/" + s.Reference : folder;
+}
+/** The path a source reads from as far as the page knows: the server's resolution, else what the source names, else a runtime source's default folder. */
+export function sourcePath(s: SourceJson, info: SourceInfo | undefined): string | null {
+  if (info?.resolvedPath) return info.resolvedPath;
+  if (s.Type === "CompiledTypes") return s.SourceCodePath ?? null;
+  if (s.Type === "RuntimeTypes" && !s.FileIO) return s.Filepath || defaultSourcePath(s);
+  return s.Filepath ?? null;
+}
+
 /**
  * One part of the model as code, for the "As code" tab: the whole model, one source, one node type,
  * one property (which also needs the type it sits on) or one relation. The model travels with the

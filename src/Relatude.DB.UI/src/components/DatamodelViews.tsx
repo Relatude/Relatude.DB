@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { IconAdjustments, IconArrowBackUp, IconChevronDown, IconChevronRight, IconChevronUp, IconEye, IconEyeOff, IconList, IconListDetails, IconLock, IconPlus, IconRefreshAlert, IconRestore, IconSitemap, IconTrash } from "@tabler/icons-react";
 import { IndexMarks, KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, kindMeta, relationMeta, sourceKindMeta, type IndexFlags } from "./DatamodelIcons";
 import { OverrideMarks, showValue, type EditorContext, type Selection } from "./DatamodelEditors";
-import { allProperties, fullName, type HistoryEntry, type ModelDiff, type NodeTypeJson, type OverridesFileInfo, type PropertyJson, type SourceInfo } from "../server/datamodel";
+import { allProperties, fullName, sourcePath, type HistoryEntry, type ModelDiff, type NodeTypeJson, type OverridesFileInfo, type PropertyJson, type SourceInfo } from "../server/datamodel";
 import { declaringType, hasOverrides, inheritedPropertySetting, isIndexed, listOverrides, setOverride } from "../server/overrides";
 import { formatBytes, formatTime } from "../format";
 
@@ -617,9 +617,9 @@ export function SourcesView({ ctx, selection, hiddenSources, onToggleVisible, on
                       <span className="fact-k">File name</span> {s.Reference}
                     </div>
                   )}
-                  {(info?.resolvedPath || s.Filepath || s.SourceCodePath) && (
+                  {sourcePath(s, info) && (
                     <div className={info?.pathExists === false ? "dm-missing" : ""}>
-                      <span className="fact-k">{s.Type === "CompiledTypes" ? (s.GenerateModelFile ? "Generated code" : "Source code") : "Path"}</span> {info?.resolvedPath ?? s.Filepath ?? s.SourceCodePath}
+                      <span className="fact-k">{s.Type === "CompiledTypes" ? (s.GenerateModelFile ? "Generated code" : "Source code") : "Path"}</span> {sourcePath(s, info)}
                       {info?.pathExists === false ? " (missing)" : ""}
                     </div>
                   )}

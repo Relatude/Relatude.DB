@@ -1,5 +1,6 @@
 using Relatude.DB.AI;
 using Relatude.DB.DataStores;
+using Relatude.DB.Datamodels;
 using Relatude.DB.SMS;
 
 namespace Relatude.DB.NodeServer.Settings;
@@ -472,9 +473,9 @@ public static class SettingsCatalog {
                                 Help = "The folder the generated C# files go into, relative to the folder holding this settings file unless rooted. It has to be inside the project that builds the assembly above, so the generated classes are compiled into it.",
                             },
                             new() {
-                                Path = "Filepath", Label = "Model file or folder", Placeholder = "Models/Json",
+                                Path = "Filepath", Label = "Model file or folder", Placeholder = DatamodelSourceLoader.DefaultRuntimeTypesFolder + "/{name}",
                                 VisibleWhen = new() { Path = "Type", Values = ["RuntimeTypes"] },
-                                Help = "A .json model file, or a folder whose .json files are all loaded. Relative paths resolve against the folder holding this settings file, and empty uses \"Models/Json\". A folder that is empty, or not there yet, loads as an empty source and is created when the data model editor writes the first type into it. Ignored when a storage provider is named below.",
+                                Help = "A .json model file, or a folder whose .json files are all loaded. Relative paths resolve against the folder holding this settings file. Empty gives the source a folder of its own named after it, \"" + DatamodelSourceLoader.DefaultRuntimeTypesFolder + "/{name}\", beside the default database's files; renaming such a source here or in the data model editor writes its current folder in, so its files are not left behind. A folder that is empty, or not there yet, loads as an empty source and is created when the data model editor writes the first type into it. Ignored when a storage provider is named below.",
                             },
                             new() {
                                 Path = "FileIO", Label = "Read through provider", Picker = "ioProviders",

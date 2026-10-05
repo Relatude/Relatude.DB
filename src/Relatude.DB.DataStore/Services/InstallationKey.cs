@@ -6,16 +6,23 @@ using System.Text;
 namespace Relatude.DB.Common;
 
 /// <summary>
-/// Provides a stable identifier for the current installation/environment.
+/// Provides a stable identifier for the host the application runs on.
 ///
-/// The identifier is deliberately NOT persisted. It is calculated from
-/// characteristics of the machine/VM and the volume plus the data folder.
+/// The identifier is deliberately NOT persisted. On Azure App Service it is
+/// calculated from the app's own identity - its subscription, resource group,
+/// name and slot - since the worker VM below it is shared by every app of the
+/// plan and changes whenever Azure moves the app. Everywhere else it is
+/// calculated from characteristics of the machine/VM and the volume the
+/// application runs from.
+///
+/// It tells hosts apart, not applications: two applications on one machine
+/// share it. The caller adds what tells those apart.
 ///
 /// Properties:
 /// - Stable across application restarts.
 /// - Normally stable across OS/application restarts.
 /// - Different machines normally produce different IDs.
-/// - Copying the data directory to another machine normally produces another ID.
+/// - Different App Service apps and slots produce different IDs.
 /// - Works on Windows, Linux, macOS and containers.
 /// - Does not require network access.
 /// - Does not expose the underlying machine identifiers.
@@ -36,29 +43,50 @@ public static class InstallationIdentity {
         if (_cachedId != null)
             return _cachedId;
 
-        var dataFolder = AppContext.BaseDirectory;
-        var normalizedPath = Path.GetFullPath(dataFolder);
+        _cachedId = Calculate(Environment.GetEnvironmentVariable);
 
+        return _cachedId;
+    }
+
+    /// <summary>
+    /// What <see cref="Get"/> is calculated from, for people: the Azure App
+    /// Service app and slot, or this machine.
+    /// </summary>
+    public static string Describe() => Describe(Environment.GetEnvironmentVariable);
+
+    internal static string Describe(Func<string, string?> environment) {
+        var appService = GetAzureAppService(environment);
+        if (appService == null)
+            return "this machine";
+        return $"Azure App Service app \"{appService.Value.Site}\""
+            + (string.IsNullOrWhiteSpace(appService.Value.Slot) ? "" : $", slot {appService.Value.Slot}");
+    }
+
+    internal static string Calculate(Func<string, string?> environment) {
         var components = new List<string>
         {
             $"version={AlgorithmVersion}"
         };
 
-        AddComponent(components, "machine", GetMachineIdentity());
-        AddComponent(components, "system", GetSystemIdentity());
-        AddComponent(components, "volume", GetVolumeIdentity(normalizedPath));
+        if (GetAzureAppService(environment) is { } appService) {
+            AddComponent(components, "appservice-owner", appService.Owner);
+            AddComponent(components, "appservice-site", appService.Site);
+            AddComponent(components, "appservice-slot", appService.Slot);
+        } else {
+            var normalizedPath = Path.GetFullPath(AppContext.BaseDirectory);
 
-        // Include a fallback based on the data folder if all hardware/system
-        // identifiers are unavailable.
-        //
-        // This is deliberately NOT the absolute path. The path itself should
-        // not become part of the identity because moving the application
-        // should ideally not change the installation ID.
-        if (components.Count == 1) {
-            AddComponent(
-                components,
-                "fallback",
-                GetFallbackIdentity(normalizedPath));
+            AddComponent(components, "machine", GetMachineIdentity());
+            AddComponent(components, "system", GetSystemIdentity());
+            AddComponent(components, "volume", GetVolumeIdentity(normalizedPath));
+
+            // Include a fallback based on the machine name and the application
+            // folder if all hardware/system identifiers are unavailable.
+            if (components.Count == 1) {
+                AddComponent(
+                    components,
+                    "fallback",
+                    GetFallbackIdentity(normalizedPath));
+            }
         }
 
         var input = string.Join("|", components);
@@ -67,9 +95,32 @@ public static class InstallationIdentity {
             Encoding.UTF8.GetBytes(input));
 
         // 128 bits is already vastly more than sufficient for this purpose.
-        _cachedId = Convert.ToHexString(hash[..16]);
+        return Convert.ToHexString(hash[..16]);
+    }
 
-        return _cachedId;
+    // ---------------------------------------------------------------------
+    // Azure App Service
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    /// The app as Azure App Service names it, or null outside App Service.
+    /// WEBSITE_OWNER_NAME holds the subscription id and the resource group's
+    /// webspace, WEBSITE_SITE_NAME the app (the same for all its slots) and
+    /// WEBSITE_SLOT_NAME the slot ("Production" for the main one). All three
+    /// stay the same when Azure moves the app to another worker, unlike the
+    /// worker's own identifiers, and the worker's are the same for every app of
+    /// a plan. WEBSITE_INSTANCE_ID is left out on purpose: it names the worker.
+    /// </summary>
+    private static (string? Owner, string Site, string? Slot)? GetAzureAppService(Func<string, string?> environment) {
+        var site = environment("WEBSITE_SITE_NAME");
+        if (string.IsNullOrWhiteSpace(site))
+            return null;
+        var owner = environment("WEBSITE_OWNER_NAME");
+        var slot = environment("WEBSITE_SLOT_NAME");
+        return (
+            string.IsNullOrWhiteSpace(owner) ? null : owner.Trim(),
+            site.Trim(),
+            string.IsNullOrWhiteSpace(slot) ? null : slot.Trim());
     }
 
     private static void AddComponent(
@@ -485,14 +536,14 @@ public static class InstallationIdentity {
         return null;
     }
 
-    private static string GetFallbackIdentity(string dataFolder) {
+    private static string GetFallbackIdentity(string applicationFolder) {
         // This fallback is intentionally weaker than the normal identity.
         //
-        // We include the machine name and normalized data folder so that
+        // We include the machine name and normalized application folder so that
         // completely restricted environments still get a deterministic ID.
         //
         // It is not intended to provide strong uniqueness.
-        return $"{Environment.MachineName}|{dataFolder}";
+        return $"{Environment.MachineName}|{applicationFolder}";
     }
 }
 

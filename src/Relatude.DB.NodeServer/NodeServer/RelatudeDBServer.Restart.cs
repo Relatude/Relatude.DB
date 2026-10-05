@@ -113,6 +113,7 @@ public partial class RelatudeDBServer {
             _containersToAutoOpen = [];
             ResetIOProviders();
             await loadSettingsAndCreateContainersAsync(firstStart: false);
+            _licenseLogin?.ForgetInstallationDataId(); // the default database it is kept with may be another one now
             Interlocked.Increment(ref _restartCount);
             _lastRestartUtc = DateTime.UtcNow;
             prepareAutoOpen(); // raises the opening count, so requests meet the progress page and not an empty server

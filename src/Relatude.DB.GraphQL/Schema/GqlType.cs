@@ -119,7 +119,11 @@ public sealed class GqlInterfaceType : GqlNamedType, IGqlCompositeType {
 }
 
 /// <summary>Semantics of a filter-input field, used by the filter translator.</summary>
-public enum FilterOp { None, Eq, Ne, Gt, Gte, Lt, Lte, In, Nin, And, Or, Not, RelEq, RelIn }
+public enum FilterOp {
+    None, Eq, Ne, Gt, Gte, Lt, Lte, In, Nin, And, Or, Not, RelEq, RelIn,
+    /// <summary>A nested object of RelEq/RelIn operators: the <c>id</c> in <c>brand: { id: { eq: ... } }</c>.</summary>
+    RelId,
+}
 
 public sealed class GqlInputField {
     public required string Name { get; init; }
@@ -135,6 +139,8 @@ public sealed class GqlInputField {
 public sealed class GqlInputObjectType : GqlNamedType {
     public override GqlTypeKind Kind => GqlTypeKind.InputObject;
     public List<GqlInputField> InputFields { get; } = [];
+    /// <summary>Shown after an unknown-field error on this input, to say how it is meant to be used.</summary>
+    public string? UsageHint { get; init; }
     Dictionary<string, GqlInputField>? _fieldMap;
     internal void Seal() { _fieldMap = InputFields.ToDictionary(f => f.Name, StringComparer.Ordinal); }
     public bool TryGetInputField(string name, [NotNullWhen(true)] out GqlInputField? field) {

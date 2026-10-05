@@ -397,11 +397,45 @@ button.gx-status:hover span {
   margin: 0 3px 0 0;
 }
 
-.gx-caret {
+/* the chevron opens a branch to look inside, apart from ticking it: a 20px target, not just the glyph */
+.gx-caret,
+.gx-caret-space {
   flex: none;
+  width: 20px;
+  height: 20px;
+}
+
+.gx-caret {
   display: inline-flex;
-  width: 12px;
-  color: var(--text-faint);
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.gx-caret:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.gx-row:hover .gx-caret:hover {
+  /* the row already wears the hover tint; the caret has to stand out from it */
+  background: var(--badge-bg);
+}
+
+.gx-caret:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.gx-caret svg {
+  transition: transform 0.12s ease;
+}
+
+.gx-caret.open svg {
+  transform: rotate(90deg);
 }
 
 .gx-name {

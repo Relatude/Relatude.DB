@@ -431,7 +431,10 @@ sealed partial class UISettings {
         lock (_saveLock) {
             var container = getContainer(payload.StoreId);
             var settings = container.Settings;
+            var defaultPaths = ModelEditor.DatamodelSourceWriter.DefaultPaths(settings.DatamodelSources);
             var result = apply(SettingsCatalog.Database, settings, payload.Values, payload.StoreId);
+            // a model source renamed here keeps reading from the folder named after its old name
+            ModelEditor.DatamodelSourceWriter.KeepDefaultPaths(defaultPaths, settings.DatamodelSources);
             var reopened = false;
             if (result.Changed.Count > 0) {
                 forgetChangedIOProviders(result.Changed);

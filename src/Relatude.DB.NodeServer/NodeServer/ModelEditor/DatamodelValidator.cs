@@ -72,7 +72,10 @@ public sealed class DatamodelValidator {
         result.Active = active;
         result.ActiveChecksum = DatamodelJson.Checksum(active);
 
-        var plan = DatamodelSourceWriter.Plan(active, draft, _server.RootDataFolderPath, id => _server.TryGetIO(id, out var io) ? io : null);
+        // a renamed source reading from the folder named after it keeps reading from that folder; the
+        // plan, the dry run and the settings written at activation all see the path it is given
+        DatamodelSourceWriter.KeepDefaultPaths(DatamodelSourceWriter.DefaultPaths(active.Sources), draft.Sources);
+        var plan =DatamodelSourceWriter.Plan(active, draft, _server.RootDataFolderPath, id => _server.TryGetIO(id, out var io) ? io : null);
         result.Plan = plan;
         result.Issues.AddRange(plan.Issues);
         if (plan.SettingsChange) {
@@ -568,7 +571,7 @@ public sealed class DatamodelValidator {
         if (source.Type == DatamodelSourceType.CompiledTypes) {
             baseFolder = DatamodelSourceLoader.ResolveSourceCodeFolder(source, rootFolder)!;
         } else {
-            var target = DatamodelSourceLoader.ResolveFilePath(source, rootFolder, DatamodelSourceLoader.DefaultJsonFolder);
+            var target = DatamodelSourceLoader.ResolveFilePath(source, rootFolder);
             baseFolder = File.Exists(target) || !Directory.Exists(target) && Path.HasExtension(target) ? Path.GetDirectoryName(target)! : target;
         }
         // a generated folder is described by the plan alone: the files the types were stamped with are

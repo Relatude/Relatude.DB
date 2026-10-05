@@ -80,7 +80,7 @@ internal static class VariableCoercer {
                     var dict = new Dictionary<string, object?>(StringComparer.Ordinal);
                     foreach (var prop in json.EnumerateObject()) {
                         if (!inputType.TryGetInputField(prop.Name, out var fieldDef)) {
-                            throw new GraphQLFieldException($"unknown field \"{prop.Name}\" on input type \"{inputType.Name}\".");
+                            throw new GraphQLFieldException($"unknown field \"{prop.Name}\" on input type \"{inputType.Name}\".{ValueResolver.UnknownFieldHint(inputType, prop.Name)}");
                         }
                         dict[prop.Name] = coerceJson(ctx, prop.Value, fieldDef.Type, variableName);
                     }

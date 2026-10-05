@@ -57,17 +57,25 @@ internal static class FilterTranslator {
                 default: {
                         var prop = field.Property ?? throw new GraphQLFieldException($"Filter field \"{key}\" is not translatable.");
                         if (value is not Dictionary<string, object?> ops) throw new GraphQLFieldException($"Filter field \"{key}\" expects an object value.");
-                        var opInput = (GqlInputObjectType)field.Type.UnwrapNamed();
-                        foreach (var (opKey, opValue) in ops) {
-                            if (!opInput.TryGetInputField(opKey, out var opField)) throw new GraphQLFieldException($"Unknown filter operator \"{opKey}\".");
-                            var term = leaf(prop, opField.Op, opValue, parameters);
-                            if (term != null) parts.Add(term);
-                        }
+                        operatorTerms(prop, (GqlInputObjectType)field.Type.UnwrapNamed(), ops, parts, parameters);
                         break;
                     }
             }
         }
         return parts.Count == 0 ? null : string.Join(" && ", parts);
+    }
+
+    static void operatorTerms(PropertyModel prop, GqlInputObjectType opInput, Dictionary<string, object?> ops, List<string> parts, ParameterBag parameters) {
+        foreach (var (opKey, opValue) in ops) {
+            if (!opInput.TryGetInputField(opKey, out var opField)) throw new GraphQLFieldException($"Unknown filter operator \"{opKey}\".");
+            if (opField.Op == FilterOp.RelId) {
+                // { id: { eq: ... } } on a relation means the same as { eq: ... }
+                if (opValue is Dictionary<string, object?> idOps) operatorTerms(prop, (GqlInputObjectType)opField.Type.UnwrapNamed(), idOps, parts, parameters);
+                continue;
+            }
+            var term = leaf(prop, opField.Op, opValue, parameters);
+            if (term != null) parts.Add(term);
+        }
     }
 
     static string? leaf(PropertyModel prop, FilterOp op, object? value, ParameterBag parameters) {
