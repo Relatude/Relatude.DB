@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { IconBook2, IconChevronRight, IconVariable, IconVariableOff, IconX } from "@tabler/icons-react";
 import { argumentValue, selectionAt, updateValue, valueAt, type BuildPath, type ValuePath } from "../graphql/build";
 import { printValue, type OperationNode, type OperationType, type ValueNode } from "../graphql/language";
 import { isList, isNonNull, isRequired, listItem, namedType, stripNonNull, type ArgInfo, type FieldInfo, type Schema } from "../graphql/schema";
 
-// The Build panel: what the endpoint offers as a tree to tick. A ticked field shows its arguments, each
-// with an input that fits its type, and the fields of what it returns. Every change is made to the query
-// text (see graphql/build.ts), so the tree and the editor never disagree. A branch can also be opened
-// with its chevron just to look inside, without selecting anything.
+// The Build panel: what the endpoint offers as a tree to tick. A ticked field shows the fields of what it
+// returns, and its arguments - each with an input that fits its type - once its "(…)" is clicked (or at
+// once when one of them is required). Every change is made to the query text (see graphql/build.ts), so
+// the tree and the editor never disagree. A branch can also be opened with its chevron just to look
+// inside, without selecting anything; that never shows the arguments.
 
 export interface BuilderActions {
   toggle(kind: OperationType, path: BuildPath, on: boolean): void;
@@ -30,11 +31,17 @@ interface Ctx {
   isOpen(path: BuildPath, included: boolean): boolean;
   /** opens or closes a branch; null lets it follow its selection again */
   setOpen(path: BuildPath, open: boolean | null): void;
+  /** whether the arguments of a selected field are shown: only after its "(…)" asked for them */
+  isArgsOpen(path: BuildPath): boolean;
+  /** shows or hides the arguments of a field; hiding also forgets it for the fields below */
+  setArgsOpen(path: BuildPath, open: boolean): void;
 }
 
 // branch indent per level, and the caret's box: big enough to hit without aiming
 const indent = 16;
 const caretSize = 20;
+// how long a branch takes to open or close; explorer.css animates .gx-reveal for as long
+const revealMs = 160;
 
 export function ExplorerBuilder({
   schema,
@@ -59,6 +66,8 @@ export function ExplorerBuilder({
   const [filter, setFilter] = useState("");
   // branches opened or closed by their chevron, by operation kind and path; one left out follows its selection
   const [opened, setOpened] = useState<Record<string, boolean>>({});
+  // fields whose arguments are shown, by the same key
+  const [argsOpened, setArgsOpened] = useState<ReadonlySet<string>>(() => new Set());
   const editable = !error;
   const branches = (kind: OperationType) => {
     const key = (path: BuildPath) => kind + " " + path.join(".");
@@ -70,6 +79,14 @@ export function ExplorerBuilder({
           if (open === null) delete next[key(path)];
           else next[key(path)] = open;
           return next;
+        }),
+      isArgsOpen: (path: BuildPath) => argsOpened.has(key(path)),
+      setArgsOpen: (path: BuildPath, open: boolean) =>
+        setArgsOpened((o) => {
+          const k = key(path);
+          if (open) return o.has(k) ? o : new Set(o).add(k);
+          const next = new Set([...o].filter((x) => x !== k && !x.startsWith(k + ".")));
+          return next.size === o.size ? o : next;
         }),
     };
   };
@@ -150,11 +167,41 @@ function Caret({ open, label, onToggle }: { open: boolean; label: string; onTogg
   );
 }
 
-/** Ticks or unticks a row; ticking opens it, whatever its chevron was last left at. */
-function select(ctx: Ctx, path: BuildPath, included: boolean) {
+/**
+ * Ticks or unticks a row; ticking opens it, whatever its chevron was last left at, and shows its
+ * arguments when asked to. Unticking hides them again.
+ */
+function select(ctx: Ctx, path: BuildPath, included: boolean, showArgs = false) {
   if (!ctx.editable) return;
   if (!included) ctx.setOpen(path, null);
+  ctx.setArgsOpen(path, !included && showArgs);
   ctx.actions.toggle(ctx.kind, path, !included);
+}
+
+/**
+ * Shows its content with a short height-and-fade animation when `open` turns true, and plays it backwards
+ * before taking the content away when it turns false. Content that was open from the start just shows.
+ */
+function Reveal({ open, children }: { open: boolean; children: ReactNode }) {
+  const [phase, setPhase] = useState<"shut" | "opening" | "shown" | "closing">(open ? "shown" : "shut");
+  const [was, setWas] = useState(open);
+  if (open !== was) {
+    // adjusted while rendering, so the first frame with the content already wears the animation
+    setWas(open);
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    setPhase(open ? (still ? "shown" : "opening") : still ? "shut" : "closing");
+  }
+  useEffect(() => {
+    if (phase !== "opening" && phase !== "closing") return;
+    const t = setTimeout(() => setPhase(phase === "opening" ? "shown" : "shut"), revealMs + 30);
+    return () => clearTimeout(t);
+  }, [phase]);
+  if (phase === "shut") return null;
+  return (
+    <div className={"gx-reveal" + (phase === "shown" ? "" : " " + phase)}>
+      <div>{children}</div>
+    </div>
+  );
 }
 
 function FieldRow({ ctx, path, field, depth }: { ctx: Ctx; path: BuildPath; field: FieldInfo; depth: number }) {
@@ -164,7 +211,12 @@ function FieldRow({ ctx, path, field, depth }: { ctx: Ctx; path: BuildPath; fiel
   const composite = ctx.schema.isComposite(named);
   const open = composite && ctx.isOpen(path, included);
   const badge = kindBadge(field);
-  const toggle = () => select(ctx, path, included);
+  const required = field.args.some(isRequired);
+  const toggle = () => select(ctx, path, included, required);
+  const argsOpen = included && field.args.length > 0 && ctx.isArgsOpen(path);
+  // the arguments the query gives the field, named on the "(…)" while they are hidden
+  const given = sel?.kind === "Field" ? sel.arguments.map((a) => a.name) : [];
+  const showArgs = () => (included ? ctx.setArgsOpen(path, !argsOpen) : select(ctx, path, false, true));
   return (
     <>
       <div className={"gx-row" + (included ? " on" : "")} style={{ paddingLeft: 4 + depth * indent }} title={field.description ?? undefined}>
@@ -172,32 +224,52 @@ function FieldRow({ ctx, path, field, depth }: { ctx: Ctx; path: BuildPath; fiel
         <input type="checkbox" checked={included} disabled={!ctx.editable} onChange={toggle} aria-label={"Select " + field.name} />
         <button className="gx-name" onClick={toggle} disabled={!ctx.editable}>
           {field.name}
-          {field.args.length > 0 && (
-            <span className="gx-args-mark">
-              (
-              {field.args.some(isRequired)
-                ? field.args
-                    .filter(isRequired)
-                    .map((a) => a.name)
-                    .join(", ")
-                : "…"}
-              )
-            </span>
-          )}
         </button>
+        {field.args.length > 0 && (
+          <button
+            type="button"
+            className={"gx-args-mark" + (argsOpen ? " open" : "") + (given.length > 0 ? " set" : "")}
+            onClick={showArgs}
+            disabled={!included && !ctx.editable}
+            aria-expanded={argsOpen}
+            aria-label={(argsOpen ? "Hide the arguments of " : "Show the arguments of ") + field.name}
+            title={
+              argsOpen
+                ? "Hide the arguments"
+                : given.length > 0
+                  ? "Arguments given: " + given.join(", ")
+                  : "Show the arguments: " + field.args.map((a) => a.name).join(", ")
+            }
+          >
+            (
+            {required
+              ? field.args
+                  .filter(isRequired)
+                  .map((a) => a.name)
+                  .join(", ")
+              : "…"}
+            )
+          </button>
+        )}
         {badge && <span className="gx-badge">{badge}</span>}
         <button className="gx-type" onClick={() => ctx.actions.openDocs(named)} title={"About " + named}>
           {field.type}
         </button>
       </div>
-      {included && (open || !composite) && field.args.length > 0 && (
-        <div className="gx-args" style={{ marginLeft: 4 + caretSize + 3 + depth * indent }}>
-          {field.args.map((a) => (
-            <ArgRow key={a.name} ctx={ctx} path={path} field={field} arg={a} value={argumentValue(sel, a.name)} />
-          ))}
-        </div>
+      {field.args.length > 0 && (
+        <Reveal open={argsOpen}>
+          <div className="gx-args" style={{ marginLeft: 4 + caretSize + 3 + depth * indent }}>
+            {field.args.map((a) => (
+              <ArgRow key={a.name} ctx={ctx} path={path} field={field} arg={a} value={argumentValue(sel, a.name)} />
+            ))}
+          </div>
+        </Reveal>
       )}
-      {open && <Children ctx={ctx} path={path} typeName={named} depth={depth + 1} />}
+      {composite && (
+        <Reveal open={open}>
+          <Children ctx={ctx} path={path} typeName={named} depth={depth + 1} />
+        </Reveal>
+      )}
     </>
   );
 }
@@ -246,12 +318,16 @@ function FragmentRow({ ctx, path, typeName, parentType, depth }: { ctx: Ctx; pat
           <IconBook2 size={12} stroke={1.8} />
         </button>
       </div>
-      {open && own.map((f) => <FieldRow key={f.name} ctx={ctx} path={[...path, f.name]} field={f} depth={depth + 1} />)}
-      {open && own.length === 0 && (
-        <div className="gx-row muted" style={{ paddingLeft: 4 + caretSize + 3 + (depth + 1) * indent }}>
-          {typeName} has no fields of its own.
-        </div>
-      )}
+      <Reveal open={open}>
+        {own.map((f) => (
+          <FieldRow key={f.name} ctx={ctx} path={[...path, f.name]} field={f} depth={depth + 1} />
+        ))}
+        {own.length === 0 && (
+          <div className="gx-row muted" style={{ paddingLeft: 4 + caretSize + 3 + (depth + 1) * indent }}>
+            {typeName} has no fields of its own.
+          </div>
+        )}
+      </Reveal>
     </>
   );
 }

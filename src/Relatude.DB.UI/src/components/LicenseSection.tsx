@@ -1,9 +1,11 @@
-import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   IconAlertTriangle,
   IconCircleCheck,
   IconCloud,
   IconExternalLink,
+  IconFingerprint,
   IconInfoCircle,
   IconPlugConnected,
   IconPlugConnectedX,
@@ -43,6 +45,7 @@ import { formatTime } from "../format";
 import { Loading } from "./Loading";
 import { FoldHead } from "./LogsSection";
 import { CopyText } from "./CopyText";
+import { DialogTools } from "./DialogTools";
 
 /**
  * The Services module: the Relatude Services account this installation runs under - whether it has
@@ -432,7 +435,6 @@ function LicensePanel({ status, onReload }: { status: LicenseStatus; onReload: (
               }}
             />
           </Field>
-          {status.installation && <InstallationKey installation={status.installation} />}
         </div>
         <div className="license-keys-column">
           <Field
@@ -445,6 +447,7 @@ function LicensePanel({ status, onReload }: { status: LicenseStatus; onReload: (
               <span>{signIn ? "On" : "Off"}</span>
             </span>
           </Field>
+          {status.installation && <InstallationKey installation={status.installation} />}
           {status.showLicenseServer && (
             <Field label="License server" hint="Only for self-hosted or test servers. Offered by debug builds only." locked={locked("ServicesServerUrl")}>
               <input
@@ -909,41 +912,82 @@ function Waiting({ pairing, saving, onStop }: { pairing: PairingHandle; saving: 
 }
 
 /**
- * The key Relatude Services knows this installation by, to look it up there: read only, with a copy
- * button. Not a `Field`, whose `<label>` would pass any click on the key to the button in it. The parts
- * break at their colons when the column is narrow, and the line under it says what each one is, so
- * two installations that look alike in the portal can be told apart by the part they share.
+ * The key Relatude Services knows this installation by, to look it up there. It stays off the page - a
+ * screen shared or photographed does not give it away - and so does everything said about it: the page
+ * has only a quiet text link, and the dialog it opens has the key and what it is made of.
  */
 function InstallationKey({ installation }: { installation: InstallationInfo }) {
-  const parts = installation.key.split(":");
+  const [shown, setShown] = useState(false);
   return (
-    <div className="license-field">
-      <span className="license-field-label">Installation key</span>
-      <div className="license-installation">
-        <code className="license-installation-key">
-          {parts.map((part, i) => (
-            <Fragment key={i}>
-              {i > 0 && (
-                <>
-                  :<wbr />
-                </>
-              )}
-              {part}
-            </Fragment>
-          ))}
-        </code>
-        <CopyText text={installation.key} title="Copy the installation key" small />
+    <>
+      <button className="license-reveal-link" onClick={() => setShown(true)} title="Show the key Relatude Services knows this installation by">
+        Installation key
+      </button>
+      {shown && <InstallationKeyDialog installation={installation} onClose={() => setShown(false)} />}
+    </>
+  );
+}
+
+/**
+ * The installation key itself: read only, with a copy button. The parts break at their colons, and the
+ * line under it says what each one is, so two installations that look alike in the portal can be told
+ * apart by the part they share.
+ */
+function InstallationKeyDialog({ installation, onClose }: { installation: InstallationInfo; onClose: () => void }) {
+  const parts = installation.key.split(":");
+  const closeButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => closeButton.current?.focus(), []);
+  return createPortal(
+    <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div
+        className="dialog installation-key-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Installation key"
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            onClose();
+          }
+        }}
+      >
+        <h3>
+          <IconFingerprint size={16} stroke={1.8} /> Installation key
+          <DialogTools onClose={onClose} />
+        </h3>
+        <div className="dialog-body license-installation">
+          <code className="license-installation-key">
+            {parts.map((part, i) => (
+              <Fragment key={i}>
+                {i > 0 && (
+                  <>
+                    :<wbr />
+                  </>
+                )}
+                {part}
+              </Fragment>
+            ))}
+          </code>
+          <CopyText text={installation.key} title="Copy the installation key" small />
+        </div>
+        <div className="dialog-body license-muted">
+          What Relatude Services knows this installation by: the server id from relatude.db.json, the host ({installation.host})
+          {installation.dataId ? ` and an id kept in ${installation.dataIdPlace}.` : "."}
+        </div>
+        {installation.dataIdProblem && (
+          <div className="dialog-body license-installation-problem">
+            No id could be kept in {installation.dataIdPlace}, so the key goes without one: {installation.dataIdProblem}
+          </div>
+        )}
+        <div className="dialog-row">
+          <div className="header-spacer" />
+          <button ref={closeButton} className="action-button" onClick={onClose}>
+            Close
+          </button>
+        </div>
       </div>
-      <span className="license-muted license-field-hint">
-        What Relatude Services knows this installation by: the server id from relatude.db.json, the host ({installation.host})
-        {installation.dataId ? ` and an id kept in ${installation.dataIdPlace}.` : "."}
-      </span>
-      {installation.dataIdProblem && (
-        <span className="license-field-hint license-installation-problem">
-          No id could be kept in {installation.dataIdPlace}, so the key goes without one: {installation.dataIdProblem}
-        </span>
-      )}
-    </div>
+    </div>,
+    document.body,
   );
 }
 
