@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IconCheck, IconDatabasePlus, IconPlayerPlayFilled, IconPlayerStopFilled, IconPlus, IconRefresh, IconStar, IconStarFilled } from "@tabler/icons-react";
 import { PanelGrid, type PanelRow } from "./PanelGrid";
+import { PowerOrb, powerTone } from "./PowerOrb";
 import { showConfirm, showError, showInfo } from "../dialogs";
 import { subscribe, subscribeResync } from "../server/channel";
 import { createDatabase, fetchDatabases, setDefaultDatabase, type DatabaseList, type DatabaseRow } from "../server/databases";
@@ -149,10 +150,11 @@ function DatabaseCard({
   }
 
   return (
-    <div className={"db-card" + (db.isDefault ? " is-default" : "")}>
+    <div className={"db-card power-" + powerTone(db.state) + (db.isDefault ? " is-default" : "")}>
+      {/* how it stands, the way the dashboard shows it: a picture here, the switch is the button on the right */}
+      <PowerOrb state={db.state} size={38} />
       <div className="db-card-main">
         <div className="db-card-head">
-          <span className={"state-dot " + db.state.toLowerCase()} />
           <button className="db-card-name" onClick={() => onOpenSection?.(db.id)} title="Open this database in the pages on the left">
             {db.name}
           </button>
@@ -161,9 +163,9 @@ function DatabaseCard({
               default
             </span>
           )}
-          <span className="db-card-state">{db.state}</span>
         </div>
         <div className="db-card-facts">
+          <span className="power-word db-card-state">{db.state}</span>
           <span title="Where the files of this database live">{db.storage}</span>
           <span>{isOpen ? `${formatCount(db.nodeCount ?? 0)} nodes · ${formatCount(db.relationCount ?? 0)} relations` : "not counted while closed"}</span>
           <span>

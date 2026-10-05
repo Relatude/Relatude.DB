@@ -26,6 +26,10 @@ import { PanelMaximizedContext } from "../panelMaximized";
  * follow. It covers the scrolling area the grid lives in rather than the window, so the rail and the
  * header stay in reach; the other panels are hidden where they are and shown again on the way back,
  * which is a matter of a click on the same button or Escape.
+ *
+ * A panel that arrives after the grid is up - the rows a page swaps when what it shows changes, as
+ * the dashboard does when its database opens or closes - fades in, a little after the one before
+ * it. The panels the page opened with are simply there.
  */
 
 export interface PanelRow {
@@ -52,6 +56,8 @@ const maxHeight = 2400;
 const narrowAt = 760;
 const keyStep = 0.02;
 const keyStepPx = 16;
+/** how much later each newly arrived panel starts its fade than the one before it */
+const arriveStaggerMs = 70;
 
 type DragMode = "col" | "row" | "both";
 
@@ -66,6 +72,9 @@ export function PanelGrid({ id, rows, defaultSplit = 0.62 }: { id: string; rows:
   const box = useRef<HTMLDivElement>(null);
   const rowEls = useRef<(HTMLDivElement | null)[]>([]);
   const drag = useRef<{ pointerId: number; mode: DragMode; row: number; x: number; y: number; split: number; height: number; free: number } | null>(null);
+  // every cell on the grid, with where it came in the batch it arrived in; -1 for the ones the grid
+  // started with, which do not fade in. A cell that leaves is forgotten, so coming back is arriving.
+  const arrived = useRef<Map<string, number> | null>(null);
 
   // measured rather than asked of the window: the grid is what has to fit, and the rail beside it
   // collapses on its own
@@ -203,11 +212,34 @@ export function PanelGrid({ id, rows, defaultSplit = 0.62 }: { id: string; rows:
   const heightOf = (row: PanelRow) => (narrow ? undefined : layout.heights[row.id] ?? row.height);
   const cellClass = (row: PanelRow, isMax: boolean) => "panel-cell" + (isMax || heightOf(row) != null ? " sized" : "") + (isMax ? " maximized" : "");
 
+  // Which cells are new since the last render, worked out while rendering so the class is there on
+  // the element's first frame - an animation added a frame later would show the panel and then
+  // start it from nothing. Rendering twice over (strict mode) finds the same answer the second time.
+  const keysNow = rows.flatMap((row) => row.cells.map((_, i) => row.id + (i === 0 ? ":a" : ":b")));
+  const starting = arrived.current === null;
+  const known = arrived.current ?? new Map<string, number>();
+  let batch = 0;
+  for (const key of keysNow) if (!known.has(key)) known.set(key, starting ? -1 : batch++);
+  for (const key of [...known.keys()]) if (!keysNow.includes(key)) known.delete(key);
+  arrived.current = known;
+
   // a cell of the grid: the panel it was handed, and the button that takes it to the whole page
   const cell = (key: string, row: PanelRow, content: ReactNode, style?: React.CSSProperties, ref?: (el: HTMLDivElement | null) => void) => {
     const isMax = maximized === key;
+    const order = known.get(key) ?? -1;
+    const placed = isMax && maxRect ? { position: "fixed" as const, ...maxRect } : style;
     return (
-      <div key={key} className={cellClass(row, isMax)} ref={ref} style={isMax && maxRect ? { position: "fixed", ...maxRect } : style}>
+      <div
+        key={key}
+        className={cellClass(row, isMax) + (order >= 0 ? " pg-enter" : "")}
+        ref={ref}
+        style={order > 0 ? { ...placed, animationDelay: order * arriveStaggerMs + "ms" } : placed}
+        // arrived: from now on it is one of the panels that were there, so a cell the grid builds
+        // again (the stacked layout and the columns are different elements) does not fade in twice
+        onAnimationEnd={(e) => {
+          if (e.target === e.currentTarget && e.animationName === "pg-enter") arrived.current?.set(key, -1);
+        }}
+      >
         <button
           className="icon-button pg-max"
           title={isMax ? "Back to the layout (Esc)" : "Maximize this panel"}

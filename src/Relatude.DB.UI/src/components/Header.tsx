@@ -7,6 +7,7 @@ import type { Theme } from "../theme";
 import { MinimizedProgress } from "./DialogHost";
 import { GlobalSearch } from "./GlobalSearch";
 import { Logo, LogoMark } from "./Logo";
+import { PowerOrb, powerTone } from "./PowerOrb";
 import { RevertControl } from "./RevertControl";
 
 interface HeaderProps {
@@ -133,15 +134,15 @@ function RefreshRate() {
   );
 }
 
-function describeDb(db: DatabaseInfo): string {
-  return db.state + (db.nodeCount != null ? ` · ${db.nodeCount.toLocaleString("en-US")} nodes` : "");
-}
-
-/** The one-line state of a database, with the open revert window marked in the window's own colour. */
+/**
+ * The one-line state of a database: the state in its colour, the node count after it, and the open
+ * revert window marked in the window's own colour.
+ */
 function DbState({ db }: { db: DatabaseInfo }) {
   return (
     <>
-      {describeDb(db)}
+      <span className={"db-state-word power-" + powerTone(db.state)}>{db.state}</span>
+      {db.nodeCount != null && ` · ${db.nodeCount.toLocaleString("en-US")} nodes`}
       {db.revertWindow && <span className="db-revert">revert window</span>}
     </>
   );
@@ -160,8 +161,8 @@ function DbSwitcher({
   return (
     <div className="db-switcher">
       <button className="db-switcher-button" onClick={() => setOpen(!open)} disabled={databases.length === 0}>
-        <span className={"state-dot " + (activeDb?.state ?? "closed").toLowerCase()} />
-        <span>
+        <PowerOrb state={activeDb?.state ?? "Closed"} size={28} />
+        <span className="db-switcher-text">
           <div className="db-name">{activeDb?.name ?? "No databases"}</div>
           <div className="db-state">{activeDb ? <DbState db={activeDb} /> : ""}</div>
         </span>
@@ -182,7 +183,7 @@ function DbSwitcher({
                   setOpen(false);
                 }}
               >
-                <span className={"state-dot " + db.state.toLowerCase()} />
+                <PowerOrb state={db.state} size={22} />
                 <span className="db-name">{db.name}</span>
                 <span className="db-meta">
                   <DbState db={db} />

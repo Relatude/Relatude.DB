@@ -184,9 +184,13 @@ a {
 
 /* ---- shell ---- */
 
+/* One column the width of the window, never wider: an implicit column is sized to the widest thing
+   that cannot shrink, and the header alone could hold the page open past the window's edge, so that
+   every page scrolled sideways on a narrow window. */
 .shell {
   display: grid;
   grid-template-rows: 56px 1fr;
+  grid-template-columns: minmax(0, 1fr);
   height: 100%;
 }
 
@@ -315,6 +319,13 @@ a {
   flex: 1;
 }
 
+/* the controls on the right keep their size; the search box is what gives way to a narrow window */
+.header > .icon-button,
+.refresh-rate,
+.db-switcher {
+  flex: none;
+}
+
 /* ---- tasks put away into the bar (MinimizedProgress in DialogHost.tsx) ---- */
 
 /**
@@ -326,16 +337,20 @@ a {
  */
 .task-chips {
   display: flex;
+  flex: 0 1 auto;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
 
+/* a chip gives way on a narrow bar like the search box does: its title and line are cut short, the
+   icon and the button beside them stay */
 .task-chip {
   position: relative;
   display: flex;
   align-items: center;
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 64px;
   max-width: 260px;
   height: 32px;
   padding-right: 3px;
@@ -525,12 +540,15 @@ a {
 
 /* it hangs over the page rather than pushing it down: the bar is 56px tall and the answer is far
    taller than that */
+/* as wide as the box, and never narrower than a list of answers can be read in: on a narrow window
+   the box gives way to the controls beside it, the answers hang over them instead */
 .global-search-panel {
   position: absolute;
   z-index: 40;
   top: calc(100% + 6px);
   left: 0;
   right: 0;
+  min-width: min(440px, calc(100vw - 240px));
   max-height: min(70vh, 620px);
   overflow-y: auto;
   padding: 6px;
@@ -826,24 +844,74 @@ a {
   display: flex;
 }
 
-.state-dot {
-  flex: none;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--text-muted); /* opening, closing, disposed */
+/* the name and the state line beside the orb: they give way to the chevron, never the other way */
+.db-switcher-text {
+  flex: 1;
+  min-width: 0;
 }
 
-.state-dot.open {
-  background: var(--ok);
+.db-switcher-button .db-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.state-dot.error {
-  background: var(--danger);
+/* the state word in a database's one-line state, in the colour of its orb */
+.db-state-word {
+  font-weight: 600;
+  color: var(--power);
+  transition: color 0.45s ease;
 }
 
-.state-dot.closed {
-  background: var(--text-muted);
+.db-state-word.power-off {
+  color: inherit;
+}
+
+/**
+ * A narrower window, in steps: first the bar's own spacing and the database switcher's width, then
+ * the search box's shortcut hint and the switcher once more, then the refresh interval beside its
+ * icon - what is left is every control, a search box still wide enough to type in, and a switcher
+ * that still names the database. The spacer goes at the first step: below that width the search box
+ * never reaches its full size, so it would only be one more gap, and the first control after it
+ * takes its place by taking the free room on its left.
+ */
+@media (max-width: 1100px) {
+  .header {
+    gap: 10px;
+  }
+  .header-spacer {
+    display: none;
+  }
+  .header-spacer + * {
+    margin-left: auto;
+  }
+  .db-switcher-button {
+    width: 210px;
+  }
+}
+
+@media (max-width: 900px) {
+  .global-search-key {
+    display: none;
+  }
+  .db-switcher-button {
+    width: 170px;
+    gap: 8px;
+  }
+}
+
+@media (max-width: 760px) {
+  .header {
+    gap: 6px;
+  }
+  .refresh-rate-badge {
+    display: none;
+  }
+  /* the switcher keeps its width from here on - the name of the database is worth more than the
+     last few letters of the search box's placeholder - and only tightens its padding */
+  .db-switcher-button {
+    padding: 5px 8px;
+  }
 }
 
 .db-menu {
@@ -1203,6 +1271,14 @@ a {
   flex-direction: column;
   padding: 16px; /* same rhythm as the 16px gap between panels */
   overflow-y: auto;
+}
+
+/* The dashboard keeps the scrollbar's room whether it scrolls or not: an open database has five
+   panels and scrolls, a closed or opening one fits, so without this every tile went a few pixels
+   wider or narrower each time the database changed state. Only the dashboard, since the pages that
+   fill the viewport never scroll and would carry an empty gutter for nothing. */
+.content-body:has(> .dashboard) {
+  scrollbar-gutter: stable;
 }
 
 /* pages that fill the viewport (query, files, settings) size themselves against this box */
@@ -5924,7 +6000,7 @@ svg.tone-override {
 .db-card {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
   padding: 12px 14px;
   background: var(--button-bg);
   border: 1px solid var(--border);
@@ -5966,10 +6042,9 @@ svg.tone-override {
   background: var(--accent-soft);
 }
 
-.db-card-state {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--text-muted);
+/* the state leads the facts line, beside the orb that already showed it */
+.db-card-facts > .db-card-state {
+  flex: none;
 }
 
 .db-card-facts {
@@ -6098,12 +6173,15 @@ svg.tone-override {
   margin-top: 2px;
 }
 
-/* a card this narrow cannot carry its buttons beside the name */
+/* a card this narrow cannot carry its buttons beside the name: they take a line of their own under
+   it, and the orb stays beside the name */
 @container (max-width: 560px) {
   .db-card {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+  }
+  .db-card-actions {
+    flex-basis: 100%;
   }
   .db-card-actions .big-button {
     flex: 1;
@@ -6271,6 +6349,31 @@ svg.tone-override {
   min-height: 0;
 }
 
+/* a panel that arrives after the page is up (PanelGrid marks it): it fades in and settles the last
+   few pixels into place. Filled backwards only, so nothing is left on it once it has arrived */
+.panel-cell.pg-enter {
+  animation: pg-enter 0.45s cubic-bezier(0.25, 0.7, 0.3, 1) backwards;
+}
+
+/* the dashboard's banner for a database that failed to start comes with the panels of that state */
+.dashboard > .startup-exception {
+  animation: pg-enter 0.45s cubic-bezier(0.25, 0.7, 0.3, 1) backwards;
+}
+
+@keyframes pg-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-cell.pg-enter,
+  .dashboard > .startup-exception {
+    animation: none;
+  }
+}
+
 .panel-cell > * {
   flex: 1;
   min-width: 0;
@@ -6399,15 +6502,18 @@ body.pg-resizing {
   gap: 14px;
 }
 
+/* the state tile is half as wide again as the others: it carries the power orb, a line of text and
+   the restart, where the others carry one number */
 .dash-tiles {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: minmax(0, 1.5fr) repeat(5, minmax(0, 1fr));
   gap: 10px;
 }
 
 .dash-tile {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   padding: 12px 14px;
   background: var(--panel);
   border: 1px solid var(--border);
@@ -6613,9 +6719,11 @@ body.pg-resizing {
   font-size: 12px;
 }
 
+/* minmax(0, 1fr) at every width, never 1fr: a plain fr track grows to fit its content, and the
+   state tile's content changes with the state */
 @media (max-width: 1100px) {
   .dash-tiles {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -6665,7 +6773,7 @@ body.pg-resizing {
 
 @media (max-width: 700px) {
   .dash-tiles {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -10190,42 +10298,219 @@ body.pg-resizing {
   position: relative;
 }
 
-/* The state tile: one line - the state, and the database's switch beside it - so it is no taller
-   than the tiles next to it, on a soft tint of the state's colour. The tint is mixed into the panel
-   colour rather than laid over it, so one rule serves both themes. */
+/* ---- the power orb (PowerOrb.tsx): how a database stands, wherever that is shown ---- */
+
+/* The four colours a database is shown in. A class rather than a prop, so the orb, the word beside
+   it and the tile around it all read the one --power. Opening is neither up nor wrong, so it is the
+   accent rather than a state colour; off is no colour at all. */
+.power-on {
+  --power: var(--ok);
+}
+
+.power-bad {
+  --power: var(--danger);
+}
+
+.power-busy {
+  --power: var(--accent);
+}
+
+.power-off {
+  --power: var(--text-muted);
+}
+
+/* Flat on purpose: a ring, a disc and the symbol, each one solid colour with a hard edge. No
+   light, no glow, no shadow - the colour of the ring is the whole message. */
+.power-orb {
+  position: relative;
+  flex: none;
+  display: inline-block;
+  border-radius: 50%;
+  color: var(--power);
+}
+
+.power-ring {
+  position: absolute;
+  inset: 0;
+}
+
+/* a change of state fades from one colour to the next, and the lit part of the ring runs to its new
+   length: the same pace for both, so the ring and the disc arrive together */
+.power-track {
+  fill: none;
+  stroke: color-mix(in srgb, var(--power) 26%, var(--panel));
+  transition: stroke 0.45s ease;
+}
+
+.power-off .power-track {
+  stroke: var(--border);
+}
+
+/* square ends: a part of the ring that is lit stops where it stops */
+.power-arc {
+  fill: none;
+  stroke: var(--power);
+  stroke-linecap: butt;
+  transition:
+    stroke-dashoffset 0.6s cubic-bezier(0.3, 0.7, 0.3, 1),
+    stroke 0.45s ease;
+}
+
+/* the disc inside the ring, the symbol on it in the state's colour */
+.power-core {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--power) 12%, var(--panel));
+  transition:
+    background-color 0.45s ease,
+    color 0.45s ease;
+}
+
+.power-off .power-core {
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text) 5%, var(--panel));
+}
+
+.power-core svg {
+  flex: none;
+}
+
+/* the orb as the database's power button: the disc takes more of the colour when pointed at and
+   more again while pressed - a change of colour, nothing that moves */
+.power-orb.power-switch:hover:not(:disabled) .power-core {
+  background: color-mix(in srgb, var(--power) 22%, var(--panel));
+}
+
+.power-orb.power-switch.power-off:hover:not(:disabled) .power-core {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 10%, var(--panel));
+}
+
+.power-orb.power-switch:active:not(:disabled) .power-core {
+  background: color-mix(in srgb, var(--power) 32%, var(--panel));
+}
+
+.power-orb.power-switch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.power-orb.power-switch:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* the hover and the press are quicker than a change of state: they answer a hand */
+.power-orb.power-switch:is(:hover, :active) .power-core {
+  transition-duration: 0.15s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .power-track,
+  .power-arc,
+  .power-core,
+  .dash-state-word,
+  .dash-state-detail > span,
+  .dash-state .dash-tile-actions {
+    transition: none;
+  }
+  .power-fade-in {
+    animation: none;
+  }
+}
+
+/* a new state word, or a new line about it, fades in where the last one was */
+.power-fade-in {
+  animation: power-fade-in 0.35s ease backwards;
+}
+
+@keyframes power-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* the state as a word beside an orb: small, in the orb's colour - the orb has already said it */
+.power-word {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--power);
+  transition: color 0.45s ease;
+}
+
+/* The state tile: the power orb, the state as a small word with a line about it, and the restart.
+   The panel and edge of every other tile - the orb and the word carry the state's colour. */
 .dash-state {
   flex-direction: row;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 6px 10px;
+  gap: 12px;
+  padding: 10px 12px 10px 14px;
 }
 
+.dash-state-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.dash-state-word {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--power);
+  line-height: 1.3;
+  transition: color 0.45s ease;
+}
+
+/* the line about the state and what pressing the orb would do share one place, one over the other,
+   so pointing at the orb fades one into the other instead of swapping them */
+.dash-state-detail {
+  display: grid;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-state-detail > span {
+  grid-area: 1 / 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.2s ease;
+}
+
+.dash-state-hint {
+  opacity: 0;
+  color: var(--text-soft);
+}
+
+.dash-state:has(.power-orb.power-switch:is(:hover, :focus-visible):not(:disabled)) .dash-state-now {
+  opacity: 0;
+}
+
+.dash-state:has(.power-orb.power-switch:is(:hover, :focus-visible):not(:disabled)) .dash-state-hint {
+  opacity: 1;
+}
+
+/* The restart is only there while the database is up, but it keeps its room in every state: the
+   text beside it never changes width, and it fades in and out rather than appearing */
 .dash-state .dash-tile-actions {
-  margin: 0 0 0 auto;
+  flex: none;
+  margin: 0;
   padding: 0;
+  transition: opacity 0.3s ease;
 }
 
-.dash-state.ok {
-  background: color-mix(in srgb, var(--ok) 12%, var(--panel));
-  border-color: color-mix(in srgb, var(--ok) 32%, var(--border));
-}
-
-.dash-state.bad {
-  background: color-mix(in srgb, var(--danger) 11%, var(--panel));
-  border-color: color-mix(in srgb, var(--danger) 32%, var(--border));
-}
-
-/* opening: neither up nor wrong, so the accent rather than a state colour, and how far it is where
-   the switch would be */
-.dash-state.busy {
-  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
-  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
-}
-
-.dash-state-progress {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--accent);
+.dash-state .dash-tile-actions.power-away {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* the database's own switch, along the foot of the tile that says which way it stands */

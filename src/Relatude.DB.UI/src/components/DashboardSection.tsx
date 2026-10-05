@@ -14,7 +14,6 @@ import {
   IconCpu,
   IconDatabase,
   IconPlayerPlayFilled,
-  IconPlayerStopFilled,
   IconRefresh,
   IconReload,
   IconSchema,
@@ -23,6 +22,7 @@ import { Chart } from "./Chart";
 import { ProcessChart, currentCpu, formatPercent, padToWindow, type ProcessSample } from "./ProcessChart";
 import { MemoryPanel } from "./MemoryPanel";
 import { PanelGrid, type PanelRow } from "./PanelGrid";
+import { PowerOrb, powerTone } from "./PowerOrb";
 import { TypeChart, otherSliceId, shade, type TypeChartShape, type TypeSlice } from "./TypeChart";
 import { KindIcon } from "./DatamodelIcons";
 import { openInDatamodel, openInQuery } from "../navigate";
@@ -106,13 +106,19 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   const refreshMs = useRefreshInterval();
 
   // asked for by hand after something that changes the whole picture - a database opened, closed or
-  // emptied - rather than waiting for the next sample of a call this expensive
+  // emptied - rather than waiting for the next sample of a call this expensive. Only the latest
+  // request's answer is taken: around an open, one asked while it was still opening can come back
+  // after one asked once it was open, and would put an empty database back on the page
+  const infoRequest = useRef(0);
   const loadInfo = useCallback(async () => {
+    const ticket = ++infoRequest.current;
     try {
-      setInfo(await fetchDashboard(db.id));
+      const next = await fetchDashboard(db.id);
+      if (ticket !== infoRequest.current) return;
+      setInfo(next);
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (ticket === infoRequest.current) setError(e instanceof Error ? e.message : String(e));
     }
   }, [db.id]);
 
@@ -225,15 +231,9 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
     }
   }
 
-  // closing is the one thing on this page that takes the database away from whoever is using it,
-  // so it is asked about first (see confirm-dialogs rule) - and never a second click on the same spot
+  // the power orb stops the database at once, without asking first: the owner's call - the orb says
+  // "press to stop" while it is pointed at, nothing is lost by a stop, and pressing it again starts it
   async function onClose() {
-    const choice = await showConfirm(
-      "Stop the database?",
-      "Every index is flushed and the file is released. Nothing is lost, but nothing is served from this database until it is started again - which replays the log and takes a while on a large one.",
-      { confirmLabel: "Stop", danger: true },
-    );
-    if (!choice.ok) return;
     setOpenBusy(true);
     try {
       await closeStore(db.id);
@@ -529,37 +529,43 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
       )}
 
       <div className="dash-tiles">
-        <StateTile value={state} tone={open ? "ok" : state === "Error" ? "bad" : opening ? "busy" : undefined}>
-          {
-            // The switch for the database itself, on the tile that says which way it stands - and
-            // said in words rather than as one more grey glyph: stopping a database and starting it
-            // are the two things on this page that change what the server is doing, so they are
-            // named. Stop wears the plain frame of the restart beside it, since the tile around it
-            // is already coloured by the state; start is the green of a database that is up.
-            open ? (
-              <span className="dash-tile-actions">
-                <button className="dash-tile-button quiet" title="Restart the database — close it and open it again" disabled={openBusy} onClick={onRestart}>
-                  <IconReload size={14} stroke={2} />
-                </button>
-                <button className="dash-tile-button" title="Close the database" disabled={openBusy} onClick={onClose}>
-                  <IconPlayerStopFilled size={13} stroke={2} />
-                  Stop
-                </button>
-              </span>
-            ) : opening ? (
-              // nothing to switch while it opens; how far it is takes the place of the button
-              <span className="dash-tile-actions">
-                <span className="num dash-state-progress">{openingPercent > 0 ? `${openingPercent}%` : "…"}</span>
-              </span>
-            ) : (
-              <span className="dash-tile-actions">
-                <button className="dash-tile-button start" title="Open the database" disabled={openBusy} onClick={onOpen}>
-                  <IconPlayerPlayFilled size={13} stroke={2} />
-                  Start
-                </button>
-              </span>
-            )
+        {/* The orb is the database's power button: pressed while it is up it stops it (at once),
+            pressed while it is down or failed it starts it. Nothing to press while it opens - the
+            ring is the progress then. The restart sits beside it as the one other thing to do. */}
+        <StateTile
+          state={state}
+          progress={opening ? openingPercent : null}
+          detail={
+            open
+              ? "serving requests"
+              : opening
+                ? openingPercent > 0
+                  ? `${openingPercent}%` + (progress?.timeRemainingMs ? ` · ${formatDuration(progress.timeRemainingMs)} left` : "")
+                  : "starting…"
+                : state === "Error"
+                  ? "failed to start"
+                  : state === "Closing"
+                    ? "flushing and closing"
+                    : "not serving"
           }
+          hint={open ? "press to stop" : opening || state === "Closing" ? undefined : state === "Error" ? "press to try again" : "press to start"}
+          powerTitle={open ? "Stop the database" : state === "Error" ? "Start the database again" : "Start the database"}
+          onPower={opening || state === "Closing" ? undefined : open ? onClose : onOpen}
+          busy={openBusy}
+        >
+          {/* only while it is up, but in place in every state: hidden rather than taken out, so the
+              text beside it keeps its width when the state changes */}
+          <span className={"dash-tile-actions" + (open ? "" : " power-away")} aria-hidden={!open}>
+            <button
+              className="dash-tile-button quiet"
+              title="Restart the database — close it and open it again"
+              disabled={openBusy || !open}
+              tabIndex={open ? undefined : -1}
+              onClick={onRestart}
+            >
+              <IconReload size={15} stroke={2} />
+            </button>
+          </span>
         </StateTile>
         {/* a store that is not up has counted nothing yet: a zero there would read as an empty database */}
         <Tile label="Nodes" icon={IconCircles} value={open ? formatCount(live?.nodeCount ?? 0) : "—"} />
@@ -947,15 +953,46 @@ function Tile({ label, icon: Icon, value }: { label: string; icon?: typeof IconC
 }
 
 /**
- * How the database stands, and its switch. The whole tile takes the state's colour - a soft tint
- * of it, not a block - so the page says open or failed before a word of it is read, which leaves
- * the word "State" nothing to add. The switch sits on the same line as the state rather than under
- * it, so this tile is no taller than the ones beside it.
+ * How the database stands, and its switch. The power orb says it before a word is read - lit green,
+ * dark, turning while it opens, red when it failed - so the state itself is a small word beside it,
+ * with a line under it saying what that means right now. Hovering the orb turns that line into
+ * what pressing it would do, since a power button never says which way it is about to go.
  */
-function StateTile({ value, tone, children }: { value: string; tone?: "ok" | "bad" | "busy"; children?: React.ReactNode }) {
+function StateTile({
+  state,
+  progress,
+  detail,
+  hint,
+  powerTitle,
+  onPower,
+  busy,
+  children,
+}: {
+  state: string;
+  progress: number | null;
+  detail: string;
+  hint?: string;
+  powerTitle: string;
+  onPower?: () => void;
+  busy: boolean;
+  children?: React.ReactNode;
+}) {
   return (
-    <div className={"dash-tile dash-state" + (tone ? " " + tone : "")}>
-      <div className="dash-tile-value">{value}</div>
+    <div className={"dash-tile dash-state power-" + powerTone(state)}>
+      <PowerOrb state={state} size={46} progress={progress} onClick={onPower} disabled={busy} title={onPower ? powerTitle : state} />
+      <div className="dash-state-text">
+        {/* keyed by the state, so a new one fades in where the last one was; the line about it is
+            keyed the same way, so the countdown of an open does not fade every second */}
+        <div key={state} className="dash-state-word power-fade-in">
+          {state}
+        </div>
+        <div className="dash-state-detail">
+          <span key={state} className="dash-state-now power-fade-in">
+            {detail}
+          </span>
+          {hint && <span className="dash-state-hint">{hint}</span>}
+        </div>
+      </div>
       {children}
     </div>
   );
