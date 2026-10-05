@@ -14,7 +14,7 @@ public sealed class ProjectType {
     /// <summary>One or two sentences: when to choose this type over the others.</summary>
     public required string SuitedFor { get; init; }
     public required string Prerequisites { get; init; }
-    /// <summary>Folder inside the project that holds the C# project and relatude.db.json, "" for the root.</summary>
+    /// <summary>Folder inside the project that holds the C# project and relatude.settings/relatude.db.json, "" for the root.</summary>
     public required string ProjectFolder { get; init; }
     /// <summary>Assembly name of the C# project, or null when it is the project's identifier (the name as PascalCase).</summary>
     public string? AssemblyName { get; init; }

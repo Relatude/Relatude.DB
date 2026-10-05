@@ -10,6 +10,7 @@ import {
   type ComponentType,
 } from "react";
 import {
+  IconAlertTriangle,
   IconArchive,
   IconArrowBackUp,
   IconChevronDown,
@@ -708,7 +709,7 @@ function ListEditor({
                 disabled={busy || !item.removable}
                 title={
                   list.locked
-                    ? "This list comes from configuration"
+                    ? "This list comes from appsettings"
                     : item.removable
                       ? `Remove this ${list.itemName}`
                       : `Still used as ${item.blocking.join(", ")}`
@@ -747,7 +748,7 @@ function ListEditor({
           Removed here, still in relatude.db.json: {list.removedHere.join(", ")}. The Overrides button moves the removal there, or takes it back.
         </div>
       )}
-      <button className="action-button" disabled={busy || list.locked} onClick={onAdd} title={list.locked ? "This list comes from configuration" : undefined}>
+      <button className="action-button" disabled={busy || list.locked} onClick={onAdd} title={list.locked ? "This list comes from appsettings" : undefined}>
         <IconPlus size={15} stroke={1.8} />
         Add {list.itemName}
       </button>
@@ -828,7 +829,7 @@ function SettingRow({
           <div className="setting-override">
             <IconLock size={13} stroke={1.8} />
             <span>
-              Set by configuration
+              Set in appsettings
               {setting.configuredValue !== null && setting.configuredValue !== undefined ? (
                 <>
                   {" to "}
@@ -839,6 +840,12 @@ function SettingRow({
               )}
               . The value below is what is running; editing it here would be undone at the next start.
             </span>
+          </div>
+        )}
+        {setting.warning && (
+          <div className="setting-override setting-warning">
+            <IconAlertTriangle size={13} stroke={1.8} />
+            <span>{setting.warning}</span>
           </div>
         )}
         {setting.codeSet && (
@@ -890,10 +897,14 @@ function Badges({ setting, edited, clearsSecret }: { setting: SettingView; edite
   return (
     <>
       {edited && <span className="setting-badge unsaved">unsaved</span>}
-      {setting.overridden && <span className="setting-badge config">from configuration</span>}
+      {setting.overridden && (
+        <span className="setting-badge config" title="Set in appsettings: the RelatudeDB section of appsettings.json or appsettings.{Environment}.json, an environment variable or user secrets">
+          from appsettings
+        </span>
+      )}
       {setting.codeSet && <span className="setting-badge config">from code</span>}
       {setting.readOnly && !setting.overridden && <span className="setting-badge">read only</span>}
-      {/* "from configuration" already says the value is not this server's own, so default-vs-custom would only add noise */}
+      {/* "from appsettings" already says the value is not this server's own, so default-vs-custom would only add noise */}
       {!setting.readOnly && !setting.overridden && !setting.codeSet && (setting.isDefault ? <span className="setting-badge faint">default</span> : <span className="setting-badge custom">custom</span>)}
       {setting.inOverrides && (
         <span

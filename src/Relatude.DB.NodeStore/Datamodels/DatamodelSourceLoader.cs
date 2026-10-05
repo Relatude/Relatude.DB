@@ -19,7 +19,7 @@ namespace Relatude.DB.Datamodels;
 /// </summary>
 public static class DatamodelSourceLoader {
     /// <summary>
-    /// The folder, relative to the settings folder, that the model files of a runtime types source with no
+    /// The folder, relative to the application's folder, that the model files of a runtime types source with no
     /// <see cref="DatamodelSource.Filepath"/> go into: one subfolder per source, named after it
     /// (<see cref="DefaultPath"/>). It sits in the default database's folder, beside datamodels/ where the
     /// editor keeps its drafts and history.
@@ -31,7 +31,7 @@ public static class DatamodelSourceLoader {
     public const string DefaultCSharpFolder = "Models/CSharp";
     /// <param name="dm">The datamodel the source is combined into.</param>
     /// <param name="source">The source to load.</param>
-    /// <param name="rootFolder">The folder relative file paths resolve against — the folder holding the settings file.</param>
+    /// <param name="rootFolder">The folder relative file paths resolve against — the application's folder (the root data folder).</param>
     /// <param name="resolveIO">Resolves an IO provider by id, only needed for legacy JsonFile sources using FileIO.</param>
     public static void Load(Datamodel dm, DatamodelSource source, string rootFolder, Func<Guid, IIOProvider?>? resolveIO = null) {
         register(dm, source, () => {
@@ -138,7 +138,7 @@ public static class DatamodelSourceLoader {
     }
     /// <summary>
     /// The folder holding the C# files a compiled source is built from (<see cref="DatamodelSource.SourceCodePath"/>
-    /// resolved against the settings folder), or null when the source does not name one.
+    /// resolved against the application's folder), or null when the source does not name one.
     /// </summary>
     public static string? ResolveSourceCodeFolder(DatamodelSource source, string rootFolder) {
         if (string.IsNullOrEmpty(source.SourceCodePath)) return null;
@@ -268,17 +268,17 @@ public static class DatamodelSourceLoader {
         var baseFolder = Path.HasExtension(path) ? Path.GetDirectoryName(path)! : path;
         return ([], baseFolder, "the path \"" + path + "\" does not exist, so it is loaded as an empty source. "
             + "Set Filepath to a " + pattern + " file or a folder holding such files if that is not intended "
-            + "(relative paths resolve against the settings folder; when Filepath is empty, \"" + defaultPath + "\" is used). ");
+            + "(relative paths resolve against the application's folder; when Filepath is empty, \"" + defaultPath + "\" is used). ");
     }
     /// <summary>
     /// The absolute file or folder path a runtime types source reads from, whether or not it exists yet:
-    /// Filepath, else <see cref="DefaultPath"/>, resolved against the settings folder.
+    /// Filepath, else <see cref="DefaultPath"/>, resolved against the application's folder.
     /// </summary>
     public static string ResolveFilePath(DatamodelSource source, string rootFolder) => ResolveFilePath(source, rootFolder, DefaultFolder(source));
     /// <summary>
     /// The absolute file or folder path a file based source reads from, whether or not it exists yet:
     /// Filepath, else the default folder combined with Reference, else the default folder, resolved
-    /// against the settings folder. The default folder is <see cref="DefaultFolder"/> for a runtime
+    /// against the application's folder. The default folder is <see cref="DefaultFolder"/> for a runtime
     /// source and <see cref="DefaultCSharpFolder"/> for the editor's dry run over C# files.
     /// </summary>
     public static string ResolveFilePath(DatamodelSource source, string rootFolder, string defaultFolder) {
@@ -289,7 +289,7 @@ public static class DatamodelSourceLoader {
         return path;
     }
     /// <summary>
-    /// The folder a runtime types source with no Filepath reads from, relative to the settings folder:
+    /// The folder a runtime types source with no Filepath reads from, relative to the application's folder:
     /// relatude.db/modelsources/{name} (<see cref="DefaultRuntimeTypesFolder"/>, <see cref="FolderNameOf"/>).
     /// It follows the name, so a source renamed without a Filepath would look for its files in a folder
     /// of the new name; the data model editor and the settings page write the old folder into the
@@ -297,7 +297,7 @@ public static class DatamodelSourceLoader {
     /// </summary>
     public static string DefaultFolder(DatamodelSource source) => DefaultRuntimeTypesFolder + "/" + FolderNameOf(source);
     /// <summary>
-    /// What a runtime types source with no Filepath reads, relative to the settings folder: its
+    /// What a runtime types source with no Filepath reads, relative to the application's folder: its
     /// <see cref="DefaultFolder"/>, or the file <see cref="DatamodelSource.Reference"/> names in it.
     /// </summary>
     public static string DefaultPath(DatamodelSource source) =>

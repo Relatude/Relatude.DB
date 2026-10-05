@@ -60,7 +60,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             var originalStream = await originalStore.GetFileStream(fileValue);
             return new StateAndStream(originalStream, true, fileValue, fileValue.Format, Guid.Empty, null);
         }
-        var idWithAdj = new FileIdWithAdjustment(fileValue.FileId, adj, propertyPath);
+        var idWithAdj = FileIdWithAdjustment.Of(fileValue, adj, propertyPath);
         var info = new FileConversionInfo(idWithAdj, fileValue.Name, fileValue.Hash, fileValue.Format);
         var fileStore = getFileStore(fileValue.StorageId);
         InputFileSource source;
@@ -94,7 +94,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             progressInfo = new FileConversionProgressInfo(FileConversionStatus.Ready, 100, 0);
             return true;
         }
-        var idWithAdj = new FileIdWithAdjustment(fileValue.FileId, adj, propertyPath);
+        var idWithAdj = FileIdWithAdjustment.Of(fileValue, adj, propertyPath);
         var fileStore = getFileStore(fileValue.StorageId);
         var fileConversionInfo = new FileConversionInfo(idWithAdj, fileValue.Name, fileValue.Hash, fileValue.Format);
         fileStore.TryGetLocalFilePath(fileValue, out var localFilePath);

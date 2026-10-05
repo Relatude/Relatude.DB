@@ -27,9 +27,10 @@ import { PanelMaximizedContext } from "../panelMaximized";
  * header stay in reach; the other panels are hidden where they are and shown again on the way back,
  * which is a matter of a click on the same button or Escape.
  *
- * A panel that arrives after the grid is up - the rows a page swaps when what it shows changes, as
- * the dashboard does when its database opens or closes - fades in, a little after the one before
- * it. The panels the page opened with are simply there.
+ * When a page swaps its rows for others - the dashboard does when its database opens or closes - the
+ * panels that are going fade out first, together, drifting up a little; then the new rows take their
+ * place and their panels fade in from a little below, each a moment after the one before it. The
+ * panels a page opened with are simply there, and a panel that is in both sets stays and carries on.
  */
 
 export interface PanelRow {
@@ -57,12 +58,56 @@ const narrowAt = 760;
 const keyStep = 0.02;
 const keyStepPx = 16;
 /** how much later each newly arrived panel starts its fade than the one before it */
-const arriveStaggerMs = 70;
+const arriveStaggerMs = 120;
+/** how long the panels that are going take to fade out before the new ones take their place (the
+    css animation, pg-leave, is a little shorter, so they are gone when the swap happens) */
+const leaveMs = 560;
+
+/** the key of each cell, in order: a row's first panel and, when it has one, its second */
+function cellKeys(rows: PanelRow[]): string[] {
+  return rows.flatMap((row) => row.cells.map((_, i) => row.id + (i === 0 ? ":a" : ":b")));
+}
+
+function reducedMotion(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 
 type DragMode = "col" | "row" | "both";
 
-export function PanelGrid({ id, rows, defaultSplit = 0.62 }: { id: string; rows: PanelRow[]; defaultSplit?: number }) {
+export function PanelGrid({ id, rows: incoming, defaultSplit = 0.62 }: { id: string; rows: PanelRow[]; defaultSplit?: number }) {
   const storageKey = "panelGrid:" + id;
+
+  // The rows on screen are the ones handed in, except while panels that are going fade out: then the
+  // grid keeps showing the rows they were in for `leaveMs` - as they last were, since their page has
+  // already moved on - and only then takes the new ones. A cell that is in both sets is never
+  // frozen: it shows what it is handed throughout. Handed yet other rows meanwhile, the grid simply
+  // takes the latest when the fade is over.
+  const incomingSignature = cellKeys(incoming).join("|");
+  const [signature, setSignature] = useState(incomingSignature);
+  const [outgoing, setOutgoing] = useState<PanelRow[] | null>(null);
+  const lastShown = useRef<PanelRow[]>(incoming);
+  if (incomingSignature !== signature) {
+    // adjusting state to a changed prop during the render, before anything is drawn
+    setSignature(incomingSignature);
+    if (outgoing === null && !reducedMotion()) {
+      const staying = new Set(cellKeys(incoming));
+      if (cellKeys(lastShown.current).some((key) => !staying.has(key))) setOutgoing(lastShown.current);
+    }
+  }
+  useEffect(() => {
+    if (outgoing === null) lastShown.current = incoming;
+  });
+  useEffect(() => {
+    if (outgoing === null) return;
+    const timer = setTimeout(() => setOutgoing(null), leaveMs);
+    return () => clearTimeout(timer);
+  }, [outgoing]);
+  const incomingKeys = new Set(cellKeys(incoming));
+  const incomingCell = (rowId: string, i: number) => incoming.find((row) => row.id === rowId)?.cells[i];
+  const rows: PanelRow[] = outgoing
+    ? outgoing.map((row) => ({ ...row, cells: row.cells.map((content, i) => (incomingKeys.has(row.id + (i === 0 ? ":a" : ":b")) ? (incomingCell(row.id, i) ?? content) : content)) }))
+    : incoming;
+
   const [layout, setLayout] = useState<Layout>(() => read(storageKey, defaultSplit));
   const [dragging, setDragging] = useState<DragMode | null>(null);
   // the cell taken to the whole page, by its key, and the area it covers
@@ -215,7 +260,7 @@ export function PanelGrid({ id, rows, defaultSplit = 0.62 }: { id: string; rows:
   // Which cells are new since the last render, worked out while rendering so the class is there on
   // the element's first frame - an animation added a frame later would show the panel and then
   // start it from nothing. Rendering twice over (strict mode) finds the same answer the second time.
-  const keysNow = rows.flatMap((row) => row.cells.map((_, i) => row.id + (i === 0 ? ":a" : ":b")));
+  const keysNow = cellKeys(rows);
   const starting = arrived.current === null;
   const known = arrived.current ?? new Map<string, number>();
   let batch = 0;
@@ -223,15 +268,24 @@ export function PanelGrid({ id, rows, defaultSplit = 0.62 }: { id: string; rows:
   for (const key of [...known.keys()]) if (!keysNow.includes(key)) known.delete(key);
   arrived.current = known;
 
+  // a maximized panel that has gone (its page swapped it out) takes the maximizing with it: kept,
+  // it would leave every other panel hidden behind a panel that is no longer there
+  const maxKey = maximized !== null && keysNow.includes(maximized) ? maximized : null;
+  useEffect(() => {
+    if (maximized !== null && maxKey === null) setMaximized(null);
+  }, [maximized, maxKey]);
+
   // a cell of the grid: the panel it was handed, and the button that takes it to the whole page
   const cell = (key: string, row: PanelRow, content: ReactNode, style?: React.CSSProperties, ref?: (el: HTMLDivElement | null) => void) => {
-    const isMax = maximized === key;
-    const order = known.get(key) ?? -1;
+    const isMax = maxKey === key;
+    const leaving = outgoing !== null && !incomingKeys.has(key);
+    const order = leaving ? -1 : (known.get(key) ?? -1);
     const placed = isMax && maxRect ? { position: "fixed" as const, ...maxRect } : style;
     return (
       <div
         key={key}
-        className={cellClass(row, isMax) + (order >= 0 ? " pg-enter" : "")}
+        className={cellClass(row, isMax) + (leaving ? " pg-leave" : order >= 0 ? " pg-enter" : "")}
+        aria-hidden={leaving || undefined}
         ref={ref}
         style={order > 0 ? { ...placed, animationDelay: order * arriveStaggerMs + "ms" } : placed}
         // arrived: from now on it is one of the panels that were there, so a cell the grid builds
@@ -256,7 +310,7 @@ export function PanelGrid({ id, rows, defaultSplit = 0.62 }: { id: string; rows:
   if (narrow) {
     // one column: the cells in the order they were given, nothing to drag
     return (
-      <div className={"panel-grid-wrap narrow" + (maximized ? " has-max" : "")} ref={box}>
+      <div className={"panel-grid-wrap narrow" + (maxKey ? " has-max" : "")} ref={box}>
         {rows.flatMap((row) => row.cells.map((content, i) => cell(row.id + (i === 0 ? ":a" : ":b"), row, content)))}
       </div>
     );
@@ -331,7 +385,7 @@ export function PanelGrid({ id, rows, defaultSplit = 0.62 }: { id: string; rows:
     .join(" ");
 
   return (
-    <div className={"panel-grid-wrap" + (dragging ? " dragging" : "") + (maximized ? " has-max" : "")} ref={box}>
+    <div className={"panel-grid-wrap" + (dragging ? " dragging" : "") + (maxKey ? " has-max" : "")} ref={box}>
       <div
         className="panel-grid"
         style={{ gridTemplateColumns: `minmax(0, ${layout.split}fr) ${barSize}px minmax(0, ${1 - layout.split}fr)`, gridTemplateRows: templateRows }}

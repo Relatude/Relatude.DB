@@ -215,6 +215,12 @@ public class IOProviderMemory : IIOProvider {
             }
         }
     }
+    public bool DeleteFolderIfEmpty(string[] path) {
+        if (path.Length == 0) return false;
+        FileKeyUtility.ValidateFileKeyPath(path);
+        var prefix = string.Join(_virtualFolderChar, path) + _virtualFolderChar;
+        lock (_lock) return !_disk.Keys.Any(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)); // a virtual folder: nothing to delete
+    }
     public void EnsureFolder(string[] path) {
         FileKeyUtility.ValidateFileKeyPath(path);
         // Memory provider uses virtual folders via key prefixes; no-op needed.

@@ -321,16 +321,25 @@ public sealed class DatamodelValidator {
 
     void checkOverridesAndText(string draftJson, Datamodel draft, Datamodel active, SourceWritePlan plan, DatamodelValidation result) {
         var issues = result.Issues;
+        // what the draft overrides differently from the shared file is written to the installation's file;
+        // the shared one, part of the application, is only ever written by moving overrides into it
         var file = _container.OverridesFile;
-        var planned = file.Plan(_server, active.Overrides, draft.Overrides, draft);
-        if (planned != null) {
-            if (!file.CanWrite) {
-                issues.Add(DatamodelIssue.Error("overrides-nowhere", "The overrides change, but they are kept with the database and the database has no primary storage provider (IoDatabase) to keep them in. "
-                    + "Set one, or name a file for them in the settings (Data model, Overrides). "));
-            } else {
-                plan.Files.Add(planned);
-                plan.OverridesChange = true;
+        PlannedFile? planned;
+        try {
+            planned = file.Plan(_server, active.Overrides, draft.Overrides, draft);
+        } catch (Exception error) {
+            issues.Add(DatamodelIssue.Error("overrides", error.Message));
+            return;
+        }
+        if (planned != null && !file.CanWrite) {
+            // nothing to write for a draft that says what the shared file says, and nothing to delete
+            if (planned.Action == PlannedFileAction.Write) {
+                issues.Add(DatamodelIssue.Error("overrides-nowhere", "The overrides change for this installation, but the database has no primary storage provider (IoDatabase) to keep them in. "
+                    + "Set one in the database's settings. "));
             }
+        } else if (planned != null) {
+            plan.Files.Add(planned);
+            plan.OverridesChange = true;
         }
         // both models as the store will see them: overrides applied, inherited switches filled in
         Datamodel effectiveDraft, effectiveActive;
@@ -431,7 +440,7 @@ public sealed class DatamodelValidator {
     }
     static string show(object? value) => value switch {
         null => "none",
-        string s => """ + s + """,
+        string s => "\"" + s + "\"",
         bool b => b ? "true" : "false",
         IFormattable f => f.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
         Array a => a.Length == 0 ? "empty" : "[" + a.Length + " values]",

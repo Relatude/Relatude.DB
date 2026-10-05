@@ -860,7 +860,7 @@ a {
 .db-state-word {
   font-weight: 600;
   color: var(--power);
-  transition: color 0.45s ease;
+  transition: color 0.7s ease;
 }
 
 .db-state-word.power-off {
@@ -4014,6 +4014,12 @@ a.action-button {
   flex: none;
 }
 
+/* a value saved for this installation alone that every installation should share */
+.setting-override.setting-warning {
+  color: var(--data);
+  background: var(--data-soft);
+}
+
 .setting-override code {
   font-size: 11.5px;
   word-break: break-all;
@@ -6349,26 +6355,40 @@ svg.tone-override {
   min-height: 0;
 }
 
-/* a panel that arrives after the page is up (PanelGrid marks it): it fades in and settles the last
-   few pixels into place. Filled backwards only, so nothing is left on it once it has arrived */
+/* Panels a page swaps in and out (PanelGrid marks them). The ones going fade out together, drifting
+   up a little; the new ones then fade in from a little below, each a moment after the last, and
+   settle slowly. Both are filled one way only, so nothing is left on a panel once it has arrived. */
+.panel-cell.pg-leave {
+  pointer-events: none;
+  animation: pg-leave 0.52s cubic-bezier(0.4, 0, 0.6, 1) forwards;
+}
+
 .panel-cell.pg-enter {
-  animation: pg-enter 0.45s cubic-bezier(0.25, 0.7, 0.3, 1) backwards;
+  animation: pg-enter 0.95s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
 /* the dashboard's banner for a database that failed to start comes with the panels of that state */
 .dashboard > .startup-exception {
-  animation: pg-enter 0.45s cubic-bezier(0.25, 0.7, 0.3, 1) backwards;
+  animation: pg-enter 0.95s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+@keyframes pg-leave {
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
 }
 
 @keyframes pg-enter {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(12px);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .panel-cell.pg-enter,
+  .panel-cell.pg-leave,
   .dashboard > .startup-exception {
     animation: none;
   }
@@ -10339,7 +10359,7 @@ body.pg-resizing {
 .power-track {
   fill: none;
   stroke: color-mix(in srgb, var(--power) 26%, var(--panel));
-  transition: stroke 0.45s ease;
+  transition: stroke 0.7s ease;
 }
 
 .power-off .power-track {
@@ -10352,8 +10372,8 @@ body.pg-resizing {
   stroke: var(--power);
   stroke-linecap: butt;
   transition:
-    stroke-dashoffset 0.6s cubic-bezier(0.3, 0.7, 0.3, 1),
-    stroke 0.45s ease;
+    stroke-dashoffset 0.9s cubic-bezier(0.4, 0, 0.2, 1),
+    stroke 0.7s ease;
 }
 
 /* the disc inside the ring, the symbol on it in the state's colour */
@@ -10365,8 +10385,8 @@ body.pg-resizing {
   border-radius: 50%;
   background: color-mix(in srgb, var(--power) 12%, var(--panel));
   transition:
-    background-color 0.45s ease,
-    color 0.45s ease;
+    background-color 0.7s ease,
+    color 0.7s ease;
 }
 
 .power-off .power-core {
@@ -10405,7 +10425,7 @@ body.pg-resizing {
 
 /* the hover and the press are quicker than a change of state: they answer a hand */
 .power-orb.power-switch:is(:hover, :active) .power-core {
-  transition-duration: 0.15s;
+  transition-duration: 0.2s;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -10417,17 +10437,49 @@ body.pg-resizing {
   .dash-state .dash-tile-actions {
     transition: none;
   }
-  .power-fade-in {
+  .fade-text-in {
     animation: none;
+  }
+  .fade-text-out {
+    display: none;
   }
 }
 
-/* a new state word, or a new line about it, fades in where the last one was */
-.power-fade-in {
-  animation: power-fade-in 0.35s ease backwards;
+/* ---- text that crossfades when what it says changes (FadeText.tsx) ---- */
+
+/* the old copy and the new one share one grid cell, each cut short like the line they stand in */
+.fade-text {
+  display: inline-grid;
+  min-width: 0;
+  max-width: 100%;
 }
 
-@keyframes power-fade-in {
+.fade-text > span {
+  grid-area: 1 / 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the old words go a little quicker than the new ones come, and the new ones start a moment later,
+   so the two are never both at full strength over each other */
+.fade-text-out {
+  pointer-events: none;
+  animation: fade-text-out 0.4s ease forwards;
+}
+
+.fade-text-in {
+  animation: fade-text-in 0.55s ease 0.1s backwards;
+}
+
+@keyframes fade-text-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes fade-text-in {
   from {
     opacity: 0;
   }
@@ -10440,7 +10492,7 @@ body.pg-resizing {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--power);
-  transition: color 0.45s ease;
+  transition: color 0.7s ease;
 }
 
 /* The state tile: the power orb, the state as a small word with a line about it, and the restart.
@@ -10464,7 +10516,7 @@ body.pg-resizing {
   text-transform: uppercase;
   color: var(--power);
   line-height: 1.3;
-  transition: color 0.45s ease;
+  transition: color 0.7s ease;
 }
 
 /* the line about the state and what pressing the orb would do share one place, one over the other,
@@ -10483,7 +10535,7 @@ body.pg-resizing {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.3s ease;
 }
 
 .dash-state-hint {
@@ -10505,7 +10557,7 @@ body.pg-resizing {
   flex: none;
   margin: 0;
   padding: 0;
-  transition: opacity 0.3s ease;
+  transition: opacity 0.5s ease;
 }
 
 .dash-state .dash-tile-actions.power-away {

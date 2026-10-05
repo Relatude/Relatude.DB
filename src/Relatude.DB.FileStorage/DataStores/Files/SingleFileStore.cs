@@ -55,7 +55,7 @@ public class SingleFileStore : IDisposable, IFileStore {
         file.Flush(true);
         var hashString = Convert.ToHexString(checksum);
         //Console.WriteLine("Finished inserting file with id: " + fileId + ", length: " + length + ", hash: " + hashString + ", time taken: " + sw.Elapsed);
-        return new FileInsertResult(hashString, longToBytes(offset), length);
+        return new FileInsertResult(hashString, longToBytes(offset), length, fileId);
     }
     async Task extract(Guid fileId, long offset, Func<byte[], Task> recieveAsync) {
         long length;

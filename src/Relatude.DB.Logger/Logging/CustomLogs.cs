@@ -8,7 +8,9 @@ namespace Relatude.DB.Logging;
 /// <summary>
 /// The custom logs of one log folder; see <see cref="ICustomLogs"/>.
 ///
-/// The settings files are the definitions. What is running is a <see cref="Logging.LogStore"/>
+/// The settings files are the definitions: one {key}.json per log in a <see cref="LogDefinitionFolder"/>
+/// - relatude.settings/logs/{database short name}/ on a server - while the logs' data is in the log
+/// folder of their storage, one folder per log. What is running is a <see cref="Logging.LogStore"/>
 /// built from copies of them, so a definition handed out can be changed freely without changing a
 /// log that runs on it, and a change reaches the log only through <see cref="Update"/>, which saves
 /// the file before the log is rebuilt on it.
@@ -26,29 +28,41 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
     const int moveChunkFiles = 500;
 
     readonly IIOProvider _io;
+    readonly LogDefinitionFolder _folder;
+    readonly Action<string>? _log;
     readonly HashSet<string> _reserved;
     readonly object _lock = new();
     volatile LogStore _store;
     // the definitions as they were saved, by key. Never handed out: callers get copies
     Dictionary<string, LogSettings> _definitions = new(StringComparer.OrdinalIgnoreCase);
     // where a definition was read from, when that is not the file it would be saved to (a file
-    // renamed by hand): saving writes the right file and removes this one, so the log is not
-    // defined twice at the next start
-    Dictionary<string, string[]> _sourceFiles = new(StringComparer.OrdinalIgnoreCase);
+    // renamed by hand, or one an older version kept beside the data that could not be moved): saving
+    // writes the right file and removes this one, so the log is not defined twice at the next start
+    Dictionary<string, (IIOProvider Io, string[] Key)> _sourceFiles = new(StringComparer.OrdinalIgnoreCase);
     List<CustomLogLoadError> _loadErrors = [];
+    // the files behind the load errors, by the name they are listed under
+    Dictionary<string, (IIOProvider Io, string[] Key)> _brokenFiles = new(StringComparer.OrdinalIgnoreCase);
     volatile bool _anyEnabled;
     bool _disposed;
 
     /// <param name="io">The provider the log folder is in.</param>
     /// <param name="reservedKeys">Keys a custom log may not take: those of the logs defined in code,
     /// which keep their files in the same folder.</param>
-    public CustomLogs(IIOProvider io, IEnumerable<string>? reservedKeys = null) {
+    /// <param name="definitions">Where the definitions are kept. Null keeps them in the log folder of
+    /// <paramref name="io"/>, as log/{key}.json. Definitions an older version saved in the log folder as
+    /// log.{key}.settings.json are moved into it.</param>
+    /// <param name="log">Told what moving those older definitions did, and what it could not do.</param>
+    public CustomLogs(IIOProvider io, IEnumerable<string>? reservedKeys = null, LogDefinitionFolder? definitions = null, Action<string>? log = null) {
         _io = io;
+        _folder = definitions ?? LogDefinitionFolder.InLogFolder(io);
+        _log = log;
         _reserved = new(reservedKeys ?? [], StringComparer.OrdinalIgnoreCase);
         _store = new LogStore(io, load());
     }
 
     public ILogStore LogStore => _store;
+    public string DefinitionsFolder => _folder.Display;
+    public string DefinitionFileOf(string logKey) => _folder.DisplayOf(logKey);
     public IReadOnlyCollection<string> ReservedKeys => _reserved;
     public bool AnyEnabled => _anyEnabled;
 
@@ -75,7 +89,7 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
         if (_reserved.Contains(logKey)) return $"'{logKey}' is the key of one of the database's activity logs.";
         lock (_lock) {
             if (_definitions.ContainsKey(logKey)) return $"There is already a log with the key '{logKey}'.";
-            if (_io.Exists(FileKeyUtility.Logger_GetSettings(logKey))) return $"The log folder already has a settings file for '{logKey}'.";
+            if (_folder.IO.Exists(_folder.FileKey(logKey))) return $"There is already a definition file for '{logKey}': {_folder.DisplayOf(logKey)}.";
         }
         return null;
     }
@@ -83,32 +97,77 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
     // ---- reading the definitions ----
 
     List<LogSettings> load() {
+        moveLegacyDefinitions();
         var definitions = new Dictionary<string, LogSettings>(StringComparer.OrdinalIgnoreCase);
-        var sources = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        var sources = new Dictionary<string, (IIOProvider, string[])>(StringComparer.OrdinalIgnoreCase);
         var errors = new List<CustomLogLoadError>();
-        foreach (var fileKey in FileKeyUtility.Logger_GetAllSettingsFileKeys(_io)) {
+        var broken = new Dictionary<string, (IIOProvider, string[])>(StringComparer.OrdinalIgnoreCase);
+        // the definitions where they are kept, then what an older version kept beside the data and
+        // was not moved: read where it is, and moved by the next save
+        var files = _folder.FileKeys().Select(k => (Io: _folder.IO, Key: k, Display: _folder.DisplayOf(k), Legacy: false))
+            .Concat(FileKeyUtility.Logger_GetAllLegacySettingsFileKeys(_io).Select(k => (Io: _io, Key: k, Display: k.AsKeyString(), Legacy: true)))
+            .ToArray();
+        foreach (var file in files) {
             LogSettings settings;
             try {
-                if (!_io.ExistsAndIsNotEmpty(fileKey)) throw new Exception("The file is empty.");
-                settings = LogSettings.Load(_io, fileKey);
+                if (!file.Io.ExistsAndIsNotEmpty(file.Key)) throw new Exception("The file is empty.");
+                settings = LogSettings.Load(file.Io, file.Key);
             } catch (Exception error) {
-                errors.Add(new(fileKey.AsKeyString(), error.Message));
+                errors.Add(new(file.Display, error.Message));
+                broken[file.Display] = (file.Io, file.Key);
                 continue;
             }
             // the system logs are defined in code; settings saved for them here are theirs, not a
             // custom log with the same name
             if (_reserved.Contains(settings.Key)) continue;
             if (!definitions.TryAdd(settings.Key, settings)) {
-                errors.Add(new(fileKey.AsKeyString(), $"Another settings file already defines the log '{settings.Key}'."));
+                errors.Add(new(file.Display, file.Legacy
+                    ? $"An older copy of the definition of '{settings.Key}', from before the definitions were kept in {_folder.Display}. The one there is the one read: delete this copy once nothing in it is missed."
+                    : $"Another settings file already defines the log '{settings.Key}'."));
+                broken[file.Display] = (file.Io, file.Key);
                 continue;
             }
-            if (!fileKey.IsSameKey(FileKeyUtility.Logger_GetSettings(settings.Key))) sources[settings.Key] = fileKey;
+            if (file.Legacy || !file.Key.IsSameKey(_folder.FileKey(settings.Key))) sources[settings.Key] = (file.Io, file.Key);
         }
         _definitions = definitions;
         _sourceFiles = sources;
         _loadErrors = errors;
+        _brokenFiles = broken;
         updateAnyEnabled();
         return [.. definitions.Values.Select(s => s.Clone())];
+    }
+
+    /// <summary>
+    /// Moves the definitions an older version kept beside the logs' data - log/log.{key}.settings.json in
+    /// the log storage - to where they are kept now. The text goes across as it is, comments and all:
+    /// written there and read back before the old file is deleted, so a failure leaves the definition
+    /// where it was, to be read there and moved by the next change to the log. A definition already in
+    /// the new place is never overwritten: an identical old copy is deleted, another one is left, and
+    /// <see cref="load"/> lists it as a file that does not count.
+    /// </summary>
+    void moveLegacyDefinitions() {
+        var moved = new List<string>();
+        foreach (var legacy in FileKeyUtility.Logger_GetAllLegacySettingsFileKeys(_io)) {
+            var logKey = FileKeyUtility.Logger_KeyOfFileName(legacy.FileName());
+            if (logKey == null || !_io.ExistsAndIsNotEmpty(legacy)) continue; // an empty file is listed as one that does not read
+            var target = _folder.FileKey(logKey);
+            try {
+                var text = _io.ReadAllTextUTF8(legacy);
+                if (_folder.IO.ExistsAndIsNotEmpty(target)) {
+                    if (_folder.IO.ReadAllTextUTF8(target) == text) _io.DeleteFileIfItExists(legacy);
+                    continue;
+                }
+                _folder.IO.WriteAllTextUTF8(target, text);
+                if (_folder.IO.ReadAllTextUTF8(target) != text) throw new Exception("the copy did not read back the same");
+                _io.DeleteFileIfItExists(legacy);
+                moved.Add(logKey);
+            } catch (Exception error) {
+                _log?.Invoke($"Could not move the log definition {legacy.AsKeyString()} to {_folder.DisplayOf(target)} ({error.Message}). It is read where it is, and moved by the next change to the log.");
+            }
+        }
+        if (moved.Count > 0) {
+            _log?.Invoke($"Moved the {(moved.Count == 1 ? "definition" : "definitions")} of {string.Join(", ", moved.Select(k => "'" + k + "'"))} out of the log folder into {_folder.Display}.");
+        }
     }
     void updateAnyEnabled() => _anyEnabled = _definitions.Values.Any(s => s.IsEnabled());
 
@@ -117,8 +176,8 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
     static LogSettings prepare(LogSettings settings) => LogSettings.FromJson(settings.ToJson());
 
     void save(LogSettings settings) {
-        settings.Save(_io);
-        if (_sourceFiles.Remove(settings.Key, out var source)) _io.DeleteFileIfItExists(source);
+        settings.Save(_folder.IO, _folder.FileKey(settings.Key));
+        if (_sourceFiles.Remove(settings.Key, out var source)) source.Io.DeleteFileIfItExists(source.Key);
     }
     void ensureOpen() {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -204,8 +263,13 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
             var old = current(logKey);
             if (deleteRecorded) _store.DeleteLogAndStatistics(old.Key);
             _store.RemoveLog(old.Key);
-            LogSettings.DeleteSaved(_io, old.Key);
-            if (_sourceFiles.Remove(old.Key, out var source)) _io.DeleteFileIfItExists(source);
+            if (deleteRecorded) removeFolderIfEmpty(old.Key);
+            _folder.IO.DeleteFileIfItExists(_folder.FileKey(old.Key));
+            if (_sourceFiles.Remove(old.Key, out var source)) source.Io.DeleteFileIfItExists(source.Key);
+            // an older copy left beside the data would define the log again at the next start
+            var legacy = FileKeyUtility.Logger_GetLegacySettings(old.Key);
+            _io.DeleteFileIfItExists(legacy);
+            foreach (var name in _brokenFiles.Where(b => b.Value.Io == _io && b.Value.Key.IsSameKey(legacy)).Select(b => b.Key).ToArray()) forgetBroken(name);
             _definitions.Remove(old.Key);
             updateAnyEnabled();
         }
@@ -404,20 +468,28 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
         return moved;
     }
 
+    // a log deleted with what it recorded leaves no empty folder behind (blob storage has no empty folders)
+    void removeFolderIfEmpty(string logKey) {
+        var folder = FileKeyUtility.Logger_FolderKey(logKey);
+        try {
+            if (_io.SupportsEmptyFolders && !_io.Search([.. folder, "*"]).Any()) _io.DeleteFolderIfItExists(folder);
+        } catch {
+            // an empty folder left behind is harmless
+        }
+    }
+
     public IReadOnlyList<CustomLogFile> GetFiles(string logKey) {
         LogSettings settings;
         lock (_lock) settings = current(logKey);
         // reading the size writes what is buffered and lets go of the file being appended to, so the
         // sizes are current and a download of today's file is not refused as in use
         _store.GetLogFileSize(settings.Key);
-        // the key has no dots (see _keyPattern), so this prefix is this log's alone
-        var prefix = "log." + settings.Key + ".";
-        var entriesPrefix = prefix + settings.FileInterval.ToString().ToLowerInvariant() + ".";
+        // the log's own folder; the definition is not in it (see DefinitionFileOf)
+        var entriesPrefix = FileKeyUtility.Logger_NamePrefix(settings.Key, settings.FileInterval);
         var files = new List<CustomLogFile>();
-        foreach (var key in _io.Search([FileKeyUtility.LogFolderName, prefix + "*"])) {
+        foreach (var key in _io.Search([.. FileKeyUtility.Logger_FolderKey(settings.Key), "*"])) {
             var name = key.FileName();
-            var kind = name.EndsWith(".settings.json", StringComparison.OrdinalIgnoreCase) ? "settings"
-                : name.EndsWith(".statistics.bin", StringComparison.OrdinalIgnoreCase) ? "statistics"
+            var kind = name.EndsWith(".statistics.bin", StringComparison.OrdinalIgnoreCase) ? "statistics"
                 : name.EndsWith(".statistics.bin.bkup", StringComparison.OrdinalIgnoreCase) ? "statistics-backup"
                 : !name.StartsWith(entriesPrefix, StringComparison.OrdinalIgnoreCase) ? "left-over"
                 : name.EndsWith(".bin", StringComparison.OrdinalIgnoreCase) ? "entries"
@@ -430,36 +502,40 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
 
     // ---- settings files that did not read ----
 
-    string[] broken(string fileKey) {
+    (IIOProvider Io, string[] Key) broken(string fileKey) {
         lock (_lock) {
-            if (!_loadErrors.Any(e => e.FileKey == fileKey)) throw new ArgumentException("That is not a settings file that failed to read.");
+            if (!_brokenFiles.TryGetValue(fileKey, out var file)) throw new ArgumentException("That is not a settings file that failed to read.");
+            return file;
         }
-        return fileKey.SplitKey();
+    }
+    void forgetBroken(string fileKey) {
+        _brokenFiles.Remove(fileKey);
+        _loadErrors.RemoveAll(e => e.FileKey == fileKey);
     }
     public string ReadBrokenDefinition(string fileKey) {
-        var key = broken(fileKey);
-        return _io.ExistsAndIsNotEmpty(key) ? _io.ReadAllTextUTF8(key) : string.Empty;
+        var (io, key) = broken(fileKey);
+        return io.ExistsAndIsNotEmpty(key) ? io.ReadAllTextUTF8(key) : string.Empty;
     }
     public void RepairBrokenDefinition(string fileKey, string json) {
-        var key = broken(fileKey);
+        var (io, key) = broken(fileKey);
         var settings = LogSettings.FromJson(json); // throws with what is still wrong, before anything changes
         lock (_lock) {
             ensureOpen();
             if (_reserved.Contains(settings.Key)) throw new ArgumentException($"'{settings.Key}' is the key of one of the database's activity logs.");
             if (_definitions.ContainsKey(settings.Key)) throw new ArgumentException($"There is already a log with the key '{settings.Key}'.");
-            _io.DeleteFileIfItExists(key);
-            settings.Save(_io);
+            io.DeleteFileIfItExists(key);
+            settings.Save(_folder.IO, _folder.FileKey(settings.Key));
             _store.AddLog(settings.Clone());
             _definitions[settings.Key] = settings;
-            _loadErrors.RemoveAll(e => e.FileKey == fileKey);
+            forgetBroken(fileKey);
             updateAnyEnabled();
         }
     }
     public void DeleteBrokenDefinition(string fileKey) {
-        var key = broken(fileKey);
+        var (io, key) = broken(fileKey);
         lock (_lock) {
-            _io.DeleteFileIfItExists(key);
-            _loadErrors.RemoveAll(e => e.FileKey == fileKey);
+            io.DeleteFileIfItExists(key);
+            forgetBroken(fileKey);
         }
     }
 

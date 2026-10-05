@@ -31,7 +31,7 @@ public class CustomLogsTests {
         var io = new IOProviderMemory();
         var logs = open(io);
         logs.Create(orders());
-        Assert.IsTrue(io.Exists(FileKeyUtility.Logger_GetSettings("orders")));
+        Assert.IsTrue(io.Exists(FileKeyUtility.Logger_GetDefinition("orders")));
         Assert.IsTrue(logs.AnyEnabled);
         Assert.IsTrue(logs.Record("orders", ("amount", 10.0), ("customer", "acme"), ("items", 2)));
         logs.Dispose();
@@ -237,7 +237,7 @@ public class CustomLogsTests {
         logs.Record("orders", ("amount", 1.0));
         logs.Delete("orders", deleteRecorded: false);
         Assert.IsFalse(logs.HasLog("orders"));
-        Assert.IsFalse(io.Exists(FileKeyUtility.Logger_GetSettings("orders")));
+        Assert.IsFalse(io.Exists(FileKeyUtility.Logger_GetDefinition("orders")));
         logs.Create(orders());
         Assert.AreEqual(1, count(logs));
         logs.Delete("orders", deleteRecorded: true);
@@ -250,10 +250,10 @@ public class CustomLogsTests {
     [TestMethod]
     public void BrokenSettingsFilesAreReportedAndCanBeRepairedOrDeleted() {
         var io = new IOProviderMemory();
-        io.WriteAllTextUTF8(FileKeyUtility.Logger_GetSettings("broken"), "{ this is not json");
-        io.WriteAllTextUTF8(FileKeyUtility.Logger_GetSettings("gone"), """{ "Key": "gone", "FileInterval": "Fortnight" }""");
+        io.WriteAllTextUTF8(FileKeyUtility.Logger_GetDefinition("broken"), "{ this is not json");
+        io.WriteAllTextUTF8(FileKeyUtility.Logger_GetDefinition("gone"), """{ "Key": "gone", "FileInterval": "Fortnight" }""");
         // settings saved for a system log belong to it, and are no error here
-        io.WriteAllTextUTF8(FileKeyUtility.Logger_GetSettings("system"), """{ "Key": "system" }""");
+        io.WriteAllTextUTF8(FileKeyUtility.Logger_GetDefinition("system"), """{ "Key": "system" }""");
         var logs = open(io);
         Assert.AreEqual(2, logs.LoadErrors.Count);
         Assert.IsFalse(logs.HasLog("system"));
@@ -267,7 +267,7 @@ public class CustomLogsTests {
         logs.DeleteBrokenDefinition(gone);
         Assert.AreEqual(0, logs.LoadErrors.Count);
         Assert.IsFalse(io.Exists(gone.SplitKey()));
-        Assert.ThrowsExactly<ArgumentException>(() => logs.DeleteBrokenDefinition(FileKeyUtility.Logger_GetSettings("broken").AsKeyString()));
+        Assert.ThrowsExactly<ArgumentException>(() => logs.DeleteBrokenDefinition(FileKeyUtility.Logger_GetDefinition("broken").AsKeyString()));
         logs.Dispose();
         Assert.AreEqual(0, open(io).LoadErrors.Count);
     }
@@ -275,12 +275,12 @@ public class CustomLogsTests {
     [TestMethod]
     public void AFileNamedForAnotherKeyIsLoadedAndSavedUnderItsOwnName() {
         var io = new IOProviderMemory();
-        orders().Save(io, FileKeyUtility.Logger_GetSettings("renamed-by-hand"));
+        orders().Save(io, FileKeyUtility.Logger_GetDefinition("renamed-by-hand"));
         var logs = open(io);
         Assert.IsTrue(logs.HasLog("orders"));
         logs.SetEnabled("orders", false, null);
-        Assert.IsTrue(io.Exists(FileKeyUtility.Logger_GetSettings("orders")));
-        Assert.IsFalse(io.Exists(FileKeyUtility.Logger_GetSettings("renamed-by-hand")));
+        Assert.IsTrue(io.Exists(FileKeyUtility.Logger_GetDefinition("orders")));
+        Assert.IsFalse(io.Exists(FileKeyUtility.Logger_GetDefinition("renamed-by-hand")));
         logs.Dispose();
     }
 

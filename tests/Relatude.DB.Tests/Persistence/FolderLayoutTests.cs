@@ -37,7 +37,7 @@ public class FolderLayoutTests {
         Assert.AreEqual("backup/db.2026-08-23-10-30-00.bkup", FileKeyUtility.WAL_GetFileKeyForBackup(dt, false).AsKeyString());
         Assert.AreEqual("backup/db.bkup.keep.2026-08-23-10-30-00.bkup", FileKeyUtility.WAL_GetFileKeyForBackup(dt, true).AsKeyString());
         Assert.AreEqual("backup/files.2026-08-23-10-30-00.bkup", FileKeyUtility.FileStore_GetFileKeyForBackup(dt, false).AsKeyString());
-        Assert.AreEqual("log/critical.error.txt", FileKeyUtility.CriticalErrorLogFileKey.AsKeyString());
+        Assert.AreEqual("logs/critical.error.txt", FileKeyUtility.CriticalErrorLogFileKey.AsKeyString());
         Assert.AreEqual("indexes/ai.cache.bin", FileKeyUtility.GetAiCacheFileKey(AIProviderCacheType.Sqlite)!.AsKeyString());
         Assert.AreEqual("indexes/native.ai.cache.bin", FileKeyUtility.GetAiCacheFileKey(AIProviderCacheType.Native)!.AsKeyString());
         // unchanged: the multi file store and the log rewrite date parsing conventions
@@ -155,8 +155,9 @@ public class FolderLayoutTests {
         Assert.IsTrue(io.Exists(["backup", "db.2026-01-01-00-00-00.bkup"]));
         Assert.IsTrue(io.Exists(["backup", "db.bkup.keep.2026-01-02-00-00-00.bkup"]));
         Assert.IsTrue(io.Exists(["backup", "files.2026-01-03-00-00-00.bkup"]));
-        Assert.IsTrue(io.Exists(["log", "log.mylog.day.2026-01-01.bin"]));
-        Assert.IsTrue(io.Exists(["log", "critical.error.txt"]));
+        // into the log folder, and on into the folder of its log
+        Assert.IsTrue(io.Exists(["logs", "mylog", "log.mylog.day.2026-01-01.bin"]));
+        Assert.IsTrue(io.Exists(["logs", "critical.error.txt"]));
         // the queue file is moved to state/ too, but the queue store deletes an empty queue file
         // after loading it, so its absence from the root (checked below) is what proves the move
         var leftAtRoot = io.GetFiles().Select(f => f.Key).Where(k => !k.Contains('/')).ToArray();
@@ -257,6 +258,7 @@ public class FolderLayoutTests {
         public bool TryGetLocalFolderPath(string[] path, [MaybeNullWhen(false)] out string localFolderPath) => inner.TryGetLocalFolderPath(path, out localFolderPath);
         public bool TryMoveIfSameDrive(string fromLocalFilePath, string[] destination) => inner.TryMoveIfSameDrive(fromLocalFilePath, destination);
         public void DeleteFolderIfItExists(string[] path) => inner.DeleteFolderIfItExists(path);
+        public bool DeleteFolderIfEmpty(string[] path) => inner.DeleteFolderIfEmpty(path);
         public void EnsureFolder(string[] path) => inner.EnsureFolder(path);
         public Task<FolderMeta> GetFolderAsync(string[] path, bool recursive, bool withFiles) => inner.GetFolderAsync(path, recursive, withFiles);
     }

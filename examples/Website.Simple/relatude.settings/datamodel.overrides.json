@@ -1,0 +1,25 @@
+// The datamodel overrides every installation of the application shares: kept in source control and deployed
+// with it. Each installation merges its own, made in the data model editor, over these. The admin UI writes
+// this file only when overrides are moved here (Models, Sources, Overrides).
+{
+  "NodeTypes": {
+    "d35108be-3da1-88fd-565f-d4d1aa3319a1": {
+      "Name": "Website.Simple.Models.Color",
+      "Properties": {
+        "8d25f2c1-cea7-95c3-dee2-56db3c044f45": {
+          "Name": "Name",
+          "DefaultValue": "gfhffh"
+        }
+      }
+    },
+    "398c0afb-2af9-7cc6-ebd2-a5150784b876": {
+      "Name": "Relatude.DB.Demo.Models.DemoArticle",
+      "Properties": {
+        "230828fc-7363-2945-9bff-52f29605d846": {
+          "Name": "Content",
+          "DefaultValue": "ADAdasddAA"
+        }
+      }
+    }
+  }
+}

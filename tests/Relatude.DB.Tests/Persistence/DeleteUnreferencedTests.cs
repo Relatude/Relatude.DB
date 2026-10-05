@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores.Files;
 using Relatude.DB.IO;
@@ -120,5 +121,91 @@ public class DeleteUnreferencedTests {
         var result = await store.DeleteUnreferenced(valid);
         Assert.AreEqual(0, result.TotalFilesDeleted);
         Assert.IsTrue(await store.ContainsFileAsync(kept));
+    }
+
+    // An upload writes into the folder its file id names. One landing in a folder the sweep is emptying,
+    // after the sweep listed the store, must survive: the folder used to be removed recursively.
+    static async Task<int> sweepWithAFileArrivingAfterTheListing(IIOProvider inner) {
+        string[] late = [FileKeyUtility.MultiFileStoreFolderKey, "33", "33", "late.bin"];
+        var io = new AfterListingIO(inner, () => inner.WriteAllBytes(late, new byte[50]));
+        using var store = new MultiFileStore(Guid.NewGuid(), io, 2);
+        var lost = await insert(store, Guid.Parse("33333333-0000-0000-0000-000000000000"), "lost.txt", 300);
+        var result = await store.DeleteUnreferenced(new HashSet<string>());
+        Assert.AreEqual(1, result.TotalFilesDeleted);
+        Assert.IsFalse(await store.ContainsFileAsync(lost));
+        Assert.AreEqual(50, inner.GetFileSizeOrZeroIfUnknown(late), "the file written after the listing must not be deleted with its folder");
+        return result.TotalFoldersDeleted;
+    }
+
+    [TestMethod]
+    public async Task DeleteUnreferenced_KeepsAFileWrittenIntoAnEmptiedFolderAfterTheListing_OnDisk() {
+        var dir = Path.Combine(Path.GetTempPath(), "relatude-delete-unreferenced-" + Guid.NewGuid().ToString("N"));
+        try {
+            var foldersDeleted = await sweepWithAFileArrivingAfterTheListing(new IOProviderDisk(dir));
+            Assert.AreEqual(0, foldersDeleted, "neither 33/33 nor 33 is empty any more");
+            Assert.IsTrue(Directory.Exists(Path.Combine(dir, "files", "33", "33")));
+        } finally {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task DeleteUnreferenced_KeepsAFileWrittenIntoAnEmptiedFolderAfterTheListing_InMemory() {
+        // virtual folders are never deleted as such, so the count only says what the listing showed
+        await sweepWithAFileArrivingAfterTheListing(new IOProviderMemory());
+    }
+
+    [TestMethod]
+    public void DeleteFolderIfEmpty_OnlyEverDeletesAnEmptyFolder() {
+        var dir = Path.Combine(Path.GetTempPath(), "relatude-delete-folder-if-empty-" + Guid.NewGuid().ToString("N"));
+        try {
+            foreach (var io in new IIOProvider[] { new IOProviderDisk(dir), new IOProviderMemory() }) {
+                var name = io.GetType().Name;
+                io.WriteAllBytes(["a", "b", "file.bin"], new byte[10]);
+                Assert.IsFalse(io.DeleteFolderIfEmpty(["a", "b"]), name + ": a folder with a file");
+                Assert.IsFalse(io.DeleteFolderIfEmpty(["a"]), name + ": a folder with a folder");
+                Assert.IsTrue(io.Exists(["a", "b", "file.bin"]), name);
+                Assert.IsTrue(io.DeleteFolderIfEmpty(["nothing", "here"]), name + ": a folder that does not exist is gone");
+                Assert.IsFalse(io.DeleteFolderIfEmpty([]), name + ": the storage root is never deleted");
+                io.DeleteFileIfItExists(["a", "b", "file.bin"]);
+                Assert.IsTrue(io.DeleteFolderIfEmpty(["a", "b"]), name);
+                Assert.IsTrue(io.DeleteFolderIfEmpty(["a"]), name);
+            }
+            Assert.IsFalse(Directory.Exists(Path.Combine(dir, "a")), "the emptied folders are removed from disk");
+        } finally {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    /// <summary>Runs an action once, right after the first folder listing - where a sweep has decided
+    /// what is empty but not yet acted on it.</summary>
+    sealed class AfterListingIO(IIOProvider inner, Action afterListing) : IIOProvider {
+        bool _done;
+        public async Task<FolderMeta> GetFolderAsync(string[] path, bool recursive, bool withFiles) {
+            var folder = await inner.GetFolderAsync(path, recursive, withFiles);
+            if (!_done) { _done = true; afterListing(); }
+            return folder;
+        }
+        public IReadStream OpenRead(string[] path, long position) => inner.OpenRead(path, position);
+        public IAppendStream OpenAppend(string[] path) => inner.OpenAppend(path);
+        public bool Exists(string[] path) => inner.Exists(path);
+        public bool DoesNotExistOrIsEmpty(string[] path) => inner.DoesNotExistOrIsEmpty(path);
+        public void DeleteFileIfItExists(string[] path) => inner.DeleteFileIfItExists(path);
+        public FileMeta[] GetFiles() => inner.GetFiles();
+        public long GetFileSizeOrZeroIfUnknown(string[] path) => inner.GetFileSizeOrZeroIfUnknown(path);
+        public bool CanRenameFile => inner.CanRenameFile;
+        public void RenameFile(string[] path, string[] newPath) => inner.RenameFile(path, newPath);
+        public bool CanRenameFolder => inner.CanRenameFolder;
+        public void RenameFolder(string[] path, string[] newPath) => inner.RenameFolder(path, newPath);
+        public bool SupportsEmptyFolders => inner.SupportsEmptyFolders;
+        public bool CanTruncate => inner.CanTruncate;
+        public void TruncateFile(string[] path, long newLength) => inner.TruncateFile(path, newLength);
+        public void CloseAllOpenStreams() => inner.CloseAllOpenStreams();
+        public bool TryGetLocalFilePath(string[] path, [MaybeNullWhen(false)] out string localFilePath) => inner.TryGetLocalFilePath(path, out localFilePath);
+        public bool TryGetLocalFolderPath(string[] path, [MaybeNullWhen(false)] out string localFolderPath) => inner.TryGetLocalFolderPath(path, out localFolderPath);
+        public bool TryMoveIfSameDrive(string fromLocalFilePath, string[] destination) => inner.TryMoveIfSameDrive(fromLocalFilePath, destination);
+        public void DeleteFolderIfItExists(string[] path) => inner.DeleteFolderIfItExists(path);
+        public bool DeleteFolderIfEmpty(string[] path) => inner.DeleteFolderIfEmpty(path);
+        public void EnsureFolder(string[] path) => inner.EnsureFolder(path);
     }
 }

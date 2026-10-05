@@ -66,6 +66,7 @@ import { KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, kindMeta, 
 import { PropertyEditor, readOnlyNote, RelationEditor, SourceEditor, SourcePickerDialog, TypeEditor, type EditorContext, type Selection } from "./DatamodelEditors";
 import { peekSearchTarget, takeDatamodelTarget, takeSearchTarget, useNavigationRequest, type DatamodelTarget } from "../navigate";
 import { HistoryView, MatrixView, ModelsView, RelationsView, SourcesView } from "./DatamodelViews";
+import { DatamodelOverridesDialog } from "./DatamodelOverridesDialog";
 import { DatamodelDiagram } from "./diagram/DatamodelDiagram";
 import { DatamodelGraphView } from "./DatamodelGraphView";
 import { modeKey, remember } from "./datamodelGraphModel";
@@ -297,6 +298,8 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
   const [validation, setValidation] = useState<Validation | null>(null);
   const [issuesOpen, setIssuesOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
+  // this installation's overrides, and moving them into the shared file
+  const [overridesOpen, setOverridesOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   // the open source picker: what is being added, where it could go, and what to do once one is picked
@@ -565,14 +568,18 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     [sourceInfos],
   );
 
-  // the phrase the forms use for where an override goes
-  const overridesWhere = page?.overrides ? (page.overrides.inDatabase ? "with the database" : "in " + page.overrides.location) : "with the database";
+  // the two files the overrides are kept in, for the forms to say which one a value is in
+  const overridesInfo = page?.overrides;
+  const overrides = useMemo(
+    () => ({ shared: overridesInfo?.shared ?? null, sharedLocation: overridesInfo?.sharedLocation ?? "relatude.settings/datamodel.overrides.json", location: overridesInfo?.location ?? "overrides/datamodel.overrides.json" }),
+    [overridesInfo],
+  );
   const ctx: EditorContext | null = useMemo(
     () =>
       model && schema
-        ? { storeId: db.id, model, schema, baseTypeId, codeSourceId, sources: sourceInfos, colors, typeCounts: page?.typeCounts ?? {}, writableSource, readOnlyReason, overridesWhere, update, select: setSelection }
+        ? { storeId: db.id, model, schema, baseTypeId, codeSourceId, sources: sourceInfos, colors, typeCounts: page?.typeCounts ?? {}, writableSource, readOnlyReason, overrides, update, select: setSelection }
         : null,
-    [db.id, model, schema, baseTypeId, codeSourceId, sourceInfos, colors, page, writableSource, readOnlyReason, overridesWhere, update],
+    [db.id, model, schema, baseTypeId, codeSourceId, sourceInfos, colors, page, writableSource, readOnlyReason, overrides, update],
   );
 
   // a selection whose target has gone (deleted, or another draft loaded) is dropped
@@ -643,8 +650,12 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     if (v.plan?.settingsChange) lines.push("The source list in the settings file changes.");
     if (v.plan?.overridesChange) {
       const removed = v.plan.files.some((f) => f.sourceId === page?.overrides.planId && f.action === "delete");
-      const where = page?.overrides.inDatabase ? "with the database" : `in ${page?.overrides.location}`;
-      lines.push(removed ? `Nothing is overridden any more: the overrides kept ${where} are removed.` : `The overrides are saved ${where}.`);
+      const where = page?.overrides.location ?? "the database's storage";
+      lines.push(
+        removed
+          ? `Nothing is overridden for this installation alone any more: its overrides file, ${where}, is removed.`
+          : `The overrides of this installation are saved in ${where}. The shared ones, in ${page?.overrides.sharedLocation}, are not changed: move overrides there from Sources, Overrides.`,
+      );
     }
     if (v.textIndexOffTypes.length > 0) lines.push(`Text indexing is turned off for ${v.textIndexOffTypes.length} type${v.textIndexOffTypes.length === 1 ? "" : "s"}: ${v.textIndexOffTypes.length === 1 ? "its" : "their"} nodes' text is taken out of the text index.`);
     if (v.textReindexTypes.length > 0) lines.push(`What goes into the text index changes for ${v.textReindexTypes.length} type${v.textReindexTypes.length === 1 ? "" : "s"}: ${v.textReindexTypes.length === 1 ? "its" : "their"} nodes are queued for text indexing.`);
@@ -1184,7 +1195,9 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
           {view === "diagram" && <DatamodelDiagram ctx={ctx} visibleTypes={visibleTypes} ghostTypes={ghostTypes} selection={selection} query={query} storeId={db.id} />}
           {view === "graph" && <DatamodelGraphView ctx={ctx} visibleTypes={visibleTypes} selection={selection} query={query} storeId={db.id} />}
           {view === "matrix" && <MatrixView {...viewProps} />}
-          {view === "sources" && <SourcesView ctx={ctx} selection={selection} hiddenSources={hiddenSources} onToggleVisible={toggleSource} onAdd={addSource} locked={page.sourcesLocked} overridesFile={page.overrides} />}
+          {view === "sources" && (
+            <SourcesView ctx={ctx} selection={selection} hiddenSources={hiddenSources} onToggleVisible={toggleSource} onAdd={addSource} locked={page.sourcesLocked} overridesFile={page.overrides} onOpenOverrides={() => setOverridesOpen(true)} />
+          )}
           {view === "history" && <HistoryView history={page.history} activeChecksum={page.active?.checksum ?? null} draftBaseChecksum={page.draft?.baseChecksum ?? null} onLoad={loadFromHistory} onDelete={removeHistory} />}
         </div>
         {selectedEditor && (
@@ -1222,6 +1235,17 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
           </>
         )}
       </div>
+
+      {overridesOpen && ctx && (
+        <DatamodelOverridesDialog
+          storeId={db.id}
+          ctx={ctx}
+          activeOverrides={page.active?.model.Overrides}
+          onClose={() => setOverridesOpen(false)}
+          // a move changes the files, not what is in force: the draft being edited stays as it is
+          onFilesChanged={(files) => setPage((p) => (p ? { ...p, overrides: files } : p))}
+        />
+      )}
 
       {sourcePick && (
         <SourcePickerDialog

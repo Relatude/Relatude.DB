@@ -80,23 +80,37 @@ public class LogSettings {
         return copy;
     }
     public static LogSettings LoadFromFile(string filePath) => FromJson(File.ReadAllText(filePath));
-    /// <summary>Writes the settings through the IO provider, by default to the log's settings file
-    /// in the log folder (<see cref="FileKeyUtility.Logger_GetSettings"/>).</summary>
+    /// <summary>Writes the settings through the IO provider, by default as the log's definition in the
+    /// log folder: log/{key}.json (<see cref="FileKeyUtility.Logger_GetDefinition"/>).</summary>
     public void Save(IIOProvider io, string[]? fileKey = null) {
-        io.WriteAllTextUTF8(fileKey ?? FileKeyUtility.Logger_GetSettings(Key), ToJson());
+        io.WriteAllTextUTF8(fileKey ?? FileKeyUtility.Logger_GetDefinition(Key), ToJson());
     }
     public static LogSettings Load(IIOProvider io, string[] fileKey) => FromJson(io.ReadAllTextUTF8(fileKey));
-    /// <summary>The settings of the log with this key, if they were saved to the default location.</summary>
+    /// <summary>The settings of the log with this key, if they were saved to the default location - or to
+    /// the one older versions saved them to, log/log.{key}.settings.json.</summary>
     public static LogSettings? LoadIfSaved(IIOProvider io, string logKey) {
-        var fileKey = FileKeyUtility.Logger_GetSettings(logKey);
-        return io.ExistsAndIsNotEmpty(fileKey) ? Load(io, fileKey) : null;
+        foreach (var fileKey in (string[][])[FileKeyUtility.Logger_GetDefinition(logKey), FileKeyUtility.Logger_GetLegacySettings(logKey)]) {
+            if (io.ExistsAndIsNotEmpty(fileKey)) return Load(io, fileKey);
+        }
+        return null;
     }
-    /// <summary>The settings of every log saved to the default location, ordered by file name. The
-    /// key inside a file wins over the one in its name.</summary>
+    /// <summary>The settings of every log saved to the default location, ordered by file name, and of
+    /// those an older version saved under the old name and nothing has saved again since. The key
+    /// inside a file wins over the one in its name.</summary>
     public static List<LogSettings> LoadAll(IIOProvider io) {
-        return FileKeyUtility.Logger_GetAllSettingsFileKeys(io).Where(io.ExistsAndIsNotEmpty).Select(k => Load(io, k)).ToList();
+        var all = FileKeyUtility.Logger_GetAllDefinitionFileKeys(io).Where(io.ExistsAndIsNotEmpty).Select(k => Load(io, k)).ToList();
+        var keys = all.Select(s => s.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var legacy in FileKeyUtility.Logger_GetAllLegacySettingsFileKeys(io).Where(io.ExistsAndIsNotEmpty)) {
+            var settings = Load(io, legacy);
+            if (keys.Add(settings.Key)) all.Add(settings);
+        }
+        return all;
     }
-    public static void DeleteSaved(IIOProvider io, string logKey) => io.DeleteFileIfItExists(FileKeyUtility.Logger_GetSettings(logKey));
+    /// <summary>Deletes the saved settings of the log, in the default location and the old one.</summary>
+    public static void DeleteSaved(IIOProvider io, string logKey) {
+        io.DeleteFileIfItExists(FileKeyUtility.Logger_GetDefinition(logKey));
+        io.DeleteFileIfItExists(FileKeyUtility.Logger_GetLegacySettings(logKey));
+    }
 
     // json leaves nulls where the code assumes collections, and the property dictionary loses its
     // case insensitive comparer

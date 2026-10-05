@@ -105,6 +105,8 @@ sealed class UICustomLogs {
             State = c.StateName,
             // the provider the log folder is in, for downloading a log's files as they are
             IoId = logIoId(c),
+            // where the definitions are kept, outside the database's storage: relatude.settings/logs/{short name}
+            custom.DefinitionsFolder,
             ReservedKeys = custom.ReservedKeys.Order(StringComparer.OrdinalIgnoreCase).ToArray(),
             TotalBytes = summaries.Sum(s => s.TotalBytes),
             LoadErrors = custom.LoadErrors.Select(e => new { e.FileKey, e.Message }).ToArray(),
@@ -317,6 +319,7 @@ sealed class UICustomLogs {
         var custom = c.GetLogger().CustomLogs;
         return new {
             IoId = logIoId(c),
+            DefinitionFile = custom.DefinitionFileOf(p.LogKey),
             Files = custom.GetFiles(p.LogKey).Select(f => new { f.FileKey, f.Kind, f.Size }).ToArray(),
         };
     }

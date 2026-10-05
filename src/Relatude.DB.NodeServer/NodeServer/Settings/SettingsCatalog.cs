@@ -76,6 +76,10 @@ public sealed class SettingDefinition {
     public bool Secret { get; init; }
     /// <summary>Shown, but not editable from here.</summary>
     public bool ReadOnly { get; init; }
+    /// <summary>Said beside the setting while its value comes from relatude.db.overrides.json, this
+    /// installation's own file, for a setting every installation should agree on - one the files deployed
+    /// with the application are found by, like the short name.</summary>
+    public string? InOverridesWarning { get; init; }
     public string? Placeholder { get; init; }
     /// <summary>A page worth reading before choosing, shown as a link under the help text. For a
     /// setting whose choice deserves more than the sentence there is room for here.</summary>
@@ -281,8 +285,8 @@ public static class SettingsCatalog {
                             Help = "The URL prefix serving this admin UI and its API. Moving it off the default is mild obscurity, not access control - the login still guards it.",
                         },
                         new() {
-                            Path = "DBSettingsFilePath", Label = "Settings file", Applies = SettingApplies.Restart, Placeholder = "relatude.db.json",
-                            Help = "The JSON file these settings are read from and written back to, relative to the data folder. Changing it here points the next start at a different file - it does not move the current one.",
+                            Path = "DBSettingsFilePath", Label = "Settings file", Applies = SettingApplies.Restart, Placeholder = Defaults.SettingsFilePath,
+                            Help = "What these pages name as the file the settings come from. The server reads " + Defaults.SettingsFilePath + " below the data folder, unless the application loads its settings some other way; setting this neither moves that file nor makes the next start read another.",
                         },
                     ],
                 },
@@ -398,6 +402,17 @@ public static class SettingsCatalog {
                             Help = "Shown in the admin UI and used in log lines. Application code addresses the database by id, so renaming is safe.",
                         },
                         new() {
+                            Path = "ShortName", Label = "Short name", Applies = SettingApplies.Reopen, Placeholder = "None",
+                            Help = "Names the folder the server keeps this database's settings files in: " + DatabaseShortName.LogDefinitionsFolder("{short name}") + "/ holds the definitions of its logs, and "
+                                + DatabaseShortName.DatamodelOverridesFile("{short name}") + " the datamodel overrides every installation shares. "
+                                + "Without one they are kept directly in " + Defaults.SettingsFolderPath + " (" + DatabaseShortName.LogDefinitionsFolder(null) + "/, " + DatabaseShortName.DatamodelOverridesFile(null) + "), which only one database can do. "
+                                + "Letters, digits, '-' and '_', and unique among the databases. A change takes the files along when the database is next opened. "
+                                + "Every installation should have the same short name, so give it in " + Defaults.SettingsFileName + ".",
+                            InOverridesWarning = "This short name is only this installation's: it is saved in " + SettingsOverridesFile.FileName + ", not in " + Defaults.SettingsFileName + ". "
+                                + "The files in " + Defaults.SettingsFolderPath + " that every installation shares - the log definitions, the shared datamodel overrides - are found by the short name, "
+                                + "so this installation reads other ones than the rest. Move it into " + Defaults.SettingsFileName + " with Overrides at the top of the page, or set it back.",
+                        },
+                        new() {
                             Path = "Description", Label = "Description", Applies = SettingApplies.Live,
                             Help = "Free text describing what this database holds. Not used by the server.",
                         },
@@ -470,12 +485,12 @@ public static class SettingsCatalog {
                             new() {
                                 Path = "SourceCodePath", Label = "Source code folder", Placeholder = "Models",
                                 VisibleWhen = new() { Path = "GenerateModelFile", Values = ["true"], And = new() { Path = "Type", Values = ["CompiledTypes"] } },
-                                Help = "The folder the generated C# files go into, relative to the folder holding this settings file unless rooted. It has to be inside the project that builds the assembly above, so the generated classes are compiled into it.",
+                                Help = "The folder the generated C# files go into, relative to the application's folder unless rooted. It has to be inside the project that builds the assembly above, so the generated classes are compiled into it.",
                             },
                             new() {
                                 Path = "Filepath", Label = "Model file or folder", Placeholder = DatamodelSourceLoader.DefaultRuntimeTypesFolder + "/{name}",
                                 VisibleWhen = new() { Path = "Type", Values = ["RuntimeTypes"] },
-                                Help = "A .json model file, or a folder whose .json files are all loaded. Relative paths resolve against the folder holding this settings file. Empty gives the source a folder of its own named after it, \"" + DatamodelSourceLoader.DefaultRuntimeTypesFolder + "/{name}\", beside the default database's files; renaming such a source here or in the data model editor writes its current folder in, so its files are not left behind. A folder that is empty, or not there yet, loads as an empty source and is created when the data model editor writes the first type into it. Ignored when a storage provider is named below.",
+                                Help = "A .json model file, or a folder whose .json files are all loaded. Relative paths resolve against the application's folder. Empty gives the source a folder of its own named after it, \"" + DatamodelSourceLoader.DefaultRuntimeTypesFolder + "/{name}\", beside the default database's files; renaming such a source here or in the data model editor writes its current folder in, so its files are not left behind. A folder that is empty, or not there yet, loads as an empty source and is created when the data model editor writes the first type into it. Ignored when a storage provider is named below.",
                             },
                             new() {
                                 Path = "FileIO", Label = "Read through provider", Picker = "ioProviders",
@@ -497,21 +512,6 @@ public static class SettingsCatalog {
                             },
                         ],
                     },
-                },
-                new() {
-                    Id = "datamodel-overrides",
-                    Title = "Overrides",
-                    Help = "Attributes of node types and properties set on top of what the sources say: a default value, whether a type or a property is in the text index, "
-                        + "a property's index or rules. The data model editor writes them - for types whose source it cannot write, such as classes compiled into an assembly - "
-                        + "and the database applies them when it opens, as if the source said so.",
-                    Settings = [
-                        new() {
-                            Path = "DatamodelOverridesPath", Label = "Overrides file", Placeholder = "With the database",
-                            Help = "Empty keeps the overrides with the database, in datamodels/datamodel.overrides.json on its storage provider, where they survive a redeploy of the site. "
-                                + "A path keeps them in that file instead - relative to the folder holding this settings file unless rooted - so they can be kept in source control and deployed with the site; "
-                                + "a change made in production is then overwritten by the next deploy unless it is committed back. Moving them does not move the file: copy it across first.",
-                        },
-                    ],
                 },
             ],
         },
@@ -617,6 +617,16 @@ public static class SettingsCatalog {
                                 Path = "MultiFileFolderDepth", Label = "Folder depth",
                                 VisibleWhen = new() { Path = "StoreType", Values = ["MultiFile"] },
                                 Help = "How many nested folders the files are spread over. Deeper keeps any single folder small, which matters on file systems that slow down with very many entries in one directory. Empty uses the built-in depth.",
+                            },
+                            new() {
+                                Path = "SameHashSameFile", Label = "Same hash, same file",
+                                VisibleWhen = new() { Path = "StoreType", Values = ["MultiFile"] },
+                                Help = "Keeps one copy of any content: an upload with the same hash and length as a file already in the store points at that file instead of being stored again. Shared files are only deleted by the unreferenced file cleanup, not when a file is removed from a node. Applies to new uploads; files already stored are left as they are, and stay readable if this is turned off again. On blob storage a new file is written twice, as it is copied into place.",
+                            },
+                            new() {
+                                Path = "HashAlgorithm", Label = "File hash",
+                                VisibleWhen = new() { Path = "StoreType", Values = ["MultiFile"] },
+                                Help = "The hash computed over every uploaded file, and with Same hash, same file what decides that two uploads are the same. MD5 is enough when only trusted people upload. Choose SHA256 when anyone can, as two different files with the same MD5 can be made on purpose - and then one upload would be served as the other. Changing it only affects new uploads, which are not matched with files kept under the other hash.",
                             },
                             new() {
                                 Path = "Id", Label = "Store id", ReadOnly = true,

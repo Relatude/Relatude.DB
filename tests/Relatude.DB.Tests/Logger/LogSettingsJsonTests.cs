@@ -109,9 +109,9 @@ public class LogSettingsJsonTests {
         var s = rich();
         Assert.IsNull(LogSettings.LoadIfSaved(io, "rich"));
         s.Save(io);
-        var fileKey = FileKeyUtility.Logger_GetSettings("rich");
+        var fileKey = FileKeyUtility.Logger_GetDefinition("rich");
         Assert.IsTrue(io.Exists(fileKey));
-        Assert.AreEqual("Log settings", FileKeyUtility.FileTypeDescription(fileKey.AsKeyString()));
+        Assert.AreEqual("Log definition", FileKeyUtility.FileTypeDescription(fileKey.AsKeyString()));
         assertSame(s, LogSettings.Load(io, fileKey));
         assertSame(s, LogSettings.LoadIfSaved(io, "rich")!);
         s.Name = "Renamed";

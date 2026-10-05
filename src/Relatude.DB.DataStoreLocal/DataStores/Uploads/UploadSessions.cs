@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.DataStores.Files;
+using System.Security.Cryptography;
 
 namespace Relatude.DB.DataStores.Uploads;
 
@@ -44,10 +45,10 @@ internal class UploadSessions(DataStoreLocal store) {
             }
         }
     }
-    public void AddSession(FileValue fileValue) {
+    public void AddSession(FileValue fileValue, HashAlgorithmName hashAlgorithm) {
         lock (_uploadSessions) {
             if (_uploadSessions.TryGetValue(fileValue.FileId, out var oldSession)) oldSession.Hash.Dispose();
-            _uploadSessions[fileValue.FileId] = new UploadSession(fileValue);
+            _uploadSessions[fileValue.FileId] = new UploadSession(fileValue, hashAlgorithm);
         }
     }
     public FileValue[] GetActiveFileValues() {

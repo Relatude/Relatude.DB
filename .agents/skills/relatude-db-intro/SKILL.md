@@ -26,7 +26,7 @@ Sources of truth in this repo:
 `src/Relatude.DB.NodeStore/Query/QueryExtensions.cs`,
 `examples/Website.Simple/Models/ShopModels.cs`,
 `examples/Website.Simple/Program.cs`,
-`examples/Website.Simple/relatude.db.json`.
+`examples/Website.Simple/relatude.settings/relatude.db.json`.
 
 ---
 
@@ -165,7 +165,7 @@ app.MapRelatudeDBAdmin();         // admin UI at /relatude.db
 app.Run();
 ```
 
-`relatude.db.json` beside the app says where data lives and which namespaces hold the
+`relatude.db.json` (in the app's `relatude.settings/` folder) says where data lives and which namespaces hold the
 model. Show only the interesting part:
 
 ```jsonc

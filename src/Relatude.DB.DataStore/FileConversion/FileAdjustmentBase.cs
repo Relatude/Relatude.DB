@@ -4,16 +4,36 @@ using Relatude.DB.Common;
 namespace Relatude.DB.FileConversion;
 
 public class FileIdWithAdjustment {
-    public FileIdWithAdjustment(Guid fileId, FileAdjustmentBase adj, PropertyPath propertyPath) {
+    public FileIdWithAdjustment(Guid fileId, FileAdjustmentBase adj, PropertyPath propertyPath, FileFormat? sharedSourceFormat = null) {
         FileId = fileId;
         Adjustment = adj;
         PropertyPath = propertyPath;
+        SharedSourceFormat = sharedSourceFormat;
     }
+    /// <summary>The conversion of a file value, keyed as <see cref="KeyOf"/> keys it.</summary>
+    public static FileIdWithAdjustment Of(FileValue file, FileAdjustmentBase adj, PropertyPath propertyPath)
+        => new(file.FileId, adj, propertyPath, sharedSourceFormatOf(file));
     public Guid FileId { get; }
     public FileAdjustmentBase Adjustment { get; }
     public PropertyPath PropertyPath { get; }
+    /// <summary>Only for a file whose bytes other file values may share: the format its own name gives
+    /// them, which is part of the key.</summary>
+    public FileFormat? SharedSourceFormat { get; }
     Guid? _key = null;
-    public Guid GetKey() => _key ??= FileId.CombineHashGuid(Adjustment.GetKey());
+    public Guid GetKey() => _key ??= keyOf(FileId, SharedSourceFormat, Adjustment);
+    /// <summary>
+    /// The key a conversion of the file is cached, run and reported under: the file id and the
+    /// adjustment. Values sharing one copy of their bytes (<see cref="FileValue.IsKeptByHash"/>) share
+    /// their conversions too, so the format the value's name gives the bytes is added - the same bytes
+    /// named as another format convert differently or not at all, and a failure is cached under the
+    /// key. Every other file keeps the key it always had, so no cached conversion is lost.
+    /// </summary>
+    public static Guid KeyOf(FileValue file, FileAdjustmentBase adj) => keyOf(file.FileId, sharedSourceFormatOf(file), adj);
+    static FileFormat? sharedSourceFormatOf(FileValue file) => FileValue.IsKeptByHash(file) ? file.Format : null;
+    static Guid keyOf(Guid fileId, FileFormat? sharedSourceFormat, FileAdjustmentBase adj) {
+        var key = fileId.CombineHashGuid(adj.GetKey());
+        return sharedSourceFormat is { } format ? key.CombineHashGuid(("source format " + format).GenerateHashGuid()) : key;
+    }
 }
 public enum FileAdjustmentType {
     Image,

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Relatude.DB.CodeGeneration;
 using Relatude.DB.Datamodels;
 using Relatude.DB.IO;
@@ -30,6 +31,10 @@ sealed class UIDatamodel {
         commands.Register("datamodel-history-delete", ctx => historyDelete(ctx.Payload<HistoryPayload>()));
         commands.Register("datamodel-export", ctx => export(ctx.Payload<ExportPayload>()));
         commands.Register("datamodel-code", ctx => code(ctx.Payload<CodePayload>()));
+        // the overrides of this installation, and moving them into the file every installation shares
+        commands.Register("datamodel-overrides-get", ctx => overridesGet(ctx.Payload<StorePayload>().StoreId));
+        commands.Register("datamodel-overrides-move", ctx => overridesMove(ctx.Payload<OverridesPathsPayload>()));
+        commands.Register("datamodel-overrides-shared-text", ctx => overridesSharedText(ctx.Payload<OverridesPathsPayload>()));
         // the type reference form: process wide lookups, on demand (see AssemblyScanner)
         commands.Register("datamodel-scan-assemblies", ctx => AssemblyScanner.ScanAssemblies());
         commands.Register("datamodel-scan-namespaces", ctx => AssemblyScanner.ScanNamespaces(ctx.Payload<ReferencePayload>().Reference));
@@ -77,7 +82,6 @@ sealed class UIDatamodel {
         }
         var overlay = _server.ConfigurationOverlay;
         var sourcesLocked = overlay != null && overlay.IsOverridden(Settings.SettingsOverlay.OverridePath(c.Settings.Id, "DatamodelSources"), out _);
-        var overridesFile = c.OverridesFile;
         return new {
             StoreId = storeId,
             Open = c.IsOpen(),
@@ -94,14 +98,37 @@ sealed class UIDatamodel {
             Sources = describeSources(c, active),
             SourcesLocked = sourcesLocked,
             IoProviders = (c.Settings.IOSettings ?? []).Select(io => new { io.Id, io.Name }),
-            // where the overrides are kept; their content rides in the model (Datamodel.Overrides)
-            Overrides = new {
-                PlanId = DatamodelOverridesFile.PlanId,
-                overridesFile.Location,
-                overridesFile.InDatabase,
-                Writable = overridesFile.CanWrite,
-                Exists = safe(() => overridesFile.Exists(_server)),
-            },
+            // where the overrides are kept; what is in force rides in the model (Datamodel.Overrides)
+            Overrides = describeOverridesFiles(c),
+        };
+    }
+    /// <summary>
+    /// The two files a database's overrides are kept in. The model carries what is in force - the shared
+    /// file's with this installation's merged over them - so the shared file's own content comes along
+    /// too: the page tells from it which of the two an override is in, and what a reset goes back to.
+    /// </summary>
+    object describeOverridesFiles(NodeStoreContainer c) {
+        var file = c.OverridesFile;
+        JsonElement? shared = null;
+        string? sharedError = null;
+        try {
+            var o = file.ReadShared();
+            if (o != null) shared = JsonSerializer.SerializeToElement(o, DatamodelJson.Options);
+        } catch (Exception error) {
+            sharedError = error.Message;
+        }
+        return new {
+            PlanId = DatamodelOverridesFile.PlanId,
+            file.Location,
+            Writable = file.CanWrite,
+            Exists = safe(() => file.Exists(_server)),
+            file.SharedLocation,
+            SharedExists = safe(() => file.SharedExists),
+            Shared = shared,
+            SharedError = sharedError,
+            // where relatude.settings is not the one in source control, moving overrides into it is undone by the next deployment
+            Development = _server.IsDevelopment,
+            Environment = _server.EnvironmentName,
         };
     }
     static bool safe(Func<bool> f) { try { return f(); } catch { return false; } }
@@ -272,6 +299,59 @@ sealed class UIDatamodel {
         return new { Deleted = drafts(c).DeleteHistory(p.Key) };
     }
 
+    // ---- this installation's overrides, and moving them into the shared file ----
+
+    /// <summary>
+    /// What this installation's overrides file holds, entry by entry, beside what the shared file says for
+    /// each: the list the page moves from. It is the file as the last activation wrote it - a change the
+    /// draft makes is not in it yet.
+    /// </summary>
+    object overridesGet(Guid storeId) {
+        var c = container(storeId);
+        var file = c.OverridesFile;
+        var shared = file.ReadSharedLayer();
+        var installation = file.ReadInstallationLayer(_server);
+        return new {
+            Files = describeOverridesFiles(c),
+            Entries = DatamodelOverridesLayers.Entries(installation).Select(e => {
+                var sharedValue = DatamodelOverridesLayers.Get(shared, new(e.TypeId, e.PropertyId, e.Attribute), out var inShared);
+                return new {
+                    e.TypeId,
+                    e.PropertyId,
+                    e.Attribute,
+                    e.TypeName,
+                    e.PropertyName,
+                    // null: the shared value is taken away on this installation, and the source's applies
+                    Reset = e.Value == null,
+                    Value = e.Value?.DeepClone(),
+                    InShared = inShared,
+                    SharedValue = sharedValue?.DeepClone(),
+                    // says what the shared file says: comes from there anyway, and goes at the next activation
+                    SameAsShared = inShared ? JsonNode.DeepEquals(sharedValue, e.Value) : e.Value == null,
+                };
+            }).ToArray(),
+        };
+    }
+    object overridesMove(OverridesPathsPayload p) {
+        var c = container(p.StoreId);
+        int moved;
+        lock (c.OverridesWriteLock) {
+            moved = c.OverridesFile.MoveToShared(_server, paths(p), activeOrNull(c));
+        }
+        return new { Moved = moved, View = overridesGet(p.StoreId) };
+    }
+    object overridesSharedText(OverridesPathsPayload p) {
+        var c = container(p.StoreId);
+        var file = c.OverridesFile;
+        return new { Content = file.SharedTextWith(_server, paths(p), activeOrNull(c)), FileName = Settings.DatabaseShortName.DatamodelOverridesFileName, file.SharedLocation };
+    }
+    static IEnumerable<DatamodelOverridesLayers.AttributePath> paths(OverridesPathsPayload p)
+        => (p.Entries ?? []).Where(e => !string.IsNullOrEmpty(e.Attribute)).Select(e => new DatamodelOverridesLayers.AttributePath(e.TypeId, e.PropertyId, e.Attribute));
+    // only for the names beside the ids
+    Datamodel? activeOrNull(NodeStoreContainer c) {
+        try { return new DatamodelValidator(_server, c).LoadActive(); } catch { return null; }
+    }
+
     // ---- export ----
 
     object export(ExportPayload p) {
@@ -330,4 +410,6 @@ sealed class UIDatamodel {
     sealed record CodePayload(Guid StoreId, JsonElement? Model, string? Scope, Guid Id, Guid? TypeId, string? Language, bool? Attributes);
     sealed record ReferencePayload(string? Reference);
     sealed record ProbePayload(string? Reference, string? Namespace);
+    sealed record OverridesPathsPayload(Guid StoreId, OverridesPath[]? Entries);
+    sealed record OverridesPath(Guid TypeId, Guid? PropertyId, string Attribute);
 }

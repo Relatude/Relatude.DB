@@ -2779,3 +2779,32 @@ button.dm-source-card {
   color: var(--override);
   font-weight: 600;
 }
+/* the overrides every installation shares (relatude.settings) against this installation's own: the
+   same teal, the shared ones outlined rather than filled, so the two read as one family. A shared
+   override this installation takes away is dashed and muted - it is not in force here */
+.dm-ochip.overridden.shared {
+  background: transparent;
+  border-color: var(--override);
+}
+.dm-ochip.reset {
+  background: transparent;
+  border: 1px dashed var(--override);
+  color: var(--text-muted);
+}
+.dm-override-taken {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.dm-overrides-kept {
+  white-space: nowrap;
+}
+/* the two files, one line each: what it is, then where */
+.dm-overrides-files {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 1px 10px;
+  font-size: 12px;
+}
+.dm-overrides-files > span:nth-child(odd) {
+  font-weight: 600;
+}

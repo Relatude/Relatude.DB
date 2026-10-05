@@ -82,7 +82,7 @@ sealed partial class UISettings {
         return new {
             Scope = "server",
             Title = string.IsNullOrEmpty(settings.Name) ? "Server" : settings.Name,
-            SettingsFile = settings.DBSettingsFilePath ?? Defaults.SettingsFileName,
+            SettingsFile = _server.SettingsFileDisplay,
             ConfigSection = _server.ConfigurationOverlay?.SectionName,
             Overrides = overridesSummary(),
             Sections = buildSections(SettingsCatalog.Server, settings, containerId: null),
@@ -105,7 +105,7 @@ sealed partial class UISettings {
             Title = string.IsNullOrEmpty(settings.Name) ? settings.Id.ToString() : settings.Name,
             State = container.StateName,
             IsOpen = container.IsOpenOrOpening(),
-            SettingsFile = _server.Settings.DBSettingsFilePath ?? Defaults.SettingsFileName,
+            SettingsFile = _server.SettingsFileDisplay,
             ConfigSection = _server.ConfigurationOverlay?.SectionName,
             Overrides = overridesSummary(),
             Sections = buildSections(SettingsCatalog.Database, settings, storeId),
@@ -270,6 +270,8 @@ sealed partial class UISettings {
             InOverrides = inOverrides,
             FileValue = inOverrides && !isSecret ? fileValue : null,
             FileHasValue = inOverrides && hasValue(fileValue),
+            // a setting every installation should agree on, saved as this installation's own
+            Warning = inOverrides ? definition.InOverridesWarning : null,
         };
     }
 
@@ -432,6 +434,7 @@ sealed partial class UISettings {
             var container = getContainer(payload.StoreId);
             var settings = container.Settings;
             var defaultPaths = ModelEditor.DatamodelSourceWriter.DefaultPaths(settings.DatamodelSources);
+            var shortNameBefore = DatabaseShortName.Of(settings);
             var result = apply(SettingsCatalog.Database, settings, payload.Values, payload.StoreId);
             // a model source renamed here keeps reading from the folder named after its old name
             ModelEditor.DatamodelSourceWriter.KeepDefaultPaths(defaultPaths, settings.DatamodelSources);
@@ -445,6 +448,8 @@ sealed partial class UISettings {
                     container.ApplyNewSettings(settings, reopenIfOpen: true);
                     reopened = true;
                 }
+                // a closed database's logger is rebuilt on the new short name, which moves its log definitions
+                if (!reopened && !string.Equals(DatabaseShortName.Of(settings), shortNameBefore, StringComparison.Ordinal)) container.ForgetStandaloneLogger();
             }
             return new { result.Changed, result.Rejected, Reopened = reopened, Settings = buildDatabase(payload.StoreId) };
         }
@@ -607,6 +612,11 @@ sealed partial class UISettings {
                 rejected.Add(new RejectedSetting(path, definition.Label + " is set by " + decidedBy + " and cannot be changed here."));
                 continue;
             }
+            var problem = valueProblem(path, value, containerId);
+            if (problem != null) {
+                rejected.Add(new RejectedSetting(path, problem));
+                continue;
+            }
             try {
                 if (SettingsAccessor.Write(root, path, value)) changed.Add(path);
             } catch (Exception error) {
@@ -614,6 +624,22 @@ sealed partial class UISettings {
             }
         }
         return new ApplyResult(changed, rejected);
+    }
+
+    /// <summary>What is wrong with a value that its type alone does not catch, or null. A database's
+    /// short name names a folder, and two databases with one would share it.</summary>
+    string? valueProblem(string path, JsonElement value, Guid? containerId) {
+        if (containerId is not Guid storeId || !string.Equals(path, nameof(NodeStoreContainerSettingsBase.ShortName), StringComparison.OrdinalIgnoreCase)) return null;
+        var shortName = value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+        var problem = DatabaseShortName.Problem(shortName);
+        if (problem != null) return problem;
+        var wanted = string.IsNullOrWhiteSpace(shortName) ? null : shortName.Trim();
+        var other = _server.GetContainers().FirstOrDefault(c => c.Settings.Id != storeId && DatabaseShortName.Same(DatabaseShortName.Of(c.Settings), wanted));
+        if (other == null) return null;
+        var otherName = string.IsNullOrEmpty(other.Settings.Name) ? other.Settings.Id.ToString() : other.Settings.Name;
+        return wanted == null
+            ? "The database \"" + otherName + "\" has no short name, and only one database can be without one: its settings are kept directly in " + Defaults.SettingsFolderPath + ". Give this one a short name."
+            : "The database \"" + otherName + "\" already has the short name \"" + wanted + "\". Each database needs its own: it names the folder its settings files are kept in.";
     }
 
     /// <summary>Matches "IOSettings[8f1c...].Path" back to the field it came from, so an element's

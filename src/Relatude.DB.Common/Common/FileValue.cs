@@ -95,7 +95,11 @@ public class FileValue {
     public Guid StorageId { get; private set; }
     private byte[] _fileKeyData { get; set; }
 
-    public static byte[] GetFileKeyData(FileValue v) => v._fileKeyData; // A data that to identify the file in the storage provider. 
+    public static byte[] GetFileKeyData(FileValue v) => v._fileKeyData; // A data that to identify the file in the storage provider.
+    /// <summary>Whether the file id is taken from the hash: a file kept once per content by a store with
+    /// SameHashSameFile, whose bytes other file values may share. A random file id matching the hash is
+    /// not a realistic accident.</summary>
+    public static bool IsKeptByHash(FileValue v) => v.Hash.Length >= 32 && Guid.TryParseExact(v.Hash.AsSpan(0, 32), "N", out var id) && id == v.FileId;
 
     private static int version = 0; // to allow for future changes
     public byte[] ToBytes() {

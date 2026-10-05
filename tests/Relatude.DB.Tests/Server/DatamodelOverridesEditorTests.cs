@@ -73,6 +73,9 @@ public class DatamodelOverridesEditorTests {
             Assert.IsFalse(validation.Issues.Any(i => i.Code == "read-only-source"), "overrides are not a change to the source");
             Assert.IsTrue(validation.Plan!.OverridesChange);
             CollectionAssert.Contains(validation.TextReindexTypes, typeId<OvPage>(), "Body leaves OvPage's text");
+            var defaultChanged = validation.Issues.FirstOrDefault(i => i.Code == "default-changed");
+            Assert.IsNotNull(defaultChanged, "the stored page reads the new default");
+            StringAssert.Contains(defaultChanged.Message, "from \"Untitled\" to \"From the overrides\"", "string defaults are named in quotes");
 
             var result = new DatamodelActivator(host.Server, c, drafts).Activate(json, acceptWarnings: true, note: null);
             Assert.IsTrue(result.Activated, result.Message);
@@ -171,27 +174,166 @@ public class DatamodelOverridesEditorTests {
         }
     }
 
+    // the overrides every installation shares, in the application's settings folder
+    string sharedPath => Path.Combine(_root, "relatude.settings", "datamodel.overrides.json");
+    // a shared file as the application would have it, read when the database opens again
+    void writeShared(NodeStoreContainer c, Action<DatamodelOverrides, Datamodel> fill) {
+        var dm = DatamodelJson.Deserialize(c.DatamodelAsLoadedJson!);
+        var o = new DatamodelOverrides();
+        fill(o, dm);
+        Directory.CreateDirectory(Path.GetDirectoryName(sharedPath)!);
+        File.WriteAllText(sharedPath, DatamodelOverridesFile.Serialize(o));
+        c.ApplyNewSettings(c.Settings, reopenIfOpen: true);
+    }
+    static void sharedNoteHiddenAndPageTitle(DatamodelOverrides o, Datamodel dm) {
+        o.ForType(dm.NodeTypes[typeId<OvNote>()]).Hidden = true;
+        o.ForProperty(dm.NodeTypes[typeId<OvPage>()], property(dm, "Title")).DefaultValue = "Shared title";
+    }
+
     [TestMethod]
-    public async Task OverridesPath_PutsThemInAFileOfTheSite() {
+    public async Task SharedOverrides_AreInForce_AndAnActivationWritesOnlyWhatDiffersFromThem() {
+        var host = start(_root);
+        try {
+            var c = container(host);
+            var drafts = new DatamodelDrafts(host.Server.GetIO(c.Settings.IoDatabase!.Value));
+            writeShared(c, sharedNoteHiddenAndPageTitle);
+            var sharedText = File.ReadAllText(sharedPath);
+            Assert.IsTrue(c.Datamodel!.NodeTypes[typeId<OvNote>()].Hidden, "the shared file is read when the database opens");
+            Assert.AreEqual("Shared title", c.Store!.Create<OvPage>().Title);
+            var io = host.Server.GetIO(c.Settings.IoDatabase!.Value);
+            Assert.IsFalse(io.ExistsAndIsNotEmpty(FileKeyUtility.Datamodel_OverridesFileKey), "nothing of this installation's own");
+            Assert.AreEqual("relatude.settings/datamodel.overrides.json", c.OverridesFile.SharedLocation, "a database without a short name keeps it in relatude.settings itself");
+
+            // the draft takes the shared Hidden away, keeps the shared title and adds one of its own
+            var json = draftWith(c, dm => {
+                dm.Overrides!.NodeTypes[typeId<OvNote>()].Hidden = null;
+                dm.Overrides.ForType(dm.NodeTypes[typeId<OvNews>()]).Hidden = true;
+            });
+            var validation = new DatamodelValidator(host.Server, c).Validate(json, dryRun: false);
+            Assert.IsFalse(validation.HasErrors, string.Join("\n", validation.Issues.Select(i => i.Code + ": " + i.Message)));
+            Assert.IsTrue(validation.Plan!.OverridesChange);
+            var result = new DatamodelActivator(host.Server, c, drafts).Activate(json, acceptWarnings: true, note: null);
+            Assert.IsTrue(result.Activated, result.Message);
+            Assert.AreEqual(true, result.ChecksumMatches, "the two files read back as the draft");
+
+            var text = io.ReadAllTextUTF8(FileKeyUtility.Datamodel_OverridesFileKey);
+            StringAssert.StartsWith(text, "//", "the file says what it is");
+            var entries = DatamodelOverridesLayers.Entries(DatamodelOverridesLayers.Parse(text, keepResets: true));
+            Assert.AreEqual(2, entries.Count, string.Join(", ", entries.Select(e => e.Attribute)));
+            Assert.IsTrue(entries.Any(e => e.TypeId == typeId<OvNote>() && e.Attribute == "Hidden" && e.Value == null), "the shared value taken away is a null");
+            Assert.IsTrue(entries.Any(e => e.TypeId == typeId<OvNews>() && e.Attribute == "Hidden"));
+            Assert.AreEqual(sharedText, File.ReadAllText(sharedPath), "an activation never writes the shared file");
+            Assert.IsFalse(c.Datamodel!.NodeTypes[typeId<OvNote>()].Hidden, "taken away on this installation");
+            Assert.IsTrue(c.Datamodel.NodeTypes[typeId<OvNews>()].Hidden);
+            Assert.AreEqual("Shared title", c.Store!.Create<OvPage>().Title, "still from the shared file");
+
+            // back to what the shared file says: nothing of this installation's is left
+            var back = draftWith(c, dm => {
+                dm.Overrides!.ForType(dm.NodeTypes[typeId<OvNote>()]).Hidden = true;
+                dm.Overrides.NodeTypes[typeId<OvNews>()].Hidden = null;
+            });
+            Assert.IsTrue(new DatamodelActivator(host.Server, c, drafts).Activate(back, acceptWarnings: true, note: null).Activated);
+            Assert.IsFalse(io.ExistsAndIsNotEmpty(FileKeyUtility.Datamodel_OverridesFileKey));
+            Assert.IsTrue(c.Datamodel!.NodeTypes[typeId<OvNote>()].Hidden);
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
+    public async Task Moving_TakesTheInstallationsOverridesIntoTheSharedFile_AndNothingInForceChanges() {
+        var host = start(_root);
+        try {
+            var c = container(host);
+            var drafts = new DatamodelDrafts(host.Server.GetIO(c.Settings.IoDatabase!.Value));
+            var io = host.Server.GetIO(c.Settings.IoDatabase!.Value);
+            writeShared(c, sharedNoteHiddenAndPageTitle);
+            Guid title = Guid.Empty;
+            var json = draftWith(c, dm => {
+                title = property(dm, "Title").Id;
+                dm.Overrides!.NodeTypes[typeId<OvNote>()].Hidden = null; // taken away here
+                dm.Overrides.ForProperty(dm.NodeTypes[typeId<OvPage>()], property(dm, "Title")).DefaultValue = "Installation title"; // over the shared one
+                dm.Overrides.ForType(dm.NodeTypes[typeId<OvNews>()]).Hidden = true; // this installation's own
+            });
+            Assert.IsTrue(new DatamodelActivator(host.Server, c, drafts).Activate(json, acceptWarnings: true, note: null).Activated);
+            var file = c.OverridesFile;
+            var before = file.Read(host.Server);
+            var checksum = DatamodelJson.Checksum(new DatamodelValidator(host.Server, c).LoadActive());
+
+            var moved = file.MoveToShared(host.Server, [new(typeId<OvNote>(), null, "Hidden"), new(typeId<OvPage>(), title, "DefaultValue"), new(Guid.NewGuid(), null, "Hidden")], null);
+            Assert.AreEqual(2, moved, "an entry the file does not have is passed over");
+            Assert.IsTrue(DatamodelOverridesFile.Same(before, file.Read(host.Server)), "what is in force is the same");
+            var shared = DatamodelOverridesLayers.Entries(file.ReadSharedLayer());
+            Assert.IsFalse(shared.Any(e => e.TypeId == typeId<OvNote>()), "the reset took the shared value away");
+            Assert.AreEqual("Installation title", shared.Single(e => e.Attribute == "DefaultValue").Value!.GetValue<string>());
+            var left = DatamodelOverridesLayers.Entries(file.ReadInstallationLayer(host.Server));
+            Assert.AreEqual(1, left.Count);
+            Assert.AreEqual(typeId<OvNews>(), left[0].TypeId);
+            StringAssert.StartsWith(File.ReadAllText(sharedPath), "//", "the shared file says what it is");
+
+            // the download shows what the move then writes; the last one empties this installation's file
+            var preview = file.SharedTextWith(host.Server, [new(typeId<OvNews>(), null, "Hidden")], null);
+            Assert.AreNotEqual(preview, File.ReadAllText(sharedPath), "the download writes nothing");
+            Assert.AreEqual(1, file.MoveToShared(host.Server, [new(typeId<OvNews>(), null, "Hidden")], null));
+            Assert.AreEqual(preview, File.ReadAllText(sharedPath));
+            Assert.IsFalse(io.ExistsAndIsNotEmpty(FileKeyUtility.Datamodel_OverridesFileKey));
+
+            // and the database opens with the model it had before the moves
+            c.ApplyNewSettings(c.Settings, reopenIfOpen: true);
+            Assert.IsTrue(c.Datamodel!.NodeTypes[typeId<OvNews>()].Hidden);
+            Assert.IsFalse(c.Datamodel.NodeTypes[typeId<OvNote>()].Hidden);
+            Assert.AreEqual("Installation title", c.Store!.Create<OvPage>().Title);
+            Assert.AreEqual(checksum, DatamodelJson.Checksum(new DatamodelValidator(host.Server, c).LoadActive()));
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
+    public async Task TheOldOverridesPath_IsCopiedToTheSharedPlace() {
+        // what the setting named in an earlier version: the overrides meant for source control
+        var named = Path.Combine(_root, "Models", "overrides.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(named)!);
+        var o = new DatamodelOverrides();
+        o.NodeTypes[typeId<OvNote>()] = new NodeTypeOverride { Name = "OvNote", Hidden = true };
+        File.WriteAllText(named, DatamodelOverridesFile.Serialize(o));
         var host = TestServerHost.Start(_root, configure: s => {
             var c = s.ContainerSettings![0];
             c.DatamodelSources = [new DatamodelSource {
                 Id = compiledSourceId, Name = "Compiled", Type = DatamodelSourceType.CompiledTypes,
                 Reference = typeof(IOvContent).Assembly.GetName().Name, Namespace = typeof(IOvContent).Namespace,
             }];
+#pragma warning disable CS0618 // the setting an earlier version wrote
             c.DatamodelOverridesPath = "Models/overrides.json";
+#pragma warning restore CS0618
         });
         try {
             var c = container(host);
-            var json = draftWith(c, dm => {
-                dm.Overrides = new DatamodelOverrides();
-                dm.Overrides.ForType(dm.NodeTypes[typeId<OvNote>()]).Hidden = true;
-            });
-            var result = new DatamodelActivator(host.Server, c, new DatamodelDrafts(host.Server.GetIO(c.Settings.IoDatabase!.Value))).Activate(json, acceptWarnings: true, note: null);
-            Assert.IsTrue(result.Activated, result.Message);
-            var path = Path.Combine(_root, "Models", "overrides.json"); // the root data folder: relative paths resolve against it
-            Assert.IsTrue(File.Exists(path), "written where the setting says: " + path);
-            Assert.IsTrue(c.Datamodel!.NodeTypes[typeId<OvNote>()].Hidden);
+            Assert.IsTrue(File.Exists(sharedPath), "copied to the shared place");
+            Assert.IsTrue(File.Exists(named), "the old file is left for the team to remove with the setting");
+            Assert.IsTrue(c.Datamodel!.NodeTypes[typeId<OvNote>()].Hidden, "nothing in force changed");
+            Assert.IsTrue(host.Server.GetStartUpLog().Any(l => l.Item2.Contains("DatamodelOverridesPath") && l.Item2.Contains("copied")));
+            Assert.IsFalse(System.Text.Json.JsonSerializer.Serialize(new NodeStoreContainerSettings()).Contains("DatamodelOverridesPath"), "kept only for reading: not written when unset");
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
+    public async Task ChangingTheShortName_TakesTheSharedFileAlong() {
+        var host = start(_root);
+        try {
+            var c = container(host);
+            var before = c.OverridesFile;
+            Directory.CreateDirectory(Path.GetDirectoryName(before.SharedPath)!);
+            File.WriteAllText(before.SharedPath, "{ \"NodeTypes\": {} }");
+            c.Settings.ShortName = "shop";
+            var after = c.OverridesFile;
+            Assert.AreEqual("relatude.settings/shop/datamodel.overrides.json", after.SharedLocation);
+            Assert.IsTrue(File.Exists(after.SharedPath), "moved with the short name");
+            Assert.IsFalse(File.Exists(before.SharedPath));
+            Assert.IsTrue(Directory.Exists(Path.Combine(_root, "relatude.settings")), "the settings folder itself stays");
+            Assert.IsTrue(host.Server.GetStartUpLog().Any(l => l.Item2.Contains("Moved the shared datamodel overrides")));
         } finally {
             await host.DisposeAsync();
         }
@@ -200,7 +342,10 @@ public class DatamodelOverridesEditorTests {
     [TestMethod]
     public void FileKeys_TheOverridesAreNotAHistoryEntry() {
         Assert.IsFalse(FileKeyUtility.Datamodel_IsHistoryFileKey(FileKeyUtility.Datamodel_OverridesFileKey));
-        Assert.AreEqual(FileKeyUtility.DatamodelsFolderName, FileKeyUtility.Datamodel_OverridesFileKey[0]);
+        // kept with the other changes made in the admin UI; an older version's file in datamodels/ is no history entry either
+        Assert.AreEqual(FileKeyUtility.OverridesFolderName, FileKeyUtility.Datamodel_OverridesFileKey[0]);
+        Assert.AreEqual(FileKeyUtility.DatamodelsFolderName, FileKeyUtility.Datamodel_LegacyOverridesFileKey[0]);
+        Assert.IsFalse(FileKeyUtility.Datamodel_IsHistoryFileKey(FileKeyUtility.Datamodel_LegacyOverridesFileKey));
     }
 
     [TestMethod]

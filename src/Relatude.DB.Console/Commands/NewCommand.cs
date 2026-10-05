@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text;
 using Relatude.DB.NodeServer;
+using Relatude.DB.NodeServer.Settings;
 
 namespace Relatude.DB.Cli.Commands;
 
@@ -73,9 +74,10 @@ public static class NewCommand {
             password: args.Get("password"),
             waitUntilOpen: true);
         var projectFolder = Path.Combine(root, type.ProjectFolder);
-        Directory.CreateDirectory(projectFolder);
-        File.WriteAllText(Path.Combine(projectFolder, Defaults.SettingsFileName), SettingsReader.Serialize(settings));
-        written.Add(joinRelative(type.ProjectFolder, Defaults.SettingsFileName));
+        var settingsFile = SettingsFileLocation.FilePath(projectFolder); // relatude.settings/relatude.db.json
+        Directory.CreateDirectory(Path.GetDirectoryName(settingsFile)!);
+        File.WriteAllText(settingsFile, SettingsReader.Serialize(settings));
+        written.Add(joinRelative(type.ProjectFolder, Defaults.SettingsFilePath));
 
         var relativeRoot = Path.GetRelativePath(cwd, root);
         if (relativeRoot.StartsWith("..")) relativeRoot = root; // far away: the absolute path reads better

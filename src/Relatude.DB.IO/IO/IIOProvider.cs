@@ -38,7 +38,15 @@ public interface IIOProvider {
     bool TryGetLocalFilePath(string[] path, [MaybeNullWhen(false)] out string localFilePath);
     bool TryGetLocalFolderPath(string[] path, [MaybeNullWhen(false)] out string localFolderPath);
     bool TryMoveIfSameDrive(string fromLocalFilePath, string[] destination);
+    /// <summary>Deletes the folder and EVERYTHING below it.</summary>
     void DeleteFolderIfItExists(string[] path);
+    /// <summary>Deletes the folder only if nothing is in it, as one step with respect to this provider's
+    /// other operations - so unlike the recursive <see cref="DeleteFolderIfItExists"/>, a file written
+    /// into the folder since it was last listed is never lost. Returns whether the folder is gone
+    /// afterwards (also when it did not exist); the storage root is never deleted. Providers with
+    /// virtual folders (<see cref="SupportsEmptyFolders"/> false) delete nothing, as their folders go
+    /// with their last file: they only report whether anything is left below it.</summary>
+    bool DeleteFolderIfEmpty(string[] path);
     void EnsureFolder(string[] path);
     /// <summary>The folder at the given path (the storage root for an empty path): its files (when
     /// <paramref name="withFiles"/>) and its subfolders, one level deep unless <paramref name="recursive"/>.

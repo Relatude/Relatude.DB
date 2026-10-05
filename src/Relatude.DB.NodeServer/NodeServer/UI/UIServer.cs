@@ -892,7 +892,7 @@ public sealed class UIServer {
                 ProcessMemoryBytes = process.WorkingSet64,
                 ManagedMemoryBytes = GC.GetTotalMemory(false),
                 AdminPath = _server.ApiUrlRoot,
-                SettingsFile = _server.Settings.DBSettingsFilePath ?? Defaults.SettingsFileName,
+                SettingsFile = _server.SettingsFileDisplay,
                 DefaultDatabase = containers.FirstOrDefault(c => c.Settings.Id == _server.Settings.DefaultStoreId)?.Settings.Name,
                 Restart = new { restart.CanSoftRestart, restart.CanStopHost },
                 // the rest of what the host is, for the facts list: the process, the runtime it is

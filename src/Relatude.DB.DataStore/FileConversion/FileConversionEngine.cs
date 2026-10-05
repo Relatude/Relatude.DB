@@ -277,7 +277,7 @@ public class FileConversionEngine : IDisposable {
             FileType.Video => width < 1000 && height < 800,
             _ => false
         };
-        var key = fileValue.FileId.CombineHashGuid(adj.GetKey());
+        var key = FileIdWithAdjustment.KeyOf(fileValue, adj); // the key the running conversion reports under
         if (lookForBetterStatus && converter.TryGetLiveStatus(key, out var betterStatus)) {
             status = betterStatus;
         }

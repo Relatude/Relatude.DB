@@ -1,12 +1,24 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.IO;
 using System.Diagnostics.CodeAnalysis;
+using System.Security.Cryptography;
 namespace Relatude.DB.DataStores.Files;
 
-public class FileInsertResult(string fileHash, byte[] storeKey, long length) {
+/// <summary>What a file store stored: the hash of the bytes, the store's key for them, their length,
+/// and the file id the file value must carry. The id is the one the caller asked for, except in a
+/// store that keeps one copy per hash, where the bytes may turn out to be stored already.</summary>
+public class FileInsertResult(string fileHash, byte[] storeKey, long length, Guid fileId) {
     public string FileHash { get; } = fileHash;
     public byte[] StoreKey { get; } = storeKey;
     public long Length { get; } = length;
+    public Guid FileId { get; } = fileId;
+}
+/// <summary>The hash a file store computes over the bytes of every file it stores, which becomes
+/// <see cref="FileValue.Hash"/> (hex). SHA256 is the stronger choice where people who are not
+/// trusted can upload into a store that keeps one copy per hash, as MD5 collisions can be crafted.</summary>
+public enum FileHashAlgorithm {
+    MD5 = 0,
+    SHA256 = 1,
 }
 
 public interface IFileStore : IDisposable {
@@ -29,8 +41,14 @@ public static class FileStoreExtensions {
     }
 }
 public interface IFileStoreMultiPartSupport : IFileStore {
+    /// <summary>The hash the caller must compute over the parts, passed to <see cref="CompletePartialUpload"/>.</summary>
+    HashAlgorithmName HashAlgorithm { get; }
     Task<byte[]> InitiatePartialUpload(Guid fileId, string fileName);
     Task AppendDataAsync(Guid fileId, byte[] fileKey, byte[] buffer, int length);
+    /// <summary>Called once every part is appended, with the hash and length of the whole file. The
+    /// result is what the file value must carry: a store that keeps one copy per hash may move the
+    /// file, or drop it in favour of the copy it already has.</summary>
+    Task<FileInsertResult> CompletePartialUpload(Guid fileId, byte[] fileKey, string fileHash, long length);
 }
 public class DeleteUnReferenceResult(long totalBytesDeleted, int totalFilesDeleted, int totalFoldersDeleted) {
     public long TotalBytesDeleted { get; } = totalBytesDeleted;

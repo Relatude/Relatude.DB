@@ -107,7 +107,8 @@ export interface ModelJson {
   NodeTypes: Record<string, NodeTypeJson>;
   Relations: Record<string, RelationJson>;
   Sources: SourceJson[];
-  /** the database's overrides; they ride with the model, and activating writes them to their own file */
+  /** the overrides in force - the shared file's, with this installation's merged over them; they ride with
+      the model, and activating writes what differs from the shared file into this installation's file */
   Overrides?: OverridesJson | null;
   [key: string]: unknown;
 }
@@ -186,20 +187,56 @@ export interface DatamodelPage {
   /** the source list is set by the configuration overlay and cannot be changed from here */
   sourcesLocked: boolean;
   ioProviders: { id: string; name: string | null }[];
-  /** where the database keeps its overrides (their content is in the model) */
+  /** the two files the database keeps its overrides in (what is in force is in the model) */
   overrides: OverridesFileInfo;
 }
 
+/**
+ * Where a database's overrides are kept. The shared file, in relatude.settings, is part of the application:
+ * in source control and deployed to every installation. This installation's file, with the database, holds
+ * what the editor changed here, merged over the shared one - a value replaces the shared one, null takes it
+ * away. Activating writes only this installation's file; overrides get into the shared one by being moved.
+ */
 export interface OverridesFileInfo {
-  /** the source id the write plan files the overrides file under */
+  /** the source id the write plan files this installation's overrides file under */
   planId: string;
-  /** where they are, for people */
+  /** where this installation's are, for people */
   location: string;
-  /** kept with the database rather than in a file of the site */
-  inDatabase: boolean;
-  /** false when they are to be kept with a database that has no storage provider for them */
+  /** false when the database has no storage provider to keep this installation's in */
   writable: boolean;
   exists: boolean;
+  /** the shared file, relative to the application's folder: relatude.settings/[short name]/datamodel.overrides.json */
+  sharedLocation: string;
+  sharedExists: boolean;
+  /** what the shared file overrides, as the model writes overrides; null when nothing */
+  shared: OverridesJson | null;
+  /** the shared file could not be read */
+  sharedError: string | null;
+  /** the application runs in the Development environment, where relatude.settings is usually the one in source control */
+  development: boolean;
+  environment: string;
+}
+
+/** One entry of this installation's overrides file, beside what the shared file says. */
+export interface InstallationOverride {
+  typeId: string;
+  /** null: an attribute of the type itself */
+  propertyId: string | null;
+  attribute: string;
+  typeName: string | null;
+  propertyName: string | null;
+  /** the shared value is taken away here, and what the source says applies */
+  reset: boolean;
+  value: unknown;
+  inShared: boolean;
+  sharedValue: unknown;
+  /** says what the shared file says: it comes from there anyway */
+  sameAsShared: boolean;
+}
+
+export interface InstallationOverrides {
+  files: OverridesFileInfo;
+  entries: InstallationOverride[];
 }
 
 // ---- the schema of the editors ----
@@ -396,6 +433,22 @@ export function deleteHistory(storeId: string, key: string): Promise<boolean> {
   return send<{ deleted: boolean }>("datamodel-history-delete", { storeId, key }).then((r) => r.deleted);
 }
 
+// ---- this installation's overrides, and moving them into the shared file ----
+
+export type OverridePath = { typeId: string; propertyId: string | null; attribute: string };
+
+export function fetchInstallationOverrides(storeId: string): Promise<InstallationOverrides> {
+  return send<InstallationOverrides>("datamodel-overrides-get", { storeId });
+}
+/** Moves entries of this installation's file into the shared one. Nothing in force changes. */
+export function moveOverridesToShared(storeId: string, entries: OverridePath[]): Promise<{ moved: number; view: InstallationOverrides }> {
+  return send<{ moved: number; view: InstallationOverrides }>("datamodel-overrides-move", { storeId, entries });
+}
+/** The shared file as moving these entries would make it, without writing anything. */
+export function sharedOverridesText(storeId: string, entries: OverridePath[]): Promise<{ content: string; fileName: string; sharedLocation: string }> {
+  return send<{ content: string; fileName: string; sharedLocation: string }>("datamodel-overrides-shared-text", { storeId, entries });
+}
+
 // ---- the type reference form: what the running application can see ----
 
 export interface AssemblyScan {
@@ -491,10 +544,10 @@ export function namespaceBase(pattern: string | null | undefined): string | null
   return head.length === 0 ? null : head;
 }
 
-/** Where runtime types sources that name no path keep their model files, one folder each, relative to the settings folder. Mirrors DatamodelSourceLoader.DefaultRuntimeTypesFolder. */
+/** Where runtime types sources that name no path keep their model files, one folder each, relative to the application's folder. Mirrors DatamodelSourceLoader.DefaultRuntimeTypesFolder. */
 export const runtimeTypesFolder = "relatude.db/modelsources";
 const reservedFolderNames = new Set(["CON", "PRN", "AUX", "NUL", ...[1, 2, 3, 4, 5, 6, 7, 8, 9].flatMap((n) => ["COM" + n, "LPT" + n])]);
-/** What a runtime types source with no Filepath reads, relative to the settings folder: a folder named after it. Mirrors DatamodelSourceLoader.DefaultPath and FolderNameOf. */
+/** What a runtime types source with no Filepath reads, relative to the application's folder: a folder named after it. Mirrors DatamodelSourceLoader.DefaultPath and FolderNameOf. */
 export function defaultSourcePath(s: { Id: string; Name?: string | null; Reference?: string | null }): string {
   let name = Array.from((s.Name ?? "").trim(), (c) => (c < " " || '<>:"/\\|?*'.includes(c) ? "_" : c))
     .join("")

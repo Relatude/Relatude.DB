@@ -44,7 +44,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         using var inputStream = source.OpenRead(sourceFileKey, 0);
         fileName ??= sourceFileKey.FileName();
         var r = await fileStore.InsertAsync(newFileId, inputStream, fileName);
-        var fileValue = FileValue.CreateNew(fileName, r.Length, r.FileHash, fileStore.Id, newFileId, r.StoreKey, propertyPath);
+        var fileValue = FileValue.CreateNew(fileName, r.Length, r.FileHash, fileStore.Id, r.FileId, r.StoreKey, propertyPath);
         var t = new TransactionData();
         t.ForceUpdateProperty(propertyPath, fileValue);
         Execute(t, false, false, ctx);
@@ -58,7 +58,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var fileStore = getFileStore(fileProp.FileStorageProviderId);
         var newFileId = Guid.NewGuid();
         var r = await fileStore.InsertAsync(newFileId, source, fileName);
-        var fileValue = FileValue.CreateNew(fileName, r.Length, r.FileHash, fileStore.Id, newFileId, r.StoreKey, propertyPath);
+        var fileValue = FileValue.CreateNew(fileName, r.Length, r.FileHash, fileStore.Id, r.FileId, r.StoreKey, propertyPath);
         var t = new TransactionData();
         t.ForceUpdateProperty(propertyPath, fileValue);
         Execute(t, false, false, ctx);
@@ -169,7 +169,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var newFileId = Guid.NewGuid();
         var storeKey = await fileStore.InitiatePartialUpload(newFileId, fileName);
         var fileValue = FileValue.CreateNew(fileName, 0, string.Empty, fileStore.Id, newFileId, storeKey, propertyPath);
-        _uploads.AddSession(fileValue);
+        _uploads.AddSession(fileValue, fileStore.HashAlgorithm);
         return fileValue.FileId;
     }
     public async Task AppendMultipartUploadAsync(Guid fileId, byte[] data, int length) {
@@ -193,8 +193,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         var fileHash = Convert.ToHexString(session.Hash.GetHashAndReset());
         _uploads.removeSession(fileId);
         var f = session.FileValue;
-        var key = FileValue.GetFileKeyData(f);
-        fileValue = FileValue.CreateNew(f.Name, f.Size, fileHash, f.StorageId, f.FileId, key, propertyPath);
+        // a store keeping one copy per hash may answer with the copy it already had
+        var r = await _uploads.getMultiPartStore(session).CompletePartialUpload(f.FileId, FileValue.GetFileKeyData(f), fileHash, f.Size);
+        fileValue = FileValue.CreateNew(f.Name, r.Length, r.FileHash, f.StorageId, r.FileId, r.StoreKey, propertyPath);
         var t = new TransactionData();
         t.ForceUpdateProperty(propertyPath, fileValue);
         Execute(t, false, false, ctx);

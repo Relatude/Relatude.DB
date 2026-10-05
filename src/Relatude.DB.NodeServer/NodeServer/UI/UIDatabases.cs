@@ -39,7 +39,7 @@ sealed class UIDatabases {
             // then this page must not pretend the button would do anything
             DefaultLocked = _server.DecidedOutsideTheSettingsFiles(nameof(RelatudeDBServerSettings.DefaultStoreId)) != null,
             ConfigSection = overlay?.SectionName,
-            SettingsFile = _server.Settings.DBSettingsFilePath ?? Defaults.SettingsFileName,
+            SettingsFile = _server.SettingsFileDisplay,
             Databases = _server.GetContainers()
                 .OrderBy(c => c.Settings.Name ?? c.Settings.Id.ToString(), StringComparer.OrdinalIgnoreCase)
                 .Select(c => describe(c, defaultId))
@@ -130,6 +130,7 @@ sealed class UIDatabases {
             var settings = new NodeStoreContainerSettings {
                 Id = SecureGuid.New(),
                 Name = name,
+                ShortName = freeShortName(name),
                 AutoOpen = payload.AutoOpen,
                 LocalSettings = SettingsLocal.CreateWithNativeEngines(),
                 IOSettings = [io],
@@ -174,6 +175,22 @@ sealed class UIDatabases {
 
     /// <summary>A folder name from a database name: what a file system takes everywhere, lower case
     /// so two names differing only in case cannot pick the same folder on Linux and collide.</summary>
+    /// <summary>
+    /// A short name no other database has (see <see cref="DatabaseShortName"/>): none while every other
+    /// database has one, otherwise one made from the name, numbered when that is taken. Two databases with
+    /// one short name - or both without one - would share the folder of their settings files.
+    /// </summary>
+    string? freeShortName(string name) {
+        var shortNames = _server.GetContainers().Select(c => DatabaseShortName.Of(c.Settings)).ToArray();
+        if (shortNames.All(s => s != null)) return null;
+        var taken = shortNames.OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var stem = slug(name);
+        if (DatabaseShortName.Problem(stem) != null) stem = "db";
+        var candidate = stem;
+        for (var n = 2; taken.Contains(candidate); n++) candidate = stem + "-" + n;
+        return candidate;
+    }
+
     static string slug(string name) {
         var text = new string([.. name.Select(ch => char.IsLetterOrDigit(ch) ? char.ToLowerInvariant(ch) : '-')]);
         while (text.Contains("--")) text = text.Replace("--", "-");

@@ -25,7 +25,7 @@ Everything that is not your C# model. Three surfaces, and knowing which one owns
 
 ## Where the file lives
 
-`relatude.db.json` sits in the **root data folder**, which is `ServerOptions.DefaultDataFolderPath` resolved against the app's `ContentRootPath` — so by default, next to the app. Two sibling folders appear beside it on first run: `relatude.db/` (the data) and `relatude.db.temp/` (scratch, emptied at every startup).
+`relatude.db.json` sits in **`relatude.settings/`** below the **root data folder**, which is `ServerOptions.DefaultDataFolderPath` resolved against the app's `ContentRootPath` — so by default `<app>/relatude.settings/relatude.db.json`. Relative paths inside it resolve against the root data folder, not against `relatude.settings/`. Two folders appear in the root data folder on first run: `relatude.db/` (the data) and `relatude.db.temp/` (scratch, emptied at every startup). Older versions kept `relatude.db.json` in the root data folder itself (and briefly in `relatude.settings/db/`); the server moves such a file into `relatude.settings/` at start (text as-is, comments kept). If the move fails it is read and written in place with a start-up warning; if both files exist only the new one is read, with a warning about the old one. The CLI reads either place and never moves the file. The definitions of each database's custom logs (`db.CustomLogs`) sit beside it: `relatude.settings/logs/<key>.json` for the database without a `ShortName`, `relatude.settings/<ShortName>/logs/<key>.json` for one with — short names are unique and only one database can be without one (most installations have one database and no short name); what the logs record stays in the database's log storage under `logs/<key>/`. Older layouts (the folder called `log/`, `log/log.<key>.settings.json`, log files directly in the log folder) are moved when the database opens. A database's datamodel overrides are kept in two files: `relatude.settings/datamodel.overrides.json` (`relatude.settings/<ShortName>/datamodel.overrides.json` with a short name) is shared — committed and deployed with the app, written by the admin UI only when overrides are moved into it (Models → Sources → Overrides → Move to shared) — and `overrides/datamodel.overrides.json` on the database's storage holds what the data model editor changed on that installation (older versions: `datamodels/`, moved automatically). The installation's file is merged over the shared one: a value replaces the shared value, `null` takes it away; activating writes only the installation's file, as the difference from the shared one. `DatamodelOverridesPath` is no longer used (a file it names is copied to the shared place once).
 
 ```csharp
 builder.AddRelatudeDB(options => {
@@ -87,7 +87,9 @@ One server, N containers (databases), each with its own IO providers, file store
           "Id": "…",
           "IoProviderId": "1a2b…",
           "StoreType": "MultiFile",        // SingleFile | MultiFile
-          "MultiFileFolderDepth": 2
+          "MultiFileFolderDepth": 2,
+          "SameHashSameFile": false,       // MultiFile only: one copy per content (hash + length); shared files are only removed by the unreferenced-files cleanup
+          "HashAlgorithm": "MD5"           // MultiFile only: MD5 | SHA256 (use SHA256 when untrusted people can upload)
         }
       ],
 

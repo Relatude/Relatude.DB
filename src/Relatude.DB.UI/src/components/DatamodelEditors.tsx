@@ -41,6 +41,8 @@ import {
   propertyHasOverrides,
   propertyOverride,
   requestsOf,
+  sharedOverride,
+  type OverridesPlaces,
   resolvePropertySetting,
   resolveTypeSetting,
   typeSettingFromBases,
@@ -64,8 +66,8 @@ export interface EditorContext {
   /** whether the source the item belongs to can be written; false makes the editor read only */
   writableSource: (sourceId: string) => boolean;
   readOnlyReason: (sourceId: string) => string | null;
-  /** where the database keeps its overrides, as a phrase: "with the database", "in Models/overrides.json" */
-  overridesWhere: string;
+  /** where the database keeps its overrides: the file every installation shares, and this installation's */
+  overrides: OverridesPlaces;
   update: (mutate: (model: ModelJson) => void) => void;
   select: (selection: Selection | null) => void;
 }
@@ -91,7 +93,7 @@ export type Selection =
  * a badge; the forms themselves say nothing, so a read-only form reads the same as a writable one.
  */
 export function readOnlyNote(selection: Selection, ctx: EditorContext, sourcesLocked: boolean): string | null {
-  const overridable = " What can be overridden still can be: those fields stay open, and what is set in them is saved as overrides with the database.";
+  const overridable = " What can be overridden still can be: those fields stay open, and what is set in them is saved as overrides of this installation.";
   const bySource = (sourceId: string) => (ctx.writableSource(sourceId) ? null : (ctx.readOnlyReason(sourceId) ?? "This source cannot be written from here.") + (selection.kind === "source" || selection.kind === "relation" ? "" : overridable));
   // an inherited property seen from a type: that type's own attributes are what the form edits
   if (selection.kind === "property" && selection.viaTypeId && selection.viaTypeId !== selection.typeId) return null;
@@ -626,12 +628,53 @@ export function showValue(v: unknown): string {
   return String(v);
 }
 
-function OverriddenChip({ title }: { title: string }) {
+function OverriddenChip({ title, shared }: { title: string; shared?: boolean }) {
   return (
-    <span className="dm-ochip overridden" title={title}>
-      <IconAdjustments size={11} stroke={2.2} /> overridden
+    <span className={"dm-ochip overridden" + (shared ? " shared" : "")} title={title}>
+      <IconAdjustments size={11} stroke={2.2} /> {shared ? "shared override" : "overridden"}
     </span>
   );
+}
+
+/**
+ * The chip and the arrow of one override, by the file it is in. The model holds the overrides in force;
+ * comparing with the shared file tells which file a value comes from. The arrow takes one file away at a
+ * time: an override this installation sets over a shared one goes back to the shared value, one that is
+ * the shared value is taken away on this installation (what back says then applies), and a shared value
+ * taken away here comes back.
+ */
+function overrideFrame(ctx: EditorContext, typeId: string, propertyId: string | null, path: string, value: unknown, back: string, forType?: string) {
+  const places = ctx.overrides;
+  const shared = sharedOverride(places.shared, typeId, propertyId, path);
+  const overridden = value !== undefined && value !== null;
+  const forWhom = forType ? " for " + forType : "";
+  const set = (v: unknown) => () => ctx.update((m) => setOverride(m, typeId, propertyId, path, v));
+  if (overridden && shared !== undefined && sameValue(shared, value)) {
+    return {
+      overridden,
+      chip: <OverriddenChip shared title={"Overridden" + forWhom + " in the shared overrides, " + places.sharedLocation + ", which every installation has. Without it: " + back + "."} />,
+      reset: { title: "Take the shared override away on this installation: back to " + back, onClick: set(undefined) },
+    };
+  }
+  if (overridden) {
+    return {
+      overridden,
+      chip: <OverriddenChip title={"Overridden" + forWhom + " for this installation (" + places.location + ")" + (shared !== undefined ? ", over the shared overrides' " + showValue(shared) : "") + ". Without it: " + back + "."} />,
+      reset: shared !== undefined ? { title: "Back to the shared override: " + showValue(shared), onClick: set(shared) } : { title: "Remove the override: back to " + back, onClick: set(undefined) },
+    };
+  }
+  if (shared !== undefined) {
+    return {
+      overridden,
+      chip: (
+        <span className="dm-ochip reset" title={"The shared overrides (" + places.sharedLocation + ") set " + showValue(shared) + forWhom + "; this installation takes that away, so " + back + " applies here."}>
+          shared, taken away
+        </span>
+      ),
+      reset: { title: "Use the shared override again: " + showValue(shared), onClick: set(shared) },
+    };
+  }
+  return { overridden, chip: null, reset: null };
 }
 /** The base type a value comes from; a click opens it. */
 function FromChip({ ctx, typeId, value, fromOverride }: { ctx: EditorContext; typeId: string; value: unknown; fromOverride?: boolean }) {
@@ -693,6 +736,7 @@ function typeOverrides(ctx: EditorContext, type: NodeTypeJson, writable: boolean
     const resolved = resolveTypeSetting(ctx.model, type.Id, field.path, scope);
     const bases = scope === "inherited" ? typeSettingFromBases(ctx.model, type.Id, field.path) : null;
     const toOverride = own.overridden || !writable;
+    const marks = overrideFrame(ctx, type.Id, null, field.path, own.overridden ? own.value : undefined, showValue(declared) + ", what the source says");
     return {
       value: own.value,
       disabled: false,
@@ -706,12 +750,12 @@ function typeOverrides(ctx: EditorContext, type: NodeTypeJson, writable: boolean
         quiet: !writable,
         chips: (
           <>
-            {own.overridden && <OverriddenChip title={"Overridden " + ctx.overridesWhere + ". The source says " + showValue(declared) + "."} />}
+            {marks.chip}
             {resolved.kind === "inherited" && resolved.typeId && <FromChip ctx={ctx} typeId={resolved.typeId} value={resolved.value} fromOverride={resolved.fromOverride} />}
             {resolved.conflict && <ConflictChip ctx={ctx} ids={resolved.conflict} fallback="the database default applies" />}
           </>
         ),
-        reset: own.overridden ? { title: "Remove the override: back to " + showValue(declared) + ", what the source says", onClick: () => ctx.update((m) => setOverride(m, type.Id, null, field.path, undefined)) } : null,
+        reset: marks.reset,
         unsetLabel: bases ? (bases.kind === "inherited" && bases.typeId ? "Inherit: " + showValue(bases.value) + " from " + (ctx.model.NodeTypes[bases.typeId]?.CodeName ?? "?") : "Database default") : undefined,
       },
     };
@@ -740,6 +784,7 @@ function propertyOverrides(ctx: EditorContext, owner: NodeTypeJson, view: NodeTy
       const overridden = o !== undefined && o !== null;
       const declared = (property as Record<string, unknown>)[field.path];
       const toOverride = overridden || !ownerWritable;
+      const marks = overrideFrame(ctx, owner.Id, property.Id, field.path, o, showValue(declared) + ", what the source says");
       return {
         value: overridden ? o : declared,
         disabled: false,
@@ -753,13 +798,13 @@ function propertyOverrides(ctx: EditorContext, owner: NodeTypeJson, view: NodeTy
           quiet: !ownerWritable,
           chips: (
             <>
-              {overridden && <OverriddenChip title={"Overridden " + ctx.overridesWhere + ". The source says " + showValue(declared) + "."} />}
+              {marks.chip}
               {scope === "anyType" && (
                 <AskedChip ctx={ctx} ids={requestsOf(ctx.model, property, owner.Id, field.path, field.overrideAsks ?? true).filter((id) => id !== owner.Id)} property={property} declaringId={owner.Id} path={field.path} here={owner.CodeName} />
               )}
             </>
           ),
-          reset: overridden ? { title: "Remove the override: back to " + showValue(declared) + ", what the source says", onClick: () => ctx.update((m) => setOverride(m, owner.Id, property.Id, field.path, undefined)) } : null,
+          reset: marks.reset,
         },
       };
     }
@@ -776,6 +821,7 @@ function propertyOverrides(ctx: EditorContext, owner: NodeTypeJson, view: NodeTy
     const toOverride = overriddenHere || !viewWritable;
     // an override goes on top of what the type's own definition says, so removing one goes back to that
     const without = (keepOwn: boolean) => showValue(inheritedPropertySetting(ctx.model, view.Id, property, owner.Id, field.path, keepOwn));
+    const marks = overrideFrame(ctx, view.Id, property.Id, field.path, dbHere, without(true), view.CodeName);
     return {
       value: r.value,
       disabled: false,
@@ -792,7 +838,7 @@ function propertyOverrides(ctx: EditorContext, owner: NodeTypeJson, view: NodeTy
         quiet: true,
         chips: (
           <>
-            {overriddenHere && <OverriddenChip title={"Overridden for " + view.CodeName + " " + ctx.overridesWhere + "."} />}
+            {marks.chip}
             {!overriddenHere && setHere && (
               <span className="dm-ochip own" title={"Set by " + view.CodeName + " itself, in its definition ([PropertyOverride] in code)."}>
                 own
@@ -802,8 +848,8 @@ function propertyOverrides(ctx: EditorContext, owner: NodeTypeJson, view: NodeTy
             {r.conflict && <ConflictChip ctx={ctx} ids={r.conflict} fallback={"what " + owner.CodeName + " declares applies"} />}
           </>
         ),
-        reset: overriddenHere
-          ? { title: "Remove the override: back to " + without(true), onClick: () => ctx.update((m) => setOverride(m, view.Id, property.Id, field.path, undefined)) }
+        reset: marks.reset
+          ? marks.reset
           : setHere && viewWritable
             ? { title: "Stop " + view.CodeName + " setting its own: back to " + without(false), onClick: () => ctx.update((m) => setOwnPropertyOverride(m, view.Id, property.Id, field.path, undefined)) }
             : null,
@@ -828,6 +874,7 @@ function askedField(ctx: EditorContext, owner: NodeTypeJson, view: NodeTypeJson,
   const others = requestsOf(ctx.model, property, owner.Id, path, want).filter((id) => id !== view.Id);
   const toOverride = here.overridden || !viewWritable;
   const asking = (on: boolean) => (on ? "asking for it" : "not asking for it");
+  const marks = overrideFrame(ctx, view.Id, property.Id, path, here.overridden ? here.value : undefined, asking(ownHere === want) + ", what " + view.CodeName + "'s definition says", view.CodeName);
   return {
     value: asks || others.length > 0 ? want : !want,
     // granted because others ask: switching it here would change nothing
@@ -848,7 +895,7 @@ function askedField(ctx: EditorContext, owner: NodeTypeJson, view: NodeTypeJson,
       quiet: true,
       chips: (
         <>
-          {here.overridden && <OverriddenChip title={"Overridden for " + view.CodeName + " " + ctx.overridesWhere + "."} />}
+          {marks.chip}
           {!here.overridden && setHere && (
             <span className="dm-ochip own" title={view.CodeName + " asks for it itself, in its definition ([PropertyOverride] in code)."}>
               own
@@ -857,8 +904,8 @@ function askedField(ctx: EditorContext, owner: NodeTypeJson, view: NodeTypeJson,
           <AskedChip ctx={ctx} ids={others} property={property} declaringId={owner.Id} path={path} here={view.CodeName} />
         </>
       ),
-      reset: here.overridden
-        ? { title: "Remove the override: back to " + asking(ownHere === want) + ", what " + view.CodeName + "'s definition says", onClick: () => ctx.update((m) => setOverride(m, view.Id, property.Id, path, undefined)) }
+      reset: marks.reset
+        ? marks.reset
         : setHere && viewWritable
           ? { title: "Stop " + view.CodeName + " asking for it", onClick: () => ctx.update((m) => setOwnPropertyOverride(m, view.Id, property.Id, path, undefined)) }
           : null,
@@ -872,7 +919,7 @@ export function OverrideMarks({ ctx, typeId, propertyId }: { ctx: EditorContext;
   return (
     <>
       {marks.database && (
-        <span className="dm-ochip overridden small" title={"Overridden " + ctx.overridesWhere}>
+        <span className="dm-ochip overridden small" title="Overridden, in the shared overrides or for this installation: the property's form says which">
           <IconAdjustments size={10} stroke={2.2} />
         </span>
       )}

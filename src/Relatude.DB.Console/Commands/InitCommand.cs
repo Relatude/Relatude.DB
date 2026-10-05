@@ -1,20 +1,23 @@
 using Relatude.DB.NodeServer;
+using Relatude.DB.NodeServer.Settings;
 
 namespace Relatude.DB.Cli.Commands;
 
 /// <summary>
-/// Writes a relatude.db.json next to an existing application (see <see cref="SettingsTemplate"/> for
-/// what goes in it). "relatude new" writes the same file into a freshly generated project.
+/// Writes relatude.settings/relatude.db.json into an existing application (see <see cref="SettingsTemplate"/>
+/// for what goes in it). "relatude new" writes the same file into a freshly generated project.
 /// </summary>
 public static class InitCommand {
     public static Task<int> RunAsync(CommandArgs args) {
         args.Accept([.. Target.Options, "name", "namespace", "assembly-name", "path", "user", "password", "force"]);
         var target = Target.Resolve(args);
-        var path = target.SettingsPath;
-        if (File.Exists(path) && !args.Flag("force")) {
-            throw new CliException("A settings file already exists: " + path + Environment.NewLine
+        if (target.SettingsExists && !args.Flag("force")) {
+            throw new CliException("A settings file already exists: " + target.SettingsPath + Environment.NewLine
                 + "Pass --force to replace it, or look at it with: relatude settings");
         }
+        // one replaced in an older place is written where it is kept now, and the old one removed
+        var legacy = target.SettingsInLegacyPlace ? target.SettingsPath : null;
+        var path = legacy == null ? target.SettingsPath : SettingsFileLocation.FilePath(target.Root);
         var assemblyName = args.Get("assembly-name")
             ?? (target.ProjectFile == null ? null : Path.GetFileNameWithoutExtension(target.ProjectFile));
         var modelNamespace = args.Get("namespace");
@@ -32,12 +35,13 @@ public static class InitCommand {
         var folder = Path.GetDirectoryName(path);
         if (folder != null && folder.Length > 0) Directory.CreateDirectory(folder);
         File.WriteAllText(path, SettingsReader.Serialize(settings));
+        if (legacy != null) File.Delete(legacy);
 
         if (args.Flag("json")) {
             Output.Json(new { File = path, Database = container.Name, container.Id, DataFolder = Path.Combine(target.Root, dataPath) });
             return Task.FromResult(0);
         }
-        Output.WriteLine("Wrote " + path);
+        Output.WriteLine("Wrote " + path + (legacy == null ? "" : ", and removed " + legacy));
         Output.Table([
             ("database", container.Name ?? "-"),
             ("data folder", Path.Combine(target.Root, dataPath)),

@@ -44,6 +44,10 @@ public static class SettingsCommand {
             return Task.FromResult(0);
         }
         Output.WriteLine("Settings  " + target.SettingsPath);
+        if (target.SettingsInLegacyPlace) {
+            Output.Info("This is where older versions kept the settings file; the application moves it into "
+                + Defaults.SettingsFolderPath + " at its next start.");
+        }
         Output.Table([
             ("overrides", overridesWhere + " - " + (overridesProblem ?? (overrides.Length == 0 ? "nothing changed in the admin UI"
                 : overrides.Length + (overrides.Length == 1 ? " setting" : " settings") + " changed in the admin UI"))),
@@ -59,6 +63,7 @@ public static class SettingsCommand {
             Output.WriteLine("Database \"" + c.Name + "\"" + (c.Id == settings.DefaultStoreId ? "  (default)" : string.Empty));
             Output.Table([
                 ("id", c.Id.ToString()),
+                ("short name", DatabaseShortName.Describe(DatabaseShortName.Of(c)) + "  (log definitions in " + DatabaseShortName.LogDefinitionsFolder(DatabaseShortName.Of(c)) + ")"),
                 ("auto open", c.AutoOpen + (c.WaitUntilOpen ? ", blocking start up" : string.Empty)),
                 ("log", provider(c, c.IoDatabase, target)),
                 ("indexes", provider(c, c.IoIndexes, target) + (c.IoIndexes == null ? " (falls back to the log provider)" : string.Empty)),
@@ -139,6 +144,8 @@ public static class SettingsCommand {
         return new {
             c.Id,
             c.Name,
+            ShortName = DatabaseShortName.Of(c),
+            LogDefinitions = DatabaseShortName.LogDefinitionsFolder(DatabaseShortName.Of(c)),
             c.AutoOpen,
             c.WaitUntilOpen,
             IsDefault = c.Id == settings.DefaultStoreId,

@@ -335,7 +335,7 @@ export function CustomLogEditor({
             "Saved"
           )}
         </span>
-        <button className="action-button" onClick={() => saveText(definitionToFileJson(current), `log.${current.key || "new"}.settings.json`, "application/json")} title="Save the definition as a settings file, to import in another database">
+        <button className="action-button" onClick={() => saveText(definitionToFileJson(current), `${current.key || "new"}.json`, "application/json")} title="Save the definition as a settings file, to import in another database">
           <IconDownload size={15} stroke={1.8} /> Json
         </button>
         {!isNew && onDuplicate && (
@@ -364,8 +364,8 @@ export function CustomLogEditor({
       {mode === "json" ? (
         <section className="panel">
           <h3>
-            <code className="clog-h3-file">log.{current.key || "…"}.settings.json</code>{" "}
-            <span className="panel-sub">the file in the database's log folder: edit it here, or paste one in</span>
+            <code className="clog-h3-file">{info.definitionsFolder}/{current.key || "…"}.json</code>{" "}
+            <span className="panel-sub">the definition file, kept with the application's settings: edit it here, or paste one in</span>
           </h3>
           {jsonError && <div className="logs-note clog-bad-note">{jsonError}</div>}
           <div className="clog-json-editor">

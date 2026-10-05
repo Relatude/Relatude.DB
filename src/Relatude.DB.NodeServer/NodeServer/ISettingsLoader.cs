@@ -9,7 +9,13 @@ public interface ISettingsLoader {
     Task<RelatudeDBServerSettings> ReadAsync();
     Task WriteAsync(RelatudeDBServerSettings settings);
 }
+/// <summary>
+/// Reads and writes the settings as one JSON file on disk. The server's own is relatude.db.json in
+/// relatude.settings below the root data folder (<see cref="Settings.SettingsFileLocation"/>).
+/// </summary>
 public class LocalSettingsLoaderFile(string filePath) : ISettingsLoader {
+    /// <summary>The file the settings are read from and written to.</summary>
+    public string FilePath => filePath;
     public static JsonSerializerOptions? PrettyJsonOptions = null;
     public static JsonSerializerOptions JsonOptions => getOptions();
     static JsonSerializerOptions getOptions() {
@@ -61,6 +67,8 @@ public class LocalSettingsLoaderFile(string filePath) : ISettingsLoader {
     public Task WriteAsync(RelatudeDBServerSettings settings) {
         var json = JsonSerializer.Serialize(settings, getOptions());
         var path = Path.Combine(filePath);
+        var folder = Path.GetDirectoryName(Path.GetFullPath(path));
+        if (!string.IsNullOrEmpty(folder)) Directory.CreateDirectory(folder); // relatude.settings does not exist before the first write
         return File.WriteAllTextAsync(path, json);
     }
 

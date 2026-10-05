@@ -18,7 +18,7 @@ public sealed class DatamodelActivationResult {
     /// <summary>Whether reloading the written sources gives exactly the draft; null when not checked.</summary>
     public bool? ChecksumMatches { get; set; }
     public string? Message { get; set; }
-    /// <summary>The database's overrides file was written (or removed).</summary>
+    /// <summary>This installation's overrides file was written (or removed).</summary>
     public bool OverridesChanged { get; set; }
     /// <summary>How many nodes had their indexed text emptied because their type stopped being text indexed.</summary>
     public int TextCleared { get; set; }
@@ -60,19 +60,22 @@ public sealed class DatamodelActivator {
         // 1. the model being replaced goes into the history first, so it is there whatever happens next
         _drafts.Snapshot(active, "replaced");
 
-        // 2. the files: deletes first, so a generated folder is emptied before it is filled again
-        foreach (var file in plan.Files.Where(f => f.Changed).OrderBy(f => f.Action == PlannedFileAction.Delete ? 0 : 1)) {
-            if (file.IoId != null && file.IoKey != null) {
-                var io = _server.GetIO(file.IoId.Value);
-                if (file.Action == PlannedFileAction.Delete) io.DeleteFileIfItExists(file.IoKey);
-                else io.WriteAllTextUTF8(file.IoKey, file.Content ?? "");
-            } else if (file.Action == PlannedFileAction.Delete) {
-                if (File.Exists(file.Path)) File.Delete(file.Path);
-            } else {
-                Directory.CreateDirectory(Path.GetDirectoryName(file.Path)!);
-                File.WriteAllText(file.Path, file.Content ?? "");
+        // 2. the files: deletes first, so a generated folder is emptied before it is filled again. Not
+        // while overrides are being moved into the shared file, which rewrites this installation's
+        lock (_container.OverridesWriteLock) {
+            foreach (var file in plan.Files.Where(f => f.Changed).OrderBy(f => f.Action == PlannedFileAction.Delete ? 0 : 1)) {
+                if (file.IoId != null && file.IoKey != null) {
+                    var io = _server.GetIO(file.IoId.Value);
+                    if (file.Action == PlannedFileAction.Delete) io.DeleteFileIfItExists(file.IoKey);
+                    else io.WriteAllTextUTF8(file.IoKey, file.Content ?? "");
+                } else if (file.Action == PlannedFileAction.Delete) {
+                    if (File.Exists(file.Path)) File.Delete(file.Path);
+                } else {
+                    Directory.CreateDirectory(Path.GetDirectoryName(file.Path)!);
+                    File.WriteAllText(file.Path, file.Content ?? "");
+                }
+                (file.Action == PlannedFileAction.Delete ? result.FilesDeleted : result.FilesWritten).Add(file.Path);
             }
-            (file.Action == PlannedFileAction.Delete ? result.FilesDeleted : result.FilesWritten).Add(file.Path);
         }
 
         // 3. the source list in the settings follows the draft's

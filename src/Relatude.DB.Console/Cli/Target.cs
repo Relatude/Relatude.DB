@@ -1,3 +1,4 @@
+using Relatude.DB.NodeServer.Settings;
 using System.Reflection;
 using System.Runtime.Loader;
 
@@ -5,9 +6,13 @@ namespace Relatude.DB.Cli;
 
 /// <summary>
 /// Where the tool is pointed: the content root of the application (the folder that holds
-/// relatude.db.json, exactly as the server resolves it), the settings file itself, and the folders the
-/// application's own assemblies are loaded from. Everything is derived from the current folder unless
-/// --project, --settings, --data, --bin or --assembly say otherwise.
+/// relatude.settings/relatude.db.json, exactly as the server resolves it), the settings file itself,
+/// and the folders the application's own assemblies are loaded from. Everything is derived from the
+/// current folder unless --project, --settings, --data, --bin or --assembly say otherwise.
+/// <para>A relatude.db.json an older version kept elsewhere - at the content root itself, or in
+/// relatude.settings/db - is read where it is: only the application moves it into relatude.settings,
+/// at its next start (see
+/// <see cref="SettingsFileLocation"/>).</para>
 /// </summary>
 public sealed class Target {
     public const string SettingsFileOption = "settings";
@@ -28,6 +33,9 @@ public sealed class Target {
     /// <summary>Name or id of the database container to work on, null for the default one.</summary>
     public string? Store { get; init; }
     public bool SettingsExists => File.Exists(SettingsPath);
+    /// <summary>Whether the settings file is where older versions kept it - the content root itself, or
+    /// relatude.settings/db - and from where the application moves it at its next start.</summary>
+    public bool SettingsInLegacyPlace => SettingsExists && SettingsFileLocation.IsLegacyPlace(SettingsPath, Root);
 
     public static Target Resolve(CommandArgs args) {
         var cwd = Directory.GetCurrentDirectory();
@@ -49,11 +57,17 @@ public sealed class Target {
         string settingsPath;
         if (settingsOption != null) {
             settingsPath = Path.GetFullPath(settingsOption, cwd);
-            if (Directory.Exists(settingsPath)) settingsPath = Path.Combine(settingsPath, Defaults.SettingsFileName);
-            root ??= Path.GetDirectoryName(settingsPath)!;
+            // a folder is the one the file itself is in, or the content root holding it
+            if (Directory.Exists(settingsPath)) {
+                var inFolder = Path.Combine(settingsPath, Defaults.SettingsFileName);
+                var isSettingsFolder = !string.Equals(SettingsFileLocation.RootOf(inFolder), Path.TrimEndingDirectorySeparator(settingsPath), StringComparison.OrdinalIgnoreCase);
+                // a content root: its settings file where it is kept now, else where an older version kept it
+                settingsPath = isSettingsFolder ? inFolder : SettingsFileLocation.Existing(settingsPath);
+            }
+            root ??= SettingsFileLocation.RootOf(settingsPath);
         } else {
             root ??= findRootWithSettingsFile(cwd) ?? cwd;
-            settingsPath = Path.Combine(root, Defaults.SettingsFileName);
+            settingsPath = SettingsFileLocation.Existing(root);
         }
         var data = args.Get("data");
         if (data != null) root = Path.GetFullPath(data, cwd);
@@ -86,7 +100,7 @@ public sealed class Target {
     static string? findRootWithSettingsFile(string start) {
         var dir = new DirectoryInfo(start);
         for (var i = 0; i < 6 && dir != null; i++, dir = dir.Parent) {
-            if (File.Exists(Path.Combine(dir.FullName, Defaults.SettingsFileName))) return dir.FullName;
+            if (SettingsFileLocation.HasSettingsFile(dir.FullName)) return dir.FullName;
         }
         return null;
     }
@@ -148,7 +162,7 @@ public sealed class Target {
     public string Describe() {
         var lines = new List<(string, string)> {
             ("content root", Root),
-            ("settings", SettingsPath + (SettingsExists ? string.Empty : "  (does not exist)")),
+            ("settings", SettingsPath + (!SettingsExists ? "  (does not exist)" : SettingsInLegacyPlace ? "  (old place, moved into " + Defaults.SettingsFolderPath + " when the application starts)" : string.Empty)),
             ("overrides", OverridesFile ?? "with the default database"),
             ("environment", EnvironmentName),
         };

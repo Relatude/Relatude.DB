@@ -79,6 +79,8 @@ export interface SettingView {
   /** What relatude.db.json gives the setting, when `inOverrides`; null for secrets. */
   fileValue: unknown;
   fileHasValue: boolean;
+  /** said beside the setting while this installation's overrides file holds it: one every installation should agree on */
+  warning?: string | null;
 }
 
 /** One element of an editable collection: a storage provider, a file store. */

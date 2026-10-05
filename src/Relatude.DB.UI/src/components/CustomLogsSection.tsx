@@ -611,12 +611,12 @@ function Overview({
       onChanged();
       if (result.errors > 0) {
         showError(
-          result.errors === 1 ? "A settings file could not be read" : "Some settings files could not be read",
-          `${result.errors === 1 ? "One settings file in the log folder is" : `${result.errors} settings files in the log folder are`} not a log. They are listed under the logs, to be fixed or deleted.`,
+          result.errors === 1 ? "A definition file could not be read" : "Some definition files could not be read",
+          `${result.errors === 1 ? "One definition file is" : `${result.errors} definition files are`} not a log. They are listed under the logs, to be fixed or deleted.`,
         );
       }
     } catch (e) {
-      showError("Could not read the settings files", e instanceof Error ? e.message : String(e));
+      showError("Could not read the definition files", e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -664,7 +664,7 @@ function Overview({
             }}
           />
           <span className="logs-spacer" />
-          <button className="action-button" onClick={reload} title="Read the settings files in the log folder again, for definitions changed on disk">
+          <button className="action-button" onClick={reload} title={`Read the definition files in ${info.definitionsFolder} again, for definitions changed on disk`}>
             <IconReload size={15} stroke={1.8} /> Reload from disk
           </button>
         </div>
@@ -701,8 +701,8 @@ function Overview({
       {info.loadErrors.length > 0 && (
         <section className="panel clog-broken">
           <h3>
-            <IconAlertTriangle size={15} stroke={1.8} /> Settings files that are not a log{" "}
-            <span className="panel-sub">in the log folder, and left alone until they are fixed or deleted</span>
+            <IconAlertTriangle size={15} stroke={1.8} /> Definition files that are not a log{" "}
+            <span className="panel-sub">left alone until they are fixed or deleted</span>
           </h3>
           {info.loadErrors.map((e) => (
             <div key={e.fileKey} className="clog-broken-row">
@@ -714,7 +714,7 @@ function Overview({
               <button
                 className="action-button danger"
                 onClick={async () => {
-                  const { ok } = await showConfirm("Delete the settings file", `Delete ${e.fileKey}? What a log recorded under it is not touched.`, {
+                  const { ok } = await showConfirm("Delete the definition file", `Delete ${e.fileKey}? What a log recorded under it is not touched.`, {
                     confirmLabel: "Delete",
                     danger: true,
                   });
@@ -852,7 +852,7 @@ function EmptyState({ onNew }: { onNew: (from?: LogDefinition) => void }) {
 }
 
 /**
- * A settings file in the log folder that did not read as a log, opened to be fixed: its text as it
+ * A definition file that did not read as a log, opened to be fixed: its text as it
  * is, in an editor that marks what does not parse, saved back only once the server reads it as a log.
  */
 function BrokenFileDialog({ db, error, onClose, onFixed }: { db: DatabaseInfo; error: CustomLogLoadError; onClose: () => void; onFixed: () => void }) {

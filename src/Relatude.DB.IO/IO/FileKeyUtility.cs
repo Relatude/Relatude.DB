@@ -18,7 +18,7 @@ namespace Relatude.DB.IO;
 ///     data/   = the database log files (primary and secondary)
 ///     state/  = everything rebuildable from the log: state snapshot, memory index states, mapper dll, persisted queue
 ///     backup/ = backup files
-///     log/    = the system logger files and the critical error log
+///     logs/   = the logger files, one folder per log (logs/{key}/), and the critical error log
 /// The folder names are plain (no prefix); the instance prefix stays on the file name inside them,
 /// so several instances can still share one storage location. The prefixed indexes folder and the
 /// multi file store folder are unchanged.
@@ -32,7 +32,10 @@ public static class FileKeyUtility {
     public const string DataFolderName = "data";
     public const string StateFolderName = "state";
     public const string BackupFolderName = "backup";
-    public const string LogFolderName = "log";
+    public const string LogFolderName = "logs";
+    /// <summary>What the log folder was called before it became <see cref="LogFolderName"/>. What an older
+    /// version left there is moved when the database's logger starts (see LogFileLayout).</summary>
+    public const string LegacyLogFolderName = "log";
     /// <summary>
     /// The folder the datamodel editor keeps its files in: the draft model being edited, and the
     /// history of every model that has been active (see the Datamodel_* methods below).
@@ -43,8 +46,9 @@ public static class FileKeyUtility {
     /// runtime types source that names no path of its own. Read from disk by the datamodel source loader,
     /// not through the provider, so it is not a system folder.</summary>
     public const string ModelSourcesFolderName = "modelsources";
-    /// <summary>The folder relatude.db.overrides.json is kept in - the settings changed in the admin UI -
-    /// below the storage root of the default database.</summary>
+    /// <summary>The folder below a database's storage root for what is changed in the admin UI on top of
+    /// what the application says: its datamodel overrides (datamodel.overrides.json), and - in the default
+    /// database's - relatude.db.overrides.json, the settings changed there.</summary>
     public const string OverridesFolderName = "overrides";
     /// <summary>The folder the server keeps its installation id in - the random part of the key Relatude
     /// Services knows the installation by - below the storage root of the default database.</summary>
@@ -107,16 +111,28 @@ public static class FileKeyUtility {
 
     static readonly string[] mapperDllFilePattern = [StateFolderName, "mapper.*.dll"];
 
-    static readonly string[] loggerAllFilePattern = [LogFolderName, "log.*"];
-    const string loggerNamePrefix = "log"; // the file name part; logger files live in the log folder
+    // Every log keeps its files in a folder of its own below the log folder, named after its key:
+    // log/{key}/log.{key}.{interval}.{date}.bin, the .txt copies beside them, log.{key}.statistics.bin
+    // and its .bkup. The folder name is the key lowercased - keys are compared without case, and one
+    // key must name one folder on case sensitive storage too. The file names still carry the key, so a
+    // file taken out of its folder still says whose it is.
+    static readonly string[] loggerAllFilePattern = [LogFolderName, "*", "log.*"];
+    // where older versions kept the same files: directly in the log folder (see Logger_GetLegacyFlatFileKeys)
+    static readonly string[] loggerLegacyFlatFilePattern = [LogFolderName, "log.*"];
+    const string loggerNamePrefix = "log"; // the first part of every file name of a log
     const string loggerFilePartDelim = ".";
     const string loggerStatisticsSuffix = "statistics";
     const string loggerBinaryExt = ".bin";
     const string loggerTextExt = ".txt";
     const string loggerBkUpExt = ".bkup";
-    // a log's settings as json (see LogSettings.Save); deliberately not matched by the .bin/.txt
-    // patterns the log streams search and delete by, so deleting a log's data keeps its settings
-    static readonly string[] loggerSettingsFilePattern = [LogFolderName, loggerNamePrefix + loggerFilePartDelim + "*" + loggerFilePartDelim + "settings.json"];
+    // A log's definition as json (see LogSettings.Save): {key}.json. The server keeps the definitions
+    // of a database's own logs in relatude.settings/logs/{database short name}/; kept with the log's
+    // files instead, they are {key}.json in the log folder, beside the folder of the log's data - so
+    // deleting a log's data never takes its definition along.
+    const string loggerDefinitionExt = ".json";
+    static readonly string[] loggerDefinitionFilePattern = [LogFolderName, "*" + loggerDefinitionExt];
+    // where older versions saved a definition: log.{key}.settings.json in the log folder
+    static readonly string[] loggerLegacySettingsFilePattern = [LogFolderName, loggerNamePrefix + loggerFilePartDelim + "*" + loggerFilePartDelim + "settings.json"];
 
     static readonly string[] criticalErrorLogFilePattern = [LogFolderName, "critical.error.txt"];
 
@@ -132,9 +148,12 @@ public static class FileKeyUtility {
     // history files are timestamped copies of every model that has been active, newest last.
     static readonly string[] datamodelDraftFileKey = [DatamodelsFolderName, "datamodel.draft.json"];
     static readonly string[] datamodelHistoryFilePattern = [DatamodelsFolderName, "datamodel.*.json"];
-    // the database's datamodel overrides (see Datamodel.Overrides). It fits the history pattern above but
-    // carries no timestamp, which is what Datamodel_IsHistoryFileKey tells them apart by
-    static readonly string[] datamodelOverridesFileKey = [DatamodelsFolderName, "datamodel.overrides.json"];
+    // the database's datamodel overrides (see Datamodel.Overrides), in the overrides folder with the other
+    // things changed in the admin UI. Older versions kept them among the editor's files, where the name fits
+    // the history pattern above but carries no timestamp, which is what Datamodel_IsHistoryFileKey tells
+    // them apart by
+    static readonly string[] datamodelOverridesFileKey = [OverridesFolderName, "datamodel.overrides.json"];
+    static readonly string[] datamodelLegacyOverridesFileKey = [DatamodelsFolderName, "datamodel.overrides.json"];
 
     /// <summary>The key a pattern describes, with the wildcard in its file name filled in.</summary>
     static string[] fill(string[] pattern, string value) => [.. pattern[..^1], pattern[^1].Replace("*", value)];
@@ -284,22 +303,45 @@ public static class FileKeyUtility {
     public static string[] MapperDll_GetFileKey(ulong hash) => fill(mapperDllFilePattern, hash.ToString());
     public static string[][] MapperDll_GetAllFileKeys(IIOProvider io) => [.. io.Search(mapperDllFilePattern)];
 
-    public static string[] Logger_GetStatistics(string loggerKey) => [LogFolderName, loggerNamePrefix + loggerFilePartDelim + loggerKey + loggerFilePartDelim + loggerStatisticsSuffix + loggerBinaryExt];
+    /// <summary>The folder holding every file of one log: log/{key}, the key lowercased.</summary>
+    public static string[] Logger_FolderKey(string loggerKey) => [LogFolderName, loggerKey.ToLowerInvariant()];
+    public static string[] Logger_GetStatistics(string loggerKey) => [.. Logger_FolderKey(loggerKey), loggerNamePrefix + loggerFilePartDelim + loggerKey + loggerFilePartDelim + loggerStatisticsSuffix + loggerBinaryExt];
     public static string[] Logger_GetStatisticsBackUp(string loggerKey) {
         var key = Logger_GetStatistics(loggerKey);
         return [.. key[..^1], key.FileName() + loggerBkUpExt];
     }
-    /// <summary>Where a log's settings are saved as json: log.[key].settings.json in the log folder.</summary>
-    public static string[] Logger_GetSettings(string loggerKey) => fill(loggerSettingsFilePattern, loggerKey);
-    /// <summary>The keys of every saved log settings file in the log folder.</summary>
-    public static string[][] Logger_GetAllSettingsFileKeys(IIOProvider io) => [.. io.Search(loggerSettingsFilePattern)];
-    /// <summary>The file name prefix (inside the log folder) of one log's files for the given interval.</summary>
+    /// <summary>The file name of a log's definition, in whichever folder the definitions are kept: {key}.json.</summary>
+    public static string Logger_DefinitionFileName(string loggerKey) => loggerKey + loggerDefinitionExt;
+    /// <summary>Whether a file name is a definition's: {key}.json, and not the old log.{key}.settings.json.</summary>
+    public static bool Logger_IsDefinitionFileName(string fileName)
+        => fileName.Length > loggerDefinitionExt.Length && fileName.EndsWith(loggerDefinitionExt, StringComparison.OrdinalIgnoreCase)
+        && !fileName.MatchesWildcard(loggerLegacySettingsFilePattern[^1]);
+    /// <summary>Where a log's definition is kept when it is kept with the log's files: {key}.json in the log folder.</summary>
+    public static string[] Logger_GetDefinition(string loggerKey) => [LogFolderName, Logger_DefinitionFileName(loggerKey)];
+    /// <summary>The keys of every definition kept in the log folder.</summary>
+    public static string[][] Logger_GetAllDefinitionFileKeys(IIOProvider io) => [.. io.Search(loggerDefinitionFilePattern).Where(k => Logger_IsDefinitionFileName(k.FileName()))];
+    /// <summary>Where older versions saved a log's definition: log.{key}.settings.json in the log folder.</summary>
+    public static string[] Logger_GetLegacySettings(string loggerKey) => fill(loggerLegacySettingsFilePattern, loggerKey);
+    /// <summary>The keys of every definition an older version saved in the log folder (log.{key}.settings.json).</summary>
+    public static string[][] Logger_GetAllLegacySettingsFileKeys(IIOProvider io) => [.. io.Search(loggerLegacySettingsFilePattern)];
+    /// <summary>The data files older versions kept directly in the log folder - entries, text copies,
+    /// statistics and their backups - which now belong in the folder of their log (<see cref="Logger_FolderKey"/>).
+    /// The old definitions (log.{key}.settings.json) are not among them: they move elsewhere.</summary>
+    public static string[][] Logger_GetLegacyFlatFileKeys(IIOProvider io)
+        => [.. io.Search(loggerLegacyFlatFilePattern).Where(k => !k.MatchesPattern(loggerLegacySettingsFilePattern))];
+    /// <summary>The key of the log a file named log.{key}.... belongs to, or null for any other name.
+    /// A key has no dots, so it is the second part of the name.</summary>
+    public static string? Logger_KeyOfFileName(string fileName) {
+        var parts = fileName.Split('.');
+        return parts.Length >= 3 && parts[0] == loggerNamePrefix && parts[1].Length > 0 ? parts[1] : null;
+    }
+    /// <summary>The file name prefix (inside the log's folder) of one log's files for the given interval.</summary>
     public static string Logger_NamePrefix(string logName, FileInterval fileInterval) => loggerNamePrefix + loggerFilePartDelim + logName + loggerFilePartDelim + fileInterval.ToString().ToLower() + loggerFilePartDelim;
     public static string[] Logger_FileNameBin(string logName, FileInterval fileInterval, DateTime floored) => logger_FileName(logName, fileInterval, floored, loggerBinaryExt);
     public static string[] Logger_FileNameTxt(string logName, FileInterval fileInterval, DateTime floored) => logger_FileName(logName, fileInterval, floored, loggerTextExt);
     public static List<DateTime> Logger_FileDatesBin(IIOProvider io, string logName, FileInterval fileInterval) => getLogFileDates(io, logName, fileInterval, loggerBinaryExt);
     public static List<DateTime> Logger_FileDatesTxt(IIOProvider io, string logName, FileInterval fileInterval) => getLogFileDates(io, logName, fileInterval, loggerTextExt);
-    static string[] logger_FileName(string logName, FileInterval fileInterval, DateTime floored, string fileExt) => [LogFolderName, (Logger_NamePrefix(logName, fileInterval) + (fileInterval switch {
+    static string[] logger_FileName(string logName, FileInterval fileInterval, DateTime floored, string fileExt) => [.. Logger_FolderKey(logName), (Logger_NamePrefix(logName, fileInterval) + (fileInterval switch {
             FileInterval.Minute => floored.ToString("yyyy-MM-dd-HH-mm"),
             FileInterval.Hour => floored.ToString("yyyy-MM-dd-HH"),
             FileInterval.Day => floored.ToString("yyyy-MM-dd"),
@@ -318,7 +360,7 @@ public static class FileKeyUtility {
         }, System.Globalization.CultureInfo.InvariantCulture), DateTimeKind.Utc);
     }
     static List<DateTime> getLogFileDates(IIOProvider io, string logName, FileInterval fileInterval, string fileExt) {
-        string[] pattern = [LogFolderName, Logger_NamePrefix(logName, fileInterval) + "*" + fileExt];
+        string[] pattern = [.. Logger_FolderKey(logName), Logger_NamePrefix(logName, fileInterval) + "*" + fileExt];
         return io.Search(pattern).Select(f => logger_ParseFileName(f.FileName(), logName, fileInterval, fileExt)).OrderBy(i => i).ToList();
     }
 
@@ -331,6 +373,8 @@ public static class FileKeyUtility {
     public static string[] Datamodel_DraftFileKey => datamodelDraftFileKey;
     /// <summary>The datamodel overrides of the database, when they are kept with it (the default).</summary>
     public static string[] Datamodel_OverridesFileKey => datamodelOverridesFileKey;
+    /// <summary>Where older versions kept the datamodel overrides: datamodels/datamodel.overrides.json.</summary>
+    public static string[] Datamodel_LegacyOverridesFileKey => datamodelLegacyOverridesFileKey;
     /// <summary>The history file for a model that was active at the given (UTC) time.</summary>
     public static string[] Datamodel_GetHistoryFileKey(DateTime utc) => fill(datamodelHistoryFilePattern, utc.ToString(dateTimeTemplate));
     /// <summary>Whether the key names a datamodel history file (the draft has the same shape but no timestamp).</summary>
@@ -438,8 +482,10 @@ public static class FileKeyUtility {
         if (key.MatchesPattern(stateFilePattern) || key.MatchesPattern(stateFileLegacyPattern)) return "State";
         if (key.MatchesPattern([indexStoreFolderPattern])) return "Index Store";
         if (key.MatchesPattern(queueFileKeyPattern)) return "Task queue";
-        if (key.MatchesPattern(loggerSettingsFilePattern)) return "Log settings";
-        if (key.MatchesPattern(loggerAllFilePattern)) return "Log file";
+        if (key.IsSameKey(datamodelOverridesFileKey) || key.IsSameKey(datamodelLegacyOverridesFileKey)) return "Datamodel overrides";
+        if (key.MatchesPattern(loggerLegacySettingsFilePattern)) return "Log definition (old place)";
+        if (key.MatchesPattern(loggerDefinitionFilePattern) && Logger_IsDefinitionFileName(key.FileName())) return "Log definition";
+        if (key.MatchesPattern(loggerAllFilePattern) || key.MatchesPattern(loggerLegacyFlatFilePattern)) return "Log file";
         if (key.MatchesPattern(indexFilePattern)) return "Index";
         // index engine files: unprefixed, inside their engine folder (see the region above); matched
         // on the last segment so both bare names and folder qualified keys get a description
@@ -462,6 +508,8 @@ public static class FileKeyUtility {
         // a primary data folder only carries the description at its own level: below it the names
         // are the store's own (hash folders in the file store), not something to describe
         if (key.Length > 1 && IsPrimaryDataFolder(relpath)) return "-";
+        // log/{key}: the files of one log
+        if (key.Length == 2 && string.Equals(key[0], LogFolderName, StringComparison.OrdinalIgnoreCase)) return "Files of one log";
         return key.FileName() switch {
             DataFolderName => "Database log files",
             StateFolderName => "State cache",
@@ -470,7 +518,8 @@ public static class FileKeyUtility {
             UploadFolderName => "Uploads still arriving",
             multiFileStoreFolderPattern => "File store",
             LogFolderName => "Logs",
-            OverridesFolderName => "Settings changed in the admin UI",
+            LegacyLogFolderName => "Logs (older layout, moved when the database opens)",
+            OverridesFolderName => "Changes made in the admin UI",
             InstallationFolderName => "This installation's id",
             ModelSourcesFolderName => "Data model files",
             var s when s.MatchesWildcard(indexStoreFolderPattern) => "Indexes",

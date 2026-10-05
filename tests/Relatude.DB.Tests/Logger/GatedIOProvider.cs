@@ -43,6 +43,7 @@ sealed class GatedIOProvider(IIOProvider inner, string fileNamePrefix) : IIOProv
     public bool TryGetLocalFolderPath(string[] path, [MaybeNullWhen(false)] out string localFolderPath) => inner.TryGetLocalFolderPath(path, out localFolderPath);
     public bool TryMoveIfSameDrive(string fromLocalFilePath, string[] destination) => inner.TryMoveIfSameDrive(fromLocalFilePath, destination);
     public void DeleteFolderIfItExists(string[] path) => inner.DeleteFolderIfItExists(path);
+    public bool DeleteFolderIfEmpty(string[] path) => inner.DeleteFolderIfEmpty(path);
     public void EnsureFolder(string[] path) => inner.EnsureFolder(path);
     public Task<FolderMeta> GetFolderAsync(string[] path, bool recursive, bool withFiles) => inner.GetFolderAsync(path, recursive, withFiles);
 }

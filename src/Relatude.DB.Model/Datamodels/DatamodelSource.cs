@@ -49,7 +49,7 @@ public class DatamodelSource {
     public Guid? FileIO { get; set; }
     /// <summary>
     /// For a source read from a compiled assembly (<see cref="DatamodelSourceType.CompiledTypes"/>): the folder
-    /// holding the C# files the assembly is built from, relative to the settings folder unless rooted. When
+    /// holding the C# files the assembly is built from, relative to the application's folder unless rooted. When
     /// set, the datamodel editor can write model changes back into those files (the application then has to
     /// be rebuilt and restarted for them to take effect). Without it the source is read only in the editor.
     /// </summary>

@@ -58,7 +58,6 @@ public partial class RelatudeDBServer {
     }
 
     ServerAPIMapper? _api;
-    string _settingsFile = Defaults.SettingsFileName;
     string _rootDataFolderPath = string.Empty;
     IIOProvider? _tempIO;
     public IIOProvider TempIO => Validator.ThrowIfNull(_tempIO);
@@ -118,6 +117,18 @@ public partial class RelatudeDBServer {
         }
     }
     internal string RootDataFolderPath => _rootDataFolderPath;
+    /// <summary>
+    /// Where the settings are read from, for people: the file of the default loader relative to the root
+    /// data folder - relatude.settings/relatude.db.json, or an older place while a move out of the
+    /// old place fails - unless the settings name a file of their own, as a custom loader's may.
+    /// </summary>
+    internal string SettingsFileDisplay {
+        get {
+            if (!string.IsNullOrWhiteSpace(_serverSettings.DBSettingsFilePath)) return _serverSettings.DBSettingsFilePath;
+            if (_settingsLoader is LocalSettingsLoaderFile file) return SettingsFileLocation.Display(file.FilePath, _rootDataFolderPath);
+            return Defaults.SettingsFileName;
+        }
+    }
     internal string DefaultSubDataFolderPath => Path.Combine(_rootDataFolderPath, Defaults.DataFolderPath);
     public string ApiUrlRoot { get; private set; } = string.Empty;
     internal string ApiUrlPublic => ApiUrlRoot + "/auth/";
@@ -152,6 +163,7 @@ public partial class RelatudeDBServer {
         Options = options;
         _lifetime = app.Lifetime;
         _configuration = app.Configuration;
+        _environmentName = app.Environment.EnvironmentName;
 
         var dataFolderPath = options.DefaultDataFolderPath;
         var tempFolderPath = options.DefaultTempFolderPath;
@@ -177,7 +189,9 @@ public partial class RelatudeDBServer {
         foreach (var file in tempFiles) {
             try { TempIO.DeleteFileIfItExists(file.KeyOf()); } catch { }
         }
-        _settingsLoader = settings == null ? new LocalSettingsLoaderFile(Path.Combine(_rootDataFolderPath, _settingsFile)) : settings;
+        // relatude.settings/relatude.db.json; one an older version kept elsewhere is moved there first
+        _settingsLoader = settings ?? new LocalSettingsLoaderFile(SettingsFileLocation.Find(_rootDataFolderPath,
+            msg => { Log(msg); Console.WriteLine("relatude.db: " + msg); }, startupWarning));
         if (tempCount == 0) Log("Loading settings using: " + _settingsLoader.GetType().FullName);
         await loadSettingsAndCreateContainersAsync(firstStart: true);
         cleanUploadFolders();
@@ -250,6 +264,7 @@ public partial class RelatudeDBServer {
                 if (containerSettings.Id == _serverSettings.DefaultStoreId) _defaultContainer = container;
             }
         }
+        warnAboutShortNames();
     }
     bool isCurrentApiUrlRoot(string urlPath) {
         if (string.IsNullOrWhiteSpace(urlPath)) return true; // an empty path leaves the root untouched
@@ -572,7 +587,7 @@ public class ServerOptions {
     /// <summary>
     /// Gets or sets the callback that is invoked when the server settings are initialized.
     /// This is called after SettingsLoader.ReadAsync() is called, and before any containers are opened.
-    /// The default settings loader is a read file named "relatude.db.json" in the root data folder, but can be overridden by setting the SettingsLoader property.
+    /// The default settings loader reads relatude.settings/relatude.db.json below the root data folder, but can be overridden by setting the SettingsLoader property.
     /// It is a good place to programmatically modify the server settings before any containers are opened.
     /// </summary>
     public Action<RelatudeDBServerSettings>? OnServerSettingsInit { get; set; }
@@ -580,7 +595,7 @@ public class ServerOptions {
     /// <summary>
     /// Gets or sets the callback that is invoked when the container settings are initialized.
     /// This is called after SettingsLoader.ReadAsync() is called, and before any containers are opened.
-    /// The default settings loader is a read file named "relatude.db.json" in the root data folder, but can be overridden by setting the SettingsLoader property.
+    /// The default settings loader reads relatude.settings/relatude.db.json below the root data folder, but can be overridden by setting the SettingsLoader property.
     /// It is a good place to programmatically modify the container settings before any containers are opened.
     /// </summary>
     public Action<NodeStoreContainerSettings>? OnContainerSettingsInit { get; set; }
@@ -588,7 +603,7 @@ public class ServerOptions {
     /// <summary>
     /// Gets or sets the callback that is invoked when the store settings are initialized.
     /// This is called after SettingsLoader.ReadAsync() is called, and before any containers are opened.
-    /// The default settings loader is a read file named "relatude.db.json" in the root data folder, but can be overridden by setting the SettingsLoader property.
+    /// The default settings loader reads relatude.settings/relatude.db.json below the root data folder, but can be overridden by setting the SettingsLoader property.
     /// It is a good place to programmatically modify the store settings before any containers are opened.
     /// </summary>
     public Action<SettingsLocal, NodeStoreContainerSettingsBase>? OnStoreSettingsInit { get; set; }
@@ -621,7 +636,8 @@ public class ServerOptions {
 
     /// <summary>
     /// Custom storage for server settings.
-    /// If not set, settings will be stored in a file named "relatude.db.json" in the root data folder.
+    /// If not set, settings will be stored in relatude.settings/relatude.db.json below the root data folder
+    /// (a relatude.db.json older versions kept in the root data folder itself is moved there at start).
     /// </summary>
     public ISettingsLoader? SettingsLoader { get; set; } = null;
     /// <summary>

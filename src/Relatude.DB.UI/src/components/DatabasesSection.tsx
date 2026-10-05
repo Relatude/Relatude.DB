@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { IconCheck, IconDatabasePlus, IconPlayerPlayFilled, IconPlayerStopFilled, IconPlus, IconRefresh, IconStar, IconStarFilled } from "@tabler/icons-react";
 import { PanelGrid, type PanelRow } from "./PanelGrid";
 import { PowerOrb, powerTone } from "./PowerOrb";
+import { FadeText } from "./FadeText";
 import { showConfirm, showError, showInfo } from "../dialogs";
 import { subscribe, subscribeResync } from "../server/channel";
 import { createDatabase, fetchDatabases, setDefaultDatabase, type DatabaseList, type DatabaseRow } from "../server/databases";
@@ -165,7 +166,9 @@ function DatabaseCard({
           )}
         </div>
         <div className="db-card-facts">
-          <span className="power-word db-card-state">{db.state}</span>
+          <span className="power-word db-card-state">
+            <FadeText fadeKey={db.state}>{db.state}</FadeText>
+          </span>
           <span title="Where the files of this database live">{db.storage}</span>
           <span>{isOpen ? `${formatCount(db.nodeCount ?? 0)} nodes · ${formatCount(db.relationCount ?? 0)} relations` : "not counted while closed"}</span>
           <span>

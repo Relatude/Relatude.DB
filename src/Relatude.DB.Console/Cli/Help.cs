@@ -6,7 +6,7 @@ public static class Help {
 
       Model source (the datamodel lives in your code, not in the database files):
         --project <path>      application folder or .csproj (default: the current folder, or the
-                              nearest folder above it that has a relatude.db.json)
+                              nearest folder above it that has relatude.settings/relatude.db.json)
         --assembly <file>     assembly holding the model types, repeatable
         --source <path>       .cs file or folder of model source, compiled in memory, repeatable
         --namespace <ns>      add every model type in this namespace, repeatable
@@ -23,7 +23,10 @@ public static class Help {
     const string databaseOptions = """
 
       Database:
-        --settings <file>     path to relatude.db.json (default: <project>/relatude.db.json)
+        --settings <file>     path to relatude.db.json (default: <project>/relatude.settings/
+                              relatude.db.json, or where older versions kept it - <project>/ or
+                              <project>/relatude.settings/db/ - the application moves that one
+                              at its next start)
         --overrides <file>    the settings changed in the admin UI, merged over relatude.db.json
                               (default: relatude.db.overrides.json in the default database's storage)
         --data <folder>       content root the settings paths are resolved against
@@ -41,7 +44,10 @@ public static class Help {
     const string settingsFileOptions = """
 
       Settings file:
-        --settings <file>     path to relatude.db.json (default: <project>/relatude.db.json)
+        --settings <file>     path to relatude.db.json (default: <project>/relatude.settings/
+                              relatude.db.json, or where older versions kept it - <project>/ or
+                              <project>/relatude.settings/db/ - the application moves that one
+                              at its next start)
         --overrides <file>    the settings changed in the admin UI, merged over relatude.db.json
                               (default: relatude.db.overrides.json in the default database's storage)
         --data <folder>       content root the settings paths are resolved against
@@ -160,7 +166,7 @@ public static class Help {
         relatude new --list-types
 
           Creates a new application in a folder named after it, from one of the project types below.
-          Source only, nothing is built or installed. A relatude.db.json is written with fresh ids,
+          Source only, nothing is built or installed. relatude.settings/relatude.db.json is written with fresh ids,
           pointing at the <Name>.Models namespace of the C# project, so every class added there becomes
           a node type. The README in the folder explains how to run it and where models, pages,
           endpoints and client code go.
@@ -201,18 +207,19 @@ public static class Help {
         ["init"] = $"""
         relatude init [options]
 
-          Writes a relatude.db.json next to your application, pointing at a local disk folder and at
-          your own model namespace. Refuses to overwrite an existing file unless --force is given.
+          Writes relatude.settings/relatude.db.json into your application, pointing at a local disk
+          folder and at your own model namespace. Refuses to overwrite an existing file unless --force is
+          given; a relatude.db.json replaced in an older place is removed.
 
           Options:
             --name <name>           database name (default: MyDatabase)
             --namespace <ns>        namespace of your model types
             --assembly-name <name>  assembly the model types live in (default: the project name)
-            --path <folder>         data folder, relative to the settings file (default: relatude.db)
+            --path <folder>         data folder, relative to the application folder (default: relatude.db)
             --user <name>           admin user for the admin UI
             --password <password>   admin password
             --force                 overwrite an existing file
-            --settings <file>       where to write it (default: <project>/relatude.db.json)
+            --settings <file>       where to write it (default: <project>/relatude.settings/relatude.db.json)
             --project <path>        application folder or .csproj
         {globalOptions}
         """,
@@ -353,7 +360,7 @@ public static class Help {
           validate      check the model code and report problems worth fixing
           settings      print relatude.db.json, resolved and without secrets
           new           create a new application from a project type: API + React client, or MVC site
-          init          create a relatude.db.json
+          init          create relatude.settings/relatude.db.json
           maintenance   flush, truncate the log, save state, back up, rebuild indexes
           timestamp     print the head of the transaction log, to remember before experimenting
           revert        delete every transaction after a timestamp, restoring an earlier state

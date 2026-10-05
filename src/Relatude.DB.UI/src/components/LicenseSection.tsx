@@ -381,7 +381,7 @@ function LicensePanel({ status, onReload }: { status: LicenseStatus; onReload: (
               className="action-button"
               onClick={remove}
               disabled={saving || apiKeyLocked}
-              title={apiKeyLocked ? "The API key is set by configuration, so it is removed there." : "Take this installation out from under the license"}
+              title={apiKeyLocked ? "The API key is set in appsettings, so it is removed there." : "Take this installation out from under the license"}
             >
               <IconPlugConnectedX size={15} stroke={1.8} className="tone-danger" />
               Remove license
@@ -424,7 +424,7 @@ function LicensePanel({ status, onReload }: { status: LicenseStatus; onReload: (
               autoComplete="new-password"
               spellCheck={false}
               value={apiKey}
-              placeholder={apiKeyLocked ? "Set by configuration" : status.hasApiKey ? "Paste another one to replace it" : "Paste the API key"}
+              placeholder={apiKeyLocked ? "Set in appsettings" : status.hasApiKey ? "Paste another one to replace it" : "Paste the API key"}
               disabled={apiKeyLocked || saving}
               onChange={(e) => {
                 setApiKey(e.target.value);
@@ -467,7 +467,7 @@ function LicensePanel({ status, onReload }: { status: LicenseStatus; onReload: (
         </button>
         {status.locked.length > 0 && (
           <span className="license-muted">
-            {status.locked.length === 1 ? "1 field is" : `${status.locked.length} fields are`} set by configuration.
+            {status.locked.length === 1 ? "1 field is" : `${status.locked.length} fields are`} set in appsettings.
           </span>
         )}
       </div>
@@ -1010,7 +1010,7 @@ function Field({
       <span className="license-field-label">
         {label}
         {extra}
-        {locked && <span className="license-lock">from configuration</span>}
+        {locked && <span className="license-lock">from appsettings</span>}
       </span>
       {children}
       {hint && <span className="license-muted license-field-hint">{hint}</span>}

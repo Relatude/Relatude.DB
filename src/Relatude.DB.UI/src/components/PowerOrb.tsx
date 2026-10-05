@@ -28,8 +28,8 @@ interface PowerOrbProps {
   title?: string;
 }
 
-/** one turn of the ring while an open has no estimate yet */
-const turnMs = 1100;
+/** one turn of the ring while an open has no estimate yet: calm, it is a wait and not an alarm */
+const turnMs = 1400;
 
 /**
  * The power symbol in a lit ring - a device's power button, which says whether it is on by the light
@@ -65,9 +65,12 @@ export function PowerOrb({ state, size = 44, progress, onClick, disabled, title 
       const angle = ((at % turnMs) / turnMs) * 360;
       turning.cancel();
       if (!svg.isConnected) return; // gone with the page, nothing to bring to rest
+      // an ease-out cubic starts at three times its average speed, so a duration of three times the
+      // rest of the turn at the turning speed carries on at exactly the speed it was going and
+      // slows from there - no jolt where the turning ends and the settling begins
       svg.animate([{ transform: `rotate(${angle}deg)` }, { transform: "rotate(360deg)" }], {
-        duration: Math.max(300, ((360 - angle) / 360) * turnMs * 1.8),
-        easing: "cubic-bezier(0.25, 0.6, 0.35, 1)",
+        duration: Math.max(250, ((360 - angle) / 360) * turnMs * 3),
+        easing: "cubic-bezier(0.33, 1, 0.68, 1)",
       });
     };
   }, [waiting]);

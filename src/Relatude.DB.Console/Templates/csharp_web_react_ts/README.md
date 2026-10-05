@@ -10,7 +10,7 @@ Backend/                    ASP.NET Core minimal API + Relatude.DB (C#, net10.0)
   Program.cs                app setup and the /api endpoints
   Models/                   node classes in the namespace __NAMESPACE__.Models (see Models/README.md)
   Middleware/               serves files stored in the database by their URL
-  relatude.db.json          database settings: where the data lives, which namespace holds the model
+  relatude.settings/        relatude.db.json, the database settings: where the data lives, which namespace holds the model
   relatude.db/              the database itself, created on first start (git-ignored)
 Client/                     React + TypeScript + Vite
   src/App.tsx               the UI
@@ -48,7 +48,7 @@ Backend on <https://localhost:7238>. The first Backend start creates the databas
 <http://localhost:5173/relatude.db> (or <https://localhost:7238/relatude.db>) browses and edits
 nodes, runs queries, shows the datamodel, logs, backups and settings. On localhost no login is
 needed. To log in from anywhere else, set `MasterUserName` and `MasterPassword` in
-`Backend/relatude.db.json`, or pass `--user` and `--password` to `relatude new` next time.
+`Backend/relatude.settings/relatude.db.json`, or pass `--user` and `--password` to `relatude new` next time.
 
 ## Add a node type
 
@@ -126,7 +126,7 @@ same time.
 
 - `Backend/relatude.db/` holds everything: transaction log, indexes, uploaded files. Stop the
   Backend and delete the folder to start over.
-- `Backend/relatude.db.json` is the configuration. `DatamodelSources` names the model namespace,
+- `Backend/relatude.settings/relatude.db.json` is the configuration. `DatamodelSources` names the model namespace,
   `WaitUntilOpen` makes the app wait for the database before it serves requests, `LocalSettings`
   holds caches, backups and index engines. `relatude settings` prints it resolved. Any value can be
   overridden by a `RelatudeDB` section in `appsettings.json` or by environment variables such as

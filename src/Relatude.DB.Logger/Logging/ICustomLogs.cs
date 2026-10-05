@@ -16,6 +16,11 @@ namespace Relatude.DB.Logging;
 public interface ICustomLogs {
     /// <summary>The store the custom logs live in: every read, search and statistic goes through it.</summary>
     ILogStore LogStore { get; }
+    /// <summary>Where the definitions are kept, for people: relatude.settings/logs/{database short name}
+    /// on a server (see <see cref="LogDefinitionFolder"/>).</summary>
+    string DefinitionsFolder { get; }
+    /// <summary>The file a log's definition is kept in, for people.</summary>
+    string DefinitionFileOf(string logKey);
     /// <summary>Copies of every definition, ordered by name. Changing one changes nothing: use <see cref="Update"/>.</summary>
     IReadOnlyList<LogSettings> GetDefinitions();
     /// <summary>A copy of one definition, or null when there is no log with the key.</summary>
@@ -29,7 +34,8 @@ public interface ICustomLogs {
     IReadOnlyCollection<string> ReservedKeys { get; }
     /// <summary>Why a key cannot be given to a new log, or null when it can.</summary>
     string? CheckNewKey(string logKey);
-    /// <summary>The settings files in the log folder that could not be read as a log, and why.</summary>
+    /// <summary>The definition files that could not be read as a log, and why - listed under the name
+    /// <see cref="ReadBrokenDefinition"/> and the others take.</summary>
     IReadOnlyList<CustomLogLoadError> LoadErrors { get; }
 
     /// <summary>Defines a new log and saves its settings file. Throws an ArgumentException for settings
@@ -49,8 +55,9 @@ public interface ICustomLogs {
     /// <summary>Removes a log's definition; <paramref name="deleteRecorded"/> deletes its entries and
     /// statistics too. Kept, they are picked up again by a log created later with the same key.</summary>
     void Delete(string logKey, bool deleteRecorded);
-    /// <summary>The files the log has in the log folder: entries, text copies, statistics, settings,
-    /// and entries left behind in another file layout.</summary>
+    /// <summary>The files the log has in its folder of the log storage (log/{key}/): entries, text
+    /// copies, statistics, and entries left behind in another file layout. Its definition is kept
+    /// elsewhere (<see cref="DefinitionFileOf"/>).</summary>
     IReadOnlyList<CustomLogFile> GetFiles(string logKey);
 
     /// <summary>The text of a settings file that could not be read, so it can be looked at and fixed.</summary>
@@ -78,11 +85,11 @@ public interface ICustomLogs {
     long GetTotalFileSize();
 }
 
-/// <summary>A settings file in the log folder that could not be read as a log.</summary>
+/// <summary>A definition file that could not be read as a log.</summary>
 public sealed record CustomLogLoadError(string FileKey, string Message);
 
-/// <summary>One file a custom log has in the log folder.</summary>
-/// <param name="Kind">"entries", "text", "statistics", "statistics-backup", "settings", or
+/// <summary>One file a custom log has in its folder of the log storage.</summary>
+/// <param name="Kind">"entries", "text", "statistics", "statistics-backup", or
 /// "left-over": entries written in a file layout the log no longer uses, which it cannot read.</param>
 public sealed record CustomLogFile(string FileKey, string Kind, long Size);
 

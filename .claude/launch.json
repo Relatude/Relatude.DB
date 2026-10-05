@@ -213,6 +213,32 @@
       ],
       "port": 5091,
       "autoPort": false
+    },
+    {
+      "name": "website-simple-settings-move-verify",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "examples/Website.Simple",
+        "--no-launch-profile",
+        "-p:BaseOutputPath=bin/ClaudeSettings/",
+        "-e",
+        "RelatudeDB__Description=Set from an environment variable",
+        "--contentRoot",
+        "C:/Users/ogulb/AppData/Local/Temp/claude/C--WAF-Code-Relatude-DB/11132d45-ed09-4f86-83f9-084d4fab17de/scratchpad/site",
+        "--urls",
+        "http://localhost:5093"
+      ],
+      "port": 5093,
+      "autoPort": false
+    },
+    {
+      "name": "website-simple-dmshared-verify",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "examples/Website.Simple", "--no-launch-profile", "-p:BaseOutputPath=bin/ClaudeDmShared/", "-e", "RelatudeDB__NoLoginRequiredForLocalhost=true", "--contentRoot", "C:/Users/ogulb/AppData/Local/Temp/claude/C--WAF-Code-Relatude-DB/7d5933c7-155e-4b52-9e9d-6bea64da414a/scratchpad/site", "--urls", "http://localhost:5095"],
+      "port": 5095,
+      "autoPort": false
     }
   ]
 }

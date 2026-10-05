@@ -3,9 +3,9 @@ using System.Security.Cryptography;
 
 namespace Relatude.DB.DataStores.Uploads;
 
-internal class UploadSession(FileValue fileValue) {
+internal class UploadSession(FileValue fileValue, HashAlgorithmName hashAlgorithm) {
     public DateTime LastAccessed = DateTime.UtcNow;
     public void Touch() => LastAccessed = DateTime.UtcNow;
     public FileValue FileValue { get; set; } = fileValue;
-    public IncrementalHash Hash { get; } = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
+    public IncrementalHash Hash { get; } = IncrementalHash.CreateHash(hashAlgorithm); // the file store's
 }

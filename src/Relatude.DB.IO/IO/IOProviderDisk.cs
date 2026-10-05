@@ -136,6 +136,11 @@ public class IOProviderDisk : IIOProvider {
                 var dir = new DirectoryInfo(Path.Combine(BaseFolder, folder));
                 if (!dir.Exists) continue;
                 files.AddRange(dir.GetFiles().Select(f => FileMeta.FromFileInfo(f, folder + "/" + f.Name)));
+                // every log keeps its files in a folder of its own below the log folder (log/{key}/)
+                if (folder != FileKeyUtility.LogFolderName) continue;
+                foreach (var sub in foldersOf(dir)) {
+                    files.AddRange(filesOf(sub).Select(f => FileMeta.FromFileInfo(f, folder + "/" + sub.Name + "/" + f.Name)));
+                }
             }
             foreach (var f in files) {
                 if (_openReaders.ContainsKey(f.Key)) f.Readers = _openReaders[f.Key];
@@ -289,6 +294,22 @@ public class IOProviderDisk : IIOProvider {
             GC.WaitForPendingFinalizers();
             //if (Directory.Exists(folderPath)) Directory.Delete(folderPath, true);
             deleteFoldersAndFiles(folderPath);
+        }
+    }
+    public bool DeleteFolderIfEmpty(string[] path) {
+        if (path.Length == 0) return false;
+        // under the lock that OpenAppend and RenameFile create folders and files under, so a file is
+        // either in the folder already (and it stays) or is written after it is gone (and recreates it)
+        lock (_lock) {
+            validate(path);
+            var folderPath = Path.Combine([BaseFolder, .. path]);
+            try {
+                Directory.Delete(folderPath, false);
+            } catch (DirectoryNotFoundException) {
+            } catch (IOException) {
+                return false; // not empty, or a file in it is still held open after being deleted
+            }
+            return true;
         }
     }
     void deleteFoldersAndFiles(string fullFolderPath) {

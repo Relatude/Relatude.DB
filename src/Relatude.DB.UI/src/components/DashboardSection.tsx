@@ -23,6 +23,7 @@ import { ProcessChart, currentCpu, formatPercent, padToWindow, type ProcessSampl
 import { MemoryPanel } from "./MemoryPanel";
 import { PanelGrid, type PanelRow } from "./PanelGrid";
 import { PowerOrb, powerTone } from "./PowerOrb";
+import { FadeText } from "./FadeText";
 import { TypeChart, otherSliceId, shade, type TypeChartShape, type TypeSlice } from "./TypeChart";
 import { KindIcon } from "./DatamodelIcons";
 import { openInDatamodel, openInQuery } from "../navigate";
@@ -941,12 +942,16 @@ function useLeaving<T>(items: T[], keyOf: (item: T, index: number, taken: Set<st
  * where its buttons are, and the number is what the tile is for and should have the row to itself.
  */
 function Tile({ label, icon: Icon, value }: { label: string; icon?: typeof IconCircles; value: string }) {
+  // a count that goes up is the same number moving, and changes in place; a dash that becomes a
+  // number (or a number that becomes a dash, as the database closes) is what crossfades
   return (
     <div className="dash-tile">
-      <div className="dash-tile-value">{value}</div>
+      <div className="dash-tile-value">
+        <FadeText fadeKey={value === "—" ? "none" : "value"}>{value}</FadeText>
+      </div>
       <div className="dash-tile-label">
         {Icon && <Icon size={13} stroke={1.8} />}
-        {label}
+        <FadeText fadeKey={label}>{label}</FadeText>
       </div>
     </div>
   );
@@ -981,14 +986,15 @@ function StateTile({
     <div className={"dash-tile dash-state power-" + powerTone(state)}>
       <PowerOrb state={state} size={46} progress={progress} onClick={onPower} disabled={busy} title={onPower ? powerTitle : state} />
       <div className="dash-state-text">
-        {/* keyed by the state, so a new one fades in where the last one was; the line about it is
-            keyed the same way, so the countdown of an open does not fade every second */}
-        <div key={state} className="dash-state-word power-fade-in">
-          {state}
+        {/* a new state crossfades with the last one; the line about it crossfades when it says a
+            different kind of thing, with its numbers taken out, so the countdown of an open
+            changes in place instead of fading every second */}
+        <div className="dash-state-word">
+          <FadeText fadeKey={state}>{state}</FadeText>
         </div>
         <div className="dash-state-detail">
-          <span key={state} className="dash-state-now power-fade-in">
-            {detail}
+          <span className="dash-state-now">
+            <FadeText fadeKey={state + ":" + detail.replace(/[\d.,:%]+/g, "#")}>{detail}</FadeText>
           </span>
           {hint && <span className="dash-state-hint">{hint}</span>}
         </div>

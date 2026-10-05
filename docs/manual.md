@@ -768,20 +768,30 @@ value comes from (*overridden*, *own*, *from IContent*), and the arrow beside an
 away. An inherited property opens as the derived type sees it, with its four per-type attributes open
 for that type, and *Indexed* and *No facet* to ask for the property's value index and facet (*asked
 by* names the other types that do). The **Sources** view lists every override beside what the source says. Activating saves
-them and reopens the database; the nodes of a type whose indexed text changed are queued for text
+them for this installation and reopens the database; the nodes of a type whose indexed text changed are queued for text
 indexing, and a type whose text indexing is turned off has its text taken out of the index first.
 
-The overrides are kept with the database - `datamodels/datamodel.overrides.json` on its storage
-provider - so they survive a redeploy. `DatamodelOverridesPath` (**Settings → Data model →
-Overrides**) keeps them in a file of the site instead, to have them in source control. The file is
-plain JSON, keyed by ids, with names beside them for reading:
+**Shared overrides, and this installation's.** A database keeps its overrides in two files, the
+way the settings are kept in `relatude.db.json` and `relatude.db.overrides.json`
+([§12](#12-registering-the-model--the-admin-ui)):
+
+| File | What it is | Written by |
+|---|---|---|
+| `relatude.settings/datamodel.overrides.json`, or `relatude.settings/<ShortName>/datamodel.overrides.json` for a database with a short name | part of the application: commit it and deploy it with the code, and every installation has the same overrides | you, or moving overrides into it from the admin UI |
+| `overrides/datamodel.overrides.json` on the database's storage provider | what the data model editor changed on this installation, beside the other changes made in the admin UI; it survives a redeploy and is not in source control | activating a model |
+
+When the database opens, this installation's file is merged over the shared one. A value there
+replaces the shared value. `null` takes the shared value away, so the attribute follows the source
+again on this installation. Activating writes only this installation's file, and only what differs
+from the shared one: an override set back to the shared value leaves the file.
 
 ```jsonc
+// relatude.db/overrides/datamodel.overrides.json: this installation's
 {
   "NodeTypes": {
     "3ad77060-788d-21b2-31c1-4305dcae3437": {
       "Name": "Shop.Models.Product",
-      "TextIndex": false,
+      "TextIndex": null,                  // the shared file says false; here the source decides
       "Properties": {
         "8b1aa6c4-205e-740c-73ca-26d1e39111dc": { "Name": "Price", "Indexed": true, "DefaultValue": 0 }
       }
@@ -789,6 +799,34 @@ plain JSON, keyed by ids, with names beside them for reading:
   }
 }
 ```
+
+The shared file has the same shape, without the `null`s. Both are keyed by ids, with names beside
+them for reading.
+
+*Moving overrides into the shared file.* In **Sources**, **Overrides**, choose **Move to shared…**.
+The dialog lists this installation's file entry by entry, beside what the shared file says. Select
+overrides and choose **Move into shared**: they are written into the shared file and removed from
+this installation's. Nothing in force changes, so the database is not reopened. Then commit the
+shared file. A moved `null` removes the value from the shared file. **Discard** puts the shared value
+back in the draft (or the source's, where the shared file has none), to be activated like any other
+change. Unactivated changes in the draft are not in the file, so activate them before moving them.
+
+Move where the application runs from its project folder, in the Development environment: there
+`relatude.settings` is the folder in source control. On a deployed server it is the deployed copy, and
+the next deployment replaces it, with whatever was moved into it. The dialog warns about this outside
+Development. **Download shared file** gives the file with the selected overrides moved in, without
+changing anything, so you can commit it by hand.
+
+The shared file is found by the database's short name, so give the short name in `relatude.db.json`.
+A short name saved on one installation from the settings page lands in `relatude.db.overrides.json`,
+and that installation then reads other shared files than the rest. The settings page and the start-up
+log say so.
+
+(Older versions kept this installation's file in `datamodels/`. Such a file is moved the first time
+the database's overrides are looked for, and an older copy beside a newer file is left alone and said
+so in the start-up log. The setting `DatamodelOverridesPath` named a file of the site to keep the
+overrides in instead; it is no longer used. At start, a file it names is copied to the shared place
+when that has none, and the start-up log asks you to remove the setting.)
 
 An override whose type or property is gone, a value that does not parse, an attribute that cannot be
 overridden: each is skipped with a warning in the log and in the editor, never a reason for the
@@ -1762,10 +1800,23 @@ injected by DI; `ctx.Database` is the `NodeStore`, which is the API surface for 
 ### relatude.db.json
 
 Everything that is *not* code lives in `relatude.db.json`: storage backends, index engines, file
-stores, AI providers, admin credentials and datamodel sources. It sits in the root data folder —
-`ServerOptions.DefaultDataFolderPath` resolved against the app's content root, so by default beside
-the app — with `relatude.db/` (the data) and `relatude.db.temp/` (scratch, emptied at every start)
-as siblings.
+stores, AI providers, admin credentials and datamodel sources. It sits in `relatude.settings/`
+below the root data folder — `ServerOptions.DefaultDataFolderPath` resolved against the app's
+content root, so by default `relatude.settings/relatude.db.json` in the app's own folder, with
+`relatude.db/` (the data) and `relatude.db.temp/` (scratch, emptied at every start) beside
+`relatude.settings/`. Relative paths in the file still resolve against the root data folder, not
+against the folder the file is in. The Web SDK publishes the file like any other `.json` in the
+project. The same folder holds the other files every installation shares: the definitions of custom
+logs ([§32.1](#321-defining-a-log)) and the shared datamodel overrides
+([§3.1](#31-overriding-attributes)).
+
+**Older versions kept the file in the root data folder itself, and for a while in
+`relatude.settings/db/`.** At its first start the server moves such a file into `relatude.settings/`
+— the text as it is, comments and all — and says so in the start-up log. A move that fails (a
+read-only deployment, a lock) does not stop the start: the file is read and written where it is, a
+warning says why, and the next start tries again. When an older place has a file as well, only
+`relatude.settings/relatude.db.json` is read and the start-up log warns about the other one; delete
+it once anything in it that still matters is in the new file.
 
 **If the file is missing it is created for you, from a default that points at the bundled demo
 model.** A store full of `Relatude.DB.Demo.Models` types means exactly that: the file was never
@@ -1913,6 +1964,7 @@ own users.
 |---|---|---|
 | `Id` | – | The container's identity. `DefaultStoreId` points at it, and it survives renames. |
 | `Name`, `Description` | null | Labels. `Name` is what the CLI's `--store` matches and what the admin UI shows. |
+| `ShortName` | null | A short folder name for the database — letters, digits, `-` and `_` — naming the folder the server keeps its settings files in: `relatude.settings/<ShortName>/logs/` holds the definitions of its logs ([§32.1](#321-defining-a-log)), and `relatude.settings/<ShortName>/datamodel.overrides.json` the datamodel overrides every installation shares ([§3.1](#31-overriding-attributes)). Without one they are kept directly in `relatude.settings/logs/` and `relatude.settings/datamodel.overrides.json`, which is all an installation with one database needs. Set it in `relatude.db.json`: a short name saved for one installation from the settings page makes it read other shared files than the rest, and the settings page and the start-up log say so. Short names are unique, and only one database can be without one; the settings page refuses a clash, and the start-up log warns about one written by hand. A database added on the Databases page while another has none gets a short name made from its name. Changed on the settings page, its files are moved along when the database next opens. |
 | `AutoOpen` | `false` | Open this database when the host starts. Without it the database exists but stays closed until something opens it — usually the admin UI. |
 | `WaitUntilOpen` | `false` | Block startup until the open completes. Off by default, so the app starts immediately and requests arriving during the open get the 503 progress page instead. Turn it on when a failed open should fail the boot. |
 | `IOSettings` | one local-disk entry | The storage backends this container may use. See below. |
@@ -1945,7 +1997,7 @@ own users.
 | `BlobContainerName` | null | `AzureBlobStorage` only, required. |
 | `LockBlob` | `false` | Take a blob lease so a second process cannot open the same database. Worth having wherever two instances could overlap. |
 
-Within a `LocalDisk` folder the engine keeps its own layout — `data/`, `state/`, `backup/`, `log/` and
+Within a `LocalDisk` folder the engine keeps its own layout — `data/`, `state/`, `backup/`, `logs/` and
 an index folder with one subfolder per engine — so several roles can share one backend without
 colliding.
 
@@ -1961,6 +2013,8 @@ colliding.
 | `IoProviderId` | – | Which `IOSettings` entry holds the bytes. Must exist, or the open throws. |
 | `StoreType` | `SingleFile` | `SingleFile` packs everything into one append-only container file — fewer file handles, and cheap on blob storage. `MultiFile` writes one file per upload, which is what you want when something outside the engine also reads the files. |
 | `MultiFileFolderDepth` | 2 | `MultiFile` only: how many levels of hashed subfolders to spread files over, so no directory grows unmanageably large. |
+| `SameHashSameFile` | `false` | `MultiFile` only: keep one copy of any content. An upload with the same hash and length as a file the store already holds is not stored again — its `FileValue` points at the existing copy (`FileId` is then derived from the hash, and `Name` stays the upload's own). Shared files are only deleted by the unreferenced file cleanup, never by `FileDeleteAsync`. Applies to new uploads; files already stored stay where they are, and stay readable if it is turned off again. Cached conversions (thumbnails, resized images, video) are shared too, per source format. On blob storage a new file is written twice, as it is copied into place. |
+| `HashAlgorithm` | `MD5` | `MultiFile` only: the hash computed over every upload, stored in `FileValue.Hash` and, with `SameHashSameFile`, what decides that two uploads are the same file. `SHA256` is the safer choice when people who are not trusted can upload, as two different files with the same MD5 can be made on purpose. Changing it affects new uploads only. |
 
 Leave the array empty and the store creates an implicit default store on `IoDatabase`: a `MultiFile`
 store, one file per upload.
@@ -2229,7 +2283,7 @@ the server's settings and every database's — with both values side by side:
 
 **Where the file is.** It is kept with the default database — the one `DefaultStoreId` names — in an
 `overrides/` folder at the root of the storage provider that database keeps its files in. On local
-disk that folder is beside its `data/`, `state/` and `log/` folders, so with the default settings
+disk that folder is beside its `data/`, `state/` and `logs/` folders, so with the default settings
 `relatude.db/overrides/relatude.db.overrides.json`; on Azure Blob storage it is a blob under
 `overrides/` in the database's container. Wherever the database's files go, the admin UI's changes go
 with them. Earlier versions kept the file at the root of the storage itself; the server moves such a
@@ -4335,12 +4389,14 @@ and then upwards, or you point at it:
 ```bash
 relatude info                            # nearest relatude.db.json, from here upwards
 relatude info --project ../MyApp         # application folder or .csproj
-relatude info --settings /srv/app/relatude.db.json
+relatude info --settings /srv/app/relatude.settings/relatude.db.json
 relatude info --store "Reporting"        # when the file holds more than one database
 ```
 
-The folder holding `relatude.db.json` is treated as the application's content root, exactly as the
-server treats it, so every relative path inside the file resolves to the same place.
+The folder holding `relatude.settings/relatude.db.json` is treated as the application's content
+root, exactly as the server treats it, so every relative path inside the file resolves to the same
+place. A `relatude.db.json` still in the content root itself, where older versions kept it, is read
+where it is — the tool never moves it; the application does at its next start.
 `relatude.db.overrides.json` (the changes made in the admin UI, found with the default database as the
 server finds it, or wherever `--overrides` says) and the `RelatudeDB` configuration section are applied
 too — the tool reads `appsettings.json`,
@@ -4389,7 +4445,7 @@ relatude codegen --no-attributes         # plain interfaces
 
 relatude validate                        # what would break at startup, and what to worry about
 relatude settings                        # relatude.db.json resolved, without secrets
-relatude init --namespace MyApp.Models   # write a relatude.db.json
+relatude init --namespace MyApp.Models   # write relatude.settings/relatude.db.json
 
 relatude new --list-types                # the project types: what each generates and is suited for
 relatude new MyApp                       # default type csharp_web_react_ts: Backend (API + Relatude.DB) + Client (React)
@@ -4427,7 +4483,7 @@ complete application into `./MyApp`, source only, nothing built. `--projecttype`
 user which fits before generating; types for other languages and stacks will be added under the
 same `language_platform_flavour` naming. Every type gets a README that says how to run it, where
 models, pages or endpoints go, and how to inspect the result with the tool, plus a
-`relatude.db.json` pointing at the `MyApp.Models` namespace, so every class added to the `Models`
+`relatude.settings/relatude.db.json` pointing at the `MyApp.Models` namespace, so every class added to the `Models`
 folder becomes a node type. `--user`/`--password` set the admin login (optional on localhost),
 `--package-version` pins the NuGet version, which defaults to the tool's own — keep the two on
 the same version, the settings file is written in the vocabulary of the tool's version.
@@ -4499,16 +4555,17 @@ db.CustomLogs.Record("orders", ("amount", 249.90), ("customer", "acme"), ("items
 ```
 
 That is the whole recording API in one line; the rest of this chapter is about what a log is, what
-it keeps, and how it is read. Logs are part of the database, kept in its log folder next to the
-activity logs, and they work without a node type, a transaction or an index: a log is an
+it keeps, and how it is read. What a log records is part of the database, kept in its log folder
+next to the activity logs; what a log *is* — its definition — is kept with the application's
+settings. Logs work without a node type, a transaction or an index: a log is an
 append-only record of what happened and when, optimised to be written a million times a day and
 graphed.
 
 ### 32.1 Defining a log
 
 A log is defined on the Logs page — **New log** starts one from a blank definition or from a
-template (web requests, business events, errors and warnings, positions, background jobs) — or by a settings
-file in the log folder, or from code. All three end up as the same thing:
+template (web requests, business events, errors and warnings, positions, background jobs) — or by a definition
+file, or from code. All three end up as the same thing:
 
 | Part | What it is |
 |---|---|
@@ -4522,10 +4579,21 @@ file in the log folder, or from code. All three end up as the same thing:
 | **Weeks start on** | What a week is, for the weekly statistics. |
 | **Also write a text copy**, **Compress** | A tab separated `.txt` beside every entries file, readable without the database; smaller entries files. |
 
-The definition is saved as `log/log.<key>.settings.json` in the database's log folder (the
-`IoLog` provider, or `IoDatabase` when there is none — [§12.1](#121-every-setting-in-relatudedbjson)).
-The file is what the log *is*: a definition written there by hand, or copied from another database,
-is picked up when the database opens (or with **Reload from disk** on the Logs page). The Definition
+The definition is saved as `relatude.settings/logs/<key>.json`, below the application's folder
+beside `relatude.settings/relatude.db.json` — so it is deployed, and kept in source control, with the
+application. A database with a short name (its `ShortName` setting,
+[§12.1](#121-every-setting-in-relatudedbjson)) keeps its definitions in
+`relatude.settings/<short name>/logs/` instead; only one database of an installation can be without
+one. The file is what the log *is*: a
+definition written there by hand, or copied from another application, is picked up when the database
+opens (or with **Reload from disk** on the Logs page).
+
+Older versions kept the definition beside the entries, as `log/log.<key>.settings.json` (later `logs/…`) in the
+database's log storage. Such a file is moved into the database's `logs/` folder below `relatude.settings` when the
+database opens — the text as it is, comments and all, written there and read back before the old file
+is deleted. If it cannot be written there (a read-only deployment), it is read where it is and moved by
+the next change to the log; if the new folder already has a definition for the key, the old copy is
+listed on the Logs page as a file that does not count, to be deleted. The Definition
 view of a log shows the same file as JSON and edits it as text as well as through the form:
 
 ```json
@@ -4579,7 +4647,7 @@ if (!db.CustomLogs.HasLog("requests")) {
         Name = "Duration (ms)", DataType = LogDataType.Double,
         Statistics = [new(StatisticsType.CountSumAvgMinMax)],
     });
-    db.CustomLogs.Create(requests);   // saves log.requests.settings.json and starts the log
+    db.CustomLogs.Create(requests);   // saves relatude.settings/logs/requests.json and starts the log
 }
 ```
 
@@ -4758,14 +4826,20 @@ and saves them.
 
 ### 32.7 Files, limits and cleaning up
 
-A log lives in the log folder as a handful of files, all named after its key:
+What a log records lives in a folder of its own in the database's log storage — `logs/<key>/`, the
+key in lower case — as a handful of files, all named after the key (the definition is kept apart, see
+[§32.1](#321-defining-a-log)):
 
 | File | Holds |
 |---|---|
-| `log.<key>.settings.json` | The definition. |
 | `log.<key>.<interval>.<time>.bin` | The entries, one file per minute, hour, day or month: `log.requests.hour.2026-09-26-14.bin`. |
 | `log.<key>.<interval>.<time>.txt` | The text copies, when they are on. |
 | `log.<key>.statistics.bin` (and `.bkup`) | The statistics, saved about once a minute, with the previous save kept beside them. |
+
+Older versions called the folder `log/` and kept these files directly in it; they are moved into
+`logs/` and the folder of their log when the database opens — on local disk the whole folder is
+renamed in one go. The activity logs are laid out the same way (`logs/query/`, `logs/system/`, …), and
+the critical error log is `logs/critical.error.txt`.
 
 While the database is open, a cleanup runs about once a minute: the statistics are saved, the files
 older than the age limit are deleted, and the oldest files go when the entries grow past the size

@@ -2,7 +2,7 @@
 
 > This folder is the reference for the `csharp_web_mvc` project type of `relatude new`. The command line tool
 > carries the same files as a template (`src/Relatude.DB.Console/Templates/csharp_web_mvc`), fills in the name,
-> namespace and package version, and writes a fresh `relatude.db.json`. Keep this folder and the
+> namespace and package version, and writes a fresh `relatude.settings/relatude.db.json`. Keep this folder and the
 > template in sync: regenerate it with
 > `relatude new WebApp.Mvc --out examples/WebApp.Mvc --force --projecttype csharp_web_mvc --package-version <v>`.
 
@@ -20,7 +20,7 @@ Views/                      Razor views; Shared/_Layout.cshtml is the page frame
 Models/                     node classes in the namespace WebAppMvc.Models (see Models/README.md)
 Middleware/                 serves files stored in the database by their URL
 wwwroot/                    static files: css, images, scripts
-relatude.db.json            database settings: where the data lives, which namespace holds the model
+relatude.settings/          relatude.db.json, the database settings: where the data lives, which namespace holds the model
 relatude.db/                the database itself, created on first start (git-ignored)
 ```
 
@@ -44,7 +44,7 @@ browser rejects the development certificate, run `dotnet dev-certs https --trust
 
 <https://localhost:7238/relatude.db> browses and edits nodes, runs queries, shows the datamodel,
 logs, backups and settings. On localhost no login is needed. To log in from anywhere else, set
-`MasterUserName` and `MasterPassword` in `relatude.db.json`, or pass `--user` and `--password` to
+`MasterUserName` and `MasterPassword` in `relatude.settings/relatude.db.json`, or pass `--user` and `--password` to
 `relatude new` next time.
 
 ## Add a node type
@@ -135,7 +135,8 @@ dotnet publish -c Release -o publish
 ```
 
 One folder holds the whole site. Run it with `dotnet publish/WebAppMvc.dll`; the database folder is
-created next to `relatude.db.json` in the content root, so keep that file with the published output.
+created in the content root, beside `relatude.settings/` - keep that folder, which holds `relatude.db.json`, with the
+published output.
 
 ## Inspect it from the command line
 
@@ -156,7 +157,7 @@ time.
 
 - `relatude.db/` holds everything: transaction log, indexes, uploaded files. Stop the app and
   delete the folder to start over.
-- `relatude.db.json` is the configuration. `DatamodelSources` names the model namespace,
+- `relatude.settings/relatude.db.json` is the configuration. `DatamodelSources` names the model namespace,
   `WaitUntilOpen` makes the app wait for the database before it serves requests, `LocalSettings`
   holds caches, backups and index engines. `relatude settings` prints it resolved. Any value can be
   overridden by a `RelatudeDB` section in `appsettings.json` or by environment variables such as

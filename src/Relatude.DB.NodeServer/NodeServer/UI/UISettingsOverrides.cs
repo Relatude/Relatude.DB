@@ -37,7 +37,7 @@ sealed partial class UISettings {
         var file = _server.OverridesFile;
         var overlay = _server.ConfigurationOverlay;
         if (file == null) {
-            return new { Enabled = false, File = (string?)null, Error = (string?)null, SettingsFile = Defaults.SettingsFileName, ConfigSection = overlay?.SectionName, Count = 0, Groups = Array.Empty<object>() };
+            return new { Enabled = false, File = (string?)null, Error = (string?)null, SettingsFile = _server.SettingsFileDisplay, ConfigSection = overlay?.SectionName, Count = 0, Groups = Array.Empty<object>() };
         }
         var context = new LookupContext(SettingsOverridesFile.ToJson(_server.Settings), file);
         var groups = file.Entries
@@ -56,7 +56,7 @@ sealed partial class UISettings {
             Enabled = true,
             File = file.Display,
             Error = file.Unavailable,
-            SettingsFile = Defaults.SettingsFileName,
+            SettingsFile = _server.SettingsFileDisplay,
             ConfigSection = overlay?.SectionName,
             Count = file.Entries.Count,
             Groups = groups,

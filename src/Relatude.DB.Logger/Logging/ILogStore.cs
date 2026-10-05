@@ -17,8 +17,9 @@ namespace Relatude.DB.Logging {
         /// <summary>Adds a log from the settings saved for it by <see cref="SaveSettings"/>; throws if there are none.</summary>
         LogSettings AddLogFromSavedSettings(string logKey);
         string GetSettingJson(string logKey);
-        /// <summary>Saves the log's settings as json in the log folder, where <see cref="AddLogFromSavedSettings"/>
-        /// and <see cref="LogStore.FromSavedSettings"/> find them. Deleting the log's data leaves them in place.</summary>
+        /// <summary>Saves the log's settings as json in the log folder (log/{key}.json, beside the folder of
+        /// the log's data), where <see cref="AddLogFromSavedSettings"/> and <see cref="LogStore.FromSavedSettings"/>
+        /// find them. Deleting the log's data leaves them in place.</summary>
         void SaveSettings(string logKey);
         void SaveSettingsToFile(string logKey, string filePath);
         void SaveAllSettings();

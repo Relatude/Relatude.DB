@@ -269,6 +269,8 @@ export interface CustomLogsInfo {
   state: string;
   /** The IO provider the log folder is in, for downloading a log's files as they are. */
   ioId: string | null;
+  /** Where the definitions are kept, outside the database's storage: relatude.settings/logs/{short name}. */
+  definitionsFolder: string;
   /** The keys of the database's activity logs, which a log defined here cannot take. */
   reservedKeys: string[];
   totalBytes: number;
@@ -304,7 +306,7 @@ export interface SaveResult {
 
 export interface CustomLogFile {
   fileKey: string;
-  kind: "entries" | "text" | "statistics" | "statistics-backup" | "settings" | "left-over";
+  kind: "entries" | "text" | "statistics" | "statistics-backup" | "left-over";
   size: number;
 }
 
@@ -463,7 +465,7 @@ export function addSampleEntries(storeId: string, logKey: string, count: number,
   return send("custom-logs-sample", { storeId, logKey, count, spanMs });
 }
 
-export function fetchCustomLogFiles(storeId: string, logKey: string): Promise<{ ioId: string | null; files: CustomLogFile[] }> {
+export function fetchCustomLogFiles(storeId: string, logKey: string): Promise<{ ioId: string | null; definitionFile: string; files: CustomLogFile[] }> {
   return send("custom-logs-files", { storeId, logKey });
 }
 

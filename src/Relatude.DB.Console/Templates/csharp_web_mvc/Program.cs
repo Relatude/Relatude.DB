@@ -3,7 +3,7 @@ using Relatude.DB.FileConversion;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Relatude.DB is configured by relatude.db.json in this folder. Model classes live in the
+// Relatude.DB is configured by relatude.settings/relatude.db.json. Model classes live in the
 // __NAMESPACE__.Models namespace (see Models/README.md) and become node types when the app starts.
 builder.AddRelatudeDB(options => {
     options.FileConverters.Add(new SkiaImageConverter());   // image resizing and cropping

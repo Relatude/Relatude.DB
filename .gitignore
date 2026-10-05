@@ -361,10 +361,14 @@ MigrationBackup/
 /Relatude.DB.Example/relatude.db/*
 /Relatude.DB.Example/relatude.db.temp/*
 /Relatude.DB.Example/relatude.db.json
+/Relatude.DB.Example/relatude.settings/relatude.db.json
+/Relatude.DB.Example/relatude.settings/db/relatude.db.json
 nuget.exe
 
 /examples/Website.Simple/relatude.db
 /examples/Website.Simple/relatude.db.json
+/examples/Website.Simple/relatude.settings/relatude.db.json
+/examples/Website.Simple/relatude.settings/db/relatude.db.json
 /examples/Website.Simple/relatude.db.temp
 /examples/Website.Simple/relatude.db.index
 /examples/Website.Simple/relatude.db.second
@@ -384,8 +388,12 @@ nuget.exe
 /nuget/Output
 /docs/.obsidian
 examples/WebApp.Empty/Backend/relatude.db.json
+examples/WebApp.Empty/Backend/relatude.settings/relatude.db.json
+examples/WebApp.Empty/Backend/relatude.settings/db/relatude.db.json
 /examples/WebApp.Empty/Backend/relatude.db
 examples/WebApp.Mvc/relatude.db.json
+examples/WebApp.Mvc/relatude.settings/relatude.db.json
+examples/WebApp.Mvc/relatude.settings/db/relatude.db.json
 /examples/WebApp.Mvc/relatude.db
 /examples/Website.Simple/.uploads
 examples/Website.Simple/relatude.db.rar

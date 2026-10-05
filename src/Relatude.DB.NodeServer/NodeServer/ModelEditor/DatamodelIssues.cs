@@ -92,7 +92,7 @@ public sealed class SourceWritePlan {
     public bool HasErrors => Issues.Any(i => i.Severity == IssueSeverity.Error);
     /// <summary>Whether the sources listed in the settings change: a source added, removed or edited.</summary>
     public bool SettingsChange { get; set; }
-    /// <summary>Whether the database's overrides change; the file holding them is among <see cref="Files"/>, filed under <see cref="DatamodelOverridesFile.PlanId"/>.</summary>
+    /// <summary>Whether this installation's overrides change; its file is among <see cref="Files"/>, filed under <see cref="DatamodelOverridesFile.PlanId"/>. The shared file is never written by an activation.</summary>
     public bool OverridesChange { get; set; }
 }
 

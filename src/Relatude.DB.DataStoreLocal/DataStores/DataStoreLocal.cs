@@ -99,7 +99,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         IFileConverter[]? fileConverters = null,
         IIOProvider? converterIoProvider = null,
         IUrlManager? urlManager = null,
-        Func<IStateStore>? createStateStore = null
+        Func<IStateStore>? createStateStore = null,
+        LogDefinitionFolder? customLogDefinitions = null
         ) {
         _state = DataStoreState.Closed;
         _createStateStore = createStateStore;
@@ -126,7 +127,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         // must run before the logger below (which reads its files), before the rewrite cleanup and
         // before the WAL opens; the messages are buffered and logged once the logger exists
         var migrationLog = moveLegacyFilesIntoFolders();
-        _logger = new(_ioLog, datamodel);
+        // what the logger moves into a folder per log is said once it can be logged, and what the custom
+        // logs say later (a reload) is logged straight away
+        _logger = new(_ioLog, datamodel, customLogDefinitions, msg => { if (_logger == null) migrationLog.Add(msg); else LogInfo(msg); });
         // a fresh logger records nothing: the settings are what a log turned on in the admin UI and
         // saved there is restored from
         if (_settings.LogRecording != null) _logger.ApplyRecordingSettings(_settings.LogRecording);

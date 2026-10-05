@@ -47,7 +47,6 @@ const kindLabels: Record<CustomLogFile["kind"], string> = {
   text: "Text copy",
   statistics: "Statistics",
   "statistics-backup": "Statistics backup",
-  settings: "Definition",
   "left-over": "Left over",
 };
 
@@ -101,12 +100,14 @@ export function CustomLogData({
 }) {
   const [files, setFiles] = useState<CustomLogFile[] | null>(null);
   const [ioId, setIoId] = useState<string | null>(null);
+  const [definitionFile, setDefinitionFile] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const loadFiles = useCallback(async () => {
     try {
       const r = await fetchCustomLogFiles(db.id, log.key);
       setFiles(r.files);
       setIoId(r.ioId);
+      setDefinitionFile(r.definitionFile);
     } catch (e) {
       setFiles([]);
       showError("Could not list the files", e instanceof Error ? e.message : String(e));
@@ -214,7 +215,7 @@ export function CustomLogData({
   async function downloadDefinition() {
     try {
       const d = await fetchDefinition(db.id, log.key);
-      saveText(d.json, `log.${log.key}.settings.json`, "application/json");
+      saveText(d.json, `${log.key}.json`, "application/json");
     } catch (e) {
       showError("Could not read the definition", e instanceof Error ? e.message : String(e));
     }
@@ -258,7 +259,7 @@ export function CustomLogData({
 
       <section className="panel">
         <h3>
-          The definition <code className="clog-h3-file">log/log.{log.key}.settings.json</code>
+          The definition <code className="clog-h3-file">{definitionFile ?? `${log.key}.json`}</code>
         </h3>
         <div className="clog-actions">
           <button className="action-button" onClick={() => onView("definition")}>
@@ -279,7 +280,7 @@ export function CustomLogData({
 
       <section className="panel">
         <h3>
-          On disk <span className="panel-sub">{formatBytes(log.totalBytes + textBytes)} in the log folder</span>
+          On disk <span className="panel-sub">{formatBytes(log.totalBytes + textBytes)} in logs/{log.key.toLowerCase()}/</span>
         </h3>
         <div className="clog-facts">
           <Fact label="Entries" value={log.logBytes > 0 ? `${formatBytes(log.logBytes)} in ${formatCount(entryFiles)} ${entryFiles === 1 ? "file" : "files"}` : "none"} />

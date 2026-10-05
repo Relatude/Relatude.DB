@@ -155,8 +155,8 @@ app.MapRelatudeDBAdmin();         // admin UI at /relatude.db
 app.Run();
 ```
 
-A `relatude.db.json` file beside the app says where the data lives and which namespaces hold the
-model:
+A `relatude.db.json` file in the app's `relatude.settings/` folder says where the data lives and
+which namespaces hold the model:
 
 ```json
 {

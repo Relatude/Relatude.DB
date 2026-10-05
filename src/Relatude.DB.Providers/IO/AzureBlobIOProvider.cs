@@ -199,6 +199,12 @@ public class AzureBlobIOProvider : IIOProvider {
             }
         }
     }
+    public bool DeleteFolderIfEmpty(string[] path) {
+        if (path.Length == 0) return false;
+        // a folder is a blob name prefix, gone with its last blob: there is nothing to delete
+        var prefix = getAndValidateBlobName(path) + _virtualFolderChar;
+        return !Client.ListBlobs(prefix).Any();
+    }
     public void EnsureFolder(string[] path) {
     }
     public Task<FolderMeta> GetFolderAsync(string[] path, bool recursive, bool withFiles) {

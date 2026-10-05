@@ -8,6 +8,7 @@ import { MinimizedProgress } from "./DialogHost";
 import { GlobalSearch } from "./GlobalSearch";
 import { Logo, LogoMark } from "./Logo";
 import { PowerOrb, powerTone } from "./PowerOrb";
+import { FadeText } from "./FadeText";
 import { RevertControl } from "./RevertControl";
 
 interface HeaderProps {
@@ -139,12 +140,13 @@ function RefreshRate() {
  * revert window marked in the window's own colour.
  */
 function DbState({ db }: { db: DatabaseInfo }) {
+  // crossfades when the state changes; a node count going up changes in place
   return (
-    <>
+    <FadeText fadeKey={db.state}>
       <span className={"db-state-word power-" + powerTone(db.state)}>{db.state}</span>
       {db.nodeCount != null && ` · ${db.nodeCount.toLocaleString("en-US")} nodes`}
       {db.revertWindow && <span className="db-revert">revert window</span>}
-    </>
+    </FadeText>
   );
 }
 

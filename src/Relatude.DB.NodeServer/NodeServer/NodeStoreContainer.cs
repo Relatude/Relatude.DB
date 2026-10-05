@@ -37,7 +37,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         lock (_lock) {
             if (IsOpenOrOpening()) return Store!.Datastore.Logger;
             if (_logger == null) {
-                _logger = new StoreLogger(getLoggerIO(), null);
+                _logger = new StoreLogger(getLoggerIO(), null, server.LogDefinitionsFor(settings), server.Log);
                 // the same switches the open database would start with, so a closed one reports what
                 // it will record rather than what an empty logger happens to hold
                 var local = settings.LocalSettings;
@@ -45,6 +45,19 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 if (local != null) _logger.MinDurationMsBeforeLogging = local.MinQueryDurationMsBeforeLogging;
             }
             return _logger;
+        }
+    }
+
+    /// <summary>
+    /// Drops the logger a closed database hands out, so the next one is built on the settings as they
+    /// are now - a new short name, say, which moves where its log definitions are kept. An open
+    /// database's logger is its store's, and changes at the next open.
+    /// </summary>
+    internal void ForgetStandaloneLogger() {
+        lock (_lock) {
+            if (IsOpenOrOpening() || _logger == null) return;
+            try { _logger.Dispose(); } catch { }
+            _logger = null;
         }
     }
 
@@ -357,12 +370,16 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     if (fs == null) fs = [];
                     switch (ioFilesSetting.StoreType) {
                         case FileStoreEngine.SingleFile: {
+                                // one append-only container that never deletes: it cannot share copies,
+                                // and its own format records an MD5 checksum per file
+                                if (ioFilesSetting.SameHashSameFile || ioFilesSetting.HashAlgorithm != FileHashAlgorithm.MD5)
+                                    throw new Exception($"File store {ioFilesSetting.Id}: SameHashSameFile and HashAlgorithm are only supported by the MultiFile layout.");
                                 var fileKey = FileKeyUtility.FileStore_GetLatestFileKey(ioFiles);
                                 fs = [.. fs, new SingleFileStore(ioFilesSetting.Id, ioFiles, fileKey)];
                             }
                             break;
                         case FileStoreEngine.MultiFile: {
-                                fs = [.. fs, new MultiFileStore(ioFilesSetting.Id, ioFiles, ioFilesSetting.MultiFileFolderDepth)];
+                                fs = [.. fs, new MultiFileStore(ioFilesSetting.Id, ioFiles, ioFilesSetting.MultiFileFolderDepth, ioFilesSetting.SameHashSameFile, ioFilesSetting.HashAlgorithm)];
                             }
                             break;
                         default:
@@ -442,7 +459,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     QueryContext.MasterAdmin,
                     server?.Options?.FileConverters.ToArray(),
                     urlManager: urlManager,
-                    createStateStore: createStateStore
+                    createStateStore: createStateStore,
+                    customLogDefinitions: server?.LogDefinitionsFor(settings)
                     );
             _datastoreBeingBuilt = datastore;
             Interlocked.Increment(ref _initializationCounter);
@@ -579,13 +597,17 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 }
             }
         }
-        // the database's overrides ride along unapplied: the store applies them as it opens, while the
-        // model the editor gets keeps them apart from the types it writes back into the sources
+        // the database's overrides - the shared file's with this installation's merged over them - ride
+        // along unapplied: the store applies them as it opens, while the model the editor gets keeps them
+        // apart from the types it writes back into the sources
         dm.Overrides = OverridesFile.Read(server);
         return dm;
     }
-    /// <summary>Where this database keeps its datamodel overrides.</summary>
+    /// <summary>Where this database keeps its datamodel overrides: the file every installation shares, and this installation's.</summary>
     public DatamodelOverridesFile OverridesFile => DatamodelOverridesFile.For(server, settings);
+    /// <summary>Held while the overrides files are written - by an activation, or by moving overrides into
+    /// the shared file - so neither writes over what the other just wrote.</summary>
+    internal readonly object OverridesWriteLock = new();
     /// <summary>
     /// A fresh model from the configured sources, with the types application code registers
     /// (OnDatamodelInit) - exactly what a (re)open would start from, without opening anything. Used
