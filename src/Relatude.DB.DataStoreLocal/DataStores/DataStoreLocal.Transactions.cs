@@ -327,10 +327,14 @@ public sealed partial class DataStoreLocal : IDataStore {
         var props = Datamodel.GetEmbeddedProps(node.NodeType);
         if (props.Length == 0) return;
         try {
-            foreach (var item in props) {
-                if (node.TryGetValue(item, out var value)) {
-                    if (value is IInnerNodeDataMap inp) {
-                        inp.ValidateUniqueKeys();
+            // a revision container holds no values of its own: each revision has its embedded content
+            INodeData[] holders = node is NodeDataRevisions revisions ? revisions.Revisions : [node];
+            foreach (var holder in holders) {
+                foreach (var item in props) {
+                    if (holder.TryGetValue(item, out var value)) {
+                        if (value is IInnerNodeDataMap inp) {
+                            inp.ValidateUniqueKeys();
+                        }
                     }
                 }
             }

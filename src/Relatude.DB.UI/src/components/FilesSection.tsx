@@ -197,6 +197,10 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     viewerDirty.current = false;
   }
 
+  // Where the view was left in this database: the storage and the folder come back when it opens again,
+  // after a switch to another view of the module or a reload. Held here until the folder is open again,
+  // and dropped as soon as the user opens something else.
+  const restoring = useRef<FilesLocation | null>(null);
   // the providers of the active database; reset everything when the database changes
   useEffect(() => {
     setIos([]);
@@ -204,11 +208,14 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     resetView();
     setError(null);
     setNames({});
+    const remembered = readLocation(db.id);
     fetchIoList(db.id)
       .then((list) => {
         setIos(list);
-        // the storage the database's log file is on: where its own data is, so the obvious place to look
-        setIoId((list.find((candidate) => candidate.roles?.includes("database")) ?? list[0])?.id ?? null);
+        const back = remembered && list.some((candidate) => candidate.id === remembered.ioId) ? remembered : null;
+        restoring.current = back;
+        // else the storage the database's log file is on: where its own data is, so the obvious place to look
+        setIoId(back?.ioId ?? (list.find((candidate) => candidate.roles?.includes("database")) ?? list[0])?.id ?? null);
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
     // names are a nicety: a database that cannot answer just keeps showing guids
@@ -249,12 +256,46 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     [setListings],
   );
 
-  // load the root whenever the provider changes
+  // Opens the remembered folder once its storage is on screen. Its listing is asked for first, so a
+  // folder that has gone since leaves the view at the root rather than at an error; the folders above
+  // it are opened in the tree, so it shows where it is.
+  const restoreFolder = useCallback(
+    (io: string, target: string) => {
+      fetchFolder(io, target)
+        .then((listing) => {
+          if (shownIo.current !== io || restoring.current?.path !== target) return; // the user moved on meanwhile
+          restoring.current = null;
+          const segments = target.split("/");
+          const above = ["", ...segments.slice(0, -1).map((_, i) => segments.slice(0, i + 1).join("/"))];
+          setListings((prev) => ({ ...prev, [target]: listing }));
+          setExpanded(new Set(above));
+          for (const folder of above) if (folder !== "") loadFolder(io, folder);
+          setPath(target);
+        })
+        .catch(() => {
+          if (restoring.current?.path !== target) return;
+          restoring.current = null;
+          writeLocation(db.id, { ioId: io, path: "" }); // gone: the root it is, next time too
+        });
+    },
+    [db.id, loadFolder],
+  );
+
+  // load the root whenever the provider changes, and the remembered folder when it is the one coming back
   useEffect(() => {
     if (!ioId) return;
     resetView();
     loadFolder(ioId, "");
-  }, [ioId, loadFolder]);
+    const target = restoring.current;
+    if (target && target.ioId === ioId && target.path) restoreFolder(ioId, target.path);
+    else restoring.current = null;
+  }, [ioId, loadFolder, restoreFolder]);
+
+  // remembered as it changes, once a remembered folder is back (or given up on)
+  useEffect(() => {
+    if (!ioId || restoring.current) return;
+    writeLocation(db.id, { ioId, path });
+  }, [db.id, ioId, path]);
 
   const listing = listings[path];
   // the deep listing counts only while it is the one made for this provider and this folder; until
@@ -383,6 +424,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   // opens the folder (its files show in the list) without expanding its tree node; expanding and
   // collapsing is the chevron's job. Ticked folders stay ticked: they may be gathered for a delete
   async function openFolder(folderPath: string) {
+    restoring.current = null; // a folder picked by hand outranks the one still coming back
     if (folderPath !== path) {
       if (!(await confirmDiscard())) return;
       setSelected(new Set());
@@ -1073,7 +1115,9 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
           value={ioId ?? ""}
           onChange={async (e) => {
             const next = e.target.value;
-            if (await confirmDiscard()) setIoId(next);
+            if (!(await confirmDiscard())) return;
+            restoring.current = null;
+            setIoId(next);
           }}
           disabled={ios.length === 0}
         >
@@ -1428,6 +1472,30 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
 }
 
 const barSize = 14; // the same divider as the dashboard's panel grid (see PanelGrid)
+// Where the view was left, per database (storage ids belong to one database): the storage and the
+// open folder.
+interface FilesLocation {
+  ioId: string;
+  path: string;
+}
+const locationKey = (dbId: string) => "filesLocation:" + dbId;
+function readLocation(dbId: string): FilesLocation | null {
+  try {
+    const value = JSON.parse(localStorage.getItem(locationKey(dbId)) ?? "null") as Partial<FilesLocation> | null;
+    if (value && typeof value.ioId === "string" && typeof value.path === "string") return { ioId: value.ioId, path: value.path };
+  } catch {
+    // unreadable or blocked: the default storage
+  }
+  return null;
+}
+function writeLocation(dbId: string, location: FilesLocation) {
+  try {
+    localStorage.setItem(locationKey(dbId), JSON.stringify(location));
+  } catch {
+    // blocked: the view opens on the default storage next time
+  }
+}
+
 const treeWidthKey = "filesTreeWidth";
 const viewerWidthKey = "filesViewerWidth";
 const sortKey = "filesSort";

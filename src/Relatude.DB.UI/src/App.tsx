@@ -33,6 +33,20 @@ type AuthState = "checking" | "login" | "ready";
 /** The section ids the files page owns: it is one page in three views (FilesStorageSection). */
 const isFilesStorage = (id: string): id is FilesStorageView => id === "files" || id === "storage" || id === "conversions";
 
+// The view of the Storage module that was open last. The rail's Storage entry opens the module on it,
+// so someone who works in the file browser comes back to the file browser; the switch on the page and
+// the global search still open the view they name.
+const storageViewKey = "storageView";
+function rememberedStorageView(): FilesStorageView {
+  try {
+    const view = localStorage.getItem(storageViewKey);
+    if (view && isFilesStorage(view)) return view;
+  } catch {
+    // storage blocked: the module's own landing view
+  }
+  return "storage";
+}
+
 export function App() {
   const [theme, setTheme] = useState(getInitialTheme);
   const [auth, setAuth] = useState<AuthState>("checking");
@@ -47,6 +61,16 @@ export function App() {
   // it, and the page hands the fresh answer back rather than making the rail poll for it.
   const [license, setLicense] = useState<LicenseStatus | null>(null);
   useEffect(() => applyTheme(theme), [theme]);
+  useEffect(() => {
+    if (!isFilesStorage(activeSectionId)) return;
+    try {
+      localStorage.setItem(storageViewKey, activeSectionId);
+    } catch {
+      // storage blocked: the module opens on its landing view next time
+    }
+  }, [activeSectionId]);
+  // a click on the rail's Storage entry opens the module where it was left
+  const selectFromRail = (id: string) => setActiveSectionId(id === "storage" ? rememberedStorageView() : id);
   useEffect(() => {
     if (forceLogin) {
       setAuth("login");
@@ -174,7 +198,7 @@ export function App() {
           activeDb={activeDb}
           license={license}
           activeSectionId={activeSectionId}
-          onSelectSection={setActiveSectionId}
+          onSelectSection={selectFromRail}
           onLogout={handleLogout}
         />
         {/* the page takes the tone of the entry that opened it, so a module carries a trace of its

@@ -31,7 +31,7 @@ concept builds on the last.
 9. [Relations — the graph edges](#9-relations--the-graph-edges) · [9.1 ordered relation lists](#91-relation-lists-are-ordered)
 10. [Choosing between relation, reference and embedded](#10-choosing-between-relation-reference-and-embedded)
 11. [The complete example model](#11-the-complete-example-model) · [11.1 with facet interfaces](#111-the-same-model-with-facet-interfaces)
-12. [Registering the model & the admin UI](#12-registering-the-model--the-admin-ui) · [12.1 every relatude.db.json setting](#121-every-setting-in-relatudedbjson)
+12. [Registering the model & the admin UI](#12-registering-the-model--the-admin-ui) · [12.1 every relatude.db.json setting](#121-every-setting-in-relatudedbjson) · [12.2 source control, deployment and appsettings](#122-what-goes-where-source-control-deployment-and-appsettings)
 
 **Part II — Writing data**
 
@@ -1808,7 +1808,9 @@ content root, so by default `relatude.settings/relatude.db.json` in the app's ow
 against the folder the file is in. The Web SDK publishes the file like any other `.json` in the
 project. The same folder holds the other files every installation shares: the definitions of custom
 logs ([§32.1](#321-defining-a-log)) and the shared datamodel overrides
-([§3.1](#31-overriding-attributes)).
+([§3.1](#31-overriding-attributes)). The folder is part of the application, kept in source control and
+deployed with it; [§12.2](#122-what-goes-where-source-control-deployment-and-appsettings) sets out
+what goes where, and what stays with an installation.
 
 **Older versions kept the file in the root data folder itself, and for a while in
 `relatude.settings/db/`.** At its first start the server moves such a file into `relatude.settings/`
@@ -1849,8 +1851,9 @@ One server holds N containers (databases); each container names the storage it u
       "IoLog": "1a2b…",
       "AISettings": null,              // per-database AI provider; required for semantic search
 
-      "FileStoreSettings": [
-        { "Id": "…", "IoProviderId": "1a2b…", "StoreType": "MultiFile", "MultiFileFolderDepth": 2 }
+      "FileStoreSettings": [           // a new installation's: one copy per content, SHA256
+        { "Id": "c4d5…", "IoProviderId": "1a2b…", "StoreType": "MultiFile", "MultiFileFolderDepth": 2,
+          "SameHashSameFile": true, "HashAlgorithm": "SHA256" }
       ],
 
       "DatamodelSources": [ /* below */ ],
@@ -2004,8 +2007,15 @@ colliding.
 #### `FileStoreSettings` — where file bytes live
 
 ```jsonc
-{ "Id": "c4d5…", "IoProviderId": "1a2b…", "StoreType": "MultiFile", "MultiFileFolderDepth": 2 }
+{ "Id": "c4d5…", "IoProviderId": "1a2b…", "StoreType": "MultiFile", "MultiFileFolderDepth": 2,
+  "SameHashSameFile": true, "HashAlgorithm": "SHA256" }
 ```
+
+A new installation gets this store, named as `LocalSettings.DefaultFileStore`: the server's default
+settings, `relatude new` / `relatude init`, and a database added under **Databases** in the admin UI all
+write one. A store added under **Settings › File stores**, or made in code with `new FileStoreSettings()`
+or `FileStoreSettings.CreateMultiFile(ioProviderId)`, also starts with `SameHashSameFile` on and
+`SHA256`.
 
 | Key | Default | What it does |
 |---|---|---|
@@ -2013,11 +2023,45 @@ colliding.
 | `IoProviderId` | – | Which `IOSettings` entry holds the bytes. Must exist, or the open throws. |
 | `StoreType` | `SingleFile` | `SingleFile` packs everything into one append-only container file — fewer file handles, and cheap on blob storage. `MultiFile` writes one file per upload, which is what you want when something outside the engine also reads the files. |
 | `MultiFileFolderDepth` | 2 | `MultiFile` only: how many levels of hashed subfolders to spread files over, so no directory grows unmanageably large. |
-| `SameHashSameFile` | `false` | `MultiFile` only: keep one copy of any content. An upload with the same hash and length as a file the store already holds is not stored again — its `FileValue` points at the existing copy (`FileId` is then derived from the hash, and `Name` stays the upload's own). Shared files are only deleted by the unreferenced file cleanup, never by `FileDeleteAsync`. Applies to new uploads; files already stored stay where they are, and stay readable if it is turned off again. Cached conversions (thumbnails, resized images, video) are shared too, per source format. On blob storage a new file is written twice, as it is copied into place. |
-| `HashAlgorithm` | `MD5` | `MultiFile` only: the hash computed over every upload, stored in `FileValue.Hash` and, with `SameHashSameFile`, what decides that two uploads are the same file. `SHA256` is the safer choice when people who are not trusted can upload, as two different files with the same MD5 can be made on purpose. Changing it affects new uploads only. |
+| `SameHashSameFile` | `true`; `false` when absent | `MultiFile` only: keep one copy of any content. An upload with the same hash and length as a file the store already holds is not stored again — its `FileValue` points at the existing copy (`FileId` is then derived from the hash, and `Name` stays the upload's own). Shared files are only deleted by the unreferenced file cleanup, never by `FileDeleteAsync`. Applies to new uploads; files already stored stay where they are, and stay readable if it is turned off again. Cached conversions (thumbnails, resized images, video) are shared too, per source format. On blob storage a new file is written twice, as it is copied into place. |
+| `HashAlgorithm` | `SHA256`; `MD5` when absent | `MultiFile` only: the hash computed over every upload, stored in `FileValue.Hash` and, with `SameHashSameFile`, what decides that two uploads are the same file. `SHA256` is the safer choice when people who are not trusted can upload, as two different files with the same MD5 can be made on purpose; on processors with SHA instructions (Intel since Ice Lake / Alder Lake, AMD since Zen, ARM64 servers) it is also about three times faster than MD5. Changing it affects new uploads only. |
+
+**"When absent"** is what a store gets when its JSON leaves the key out: a store written before these
+two settings existed, in `relatude.db.json`, the overrides file or the `RelatudeDB` configuration
+section, keeps MD5 and one copy per upload rather than changing behaviour on upgrade. A `SingleFile`
+store ignores both: its container format records an MD5 checksum per file and never shares copies.
 
 Leave the array empty and the store creates an implicit default store on `IoDatabase`: a `MultiFile`
-store, one file per upload.
+store, one file per upload, MD5. A database that already runs on it keeps it as it is. Files record the
+store they went into, and the implicit one's id is the empty guid: when a configured store is named as
+`DefaultFileStore` later, new uploads go there and the files already uploaded are still read from the
+implicit store.
+
+##### Moving files to another store, or bringing old files up to date
+
+Changing the default store, or turning on `SameHashSameFile` or `SHA256`, only affects new uploads. To
+move the files already stored, use **Storage › File storage › Rewrite files…** in the admin UI. Pick the
+store to read from and the store to write with. The job runs in the background while the database stays
+in use, and its progress can be minimized to the top bar like the other file jobs.
+
+- Every file value that points into the source store gets a copy written by the target store, with that
+  store's hash, layout and, where it keeps one copy per content, sharing. Revisions and embedded objects
+  are included. A stored file that several values share is copied once.
+- The name, image size, meta data and extracted text stay the same, and nothing is re-indexed.
+- Each node is updated under its own lock. A value that changed while its file was being copied (a new
+  upload, say) is left alone.
+- With the **same store on both sides**, only the files the store would now write differently are
+  rewritten: a hash of the other algorithm, or a file not yet kept by its hash. That is how files
+  stored before `SameHashSameFile` or `SHA256` was turned on are brought up to date.
+- **The old copies are left where they are.** Older versions in a node's history still point at them.
+  **Storage › Missing and redundant files** removes them; after that, those older versions can no
+  longer give their files back.
+- A file that cannot be read is reported and its value is left as it was. Running the rewrite again
+  picks up whatever is left, including the rest of a cancelled run.
+
+From code, call `DataStoreLocal.RewriteFilesAsync(fromStoreId, toStoreId, onProgress, cancellationToken)`.
+`Guid.Empty` names the implicit store. The call returns a `RewriteFilesResult` with the counts and the
+values it could not rewrite.
 
 #### `AISettings` — embeddings, completions and the vector index
 
@@ -2092,7 +2136,7 @@ them.
 | `DefaultCultureCode` | null | Culture assumed when a node or query names none. Null means culture is not in play. |
 | `DefaultReadAccess` | `Everyone` | ACL group applied to a node whose `ReadAccess` is unset and whose type does not name one: `Everyone`, `Member` or `Admins`. |
 | `DefaultWriteAccess` | `Everyone` | Present in the settings object; not read by the current build — write access comes from the type and the node's metadata. |
-| `DefaultFileStore` | null | Which `FileStoreSettings` entry `FileValue` properties use when they do not name one. Must match an entry, or the open throws. Null means the implicit `MultiFile` store on `IoDatabase`. |
+| `DefaultFileStore` | null | Which `FileStoreSettings` entry `FileValue` properties use when they do not name one. Must match an entry, or the open throws. Null means the implicit `MultiFile` store on `IoDatabase`. A new installation names the store it is created with. |
 | `ImageDefaultFormat` | `Jpeg` | Format an adaptive image variant resolves to (`FileFormat.Image`, the default `RequestedFormat`): `Jpeg`, `WebP` or `Png`. A site-wide switch to WebP is this one key — see [§18.1](#181-asset-urls-files-variants-and-deeplinks). |
 | `ImageDefaultQuality` | 85 | Quality used when the request does not name one. |
 | `UrlOptions` | flat `DefaultUrlManager` | The URL manager's configuration — [§18](#18-urls-and-the-url-manager). |
@@ -2277,7 +2321,9 @@ the server's settings and every database's — with both values side by side:
   and takes them out of the overrides file. Nothing that is running changes. Settings decided by the
   configuration section are never moved, so configuration cannot leak into `relatude.db.json` this
   way. The file is rewritten by the settings loader, so comments in it are lost, and a secret moved
-  there is stored in plain text.
+  there is stored in plain text. Do this where the application runs from its project folder: on a
+  server `relatude.db.json` is the deployed copy, which the next deployment replaces
+  ([§12.2](#on-a-server)).
 - **Discard** puts back what `relatude.db.json` says for the selected entries — a value, a removed
   element restored, an added element taken out again — and saves.
 
@@ -2308,6 +2354,239 @@ folder or absolute. `ServerOptions.UseSettingsOverridesFile = false` turns the f
 pages then write `relatude.db.json` again, as they did before it existed — still without configuration
 values or values set by code. The CLI finds the file the same way, `--overrides <file>` points it
 elsewhere, and `relatude settings` reports where it is and how many settings it changes.
+
+### 12.2 What goes where: source control, deployment and appsettings
+
+An application on Relatude.DB is configured from four places, and each has its own owner and its own
+life: the **code**; the **settings files** that describe the application, in `relatude.settings/`;
+the **configuration** of the environment it runs in — `appsettings*.json`, environment variables,
+secrets; and the **installation** itself — the data folder, which holds the database and everything
+that was changed on that one installation. The layout follows three rules:
+
+- What describes the application is committed to source control and deployed with the code.
+- What an installation changed or recorded stays with that installation. It is never committed, and
+  a deployment neither carries it nor overwrites it.
+- What differs between environments comes from configuration, and so does every secret.
+
+**The folders.** With the default `ServerOptions` a project looks like this. The content root is the
+project folder while you develop, and the folder the application was deployed to on a server:
+
+```text
+MyApp/                                 the content root, and the root data folder
+├── Program.cs, Models/, …             the code                           committed
+├── appsettings.json                   configuration, every environment   committed, no secrets
+├── appsettings.Development.json       … what Development changes         committed
+├── appsettings.Production.json        … what Production changes          committed, no secrets
+├── relatude.settings/                 what the application says          committed, deployed
+│   ├── relatude.db.json               databases, storage, index engines, model sources
+│   ├── datamodel.overrides.json       the shared datamodel overrides (§3.1)
+│   ├── logs/                          log definitions, one <key>.json per log (§32.1)
+│   └── <ShortName>/                   the same two, per database with a short name
+│       ├── datamodel.overrides.json
+│       └── logs/
+├── relatude.db/                       this installation's database       never committed or deployed
+│   ├── data/ state/ backup/ logs/ …   transaction log, state, backups, log entries, indexes, files
+│   ├── overrides/                     what the admin UI changed here
+│   │   ├── relatude.db.overrides.json   the settings (default database only)
+│   │   └── datamodel.overrides.json     the datamodel overrides
+│   ├── datamodels/                    the model editor's draft and model history
+│   ├── graphql/                       GraphQL endpoints from the API page (§33.2)
+│   ├── modelsources/                  model files of RuntimeTypes sources with no Filepath
+│   └── installation/                  this installation's id
+└── relatude.db.temp/                  scratch, emptied at every start    never committed or deployed
+```
+
+Every other database has the folders from `data/` to `graphql/` in its own storage; `modelsources/`
+and `installation/` are the default database's only. `relatude.settings/` sits in the root data
+folder, beside `relatude.db/`: moving the root data folder with `ServerOptions.DefaultDataFolderPath`
+takes the settings folder along, out of the project. The shared files of a database are found by its
+short name, so give each database its `ShortName` in `relatude.db.json`, where every installation
+reads it ([§12.1](#121-every-setting-in-relatudedbjson)).
+
+**Who writes what:**
+
+| What | Kept in | Written by | Belongs to |
+|---|---|---|---|
+| The model, hooks, middleware | the code | you | the application: committed, built, deployed |
+| `relatude.db.json` | `relatude.settings/` | you, `relatude new` / `relatude init`, **Move into relatude.db.json** on the settings pages | the application |
+| Shared datamodel overrides | `relatude.settings/`, `relatude.settings/<ShortName>/` | you, **Move to shared…** in the model editor | the application |
+| Log definitions | `relatude.settings/logs/`, `relatude.settings/<ShortName>/logs/` | the Logs page, `CustomLogs.Create` / `Update`, you | the application |
+| The `RelatudeDB` section | `appsettings.json`, `appsettings.{Environment}.json` | you | the application, per environment — no secrets |
+| Secrets | user secrets, environment variables, a vault | you, and whoever runs the server | the environment — never a file in source control |
+| Settings changed in the admin UI | `overrides/relatude.db.overrides.json` | the settings pages | the installation |
+| Datamodel overrides activated in the admin UI | `overrides/datamodel.overrides.json` | the model editor | the installation |
+| GraphQL endpoints | `graphql/` | the API page | the installation |
+| Model files of a `RuntimeTypes` source | its `Filepath`; without one `modelsources/<Name>` | the model editor | the application when `Filepath` is in the project, else the installation |
+| The data | `relatude.db/` | the engine | the installation: backed up, never committed or deployed |
+
+At every start the layers are merged, a later one over an earlier one. The settings are
+`relatude.db.json`, then `relatude.db.overrides.json`, then the `RelatudeDB` configuration section,
+then the settings callbacks in `Program.cs` (the table [above](#changes-made-in-the-admin-ui-relatudedboverridesjson)).
+A datamodel is what the sources declare, then `[PropertyOverride]` in code, then the shared overrides
+file, then this installation's ([§3.1](#31-overriding-attributes)). A log definition has one place
+only, in `relatude.settings/`.
+
+#### While you develop
+
+`dotnet run` and Visual Studio start the application with the project folder as its content root,
+so the `relatude.settings/` the application reads is the very folder in source control, and what the
+admin UI writes into it is ready to commit:
+
+- **Log definitions** made or changed on the Logs page are written straight into
+  `relatude.settings/…/logs/`. Commit them with the code that records into them.
+- **Settings** changed on the settings pages go to `relatude.db/overrides/relatude.db.overrides.json`,
+  outside source control — the place to try a value out. To make a change part of the application,
+  choose **Overrides** on the settings page, **Move into relatude.db.json**, and commit the file.
+- **Model changes** in the model editor are written into the source wherever it can be written — the
+  generated C# files of a `CompiledTypes` source with `GenerateModelFile` (rebuild and restart to see
+  them), or a `RuntimeTypes` source's model files — and saved as this installation's overrides where
+  it cannot. **Move to shared…** in the overrides dialog puts them into
+  `relatude.settings/…/datamodel.overrides.json`; commit that file.
+- A `RuntimeTypes` source without a `Filepath` keeps its model files in `relatude.db/modelsources/`,
+  inside the data folder. For a model that belongs to the application, give the source a `Filepath`
+  in the project — `"Models/Json"`, say, which resolves against the root data folder — and commit
+  that folder.
+- **GraphQL endpoints** made on the API page are files in `relatude.db/graphql/`, so they stay on the
+  machine they were made on. An endpoint the application depends on is mapped in code
+  ([§33.9](#339-code-first-mapping-an-endpoint-in-programcs)), or its file is copied to each
+  installation.
+
+The `.gitignore` leaves out the data folder and the scratch folder, and nothing else of Relatude's —
+`relatude.settings/` is committed:
+
+```text
+relatude.db/
+relatude.db.temp/
+```
+
+**Secrets do not go into `relatude.db.json`.** `relatude new` and `relatude init` write a random
+`TokenEncryptionSecret` into the file, and the admin password when given `--password`, so that a new
+project can be logged into at once. Before the repository is shared, move both into user secrets
+(below) and take them out of the file. A server gets its own through its environment.
+
+#### Publishing
+
+The Web SDK makes every `.json` file in the project folder content, copied to the build output and to
+the publish folder. That is what takes `relatude.settings/` and the appsettings files to a server, and
+it would take the data folder too: the admin UI changes, model history and GraphQL endpoints of a
+developer's machine, deployed over the server's own. So the project file leaves the data folder out —
+the project types of `relatude new` have this, and an older project needs it added:
+
+```xml
+<PropertyGroup>
+  <DefaultItemExcludes>$(DefaultItemExcludes);relatude.db\**;relatude.db.temp\**</DefaultItemExcludes>
+</PropertyGroup>
+```
+
+Look in the publish folder before the first deployment: `relatude.settings/relatude.db.json` must be
+there, and `relatude.db/` must not. A server that finds no settings file writes one that points at the
+bundled demo model, so a database full of `Relatude.DB.Demo.Models` types is a deployment that left
+`relatude.settings/` behind.
+
+#### On a server
+
+**A deployment leaves the data alone.** It replaces the code, `relatude.settings/` and the appsettings
+files, and nothing in the data folder. With the defaults that folder is `relatude.db/` inside the
+application's folder, which works on a virtual machine, under IIS or on Azure App Service as long as
+the deployment never deletes files it did not put there: turn off options such as *Remove additional
+files at destination*, and keep `relatude.db/` out of an `rsync --delete`. Two other places are common:
+
+- **In a container**, mount a volume at `relatude.db/` below the content root. The image carries the
+  code and `relatude.settings/`; the volume carries the installation.
+- **On Azure Blob storage** — an `IOSettings` entry of type `AzureBlobStorage` for `IoDatabase` — the
+  database, and with it `overrides/` and `graphql/`, live in the blob container, and the application's
+  folder holds only what was deployed. With deployment slots this is where the database belongs: a
+  swap makes the other slot's folder the production one, so a database kept in the folder would change
+  places with the code.
+
+**The admin UI's changes stay with the installation.** What an administrator changes on a server —
+settings, datamodel overrides, GraphQL endpoints — is kept in the data folder, so it survives every
+deployment, and what each deployment's `relatude.db.json` and shared overrides say still applies
+underneath it. That is the point of the split: a deployment changes what the application says, and
+an installation's own changes stay on top.
+
+**Some admin UI actions write into `relatude.settings/` and the project's files**, which on a server
+are the deployed copy: saving a log definition on the Logs page, **Move into relatude.db.json** on the
+settings page, **Move to shared…** in the model editor, and activating a model change of a
+`RuntimeTypes` source whose `Filepath` is in the application's folder. What they write there lasts until a deployment replaces the folder —
+in a container, until the container is replaced — and a moved entry has left the overrides file by
+then as well, so it is gone from the installation too. The model editor's dialog warns before a move
+outside the Development environment. On a server, take a change home through source control instead:
+
+| Changed on a server | To make it part of the application |
+|---|---|
+| A setting | **Overrides** on the settings page lists every entry beside what `relatude.db.json` says. Put the value into `relatude.db.json` in source control and deploy it. Once the deployed file says the same, the entry changes nothing, and the next save leaves it out of the overrides file. |
+| A datamodel override | In the model editor's **Move to shared…**, **Download shared file** gives the shared file with the chosen overrides in it and changes nothing on the server. Commit it in place of the old one, and deploy. |
+| A log definition | The log's Definition view shows the file. Copy it into `relatude.settings/…/logs/` in source control before the next deployment. A definition a deployment took away leaves the entries and statistics in the data folder, and a definition with the same key picks them up again. |
+| A model in a `RuntimeTypes` source | Copy the files from the source's `Filepath` into source control before the next deployment — or make the change in development, commit it and deploy it. |
+| A GraphQL endpoint | It stays with the installation. Copy its file into another installation's `graphql/` folder and choose **Reload from disk** there, or map the endpoint in code. |
+
+A copy of a data folder carries the installation's changes with it: production's `relatude.db/`
+restored on a test server brings production's settings overrides, datamodel overrides and GraphQL
+endpoints along. Look through the **Overrides** dialogs after such a restore.
+
+#### appsettings, environment variables and secrets
+
+The `RelatudeDB` configuration section ([above](#overriding-settings-from-configuration)) is what
+lets one `relatude.db.json` serve every environment. ASP.NET reads the sources in this order, a
+later one winning: `appsettings.json`, `appsettings.{Environment}.json`, user secrets (in
+Development only), environment variables, the command line. The environment is `Production` unless
+`ASPNETCORE_ENVIRONMENT` or `DOTNET_ENVIRONMENT` says otherwise; `dotnet run` and Visual Studio set
+`Development` from `Properties/launchSettings.json`. A split that works:
+
+| Where | What goes there |
+|---|---|
+| `relatude.db.json` | the structure every environment shares: the databases and their ids, the storage backends without their connection strings, file stores, index engines, model sources, engine defaults |
+| `appsettings.json` | Relatude values that every environment shares and that you would rather keep with the rest of the application's configuration — often nothing |
+| `appsettings.{Environment}.json` | what one environment does differently: cache sizes, backups, `AllowMasterLoginOutsideLocalhost`, another blob container |
+| user secrets | the secrets of a developer's machine: the admin password, `TokenEncryptionSecret`, API keys, a storage connection string. Kept in the user's profile, outside the project folder |
+| environment variables, a vault | the secrets of a server: Azure App Service application settings, a container's environment, Key Vault references |
+
+```jsonc
+// appsettings.Production.json: committed, no secrets
+{
+  "RelatudeDB": {
+    "AllowMasterLoginOutsideLocalhost": true,
+    "ContainerSettings": [
+      { "Id": "8f6b…", "LocalSettings": { "NodeCacheSizeGb": 4, "AutoBackUp": true } }
+    ]
+  }
+}
+```
+
+```bash
+# a developer's machine: "init" adds a UserSecretsId to the project file the first time
+dotnet user-secrets init
+dotnet user-secrets set "RelatudeDB:MasterPassword" "…"
+dotnet user-secrets set "RelatudeDB:TokenEncryptionSecret" "…"
+```
+
+```text
+# a server: environment variables, or application settings on Azure App Service
+RelatudeDB__MasterPassword=…
+RelatudeDB__TokenEncryptionSecret=…
+RelatudeDB__ContainerSettings__0__Id=8f6b…
+RelatudeDB__ContainerSettings__0__IOSettings__0__Id=9d8c…
+RelatudeDB__ContainerSettings__0__IOSettings__0__BlobConnectionString=…
+```
+
+In environment variables `__` separates the levels, where JSON nests and user secrets write `:`. The
+numbers are positions in the configuration's own lists. Give an element's `Id` beside them, as above,
+and it is matched to the element with that id in `relatude.db.json` rather than to the one at that
+position, so reordering the file never sends a connection string to the wrong backend.
+
+A few things to know:
+
+- **An empty value is a value.** `"ApiKey": ""` in an appsettings file blanks the setting. Leave the
+  key out instead; a `//` comment can say where the real value comes from.
+- **Configuration changes and adds; it cannot remove anything or set a value to null.** Which
+  databases and storage backends there are belongs in `relatude.db.json`.
+- **The settings pages lock what configuration decides**, and the start-up log lists the overridden
+  key paths, never the values.
+- **The command line tool reads the same files.** `relatude settings --environment Production` shows
+  the settings a server in that environment would run with, from the appsettings files and the
+  environment variables of the shell — not user secrets — and reports each secret as set or not set,
+  never its value ([§31](#31-the-command-line-tool)).
 
 ### Options and events in Program.cs
 
@@ -4586,7 +4865,9 @@ application. A database with a short name (its `ShortName` setting,
 `relatude.settings/<short name>/logs/` instead; only one database of an installation can be without
 one. The file is what the log *is*: a
 definition written there by hand, or copied from another application, is picked up when the database
-opens (or with **Reload from disk** on the Logs page).
+opens (or with **Reload from disk** on the Logs page). A log defined on a deployed server is written
+into the deployed copy of the folder, so copy its definition into source control before the next
+deployment ([§12.2](#on-a-server)).
 
 Older versions kept the definition beside the entries, as `log/log.<key>.settings.json` (later `logs/…`) in the
 database's log storage. Such a file is moved into the database's `logs/` folder below `relatude.settings` when the
@@ -5081,7 +5362,10 @@ a url, even across databases. While the endpoint's database is not open, its url
 
 An endpoint is its file: `graphql/<name>.json` on the database's `IoDatabase` storage provider, next
 to the database's own files. Every `.json` file in that folder is an endpoint, so you can also write a
-definition by hand, copy it from another database or keep it in source control. **Reload from disk**
+definition by hand, copy it from another database or keep it in source control. The folder belongs to
+the installation, not the application: a deployment does not carry it
+([§12.2](#122-what-goes-where-source-control-deployment-and-appsettings)), so an endpoint every
+installation needs is copied to each, or mapped in code ([§33.9](#339-code-first-mapping-an-endpoint-in-programcs)). **Reload from disk**
 on the API page reads the folder again. A file without an `id` gets one derived from its file name.
 A file that cannot be read as a definition stays in the list, marked with what is wrong with it.
 The reader is lenient: comments and trailing commas are allowed, property names can be in any case,

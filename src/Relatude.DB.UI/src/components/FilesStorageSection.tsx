@@ -16,8 +16,8 @@ import type { DatabaseInfo } from "../server/serverInfo";
  *
  * Each view keeps its own section id, so the global search still finds "Files" or "Conversions" and
  * opens the page on it, and the switch is nothing more than those ids: picking one here is the same
- * operation as picking it in the rail. The rail's own entry is the "storage" id, so that is what
- * opens when someone clicks Storage in the menu.
+ * operation as picking it in the rail. The rail's own entry is the "storage" id; a click on it opens
+ * the view that was open last (App remembers it), and the storage view the first time.
  */
 export type FilesStorageView = "files" | "storage" | "conversions";
 

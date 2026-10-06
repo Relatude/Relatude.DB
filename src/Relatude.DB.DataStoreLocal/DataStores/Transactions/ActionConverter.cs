@@ -71,6 +71,8 @@ internal class ActionConverter {
         if (id == 0) return false;
         return db._nodes.Contains(id);
     }
+    // naming an index property among the ones not to regenerate is how an update says it leaves the indexes alone
+    static readonly Guid[] _keepIndexes = [NodeConstants.SystemTextIndexPropertyId];
     IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeAction nodeAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, Guid[]? doNotRegenTheseProps = null) {
         switch (nodeAction.Operation) {
             case NodeOperation.InsertOrFail: {
@@ -157,8 +159,9 @@ internal class ActionConverter {
                                 if (node is not NodeDataRevision nodeRev) throw new Exception("Cannot determine revision to update. ");
                                 var typeDef = db._definition.NodeTypes[oldNode.NodeType];
                                 var newNode = Utils.CreateNewRevisionsNodeWithUpdatedValues(revsNode, nodeRev, typeDef, transformValues);
-                                if (newNode.CreatedUtc == DateTime.MinValue) newNode.CreatedUtc = oldNode.CreatedUtc;
-                                Utils.EnsureOrQueueIndex(db, newNode, doNotRegenTheseProps, newTasks);
+                                // the creation time is per revision, filled in by CreateNewRevisionsNodeWithUpdatedValues: a
+                                // revision container has none of its own (its CreatedUtc throws)
+                                Utils.EnsureOrQueueIndex(db, newNode, nodeAction.NoReindex ? _keepIndexes : doNotRegenTheseProps, newTasks);
                                 db._urls.RegisterAddressAtCommit(node, newNode);
                                 yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode); // remove old first
                                 yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
@@ -166,7 +169,7 @@ internal class ActionConverter {
                                 if (node is not INodeDataInternal nodeInner) throw new Exception("NodeAction requires node to be of type INodeDataInner. ");
                                 if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = oldNode.CreatedUtc;
                                 Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, oldNode, transformValues);
-                                Utils.EnsureOrQueueIndex(db, node, doNotRegenTheseProps, newTasks);
+                                Utils.EnsureOrQueueIndex(db, node, nodeAction.NoReindex ? _keepIndexes : doNotRegenTheseProps, newTasks);
                                 db._urls.RegisterAddressAtCommit(node, nodeInner);
                                 yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode); // remove old first
                                 yield return new PrimitiveNodeAction(PrimitiveOperation.Add, nodeInner);

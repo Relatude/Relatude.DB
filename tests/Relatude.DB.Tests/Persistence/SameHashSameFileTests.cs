@@ -237,6 +237,25 @@ public class SameHashSameFileTests {
         CollectionAssert.AreEqual(data, await extract(store, again));
     }
 
+    [TestMethod]
+    public async Task ASweepByAnotherStoreInTheSameFolder_StillKeepsAFileJustHandedOut() {
+        // two MultiFile stores on one provider share the folder, and the database sweeps it once,
+        // through either of them: the hand-outs belong to the provider, not to the store
+        var io = new IOProviderMemory();
+        using var keepsOneCopy = new MultiFileStore(Guid.NewGuid(), io, 2, sameHashSameFile: true);
+        using var plain = new MultiFileStore(Guid.NewGuid(), io, 2);
+        Assert.AreEqual(keepsOneCopy.Location, plain.Location, "one folder");
+        var data = bytes(1000, 14);
+        await insert(keepsOneCopy, data, "a.bin");
+        await Task.Delay(30);
+        var cutoff = DateTime.UtcNow;
+        await Task.Delay(30);
+        await insert(keepsOneCopy, data, "b.bin"); // the orphan is handed out again after the cutoff
+        var result = await plain.DeleteUnreferenced(new HashSet<string>(), keepFilesNewerThanUtc: cutoff);
+        Assert.AreEqual(0, result.TotalFilesDeleted);
+        Assert.AreEqual(1, storedFiles(io).Length);
+    }
+
     // through the database: two nodes uploading the same bytes share the file, removing it from one
     // leaves it for the other, and a multipart upload is hashed with the store's algorithm
     static (NodeStore store, DataStoreLocal data, IOProviderMemory filesIo) open(FileHashAlgorithm hashAlgorithm) {

@@ -3668,6 +3668,19 @@ a.action-button {
   width: 520px;
 }
 
+/* the rewrite dialog's store lists name a store by provider, layout and hash, which wants the room */
+.dialog.rewrite-dialog {
+  width: 560px;
+}
+
+.rewrite-dialog .dialog-field .select {
+  width: 100%;
+}
+
+.rewrite-dialog .files-notice {
+  margin-bottom: 12px;
+}
+
 .move-dialog .move-mode {
   width: fit-content;
   margin-bottom: 12px;

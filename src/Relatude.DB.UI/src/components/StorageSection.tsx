@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  IconCopy,
   IconDatabase,
   IconDatabaseExport,
   IconDatabaseImport,
@@ -12,6 +13,7 @@ import {
   IconFolderDown,
   IconHistory,
   IconPhotoCancel,
+  IconReplace,
   IconTextRecognition,
   IconRefresh,
   IconRestore,
@@ -37,6 +39,7 @@ import {
   fetchDemoInfo,
   fetchDbFileInfo,
   fetchFileStorages,
+  fetchFileStoreChoices,
   fetchMaintenanceInfo,
   rebuildTextIndex,
   revertToBackup,
@@ -48,7 +51,9 @@ import {
   type BackupList,
   type DbFileInfo,
   type DemoContentInfo,
+  type DuplicateResult,
   type FileStorageInfo,
+  type FileStoreChoice,
   type MaintenanceInfo,
   type TimeTravelResult,
   type UnreferencedResult,
@@ -56,6 +61,7 @@ import {
 } from "../server/storage";
 import type { DatabaseInfo } from "../server/serverInfo";
 import { TimeTravelDialog } from "./TimeTravelDialog";
+import { describeFileStore, RewriteFilesDialog, type RewriteChoice } from "./RewriteFilesDialog";
 import { useLive } from "../live";
 import { formatBytes, formatCount, formatTime } from "../format";
 
@@ -83,6 +89,8 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const [keepForever, setKeepForever] = useState(false);
   // whether the go-back-in-time dialog is up; it finds the files and moments it offers itself
   const [timeTravel, setTimeTravel] = useState(false);
+  // the file stores the rewrite dialog offers, while it is up
+  const [rewriteStores, setRewriteStores] = useState<FileStoreChoice[] | null>(null);
   const [message, setMessage] = useState<string | null>(null); // the backups panel
   const [dbFileMessage, setDbFileMessage] = useState<string | null>(null); // the database file panel
   const [maintenanceMessage, setMaintenanceMessage] = useState<string | null>(null);
@@ -100,6 +108,8 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const stateKey = `state:${db.id}`;
   const reindexKey = `reindex:${db.id}`;
   const auditKey = `audit:${db.id}`;
+  const duplicatesKey = `duplicates:${db.id}`;
+  const rewriteKey = `rewrite:${db.id}`;
   const convertedKey = `converted:${db.id}`;
   const storageDownloadKey = `storage-download:${db.id}`;
   const uploadKey = `db-upload:${db.id}`;
@@ -110,6 +120,8 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const stateTask = useProgressTask(stateKey);
   const reindexTask = useProgressTask(reindexKey);
   const auditTask = useProgressTask(auditKey);
+  const duplicatesTask = useProgressTask(duplicatesKey);
+  const rewriteTask = useProgressTask(rewriteKey);
   const convertedTask = useProgressTask(convertedKey);
   const storageDownloadTask = useProgressTask(storageDownloadKey);
   const uploadTask = useProgressTask(uploadKey);
@@ -120,6 +132,8 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const stateRunning = stateTask?.status === "running";
   const reindexRunning = reindexTask?.status === "running";
   const auditRunning = auditTask?.status === "running";
+  const duplicatesRunning = duplicatesTask?.status === "running";
+  const rewriteRunning = rewriteTask?.status === "running";
   const convertedRunning = convertedTask?.status === "running";
   const storageDownloadRunning = storageDownloadTask?.status === "running";
   const uploadRunning = uploadTask?.status === "running";
@@ -308,7 +322,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
         : `${checked}, ${formatCount(missingCount)} missing, ${formatCount(redundantCount)} redundant (${formatBytes(redundantBytes)}).`,
     );
     if (missingCount === 0 && redundantCount === 0) {
-      showInfo("Nothing missing or redundant", `${checked}. Every file value has its file, and every file in the stores is pointed at by a node.`);
+      showInfo("Nothing missing or redundant", `${checked}. Every file value has its file, and every file in the stores is pointed at by a node. Files written in the last 15 minutes are not judged yet, as an upload may still be linking them up.`);
       return;
     }
     if (missing && missingCount > 0) {
@@ -325,10 +339,111 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
     if (redundantCount === 0) return;
     const choice = await showConfirm(
       "Delete redundant files",
-      `${formatCount(redundantCount)} file${redundantCount === 1 ? "" : "s"} (${formatBytes(redundantBytes)}) in the file stores are not referenced by any node. Delete them, and the folders left empty? Everything under a file store counts as this database's, so files put there by anything else go too. This cannot be undone.`,
+      `${formatCount(redundantCount)} file${redundantCount === 1 ? "" : "s"} (${formatBytes(redundantBytes)}) in the file stores ${redundantCount === 1 ? "is" : "are"} not referenced by any node (files written in the last 15 minutes are left out). A file only an older version in a node's history points at counts too: once deleted, that version can no longer give its file back. Delete them, and the folders left empty? Everything under a file store counts as this database's, so files put there by anything else go too. This cannot be undone.`,
       { confirmLabel: "Delete", danger: true },
     );
     if (choice.ok) await deleteUnreferenced();
+  }
+
+  // How much of the file stores holds the same content more than once, as the number to decide on
+  // "Same hash, same file" with. Read from the hash and size every file value carries, so no file is
+  // read and nothing is changed: a report, not a clean-up.
+  async function onFindDuplicates() {
+    const progress = await runWithProgress(`Duplicate files in ${db.name}`, (ctl) => runFileScan(ctl, db.id, "duplicates", false), {
+      minimizable: true,
+      key: duplicatesKey,
+    });
+    const result: DuplicateResult | null | undefined = progress?.duplicates;
+    if (!result) return;
+    const plural = (n: number, word: string) => `${formatCount(n)} ${word}${n === 1 ? "" : "s"}`;
+    const checked = `${plural(result.storedFiles, "stored file")} (${formatBytes(result.storedBytes)}) behind ${plural(result.valuesChecked, "file value")}`;
+    const shared =
+      result.sharedValues > 0
+        ? ` ${plural(result.sharedValues, "value")} already share a stored file with another value, so ${formatBytes(result.sharedBytes)} is not stored twice.`
+        : "";
+    const unhashed = result.valuesWithoutHash > 0 ? ` ${plural(result.valuesWithoutHash, "value")} carry no hash and could not be compared.` : "";
+    if (result.duplicateFiles === 0) {
+      setFilesMessage(`${checked}, no duplicates.`);
+      showInfo("No duplicate files", `${checked}: every content is stored once.${shared}${unhashed}`);
+      return;
+    }
+    setFilesMessage(`${checked}, ${plural(result.duplicateFiles, "duplicate")} (${formatBytes(result.duplicateBytes)}).`);
+    const shown = result.groups.slice(0, maxListedDuplicates);
+    const details = shown.map(
+      (g) => `${formatCount(g.copies)} copies of ${formatBytes(g.size)} (${formatBytes(g.duplicateBytes)} extra) — ${g.examples.join(", ")}${g.copies > g.examples.length ? ", …" : ""}`,
+    );
+    if (result.groups.length > shown.length) details.push(`…and ${formatCount(result.groups.length - shown.length)} more`);
+    else if (result.listTruncated) details.push("…the list was capped by the server; the counts above are complete");
+    showInfo(
+      "Duplicate files",
+      `${checked}. ${plural(result.duplicateFiles, "file")} ${result.duplicateFiles === 1 ? "holds" : "hold"} content another stored file of the same store already has: ${formatBytes(result.duplicateBytes)} that keeping one copy per content would save.${shared}${unhashed} "Same hash, same file" on a file store shares the content of new uploads; files already stored are not changed.`,
+      details,
+    );
+  }
+
+  // The stores are asked for when the dialog opens rather than kept with the panel: a store added in
+  // Settings a moment ago is the one most likely to be written to.
+  async function onRewriteFiles() {
+    try {
+      const stores = await fetchFileStoreChoices(db.id);
+      if (stores.length === 0) {
+        showError("Rewrite files", "This database has no file store.");
+        return;
+      }
+      setRewriteStores(stores);
+    } catch (e) {
+      showError("Rewrite files", e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /**
+   * Writes the files of one store again through another (or the same one), on the server and while the
+   * database stays in use - so it can be put in the top bar like the scans. What it did is reported in a
+   * dialog of its own, with the values it had to leave as they were listed.
+   */
+  async function rewriteFiles(choice: RewriteChoice, stores: FileStoreChoice[]) {
+    setRewriteStores(null);
+    const nameOf = (id: string) => {
+      const store = stores.find((s) => s.id === id);
+      return store ? describeFileStore(store) : id;
+    };
+    const progress = await runWithProgress(`Rewrite files in ${db.name}`, (ctl) => runFileScan(ctl, db.id, "rewrite", false, undefined, choice), {
+      minimizable: true,
+      key: rewriteKey,
+    });
+    const result = progress?.rewrite;
+    if (!result) return;
+    const plural = (n: number, word: string) => `${formatCount(n)} ${word}${n === 1 ? "" : "s"}`;
+    const same = choice.fromStore === choice.toStore;
+    const upToDate = result.valuesUpToDate > 0 ? ` ${plural(result.valuesUpToDate, "value")} already had ${result.valuesUpToDate === 1 ? "its" : "their"} file written the way the store writes files now.` : "";
+    if (result.valuesFound === 0) {
+      setFilesMessage(`No file values point into ${nameOf(choice.fromStore)}.`);
+      showInfo("Nothing to rewrite", `No file value points into ${nameOf(choice.fromStore)}, so there was nothing to write again.`);
+      return;
+    }
+    if (result.valuesRewritten === 0 && result.failedCount === 0) {
+      setFilesMessage(`Nothing to rewrite.${upToDate}`);
+      showInfo("Nothing to rewrite", `Every file value pointing into ${nameOf(choice.fromStore)} is already written the way it would be now.${upToDate}`);
+      return;
+    }
+    const summary =
+      `Rewrote ${plural(result.valuesRewritten, "file value")}: ${plural(result.filesCopied, "file")} (${formatBytes(result.bytesCopied)}) written ${same ? "again" : "to " + nameOf(choice.toStore)}.` +
+      (result.failedCount > 0 ? ` ${plural(result.failedCount, "value")} could not be rewritten.` : "");
+    setFilesMessage(summary);
+    const cleanup = ` The old copies are still in ${nameOf(choice.fromStore)}: "Missing and redundant files" removes them.`;
+    if (result.failedCount > 0) {
+      const shown = result.failures.slice(0, maxListedMissing);
+      const details = shown.map((f) => `${f.nodeType.split(".").pop()}.${f.property} — ${f.fileName} (${formatBytes(f.size)}) — ${f.reason}`);
+      if (result.failures.length > shown.length) details.push(`…and ${formatCount(result.failures.length - shown.length)} more`);
+      else if (result.listTruncated) details.push("…the list was capped by the server; the counts above are complete");
+      await showError(
+        "Some files were not rewritten",
+        `${summary}${upToDate} The values listed below still point at their old copies, which are left as they were; running the rewrite again tries them once more.${cleanup}`,
+        details,
+      );
+      return;
+    }
+    showInfo("Files rewritten", `${summary}${upToDate}${cleanup}`);
   }
 
   async function deleteUnreferenced() {
@@ -793,6 +908,30 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
           </span>
         </div>
         <div className="process-action">
+          <button className="action-button" onClick={onFindDuplicates} disabled={db.state !== "Open" || duplicatesRunning}>
+            <IconCopy size={14} stroke={1.8} /> Duplicate files
+          </button>
+          <span className="muted">
+            {db.state !== "Open"
+              ? "the database must be open"
+              : duplicatesRunning
+                ? duplicatesTask?.label || "scanning…"
+                : "counts the files stored more than once, by the hash and size of every file value, and the bytes that costs"}
+          </span>
+        </div>
+        <div className="process-action">
+          <button className="action-button" onClick={onRewriteFiles} disabled={db.state !== "Open" || rewriteRunning}>
+            <IconReplace size={14} stroke={1.8} /> Rewrite files…
+          </button>
+          <span className="muted">
+            {db.state !== "Open"
+              ? "the database must be open"
+              : rewriteRunning
+                ? `${rewriteTask?.label || "rewriting…"}`
+                : "writes the files of one file store again with another - or the same one with its hash and one copy per content - and points the file values at the copies"}
+          </span>
+        </div>
+        <div className="process-action">
           <button className="action-button" onClick={onDeleteConverted} disabled={db.state !== "Open" || convertedRunning}>
             <IconPhotoCancel size={14} stroke={1.8} /> Reset converted file cache
           </button>
@@ -1007,12 +1146,16 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       </div>
       </div>
       {timeTravel && <TimeTravelDialog db={db} onCancel={() => setTimeTravel(false)} onDone={onWentBackInTime} />}
+      {rewriteStores && (
+        <RewriteFilesDialog stores={rewriteStores} onCancel={() => setRewriteStores(null)} onRewrite={(choice) => rewriteFiles(choice, rewriteStores)} />
+      )}
     </div>
   );
 }
 
 // the server caps its own list at 1000; the dialog shows the first of those and counts the rest
 const maxListedMissing = 200;
+const maxListedDuplicates = 50;
 
 // what a file storage holds, in one line: the folder it is, or the file it appends to
 function storageHint(storage: FileStorageInfo): string {

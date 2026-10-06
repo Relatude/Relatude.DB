@@ -39,6 +39,15 @@ internal sealed class NodeStore {
             return [.. result];
         }
     }
+    /// <summary>The ids of every node, those not yet written to the log included - which
+    /// <see cref="Snapshot"/> refuses, as it hands out log positions.</summary>
+    public int[] AllIds() {
+        lock (_lock) {
+            var ids = new List<int>(_segments.Count);
+            foreach (var kv in _segments.Entries) ids.Add(kv.Key);
+            return [.. ids];
+        }
+    }
     // for the open sequence, before anything else runs: no lock, nothing pending
     internal IEnumerable<KeyValuePair<int, NodeSegment>> EnumerateSegments_NotThreadsafe() => _segments.Entries;
     /// <summary>The nodes already written to the log, with their positions.</summary>

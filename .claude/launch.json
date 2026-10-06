@@ -236,8 +236,39 @@
     {
       "name": "website-simple-dmshared-verify",
       "runtimeExecutable": "dotnet",
-      "runtimeArgs": ["run", "--project", "examples/Website.Simple", "--no-launch-profile", "-p:BaseOutputPath=bin/ClaudeDmShared/", "-e", "RelatudeDB__NoLoginRequiredForLocalhost=true", "--contentRoot", "C:/Users/ogulb/AppData/Local/Temp/claude/C--WAF-Code-Relatude-DB/7d5933c7-155e-4b52-9e9d-6bea64da414a/scratchpad/site", "--urls", "http://localhost:5095"],
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "examples/Website.Simple",
+        "--no-launch-profile",
+        "-p:BaseOutputPath=bin/ClaudeDmShared/",
+        "-e",
+        "RelatudeDB__NoLoginRequiredForLocalhost=true",
+        "--contentRoot",
+        "C:/Users/ogulb/AppData/Local/Temp/claude/C--WAF-Code-Relatude-DB/7d5933c7-155e-4b52-9e9d-6bea64da414a/scratchpad/site",
+        "--urls",
+        "http://localhost:5095"
+      ],
       "port": 5095,
+      "autoPort": false
+    },
+    {
+      "name": "website-simple-rewrite-verify",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "examples/Website.Simple",
+        "--no-launch-profile",
+        "-p:BaseOutputPath=bin/ClaudeRewrite/",
+        "-e",
+        "RelatudeDB__NoLoginRequiredForLocalhost=true",
+        "--contentRoot",
+        "C:/Users/ogulb/AppData/Local/Temp/claude/C--WAF-Code-Relatude-DB/03dd3b40-ead0-42e7-b465-9533d0268a9c/scratchpad/rewrite-site",
+        "--urls",
+        "http://localhost:5099"
+      ],
+      "port": 5099,
       "autoPort": false
     }
   ]

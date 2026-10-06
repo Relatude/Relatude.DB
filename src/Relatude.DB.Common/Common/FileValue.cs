@@ -150,6 +150,18 @@ public class FileValue {
         v.PropertyPath = PropertyPath.FromBytes(propertyPathBytes);
         return v;
     }
+    /// <summary>The same value pointing at another stored copy of its bytes, in the same store or another:
+    /// name, meta, extracted text and property path stay, while the store, file id, key, hash and size are
+    /// the copy's.</summary>
+    public FileValue CopyWithStoredFile(Guid storageId, Guid fileId, byte[] storageKey, string hash, long size) {
+        var c = Copy();
+        c.StorageId = storageId;
+        c.FileId = fileId;
+        c._fileKeyData = storageKey;
+        c.Hash = hash;
+        c.Size = size;
+        return c;
+    }
     public FileValue Copy() {
         var c = new FileValue();
         c.IsEmpty = IsEmpty;

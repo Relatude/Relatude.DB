@@ -48,7 +48,12 @@ public sealed partial class DataStoreLocal : IDataStore {
 
     readonly Scheduler _scheduler;
     readonly Dictionary<Guid, IFileStore> _fileStores = new();
+    // where an upload goes when its property names no store: the configured default, else the implicit one
     readonly IFileStore _defaultFileStore;
+    // the store of every file value recording Guid.Empty as its store id: a MultiFile store on the
+    // database's own provider. Kept when a configured store has become the default, as the files
+    // uploaded before that still point here
+    readonly IFileStore _implicitFileStore;
     readonly StoreLogger _logger;
     QueryContext _defaultQueryCtx;
     public TaskQueue TaskQueue { get; }
@@ -170,8 +175,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         // no configured store named as the default: the implicit one, a MultiFile store on the
         // database's own provider. Files record Guid.Empty as their store id, so this is not a choice
-        // that can change once files exist - which is why it is not a setting
-        _defaultFileStore ??= new MultiFileStore(Guid.Empty, _io, 2);
+        // that can change once files exist - which is why it is not a setting. It stays the store of
+        // those files when a configured store is made the default later
+        _implicitFileStore = new MultiFileStore(Guid.Empty, _io, 2);
+        _defaultFileStore ??= _implicitFileStore;
         LogRewriter.CleanupOldPartiallyCompletedLogRewriteIfAny(_io);
         _scheduler = new(this);
         _uploads = new(this);
@@ -517,7 +524,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         try { this._ioLog.CloseAllOpenStreams(); } catch { }
         try { this._ioLog2.CloseAllOpenStreams(); } catch { }
         try { foreach (var fs in _fileStores.Values) fs.Dispose(); } catch { }
-        // the implicit default store is not in _fileStores (nothing configured it), so the loop above misses it
-        try { if (!_fileStores.ContainsValue(_defaultFileStore)) _defaultFileStore.Dispose(); } catch { }
+        // the implicit store is not in _fileStores (nothing configured it), so the loop above misses it
+        try { _implicitFileStore?.Dispose(); } catch { }
     }
 }

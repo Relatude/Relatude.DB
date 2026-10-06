@@ -2302,7 +2302,9 @@ content root, so by default <code>relatude.settings/relatude.db.json</code> in t
 against the folder the file is in. The Web SDK publishes the file like any other <code>.json</code> in the
 project. The same folder holds the other files every installation shares: the definitions of custom
 logs (<a href="#321-defining-a-log">§32.1</a>) and the shared datamodel overrides
-(<a href="#31-overriding-attributes">§3.1</a>).</p>
+(<a href="#31-overriding-attributes">§3.1</a>). The folder is part of the application, kept in source control and
+deployed with it; <a href="#122-what-goes-where-source-control-deployment-and-appsettings">§12.2</a> sets out
+what goes where, and what stays with an installation.</p>
 <p><strong>Older versions kept the file in the root data folder itself, and for a while in
 <code>relatude.settings/db/</code>.</strong> At its first start the server moves such a file into <code>relatude.settings/</code>
 — the text as it is, comments and all — and says so in the start-up log. A move that fails (a
@@ -2338,8 +2340,9 @@ hand-written file survive being read but not being saved from the UI.</p>
       &quot;IoLog&quot;: &quot;1a2b…&quot;,
       &quot;AISettings&quot;: null,              // per-database AI provider; required for semantic search
 
-      &quot;FileStoreSettings&quot;: [
-        { &quot;Id&quot;: &quot;…&quot;, &quot;IoProviderId&quot;: &quot;1a2b…&quot;, &quot;StoreType&quot;: &quot;MultiFile&quot;, &quot;MultiFileFolderDepth&quot;: 2 }
+      &quot;FileStoreSettings&quot;: [           // a new installation&#39;s: one copy per content, SHA256
+        { &quot;Id&quot;: &quot;c4d5…&quot;, &quot;IoProviderId&quot;: &quot;1a2b…&quot;, &quot;StoreType&quot;: &quot;MultiFile&quot;, &quot;MultiFileFolderDepth&quot;: 2,
+          &quot;SameHashSameFile&quot;: true, &quot;HashAlgorithm&quot;: &quot;SHA256&quot; }
       ],
 
       &quot;DatamodelSources&quot;: [ /* below <span class="gs">*/ ],</span>
@@ -2661,9 +2664,15 @@ own users.</p>
 an index folder with one subfolder per engine — so several roles can share one backend without
 colliding.</p>
 <h4 id="filestoresettings-where-file-bytes-live"><code>FileStoreSettings</code> — where file bytes live<a class="anchor" href="#filestoresettings-where-file-bytes-live" aria-label="Link to this section">#</a></h4>
-<div class="codehilite"><pre><span></span><code>{ &quot;Id&quot;: &quot;c4d5…&quot;, &quot;IoProviderId&quot;: &quot;1a2b…&quot;, &quot;StoreType&quot;: &quot;MultiFile&quot;, &quot;MultiFileFolderDepth&quot;: 2 }
+<div class="codehilite"><pre><span></span><code>{ &quot;Id&quot;: &quot;c4d5…&quot;, &quot;IoProviderId&quot;: &quot;1a2b…&quot;, &quot;StoreType&quot;: &quot;MultiFile&quot;, &quot;MultiFileFolderDepth&quot;: 2,
+  &quot;SameHashSameFile&quot;: true, &quot;HashAlgorithm&quot;: &quot;SHA256&quot; }
 </code></pre></div>
 
+<p>A new installation gets this store, named as <code>LocalSettings.DefaultFileStore</code>: the server's default
+settings, <code>relatude new</code> / <code>relatude init</code>, and a database added under <strong>Databases</strong> in the admin UI all
+write one. A store added under <strong>Settings › File stores</strong>, or made in code with <code>new FileStoreSettings()</code>
+or <code>FileStoreSettings.CreateMultiFile(ioProviderId)</code>, also starts with <code>SameHashSameFile</code> on and
+<code>SHA256</code>.</p>
 <table>
 <thead>
 <tr>
@@ -2695,18 +2704,49 @@ colliding.</p>
 </tr>
 <tr>
 <td><code>SameHashSameFile</code></td>
-<td><code>false</code></td>
+<td><code>true</code>; <code>false</code> when absent</td>
 <td><code>MultiFile</code> only: keep one copy of any content. An upload with the same hash and length as a file the store already holds is not stored again — its <code>FileValue</code> points at the existing copy (<code>FileId</code> is then derived from the hash, and <code>Name</code> stays the upload's own). Shared files are only deleted by the unreferenced file cleanup, never by <code>FileDeleteAsync</code>. Applies to new uploads; files already stored stay where they are, and stay readable if it is turned off again. Cached conversions (thumbnails, resized images, video) are shared too, per source format. On blob storage a new file is written twice, as it is copied into place.</td>
 </tr>
 <tr>
 <td><code>HashAlgorithm</code></td>
-<td><code>MD5</code></td>
-<td><code>MultiFile</code> only: the hash computed over every upload, stored in <code>FileValue.Hash</code> and, with <code>SameHashSameFile</code>, what decides that two uploads are the same file. <code>SHA256</code> is the safer choice when people who are not trusted can upload, as two different files with the same MD5 can be made on purpose. Changing it affects new uploads only.</td>
+<td><code>SHA256</code>; <code>MD5</code> when absent</td>
+<td><code>MultiFile</code> only: the hash computed over every upload, stored in <code>FileValue.Hash</code> and, with <code>SameHashSameFile</code>, what decides that two uploads are the same file. <code>SHA256</code> is the safer choice when people who are not trusted can upload, as two different files with the same MD5 can be made on purpose; on processors with SHA instructions (Intel since Ice Lake / Alder Lake, AMD since Zen, ARM64 servers) it is also about three times faster than MD5. Changing it affects new uploads only.</td>
 </tr>
 </tbody>
 </table>
+<p><strong>"When absent"</strong> is what a store gets when its JSON leaves the key out: a store written before these
+two settings existed, in <code>relatude.db.json</code>, the overrides file or the <code>RelatudeDB</code> configuration
+section, keeps MD5 and one copy per upload rather than changing behaviour on upgrade. A <code>SingleFile</code>
+store ignores both: its container format records an MD5 checksum per file and never shares copies.</p>
 <p>Leave the array empty and the store creates an implicit default store on <code>IoDatabase</code>: a <code>MultiFile</code>
-store, one file per upload.</p>
+store, one file per upload, MD5. A database that already runs on it keeps it as it is. Files record the
+store they went into, and the implicit one's id is the empty guid: when a configured store is named as
+<code>DefaultFileStore</code> later, new uploads go there and the files already uploaded are still read from the
+implicit store.</p>
+<h5 id="moving-files-to-another-store-or-bringing-old-files-up-to-date">Moving files to another store, or bringing old files up to date<a class="anchor" href="#moving-files-to-another-store-or-bringing-old-files-up-to-date" aria-label="Link to this section">#</a></h5>
+<p>Changing the default store, or turning on <code>SameHashSameFile</code> or <code>SHA256</code>, only affects new uploads. To
+move the files already stored, use <strong>Storage › File storage › Rewrite files…</strong> in the admin UI. Pick the
+store to read from and the store to write with. The job runs in the background while the database stays
+in use, and its progress can be minimized to the top bar like the other file jobs.</p>
+<ul>
+<li>Every file value that points into the source store gets a copy written by the target store, with that
+  store's hash, layout and, where it keeps one copy per content, sharing. Revisions and embedded objects
+  are included. A stored file that several values share is copied once.</li>
+<li>The name, image size, meta data and extracted text stay the same, and nothing is re-indexed.</li>
+<li>Each node is updated under its own lock. A value that changed while its file was being copied (a new
+  upload, say) is left alone.</li>
+<li>With the <strong>same store on both sides</strong>, only the files the store would now write differently are
+  rewritten: a hash of the other algorithm, or a file not yet kept by its hash. That is how files
+  stored before <code>SameHashSameFile</code> or <code>SHA256</code> was turned on are brought up to date.</li>
+<li><strong>The old copies are left where they are.</strong> Older versions in a node's history still point at them.
+  <strong>Storage › Missing and redundant files</strong> removes them; after that, those older versions can no
+  longer give their files back.</li>
+<li>A file that cannot be read is reported and its value is left as it was. Running the rewrite again
+  picks up whatever is left, including the rest of a cancelled run.</li>
+</ul>
+<p>From code, call <code>DataStoreLocal.RewriteFilesAsync(fromStoreId, toStoreId, onProgress, cancellationToken)</code>.
+<code>Guid.Empty</code> names the implicit store. The call returns a <code>RewriteFilesResult</code> with the counts and the
+values it could not rewrite.</p>
 <h4 id="aisettings-embeddings-completions-and-the-vector-index"><code>AISettings</code> — embeddings, completions and the vector index<a class="anchor" href="#aisettings-embeddings-completions-and-the-vector-index" aria-label="Link to this section">#</a></h4>
 <div class="codehilite"><pre><span></span><code>&quot;AISettings&quot;: {
   &quot;TypeName&quot;: &quot;AzureAIProvider&quot;,
@@ -2927,7 +2967,7 @@ them.</p>
 <tr>
 <td><code>DefaultFileStore</code></td>
 <td>null</td>
-<td>Which <code>FileStoreSettings</code> entry <code>FileValue</code> properties use when they do not name one. Must match an entry, or the open throws. Null means the implicit <code>MultiFile</code> store on <code>IoDatabase</code>.</td>
+<td>Which <code>FileStoreSettings</code> entry <code>FileValue</code> properties use when they do not name one. Must match an entry, or the open throws. Null means the implicit <code>MultiFile</code> store on <code>IoDatabase</code>. A new installation names the store it is created with.</td>
 </tr>
 <tr>
 <td><code>ImageDefaultFormat</code></td>
@@ -3336,7 +3376,9 @@ the server's settings and every database's — with both values side by side:</p
   and takes them out of the overrides file. Nothing that is running changes. Settings decided by the
   configuration section are never moved, so configuration cannot leak into <code>relatude.db.json</code> this
   way. The file is rewritten by the settings loader, so comments in it are lost, and a secret moved
-  there is stored in plain text.</li>
+  there is stored in plain text. Do this where the application runs from its project folder: on a
+  server <code>relatude.db.json</code> is the deployed copy, which the next deployment replaces
+  (<a href="#on-a-server">§12.2</a>).</li>
 <li><strong>Discard</strong> puts back what <code>relatude.db.json</code> says for the selected entries — a value, a removed
   element restored, an added element taken out again — and saves.</li>
 </ul>
@@ -3364,6 +3406,323 @@ folder or absolute. <code>ServerOptions.UseSettingsOverridesFile = false</code> 
 pages then write <code>relatude.db.json</code> again, as they did before it existed — still without configuration
 values or values set by code. The CLI finds the file the same way, <code>--overrides &lt;file&gt;</code> points it
 elsewhere, and <code>relatude settings</code> reports where it is and how many settings it changes.</p>
+<h3 id="122-what-goes-where-source-control-deployment-and-appsettings">12.2 What goes where: source control, deployment and appsettings<a class="anchor" href="#122-what-goes-where-source-control-deployment-and-appsettings" aria-label="Link to this section">#</a></h3>
+<p>An application on Relatude.DB is configured from four places, and each has its own owner and its own
+life: the <strong>code</strong>; the <strong>settings files</strong> that describe the application, in <code>relatude.settings/</code>;
+the <strong>configuration</strong> of the environment it runs in — <code>appsettings*.json</code>, environment variables,
+secrets; and the <strong>installation</strong> itself — the data folder, which holds the database and everything
+that was changed on that one installation. The layout follows three rules:</p>
+<ul>
+<li>What describes the application is committed to source control and deployed with the code.</li>
+<li>What an installation changed or recorded stays with that installation. It is never committed, and
+  a deployment neither carries it nor overwrites it.</li>
+<li>What differs between environments comes from configuration, and so does every secret.</li>
+</ul>
+<p><strong>The folders.</strong> With the default <code>ServerOptions</code> a project looks like this. The content root is the
+project folder while you develop, and the folder the application was deployed to on a server:</p>
+<div class="codehilite"><pre><span></span><code>MyApp/                                 the content root, and the root data folder
+├── Program.cs, Models/, …             the code                           committed
+├── appsettings.json                   configuration, every environment   committed, no secrets
+├── appsettings.Development.json       … what Development changes         committed
+├── appsettings.Production.json        … what Production changes          committed, no secrets
+├── relatude.settings/                 what the application says          committed, deployed
+│   ├── relatude.db.json               databases, storage, index engines, model sources
+│   ├── datamodel.overrides.json       the shared datamodel overrides (§3.1)
+│   ├── logs/                          log definitions, one &lt;key&gt;.json per log (§32.1)
+│   └── &lt;ShortName&gt;/                   the same two, per database with a short name
+│       ├── datamodel.overrides.json
+│       └── logs/
+├── relatude.db/                       this installation&#39;s database       never committed or deployed
+│   ├── data/ state/ backup/ logs/ …   transaction log, state, backups, log entries, indexes, files
+│   ├── overrides/                     what the admin UI changed here
+│   │   ├── relatude.db.overrides.json   the settings (default database only)
+│   │   └── datamodel.overrides.json     the datamodel overrides
+│   ├── datamodels/                    the model editor&#39;s draft and model history
+│   ├── graphql/                       GraphQL endpoints from the API page (§33.2)
+│   ├── modelsources/                  model files of RuntimeTypes sources with no Filepath
+│   └── installation/                  this installation&#39;s id
+└── relatude.db.temp/                  scratch, emptied at every start    never committed or deployed
+</code></pre></div>
+
+<p>Every other database has the folders from <code>data/</code> to <code>graphql/</code> in its own storage; <code>modelsources/</code>
+and <code>installation/</code> are the default database's only. <code>relatude.settings/</code> sits in the root data
+folder, beside <code>relatude.db/</code>: moving the root data folder with <code>ServerOptions.DefaultDataFolderPath</code>
+takes the settings folder along, out of the project. The shared files of a database are found by its
+short name, so give each database its <code>ShortName</code> in <code>relatude.db.json</code>, where every installation
+reads it (<a href="#121-every-setting-in-relatudedbjson">§12.1</a>).</p>
+<p><strong>Who writes what:</strong></p>
+<table>
+<thead>
+<tr>
+<th>What</th>
+<th>Kept in</th>
+<th>Written by</th>
+<th>Belongs to</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The model, hooks, middleware</td>
+<td>the code</td>
+<td>you</td>
+<td>the application: committed, built, deployed</td>
+</tr>
+<tr>
+<td><code>relatude.db.json</code></td>
+<td><code>relatude.settings/</code></td>
+<td>you, <code>relatude new</code> / <code>relatude init</code>, <strong>Move into relatude.db.json</strong> on the settings pages</td>
+<td>the application</td>
+</tr>
+<tr>
+<td>Shared datamodel overrides</td>
+<td><code>relatude.settings/</code>, <code>relatude.settings/&lt;ShortName&gt;/</code></td>
+<td>you, <strong>Move to shared…</strong> in the model editor</td>
+<td>the application</td>
+</tr>
+<tr>
+<td>Log definitions</td>
+<td><code>relatude.settings/logs/</code>, <code>relatude.settings/&lt;ShortName&gt;/logs/</code></td>
+<td>the Logs page, <code>CustomLogs.Create</code> / <code>Update</code>, you</td>
+<td>the application</td>
+</tr>
+<tr>
+<td>The <code>RelatudeDB</code> section</td>
+<td><code>appsettings.json</code>, <code>appsettings.{Environment}.json</code></td>
+<td>you</td>
+<td>the application, per environment — no secrets</td>
+</tr>
+<tr>
+<td>Secrets</td>
+<td>user secrets, environment variables, a vault</td>
+<td>you, and whoever runs the server</td>
+<td>the environment — never a file in source control</td>
+</tr>
+<tr>
+<td>Settings changed in the admin UI</td>
+<td><code>overrides/relatude.db.overrides.json</code></td>
+<td>the settings pages</td>
+<td>the installation</td>
+</tr>
+<tr>
+<td>Datamodel overrides activated in the admin UI</td>
+<td><code>overrides/datamodel.overrides.json</code></td>
+<td>the model editor</td>
+<td>the installation</td>
+</tr>
+<tr>
+<td>GraphQL endpoints</td>
+<td><code>graphql/</code></td>
+<td>the API page</td>
+<td>the installation</td>
+</tr>
+<tr>
+<td>Model files of a <code>RuntimeTypes</code> source</td>
+<td>its <code>Filepath</code>; without one <code>modelsources/&lt;Name&gt;</code></td>
+<td>the model editor</td>
+<td>the application when <code>Filepath</code> is in the project, else the installation</td>
+</tr>
+<tr>
+<td>The data</td>
+<td><code>relatude.db/</code></td>
+<td>the engine</td>
+<td>the installation: backed up, never committed or deployed</td>
+</tr>
+</tbody>
+</table>
+<p>At every start the layers are merged, a later one over an earlier one. The settings are
+<code>relatude.db.json</code>, then <code>relatude.db.overrides.json</code>, then the <code>RelatudeDB</code> configuration section,
+then the settings callbacks in <code>Program.cs</code> (the table <a href="#changes-made-in-the-admin-ui-relatudedboverridesjson">above</a>).
+A datamodel is what the sources declare, then <code>[PropertyOverride]</code> in code, then the shared overrides
+file, then this installation's (<a href="#31-overriding-attributes">§3.1</a>). A log definition has one place
+only, in <code>relatude.settings/</code>.</p>
+<h4 id="while-you-develop">While you develop<a class="anchor" href="#while-you-develop" aria-label="Link to this section">#</a></h4>
+<p><code>dotnet run</code> and Visual Studio start the application with the project folder as its content root,
+so the <code>relatude.settings/</code> the application reads is the very folder in source control, and what the
+admin UI writes into it is ready to commit:</p>
+<ul>
+<li><strong>Log definitions</strong> made or changed on the Logs page are written straight into
+  <code>relatude.settings/…/logs/</code>. Commit them with the code that records into them.</li>
+<li><strong>Settings</strong> changed on the settings pages go to <code>relatude.db/overrides/relatude.db.overrides.json</code>,
+  outside source control — the place to try a value out. To make a change part of the application,
+  choose <strong>Overrides</strong> on the settings page, <strong>Move into relatude.db.json</strong>, and commit the file.</li>
+<li><strong>Model changes</strong> in the model editor are written into the source wherever it can be written — the
+  generated C# files of a <code>CompiledTypes</code> source with <code>GenerateModelFile</code> (rebuild and restart to see
+  them), or a <code>RuntimeTypes</code> source's model files — and saved as this installation's overrides where
+  it cannot. <strong>Move to shared…</strong> in the overrides dialog puts them into
+  <code>relatude.settings/…/datamodel.overrides.json</code>; commit that file.</li>
+<li>A <code>RuntimeTypes</code> source without a <code>Filepath</code> keeps its model files in <code>relatude.db/modelsources/</code>,
+  inside the data folder. For a model that belongs to the application, give the source a <code>Filepath</code>
+  in the project — <code>"Models/Json"</code>, say, which resolves against the root data folder — and commit
+  that folder.</li>
+<li><strong>GraphQL endpoints</strong> made on the API page are files in <code>relatude.db/graphql/</code>, so they stay on the
+  machine they were made on. An endpoint the application depends on is mapped in code
+  (<a href="#339-code-first-mapping-an-endpoint-in-programcs">§33.9</a>), or its file is copied to each
+  installation.</li>
+</ul>
+<p>The <code>.gitignore</code> leaves out the data folder and the scratch folder, and nothing else of Relatude's —
+<code>relatude.settings/</code> is committed:</p>
+<div class="codehilite"><pre><span></span><code>relatude.db/
+relatude.db.temp/
+</code></pre></div>
+
+<p><strong>Secrets do not go into <code>relatude.db.json</code>.</strong> <code>relatude new</code> and <code>relatude init</code> write a random
+<code>TokenEncryptionSecret</code> into the file, and the admin password when given <code>--password</code>, so that a new
+project can be logged into at once. Before the repository is shared, move both into user secrets
+(below) and take them out of the file. A server gets its own through its environment.</p>
+<h4 id="publishing">Publishing<a class="anchor" href="#publishing" aria-label="Link to this section">#</a></h4>
+<p>The Web SDK makes every <code>.json</code> file in the project folder content, copied to the build output and to
+the publish folder. That is what takes <code>relatude.settings/</code> and the appsettings files to a server, and
+it would take the data folder too: the admin UI changes, model history and GraphQL endpoints of a
+developer's machine, deployed over the server's own. So the project file leaves the data folder out —
+the project types of <code>relatude new</code> have this, and an older project needs it added:</p>
+<div class="codehilite"><pre><span></span><code><span class="nt">&lt;PropertyGroup&gt;</span>
+<span class="w">  </span><span class="nt">&lt;DefaultItemExcludes&gt;</span>$(DefaultItemExcludes);relatude.db\**;relatude.db.temp\**<span class="nt">&lt;/DefaultItemExcludes&gt;</span>
+<span class="nt">&lt;/PropertyGroup&gt;</span>
+</code></pre></div>
+
+<p>Look in the publish folder before the first deployment: <code>relatude.settings/relatude.db.json</code> must be
+there, and <code>relatude.db/</code> must not. A server that finds no settings file writes one that points at the
+bundled demo model, so a database full of <code>Relatude.DB.Demo.Models</code> types is a deployment that left
+<code>relatude.settings/</code> behind.</p>
+<h4 id="on-a-server">On a server<a class="anchor" href="#on-a-server" aria-label="Link to this section">#</a></h4>
+<p><strong>A deployment leaves the data alone.</strong> It replaces the code, <code>relatude.settings/</code> and the appsettings
+files, and nothing in the data folder. With the defaults that folder is <code>relatude.db/</code> inside the
+application's folder, which works on a virtual machine, under IIS or on Azure App Service as long as
+the deployment never deletes files it did not put there: turn off options such as <em>Remove additional
+files at destination</em>, and keep <code>relatude.db/</code> out of an <code>rsync --delete</code>. Two other places are common:</p>
+<ul>
+<li><strong>In a container</strong>, mount a volume at <code>relatude.db/</code> below the content root. The image carries the
+  code and <code>relatude.settings/</code>; the volume carries the installation.</li>
+<li><strong>On Azure Blob storage</strong> — an <code>IOSettings</code> entry of type <code>AzureBlobStorage</code> for <code>IoDatabase</code> — the
+  database, and with it <code>overrides/</code> and <code>graphql/</code>, live in the blob container, and the application's
+  folder holds only what was deployed. With deployment slots this is where the database belongs: a
+  swap makes the other slot's folder the production one, so a database kept in the folder would change
+  places with the code.</li>
+</ul>
+<p><strong>The admin UI's changes stay with the installation.</strong> What an administrator changes on a server —
+settings, datamodel overrides, GraphQL endpoints — is kept in the data folder, so it survives every
+deployment, and what each deployment's <code>relatude.db.json</code> and shared overrides say still applies
+underneath it. That is the point of the split: a deployment changes what the application says, and
+an installation's own changes stay on top.</p>
+<p><strong>Some admin UI actions write into <code>relatude.settings/</code> and the project's files</strong>, which on a server
+are the deployed copy: saving a log definition on the Logs page, <strong>Move into relatude.db.json</strong> on the
+settings page, <strong>Move to shared…</strong> in the model editor, and activating a model change of a
+<code>RuntimeTypes</code> source whose <code>Filepath</code> is in the application's folder. What they write there lasts until a deployment replaces the folder —
+in a container, until the container is replaced — and a moved entry has left the overrides file by
+then as well, so it is gone from the installation too. The model editor's dialog warns before a move
+outside the Development environment. On a server, take a change home through source control instead:</p>
+<table>
+<thead>
+<tr>
+<th>Changed on a server</th>
+<th>To make it part of the application</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A setting</td>
+<td><strong>Overrides</strong> on the settings page lists every entry beside what <code>relatude.db.json</code> says. Put the value into <code>relatude.db.json</code> in source control and deploy it. Once the deployed file says the same, the entry changes nothing, and the next save leaves it out of the overrides file.</td>
+</tr>
+<tr>
+<td>A datamodel override</td>
+<td>In the model editor's <strong>Move to shared…</strong>, <strong>Download shared file</strong> gives the shared file with the chosen overrides in it and changes nothing on the server. Commit it in place of the old one, and deploy.</td>
+</tr>
+<tr>
+<td>A log definition</td>
+<td>The log's Definition view shows the file. Copy it into <code>relatude.settings/…/logs/</code> in source control before the next deployment. A definition a deployment took away leaves the entries and statistics in the data folder, and a definition with the same key picks them up again.</td>
+</tr>
+<tr>
+<td>A model in a <code>RuntimeTypes</code> source</td>
+<td>Copy the files from the source's <code>Filepath</code> into source control before the next deployment — or make the change in development, commit it and deploy it.</td>
+</tr>
+<tr>
+<td>A GraphQL endpoint</td>
+<td>It stays with the installation. Copy its file into another installation's <code>graphql/</code> folder and choose <strong>Reload from disk</strong> there, or map the endpoint in code.</td>
+</tr>
+</tbody>
+</table>
+<p>A copy of a data folder carries the installation's changes with it: production's <code>relatude.db/</code>
+restored on a test server brings production's settings overrides, datamodel overrides and GraphQL
+endpoints along. Look through the <strong>Overrides</strong> dialogs after such a restore.</p>
+<h4 id="appsettings-environment-variables-and-secrets">appsettings, environment variables and secrets<a class="anchor" href="#appsettings-environment-variables-and-secrets" aria-label="Link to this section">#</a></h4>
+<p>The <code>RelatudeDB</code> configuration section (<a href="#overriding-settings-from-configuration">above</a>) is what
+lets one <code>relatude.db.json</code> serve every environment. ASP.NET reads the sources in this order, a
+later one winning: <code>appsettings.json</code>, <code>appsettings.{Environment}.json</code>, user secrets (in
+Development only), environment variables, the command line. The environment is <code>Production</code> unless
+<code>ASPNETCORE_ENVIRONMENT</code> or <code>DOTNET_ENVIRONMENT</code> says otherwise; <code>dotnet run</code> and Visual Studio set
+<code>Development</code> from <code>Properties/launchSettings.json</code>. A split that works:</p>
+<table>
+<thead>
+<tr>
+<th>Where</th>
+<th>What goes there</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>relatude.db.json</code></td>
+<td>the structure every environment shares: the databases and their ids, the storage backends without their connection strings, file stores, index engines, model sources, engine defaults</td>
+</tr>
+<tr>
+<td><code>appsettings.json</code></td>
+<td>Relatude values that every environment shares and that you would rather keep with the rest of the application's configuration — often nothing</td>
+</tr>
+<tr>
+<td><code>appsettings.{Environment}.json</code></td>
+<td>what one environment does differently: cache sizes, backups, <code>AllowMasterLoginOutsideLocalhost</code>, another blob container</td>
+</tr>
+<tr>
+<td>user secrets</td>
+<td>the secrets of a developer's machine: the admin password, <code>TokenEncryptionSecret</code>, API keys, a storage connection string. Kept in the user's profile, outside the project folder</td>
+</tr>
+<tr>
+<td>environment variables, a vault</td>
+<td>the secrets of a server: Azure App Service application settings, a container's environment, Key Vault references</td>
+</tr>
+</tbody>
+</table>
+<div class="codehilite"><pre><span></span><code><span class="c1">// appsettings.Production.json: committed, no secrets</span>
+<span class="p">{</span>
+<span class="w">  </span><span class="s">&quot;RelatudeDB&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s">&quot;AllowMasterLoginOutsideLocalhost&quot;</span><span class="p">:</span><span class="w"> </span><span class="n">true</span><span class="p">,</span>
+<span class="w">    </span><span class="s">&quot;ContainerSettings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="s">&quot;Id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;8f6b…&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;LocalSettings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="s">&quot;NodeCacheSizeGb&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;AutoBackUp&quot;</span><span class="p">:</span><span class="w"> </span><span class="n">true</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="p">]</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code><span class="c1"># a developer&#39;s machine: &quot;init&quot; adds a UserSecretsId to the project file the first time</span>
+dotnet<span class="w"> </span>user-secrets<span class="w"> </span>init
+dotnet<span class="w"> </span>user-secrets<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="s2">&quot;RelatudeDB:MasterPassword&quot;</span><span class="w"> </span><span class="s2">&quot;…&quot;</span>
+dotnet<span class="w"> </span>user-secrets<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="s2">&quot;RelatudeDB:TokenEncryptionSecret&quot;</span><span class="w"> </span><span class="s2">&quot;…&quot;</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code># a server: environment variables, or application settings on Azure App Service
+RelatudeDB__MasterPassword=…
+RelatudeDB__TokenEncryptionSecret=…
+RelatudeDB__ContainerSettings__0__Id=8f6b…
+RelatudeDB__ContainerSettings__0__IOSettings__0__Id=9d8c…
+RelatudeDB__ContainerSettings__0__IOSettings__0__BlobConnectionString=…
+</code></pre></div>
+
+<p>In environment variables <code>__</code> separates the levels, where JSON nests and user secrets write <code>:</code>. The
+numbers are positions in the configuration's own lists. Give an element's <code>Id</code> beside them, as above,
+and it is matched to the element with that id in <code>relatude.db.json</code> rather than to the one at that
+position, so reordering the file never sends a connection string to the wrong backend.</p>
+<p>A few things to know:</p>
+<ul>
+<li><strong>An empty value is a value.</strong> <code>"ApiKey": ""</code> in an appsettings file blanks the setting. Leave the
+  key out instead; a <code>//</code> comment can say where the real value comes from.</li>
+<li><strong>Configuration changes and adds; it cannot remove anything or set a value to null.</strong> Which
+  databases and storage backends there are belongs in <code>relatude.db.json</code>.</li>
+<li><strong>The settings pages lock what configuration decides</strong>, and the start-up log lists the overridden
+  key paths, never the values.</li>
+<li><strong>The command line tool reads the same files.</strong> <code>relatude settings --environment Production</code> shows
+  the settings a server in that environment would run with, from the appsettings files and the
+  environment variables of the shell — not user secrets — and reports each secret as set or not set,
+  never its value (<a href="#31-the-command-line-tool">§31</a>).</li>
+</ul>
 <h3 id="options-and-events-in-programcs">Options and events in Program.cs<a class="anchor" href="#options-and-events-in-programcs" aria-label="Link to this section">#</a></h3>
 <p><code>ServerOptions</code> owns what only code can express — the file converters, the folder paths, an
 alternative settings store, and the lifecycle callbacks:</p>
@@ -5822,7 +6181,9 @@ application. A database with a short name (its <code>ShortName</code> setting,
 <code>relatude.settings/&lt;short name&gt;/logs/</code> instead; only one database of an installation can be without
 one. The file is what the log <em>is</em>: a
 definition written there by hand, or copied from another application, is picked up when the database
-opens (or with <strong>Reload from disk</strong> on the Logs page).</p>
+opens (or with <strong>Reload from disk</strong> on the Logs page). A log defined on a deployed server is written
+into the deployed copy of the folder, so copy its definition into source control before the next
+deployment (<a href="#on-a-server">§12.2</a>).</p>
 <p>Older versions kept the definition beside the entries, as <code>log/log.&lt;key&gt;.settings.json</code> (later <code>logs/…</code>) in the
 database's log storage. Such a file is moved into the database's <code>logs/</code> folder below <code>relatude.settings</code> when the
 database opens — the text as it is, comments and all, written there and read back before the old file
@@ -6499,7 +6860,10 @@ or a reverse proxy, or expose only what anyone may see (<a href="#3310-who-reads
 <h3 id="332-the-definition-file">33.2 The definition file<a class="anchor" href="#332-the-definition-file" aria-label="Link to this section">#</a></h3>
 <p>An endpoint is its file: <code>graphql/&lt;name&gt;.json</code> on the database's <code>IoDatabase</code> storage provider, next
 to the database's own files. Every <code>.json</code> file in that folder is an endpoint, so you can also write a
-definition by hand, copy it from another database or keep it in source control. <strong>Reload from disk</strong>
+definition by hand, copy it from another database or keep it in source control. The folder belongs to
+the installation, not the application: a deployment does not carry it
+(<a href="#122-what-goes-where-source-control-deployment-and-appsettings">§12.2</a>), so an endpoint every
+installation needs is copied to each, or mapped in code (<a href="#339-code-first-mapping-an-endpoint-in-programcs">§33.9</a>). <strong>Reload from disk</strong>
 on the API page reads the folder again. A file without an <code>id</code> gets one derived from its file name.
 A file that cannot be read as a definition stays in the list, marked with what is wrong with it.
 The reader is lenient: comments and trailing commas are allowed, property names can be in any case,
@@ -7387,7 +7751,7 @@ corpus size and cache budget, with throughput, recall, restart cost and memory f
 (function () {
   "use strict";
 
-  var NAV = [{"level": 1, "text": "Data Modelling & Querying with Relatude.DB", "id": "data-modelling-querying-with-relatudedb", "children": []}, {"level": 1, "text": "Part I — Data modelling", "id": "part-i-data-modelling", "children": [{"level": 2, "text": "1. The mental model", "id": "1-the-mental-model", "children": [{"level": 3, "text": "Interfaces are the model", "id": "interfaces-are-the-model", "children": []}]}, {"level": 2, "text": "2. Your first node type", "id": "2-your-first-node-type", "children": [{"level": 3, "text": "Why interfaces are the better default", "id": "why-interfaces-are-the-better-default", "children": []}, {"level": 3, "text": "Multiple inheritance with interfaces", "id": "multiple-inheritance-with-interfaces", "children": []}, {"level": 3, "text": "Querying across the hierarchy", "id": "querying-across-the-hierarchy", "children": []}, {"level": 3, "text": "Two constraints to design around", "id": "two-constraints-to-design-around", "children": []}, {"level": 3, "text": "When you do want a class", "id": "when-you-do-want-a-class", "children": []}, {"level": 3, "text": "Optional: stable type ids", "id": "optional-stable-type-ids", "children": []}]}, {"level": 2, "text": "3. Scalar properties and their attributes", "id": "3-scalar-properties-and-their-attributes", "children": [{"level": 3, "text": "The attribute catalogue", "id": "the-attribute-catalogue", "children": []}, {"level": 3, "text": "Strings", "id": "strings", "children": []}, {"level": 3, "text": "Numbers", "id": "numbers", "children": []}, {"level": 3, "text": "Enums", "id": "enums", "children": []}, {"level": 3, "text": "Validation happens on write", "id": "validation-happens-on-write", "children": []}, {"level": 3, "text": "3.1 Overriding attributes", "id": "31-overriding-attributes", "children": []}]}, {"level": 2, "text": "4. Marker properties", "id": "4-marker-properties", "children": [{"level": 3, "text": "What lives in NodeMeta", "id": "what-lives-in-nodemeta", "children": []}, {"level": 3, "text": "Querying by the node's own dates", "id": "querying-by-the-nodes-own-dates", "children": []}]}, {"level": 2, "text": "5. Geo coordinates", "id": "5-geo-coordinates", "children": [{"level": 3, "text": "Constructing and reading", "id": "constructing-and-reading", "children": []}, {"level": 3, "text": "The empty value", "id": "the-empty-value", "children": []}, {"level": 3, "text": "Distance and radius tests", "id": "distance-and-radius-tests", "children": []}, {"level": 3, "text": "How it is stored (and what that implies)", "id": "how-it-is-stored-and-what-that-implies", "children": []}, {"level": 3, "text": "JSON shape", "id": "json-shape", "children": []}, {"level": 3, "text": "Seeing them", "id": "seeing-them", "children": []}]}, {"level": 2, "text": "6. Files", "id": "6-files", "children": []}, {"level": 2, "text": "7. Embedded data", "id": "7-embedded-data", "children": [{"level": 3, "text": "Embedded<T> — a collection keyed by the embedded object's own Guid Id", "id": "embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id", "children": []}, {"level": 3, "text": "EmbeddedMap<TKey, TValue> — a collection keyed by a property of the value", "id": "embeddedmap-a-collection-keyed-by-a-property-of-the-value", "children": []}, {"level": 3, "text": "Working with an embedded map", "id": "working-with-an-embedded-map", "children": []}]}, {"level": 2, "text": "8. References — lightweight pointers", "id": "8-references-lightweight-pointers", "children": [{"level": 3, "text": "Reading and writing a Reference<T>", "id": "reading-and-writing-a-reference", "children": []}, {"level": 3, "text": "Reading and writing a References<T>", "id": "reading-and-writing-a-references", "children": []}]}, {"level": 2, "text": "9. Relations — the graph edges", "id": "9-relations-the-graph-edges", "children": [{"level": 3, "text": "The five shapes", "id": "the-five-shapes", "children": []}, {"level": 3, "text": "Using them on node types", "id": "using-them-on-node-types", "children": []}, {"level": 3, "text": "The \"one\" side API", "id": "the-one-side-api", "children": []}, {"level": 3, "text": "The \"many\" side API", "id": "the-many-side-api", "children": []}, {"level": 3, "text": "9.1 Relation lists are ordered", "id": "91-relation-lists-are-ordered", "children": []}, {"level": 3, "text": "Relation options", "id": "relation-options", "children": []}]}, {"level": 2, "text": "10. Choosing between relation, reference and embedded", "id": "10-choosing-between-relation-reference-and-embedded", "children": []}, {"level": 2, "text": "11. The complete example model", "id": "11-the-complete-example-model", "children": [{"level": 3, "text": "11.1 The same model with facet interfaces", "id": "111-the-same-model-with-facet-interfaces", "children": []}]}, {"level": 2, "text": "12. Registering the model & the admin UI", "id": "12-registering-the-model-the-admin-ui", "children": [{"level": 3, "text": "Server-hosted (the usual case)", "id": "server-hosted-the-usual-case", "children": []}, {"level": 3, "text": "relatude.db.json", "id": "relatudedbjson", "children": []}, {"level": 3, "text": "12.1 Every setting in relatude.db.json", "id": "121-every-setting-in-relatudedbjson", "children": []}, {"level": 3, "text": "Overriding settings from configuration", "id": "overriding-settings-from-configuration", "children": []}, {"level": 3, "text": "Changes made in the admin UI: relatude.db.overrides.json", "id": "changes-made-in-the-admin-ui-relatudedboverridesjson", "children": []}, {"level": 3, "text": "Options and events in Program.cs", "id": "options-and-events-in-programcs", "children": []}, {"level": 3, "text": "Two ways to register a datamodel", "id": "two-ways-to-register-a-datamodel", "children": []}, {"level": 3, "text": "The admin UI", "id": "the-admin-ui", "children": []}, {"level": 3, "text": "Programmatic / embedded", "id": "programmatic-embedded", "children": []}, {"level": 3, "text": "What the model builder validates", "id": "what-the-model-builder-validates", "children": []}, {"level": 3, "text": "Do not redefine the native types", "id": "do-not-redefine-the-native-types", "children": []}]}]}, {"level": 1, "text": "Part II — Writing data", "id": "part-ii-writing-data", "children": [{"level": 2, "text": "13. Create, insert, update, delete", "id": "13-create-insert-update-delete", "children": [{"level": 3, "text": "Read", "id": "read", "children": []}, {"level": 3, "text": "Update, upsert, delete", "id": "update-upsert-delete", "children": []}]}, {"level": 2, "text": "14. Relating nodes", "id": "14-relating-nodes", "children": [{"level": 3, "text": "Which verb", "id": "which-verb", "children": []}]}, {"level": 2, "text": "15. Transactions", "id": "15-transactions", "children": [{"level": 3, "text": "Transaction plugins", "id": "transaction-plugins", "children": []}]}, {"level": 2, "text": "16. Older versions of a node", "id": "16-older-versions-of-a-node", "children": [{"level": 3, "text": "16.1 Reverting the database to an earlier point", "id": "161-reverting-the-database-to-an-earlier-point", "children": []}]}, {"level": 2, "text": "17. Uploading files", "id": "17-uploading-files", "children": [{"level": 3, "text": "Very large files", "id": "very-large-files", "children": []}, {"level": 3, "text": "Serving and converting", "id": "serving-and-converting", "children": []}, {"level": 3, "text": "Light and dark mode", "id": "light-and-dark-mode", "children": []}, {"level": 3, "text": "Serving it", "id": "serving-it", "children": []}]}, {"level": 2, "text": "18. URLs and the URL manager", "id": "18-urls-and-the-url-manager", "children": [{"level": 3, "text": "Configuring it", "id": "configuring-it", "children": []}, {"level": 3, "text": "Where the path comes from", "id": "where-the-path-comes-from", "children": []}, {"level": 3, "text": "Address uniqueness", "id": "address-uniqueness", "children": []}, {"level": 3, "text": "Page URL formats", "id": "page-url-formats", "children": []}, {"level": 3, "text": "Prefixes", "id": "prefixes", "children": []}, {"level": 3, "text": "18.1 Asset URLs: files, variants and deeplinks", "id": "181-asset-urls-files-variants-and-deeplinks", "children": []}, {"level": 3, "text": "18.2 Links inside HTML and Markdown", "id": "182-links-inside-html-and-markdown", "children": []}, {"level": 3, "text": "Writing your own manager", "id": "writing-your-own-manager", "children": []}, {"level": 3, "text": "The middleware that serves it", "id": "the-middleware-that-serves-it", "children": []}]}]}, {"level": 1, "text": "Part III — Querying", "id": "part-iii-querying", "children": [{"level": 2, "text": "19. Query anatomy", "id": "19-query-anatomy", "children": [{"level": 3, "text": "Queries are immutable", "id": "queries-are-immutable", "children": []}, {"level": 3, "text": "Entry points", "id": "entry-points", "children": []}, {"level": 3, "text": "Executing", "id": "executing", "children": []}]}, {"level": 2, "text": "20. Filtering with Where", "id": "20-filtering-with-where", "children": []}, {"level": 2, "text": "21. Text and semantic search", "id": "21-text-and-semantic-search", "children": [{"level": 3, "text": "WhereSearch — search as a filter", "id": "wheresearch-search-as-a-filter", "children": []}, {"level": 3, "text": "Search — search as ranking", "id": "search-search-as-ranking", "children": []}, {"level": 3, "text": "What actually gets searched", "id": "what-actually-gets-searched", "children": []}]}, {"level": 2, "text": "22. Geo queries", "id": "22-geo-queries", "children": [{"level": 3, "text": "Sorting by distance", "id": "sorting-by-distance", "children": []}, {"level": 3, "text": "A widening search", "id": "a-widening-search", "children": []}, {"level": 3, "text": "Things to remember about geo filters", "id": "things-to-remember-about-geo-filters", "children": []}]}, {"level": 2, "text": "23. Relation filters", "id": "23-relation-filters", "children": []}, {"level": 2, "text": "24. Eager loading: Include and Preload", "id": "24-eager-loading-include-and-preload", "children": [{"level": 3, "text": "Going deeper: ThenInclude / ThenPreload", "id": "going-deeper-theninclude-thenpreload", "children": []}, {"level": 3, "text": "Filtering what gets included", "id": "filtering-what-gets-included", "children": []}, {"level": 3, "text": "When you only need ids", "id": "when-you-only-need-ids", "children": []}]}, {"level": 2, "text": "25. Graph traversal and shortest path", "id": "25-graph-traversal-and-shortest-path", "children": [{"level": 3, "text": "Traverse", "id": "traverse", "children": []}, {"level": 3, "text": "ShortestPath", "id": "shortestpath", "children": []}]}, {"level": 2, "text": "26. Sorting, paging and result sets", "id": "26-sorting-paging-and-result-sets", "children": [{"level": 3, "text": "Paging", "id": "paging", "children": []}, {"level": 3, "text": "ResultSet<T>", "id": "resultset", "children": []}]}, {"level": 2, "text": "27. Aggregates", "id": "27-aggregates", "children": []}, {"level": 2, "text": "28. Faceted search", "id": "28-faceted-search", "children": [{"level": 3, "text": "Applying the user's selection", "id": "applying-the-users-selection", "children": []}, {"level": 3, "text": "Facet declaration methods", "id": "facet-declaration-methods", "children": []}, {"level": 3, "text": "Where the un-named facets come from", "id": "where-the-un-named-facets-come-from", "children": []}, {"level": 3, "text": "28.1 Pivot tables", "id": "281-pivot-tables", "children": []}, {"level": 3, "text": "28.2 GroupBy", "id": "282-groupby", "children": []}]}, {"level": 2, "text": "29. Cultures, visibility and scoped stores", "id": "29-cultures-visibility-and-scoped-stores", "children": []}, {"level": 2, "text": "30. Pitfalls and gotchas", "id": "30-pitfalls-and-gotchas", "children": []}]}, {"level": 1, "text": "Part IV — Tooling", "id": "part-iv-tooling", "children": [{"level": 2, "text": "31. The command line tool", "id": "31-the-command-line-tool", "children": [{"level": 3, "text": "Two things every command needs to know", "id": "two-things-every-command-needs-to-know", "children": []}, {"level": 3, "text": "The commands", "id": "the-commands", "children": []}, {"level": 3, "text": "What it does not do", "id": "what-it-does-not-do", "children": []}, {"level": 3, "text": "Things worth knowing", "id": "things-worth-knowing", "children": []}]}, {"level": 2, "text": "32. Logs — recording what the application does", "id": "32-logs-recording-what-the-application-does", "children": [{"level": 3, "text": "32.1 Defining a log", "id": "321-defining-a-log", "children": []}, {"level": 3, "text": "32.2 Recording from the application", "id": "322-recording-from-the-application", "children": []}, {"level": 3, "text": "32.3 Statistics", "id": "323-statistics", "children": []}, {"level": 3, "text": "32.4 Estimated unique counts: HyperLogLog", "id": "324-estimated-unique-counts-hyperloglog", "children": []}, {"level": 3, "text": "32.5 Reading a log", "id": "325-reading-a-log", "children": []}, {"level": 3, "text": "32.6 Changing a definition", "id": "326-changing-a-definition", "children": []}, {"level": 3, "text": "32.7 Files, limits and cleaning up", "id": "327-files-limits-and-cleaning-up", "children": []}, {"level": 3, "text": "32.8 Positions", "id": "328-positions", "children": []}]}]}, {"level": 1, "text": "Part V — APIs", "id": "part-v-apis", "children": [{"level": 2, "text": "33. GraphQL endpoints", "id": "33-graphql-endpoints", "children": [{"level": 3, "text": "33.1 An endpoint in the admin UI", "id": "331-an-endpoint-in-the-admin-ui", "children": []}, {"level": 3, "text": "33.2 The definition file", "id": "332-the-definition-file", "children": []}, {"level": 3, "text": "33.3 The schema", "id": "333-the-schema", "children": []}, {"level": 3, "text": "33.4 Querying", "id": "334-querying", "children": []}, {"level": 3, "text": "33.5 Views", "id": "335-views", "children": []}, {"level": 3, "text": "33.6 Mutations", "id": "336-mutations", "children": []}, {"level": 3, "text": "33.7 Over HTTP", "id": "337-over-http", "children": []}, {"level": 3, "text": "33.8 The explorer and the facet page", "id": "338-the-explorer-and-the-facet-page", "children": []}, {"level": 3, "text": "33.9 Code-first: mapping an endpoint in Program.cs", "id": "339-code-first-mapping-an-endpoint-in-programcs", "children": []}, {"level": 3, "text": "33.10 Who reads, and the limits", "id": "3310-who-reads-and-the-limits", "children": []}]}, {"level": 2, "text": "Where to look when this manual runs out", "id": "where-to-look-when-this-manual-runs-out", "children": []}]}];
+  var NAV = [{"level": 1, "text": "Data Modelling & Querying with Relatude.DB", "id": "data-modelling-querying-with-relatudedb", "children": []}, {"level": 1, "text": "Part I — Data modelling", "id": "part-i-data-modelling", "children": [{"level": 2, "text": "1. The mental model", "id": "1-the-mental-model", "children": [{"level": 3, "text": "Interfaces are the model", "id": "interfaces-are-the-model", "children": []}]}, {"level": 2, "text": "2. Your first node type", "id": "2-your-first-node-type", "children": [{"level": 3, "text": "Why interfaces are the better default", "id": "why-interfaces-are-the-better-default", "children": []}, {"level": 3, "text": "Multiple inheritance with interfaces", "id": "multiple-inheritance-with-interfaces", "children": []}, {"level": 3, "text": "Querying across the hierarchy", "id": "querying-across-the-hierarchy", "children": []}, {"level": 3, "text": "Two constraints to design around", "id": "two-constraints-to-design-around", "children": []}, {"level": 3, "text": "When you do want a class", "id": "when-you-do-want-a-class", "children": []}, {"level": 3, "text": "Optional: stable type ids", "id": "optional-stable-type-ids", "children": []}]}, {"level": 2, "text": "3. Scalar properties and their attributes", "id": "3-scalar-properties-and-their-attributes", "children": [{"level": 3, "text": "The attribute catalogue", "id": "the-attribute-catalogue", "children": []}, {"level": 3, "text": "Strings", "id": "strings", "children": []}, {"level": 3, "text": "Numbers", "id": "numbers", "children": []}, {"level": 3, "text": "Enums", "id": "enums", "children": []}, {"level": 3, "text": "Validation happens on write", "id": "validation-happens-on-write", "children": []}, {"level": 3, "text": "3.1 Overriding attributes", "id": "31-overriding-attributes", "children": []}]}, {"level": 2, "text": "4. Marker properties", "id": "4-marker-properties", "children": [{"level": 3, "text": "What lives in NodeMeta", "id": "what-lives-in-nodemeta", "children": []}, {"level": 3, "text": "Querying by the node's own dates", "id": "querying-by-the-nodes-own-dates", "children": []}]}, {"level": 2, "text": "5. Geo coordinates", "id": "5-geo-coordinates", "children": [{"level": 3, "text": "Constructing and reading", "id": "constructing-and-reading", "children": []}, {"level": 3, "text": "The empty value", "id": "the-empty-value", "children": []}, {"level": 3, "text": "Distance and radius tests", "id": "distance-and-radius-tests", "children": []}, {"level": 3, "text": "How it is stored (and what that implies)", "id": "how-it-is-stored-and-what-that-implies", "children": []}, {"level": 3, "text": "JSON shape", "id": "json-shape", "children": []}, {"level": 3, "text": "Seeing them", "id": "seeing-them", "children": []}]}, {"level": 2, "text": "6. Files", "id": "6-files", "children": []}, {"level": 2, "text": "7. Embedded data", "id": "7-embedded-data", "children": [{"level": 3, "text": "Embedded<T> — a collection keyed by the embedded object's own Guid Id", "id": "embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id", "children": []}, {"level": 3, "text": "EmbeddedMap<TKey, TValue> — a collection keyed by a property of the value", "id": "embeddedmap-a-collection-keyed-by-a-property-of-the-value", "children": []}, {"level": 3, "text": "Working with an embedded map", "id": "working-with-an-embedded-map", "children": []}]}, {"level": 2, "text": "8. References — lightweight pointers", "id": "8-references-lightweight-pointers", "children": [{"level": 3, "text": "Reading and writing a Reference<T>", "id": "reading-and-writing-a-reference", "children": []}, {"level": 3, "text": "Reading and writing a References<T>", "id": "reading-and-writing-a-references", "children": []}]}, {"level": 2, "text": "9. Relations — the graph edges", "id": "9-relations-the-graph-edges", "children": [{"level": 3, "text": "The five shapes", "id": "the-five-shapes", "children": []}, {"level": 3, "text": "Using them on node types", "id": "using-them-on-node-types", "children": []}, {"level": 3, "text": "The \"one\" side API", "id": "the-one-side-api", "children": []}, {"level": 3, "text": "The \"many\" side API", "id": "the-many-side-api", "children": []}, {"level": 3, "text": "9.1 Relation lists are ordered", "id": "91-relation-lists-are-ordered", "children": []}, {"level": 3, "text": "Relation options", "id": "relation-options", "children": []}]}, {"level": 2, "text": "10. Choosing between relation, reference and embedded", "id": "10-choosing-between-relation-reference-and-embedded", "children": []}, {"level": 2, "text": "11. The complete example model", "id": "11-the-complete-example-model", "children": [{"level": 3, "text": "11.1 The same model with facet interfaces", "id": "111-the-same-model-with-facet-interfaces", "children": []}]}, {"level": 2, "text": "12. Registering the model & the admin UI", "id": "12-registering-the-model-the-admin-ui", "children": [{"level": 3, "text": "Server-hosted (the usual case)", "id": "server-hosted-the-usual-case", "children": []}, {"level": 3, "text": "relatude.db.json", "id": "relatudedbjson", "children": []}, {"level": 3, "text": "12.1 Every setting in relatude.db.json", "id": "121-every-setting-in-relatudedbjson", "children": []}, {"level": 3, "text": "Overriding settings from configuration", "id": "overriding-settings-from-configuration", "children": []}, {"level": 3, "text": "Changes made in the admin UI: relatude.db.overrides.json", "id": "changes-made-in-the-admin-ui-relatudedboverridesjson", "children": []}, {"level": 3, "text": "12.2 What goes where: source control, deployment and appsettings", "id": "122-what-goes-where-source-control-deployment-and-appsettings", "children": []}, {"level": 3, "text": "Options and events in Program.cs", "id": "options-and-events-in-programcs", "children": []}, {"level": 3, "text": "Two ways to register a datamodel", "id": "two-ways-to-register-a-datamodel", "children": []}, {"level": 3, "text": "The admin UI", "id": "the-admin-ui", "children": []}, {"level": 3, "text": "Programmatic / embedded", "id": "programmatic-embedded", "children": []}, {"level": 3, "text": "What the model builder validates", "id": "what-the-model-builder-validates", "children": []}, {"level": 3, "text": "Do not redefine the native types", "id": "do-not-redefine-the-native-types", "children": []}]}]}, {"level": 1, "text": "Part II — Writing data", "id": "part-ii-writing-data", "children": [{"level": 2, "text": "13. Create, insert, update, delete", "id": "13-create-insert-update-delete", "children": [{"level": 3, "text": "Read", "id": "read", "children": []}, {"level": 3, "text": "Update, upsert, delete", "id": "update-upsert-delete", "children": []}]}, {"level": 2, "text": "14. Relating nodes", "id": "14-relating-nodes", "children": [{"level": 3, "text": "Which verb", "id": "which-verb", "children": []}]}, {"level": 2, "text": "15. Transactions", "id": "15-transactions", "children": [{"level": 3, "text": "Transaction plugins", "id": "transaction-plugins", "children": []}]}, {"level": 2, "text": "16. Older versions of a node", "id": "16-older-versions-of-a-node", "children": [{"level": 3, "text": "16.1 Reverting the database to an earlier point", "id": "161-reverting-the-database-to-an-earlier-point", "children": []}]}, {"level": 2, "text": "17. Uploading files", "id": "17-uploading-files", "children": [{"level": 3, "text": "Very large files", "id": "very-large-files", "children": []}, {"level": 3, "text": "Serving and converting", "id": "serving-and-converting", "children": []}, {"level": 3, "text": "Light and dark mode", "id": "light-and-dark-mode", "children": []}, {"level": 3, "text": "Serving it", "id": "serving-it", "children": []}]}, {"level": 2, "text": "18. URLs and the URL manager", "id": "18-urls-and-the-url-manager", "children": [{"level": 3, "text": "Configuring it", "id": "configuring-it", "children": []}, {"level": 3, "text": "Where the path comes from", "id": "where-the-path-comes-from", "children": []}, {"level": 3, "text": "Address uniqueness", "id": "address-uniqueness", "children": []}, {"level": 3, "text": "Page URL formats", "id": "page-url-formats", "children": []}, {"level": 3, "text": "Prefixes", "id": "prefixes", "children": []}, {"level": 3, "text": "18.1 Asset URLs: files, variants and deeplinks", "id": "181-asset-urls-files-variants-and-deeplinks", "children": []}, {"level": 3, "text": "18.2 Links inside HTML and Markdown", "id": "182-links-inside-html-and-markdown", "children": []}, {"level": 3, "text": "Writing your own manager", "id": "writing-your-own-manager", "children": []}, {"level": 3, "text": "The middleware that serves it", "id": "the-middleware-that-serves-it", "children": []}]}]}, {"level": 1, "text": "Part III — Querying", "id": "part-iii-querying", "children": [{"level": 2, "text": "19. Query anatomy", "id": "19-query-anatomy", "children": [{"level": 3, "text": "Queries are immutable", "id": "queries-are-immutable", "children": []}, {"level": 3, "text": "Entry points", "id": "entry-points", "children": []}, {"level": 3, "text": "Executing", "id": "executing", "children": []}]}, {"level": 2, "text": "20. Filtering with Where", "id": "20-filtering-with-where", "children": []}, {"level": 2, "text": "21. Text and semantic search", "id": "21-text-and-semantic-search", "children": [{"level": 3, "text": "WhereSearch — search as a filter", "id": "wheresearch-search-as-a-filter", "children": []}, {"level": 3, "text": "Search — search as ranking", "id": "search-search-as-ranking", "children": []}, {"level": 3, "text": "What actually gets searched", "id": "what-actually-gets-searched", "children": []}]}, {"level": 2, "text": "22. Geo queries", "id": "22-geo-queries", "children": [{"level": 3, "text": "Sorting by distance", "id": "sorting-by-distance", "children": []}, {"level": 3, "text": "A widening search", "id": "a-widening-search", "children": []}, {"level": 3, "text": "Things to remember about geo filters", "id": "things-to-remember-about-geo-filters", "children": []}]}, {"level": 2, "text": "23. Relation filters", "id": "23-relation-filters", "children": []}, {"level": 2, "text": "24. Eager loading: Include and Preload", "id": "24-eager-loading-include-and-preload", "children": [{"level": 3, "text": "Going deeper: ThenInclude / ThenPreload", "id": "going-deeper-theninclude-thenpreload", "children": []}, {"level": 3, "text": "Filtering what gets included", "id": "filtering-what-gets-included", "children": []}, {"level": 3, "text": "When you only need ids", "id": "when-you-only-need-ids", "children": []}]}, {"level": 2, "text": "25. Graph traversal and shortest path", "id": "25-graph-traversal-and-shortest-path", "children": [{"level": 3, "text": "Traverse", "id": "traverse", "children": []}, {"level": 3, "text": "ShortestPath", "id": "shortestpath", "children": []}]}, {"level": 2, "text": "26. Sorting, paging and result sets", "id": "26-sorting-paging-and-result-sets", "children": [{"level": 3, "text": "Paging", "id": "paging", "children": []}, {"level": 3, "text": "ResultSet<T>", "id": "resultset", "children": []}]}, {"level": 2, "text": "27. Aggregates", "id": "27-aggregates", "children": []}, {"level": 2, "text": "28. Faceted search", "id": "28-faceted-search", "children": [{"level": 3, "text": "Applying the user's selection", "id": "applying-the-users-selection", "children": []}, {"level": 3, "text": "Facet declaration methods", "id": "facet-declaration-methods", "children": []}, {"level": 3, "text": "Where the un-named facets come from", "id": "where-the-un-named-facets-come-from", "children": []}, {"level": 3, "text": "28.1 Pivot tables", "id": "281-pivot-tables", "children": []}, {"level": 3, "text": "28.2 GroupBy", "id": "282-groupby", "children": []}]}, {"level": 2, "text": "29. Cultures, visibility and scoped stores", "id": "29-cultures-visibility-and-scoped-stores", "children": []}, {"level": 2, "text": "30. Pitfalls and gotchas", "id": "30-pitfalls-and-gotchas", "children": []}]}, {"level": 1, "text": "Part IV — Tooling", "id": "part-iv-tooling", "children": [{"level": 2, "text": "31. The command line tool", "id": "31-the-command-line-tool", "children": [{"level": 3, "text": "Two things every command needs to know", "id": "two-things-every-command-needs-to-know", "children": []}, {"level": 3, "text": "The commands", "id": "the-commands", "children": []}, {"level": 3, "text": "What it does not do", "id": "what-it-does-not-do", "children": []}, {"level": 3, "text": "Things worth knowing", "id": "things-worth-knowing", "children": []}]}, {"level": 2, "text": "32. Logs — recording what the application does", "id": "32-logs-recording-what-the-application-does", "children": [{"level": 3, "text": "32.1 Defining a log", "id": "321-defining-a-log", "children": []}, {"level": 3, "text": "32.2 Recording from the application", "id": "322-recording-from-the-application", "children": []}, {"level": 3, "text": "32.3 Statistics", "id": "323-statistics", "children": []}, {"level": 3, "text": "32.4 Estimated unique counts: HyperLogLog", "id": "324-estimated-unique-counts-hyperloglog", "children": []}, {"level": 3, "text": "32.5 Reading a log", "id": "325-reading-a-log", "children": []}, {"level": 3, "text": "32.6 Changing a definition", "id": "326-changing-a-definition", "children": []}, {"level": 3, "text": "32.7 Files, limits and cleaning up", "id": "327-files-limits-and-cleaning-up", "children": []}, {"level": 3, "text": "32.8 Positions", "id": "328-positions", "children": []}]}]}, {"level": 1, "text": "Part V — APIs", "id": "part-v-apis", "children": [{"level": 2, "text": "33. GraphQL endpoints", "id": "33-graphql-endpoints", "children": [{"level": 3, "text": "33.1 An endpoint in the admin UI", "id": "331-an-endpoint-in-the-admin-ui", "children": []}, {"level": 3, "text": "33.2 The definition file", "id": "332-the-definition-file", "children": []}, {"level": 3, "text": "33.3 The schema", "id": "333-the-schema", "children": []}, {"level": 3, "text": "33.4 Querying", "id": "334-querying", "children": []}, {"level": 3, "text": "33.5 Views", "id": "335-views", "children": []}, {"level": 3, "text": "33.6 Mutations", "id": "336-mutations", "children": []}, {"level": 3, "text": "33.7 Over HTTP", "id": "337-over-http", "children": []}, {"level": 3, "text": "33.8 The explorer and the facet page", "id": "338-the-explorer-and-the-facet-page", "children": []}, {"level": 3, "text": "33.9 Code-first: mapping an endpoint in Program.cs", "id": "339-code-first-mapping-an-endpoint-in-programcs", "children": []}, {"level": 3, "text": "33.10 Who reads, and the limits", "id": "3310-who-reads-and-the-limits", "children": []}]}, {"level": 2, "text": "Where to look when this manual runs out", "id": "where-to-look-when-this-manual-runs-out", "children": []}]}];
   // v2: the default collapse state changed, and the key is versioned so readers
   // carrying a v1 payload get the new default rather than their old tree.
   var KEY = "relatude-manual-state-v2";

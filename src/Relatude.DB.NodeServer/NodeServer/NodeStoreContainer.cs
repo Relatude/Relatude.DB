@@ -371,9 +371,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     switch (ioFilesSetting.StoreType) {
                         case FileStoreEngine.SingleFile: {
                                 // one append-only container that never deletes: it cannot share copies,
-                                // and its own format records an MD5 checksum per file
-                                if (ioFilesSetting.SameHashSameFile || ioFilesSetting.HashAlgorithm != FileHashAlgorithm.MD5)
-                                    throw new Exception($"File store {ioFilesSetting.Id}: SameHashSameFile and HashAlgorithm are only supported by the MultiFile layout.");
+                                // and its own format records an MD5 checksum per file. SameHashSameFile and
+                                // HashAlgorithm are ignored rather than refused: a new store has them on by
+                                // default, and the admin UI hides them once the layout is SingleFile
                                 var fileKey = FileKeyUtility.FileStore_GetLatestFileKey(ioFiles);
                                 fs = [.. fs, new SingleFileStore(ioFilesSetting.Id, ioFiles, fileKey)];
                             }

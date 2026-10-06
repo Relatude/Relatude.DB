@@ -120,6 +120,7 @@ internal static class Utils {
         var indexOldRev = orginialMainNode.Revisions.ToList().FindIndex(r => r.RevisionKey == newRev.RevisionKey);
         if (indexOldRev == -1) throw new Exception("Revision with id " + newRev.RevisionKey + " does not exist, cannot update. ");
         var oldRev = orginialMainNode.Revisions[indexOldRev];
+        if (newRev.CreatedUtc == DateTime.MinValue) newRev.CreatedUtc = oldRev.CreatedUtc;
         Utils.ForceTypeValidateValuesAndCopyMissing(typeDef, newRev, oldRev, transformValues); // Fixing values in new data
 
         // copy entire object, to ensure it is indepenent

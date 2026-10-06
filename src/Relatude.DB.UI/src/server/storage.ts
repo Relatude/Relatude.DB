@@ -475,6 +475,59 @@ export interface MissingResult {
   listTruncated: boolean;
 }
 
+/** One content stored more than once in a file store: the same hash and size under several file ids. */
+export interface DuplicateFileGroup {
+  storageId: string;
+  hash: string;
+  size: number;
+  copies: number; // how many times the bytes are stored
+  values: number; // how many file values point at one of the copies
+  duplicateBytes: number; // what all copies but one take up
+  examples: string[]; // a few of the values, as "Type.Property - file name"
+}
+
+/** How much of the file stores holds the same content more than once, read from the hash and size
+ *  each file value carries (no file is read). Compared within a store only. */
+export interface DuplicateResult {
+  nodesScanned: number;
+  valuesChecked: number;
+  storedFiles: number;
+  storedBytes: number;
+  distinctContents: number;
+  duplicateFiles: number;
+  duplicateBytes: number;
+  sharedValues: number; // values pointing at a stored file another value points at too
+  sharedBytes: number;
+  valuesWithoutHash: number;
+  groups: DuplicateFileGroup[]; // most wasted bytes first, capped by the server
+  listTruncated: boolean;
+}
+
+/** A file value a rewrite left pointing at its old copy, and why. */
+export interface RewriteFailure {
+  nodeId: string;
+  nodeType: string;
+  property: string;
+  fileName: string;
+  size: number;
+  reason: string;
+}
+
+/** What rewriting the files of one store into another did (see RewriteFilesResult on the server). */
+export interface RewriteResult {
+  fromStoreId: string;
+  toStoreId: string;
+  nodesScanned: number;
+  valuesFound: number; // values pointing into the source store
+  valuesRewritten: number;
+  valuesUpToDate: number; // same store only: already written the way the store writes files now
+  filesCopied: number;
+  bytesCopied: number;
+  failedCount: number;
+  failures: RewriteFailure[]; // capped by the server
+  listTruncated: boolean;
+}
+
 export interface FileScanProgress {
   state: "running" | "done" | "cancelled" | "failed";
   description: string;
@@ -483,6 +536,24 @@ export interface FileScanProgress {
   // set once the job is done, so a long missing-file list travels once instead of on every poll
   unreferenced: UnreferencedResult | null;
   missing: MissingResult | null;
+  duplicates: DuplicateResult | null;
+  rewrite: RewriteResult | null;
+}
+
+/** A file store as the file values know it: by the id each value records. The implicit store (id all
+ *  zeros) is the one a database falls back to on its own storage. */
+export interface FileStoreChoice {
+  id: string;
+  name: string; // the storage it is on
+  type: string; // MultiFile | SingleFile
+  hashAlgorithm: string; // MD5 | SHA256
+  sameHashSameFile: boolean;
+  isDefault: boolean;
+  implicit: boolean;
+}
+
+export function fetchFileStoreChoices(storeId: string): Promise<FileStoreChoice[]> {
+  return send<FileStoreChoice[]>("file-store-choices", { storeId });
 }
 
 // Runs one file store scan behind a progress dialog. Resolves with the finished progress
@@ -490,14 +561,16 @@ export interface FileScanProgress {
 export async function runFileScan(
   ctl: ProgressController,
   storeId: string,
-  scan: "unreferenced" | "missing",
+  scan: "unreferenced" | "missing" | "duplicates" | "rewrite",
   countOnly: boolean,
   /** named when two scans share one dialog, so the bar starting again reads as the next of them */
   phase?: string,
+  /** a rewrite's two stores */
+  stores?: { fromStore: string; toStore: string },
 ): Promise<FileScanProgress> {
   const say = (text: string) => (phase ? phase + " — " + text : text);
   ctl.set({ label: say("Starting…"), total: 100, done: 0, meta: "0%" }); // the job reports percent, so the bar counts to 100
-  const { jobId } = await send<{ jobId: string }>("files-scan-start", { storeId, scan, countOnly, taskId: ctl.taskId });
+  const { jobId } = await send<{ jobId: string }>("files-scan-start", { storeId, scan, countOnly, taskId: ctl.taskId, ...stores });
   const cancelJob = () => {
     void send("files-scan-cancel", { jobId }).catch(() => {}); // a job that already finished is not an error worth showing
   };

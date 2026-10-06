@@ -60,6 +60,10 @@ public class DeleteUnReferenceResult(long totalBytesDeleted, int totalFilesDelet
 /// key based stores the '/'-joined file key — and is compared case-insensitively.</summary>
 public interface IFileStoreDeleteUnreferenced : IFileStore {
     Task<string> GetInternalReference(FileValue value);
+    /// <summary>Where the store keeps its files, compared with Equals. Stores with an equal location
+    /// share one folder - two MultiFile stores on one IO provider - so they must be cleaned once, against
+    /// the references of all of them: each would otherwise delete the files of the other.</summary>
+    object Location { get; }
     /// <summary>Deletes every file in the store whose internal reference is not in
     /// <paramref name="validInternalReferences"/>, along with any folders left empty. The set must
     /// cover all files worth keeping when the call starts, including in-flight uploads; files created

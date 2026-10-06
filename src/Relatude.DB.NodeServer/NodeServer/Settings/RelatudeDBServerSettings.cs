@@ -86,7 +86,9 @@ public class RelatudeDBServerSettings {
             Path = Defaults.DataFolderPath,
             IOType = IOTypes.LocalDisk,
         };
+        var files = FileStoreSettings.CreateMultiFile(io.Id);
         var local = SettingsLocal.CreateWithNativeEngines();
+        local.DefaultFileStore = files.Id;
         var c = new NodeStoreContainerSettings() {
             Id = Guid.NewGuid(),
             Name = "MyDatabase",
@@ -94,7 +96,7 @@ public class RelatudeDBServerSettings {
             LocalSettings = local,
             IOSettings = [io],
             IoDatabase = io.Id,
-            FileStoreSettings = [],
+            FileStoreSettings = [files],
             IoBackup = io.Id,
             IoLog = io.Id,
             DatamodelSources = [new ()

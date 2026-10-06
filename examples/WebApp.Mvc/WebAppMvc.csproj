@@ -9,6 +9,9 @@
     <ServerGarbageCollection>true</ServerGarbageCollection>
     <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
     <GarbageCollectionAdaptationMode>0</GarbageCollectionAdaptationMode>
+    <!-- relatude.db/ is this machine's database, and relatude.db.temp/ its scratch folder: keep them out of the
+         build output and the publish folder, so a deployment never carries them onto a server -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);relatude.db\**;relatude.db.temp\**</DefaultItemExcludes>
     <Version>0.4.3.214</Version>
   </PropertyGroup>
 

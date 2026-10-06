@@ -42,6 +42,9 @@ public class NodeAction : ActionBase {
     }
     public NodeOperation Operation { get; set; }
     public INodeDataExternal Node { get; set; }
+    /// <summary>An update that changes nothing an index reads - a file moved to another store, say - so
+    /// no text or semantic indexing is queued for it: the node keeps the index values it has.</summary>
+    public bool NoReindex { get; set; }
     public override string ToString() => OperationName() + " " + Node.ToString();
     public override string OperationName() => "NodeAction." + Operation.ToString();
     public override string ToString(Datamodel dm) => ToString();

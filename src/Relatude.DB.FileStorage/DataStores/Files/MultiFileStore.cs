@@ -2,6 +2,7 @@
 using Relatude.DB.IO;
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 namespace Relatude.DB.DataStores.Files;
@@ -21,15 +22,26 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
     readonly int folderDepth;
     public HashAlgorithmName HashAlgorithm { get; }
     readonly bool _sameHashSameFile;
-    // only with sameHashSameFile: a lock per stripe of file keys, so a second upload of the same bytes
-    // and the unreferenced sweep deleting them wait for each other while other uploads do not
-    readonly object[]? _hashLocks;
-    // only with sameHashSameFile: when an upload was last given each file kept by its hash. A file that
-    // was unreferenced when a sweep collected its references may be in use by the time it gets there.
-    readonly ConcurrentDictionary<string, DateTime>? _handedOut;
+    /// <summary>Whether new files are kept once per content (see the class).</summary>
+    public bool SameHashSameFile => _sameHashSameFile;
+    /// <summary>What uploads into a store keeping one copy per hash and the unreferenced sweep coordinate
+    /// on. Kept per IO provider rather than per store, as every MultiFile store on a provider shares its
+    /// folder: whichever of them sweeps it must see the files any of them just handed out.</summary>
+    sealed class HashState {
+        // a lock per stripe of file keys, so a second upload of the same bytes and the sweep deleting
+        // them wait for each other while other uploads do not
+        public readonly object[] Locks = Enumerable.Range(0, 64).Select(_ => new object()).ToArray();
+        // when an upload was last given each file kept by its hash. A file that was unreferenced when a
+        // sweep collected its references may be in use by the time it gets there.
+        public readonly ConcurrentDictionary<string, DateTime> HandedOut = new(StringComparer.OrdinalIgnoreCase);
+        public DateTime NextPrune = DateTime.MinValue;
+        public object LockOf(string key) => Locks[(StringComparer.OrdinalIgnoreCase.GetHashCode(key) & int.MaxValue) % Locks.Length];
+    }
+    static readonly ConditionalWeakTable<IIOProvider, HashState> _hashStates = new();
+    // only with sameHashSameFile; a sweep looks the state of its provider up, as another store may own it
+    readonly HashState? _hashState;
     // how long a hand-out is remembered: longer than the grace period any sweep is given
     static readonly TimeSpan _handedOutMemory = TimeSpan.FromHours(1);
-    DateTime _nextHandedOutPrune = DateTime.MinValue;
     public MultiFileStore(Guid id, IIOProvider ioProvider, int? folderDepth, bool sameHashSameFile = false, FileHashAlgorithm hashAlgorithm = FileHashAlgorithm.MD5) {
         Id = id;
         _ioProvider = ioProvider;
@@ -41,12 +53,9 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
             _ => throw new ArgumentOutOfRangeException(nameof(hashAlgorithm), hashAlgorithm, "Unknown file hash algorithm. "),
         };
         _sameHashSameFile = sameHashSameFile;
-        if (sameHashSameFile) {
-            _hashLocks = new object[64];
-            for (var i = 0; i < _hashLocks.Length; i++) _hashLocks[i] = new();
-            _handedOut = new(StringComparer.OrdinalIgnoreCase);
-        }
+        if (sameHashSameFile) _hashState = _hashStates.GetValue(ioProvider, _ => new HashState());
     }
+    public object Location => (_ioProvider, _basePath.AsKeyString()); // the provider by reference: one per configured provider
     public async Task<FileInsertResult> InsertAsync(Guid newFileId, Stream sourceStream, string? fileName) {
         return await insertAsync(newFileId, sourceStream.Length, (buffer, count) => sourceStream.ReadAsync(buffer, 0, count), fileName);
     }
@@ -91,7 +100,8 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
         var uploadedPath = getFullPath(uploadedFileId, uploadedFileName);
         var path = getFullPath(fileId, fileName);
         var key = path.AsKeyString();
-        lock (hashLockOf(key)) {
+        var state = _hashState!;
+        lock (state.LockOf(key)) {
             var alreadyStored = length == 0 ? _ioProvider.Exists(path) : _ioProvider.GetFileSizeOrZeroIfUnknown(path) == length;
             if (alreadyStored) {
                 _ioProvider.DeleteFileIfItExists(uploadedPath);
@@ -105,18 +115,17 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
                 }
             }
             var now = DateTime.UtcNow;
-            _handedOut![key] = now;
-            pruneHandedOut(now);
+            state.HandedOut[key] = now;
+            pruneHandedOut(state, now);
         }
         return new FileInsertResult(fileHash, stringToBytes(fileName), length, fileId);
     }
-    object hashLockOf(string key) => _hashLocks![(StringComparer.OrdinalIgnoreCase.GetHashCode(key) & int.MaxValue) % _hashLocks.Length];
-    void pruneHandedOut(DateTime now) {
-        if (now < _nextHandedOutPrune) return; // at most once a minute, so a bulk import is not slowed down
-        _nextHandedOutPrune = now.AddMinutes(1);
+    static void pruneHandedOut(HashState state, DateTime now) {
+        if (now < state.NextPrune) return; // at most once a minute, so a bulk import is not slowed down
+        state.NextPrune = now.AddMinutes(1);
         var forgetBefore = now - _handedOutMemory;
-        foreach (var entry in _handedOut!) {
-            if (entry.Value < forgetBefore) _handedOut.TryRemove(entry); // only if not handed out again since
+        foreach (var entry in state.HandedOut) {
+            if (entry.Value < forgetBefore) state.HandedOut.TryRemove(entry); // only if not handed out again since
         }
     }
     public async Task ExtractAsync(FileValue value, Stream outStream) {
@@ -140,7 +149,11 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
             bytesRead += read;
         }
     }
-    public Task<bool> ContainsFileAsync(FileValue fileValue) => Task.FromResult(fileValue.Size == _ioProvider.GetFileSizeOrZeroIfUnknown(getFullPath(fileValue)));
+    public Task<bool> ContainsFileAsync(FileValue fileValue) {
+        var path = getFullPath(fileValue);
+        // a missing file reads as size 0, so an empty one is only there if it exists
+        return Task.FromResult(fileValue.Size == 0 ? _ioProvider.Exists(path) : fileValue.Size == _ioProvider.GetFileSizeOrZeroIfUnknown(path));
+    }
     public async Task DeleteAsync(FileValue value) {
         // a file kept by its hash may be shared by other file values, so it is left for the unreferenced
         // sweep - checked whether or not the store keeps one copy per hash now, as it may have once
@@ -227,6 +240,8 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
             foreach (var subFolder in folder.SubFolders) countFiles(subFolder);
         }
         countFiles(root);
+        // this store's own, or that of another store keeping one copy per hash in the same folder
+        var hashState = _hashState ?? (_hashStates.TryGetValue(_ioProvider, out var shared) ? shared : null);
         // A folder found empty in the listing may have got a file since - an upload writes into a folder
         // named by its file id - so it is only removed if it is empty at that moment, never recursively.
         // Virtual folders (blob storage, memory) go with their last file, so there is nothing to remove.
@@ -253,11 +268,11 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
                 onProgress?.Invoke(processedFiles, totalFiles);
                 var keep = valid.Contains(file.Key) || (keepFilesNewerThanUtc.HasValue && file.CreationTimeUtc >= keepFilesNewerThanUtc.Value);
                 if (keep) { empty = false; continue; }
-                if (_sameHashSameFile) {
+                if (hashState != null) {
                     // checked and deleted under the lock an upload takes to reuse the file, so the
                     // upload either finds it gone or is seen here as having been given it
-                    lock (hashLockOf(file.Key)) {
-                        if (keepFilesNewerThanUtc.HasValue && _handedOut!.TryGetValue(file.Key, out var handedOutUtc) && handedOutUtc >= keepFilesNewerThanUtc.Value) { empty = false; continue; }
+                    lock (hashState.LockOf(file.Key)) {
+                        if (keepFilesNewerThanUtc.HasValue && hashState.HandedOut.TryGetValue(file.Key, out var handedOutUtc) && handedOutUtc >= keepFilesNewerThanUtc.Value) { empty = false; continue; }
                         if (!countOnly) _ioProvider.DeleteFileIfItExists(file.KeyOf());
                     }
                 } else if (!countOnly) {

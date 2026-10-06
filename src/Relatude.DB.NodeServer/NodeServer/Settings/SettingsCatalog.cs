@@ -602,7 +602,8 @@ public static class SettingsCatalog {
                         ItemName = "file store",
                         LabelField = "IoProviderId",
                         EmptyHelp = "No file store is configured, so uploads go to an implicit one on this database's own storage provider.",
-                        // the same layout the database would have used on its own
+                        // the same layout the database would have used on its own; one copy per content
+                        // and SHA256 come from the class, which defaults a new store to them
                         NewItem = new() { ["StoreType"] = "MultiFile" },
                         Fields = [
                             new() {
@@ -621,12 +622,12 @@ public static class SettingsCatalog {
                             new() {
                                 Path = "SameHashSameFile", Label = "Same hash, same file",
                                 VisibleWhen = new() { Path = "StoreType", Values = ["MultiFile"] },
-                                Help = "Keeps one copy of any content: an upload with the same hash and length as a file already in the store points at that file instead of being stored again. Shared files are only deleted by the unreferenced file cleanup, not when a file is removed from a node. Applies to new uploads; files already stored are left as they are, and stay readable if this is turned off again. On blob storage a new file is written twice, as it is copied into place.",
+                                Help = "Keeps one copy of any content: an upload with the same hash and length as a file already in the store points at that file instead of being stored again. Shared files are only deleted by the unreferenced file cleanup, not when a file is removed from a node. Applies to new uploads; files already stored are left as they are, and stay readable if this is turned off again. On blob storage a new file is written twice, as it is copied into place. On for a new store; a store set up before this option existed has it off.",
                             },
                             new() {
                                 Path = "HashAlgorithm", Label = "File hash",
                                 VisibleWhen = new() { Path = "StoreType", Values = ["MultiFile"] },
-                                Help = "The hash computed over every uploaded file, and with Same hash, same file what decides that two uploads are the same. MD5 is enough when only trusted people upload. Choose SHA256 when anyone can, as two different files with the same MD5 can be made on purpose - and then one upload would be served as the other. Changing it only affects new uploads, which are not matched with files kept under the other hash.",
+                                Help = "The hash computed over every uploaded file, and with Same hash, same file what decides that two uploads are the same. SHA256 is the default for a new store: two different files with the same MD5 can be made on purpose - and then one upload would be served as the other - and on current processors SHA256 is also the faster of the two. A store set up before this option existed keeps MD5. Changing it only affects new uploads, which are not matched with files kept under the other hash.",
                             },
                             new() {
                                 Path = "Id", Label = "Store id", ReadOnly = true,

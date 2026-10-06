@@ -26,22 +26,21 @@ public static class SettingsTemplate {
             Path = dataPath,
             IOType = IOTypes.LocalDisk,
         };
+        var files = FileStoreSettings.CreateMultiFile(io.Id);
+        var local = SettingsLocal.CreateWithNativeEngines();
+        // named as the default, or uploads would go to the implicit store and this one would sit unused
+        local.DefaultFileStore = files.Id;
         var container = new NodeStoreContainerSettings {
             Id = Guid.NewGuid(),
             Name = databaseName,
             AutoOpen = true,
             WaitUntilOpen = waitUntilOpen,
-            LocalSettings = SettingsLocal.CreateWithNativeEngines(),
+            LocalSettings = local,
             IOSettings = [io],
             IoDatabase = io.Id,
             IoBackup = io.Id,
             IoLog = io.Id,
-            FileStoreSettings = [new FileStoreSettings {
-                Id = Guid.NewGuid(),
-                IoProviderId = io.Id,
-                StoreType = FileStoreEngine.MultiFile,
-                MultiFileFolderDepth = 2,
-            }],
+            FileStoreSettings = [files],
             DatamodelSources = sources(modelNamespace, assemblyName),
         };
         return new RelatudeDBServerSettings {

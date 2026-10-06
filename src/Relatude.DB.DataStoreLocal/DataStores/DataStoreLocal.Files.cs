@@ -8,14 +8,21 @@ using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
+    /// <summary>The store a file value's bytes are in, by the store id the value records. Guid.Empty is
+    /// the implicit store, also once a configured store has become the default.</summary>
     internal IFileStore getFileStore(Guid fileStoreId) {
         IFileStore fileStore;
         if (fileStoreId == Guid.Empty) {
-            fileStore = _defaultFileStore;
+            fileStore = _implicitFileStore;
         } else {
             if (!_fileStores.TryGetValue(fileStoreId, out fileStore!)) throw new Exception("File store not found");
         }
         return fileStore;
+    }
+    /// <summary>The store an upload into a file property goes to: the one the property names, or the
+    /// default store when it names none (Guid.Empty).</summary>
+    IFileStore getFileStoreOfProperty(Guid fileStorageProviderId) {
+        return fileStorageProviderId == Guid.Empty ? _defaultFileStore : getFileStore(fileStorageProviderId);
     }
     async Task<FileValue> updateMetaIfRelevant(FileValue fileValue, int? maxWaitForMetaUpdate, QueryContext ctx) {
         if (fileValue.PropertyPath == null) return fileValue;
@@ -39,7 +46,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (!Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
         var fileProp = (FilePropertyModel)prop;
-        var fileStore = getFileStore(fileProp.FileStorageProviderId);
+        var fileStore = getFileStoreOfProperty(fileProp.FileStorageProviderId);
         var newFileId = Guid.NewGuid();
         using var inputStream = source.OpenRead(sourceFileKey, 0);
         fileName ??= sourceFileKey.FileName();
@@ -55,7 +62,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (!Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
         var fileProp = (FilePropertyModel)prop;
-        var fileStore = getFileStore(fileProp.FileStorageProviderId);
+        var fileStore = getFileStoreOfProperty(fileProp.FileStorageProviderId);
         var newFileId = Guid.NewGuid();
         var r = await fileStore.InsertAsync(newFileId, source, fileName);
         var fileValue = FileValue.CreateNew(fileName, r.Length, r.FileHash, fileStore.Id, r.FileId, r.StoreKey, propertyPath);
@@ -155,7 +162,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (!Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
         var fileProp = (FilePropertyModel)prop;
-        var fileStore = getFileStore(fileProp.FileStorageProviderId);
+        var fileStore = getFileStoreOfProperty(fileProp.FileStorageProviderId);
         return fileStore is IFileStoreMultiPartSupport;
     }
     public async Task<Guid> InitiateMultipartUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null) {
@@ -164,7 +171,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (!Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
         var fileProp = (FilePropertyModel)prop;
-        if (getFileStore(fileProp.FileStorageProviderId) is not IFileStoreMultiPartSupport fileStore)
+        if (getFileStoreOfProperty(fileProp.FileStorageProviderId) is not IFileStoreMultiPartSupport fileStore)
             throw new Exception("File store does not support multipart upload");
         var newFileId = Guid.NewGuid();
         var storeKey = await fileStore.InitiatePartialUpload(newFileId, fileName);
@@ -236,16 +243,20 @@ public sealed partial class DataStoreLocal : IDataStore {
                 onProgress?.Invoke(description, pct);
             }
             var cutoffUtc = DateTime.UtcNow - _unreferencedFileGracePeriod;
-            var stores = _fileStores.Values.Append(_defaultFileStore).DistinctBy(s => s.Id).OfType<IFileStoreDeleteUnreferenced>().ToArray();
+            var stores = _fileStores.Values.Append(_implicitFileStore).DistinctBy(s => s.Id).OfType<IFileStoreDeleteUnreferenced>().ToArray();
             if (stores.Length == 0) return new DeleteUnReferenceResult(0, 0, 0);
-            var validByStore = stores.ToDictionary(s => s.Id, _ => new HashSet<string>());
+            var cleanable = stores.ToDictionary(s => s.Id);
+            // One set for all stores: stores sharing a folder (see Location) must each keep the files the
+            // others reference. A reference from a store elsewhere can only ever keep a file, never take one.
+            var valid = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             async Task addReference(FileValue fileValue) {
-                var storageId = fileValue.StorageId == Guid.Empty ? _defaultFileStore.Id : fileValue.StorageId;
-                if (!validByStore.TryGetValue(storageId, out var references)) return; // store missing or not cleanable
-                references.Add(await ((IFileStoreDeleteUnreferenced)getFileStore(storageId)).GetInternalReference(fileValue));
+                if (!cleanable.TryGetValue(fileValue.StorageId, out var store)) return; // store missing or not cleanable
+                valid.Add(await store.GetInternalReference(fileValue));
             }
             var fileValues = new List<FileValue>();
-            var ids = _nodes.Snapshot().Select(s => s.nodeId).ToArray();
+            // every node, those still waiting for the log included: one of them may be the only
+            // reference to an old file
+            var ids = _nodes.AllIds();
             const int batchSize = 1000;
             for (var offset = 0; offset < ids.Length; offset += batchSize) {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -264,13 +275,15 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
             foreach (var fileValue in _uploads.GetActiveFileValues()) await addReference(fileValue);
             long bytes = 0; int files = 0, folders = 0;
-            for (var i = 0; i < stores.Length; i++) {
+            // one sweep per folder: stores sharing one are walked once, so nothing is counted twice
+            var locations = stores.DistinctBy(s => s.Location).ToArray();
+            for (var i = 0; i < locations.Length; i++) {
                 cancellationToken.ThrowIfCancellationRequested();
-                var store = stores[i];
+                var store = locations[i];
                 var storeNo = i; // captured by the progress callback below
-                var description = (countOnly ? "Scanning file store " : "Cleaning file store ") + (i + 1) + " of " + stores.Length;
-                var result = await store.DeleteUnreferenced(validByStore[store.Id], countOnly, cutoffUtc,
-                    (processed, total) => report(description, 50 + (int)((storeNo + (total == 0 ? 1.0 : (double)processed / total)) * 50 / stores.Length)),
+                var description = (countOnly ? "Scanning file store " : "Cleaning file store ") + (i + 1) + " of " + locations.Length;
+                var result = await store.DeleteUnreferenced(valid, countOnly, cutoffUtc,
+                    (processed, total) => report(description, 50 + (int)((storeNo + (total == 0 ? 1.0 : (double)processed / total)) * 50 / locations.Length)),
                     cancellationToken);
                 bytes += result.TotalBytesDeleted;
                 files += result.TotalFilesDeleted;
@@ -361,19 +374,11 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
             report("Identifying types with file properties", 0);
             var result = new MissingFilesResult();
-            var typeIds = GetNodeTypeIdsThatMayContainFiles();
-            if (typeIds.Count == 0) {
+            var nodeIds = nodeIdsThatMayContainFiles(cancellationToken);
+            if (nodeIds == null) {
                 report("No file properties in the datamodel", 100);
                 return result;
             }
-            var ids = new HashSet<int>();
-            foreach (var typeId in typeIds) {
-                cancellationToken.ThrowIfCancellationRequested();
-                // descendants are not included: they carry the inherited file property themselves,
-                // so they are in typeIds already and are enumerated on their own turn
-                foreach (var id in _definition.GetAllIdsForTypeNoAccessControl(typeId, false).Enumerate()) ids.Add(id);
-            }
-            var nodeIds = ids.ToArray();
             if (nodeIds.Length == 0) {
                 report("No nodes with file properties", 100);
                 return result;
@@ -386,14 +391,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 cancellationToken.ThrowIfCancellationRequested();
                 fileValues.Clear();
                 var end = Math.Min(offset + batchSize, nodeIds.Length);
-                _lock.EnterReadLock();
-                try {
-                    for (var i = offset; i < end; i++) {
-                        if (_nodes.TryGet(nodeIds[i], out var node, out _)) collectFileValueRefs(node, node.Id, node.NodeType, string.Empty, fileValues);
-                    }
-                } finally {
-                    _lock.ExitReadLock();
-                }
+                readFileValueRefs(nodeIds, offset, end, fileValues);
                 foreach (var fileValue in fileValues) {
                     cancellationToken.ThrowIfCancellationRequested();
                     result.FilesChecked++;
@@ -430,6 +428,137 @@ public sealed partial class DataStoreLocal : IDataStore {
             return result;
         } finally {
             DeRegisterActivity(activityId);
+        }
+    }
+    /// <summary>
+    /// Measures how much of the file stores holds the same content more than once: the stored files
+    /// the file values point at (one per file id and store), grouped by the hash and size recorded on
+    /// the values, within each store. No file is read, so it is quick even for big stores, and it trusts
+    /// the recorded hashes. Values of every node that may carry a file are counted, revisions and
+    /// embedded objects included, so it also reports how many values already share a stored file.
+    /// The groups are listed by wasted bytes, capped at <see cref="DuplicateFilesResult.MaxListed"/>.
+    /// <paramref name="onProgress"/> is called with a phase description and a 0-100 percentage.
+    /// </summary>
+    public async Task<DuplicateFilesResult> FindDuplicateFilesAsync(Action<string, int>? onProgress = null, CancellationToken cancellationToken = default) {
+        validateDatabaseState();
+        var activityId = RegisterActvity(DataStoreActivityCategory.RunningTask, "Looking for duplicate files");
+        try {
+            var lastPct = -1;
+            var lastDescription = string.Empty;
+            void report(string description, int pct) {
+                if (pct == lastPct && description == lastDescription) return;
+                lastPct = pct;
+                lastDescription = description;
+                UpdateActivity(activityId, description, pct);
+                onProgress?.Invoke(description, pct);
+            }
+            report("Identifying types with file properties", 0);
+            var result = new DuplicateFilesResult();
+            var nodeIds = nodeIdsThatMayContainFiles(cancellationToken);
+            if (nodeIds == null) {
+                report("No file properties in the datamodel", 100);
+                return result;
+            }
+            if (nodeIds.Length == 0) {
+                report("No nodes with file properties", 100);
+                return result;
+            }
+            var description = "Reading the file values of " + nodeIds.Length + (nodeIds.Length == 1 ? " node" : " nodes");
+            var stored = new Dictionary<(Guid StoreId, Guid FileId), StoredFile>();
+            var paths = new Dictionary<string, string>(); // property paths repeat endlessly: one string each
+            var fileValues = new List<FileValueRef>();
+            const int batchSize = 1000;
+            for (var offset = 0; offset < nodeIds.Length; offset += batchSize) {
+                cancellationToken.ThrowIfCancellationRequested();
+                fileValues.Clear();
+                var end = Math.Min(offset + batchSize, nodeIds.Length);
+                readFileValueRefs(nodeIds, offset, end, fileValues);
+                foreach (var r in fileValues) {
+                    var value = r.Value;
+                    result.ValuesChecked++;
+                    if (value.Hash.Length == 0) { result.ValuesWithoutHash++; continue; }
+                    var storeId = value.StorageId; // Guid.Empty is the implicit store, a store of its own
+                    if (!stored.TryGetValue((storeId, value.FileId), out var file)) {
+                        if (!paths.TryGetValue(r.PropertyPath, out var path)) paths[r.PropertyPath] = path = r.PropertyPath;
+                        stored[(storeId, value.FileId)] = file = new StoredFile(storeId, value.Hash, value.Size, r.NodeTypeId, path, value.Name);
+                    }
+                    file.Values++;
+                }
+                result.NodesScanned = end;
+                report(description, (int)(end * 90L / nodeIds.Length));
+            }
+            report("Comparing contents", 90);
+            var groups = new List<DuplicateFileGroup>();
+            foreach (var content in stored.Values.GroupBy(f => (f.StoreId, Hash: f.Hash.ToUpperInvariant(), f.Size))) {
+                cancellationToken.ThrowIfCancellationRequested();
+                var copies = content.ToArray();
+                result.DistinctContents++;
+                foreach (var file in copies) {
+                    result.StoredFiles++;
+                    result.StoredBytes += file.Size;
+                    result.SharedValues += file.Values - 1;
+                    result.SharedBytes += (file.Values - 1) * file.Size;
+                }
+                if (copies.Length < 2) continue;
+                var group = new DuplicateFileGroup {
+                    StorageId = content.Key.StoreId,
+                    Hash = content.Key.Hash,
+                    Size = content.Key.Size,
+                    Copies = copies.Length,
+                    Values = copies.Sum(f => f.Values),
+                    DuplicateBytes = (copies.Length - 1) * content.Key.Size,
+                    Examples = [.. copies.Take(DuplicateFileGroup.MaxExamples).Select(describe)],
+                };
+                result.DuplicateFiles += copies.Length - 1;
+                result.DuplicateBytes += group.DuplicateBytes;
+                groups.Add(group);
+            }
+            result.Groups = [.. groups.OrderByDescending(g => g.DuplicateBytes).ThenByDescending(g => g.Copies).Take(DuplicateFilesResult.MaxListed)];
+            result.ListTruncated = groups.Count > DuplicateFilesResult.MaxListed;
+            report("Analysis completed", 100);
+            return result;
+        } finally {
+            DeRegisterActivity(activityId);
+        }
+        string describe(StoredFile file) {
+            var type = Datamodel.NodeTypes.TryGetValue(file.ExampleNodeTypeId, out var t) ? t.CodeName : file.ExampleNodeTypeId.ToString();
+            return type + "." + file.ExamplePath + " - " + file.ExampleName;
+        }
+    }
+    sealed class StoredFile(Guid storeId, string hash, long size, Guid exampleNodeTypeId, string examplePath, string exampleName) {
+        public Guid StoreId { get; } = storeId;
+        public string Hash { get; } = hash;
+        public long Size { get; } = size;
+        // the first value found pointing at the file, to name the file by in a report
+        public Guid ExampleNodeTypeId { get; } = exampleNodeTypeId;
+        public string ExamplePath { get; } = examplePath;
+        public string ExampleName { get; } = exampleName;
+        public int Values;
+    }
+    /// <summary>The nodes of every type that may carry a file value (see
+    /// <see cref="GetNodeTypeIdsThatMayContainFiles"/>); null when the datamodel has no file property.</summary>
+    int[]? nodeIdsThatMayContainFiles(CancellationToken cancellationToken) {
+        var typeIds = GetNodeTypeIdsThatMayContainFiles();
+        if (typeIds.Count == 0) return null;
+        var ids = new HashSet<int>();
+        foreach (var typeId in typeIds) {
+            cancellationToken.ThrowIfCancellationRequested();
+            // descendants are not included: they carry the inherited file property themselves,
+            // so they are in typeIds already and are enumerated on their own turn
+            foreach (var id in _definition.GetAllIdsForTypeNoAccessControl(typeId, false).Enumerate()) ids.Add(id);
+        }
+        return [.. ids];
+    }
+    /// <summary>The file values of the nodes from <paramref name="from"/> up to <paramref name="to"/>,
+    /// read in one go under the read lock.</summary>
+    void readFileValueRefs(int[] nodeIds, int from, int to, List<FileValueRef> into) {
+        _lock.EnterReadLock();
+        try {
+            for (var i = from; i < to; i++) {
+                if (_nodes.TryGet(nodeIds[i], out var node, out _)) collectFileValueRefs(node, node.Id, node.NodeType, string.Empty, into);
+            }
+        } finally {
+            _lock.ExitReadLock();
         }
     }
     void collectFileValueRefs(INodeData node, Guid rootNodeId, Guid rootNodeTypeId, string prefix, List<FileValueRef> into) {

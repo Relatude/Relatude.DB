@@ -88,8 +88,8 @@ One server, N containers (databases), each with its own IO providers, file store
           "IoProviderId": "1a2b…",
           "StoreType": "MultiFile",        // SingleFile | MultiFile
           "MultiFileFolderDepth": 2,
-          "SameHashSameFile": false,       // MultiFile only: one copy per content (hash + length); shared files are only removed by the unreferenced-files cleanup
-          "HashAlgorithm": "MD5"           // MultiFile only: MD5 | SHA256 (use SHA256 when untrusted people can upload)
+          "SameHashSameFile": true,        // MultiFile only: one copy per content (hash + length); shared files are only removed by the unreferenced-files cleanup. New stores: true; absent from the JSON: false
+          "HashAlgorithm": "SHA256"        // MultiFile only: MD5 | SHA256. New stores: SHA256; absent from the JSON: MD5 (a store from before keeps what it had). SingleFile ignores both
         }
       ],
 
@@ -138,7 +138,7 @@ For `AzureBlobStorage`, the entry carries `BlobConnectionString`, `BlobContainer
 | `EnableInstantTextIndexingByDefault` | `false` | Text index written in the transaction instead of by the background queue |
 | `DefaultCultureCode` | `null` | Culture for the empty culture id |
 | `DefaultReadAccess` / `DefaultWriteAccess` | `Everyone` | ACL default |
-| `DefaultFileStore` | unset | Which `FileStoreSettings` entry `FileValue` bytes go to; unset = an implicit `MultiFile` store on `IoDatabase` |
+| `DefaultFileStore` | unset | Which `FileStoreSettings` entry `FileValue` bytes go to; unset = an implicit `MultiFile` store on `IoDatabase` (one copy per upload, MD5). New installations (`CreateDefault()`, `relatude new`/`init`, a database added in the admin UI) get a `MultiFile` store with `SameHashSameFile` + `SHA256`, named here. Files already uploaded keep reading from the store they recorded (the implicit one is `Guid.Empty`); to move them, or to bring old files up to a store's new hash / one copy per content, use Storage › File storage › Rewrite files… or `DataStoreLocal.RewriteFilesAsync(fromStoreId, toStoreId)` (old copies stay until the unreferenced-files cleanup) |
 
 **Index engines** — each index kind has a list of engines it may run on and a default id that picks one; the empty guid is the memory index (resident, saved with the state snapshot, otherwise rebuilt from the log at every open):
 

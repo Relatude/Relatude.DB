@@ -106,8 +106,8 @@ sealed class UIDatabases {
     // ---- adding one ----
 
     /// <summary>
-    /// A new, empty database: its own folder, its own storage provider, the native engines, and no
-    /// datamodel sources at all - the model is the Data model section's business, and guessing one
+    /// A new, empty database: its own folder, its own storage provider, the native engines, a MultiFile
+    /// store as its default file store (one copy per content, SHA256), and no datamodel sources at all - the model is the Data model section's business, and guessing one
     /// here would put types in a database nobody asked to have them in.
     ///
     /// It is created closed. Opening replays a log that does not exist yet and writes the first
@@ -127,17 +127,20 @@ sealed class UIDatabases {
                 Path = folder,
                 IOType = IOTypes.LocalDisk,
             };
+            var files = FileStoreSettings.CreateMultiFile(io.Id);
+            var local = SettingsLocal.CreateWithNativeEngines();
+            local.DefaultFileStore = files.Id;
             var settings = new NodeStoreContainerSettings {
                 Id = SecureGuid.New(),
                 Name = name,
                 ShortName = freeShortName(name),
                 AutoOpen = payload.AutoOpen,
-                LocalSettings = SettingsLocal.CreateWithNativeEngines(),
+                LocalSettings = local,
                 IOSettings = [io],
                 IoDatabase = io.Id,
                 IoBackup = io.Id,
                 IoLog = io.Id,
-                FileStoreSettings = [],
+                FileStoreSettings = [files],
                 DatamodelSources = [],
             };
             // the same hooks the startup path runs, so a database added here is built the way one

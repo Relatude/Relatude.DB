@@ -1535,10 +1535,46 @@ public sealed class UIServer {
                 };
             }).ToList();
         });
-        // ---- file store audits: unreferenced files (files no node points at anymore) and the
-        // reverse, missing files (file values whose file is gone from the store). Both walk every
-        // node, so they run as background jobs the UI polls and can cancel. The job registry is
-        // shared with the old admin UI, so the same scan cannot run twice on one database.
+        // The file stores as file values know them - by the store id each value records - for picking
+        // where a rewrite reads from and writes to. Unlike file-store-list, two stores sharing a folder are
+        // two entries here, and the implicit store is always one: the values of a database that used it
+        // before a configured store became the default still point at it.
+        Commands.Register("file-store-choices", ctx => {
+            var p = ctx.Payload<IoListPayload>();
+            var s = getContainer(p.StoreId).Settings;
+            var ioNames = (s.IOSettings ?? []).ToDictionary(io => io.Id, io => string.IsNullOrEmpty(io.Name) ? io.IOType.ToString() : io.Name);
+            string ioName(Guid ioId) => ioNames.TryGetValue(ioId, out var name) ? name : ioId.ToString();
+            var configured = s.FileStoreSettings ?? [];
+            var defaultId = s.LocalSettings?.DefaultFileStore;
+            var implicitIsDefault = !configured.Any(fs => fs.Id == defaultId);
+            var choices = configured.Select(fs => new {
+                fs.Id,
+                Name = ioName(fs.IoProviderId),
+                Type = fs.StoreType.ToString(),
+                // what a SingleFile store does whatever its settings say (see NodeStoreContainer)
+                HashAlgorithm = fs.StoreType == FileStoreEngine.MultiFile ? fs.HashAlgorithm.ToString() : nameof(DataStores.Files.FileHashAlgorithm.MD5),
+                SameHashSameFile = fs.StoreType == FileStoreEngine.MultiFile && fs.SameHashSameFile,
+                IsDefault = fs.Id == defaultId,
+                Implicit = false,
+            }).ToList();
+            if (s.IoDatabase is Guid dbIo && dbIo != Guid.Empty) {
+                choices.Add(new {
+                    Id = Guid.Empty,
+                    Name = ioName(dbIo),
+                    Type = FileStoreEngine.MultiFile.ToString(),
+                    HashAlgorithm = nameof(DataStores.Files.FileHashAlgorithm.MD5),
+                    SameHashSameFile = false,
+                    IsDefault = implicitIsDefault,
+                    Implicit = true,
+                });
+            }
+            return (object?)choices;
+        });
+        // ---- file store audits: unreferenced files (files no node points at anymore), the reverse,
+        // missing files (file values whose file is gone from the store), and duplicate files (the same
+        // content stored more than once). All walk every node, so they run as background jobs the UI
+        // polls and can cancel. The job registry is shared with the old admin UI, so the same scan
+        // cannot run twice on one database.
         Commands.Register("files-scan-start", ctx => {
             var p = ctx.Payload<FileScanStartPayload>();
             var store = getContainer(p.StoreId).Store ?? throw new Exception("The database must be open. ");
@@ -1549,9 +1585,23 @@ public sealed class UIServer {
                     (object)await local.DeleteUnreferencedFilesAsync(p.CountOnly, j.SetProgress, j.Cancellation.Token)),
                 "missing" => FileScanJobs.Start(p.StoreId, "missing files", async j =>
                     (object)await local.FindMissingFilesAsync(j.SetProgress, j.Cancellation.Token)),
+                "duplicates" => FileScanJobs.Start(p.StoreId, "duplicate files", async j =>
+                    (object)await local.FindDuplicateFilesAsync(j.SetProgress, j.Cancellation.Token)),
+                // writes every file of one store again through another (or the same one, with what it
+                // does now): moving stores, or catching old files up with a new hash or one copy per content
+                "rewrite" => FileScanJobs.Start(p.StoreId, "rewrite files", async j =>
+                    (object)await local.RewriteFilesAsync(
+                        p.FromStore ?? throw new Exception("Name the file store to rewrite from. "),
+                        p.ToStore ?? throw new Exception("Name the file store to rewrite to. "),
+                        j.SetProgress, j.Cancellation.Token)),
                 _ => throw new Exception("Unknown file scan: " + p.Scan),
             };
-            Shared.Attach(Shared.RefOf(ctx, p.StoreId, "Missing and redundant files in " + displayName(getContainer(p.StoreId))), job);
+            var title = p.Scan switch {
+                "duplicates" => "Duplicate files in ",
+                "rewrite" => "Rewrite files in ",
+                _ => "Missing and redundant files in ",
+            };
+            Shared.Attach(Shared.RefOf(ctx, p.StoreId, title + displayName(getContainer(p.StoreId))), job);
             return (object?)new { JobId = job.Id };
         });
         Commands.Register("files-scan-progress", ctx => {
@@ -1566,6 +1616,8 @@ public sealed class UIServer {
                 job.Error,
                 Unreferenced = job.Result as DataStores.Files.DeleteUnReferenceResult,
                 Missing = job.Result as DataStores.Files.MissingFilesResult,
+                Duplicates = job.Result as DataStores.Files.DuplicateFilesResult,
+                Rewrite = job.Result as DataStores.Files.RewriteFilesResult,
             };
         });
         Commands.Register("files-scan-cancel", ctx => {
@@ -1697,6 +1749,7 @@ sealed class IoInfo {
 }
 sealed record ZipRequestPayload(Guid IoId, string[] Keys, string? BasePath);
 sealed record IoDeleteFilesPayload(Guid IoId, string[] Keys);
-sealed record FileScanStartPayload(Guid StoreId, string Scan, bool CountOnly);
+// FromStore and ToStore: the file stores of a rewrite, Guid.Empty being the implicit store
+sealed record FileScanStartPayload(Guid StoreId, string Scan, bool CountOnly, Guid? FromStore = null, Guid? ToStore = null);
 sealed record FileScanJobPayload(Guid JobId);
 sealed record ConversionCancelPayload(Guid StoreId, Guid Id, bool Permanently);
