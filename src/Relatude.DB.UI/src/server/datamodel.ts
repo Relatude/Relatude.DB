@@ -206,6 +206,10 @@ export interface OverridesFileInfo {
   /** false when the database has no storage provider to keep the THIS SERVER file in */
   writable: boolean;
   exists: boolean;
+  /** the entries the THIS SERVER file holds: the status of the page's Move to shared button */
+  dataCount: number;
+  /** the THIS SERVER file could not be read */
+  dataError: string | null;
   /** the SHARED file, relative to the application's folder: relatude.settings/[short name]/datamodel.json */
   settingsLocation: string;
   settingsExists: boolean;

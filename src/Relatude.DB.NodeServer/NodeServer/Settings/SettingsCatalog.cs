@@ -410,7 +410,7 @@ public static class SettingsCatalog {
                                 + "Every installation should have the same short name, so give it in " + Defaults.SettingsFileName + ".",
                             InOverridesWarning = "This short name is only this installation's: it is saved on THIS SERVER (" + SettingsOverridesFile.FileName + "), not in " + Defaults.SettingsFileName + ". "
                                 + "The SHARED files every installation has - the log and endpoint definitions, the datamodel overrides - are found by the short name, "
-                                + "so this installation reads other ones than the rest. Move it into " + Defaults.SettingsFileName + " with THIS SERVER at the top of the page, or set it back.",
+                                + "so this installation reads other ones than the rest. Move it into " + Defaults.SettingsFileName + " with Move to shared at the top right of the page, or set it back.",
                         },
                         new() {
                             Path = "Description", Label = "Description", Applies = SettingApplies.Live,

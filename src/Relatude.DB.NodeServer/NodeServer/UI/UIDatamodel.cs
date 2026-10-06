@@ -117,11 +117,21 @@ sealed class UIDatamodel {
         } catch (Exception error) {
             settingsError = error.Message;
         }
+        // what the page's Move to shared button says: the entries the DATA file holds
+        int dataCount = 0;
+        string? dataError = null;
+        try {
+            if (file.CanWrite) dataCount = DatamodelOverridesLayers.Entries(file.ReadDataLayer(_server)).Count();
+        } catch (Exception error) {
+            dataError = error.Message;
+        }
         return new {
             PlanId = DatamodelOverridesFile.PlanId,
             file.DataLocation,
             Writable = file.CanWrite,
             Exists = safe(() => file.Exists(_server)),
+            DataCount = dataCount,
+            DataError = dataError,
             file.SettingsLocation,
             SettingsExists = safe(() => file.SettingsExists),
             Settings = settings,

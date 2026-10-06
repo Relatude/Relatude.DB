@@ -101,7 +101,7 @@ export function CustomLogsDataDialog({ storeId, info, onClose, onChanged }: { st
 
   return (
     <DataDialog
-      title="Log definitions saved on this installation"
+      title="Log definitions"
       intro={
         <>
           Logs defined or changed here are saved on THIS SERVER, <code>{info.dataFolder}</code>, and replace the ones every installation has in SHARED, <code>{settingsFolder}</code> -

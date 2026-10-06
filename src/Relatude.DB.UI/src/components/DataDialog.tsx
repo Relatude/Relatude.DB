@@ -3,6 +3,7 @@ import { IconAlertTriangle, IconArrowBackUp, IconDownload, IconFileImport } from
 import { DialogTools } from "./DialogTools";
 import { Loading } from "./Loading";
 import { SourceTag } from "./SourceTag";
+import { ShareDialogTitle } from "./ShareButton";
 
 /** One thing THIS SERVER holds, as the dialog lists it. */
 export interface DataDialogEntry {
@@ -52,6 +53,7 @@ export function DataDialog({
   move,
   onClose,
 }: {
+  /** what is moved, after "Move to shared": "Log definitions" */
   title: string;
   intro: ReactNode;
   warnings?: ReactNode[];
@@ -124,8 +126,9 @@ export function DataDialog({
         }}
       >
         <h3>
-          <SourceTag kind="data" title="Saved on this installation, in its data folder" /> {title}
-          <DialogTools onClose={onClose} />
+          <ShareDialogTitle what={title}>
+            <DialogTools onClose={onClose} />
+          </ShareDialogTitle>
         </h3>
         {error && <div className="dialog-body dialog-title-error">{error}</div>}
         {!error && entries === null && <Loading label={loadingLabel} />}

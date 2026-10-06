@@ -1252,7 +1252,7 @@ SHARED value leaves the file.</p>
 them for reading. In the editor every overridden field is tagged with where its value is: <em>shared</em>,
 <em>this server</em>, or <em>this server · removed</em> for a SHARED value taken away here; the tooltip names the file, and the
 arrow beside the field takes one file away at a time.</p>
-<p><em>Moving overrides into SHARED.</em> In <strong>Sources</strong>, <strong>Overrides</strong>, choose <strong>Move to shared…</strong>. The
+<p><em>Moving overrides into SHARED.</em> Choose <strong>Move to shared</strong> at the top right of the model editor. The
 dialog lists the THIS SERVER file entry by entry, beside what SHARED says. Select overrides and choose
 <strong>Move into shared</strong>: they are written into the SHARED file and removed from THIS SERVER. Nothing in force
 changes, so the database is not reopened. Then commit the SHARED file. A moved <code>null</code> removes the
@@ -3399,8 +3399,10 @@ tooltip names the file and says where a change made here is written:</p>
 </table>
 <p>The restore button beside a <em>this server</em> field puts the <code>relatude.db.json</code> value back as an edit you then
 save. A list element added on THIS SERVER is marked <em>added here</em>, and elements removed there are named under
-the list. The <strong>THIS SERVER</strong> button in the toolbar lists everything in the file — the server's settings and
-every database's — with both values side by side:</p>
+the list. <strong>Move to shared</strong>, at the top right of the page, says how many entries are only on this server
+(<em>all shared</em> when none) and opens a dialog with both values side by side. On Server settings it lists
+everything in the file — the server's settings and every database's; on a database's settings page, that
+database's entries:</p>
 <ul>
 <li><strong>Move into relatude.db.json</strong> writes the selected entries, or all of them, into <code>relatude.db.json</code>
   and takes them out of the overrides file. Nothing that is running changes. Settings decided by the
@@ -3412,9 +3414,11 @@ every database's — with both values side by side:</p>
 <li><strong>Discard</strong> puts back what <code>relatude.db.json</code> says for the selected entries — a value, a removed
   element restored, an added element taken out again — and saves.</li>
 </ul>
-<p>The same tags, and a <strong>THIS SERVER</strong> button with a dialog like this one, are on the model editor's
-overrides (<a href="#31-overriding-attributes">§3.1</a>), the Logs page (<a href="#321-defining-a-log">§32.1</a>) and the API
-page (<a href="#332-the-definition-file">§33.2</a>).</p>
+<p>The same tags, and the same <strong>Move to shared</strong> button at the top right with a dialog like this one, are on
+every page that saves on this server: <strong>Databases</strong> (databases added or removed there, and the default),
+<strong>Activity</strong> (what is saved with <em>Save and remember changes</em>), the model editor's overrides
+(<a href="#31-overriding-attributes">§3.1</a>), the Logs page (<a href="#321-defining-a-log">§32.1</a>) and the API page
+(<a href="#332-the-definition-file">§33.2</a>).</p>
 <p><strong>Where the file is.</strong> It is kept with the default database — the one <code>DefaultStoreId</code> names — in an
 <code>overrides/</code> folder at the root of the storage provider that database keeps its files in. On local
 disk that folder is beside its <code>data/</code>, <code>state/</code> and <code>logs/</code> folders, so with the default settings
@@ -3515,19 +3519,19 @@ stay — and deletes the old scratch folder.</p>
 <tr>
 <td>Datamodel overrides</td>
 <td><code>relatude.settings/</code>, <code>relatude.settings/&lt;ShortName&gt;/</code> (<code>datamodel.json</code>)</td>
-<td>you, <strong>Move to shared…</strong> in the model editor</td>
+<td>you, <strong>Move to shared</strong> in the model editor</td>
 <td>SHARED: the application</td>
 </tr>
 <tr>
 <td>Log definitions</td>
 <td><code>relatude.settings/…/logs/</code></td>
-<td>you, <strong>THIS SERVER</strong> on the Logs page</td>
+<td>you, <strong>Move to shared</strong> on the Logs page</td>
 <td>SHARED: the application</td>
 </tr>
 <tr>
 <td>GraphQL endpoints</td>
 <td><code>relatude.settings/…/graphql/</code></td>
-<td>you, <strong>THIS SERVER</strong> on the API page</td>
+<td>you, <strong>Move to shared</strong> on the API page</td>
 <td>SHARED: the application</td>
 </tr>
 <tr>
@@ -3594,14 +3598,14 @@ admin UI writes into it is ready to commit:</p>
 <ul>
 <li><strong>Settings</strong> changed on the settings pages go to <code>relatude.data/overrides/relatude.db.overrides.json</code>,
   outside source control — the place to try a value out. To make a change part of the application,
-  choose <strong>THIS SERVER</strong> on the settings page, <strong>Move into relatude.db.json</strong>, and commit the file.</li>
+  choose <strong>Move to shared</strong> on the settings page, <strong>Move into relatude.db.json</strong>, and commit the file.</li>
 <li><strong>Model changes</strong> in the model editor are written into the source wherever it can be written — the
   generated C# files of a <code>CompiledTypes</code> source with <code>GenerateModelFile</code> (rebuild and restart to see
   them), or a <code>RuntimeTypes</code> source's model files — and saved as overrides on THIS SERVER where it cannot.
-  <strong>Move to shared…</strong> in the overrides panel puts them into <code>relatude.settings/…/datamodel.json</code>;
+  <strong>Move to shared</strong> at the top right of the model editor puts them into <code>relatude.settings/…/datamodel.json</code>;
   commit that file.</li>
 <li><strong>Log definitions</strong> and <strong>GraphQL endpoints</strong> made or changed in the admin UI go to THIS SERVER,
-  <code>relatude.data/overrides/logs/</code> and <code>…/graphql/</code>. <strong>THIS SERVER</strong> on the Logs page and on the API page
+  <code>relatude.data/overrides/logs/</code> and <code>…/graphql/</code>. <strong>Move to shared</strong> on the Logs page and on the API page
   moves them into <code>relatude.settings/…/logs/</code> and <code>…/graphql/</code>; commit those.</li>
 <li>A <code>RuntimeTypes</code> source without a <code>Filepath</code> keeps its model files in <code>relatude.data/modelsources/</code>,
   inside the data folder. For a model that belongs to the application, give the source a <code>Filepath</code>
@@ -3653,11 +3657,11 @@ settings, datamodel overrides, log definitions, GraphQL endpoints — is kept on
 so it survives every deployment, and what each deployment's SHARED files say still applies underneath it. That is the point of the split: a deployment changes what the application says, and
 an installation's own changes stay on top.</p>
 <p><strong>Some admin UI actions write into <code>relatude.settings/</code> and the project's files</strong>, which on a server
-are the deployed copy: every move from a <strong>THIS SERVER</strong> dialog — on the settings page, in the model editor,
+are the deployed copy: every move from a <strong>Move to shared</strong> dialog — on the settings page, in the model editor,
 on the Logs and API pages — and activating a model change of a <code>RuntimeTypes</code> source whose <code>Filepath</code>
 is in the application's folder. What they write there lasts until a deployment replaces the folder —
 in a container, until the container is replaced — and a moved entry has left the overrides file by
-then as well, so it is gone from the installation too. The <strong>THIS SERVER</strong> dialogs warn before a move outside
+then as well, so it is gone from the installation too. The <strong>Move to shared</strong> dialogs warn before a move outside
 the Development environment. On a server, take a change home through source control instead:</p>
 <table>
 <thead>
@@ -3669,15 +3673,15 @@ the Development environment. On a server, take a change home through source cont
 <tbody>
 <tr>
 <td>A setting</td>
-<td><strong>THIS SERVER</strong> on the settings page lists every entry beside what <code>relatude.db.json</code> says. Put the value into <code>relatude.db.json</code> in source control and deploy it. Once the deployed file says the same, the entry changes nothing, and the next save leaves it out of the overrides file.</td>
+<td><strong>Move to shared</strong> on the settings page lists every entry beside what <code>relatude.db.json</code> says. Put the value into <code>relatude.db.json</code> in source control and deploy it. Once the deployed file says the same, the entry changes nothing, and the next save leaves it out of the overrides file.</td>
 </tr>
 <tr>
 <td>A datamodel override</td>
-<td>In the model editor's <strong>Move to shared…</strong>, <strong>Download shared file</strong> gives <code>datamodel.json</code> with the chosen overrides in it and changes nothing on the server. Commit it in place of the old one, and deploy.</td>
+<td>In the model editor's <strong>Move to shared</strong> dialog, <strong>Download shared file</strong> gives <code>datamodel.json</code> with the chosen overrides in it and changes nothing on the server. Commit it in place of the old one, and deploy.</td>
 </tr>
 <tr>
 <td>A log definition</td>
-<td><strong>THIS SERVER</strong> on the Logs page lists what THIS SERVER holds. The log's Definition view shows the file: copy it into <code>relatude.settings/…/logs/</code> in source control and deploy it. A definition taken away by a deployment leaves the entries and statistics in the data folder, and a definition with the same key picks them up again.</td>
+<td><strong>Move to shared</strong> on the Logs page lists what THIS SERVER holds. The log's Definition view shows the file: copy it into <code>relatude.settings/…/logs/</code> in source control and deploy it. A definition taken away by a deployment leaves the entries and statistics in the data folder, and a definition with the same key picks them up again.</td>
 </tr>
 <tr>
 <td>A model in a <code>RuntimeTypes</code> source</td>
@@ -3685,13 +3689,13 @@ the Development environment. On a server, take a change home through source cont
 </tr>
 <tr>
 <td>A GraphQL endpoint</td>
-<td><strong>THIS SERVER</strong> on the API page lists what THIS SERVER holds. Copy the endpoint's file into <code>relatude.settings/…/graphql/</code> in source control and deploy it, or map the endpoint in code.</td>
+<td><strong>Move to shared</strong> on the API page lists what THIS SERVER holds. Copy the endpoint's file into <code>relatude.settings/…/graphql/</code> in source control and deploy it, or map the endpoint in code.</td>
 </tr>
 </tbody>
 </table>
 <p>A copy of a data folder carries the installation's changes with it: production's <code>relatude.data/</code>
 restored on a test server brings production's settings, datamodel overrides, log definitions and
-GraphQL endpoints on THIS SERVER along. Look through the <strong>THIS SERVER</strong> dialogs after such a restore.</p>
+GraphQL endpoints on THIS SERVER along. Look through the <strong>Move to shared</strong> dialogs after such a restore.</p>
 <h4 id="appsettings-environment-variables-and-secrets">appsettings, environment variables and secrets<a class="anchor" href="#appsettings-environment-variables-and-secrets" aria-label="Link to this section">#</a></h4>
 <p>The <code>RelatudeDB</code> configuration section (<a href="#overriding-settings-from-configuration">above</a>) is what
 lets one <code>relatude.db.json</code> serve every environment. ASP.NET reads the sources in this order, a
@@ -6233,7 +6237,7 @@ away on this installation. A database with a short name (its <code>ShortName</co
 instead; only one database of an installation can be without one. The files are what the logs <em>are</em>:
 a definition written by hand into either folder, or copied from another application, is picked up when
 the database opens (or with <strong>Reload from disk</strong> on the Logs page).</p>
-<p>Each log on the Logs page is tagged <em>shared</em> or <em>this server</em>. <strong>THIS SERVER</strong> on its toolbar lists what THIS SERVER
+<p>Each log on the Logs page is tagged <em>shared</em> or <em>this server</em>. <strong>Move to shared</strong> at the top right lists what THIS SERVER
 holds — logs added, changed or taken away here — and moves the selection into SHARED, or discards it:
 a log goes back to its SHARED definition, entries moved as a change of definition would move them;
 one only THIS SERVER had goes, and what it recorded is kept for a log made later with the same key. Move in
@@ -6914,7 +6918,7 @@ on the database's <code>IoDatabase</code> storage provider, <code>relatude.data/
 an endpoint created or changed on the API page is saved there, and replaces the SHARED endpoint with
 the same id; deleting a SHARED endpoint writes a marker on THIS SERVER that takes it away on this
 installation. Every <code>.json</code> file in either folder is an endpoint, so you can also write a definition by
-hand or copy it from another database. <strong>THIS SERVER</strong> on the API page lists what THIS SERVER holds and moves it into
+hand or copy it from another database. <strong>Move to shared</strong> on the API page lists what THIS SERVER holds and moves it into
 SHARED, or discards it; each endpoint in the list is tagged <em>shared</em> or <em>this server</em>. <strong>Reload from disk</strong>
 reads both folders again. A file without an <code>id</code> gets one derived from its file name, the same in
 either folder.

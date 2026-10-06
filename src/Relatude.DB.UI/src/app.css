@@ -4124,31 +4124,126 @@ a.action-button {
   padding: 0 4px;
   font-size: 9.5px;
 }
-.source-tag.default {
+.source-tag.source-default {
   color: var(--text-faint);
   border-color: var(--border);
 }
-.source-tag.settings {
+.source-tag.source-settings {
   color: var(--accent);
   background: var(--accent-soft);
 }
-.source-tag.data {
+.source-tag.source-data {
   color: var(--override);
   background: var(--override-soft);
 }
 /* THIS SERVER taking a SHARED value away: there, but not in force */
-.source-tag.data.removes {
+.source-tag.source-data.removes {
   background: transparent;
   border: 1px dashed var(--override);
 }
-.source-tag.appsettings,
-.source-tag.code,
+.source-tag.source-appsettings,
+.source-tag.source-code,
 .source-tag.error {
   color: var(--danger);
   background: var(--danger-soft);
 }
-.data-button .source-tag {
-  cursor: inherit;
+/* Move to shared (ShareButton): the same button at the top right of every module that saves on THIS
+   SERVER - settings, databases, activity, data model, logs, API. THIS SERVER's teal, since that is what
+   it counts; the status pill fills in while there is something to move. Never the heading's capitals it
+   may sit in (a panel h3). */
+.share-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 4px 0 10px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+  color: var(--override);
+  background: var(--panel);
+  border: 1px solid var(--override);
+  border-radius: 7px;
+  cursor: pointer;
+}
+.share-button:hover:not(:disabled) {
+  background: var(--override-soft);
+}
+.share-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.share-button-status {
+  padding: 2px 7px;
+  font-size: 11.5px;
+  border-radius: 5px;
+  color: var(--override);
+  background: var(--override-soft);
+}
+.share-button.pending .share-button-status {
+  color: var(--panel);
+  background: var(--override);
+}
+.share-button.synced .share-button-status,
+.share-button.loading .share-button-status {
+  color: var(--text-muted);
+  background: transparent;
+}
+.share-button.error {
+  border-color: var(--danger);
+}
+.share-button.error .share-button-status {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+svg.share-button-icon {
+  flex: none;
+  color: var(--override);
+}
+/* in a row of tabs: level with the tabs, a little apart from what is before it */
+.logs-tabs > .share-button {
+  align-self: center;
+  margin: 0 0 3px 10px;
+}
+/* what sits at the right end of a row of tabs, kept together when the tabs wrap (Logs: a switch and the button) */
+.logs-tabs-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 3px auto;
+  align-self: center;
+}
+.share-button.at-end {
+  margin-left: auto;
+}
+/* a panel heading that carries a button at its end (Databases) */
+.panel h3.panel-head-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.panel h3.panel-head-row .storage-refresh {
+  margin-left: 0;
+}
+
+/* the title row of every move-to-shared dialog (DataDialog): icon, "Move to shared · what", and which way */
+.share-dialog-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.share-dialog-way {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  color: var(--text-faint);
 }
 
 svg.tone-override {
@@ -4285,13 +4380,26 @@ svg.tone-override {
   font-size: 12px;
 }
 
+/* the tag, then the value beside it as a block of its own: an inline code that wraps (a whole list set
+   at once) would draw its lines over the value below it */
 .overrides-value {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
   min-width: 0;
   max-width: 100%;
 }
 
+.overrides-value .source-tag {
+  flex: none;
+  margin-top: 1px;
+}
+
 .overrides-value code {
+  display: block;
+  min-width: 0;
   font-size: 11.5px;
+  line-height: 1.5;
   word-break: break-all;
 }
 

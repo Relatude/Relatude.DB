@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { IconLock } from "@tabler/icons-react";
 import { showConfirm, showError } from "../dialogs";
-import { discardOverrides, fetchOverrides, moveOverrides, type OverrideEntry, type OverridesView } from "../server/settings";
+import { discardOverrides, fetchOverrides, moveOverrides, type OverrideEntry, type OverrideGroup, type OverridesView } from "../server/settings";
+import { ShareButton } from "./ShareButton";
 import { count, DataDialog, DataValue, type DataDialogEntry } from "./DataDialog";
 
 /**
@@ -10,12 +11,13 @@ import { count, DataDialog, DataValue, type DataDialogEntry } from "./DataDialog
  * selection - or all of it - is moved into relatude.db.json, making it part of the application's own
  * settings, or discarded, which puts back what relatude.db.json says.
  *
- * The file is one for the whole server, so the list is too: the server's own settings and every
- * database, whichever settings page it was opened from. A setting the configuration section decides is
- * listed but cannot be picked: configuration never goes into relatude.db.json, and dropping the file's
- * value would change nothing that is running.
+ * The file is one for the whole server; a page that only writes part of it - one database's settings,
+ * the databases list, what Activity records - passes a scope, and the dialog lists that part. Without one
+ * it lists everything: the server's own settings and every database. A setting the configuration section
+ * decides is listed but cannot be picked: configuration never goes into relatude.db.json, and dropping
+ * the file's value would change nothing that is running.
  */
-export function OverridesDialog({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
+export function OverridesDialog({ scope, onClose, onChanged }: { scope?: OverridesScope; onClose: () => void; onChanged: () => void }) {
   const [view, setView] = useState<OverridesView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -27,12 +29,13 @@ export function OverridesDialog({ onClose, onChanged }: { onClose: () => void; o
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
 
-  const all = (view?.groups ?? []).flatMap((g) => g.entries);
+  const groups = view ? scopedGroups(view, scope) : [];
+  const all = groups.flatMap((g) => g.entries);
   const byPath = new Map(all.map((e) => [e.path, e]));
   const settingsFile = view?.settingsFile ?? "relatude.db.json";
 
   const entries: DataDialogEntry[] | null = view
-    ? view.groups.flatMap((group) =>
+    ? groups.flatMap((group) =>
         group.entries.map((entry) => ({
           key: entry.path,
           group: group.scope === "database" ? group.title + " · database" : group.title,
@@ -123,7 +126,7 @@ export function OverridesDialog({ onClose, onChanged }: { onClose: () => void; o
 
   return (
     <DataDialog
-      title={"Settings saved on this installation" + (view?.file ? " — " + view.file : "")}
+      title={scope?.title ?? "Settings"}
       intro={
         view && (
           <>
@@ -131,6 +134,7 @@ export function OverridesDialog({ onClose, onChanged }: { onClose: () => void; o
             start{view.configSection ? `, with the ${view.configSection} configuration section (APPSETTINGS) over both` : ""}. Move them into <code>{settingsFile}</code> to
             make them part of the application's own settings, or discard them to go back to what it says.
             {view.configSection ? ` Settings from the ${view.configSection} section are never moved.` : ""}
+            {scope?.filter ? ` Listed here: what this page writes. Server settings lists everything in the file.` : ""}
           </>
         )
       }
@@ -140,7 +144,7 @@ export function OverridesDialog({ onClose, onChanged }: { onClose: () => void; o
       loadingLabel="Reading the overrides file…"
       emptyText={
         <>
-          Nothing is saved in <code>{view?.file}</code>: every setting comes from <code>{settingsFile}</code>, configuration or its default.
+          Nothing {scope?.filter ? "of this page's " : ""}is saved in <code>{view?.file}</code>: every setting comes from <code>{settingsFile}</code>, configuration or its default.
         </>
       }
       message={message}
@@ -176,4 +180,72 @@ function shown(value: unknown, has: boolean, secret: boolean): string {
   if (value === null || value === undefined) return "not set";
   if (value === "") return "empty";
   return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+/** The part of relatude.db.overrides.json a page writes, and so lists and counts. */
+export interface OverridesScope {
+  /** what is moved, after "Move to shared": "Settings of MyDatabase" */
+  title: string;
+  /** the entries this page writes; everything when left out */
+  filter?: (entry: OverrideEntry, group: OverrideGroup) => boolean;
+}
+
+function scopedGroups(view: OverridesView, scope?: OverridesScope): OverrideGroup[] {
+  const filter = scope?.filter;
+  if (!filter) return view.groups;
+  return view.groups.map((g) => ({ ...g, entries: g.entries.filter((e) => filter(e, g)) })).filter((g) => g.entries.length > 0);
+}
+
+/** The path below a database's own settings, "" for the database itself; null for a server setting. */
+export function databasePath(entry: OverrideEntry, group: OverrideGroup): string | null {
+  if (group.scope !== "database") return null;
+  const close = entry.path.indexOf("]");
+  return close < 0 || close === entry.path.length - 1 ? "" : entry.path.slice(close + 2);
+}
+
+/**
+ * The Move to shared button of a page that writes relatude.db.overrides.json, with its dialog. It reads
+ * the file itself, so the status is this page's part of it; changeKey is anything that changes when the
+ * page has saved, which reads it again.
+ */
+export function SettingsShareButton({ scope, changeKey, onChanged, className }: { scope: OverridesScope; changeKey?: unknown; onChanged?: () => void; className?: string }) {
+  const [view, setView] = useState<OverridesView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const read = useCallback(() => {
+    fetchOverrides()
+      .then((v) => {
+        setView(v);
+        setError(null);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+  useEffect(read, [read, changeKey]);
+  // the server writes straight into relatude.db.json: there is nothing kept on this server to move
+  if (view && !view.enabled) return null;
+  const count = view ? scopedGroups(view, scope).reduce((n, g) => n + g.entries.length, 0) : null;
+  return (
+    <>
+      <ShareButton
+        className={className}
+        count={count}
+        error={error ?? view?.error ?? null}
+        title={`What is saved here is kept on THIS SERVER, ${view?.file ?? "relatude.db.overrides.json"}, merged over SHARED, ${view?.settingsFile ?? "relatude.db.json"}, at every start.`}
+        onClick={() => setOpen(true)}
+      />
+      {open && (
+        <OverridesDialog
+          scope={scope}
+          onClose={() => {
+            setOpen(false);
+            read();
+          }}
+          onChanged={() => {
+            read();
+            onChanged?.();
+          }}
+        />
+      )}
+    </>
+  );
 }

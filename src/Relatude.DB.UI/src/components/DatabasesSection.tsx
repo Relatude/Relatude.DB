@@ -10,6 +10,7 @@ import { closeStore, openStore } from "../server/storage";
 import { useLive } from "../live";
 import { formatCount } from "../format";
 import { Loading } from "./Loading";
+import { databasePath, SettingsShareButton, type OverridesScope } from "./OverridesDialog";
 
 /**
  * Every database on this server, and the things that are decided about a database rather than inside
@@ -49,10 +50,12 @@ export function DatabasesSection({ onSelectDb }: { onSelectDb?: (id: string) => 
   if (!data) return <Loading label="Loading the databases…" />;
 
   const open = data.databases.filter((d) => d.state === "Open").length;
+  // what the list itself changes - re-read only when that does, not at every live sample
+  const listKey = data.databases.map((d) => d.id + (d.isDefault ? "*" : "")).join(",");
 
   const listPanel = (
     <section className="panel">
-      <h3>
+      <h3 className="panel-head-row">
         Databases{" "}
         <span className="panel-sub">
           {data.databases.length} · {open} open
@@ -60,6 +63,7 @@ export function DatabasesSection({ onSelectDb }: { onSelectDb?: (id: string) => 
         <button className="icon-button storage-refresh" title="Refresh" onClick={load}>
           <IconRefresh size={14} stroke={1.8} />
         </button>
+        <SettingsShareButton className="at-end" scope={databasesScope} changeKey={listKey} onChanged={load} />
       </h3>
       <div className="db-list">
         {data.databases.map((db) => (
@@ -89,6 +93,12 @@ export function DatabasesSection({ onSelectDb }: { onSelectDb?: (id: string) => 
     </div>
   );
 }
+
+/** What this page writes into relatude.db.overrides.json: a database added or removed here, and which one is the default. */
+const databasesScope: OverridesScope = {
+  title: "Databases",
+  filter: (entry, group) => databasePath(entry, group) === "" || /^(DefaultStoreId|ContainerSettings)$/i.test(entry.path),
+};
 
 /**
  * One database. The two things that change what the server does - running or not, default or not -

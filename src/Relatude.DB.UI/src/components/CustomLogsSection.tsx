@@ -48,7 +48,8 @@ import type { DatabaseInfo } from "../server/serverInfo";
 import { lint } from "../code/lint";
 import { logIcon, type LogIconType } from "../logIcons";
 import { Loading } from "./Loading";
-import { DataButton, SourceTag } from "./SourceTag";
+import { SourceTag } from "./SourceTag";
+import { ShareButton } from "./ShareButton";
 import { CustomLogsDataDialog } from "./CustomLogsDataDialog";
 
 /**
@@ -122,6 +123,7 @@ export function CustomLogsSection({ db }: { db: DatabaseInfo }) {
   const [live, setLive] = useState(false);
   // the database's own logs beside these: off until asked for, and remembered for every database
   const [showBuiltIn, setShowBuiltInState] = useState(() => readStored(builtInKey) === "true");
+  const [dataOpen, setDataOpen] = useState(false);
 
   const apply = useCallback((i: CustomLogsInfo) => {
     setInfo(i);
@@ -244,15 +246,25 @@ export function CustomLogsSection({ db }: { db: DatabaseInfo }) {
             </button>
           );
         })}
-        <span className="clog-builtin-switch">
-          <Switch
-            label="Built-in logs"
-            checked={showBuiltIn}
-            title="Show the logs the database keeps about itself - the ones on the Activity page - here too, beside the logs defined here"
-            onChange={setShowBuiltIn}
+        {/* the switch and the button stay together at the right, also when the tabs wrap */}
+        <span className="logs-tabs-end">
+          <span className="clog-builtin-switch">
+            <Switch
+              label="Built-in logs"
+              checked={showBuiltIn}
+              title="Show the logs the database keeps about itself - the ones on the Activity page - here too, beside the logs defined here"
+              onChange={setShowBuiltIn}
+            />
+          </span>
+          {/* the top right of every module that saves on this server: what is held there, and the way into SHARED */}
+          <ShareButton
+            count={info.dataEntries.length}
+            title={`Logs defined or changed here are saved on THIS SERVER, ${info.dataFolder} - this installation's - over SHARED, ${info.settingsFolder ?? "relatude.settings"}.`}
+            onClick={() => setDataOpen(true)}
           />
         </span>
       </div>
+      {dataOpen && <CustomLogsDataDialog storeId={db.id} info={info} onClose={() => setDataOpen(false)} onChanged={refresh} />}
 
       {activeTab === overviewTab ? (
         <Overview db={db} info={info} builtIn={builtIn} onOpen={setTab} onNew={startNew} onChanged={refresh} />
@@ -597,7 +609,6 @@ function Overview({
 }) {
   const importInput = useRef<HTMLInputElement>(null);
   const [broken, setBroken] = useState<CustomLogLoadError | null>(null);
-  const [dataOpen, setDataOpen] = useState(false);
 
   async function toggle(logKey: string, change: { log?: boolean; statistics?: boolean }) {
     try {
@@ -667,11 +678,6 @@ function Overview({
             }}
           />
           <span className="logs-spacer" />
-          <DataButton
-            count={info.dataEntries.length}
-            title={`Logs defined or changed here are saved on THIS SERVER, ${info.dataFolder} - this installation's - over SHARED, ${info.settingsFolder ?? "relatude.settings"}. List what THIS SERVER holds, and move it into SHARED.`}
-            onClick={() => setDataOpen(true)}
-          />
           <button className="action-button" onClick={reload} title={`Read the definition files in ${info.settingsFolder ?? info.dataFolder} and ${info.dataFolder} again, for definitions changed on disk`}>
             <IconReload size={15} stroke={1.8} /> Reload from disk
           </button>
@@ -758,7 +764,6 @@ function Overview({
         setBroken(null);
         onChanged();
       }} />}
-      {dataOpen && <CustomLogsDataDialog storeId={db.id} info={info} onClose={() => setDataOpen(false)} onChanged={onChanged} />}
     </div>
   );
 }
@@ -815,7 +820,7 @@ function OverviewRow({
             title={
               source === "settings"
                 ? `Defined in SHARED, ${info.settingsFolder}/ - part of the application, on every installation. A change saved here is written to THIS SERVER, ${info.dataFolder}/.`
-                : `Defined or changed on this installation: THIS SERVER, ${info.dataFolder}/. Move it into SHARED with THIS SERVER on the toolbar.`
+                : `Defined or changed on this installation: THIS SERVER, ${info.dataFolder}/. Move it into SHARED with Move to shared at the top right.`
             }
           />
         )}

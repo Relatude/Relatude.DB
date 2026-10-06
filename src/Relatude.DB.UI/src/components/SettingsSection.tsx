@@ -61,8 +61,8 @@ import {
   type SettingsPage,
 } from "../server/settings";
 import { Loading } from "./Loading";
-import { OverridesDialog } from "./OverridesDialog";
-import { DataButton, SourceTag } from "./SourceTag";
+import { SettingsShareButton } from "./OverridesDialog";
+import { SourceTag } from "./SourceTag";
 
 // Where a programmatic scroll leaves a group's heading, and the line at which the contents counts a
 // heading as passed. The line sits a hair below the landing point, so a group that was scrolled to
@@ -129,7 +129,6 @@ export function SettingsSection({
   const [reopen, setReopen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [restarting, setRestarting] = useState(false);
-  const [showOverrides, setShowOverrides] = useState(false);
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
   const pane = useRef<HTMLDivElement>(null);
   const groupElements = useRef(new Map<string, HTMLElement>());
@@ -448,14 +447,6 @@ export function SettingsSection({
           {page.settingsFile}
           {page.configSection ? ` · ${page.configSection} section` : ""}
         </span>
-        {page.overrides && (
-          <DataButton
-            count={page.overrides.count}
-            error={page.overrides.error ? "The THIS SERVER file could not be read: " + page.overrides.error : null}
-            title={`Saving here writes to THIS SERVER, ${page.overrides.file} - this installation's - merged over SHARED, ${page.settingsFile}, at every start. List what THIS SERVER holds, and move it into ${page.settingsFile}.`}
-            onClick={() => setShowOverrides(true)}
-          />
-        )}
         {page.scope === "database" && (
           <button
             className="icon-button labelled"
@@ -476,6 +467,19 @@ export function SettingsSection({
         <button className="icon-button" title="Reload" onClick={load} disabled={editedPaths.length > 0}>
           <IconRefresh size={16} stroke={1.8} />
         </button>
+        {/* the top right of every module that saves on this server: what is held there, and the way into SHARED */}
+        {page.overrides && (
+          <SettingsShareButton
+            scope={
+              page.scope === "database"
+                ? { title: "Settings of " + page.title, filter: (_, group) => group.storeId === page.storeId }
+                : { title: "Settings" }
+            }
+            changeKey={page}
+            // moving changes nothing that is running, but discarding does, and either changes the marks
+            onChanged={load}
+          />
+        )}
         </div>
       </div>
       {message && <div className="settings-message">{message}</div>}
@@ -560,13 +564,6 @@ export function SettingsSection({
           })}
         </div>
       </div>
-      {showOverrides && (
-        <OverridesDialog
-          onClose={() => setShowOverrides(false)}
-          // moving changes nothing that is running, but discarding does, and either changes the marks
-          onChanged={load}
-        />
-      )}
       {editedPaths.length > 0 && (
         <div className="settings-savebar">
           <span>
@@ -752,7 +749,7 @@ function ListEditor({
       })}
       {list.removedHere.length > 0 && (
         <div className="setting-items-removed">
-          Removed here, still in relatude.db.json: {list.removedHere.join(", ")}. THIS SERVER at the top of the page moves the removal there, or takes it back.
+          Removed here, still in relatude.db.json: {list.removedHere.join(", ")}. Move to shared at the top right moves the removal there, or takes it back.
         </div>
       )}
       <button className="action-button" disabled={busy || list.locked} onClick={onAdd} title={list.locked ? "This list comes from appsettings" : undefined}>
@@ -940,7 +937,7 @@ function SettingSource({ setting, files }: { setting: SettingView; files: Settin
     return (
       <SourceTag
         kind="data"
-        title={`Saved on THIS SERVER, ${files.dataFile ?? "the overrides file"}, merged over SHARED, ${files.settingsFile}, at every start. ${files.settingsFile} has: ${settingsHas}. Move it there with THIS SERVER at the top of the page.`}
+        title={`Saved on THIS SERVER, ${files.dataFile ?? "the overrides file"}, merged over SHARED, ${files.settingsFile}, at every start. ${files.settingsFile} has: ${settingsHas}. Move it there with Move to shared at the top right.`}
       />
     );
   }

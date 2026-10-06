@@ -156,7 +156,7 @@ export function DatamodelOverridesDialog({
 
   return (
     <DataDialog
-      title="Datamodel overrides saved on this installation"
+      title="Datamodel overrides"
       intro={
         files && (
           <>

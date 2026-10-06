@@ -48,7 +48,8 @@ import {
 } from "../server/graphql";
 import type { DatabaseInfo } from "../server/serverInfo";
 import { CodeEditor } from "./CodeEditor";
-import { DataButton, SourceTag } from "./SourceTag";
+import { SourceTag } from "./SourceTag";
+import { ShareButton } from "./ShareButton";
 import { EndpointsDataDialog } from "./EndpointsDataDialog";
 import { GraphQLExplorer, type ExplorerSource } from "./GraphQLExplorer";
 import { CopyText } from "./CopyText";
@@ -73,6 +74,7 @@ export function ApiSection({ db }: { db: DatabaseInfo }) {
   const [drafts, setDrafts] = useState<Record<string, EndpointDefinition>>({});
   // the view each endpoint's tab was left on
   const [views, setViews] = useState<Record<string, EditorView>>({});
+  const [dataOpen, setDataOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -148,11 +150,20 @@ export function ApiSection({ db }: { db: DatabaseInfo }) {
           <IconPlus size={15} stroke={1.8} /> New endpoint
           {drafts[newTab] && <span className="clog-draft-dot" title="Unsaved changes" />}
         </button>
+        {/* the top right of every module that saves on this server: what is held there, and the way into SHARED */}
+        {info.dataFolder && (
+          <ShareButton
+            className="at-end"
+            count={info.dataEntries.length}
+            title={`Endpoints defined or changed here are saved on THIS SERVER, ${info.dataFolder} - this installation's - over SHARED, ${info.settingsFolder}.`}
+            onClick={() => setDataOpen(true)}
+          />
+        )}
       </div>
+      {dataOpen && <EndpointsDataDialog storeId={db.id} info={info} onClose={() => setDataOpen(false)} onChanged={load} />}
       <div className="api-body">
         {!editing ? (
           <Overview
-            storeId={db.id}
             info={info}
             drafts={drafts}
             onOpen={setTab}
@@ -183,21 +194,18 @@ export function ApiSection({ db }: { db: DatabaseInfo }) {
 // ---- overview ----
 
 function Overview({
-  storeId,
   info,
   drafts,
   onOpen,
   onNew,
   onReload,
 }: {
-  storeId: string;
   info: EndpointsInfo;
   drafts: Record<string, EndpointDefinition>;
   onOpen: (id: string) => void;
   onNew: () => void;
   onReload: () => void;
 }) {
-  const [dataOpen, setDataOpen] = useState(false);
   return (
     <div className="logs-body">
       <section className="panel">
@@ -209,13 +217,6 @@ function Overview({
             <IconPlus size={15} stroke={1.8} /> New endpoint
           </button>
           <span className="logs-spacer" />
-          {info.dataFolder && (
-            <DataButton
-              count={info.dataEntries.length}
-              title={`Endpoints defined or changed here are saved on THIS SERVER, ${info.dataFolder} - this installation's - over SHARED, ${info.settingsFolder}. List what THIS SERVER holds, and move it into SHARED.`}
-              onClick={() => setDataOpen(true)}
-            />
-          )}
           <button className="action-button" onClick={onReload} title="Read the endpoint files again, for files edited by hand">
             <IconRefresh size={15} stroke={1.8} /> Reload from disk
           </button>
@@ -263,7 +264,7 @@ function Overview({
                     title={
                       e.source === "settings"
                         ? `Defined in SHARED, ${e.file} - part of the application, on every installation. A change saved here is written to THIS SERVER, ${info.dataFolder}.`
-                        : `Defined or changed on this installation: THIS SERVER, ${e.file}. Move it into SHARED with THIS SERVER on the toolbar.`
+                        : `Defined or changed on this installation: THIS SERVER, ${e.file}. Move it into SHARED with Move to shared at the top right.`
                     }
                   />{" "}
                   {e.file}
@@ -276,7 +277,6 @@ function Overview({
           </div>
         )}
       </section>
-      {dataOpen && <EndpointsDataDialog storeId={storeId} info={info} onClose={() => setDataOpen(false)} onChanged={onReload} />}
     </div>
   );
 }

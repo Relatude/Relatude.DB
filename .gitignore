@@ -403,3 +403,4 @@ examples/WebApp.Mvc/relatude.settings/db/relatude.db.json
 /examples/WebApp.Mvc/relatude.data
 /examples/Website.Simple/.uploads
 examples/Website.Simple/relatude.db.rar
+examples/Website.Simple/appsettings.Development.json

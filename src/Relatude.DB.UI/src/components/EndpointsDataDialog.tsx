@@ -98,7 +98,7 @@ export function EndpointsDataDialog({ storeId, info, onClose, onChanged }: { sto
 
   return (
     <DataDialog
-      title="Endpoints saved on this installation"
+      title="GraphQL endpoints"
       intro={
         <>
           Endpoints defined or changed here are saved on THIS SERVER, <code>{dataFolder}</code>, and replace the ones every installation has in SHARED, <code>{settingsFolder}</code> -

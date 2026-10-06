@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { IconAdjustments, IconArrowBackUp, IconChevronDown, IconFileImport, IconChevronRight, IconChevronUp, IconEye, IconEyeOff, IconList, IconListDetails, IconLock, IconPlus, IconRefreshAlert, IconRestore, IconSitemap, IconTrash } from "@tabler/icons-react";
+import { IconAdjustments, IconArrowBackUp, IconChevronDown, IconChevronRight, IconChevronUp, IconEye, IconEyeOff, IconList, IconListDetails, IconLock, IconPlus, IconRefreshAlert, IconRestore, IconSitemap, IconTrash } from "@tabler/icons-react";
 import { IndexMarks, KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, kindMeta, relationMeta, sourceKindMeta, type IndexFlags } from "./DatamodelIcons";
 import { OverrideMarks, showValue, type EditorContext, type Selection } from "./DatamodelEditors";
 import { RemovedTag, SourceTag } from "./SourceTag";
@@ -541,7 +541,6 @@ export function SourcesView({
   onAdd,
   locked,
   overridesFile,
-  onOpenOverrides,
 }: {
   ctx: EditorContext;
   selection: Selection | null;
@@ -550,7 +549,6 @@ export function SourcesView({
   onAdd: () => void;
   locked: boolean;
   overridesFile: OverridesFileInfo;
-  onOpenOverrides: () => void;
 }) {
   return (
     <div className="dm-sources">
@@ -652,7 +650,7 @@ export function SourcesView({
           );
         })}
       </div>
-      <OverridesPanel ctx={ctx} file={overridesFile} onOpenOverrides={onOpenOverrides} />
+      <OverridesPanel ctx={ctx} file={overridesFile} />
     </div>
   );
 }
@@ -668,7 +666,7 @@ export function SourcesView({
  * opens the form the override belongs to; one whose type or property is gone from the model can only be
  * removed.
  */
-function OverridesPanel({ ctx, file, onOpenOverrides }: { ctx: EditorContext; file: OverridesFileInfo; onOpenOverrides: () => void }) {
+function OverridesPanel({ ctx, file }: { ctx: EditorContext; file: OverridesFileInfo }) {
   const settings = file.settings;
   const rows: (OverrideEntry & { taken: boolean })[] = [...listOverrides(ctx.model).map((e) => ({ ...e, taken: false })), ...listResets(ctx.model, settings).map((e) => ({ ...e, taken: true }))];
   const settingsCount = rows.filter((e) => !e.taken && layerOf(settings, e.typeId, e.propertyId, e.path, e.value) === "settings").length;
@@ -678,7 +676,7 @@ function OverridesPanel({ ctx, file, onOpenOverrides }: { ctx: EditorContext; fi
   };
   const label = (path: string, propertyType: string | null) => field(path, propertyType)?.label ?? path;
   const settingsTitle = "In SHARED, " + file.settingsLocation + ": part of the application, in source control and on every installation. A change made here is written to THIS SERVER, " + file.dataLocation + ".";
-  const dataTitle = "On THIS SERVER, " + file.dataLocation + ": this installation's, saved when the model is activated. Move it into SHARED with Move to shared.";
+  const dataTitle = "On THIS SERVER, " + file.dataLocation + ": this installation's, saved when the model is activated. Move it into SHARED with Move to shared at the top right.";
   return (
     <div className="dm-overrides">
       <div className="dm-overrides-head">
@@ -700,15 +698,12 @@ function OverridesPanel({ ctx, file, onOpenOverrides }: { ctx: EditorContext; fi
         <span className="badge dm-badge-override" title={settingsCount + " in SHARED, " + (rows.length - settingsCount) + " on THIS SERVER"}>
           {rows.length}
         </span>
-        <button className="action-button" onClick={onOpenOverrides} disabled={!file.writable} title={file.writable ? "Move overrides on THIS SERVER into SHARED" : "The database has no storage provider to keep THIS SERVER's overrides in"}>
-          <IconFileImport size={15} stroke={1.8} /> Move to shared…
-        </button>
       </div>
       {file.settingsError && <div className="dm-notice error">{file.settingsError}</div>}
       <div className="muted dm-help-text">
         Attributes set on top of what the sources say, where a source cannot be written: a default value, whether a type or a property is in the text index, a property&apos;s index or
-        rules. The database applies them when it opens, as if the source said so. What is set here is saved on THIS SERVER when the model is activated; move overrides into SHARED to
-        have them in source control and on every installation.
+        rules. The database applies them when it opens, as if the source said so. What is set here is saved on THIS SERVER when the model is activated; move overrides into SHARED, with Move to shared at
+        the top right, to have them in source control and on every installation.
         {!file.writable && " The database has no storage provider to keep THIS SERVER's overrides in, so they cannot be saved until it has one."}
       </div>
       {rows.length === 0 ? (

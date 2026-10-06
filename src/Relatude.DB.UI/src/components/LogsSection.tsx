@@ -51,6 +51,7 @@ import type { DatabaseInfo } from "../server/serverInfo";
 import { useLive } from "../live";
 import { formatBytes, formatCount, formatTime } from "../format";
 import { Loading } from "./Loading";
+import { databasePath, SettingsShareButton } from "./OverridesDialog";
 
 /**
  * What the database has been doing: the trace it keeps in memory, the logs it writes to disk, the
@@ -98,6 +99,16 @@ export function LogsSection({ db }: { db: DatabaseInfo }) {
           />
         ))}
         <Tab id="scans" label="Scans" icon={IconRadar2} active={tab} onSelect={setTab} />
+        {/* what is recorded is saved on this server, like every other setting */}
+        <SettingsShareButton
+          className="at-end"
+          scope={{
+            title: "Activity recording of " + db.name,
+            filter: (entry, group) => group.storeId === db.id && /^LocalSettings\.(LogRecording|MinQueryDurationMsBeforeLogging)\b/i.test(databasePath(entry, group) ?? ""),
+          }}
+          changeKey={info}
+          onChanged={load}
+        />
       </div>
       <SaveBar db={db} info={info} onSaved={load} />
       {tab === "trace" ? (

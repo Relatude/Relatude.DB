@@ -67,6 +67,7 @@ import { PropertyEditor, readOnlyNote, RelationEditor, SourceEditor, SourcePicke
 import { peekSearchTarget, takeDatamodelTarget, takeSearchTarget, useNavigationRequest, type DatamodelTarget } from "../navigate";
 import { HistoryView, MatrixView, ModelsView, RelationsView, SourcesView } from "./DatamodelViews";
 import { DatamodelOverridesDialog } from "./DatamodelOverridesDialog";
+import { ShareButton } from "./ShareButton";
 import { DatamodelDiagram } from "./diagram/DatamodelDiagram";
 import { DatamodelGraphView } from "./DatamodelGraphView";
 import { modeKey, remember } from "./datamodelGraphModel";
@@ -1045,6 +1046,19 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
                 <IconRocket size={15} stroke={2} /> Activate…
               </button>
             </div>
+            {/* the top right of every module that saves on this server: activating writes the overrides
+                there, and this is the way into SHARED */}
+            <ShareButton
+              count={page.overrides.writable ? page.overrides.dataCount : 0}
+              error={page.overrides.dataError}
+              disabled={!page.overrides.writable || !ctx}
+              title={
+                page.overrides.writable
+                  ? `Overrides set in the editor are saved on THIS SERVER, ${page.overrides.dataLocation}, when the model is activated - merged over SHARED, ${page.overrides.settingsLocation}.`
+                  : "The database has no storage provider to keep THIS SERVER's overrides in."
+              }
+              onClick={() => setOverridesOpen(true)}
+            />
           </div>
         </div>
         <div className="dm-toolbar-row">
@@ -1196,7 +1210,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
           {view === "graph" && <DatamodelGraphView ctx={ctx} visibleTypes={visibleTypes} selection={selection} query={query} storeId={db.id} />}
           {view === "matrix" && <MatrixView {...viewProps} />}
           {view === "sources" && (
-            <SourcesView ctx={ctx} selection={selection} hiddenSources={hiddenSources} onToggleVisible={toggleSource} onAdd={addSource} locked={page.sourcesLocked} overridesFile={page.overrides} onOpenOverrides={() => setOverridesOpen(true)} />
+            <SourcesView ctx={ctx} selection={selection} hiddenSources={hiddenSources} onToggleVisible={toggleSource} onAdd={addSource} locked={page.sourcesLocked} overridesFile={page.overrides} />
           )}
           {view === "history" && <HistoryView history={page.history} activeChecksum={page.active?.checksum ?? null} draftBaseChecksum={page.draft?.baseChecksum ?? null} onLoad={loadFromHistory} onDelete={removeHistory} />}
         </div>
