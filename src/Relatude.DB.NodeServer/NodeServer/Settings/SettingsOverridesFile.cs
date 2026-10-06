@@ -31,8 +31,6 @@ public sealed class SettingsOverridesFile {
     /// <summary>Where the file is kept when there is no default database to keep it with: relative to
     /// the root data folder, in the overrides folder of where a new installation's database folder would be.</summary>
     public static readonly string FallbackRelativePath = Path.Combine(Defaults.DataFolderPath, SettingsOverridesLocation.FolderName, FileName);
-    /// <summary>The same, as older versions had it: in that folder itself.</summary>
-    public static readonly string LegacyFallbackRelativePath = Path.Combine(Defaults.DataFolderPath, FileName);
 
     static readonly TimeSpan _writeTimeout = TimeSpan.FromSeconds(10);
     const string _header =
@@ -41,9 +39,6 @@ public sealed class SettingsOverridesFile {
         + "// on every save from the settings pages; use \"Move into relatude.db.json\" there to make a change permanent.\n";
 
     SettingsOverridesLocation _location;
-    // where the file was read from when that was the place older versions kept it: taken away once
-    // the file has been written where it belongs
-    SettingsOverridesLocation? _readFromLegacy;
     readonly string? _unavailable;
     JsonObject _base;
     JsonObject _patch;
@@ -59,7 +54,7 @@ public sealed class SettingsOverridesFile {
     /// <summary>Where the file is.</summary>
     public SettingsOverridesLocation Location => _location;
     /// <summary>Where the file is, for people.</summary>
-    public string Display => (_readFromLegacy ?? _location).Display;
+    public string Display => _location.Display;
     /// <summary>Why the file could not be read at start, when it could not. The server then runs without
     /// it and refuses to save, since a save would write over what the file holds.</summary>
     public string? Unavailable => _unavailable;
@@ -88,13 +83,6 @@ public sealed class SettingsOverridesFile {
         out RelatudeDBServerSettings effective) {
         var baseJson = ToJson(fileSettings);
         var read = readFile(location);
-        // not where it belongs, but where an older version put it: read from there, and moved by the
-        // next save (the server moves it at start already, see MoveFromLegacyPlace)
-        SettingsOverridesLocation? legacy = null;
-        if (read == null && location.Legacy is { } old && exists(old)) {
-            read = readFile(old);
-            legacy = old;
-        }
         effective = fileSettings;
         if (read == null) return new SettingsOverridesFile(location, baseJson, new JsonObject());
         var patch = normalizeObject(read, typeof(RelatudeDBServerSettings), "", warn);
@@ -110,7 +98,7 @@ public sealed class SettingsOverridesFile {
         // what the file says once read: values written the way the settings write them, and nothing
         // that changes nothing, so the page and the next save see the same difference
         var normalized = SettingsPatch.Diff(baseJson, ToJson(applied));
-        var file = new SettingsOverridesFile(location, baseJson, normalized) { _readFromLegacy = legacy };
+        var file = new SettingsOverridesFile(location, baseJson, normalized);
         if (file.Entries.Count == 0) return file;
         effective = applied;
         info("Settings from " + location.Display + " applied: " + string.Join(", ", file.Entries.Select(e => SettingsPatch.Display(e.Path)
@@ -132,36 +120,11 @@ public sealed class SettingsOverridesFile {
     public bool Save(JsonObject fileLayer) {
         requireAvailable();
         var next = SettingsPatch.Diff(_base, fileLayer);
-        if (JsonNode.DeepEquals(next, _patch) && (next.Count > 0) == exists(_location) && _readFromLegacy == null) return false;
+        if (JsonNode.DeepEquals(next, _patch) && (next.Count > 0) == exists(_location)) return false;
         write(_location, next);
         _patch = next;
         _entries = null;
-        leaveLegacyPlace();
         return true;
-    }
-
-    /// <summary>
-    /// Moves a file older versions kept at the storage root into the overrides folder, where
-    /// <paramref name="location"/> says it belongs: written there first, then taken away from the root.
-    /// The text goes across as it is, comments and all. Does nothing when there is no such file, or when
-    /// there already is one in the overrides folder. Returns true when it moved the file.
-    /// </summary>
-    public static bool MoveFromLegacyPlace(SettingsOverridesLocation location) {
-        if (location.Legacy is not { } legacy || exists(location) || !exists(legacy)) return false;
-        var text = readText(legacy);
-        if (string.IsNullOrWhiteSpace(text)) return false;
-        writeText(location, text);
-        writeText(legacy, null);
-        return true;
-    }
-    void leaveLegacyPlace() {
-        if (_readFromLegacy == null) return;
-        try {
-            writeText(_readFromLegacy, null);
-        } catch {
-            // the file is where it belongs now; the copy left behind is read no more
-        }
-        _readFromLegacy = null;
     }
 
     /// <summary>relatude.db.json as it would be with the entries <paramref name="keep"/> accepts merged
@@ -188,7 +151,6 @@ public sealed class SettingsOverridesFile {
         if (location.SameAs(_location)) return false;
         if (_patch.Count > 0) write(location, _patch);
         write(_location, new JsonObject()); // an empty patch deletes the file
-        leaveLegacyPlace();
         _location = location;
         return true;
     }

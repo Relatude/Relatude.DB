@@ -3976,6 +3976,28 @@ a.action-button {
   box-shadow: inset 3px 0 0 -1px var(--section-tone);
 }
 
+/* Show comments off: no rule between the rows and little padding, since a row is then just a label and
+   its value. Label and value are both at least as tall as a field and centred in that height, so a label
+   sits level with a text box and a toggle alike, while anything under the label (an appsettings lock, a
+   warning) still starts at the top. */
+.settings.compact .setting {
+  padding: 2px 0;
+  border-top: none;
+}
+.settings.compact .setting:first-child {
+  padding-top: 0;
+}
+.settings.compact .setting-item .setting:first-child {
+  padding-top: 8px;
+}
+.settings.compact .setting-item .settings-list {
+  padding-bottom: 8px;
+}
+.settings.compact .setting-label,
+.settings.compact .setting-control {
+  min-height: 31px;
+}
+
 .setting-label {
   display: flex;
   align-items: center;
@@ -4078,6 +4100,55 @@ a.action-button {
 .setting-badge.overrides {
   color: var(--override);
   background: var(--override-soft);
+}
+
+/* Where a value comes from (SourceTag): DEFAULT, SHARED (.settings: relatude.settings, part of the
+   application), THIS SERVER (.data: this installation's data folder), APPSETTINGS and CODE. The same colours
+   on every page that shows them - settings, datamodel overrides, logs, endpoints - so THIS SERVER reads as
+   THIS SERVER wherever it is: teal, the colour overrides have always had. */
+.source-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: help;
+}
+.source-tag.small {
+  padding: 0 4px;
+  font-size: 9.5px;
+}
+.source-tag.default {
+  color: var(--text-faint);
+  border-color: var(--border);
+}
+.source-tag.settings {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.source-tag.data {
+  color: var(--override);
+  background: var(--override-soft);
+}
+/* THIS SERVER taking a SHARED value away: there, but not in force */
+.source-tag.data.removes {
+  background: transparent;
+  border: 1px dashed var(--override);
+}
+.source-tag.appsettings,
+.source-tag.code,
+.source-tag.error {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+.data-button .source-tag {
+  cursor: inherit;
 }
 
 svg.tone-override {
@@ -4513,6 +4584,14 @@ svg.tone-override {
   }
   .setting-control {
     justify-content: flex-start;
+  }
+  /* stacked, the label is above its value rather than beside it: nothing to be level with */
+  .settings.compact .setting-label,
+  .settings.compact .setting-control {
+    min-height: 0;
+  }
+  .settings.compact .setting {
+    padding: 4px 0;
   }
 }
 

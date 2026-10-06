@@ -6,6 +6,7 @@ import { Combobox, type ComboOption } from "./Combobox";
 import { DialogTools } from "./DialogTools";
 import { ColorField } from "./ColorField";
 import { CodeTab } from "./DatamodelCodeTab";
+import { RemovedTag, SourceTag } from "./SourceTag";
 import {
   allProperties,
   defaultSourcePath,
@@ -41,7 +42,7 @@ import {
   propertyHasOverrides,
   propertyOverride,
   requestsOf,
-  sharedOverride,
+  settingsOverride,
   type OverridesPlaces,
   resolvePropertySetting,
   resolveTypeSetting,
@@ -628,50 +629,45 @@ export function showValue(v: unknown): string {
   return String(v);
 }
 
-function OverriddenChip({ title, shared }: { title: string; shared?: boolean }) {
-  return (
-    <span className={"dm-ochip overridden" + (shared ? " shared" : "")} title={title}>
-      <IconAdjustments size={11} stroke={2.2} /> {shared ? "shared override" : "overridden"}
-    </span>
-  );
-}
-
 /**
- * The chip and the arrow of one override, by the file it is in. The model holds the overrides in force;
- * comparing with the shared file tells which file a value comes from. The arrow takes one file away at a
- * time: an override this installation sets over a shared one goes back to the shared value, one that is
- * the shared value is taken away on this installation (what back says then applies), and a shared value
- * taken away here comes back.
+ * The tag and the arrow of one override, by the file it is in. The model holds the overrides in force;
+ * comparing with the SHARED file tells which file a value comes from. The arrow takes one file away at a
+ * time: a THIS SERVER override over a SHARED one goes back to the SHARED value, one that is the SHARED value
+ * is taken away on this installation (what back says then applies), and a SHARED value taken away here
+ * comes back.
  */
 function overrideFrame(ctx: EditorContext, typeId: string, propertyId: string | null, path: string, value: unknown, back: string, forType?: string) {
   const places = ctx.overrides;
-  const shared = sharedOverride(places.shared, typeId, propertyId, path);
+  const inSettings = settingsOverride(places.settings, typeId, propertyId, path);
   const overridden = value !== undefined && value !== null;
   const forWhom = forType ? " for " + forType : "";
+  const writes = " A change made here is written to THIS SERVER, " + places.dataLocation + ".";
   const set = (v: unknown) => () => ctx.update((m) => setOverride(m, typeId, propertyId, path, v));
-  if (overridden && shared !== undefined && sameValue(shared, value)) {
+  if (overridden && inSettings !== undefined && sameValue(inSettings, value)) {
     return {
       overridden,
-      chip: <OverriddenChip shared title={"Overridden" + forWhom + " in the shared overrides, " + places.sharedLocation + ", which every installation has. Without it: " + back + "."} />,
-      reset: { title: "Take the shared override away on this installation: back to " + back, onClick: set(undefined) },
+      chip: <SourceTag kind="settings" small title={"Overridden" + forWhom + " in SHARED, " + places.settingsLocation + " - part of the application, on every installation. Without it: " + back + "." + writes} />,
+      reset: { title: "Take the SHARED override away on this installation: back to " + back, onClick: set(undefined) },
     };
   }
   if (overridden) {
     return {
       overridden,
-      chip: <OverriddenChip title={"Overridden" + forWhom + " for this installation (" + places.location + ")" + (shared !== undefined ? ", over the shared overrides' " + showValue(shared) : "") + ". Without it: " + back + "."} />,
-      reset: shared !== undefined ? { title: "Back to the shared override: " + showValue(shared), onClick: set(shared) } : { title: "Remove the override: back to " + back, onClick: set(undefined) },
+      chip: (
+        <SourceTag
+          kind="data"
+          small
+          title={"Overridden" + forWhom + " on THIS SERVER, " + places.dataLocation + " - this installation's" + (inSettings !== undefined ? ", over SHARED's " + showValue(inSettings) : "") + ". Without it: " + back + ". Move it into SHARED from Sources, Overrides."}
+        />
+      ),
+      reset: inSettings !== undefined ? { title: "Back to the SHARED override: " + showValue(inSettings), onClick: set(inSettings) } : { title: "Remove the override: back to " + back, onClick: set(undefined) },
     };
   }
-  if (shared !== undefined) {
+  if (inSettings !== undefined) {
     return {
       overridden,
-      chip: (
-        <span className="dm-ochip reset" title={"The shared overrides (" + places.sharedLocation + ") set " + showValue(shared) + forWhom + "; this installation takes that away, so " + back + " applies here."}>
-          shared, taken away
-        </span>
-      ),
-      reset: { title: "Use the shared override again: " + showValue(shared), onClick: set(shared) },
+      chip: <RemovedTag small title={"SHARED (" + places.settingsLocation + ") overrides it to " + showValue(inSettings) + forWhom + "; THIS SERVER takes that away on this installation, so " + back + " applies here."} />,
+      reset: { title: "Use the SHARED override again: " + showValue(inSettings), onClick: set(inSettings) },
     };
   }
   return { overridden, chip: null, reset: null };
@@ -919,7 +915,7 @@ export function OverrideMarks({ ctx, typeId, propertyId }: { ctx: EditorContext;
   return (
     <>
       {marks.database && (
-        <span className="dm-ochip overridden small" title="Overridden, in the shared overrides or for this installation: the property's form says which">
+        <span className="dm-ochip overridden small" title="Overridden, in SHARED or THIS SERVER: the property's form says which">
           <IconAdjustments size={10} stroke={2.2} />
         </span>
       )}

@@ -210,12 +210,10 @@ public class StoreLogger : IDisposable, IStoreLogger {
     /// <param name="io">The provider the log folder is in.</param>
     /// <param name="customLogDefinitions">Where the definitions of the custom logs are kept; null keeps
     /// them in the log folder (see <see cref="Logging.CustomLogs"/>).</param>
-    /// <param name="log">Told what moving the files of an older layout did.</param>
-    public StoreLogger(IIOProvider io, Datamodel? datamodel, LogDefinitionFolder? customLogDefinitions = null, Action<string>? log = null) {
+    /// <param name="log">Told what loading the custom logs' definitions could not do.</param>
+    public StoreLogger(IIOProvider io, Datamodel? datamodel, LayeredDefinitionFolders? customLogDefinitions = null, Action<string>? log = null) {
         _io = io;
         _datamodel = datamodel;
-        // older versions kept every log's files directly in the log folder; moved before any log reads them
-        LogFileLayout.MoveIntoLogFolders(_io, log);
         _logStore = new LogStore(_io, getSettings());
         _customLogs = new CustomLogs(_io, _systemLogKeys, customLogDefinitions, log);
     }

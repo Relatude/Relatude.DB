@@ -119,8 +119,6 @@ public class SettingsCatalogTests {
             "LocalSettings.LogRecording", "LocalSettings.MinQueryDurationMsBeforeLogging",
             // reporting in is a json-file setting only, see ReportingInIsAJsonFileSettingOnly
             "DisableHeartbeat",
-            // no longer used: read once, to copy the file it names to the shared datamodel overrides
-            "DatamodelOverridesPath",
 #if !DEBUG
             // only a debug build offers the license server address, see LicenseServerAddressIsOnlyOfferedInDebugBuilds
             "ServicesServerUrl",

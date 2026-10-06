@@ -9,8 +9,8 @@ Backend/wwwroot/
 
 # The database itself: transaction log, indexes, uploaded files, and the changes made in the admin UI on
 # this machine. Delete the folder to start over. relatude.settings/ is NOT ignored: it is part of the application.
-Backend/relatude.db/
-Backend/relatude.db.temp/
+Backend/relatude.data/
+Backend/relatude.data.temp/
 
 # Editors and OS
 .vs/

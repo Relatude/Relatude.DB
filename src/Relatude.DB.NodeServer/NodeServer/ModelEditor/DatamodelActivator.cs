@@ -18,7 +18,7 @@ public sealed class DatamodelActivationResult {
     /// <summary>Whether reloading the written sources gives exactly the draft; null when not checked.</summary>
     public bool? ChecksumMatches { get; set; }
     public string? Message { get; set; }
-    /// <summary>This installation's overrides file was written (or removed).</summary>
+    /// <summary>The DATA overrides file was written (or removed).</summary>
     public bool OverridesChanged { get; set; }
     /// <summary>How many nodes had their indexed text emptied because their type stopped being text indexed.</summary>
     public int TextCleared { get; set; }
@@ -61,7 +61,7 @@ public sealed class DatamodelActivator {
         _drafts.Snapshot(active, "replaced");
 
         // 2. the files: deletes first, so a generated folder is emptied before it is filled again. Not
-        // while overrides are being moved into the shared file, which rewrites this installation's
+        // while overrides are being moved into SETTINGS, which rewrites the DATA file
         lock (_container.OverridesWriteLock) {
             foreach (var file in plan.Files.Where(f => f.Changed).OrderBy(f => f.Action == PlannedFileAction.Delete ? 0 : 1)) {
                 if (file.IoId != null && file.IoKey != null) {

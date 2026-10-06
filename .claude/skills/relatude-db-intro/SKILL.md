@@ -175,7 +175,7 @@ model. Show only the interesting part:
   "ContainerSettings": [{
     "Name": "MyDatabase",
     "AutoOpen": true,
-    "IOSettings": [{ "Id": "b195...", "Name": "Local disk", "Path": "relatude.db", "IOType": "LocalDisk" }],
+    "IOSettings": [{ "Id": "b195...", "Name": "Local disk", "Path": "relatude.data", "IOType": "LocalDisk" }],
     "IoDatabase": "b195...",
     "DatamodelSources": [
       { "Name": "Shop", "Namespace": "Website.Simple.Models", "Type": "CompiledTypes" }

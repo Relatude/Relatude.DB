@@ -249,41 +249,41 @@ export function propertyHasOverrides(model: ModelJson, typeId: string, propertyI
   return { database: any(db), own: any(own) };
 }
 
-// ---- the two files: the shared one, and this installation's ----
+// ---- the two files: SHARED and THIS SERVER ----
 //
-// The model carries the overrides in force: the shared file's (relatude.settings, deployed to every
-// installation) with this installation's merged over them. Activating writes what differs from the shared
-// file into this installation's, and null there for a shared value the draft no longer has. So which file an
-// override is in follows from comparing with the shared file, which the page gets on its own.
+// The model carries the overrides in force: the SHARED file's (relatude.settings, deployed to every
+// installation) with the THIS SERVER file's (this installation's) merged over them. Activating writes what differs
+// from SHARED into THIS SERVER, and null there for a SHARED value the draft no longer has. So which file an
+// override is in follows from comparing with the SHARED file, which the page gets on its own.
 
 /** Where the database keeps its overrides, for the forms to say which file a value is in. */
 export interface OverridesPlaces {
-  /** what the shared file overrides */
-  shared: OverridesJson | null;
-  /** the shared file, relative to the application's folder */
-  sharedLocation: string;
-  /** this installation's file */
-  location: string;
+  /** what the SHARED file overrides */
+  settings: OverridesJson | null;
+  /** the SHARED file, relative to the application's folder */
+  settingsLocation: string;
+  /** the THIS SERVER file */
+  dataLocation: string;
 }
 
-/** What the shared file says for an attribute, or undefined when it says nothing. */
-export function sharedOverride(shared: OverridesJson | null | undefined, typeId: string, propertyId: string | null, path: string): unknown {
-  const t = shared?.NodeTypes?.[typeId];
+/** What the SHARED file says for an attribute, or undefined when it says nothing. */
+export function settingsOverride(settings: OverridesJson | null | undefined, typeId: string, propertyId: string | null, path: string): unknown {
+  const t = settings?.NodeTypes?.[typeId];
   const v = propertyId === null ? t?.[path] : t?.Properties?.[propertyId]?.[path];
   return isSet(v) ? v : undefined;
 }
 
-export type OverrideLayer = "shared" | "installation";
-/** The file an override in force is in: the shared one when it says the same, else this installation's. */
-export function layerOf(shared: OverridesJson | null | undefined, typeId: string, propertyId: string | null, path: string, value: unknown): OverrideLayer {
-  const s = sharedOverride(shared, typeId, propertyId, path);
-  return s !== undefined && same(s, value) ? "shared" : "installation";
+export type OverrideLayer = "settings" | "data";
+/** The file an override in force is in: SHARED when it says the same, else THIS SERVER. */
+export function layerOf(settings: OverridesJson | null | undefined, typeId: string, propertyId: string | null, path: string, value: unknown): OverrideLayer {
+  const s = settingsOverride(settings, typeId, propertyId, path);
+  return s !== undefined && same(s, value) ? "settings" : "data";
 }
 
-/** The shared overrides the model does not have: taken away on this installation, where the source's value applies. */
-export function listResets(model: ModelJson, shared: OverridesJson | null | undefined): OverrideEntry[] {
+/** The SHARED overrides the model does not have: taken away on THIS SERVER, so the source's value applies here. */
+export function listResets(model: ModelJson, settings: OverridesJson | null | undefined): OverrideEntry[] {
   const out: OverrideEntry[] = [];
-  for (const [typeId, t] of Object.entries(shared?.NodeTypes ?? {})) {
+  for (const [typeId, t] of Object.entries(settings?.NodeTypes ?? {})) {
     const inForce = model.Overrides?.NodeTypes?.[typeId];
     for (const [path, value] of Object.entries(t)) {
       if (path === "Name" || path === "Properties" || !isSet(value)) continue;

@@ -1,5 +1,6 @@
 using Relatude.DB.Common;
 using Relatude.DB.DataStores;
+using Relatude.DB.IO;
 using Relatude.DB.Logging;
 using Relatude.DB.Logging.Statistics;
 using System.Globalization;
@@ -64,6 +65,9 @@ sealed class UICustomLogs {
         commands.Register("custom-logs-broken-read", ctx => brokenRead(ctx.Payload<BrokenPayload>()));
         commands.Register("custom-logs-broken-repair", ctx => brokenRepair(ctx.Payload<BrokenPayload>()));
         commands.Register("custom-logs-broken-delete", ctx => brokenDelete(ctx.Payload<BrokenPayload>()));
+        // what DATA holds, and moving it into SETTINGS or dropping it
+        commands.Register("custom-logs-data-move", ctx => dataMove(ctx.Payload<KeysPayload>()));
+        commands.Register("custom-logs-data-discard", ctx => dataDiscard(ctx.Payload<KeysPayload>()));
     }
 
     NodeStoreContainer container(Guid storeId) {
@@ -105,8 +109,15 @@ sealed class UICustomLogs {
             State = c.StateName,
             // the provider the log folder is in, for downloading a log's files as they are
             IoId = logIoId(c),
-            // where the definitions are kept, outside the database's storage: relatude.settings/logs/{short name}
-            custom.DefinitionsFolder,
+            // where the definitions are kept: SETTINGS in relatude.settings, DATA with the database
+            custom.SettingsFolder,
+            custom.DataFolder,
+            // the folder each log's definition in force comes from: "settings" or "data"
+            Sources = custom.GetDefinitions().ToDictionary(s => s.Key, s => custom.SourceOf(s.Key) == DefinitionSource.Settings ? "settings" : "data"),
+            DataEntries = dataEntries(custom),
+            // where relatude.settings is not the one in source control, moving into it is undone by the next deployment
+            Development = _server.IsDevelopment,
+            Environment = _server.EnvironmentName,
             ReservedKeys = custom.ReservedKeys.Order(StringComparer.OrdinalIgnoreCase).ToArray(),
             TotalBytes = summaries.Sum(s => s.TotalBytes),
             LoadErrors = custom.LoadErrors.Select(e => new { e.FileKey, e.Message }).ToArray(),
@@ -114,6 +125,29 @@ sealed class UICustomLogs {
             BuiltIn = builtIn,
         };
     }
+    static object[] dataEntries(ICustomLogs custom) => [.. custom.DataEntries.Select(e => (object)new {
+        e.Key, e.Name, Change = changeName(e.Change), e.DataFile, e.SettingsFile,
+    })];
+    internal static string changeName(DataChange change) => change switch {
+        DataChange.Added => "added",
+        DataChange.Changed => "changed",
+        DataChange.Removed => "removed",
+        _ => "same",
+    };
+
+    // ---- what DATA holds ----
+
+    object dataMove(KeysPayload p) {
+        var custom = logs(p.StoreId);
+        var moved = custom.MoveToSettings(p.Keys ?? []);
+        return new { Moved = moved, DataEntries = dataEntries(custom) };
+    }
+    object dataDiscard(KeysPayload p) {
+        var custom = logs(p.StoreId);
+        var discarded = custom.DiscardData(p.Keys ?? []);
+        return new { Discarded = discarded, DataEntries = dataEntries(custom) };
+    }
+
     static Guid? logIoId(NodeStoreContainer c) {
         var s = c.Settings;
         if (s.IoLog is Guid log && log != Guid.Empty) return log;
@@ -703,6 +737,7 @@ sealed class UICustomLogs {
     static double dayWave(DateTime t) => 0.7 + 0.6 * Math.Pow(Math.Sin(Math.PI * (t.Hour + t.Minute / 60d) / 24d), 2);
 
     sealed record StorePayload(Guid StoreId);
+    sealed record KeysPayload(Guid StoreId, string[]? Keys);
     // IncludeBuiltIn: describe the database's own logs as well, for a page that shows them beside these
     sealed record InfoPayload(Guid StoreId, bool IncludeBuiltIn = false);
     sealed record LogPayload(Guid StoreId, string LogKey);

@@ -116,43 +116,6 @@ public class SettingsOverridesLocationTests {
     }
 
     [TestMethod]
-    public async Task AFileAtTheStorageRoot_IsMovedIntoTheOverridesFolderAtStart() {
-        var root = newRoot("legacy");
-        var settings = diskSettings("db");
-        Directory.CreateDirectory(Path.Combine(root, "db"));
-        // as an older version left it: at the root of the database's storage, with a comment of its own
-        File.WriteAllText(legacyFileIn(root, "db"), "// kept by hand\n{ \"Description\": \"From the old place\" }\n");
-        var host = start(root, settings);
-        try {
-            Assert.IsFalse(File.Exists(legacyFileIn(root, "db")), "moved away from the root");
-            var moved = File.ReadAllText(fileIn(root, "db"));
-            StringAssert.Contains(moved, "// kept by hand", "moved as it was, comments and all");
-            Assert.AreEqual("From the old place", host.Server.Settings.Description);
-        } finally {
-            await host.DisposeAsync();
-        }
-    }
-
-    [TestMethod]
-    public void AFileAtTheStorageRoot_IsReadThere_AndTheNextSaveMovesIt() {
-        // what the CLI does, and the server when the move at start failed: read where it is
-        var root = newRoot("legacy-read");
-        var settings = diskSettings("db");
-        Directory.CreateDirectory(Path.Combine(root, "db"));
-        File.WriteAllText(legacyFileIn(root, "db"), "{ \"Description\": \"From the old place\" }");
-        var location = SettingsOverridesLocation.Resolve(settings, root);
-        var file = SettingsOverridesFile.Open(location, settings, _ => { }, _ => { }, out var effective);
-        Assert.AreEqual("From the old place", effective.Description);
-        Assert.AreEqual("db/" + SettingsOverridesFile.FileName, file.Display, "says where it actually is");
-        var layer = SettingsOverridesFile.ToJson(effective);
-        layer["Description"] = "Changed";
-        Assert.IsTrue(file.Save(layer));
-        Assert.IsFalse(File.Exists(legacyFileIn(root, "db")));
-        StringAssert.Contains(File.ReadAllText(fileIn(root, "db")), "Changed");
-        Assert.AreEqual("db/overrides/" + SettingsOverridesFile.FileName, file.Display);
-    }
-
-    [TestMethod]
     public async Task TheFolderIsTheOneConfigurationGives() {
         var root = newRoot("config");
         var host = start(root, diskSettings("db"), new() { ["RelatudeDB:ContainerSettings:0:IOSettings:0:Path"] = "configured" });

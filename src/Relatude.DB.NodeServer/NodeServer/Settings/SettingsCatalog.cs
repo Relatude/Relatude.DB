@@ -403,14 +403,14 @@ public static class SettingsCatalog {
                         },
                         new() {
                             Path = "ShortName", Label = "Short name", Applies = SettingApplies.Reopen, Placeholder = "None",
-                            Help = "Names the folder the server keeps this database's settings files in: " + DatabaseShortName.LogDefinitionsFolder("{short name}") + "/ holds the definitions of its logs, and "
-                                + DatabaseShortName.DatamodelOverridesFile("{short name}") + " the datamodel overrides every installation shares. "
-                                + "Without one they are kept directly in " + Defaults.SettingsFolderPath + " (" + DatabaseShortName.LogDefinitionsFolder(null) + "/, " + DatabaseShortName.DatamodelOverridesFile(null) + "), which only one database can do. "
+                            Help = "Names this database's folder in " + Defaults.SettingsFolderPath + " - its SHARED files, which every installation has: " + DatabaseShortName.SettingsFolder("{short name}")
+                                + "/ holds the definitions of its logs (logs/) and GraphQL endpoints (graphql/) and its datamodel overrides (datamodel.json). "
+                                + "Without one they are kept directly in " + Defaults.SettingsFolderPath + ", which only one database can do. "
                                 + "Letters, digits, '-' and '_', and unique among the databases. A change takes the files along when the database is next opened. "
                                 + "Every installation should have the same short name, so give it in " + Defaults.SettingsFileName + ".",
-                            InOverridesWarning = "This short name is only this installation's: it is saved in " + SettingsOverridesFile.FileName + ", not in " + Defaults.SettingsFileName + ". "
-                                + "The files in " + Defaults.SettingsFolderPath + " that every installation shares - the log definitions, the shared datamodel overrides - are found by the short name, "
-                                + "so this installation reads other ones than the rest. Move it into " + Defaults.SettingsFileName + " with Overrides at the top of the page, or set it back.",
+                            InOverridesWarning = "This short name is only this installation's: it is saved on THIS SERVER (" + SettingsOverridesFile.FileName + "), not in " + Defaults.SettingsFileName + ". "
+                                + "The SHARED files every installation has - the log and endpoint definitions, the datamodel overrides - are found by the short name, "
+                                + "so this installation reads other ones than the rest. Move it into " + Defaults.SettingsFileName + " with THIS SERVER at the top of the page, or set it back.",
                         },
                         new() {
                             Path = "Description", Label = "Description", Applies = SettingApplies.Live,
@@ -520,20 +520,20 @@ public static class SettingsCatalog {
             Groups = [
                 new() {
                     Id = "providers",
-                    Title = "Storage providers",
-                    Help = "The places this database may keep files. A provider is only a place; what actually goes there is decided by the assignments below. Providers are defined per database, but their ids are resolved across the whole server, so one that another database points at cannot be removed here.",
+                    Title = "IO providers",
+                    Help = "The places this database may keep files. An IO provider is only a place; what actually goes there is decided by the IO assignments and the FileValue providers below. IO providers are defined per database, but their ids are resolved across the whole server, so one that another database points at cannot be removed here.",
                     List = new() {
                         Path = "IOSettings",
-                        ItemName = "storage provider",
+                        ItemName = "IO provider",
                         LabelField = "Name",
-                        EmptyHelp = "This database has nowhere to put anything. Add a provider, then point the assignments below at it.",
+                        EmptyHelp = "This database has nowhere to put anything. Add an IO provider, then point the IO assignments below at it.",
                         // local disk, because a new provider that quietly threw everything away would
                         // be the worst of the three to land on by accident
                         NewItem = new() { ["Name"] = "New provider", ["IOType"] = "LocalDisk" },
                         Fields = [
                             new() {
                                 Path = "Name", Label = "Name",
-                                Help = "What this provider is called in the assignments below and in the Files and Storage sections. A location, usually: \"Local disk\", \"Archive blob container\".",
+                                Help = "What this IO provider is called in the IO assignments below and in the Files and Storage sections. A location, usually: \"Local disk\", \"Archive blob container\".",
                             },
                             new() {
                                 Path = "IOType", Label = "Type",
@@ -560,16 +560,16 @@ public static class SettingsCatalog {
                                 Help = "Takes a lease on the database blobs, so a second instance cannot open the same database and corrupt it. Turn it off only when you are certain one process at a time will write, since a lease left behind by a crashed instance blocks the next start until it expires.",
                             },
                             new() {
-                                Path = "Id", Label = "Provider id", ReadOnly = true,
-                                Help = "How the assignments and the settings file refer to this provider. Generated when it is added.",
+                                Path = "Id", Label = "IO provider id", ReadOnly = true,
+                                Help = "How the IO assignments, the FileValue providers and the settings file refer to this IO provider. Generated when it is added.",
                             },
                         ],
                     },
                 },
                 new() {
                     Id = "storage",
-                    Title = "Storage assignments",
-                    Help = "Which of the providers above each kind of file goes to. Changing an assignment does not move anything: the files already written stay where they are, and only what is written from then on goes to the new provider.",
+                    Title = "IO assignments",
+                    Help = "Which of the IO providers above each kind of file goes to. Changing an assignment does not move anything: the files already written stay where they are, and only what is written from then on goes to the new IO provider.",
                     Settings = [
                         new() {
                             Path = "IoDatabase", Label = "Database files", Picker = "ioProviders",
@@ -595,24 +595,24 @@ public static class SettingsCatalog {
                 },
                 new() {
                     Id = "file-stores",
-                    Title = "File stores",
-                    Help = "Where uploaded files are kept. Each store sits on one of the providers above and decides how the files are laid out inside it. With none configured the database uses an implicit store on its own provider, which is enough for most installations - add stores here to split files across providers, or to move new uploads somewhere else without touching the ones already stored.",
+                    Title = "FileValue providers",
+                    Help = "Where uploaded files - the values of file properties - are kept. Each FileValue provider sits on one of the IO providers above and decides how the files are laid out inside it. With none configured the database uses an implicit one on its own IO provider, which is enough for most installations - add FileValue providers here to split files across IO providers, or to move new uploads somewhere else without touching the ones already stored.",
                     List = new() {
                         Path = "FileStoreSettings",
-                        ItemName = "file store",
+                        ItemName = "FileValue provider",
                         LabelField = "IoProviderId",
-                        EmptyHelp = "No file store is configured, so uploads go to an implicit one on this database's own storage provider.",
+                        EmptyHelp = "No FileValue provider is configured, so uploads go to an implicit one on this database's own IO provider.",
                         // the same layout the database would have used on its own; one copy per content
                         // and SHA256 come from the class, which defaults a new store to them
                         NewItem = new() { ["StoreType"] = "MultiFile" },
                         Fields = [
                             new() {
-                                Path = "IoProviderId", Label = "Provider", Picker = "ioProviders",
-                                Help = "Which of the storage providers above holds this store's files. Changing it on a store that already holds files does not move them - the files stay where they were written and stop resolving.",
+                                Path = "StoreType", Label = "FileValue provider",
+                                Help = "MultiFile writes one file per stored file, which is easy to inspect and to back up piecemeal. SingleFile packs everything into one container, which is faster with very many small files and kinder to file-count limits. It is how existing files are read, so changing it on a FileValue provider that holds files makes them unreadable.",
                             },
                             new() {
-                                Path = "StoreType", Label = "Layout",
-                                Help = "MultiFile writes one file per stored file, which is easy to inspect and to back up piecemeal. SingleFile packs everything into one container, which is faster with very many small files and kinder to file-count limits. The layout is how existing files are read, so changing it on a store that holds files makes them unreadable.",
+                                Path = "IoProviderId", Label = "IO provider", Picker = "ioProviders",
+                                Help = "Which of the IO providers above holds this FileValue provider's files. Changing it on one that already holds files does not move them - the files stay where they were written and stop resolving.",
                             },
                             new() {
                                 Path = "MultiFileFolderDepth", Label = "Folder depth",
@@ -622,16 +622,16 @@ public static class SettingsCatalog {
                             new() {
                                 Path = "SameHashSameFile", Label = "Same hash, same file",
                                 VisibleWhen = new() { Path = "StoreType", Values = ["MultiFile"] },
-                                Help = "Keeps one copy of any content: an upload with the same hash and length as a file already in the store points at that file instead of being stored again. Shared files are only deleted by the unreferenced file cleanup, not when a file is removed from a node. Applies to new uploads; files already stored are left as they are, and stay readable if this is turned off again. On blob storage a new file is written twice, as it is copied into place. On for a new store; a store set up before this option existed has it off.",
+                                Help = "Keeps one copy of any content: an upload with the same hash and length as a file already in this FileValue provider points at that file instead of being stored again. Shared files are only deleted by the unreferenced file cleanup, not when a file is removed from a node. Applies to new uploads; files already stored are left as they are, and stay readable if this is turned off again. On blob storage a new file is written twice, as it is copied into place. On for a new FileValue provider; one set up before this option existed has it off.",
                             },
                             new() {
                                 Path = "HashAlgorithm", Label = "File hash",
                                 VisibleWhen = new() { Path = "StoreType", Values = ["MultiFile"] },
-                                Help = "The hash computed over every uploaded file, and with Same hash, same file what decides that two uploads are the same. SHA256 is the default for a new store: two different files with the same MD5 can be made on purpose - and then one upload would be served as the other - and on current processors SHA256 is also the faster of the two. A store set up before this option existed keeps MD5. Changing it only affects new uploads, which are not matched with files kept under the other hash.",
+                                Help = "The hash computed over every uploaded file, and with Same hash, same file what decides that two uploads are the same. SHA256 is the default for a new FileValue provider: two different files with the same MD5 can be made on purpose - and then one upload would be served as the other - and on current processors SHA256 is also the faster of the two. One set up before this option existed keeps MD5. Changing it only affects new uploads, which are not matched with files kept under the other hash.",
                             },
                             new() {
-                                Path = "Id", Label = "Store id", ReadOnly = true,
-                                Help = "Stored on every file uploaded into this store, which is how a file value finds its bytes again. Generated when the store is added, and never reused.",
+                                Path = "Id", Label = "FileValue provider id", ReadOnly = true,
+                                Help = "Stored on every file uploaded into this FileValue provider, which is how a file value finds its bytes again. Generated when it is added, and never reused.",
                             },
                         ],
                     },
@@ -659,8 +659,8 @@ public static class SettingsCatalog {
                             Help = "Who may create, change or delete a node type that does not declare its own write access. Leaving this at Everyone means unauthenticated callers can write.",
                         },
                         new() {
-                            Path = "LocalSettings.DefaultFileStore", Label = "Default file store", Picker = "fileStores",
-                            Help = "The file store new uploads land in when the code does not name one. Empty uses an implicit MultiFile store on this database's own storage provider, one file per upload.",
+                            Path = "LocalSettings.DefaultFileStore", Label = "Default FileValue provider", Picker = "fileStores",
+                            Help = "The FileValue provider new uploads land in when the code does not name one. Empty uses an implicit MultiFile one on this database's own IO provider, one file per upload.",
                         },
                     ],
                 },

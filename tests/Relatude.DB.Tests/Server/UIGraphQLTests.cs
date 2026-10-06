@@ -30,7 +30,8 @@ public class UIGraphQLTests {
             var definition = new GraphQLEndpointDefinition { Name = "Test API", Url = "gql-test/", Mode = GraphQLEndpointMode.WholeDatamodel };
             var saved = await command(host, "graphql-save", new { storeId, definition = JsonDocument.Parse(definition.ToJson()).RootElement });
             var id = prop(saved, "id").GetGuid();
-            Assert.AreEqual("test-api.json", prop(saved, "file").GetString(), "the file is named after the endpoint");
+            StringAssert.EndsWith(prop(saved, "file").GetString(), "overrides/graphql/test-api.json", "the file is named after the endpoint, in DATA");
+            Assert.AreEqual("data", prop(saved, "source").GetString(), "saved here: this installation's");
 
             var listed = await command(host, "graphql-endpoints", new { storeId });
             var entry = prop(listed, "endpoints").EnumerateArray().Single();
@@ -85,9 +86,9 @@ public class UIGraphQLTests {
             Assert.AreEqual(200, withKey);
             Assert.AreEqual(1, (await command(host, "graphql-endpoints", new { storeId })).GetProperty("endpoints").GetArrayLength(), "saving again rewrote the same file");
 
-            // the file is what the server reads: a hand-written one appears after a reload
+            // the file is what the server reads: a hand-written one in DATA appears after a reload
             var io = host.Server.GetOrNullIO(host.Server.Containers[storeId].Settings.IoDatabase)!;
-            Relatude.DB.IO.IIOProviderExtensions.WriteAllTextUTF8(io, ["graphql", "by-hand.json"], "{ \"url\": \"/by-hand\", \"mode\": \"WholeDatamodel\" }");
+            Relatude.DB.IO.IIOProviderExtensions.WriteAllTextUTF8(io, ["overrides", "graphql", "by-hand.json"], "{ \"url\": \"/by-hand\", \"mode\": \"WholeDatamodel\" }");
             var reloaded = await command(host, "graphql-reload", new { storeId });
             Assert.AreEqual(2, prop(reloaded, "endpoints").GetArrayLength());
             var (handStatus, _) = await request(host, "/by-hand", "{\"query\":\"{ __typename }\"}");

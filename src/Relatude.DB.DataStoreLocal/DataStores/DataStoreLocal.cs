@@ -105,7 +105,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         IIOProvider? converterIoProvider = null,
         IUrlManager? urlManager = null,
         Func<IStateStore>? createStateStore = null,
-        LogDefinitionFolder? customLogDefinitions = null
+        LayeredDefinitionFolders? customLogDefinitions = null
         ) {
         _state = DataStoreState.Closed;
         _createStateStore = createStateStore;
@@ -197,12 +197,13 @@ public sealed partial class DataStoreLocal : IDataStore {
     // layer.) Returns the log lines describing what was moved, to be logged once the logger exists.
     List<string> moveLegacyFilesIntoFolders() {
         var log = new List<string>();
-        foreach (var key in FileKeyUtility.WAL_GetLegacyRootFileKeys(_io)) moveLegacyFileIntoFolder(_io, key, FileKeyUtility.DataFolderName, LegacyConflict.Throw, log);
+        foreach (var key in FileKeyUtility.WAL_GetLegacyRootFileKeys(_io)) moveLegacyFileIntoFolder(_io, key, [FileKeyUtility.DataFolderName], LegacyConflict.Throw, log);
         var legacySecondary = FileKeyUtility.WAL_GetLegacyRootSecondaryFileKey();
-        if (_ioLog2.Exists(legacySecondary)) moveLegacyFileIntoFolder(_ioLog2, legacySecondary, FileKeyUtility.DataFolderName, LegacyConflict.Throw, log);
-        foreach (var key in FileKeyUtility.Legacy_GetRootBackupFileKeys(_ioAutoBackup)) moveLegacyFileIntoFolder(_ioAutoBackup, key, FileKeyUtility.BackupFolderName, LegacyConflict.LeaveLegacy, log);
-        foreach (var key in FileKeyUtility.Legacy_GetRootStateFileKeys(_ioIndex)) moveLegacyFileIntoFolder(_ioIndex, key, FileKeyUtility.StateFolderName, LegacyConflict.DeleteLegacy, log);
-        foreach (var key in FileKeyUtility.Legacy_GetRootLoggerFileKeys(_ioLog)) moveLegacyFileIntoFolder(_ioLog, key, FileKeyUtility.LogFolderName, LegacyConflict.LeaveLegacy, log);
+        if (_ioLog2.Exists(legacySecondary)) moveLegacyFileIntoFolder(_ioLog2, legacySecondary, [FileKeyUtility.DataFolderName], LegacyConflict.Throw, log);
+        foreach (var key in FileKeyUtility.Legacy_GetRootBackupFileKeys(_ioAutoBackup)) moveLegacyFileIntoFolder(_ioAutoBackup, key, [FileKeyUtility.BackupFolderName], LegacyConflict.LeaveLegacy, log);
+        foreach (var key in FileKeyUtility.Legacy_GetRootStateFileKeys(_ioIndex)) moveLegacyFileIntoFolder(_ioIndex, key, [FileKeyUtility.StateFolderName], LegacyConflict.DeleteLegacy, log);
+        // a logger file goes into the folder of its log, which its name says
+        foreach (var key in FileKeyUtility.Legacy_GetRootLoggerFileKeys(_ioLog)) moveLegacyFileIntoFolder(_ioLog, key, FileKeyUtility.Logger_FolderKeyOfFileName(key.FileName()), LegacyConflict.LeaveLegacy, log);
         return log;
     }
     // What to do when the destination already exists with a DIFFERENT size than the legacy file:
@@ -211,8 +212,8 @@ public sealed partial class DataStoreLocal : IDataStore {
     // using, the root file is stale), LeaveLegacy for backups and logger history (never delete,
     // never block the startup over them).
     enum LegacyConflict { Throw, DeleteLegacy, LeaveLegacy }
-    static void moveLegacyFileIntoFolder(IIOProvider io, string[] legacyKey, string folder, LegacyConflict onConflict, List<string> log) {
-        string[] newKey = [folder, .. legacyKey];
+    static void moveLegacyFileIntoFolder(IIOProvider io, string[] legacyKey, string[] folder, LegacyConflict onConflict, List<string> log) {
+        string[] newKey = [.. folder, .. legacyKey];
         if (io.Exists(newKey)) {
             if (io.GetFileSizeOrZeroIfUnknown(newKey) == io.GetFileSizeOrZeroIfUnknown(legacyKey)) {
                 // an earlier migration crashed between copy and delete; finish it
@@ -232,7 +233,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     throw new Exception($"Cannot move legacy file {legacyKey.AsKeyString()} to {newKey.AsKeyString()} as both exist with different sizes. Remove one of them manually. ");
             }
         }
-        io.EnsureFolder([folder]);
+        io.EnsureFolder(folder);
         if (io.CanRenameFile) {
             io.RenameFile(legacyKey, newKey);
         } else {

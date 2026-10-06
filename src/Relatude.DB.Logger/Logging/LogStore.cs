@@ -124,7 +124,7 @@ public class LogStore : IDisposable, ILogStore {
     public void SaveAllSettings() {
         foreach (var log in _logs.Values) log.Setting.Save(_io);
     }
-    public bool HasSavedSettings(string logKey) => _io.ExistsAndIsNotEmpty(FileKeyUtility.Logger_GetDefinition(logKey)) || _io.ExistsAndIsNotEmpty(FileKeyUtility.Logger_GetLegacySettings(logKey));
+    public bool HasSavedSettings(string logKey) => _io.ExistsAndIsNotEmpty(FileKeyUtility.Logger_GetDefinition(logKey));
     public void DeleteSavedSettings(string logKey) => LogSettings.DeleteSaved(_io, logKey);
     public LogSettings GetSetting(string logKey) {
         return get(logKey)?.Setting ?? throw new Exception($"Log with key '{logKey}' not found");

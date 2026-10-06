@@ -7,7 +7,7 @@ namespace Relatude.Server;
 
 /// <summary>
 /// Where the data model editor puts the files of a runtime types source that names no path: a folder of
-/// its own, relatude.db/modelsources/{name}, below the settings folder - and that renaming the source
+/// its own, relatude.data/modelsources/{name}, below the settings folder - and that renaming the source
 /// does not move it away from its files.
 /// </summary>
 [TestClass]
@@ -51,7 +51,7 @@ public class RuntimeSourceFolderTests {
             var result = new DatamodelActivator(host.Server, c, drafts).Activate(json, acceptWarnings: true, note: null);
             Assert.IsTrue(result.Activated, result.Message + string.Join("\n", result.Validation.Issues.Select(i => i.Code + ": " + i.Message)));
             Assert.AreEqual(true, result.ChecksumMatches, "the files read back as the draft");
-            var folder = Path.Combine(_root, "relatude.db", "modelsources", "Shop Models");
+            var folder = Path.Combine(_root, "relatude.data", "modelsources", "Shop Models");
             Assert.IsTrue(File.Exists(Path.Combine(folder, "Product.json")), "written into the source's own folder: " + string.Join(", ", result.FilesWritten));
             var configured = c.Settings.DatamodelSources!.Single(s => s.Id == sourceId);
             Assert.IsNull(configured.Filepath, "the default folder is not written into the settings of a new source");
@@ -64,8 +64,8 @@ public class RuntimeSourceFolderTests {
             Assert.AreEqual(true, second.ChecksumMatches, "the type still comes back from its files");
             configured = c.Settings.DatamodelSources!.Single(s => s.Id == sourceId);
             Assert.AreEqual("Catalog", configured.Name);
-            Assert.AreEqual("relatude.db/modelsources/Shop Models", configured.Filepath);
-            Assert.IsFalse(Directory.Exists(Path.Combine(_root, "relatude.db", "modelsources", "Catalog")), "nothing was written under the new name");
+            Assert.AreEqual("relatude.data/modelsources/Shop Models", configured.Filepath);
+            Assert.IsFalse(Directory.Exists(Path.Combine(_root, "relatude.data", "modelsources", "Catalog")), "nothing was written under the new name");
             Assert.AreEqual(0, c.Store!.QueryType(productId).Count());
         } finally {
             await host.DisposeAsync();
@@ -93,7 +93,7 @@ public class RuntimeSourceFolderTests {
         var kept = DatamodelSourceWriter.KeepDefaultPaths(before, [renamed, same, withPath, throughProvider, compiled, added]);
 
         CollectionAssert.AreEqual(new[] { renamed }, kept);
-        Assert.AreEqual("relatude.db/modelsources/Shop", renamed.Filepath);
+        Assert.AreEqual("relatude.data/modelsources/Shop", renamed.Filepath);
         Assert.IsNull(same.Filepath, "a source that was not renamed keeps reading its default folder");
         Assert.AreEqual("Models/Json", withPath.Filepath);
         Assert.IsNull(throughProvider.Filepath);

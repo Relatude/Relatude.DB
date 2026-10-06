@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { IconAdjustments, IconArrowBackUp, IconChevronDown, IconFileImport, IconChevronRight, IconChevronUp, IconEye, IconEyeOff, IconList, IconListDetails, IconLock, IconPlus, IconRefreshAlert, IconRestore, IconSitemap, IconTrash } from "@tabler/icons-react";
 import { IndexMarks, KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, kindMeta, relationMeta, sourceKindMeta, type IndexFlags } from "./DatamodelIcons";
 import { OverrideMarks, showValue, type EditorContext, type Selection } from "./DatamodelEditors";
+import { RemovedTag, SourceTag } from "./SourceTag";
 import { allProperties, fullName, sourcePath, type HistoryEntry, type ModelDiff, type NodeTypeJson, type OverridesFileInfo, type PropertyJson, type SourceInfo } from "../server/datamodel";
-import { declaringType, hasOverrides, inheritedPropertySetting, isIndexed, layerOf, listOverrides, listResets, setOverride, sharedOverride, type OverrideEntry } from "../server/overrides";
+import { declaringType, hasOverrides, inheritedPropertySetting, isIndexed, layerOf, listOverrides, listResets, setOverride, settingsOverride, type OverrideEntry } from "../server/overrides";
 import { formatBytes, formatTime } from "../format";
 
 export interface ViewProps {
@@ -237,7 +238,7 @@ function TypesTable({ ctx, visibleTypes, ghostTypes, query, selection, diff, jus
                     {t.Hidden && <span className="badge">hidden</span>}
                     {t.IsInnerNode && <span className="badge">inner</span>}
                     {hasOverrides(ctx.model, t.Id) && (
-                      <span className="badge dm-badge-override" title="The type, or a property seen from it, is overridden: in the shared overrides, or for this installation">
+                      <span className="badge dm-badge-override" title="The type, or a property seen from it, is overridden: in SHARED or on THIS SERVER">
                         overridden
                       </span>
                     )}
@@ -661,21 +662,23 @@ export function SourcesView({
  * instead, and the way to take it away. Overrides are not a source - they add no types - but they are
  * where the model's values come from as much as the sources are, so they are listed under them.
  *
- * The shared file (relatude.settings, in source control and deployed to every installation) and this
- * installation's file (with the database) are merged, the installation's over the shared one, and the
- * model holds the result; a shared override this installation takes away is listed too. The arrow takes
- * one file away at a time, as in the forms. A row opens the form the override belongs to; one whose type
- * or property is gone from the model can only be removed.
+ * SHARED (relatude.settings, in source control and deployed to every installation) and THIS SERVER (this
+ * installation's data folder) are merged, THIS SERVER over SHARED, and the model holds the result; a SHARED
+ * override THIS SERVER takes away is listed too. The arrow takes one file away at a time, as in the forms. A row
+ * opens the form the override belongs to; one whose type or property is gone from the model can only be
+ * removed.
  */
 function OverridesPanel({ ctx, file, onOpenOverrides }: { ctx: EditorContext; file: OverridesFileInfo; onOpenOverrides: () => void }) {
-  const shared = file.shared;
-  const rows: (OverrideEntry & { taken: boolean })[] = [...listOverrides(ctx.model).map((e) => ({ ...e, taken: false })), ...listResets(ctx.model, shared).map((e) => ({ ...e, taken: true }))];
-  const sharedCount = rows.filter((e) => !e.taken && layerOf(shared, e.typeId, e.propertyId, e.path, e.value) === "shared").length;
+  const settings = file.settings;
+  const rows: (OverrideEntry & { taken: boolean })[] = [...listOverrides(ctx.model).map((e) => ({ ...e, taken: false })), ...listResets(ctx.model, settings).map((e) => ({ ...e, taken: true }))];
+  const settingsCount = rows.filter((e) => !e.taken && layerOf(settings, e.typeId, e.propertyId, e.path, e.value) === "settings").length;
   const field = (path: string, propertyType: string | null) => {
     const fields = propertyType ? [...ctx.schema.propertyCommon, ...(ctx.schema.propertyByType[propertyType] ?? [])] : ctx.schema.nodeType;
     return fields.find((f) => f.path === path);
   };
   const label = (path: string, propertyType: string | null) => field(path, propertyType)?.label ?? path;
+  const settingsTitle = "In SHARED, " + file.settingsLocation + ": part of the application, in source control and on every installation. A change made here is written to THIS SERVER, " + file.dataLocation + ".";
+  const dataTitle = "On THIS SERVER, " + file.dataLocation + ": this installation's, saved when the model is activated. Move it into SHARED with Move to shared.";
   return (
     <div className="dm-overrides">
       <div className="dm-overrides-head">
@@ -683,30 +686,30 @@ function OverridesPanel({ ctx, file, onOpenOverrides }: { ctx: EditorContext; fi
         <div className="dm-source-card-title">
           <div className="dm-source-card-name">Overrides</div>
           <div className="dm-overrides-files muted">
-            <span>Shared</span>
+            <SourceTag kind="settings" small title={settingsTitle} />
             <span>
-              <span className="dm-mono">{file.sharedLocation}</span>
-              {file.sharedExists ? "" : " (none yet)"} · in source control, on every installation
+              <span className="dm-mono">{file.settingsLocation}</span>
+              {file.settingsExists ? "" : " (none yet)"} · in source control, on every installation
             </span>
-            <span>This installation</span>
+            <SourceTag kind="data" small title={dataTitle} />
             <span>
-              <span className="dm-mono">{file.location}</span> · what the editor changed here
+              <span className="dm-mono">{file.dataLocation}</span> · what the editor changed on this installation
             </span>
           </div>
         </div>
-        <span className="badge dm-badge-override" title={sharedCount + " shared, " + (rows.length - sharedCount) + " of this installation"}>
+        <span className="badge dm-badge-override" title={settingsCount + " in SHARED, " + (rows.length - settingsCount) + " on THIS SERVER"}>
           {rows.length}
         </span>
-        <button className="action-button" onClick={onOpenOverrides} disabled={!file.writable} title={file.writable ? "Move overrides of this installation into the shared file" : "The database keeps no overrides of its own: it has no storage provider"}>
+        <button className="action-button" onClick={onOpenOverrides} disabled={!file.writable} title={file.writable ? "Move overrides on THIS SERVER into SHARED" : "The database has no storage provider to keep THIS SERVER's overrides in"}>
           <IconFileImport size={15} stroke={1.8} /> Move to shared…
         </button>
       </div>
-      {file.sharedError && <div className="dm-notice error">{file.sharedError}</div>}
+      {file.settingsError && <div className="dm-notice error">{file.settingsError}</div>}
       <div className="muted dm-help-text">
         Attributes set on top of what the sources say, where a source cannot be written: a default value, whether a type or a property is in the text index, a property&apos;s index or
-        rules. The database applies them when it opens, as if the source said so. What is set here is saved for this installation when the model is activated; move overrides into the
-        shared file to have them in source control and on every installation.
-        {!file.writable && " The database has no storage provider to keep this installation's overrides in, so they cannot be saved until it has one."}
+        rules. The database applies them when it opens, as if the source said so. What is set here is saved on THIS SERVER when the model is activated; move overrides into SHARED to
+        have them in source control and on every installation.
+        {!file.writable && " The database has no storage provider to keep THIS SERVER's overrides in, so they cannot be saved until it has one."}
       </div>
       {rows.length === 0 ? (
         <div className="muted dm-empty">Nothing is overridden. Open a type or a property whose source cannot be written: the fields that can be overridden stay open.</div>
@@ -718,7 +721,7 @@ function OverridesPanel({ ctx, file, onOpenOverrides }: { ctx: EditorContext; fi
               <th>Property</th>
               <th>Attribute</th>
               <th>Overridden to</th>
-              <th>Kept</th>
+              <th>In</th>
               <th>The source says</th>
               <th></th>
             </tr>
@@ -729,7 +732,7 @@ function OverridesPanel({ ctx, file, onOpenOverrides }: { ctx: EditorContext; fi
               const owner = e.propertyId ? declaringType(ctx.model, e.propertyId) : undefined;
               const property = e.propertyId ? owner?.Properties[e.propertyId] : undefined;
               const gone = !type || (e.propertyId !== null && !property);
-              const typeOverride = ctx.model.Overrides?.NodeTypes[e.typeId] ?? shared?.NodeTypes[e.typeId];
+              const typeOverride = ctx.model.Overrides?.NodeTypes[e.typeId] ?? settings?.NodeTypes[e.typeId];
               const name = type ? type.CodeName : (typeOverride?.Name ?? e.typeId);
               const propertyName = e.propertyId ? (property?.CodeName ?? typeOverride?.Properties?.[e.propertyId]?.Name ?? e.propertyId) : "";
               const declared = gone
@@ -742,37 +745,35 @@ function OverridesPanel({ ctx, file, onOpenOverrides }: { ctx: EditorContext; fi
                       ? // the type asking for the property's index, or not, in its own definition
                         type.PropertyOverrides?.[e.propertyId]?.[e.path]
                       : inheritedPropertySetting(ctx.model, e.typeId, property!, owner!.Id, e.path, true);
-              const sharedValue = sharedOverride(shared, e.typeId, e.propertyId, e.path);
-              const layer = e.taken ? null : layerOf(shared, e.typeId, e.propertyId, e.path, e.value);
+              const settingsValue = settingsOverride(settings, e.typeId, e.propertyId, e.path);
+              const layer = e.taken ? null : layerOf(settings, e.typeId, e.propertyId, e.path, e.value);
               const open = () => {
                 if (gone) return;
                 if (e.propertyId === null) ctx.select({ kind: "type", id: e.typeId });
                 else ctx.select({ kind: "property", id: e.propertyId, typeId: owner!.Id, viaTypeId: owner!.Id === e.typeId ? undefined : e.typeId });
               };
-              // one file at a time: this installation's over a shared one goes back to the shared value
+              // one file at a time: THIS SERVER over a SHARED value goes back to the SHARED value
               const back =
                 e.taken
-                  ? { title: "Use the shared override again: " + showValue(sharedValue), value: sharedValue }
-                  : layer === "installation" && sharedValue !== undefined
-                    ? { title: "Back to the shared override: " + showValue(sharedValue), value: sharedValue }
-                    : layer === "shared"
-                      ? { title: "Take the shared override away on this installation: back to what the source says", value: undefined }
+                  ? { title: "Use the SHARED override again: " + showValue(settingsValue), value: settingsValue }
+                  : layer === "data" && settingsValue !== undefined
+                    ? { title: "Back to the SHARED override: " + showValue(settingsValue), value: settingsValue }
+                    : layer === "settings"
+                      ? { title: "Take the SHARED override away on this installation: back to what the source says", value: undefined }
                       : { title: "Remove the override", value: undefined };
               return (
                 <tr key={e.typeId + "/" + (e.propertyId ?? "") + "/" + e.path} className={"dm-row" + (gone ? " dm-ghost" : "")} onClick={open} title={gone ? "Not in the model any more: the database skips it" : "Open the form"}>
                   <td>{name}</td>
                   <td>{propertyName}</td>
                   <td>{label(e.path, property?.PropertyType ?? null)}</td>
-                  <td className={e.taken ? "dm-override-taken" : "dm-override-value"}>{e.taken ? "taken away (shared: " + showValue(sharedValue) + ")" : showValue(e.value)}</td>
+                  <td className={e.taken ? "dm-override-taken" : "dm-override-value"}>{e.taken ? "taken away (SHARED: " + showValue(settingsValue) + ")" : showValue(e.value)}</td>
                   <td className="dm-overrides-kept">
                     {e.taken ? (
-                      <span className="dm-ochip reset">this installation</span>
-                    ) : layer === "shared" ? (
-                      <span className="dm-ochip overridden shared">shared</span>
+                      <RemovedTag small title="THIS SERVER takes the SHARED override away on this installation, so the source's value applies here." />
+                    ) : layer === "settings" ? (
+                      <SourceTag kind="settings" small title={settingsTitle} />
                     ) : (
-                      <span className="dm-ochip overridden" title={sharedValue !== undefined ? "Over the shared overrides' " + showValue(sharedValue) : undefined}>
-                        this installation
-                      </span>
+                      <SourceTag kind="data" small title={dataTitle + (settingsValue !== undefined ? " It is over SHARED's " + showValue(settingsValue) + "." : "")} />
                     )}
                   </td>
                   <td className="muted">{gone ? "(not in the model)" : showValue(declared)}</td>

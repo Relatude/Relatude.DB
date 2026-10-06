@@ -6,17 +6,15 @@ namespace Relatude.DB.NodeServer;
 
 /// <summary>
 /// The two files a database's datamodel overrides are kept in, as JSON, and how they combine. The
-/// shared file (relatude.settings/[short name]/datamodel.overrides.json) is part of the application:
-/// it goes into source control and is deployed to every installation. The installation's file
-/// (overrides/datamodel.overrides.json on the database's storage) holds what the data model editor
-/// changed on this installation, and is merged over the shared one - the way relatude.db.overrides.json
-/// is merged over relatude.db.json.
+/// SETTINGS file (relatude.settings/[short name]/datamodel.json) is part of the application: it goes into
+/// source control and is deployed to every installation. The DATA file (overrides/datamodel.overrides.json
+/// on the database's storage) holds what the data model editor changed on this installation, and is merged
+/// over the SETTINGS file - the way relatude.db.overrides.json is merged over relatude.db.json.
 ///
-/// The installation's file is a patch: an attribute it sets replaces the shared value, and one it sets
-/// to null takes the shared value away, so the attribute follows the source again on this
-/// installation. Null is free for that: an override is never null (null means "not overridden"). An
-/// attribute's value is taken whole - a default value that is an array is one value - and the names
-/// beside the ids are only for people.
+/// The DATA file is a patch: an attribute it sets replaces the SETTINGS value, and one it sets to null
+/// takes the SETTINGS value away, so the attribute follows the source again on this installation. Null is
+/// free for that: an override is never null (null means "not overridden"). An attribute's value is taken
+/// whole - a default value that is an array is one value - and the names beside the ids are only for people.
 /// </summary>
 public static class DatamodelOverridesLayers {
     const string nodeTypesKey = "NodeTypes";
@@ -36,7 +34,7 @@ public static class DatamodelOverridesLayers {
 
     /// <summary>
     /// One overridden attribute in a file: of a node type (PropertyId null), or of a property seen from the
-    /// type. A null Value takes the shared value away; only the installation's file has those.
+    /// type. A null Value takes the SETTINGS value away; only the DATA file has those.
     /// </summary>
     public readonly record struct Entry(Guid TypeId, Guid? PropertyId, string Attribute, JsonNode? Value, string? TypeName, string? PropertyName);
     /// <summary>Names one attribute of a type, or of a property seen from it.</summary>
@@ -44,8 +42,8 @@ public static class DatamodelOverridesLayers {
 
     /// <summary>
     /// A file's content, keyed and spelled the same way whatever wrote it: ids in one format, attributes
-    /// in the model's case. Null for an empty file. Nulls are kept where they take a shared value away
-    /// (keepResets, the installation's file) and dropped where they mean nothing.
+    /// in the model's case. Null for an empty file. Nulls are kept where they take a SETTINGS value away
+    /// (keepResets, the DATA file) and dropped where they mean nothing.
     /// </summary>
     public static JsonObject? Parse(string? json, bool keepResets) {
         if (string.IsNullOrWhiteSpace(json)) return null;
@@ -69,10 +67,10 @@ public static class DatamodelOverridesLayers {
     }
     public static string Serialize(JsonObject layer) => layer.ToJsonString(DatamodelJson.Options);
 
-    /// <summary>What is in force: the shared overrides with the installation's on top.</summary>
-    public static JsonObject Merge(JsonObject? shared, JsonObject? installation) {
-        var result = shared == null ? empty() : (JsonObject)shared.DeepClone();
-        foreach (var e in Entries(installation)) {
+    /// <summary>What is in force: the SETTINGS overrides with the DATA ones on top.</summary>
+    public static JsonObject Merge(JsonObject? settings, JsonObject? data) {
+        var result = settings == null ? empty() : (JsonObject)settings.DeepClone();
+        foreach (var e in Entries(data)) {
             if (e.Value == null) remove(result, new(e.TypeId, e.PropertyId, e.Attribute));
             else set(result, e);
         }
@@ -80,25 +78,25 @@ public static class DatamodelOverridesLayers {
     }
 
     /// <summary>
-    /// The installation's file that makes the shared overrides into the effective ones: what differs from
-    /// the shared file, and null for what the shared file sets and the effective overrides do not. An
-    /// attribute that says the same as the shared file is left out - it comes from there.
+    /// The DATA file that makes the SETTINGS overrides into the effective ones: what differs from the
+    /// SETTINGS file, and null for what the SETTINGS file sets and the effective overrides do not. An
+    /// attribute that says the same as the SETTINGS file is left out - it comes from there.
     /// </summary>
-    public static JsonObject Diff(JsonObject? shared, JsonObject? effective) {
+    public static JsonObject Diff(JsonObject? settings, JsonObject? effective) {
         var patch = empty();
         var effectiveEntries = Entries(effective);
         var known = effectiveEntries.Select(e => new AttributePath(e.TypeId, e.PropertyId, e.Attribute)).ToHashSet();
         foreach (var e in effectiveEntries) {
-            var sharedValue = Get(shared, new(e.TypeId, e.PropertyId, e.Attribute), out var inShared);
-            if (!inShared || !JsonNode.DeepEquals(sharedValue, e.Value)) set(patch, e);
+            var settingsValue = Get(settings, new(e.TypeId, e.PropertyId, e.Attribute), out var inSettings);
+            if (!inSettings || !JsonNode.DeepEquals(settingsValue, e.Value)) set(patch, e);
         }
-        foreach (var s in Entries(shared)) {
+        foreach (var s in Entries(settings)) {
             if (s.Value != null && !known.Contains(new(s.TypeId, s.PropertyId, s.Attribute))) set(patch, s with { Value = null });
         }
         return patch;
     }
 
-    /// <summary>Every attribute a file sets, and every shared value it takes away, in the file's order.</summary>
+    /// <summary>Every attribute a file sets, and every SETTINGS value it takes away, in the file's order.</summary>
     public static List<Entry> Entries(JsonObject? layer) {
         var list = new List<Entry>();
         if (layer?[nodeTypesKey] is not JsonObject types) return list;
@@ -134,24 +132,24 @@ public static class DatamodelOverridesLayers {
     }
 
     /// <summary>
-    /// Moves attributes from the installation's file into the shared one: a value is written there (over
-    /// whatever the shared file said), a reset takes the shared value away, and either way the entry leaves
-    /// the installation's file. What is in force stays the same. Paths the installation's file does not
+    /// Moves attributes from the DATA file into the SETTINGS one: a value is written there (over whatever
+    /// the SETTINGS file said), a reset takes the SETTINGS value away, and either way the entry leaves the
+    /// DATA file. What is in force stays the same. Paths the DATA file does not
     /// have are passed over; the count says how many were moved.
     /// </summary>
-    public static (JsonObject Shared, JsonObject Installation, int Moved) Move(JsonObject? shared, JsonObject? installation, IEnumerable<AttributePath> paths) {
-        var newShared = shared == null ? empty() : (JsonObject)shared.DeepClone();
-        var newInstallation = installation == null ? empty() : (JsonObject)installation.DeepClone();
-        var entries = Entries(installation).ToDictionary(e => new AttributePath(e.TypeId, e.PropertyId, e.Attribute));
+    public static (JsonObject Settings, JsonObject Data, int Moved) Move(JsonObject? settings, JsonObject? data, IEnumerable<AttributePath> paths) {
+        var newSettings = settings == null ? empty() : (JsonObject)settings.DeepClone();
+        var newData = data == null ? empty() : (JsonObject)data.DeepClone();
+        var entries = Entries(data).ToDictionary(e => new AttributePath(e.TypeId, e.PropertyId, e.Attribute));
         var moved = 0;
         foreach (var path in paths.Distinct()) {
             if (!entries.TryGetValue(path, out var e)) continue;
-            if (e.Value == null) remove(newShared, path);
-            else set(newShared, e);
-            remove(newInstallation, path);
+            if (e.Value == null) remove(newSettings, path);
+            else set(newSettings, e);
+            remove(newData, path);
             moved++;
         }
-        return (newShared, newInstallation, moved);
+        return (newSettings, newData, moved);
     }
 
     /// <summary>Brings the names beside the ids up to date with the model; entries it does not know keep theirs.</summary>

@@ -597,16 +597,16 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 }
             }
         }
-        // the database's overrides - the shared file's with this installation's merged over them - ride
+        // the database's overrides - the SETTINGS file's with the DATA file's merged over them - ride
         // along unapplied: the store applies them as it opens, while the model the editor gets keeps them
         // apart from the types it writes back into the sources
         dm.Overrides = OverridesFile.Read(server);
         return dm;
     }
-    /// <summary>Where this database keeps its datamodel overrides: the file every installation shares, and this installation's.</summary>
+    /// <summary>Where this database keeps its datamodel overrides: the SETTINGS file every installation has, and the DATA file of this one.</summary>
     public DatamodelOverridesFile OverridesFile => DatamodelOverridesFile.For(server, settings);
     /// <summary>Held while the overrides files are written - by an activation, or by moving overrides into
-    /// the shared file - so neither writes over what the other just wrote.</summary>
+    /// SETTINGS - so neither writes over what the other just wrote.</summary>
     internal readonly object OverridesWriteLock = new();
     /// <summary>
     /// A fresh model from the configured sources, with the types application code registers

@@ -12,13 +12,12 @@ public class NodeStoreContainerSettingsBase {
     public string? Name { get; set; }
     /// <summary>
     /// A short, file-system-safe name for the database, naming the folder the server keeps its settings
-    /// files in: relatude.settings/{ShortName}/logs/ holds the definitions of its custom logs, and
-    /// relatude.settings/{ShortName}/datamodel.overrides.json the datamodel overrides every installation
-    /// shares. Empty keeps them directly in relatude.settings (relatude.settings/logs/,
-    /// relatude.settings/datamodel.overrides.json), which only one database of an installation can do
+    /// files in: relatude.settings/{ShortName}/ holds the definitions of its custom logs (logs/) and GraphQL
+    /// endpoints (graphql/) and its datamodel overrides (datamodel.json), which every installation shares.
+    /// Empty keeps them directly in relatude.settings, which only one database of an installation can do
     /// (<see cref="DatabaseShortName"/>). Letters, digits, '-' and '_'; unique among the databases. Set it
     /// in relatude.db.json, which every installation has: an installation that has another reads other
-    /// shared files than the rest.
+    /// settings files than the rest.
     /// </summary>
     public string? ShortName { get; set; }
     public string? Description { get; set; }
@@ -81,15 +80,5 @@ public class NodeStoreContainerSettings : NodeStoreContainerSettingsBase {
     /// <summary>How this database sends text messages, reached from code as <c>NodeStore.SMS</c>. Null on a database that sends none.</summary>
     public SMSProviderSettings? SMSSettings { get; set; }
     public DatamodelSource[]? DatamodelSources { get; set; }
-    /// <summary>
-    /// No longer used. It named a file of the site to keep the datamodel overrides in instead of the
-    /// database, for a team that wanted them in source control. The overrides every installation shares
-    /// are now kept in relatude.settings/[short name]/datamodel.overrides.json (see
-    /// <see cref="DatabaseShortName.DatamodelOverridesFile"/>), and the ones the data model editor makes on
-    /// an installation with the database. A file this names is copied to the shared place once, at start.
-    /// </summary>
-    [Obsolete("The shared datamodel overrides are kept in relatude.settings/[short name]/datamodel.overrides.json; this setting is no longer used.")]
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    public string? DatamodelOverridesPath { get; set; }
     public SettingsLocal? LocalSettings { get; set; }
 }

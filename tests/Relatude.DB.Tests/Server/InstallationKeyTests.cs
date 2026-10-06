@@ -29,7 +29,7 @@ public class InstallationKeyTests {
     }
 
     // where a server whose default database keeps nothing (memory storage) keeps the id
-    static string fallbackFile(string root) => Path.Combine(root, "relatude.db", "installation", "installation.json");
+    static string fallbackFile(string root) => Path.Combine(root, "relatude.data", "installation", "installation.json");
 
     static string[] partsOf(string key) => key.Split(':');
 
@@ -62,7 +62,7 @@ public class InstallationKeyTests {
         try {
             key = host.Server.LicenseLogin.DescribeInstallation().Key;
             Assert.IsTrue(File.Exists(fallbackFile(root)), "a database in memory keeps nothing, so the id is kept below the root data folder");
-            Assert.AreEqual("relatude.db/installation/installation.json", host.Server.LicenseLogin.DescribeInstallation().DataIdPlace);
+            Assert.AreEqual("relatude.data/installation/installation.json", host.Server.LicenseLogin.DescribeInstallation().DataIdPlace);
         } finally {
             await host.DisposeAsync();
         }
@@ -111,8 +111,8 @@ public class InstallationKeyTests {
     public async Task APlaceThatCannotBeWritten_LeavesTheIdOut_AndSaysWhy() {
         var root = newRoot();
         // a file where the folder has to be
-        Directory.CreateDirectory(Path.Combine(root, "relatude.db"));
-        File.WriteAllText(Path.Combine(root, "relatude.db", "installation"), "");
+        Directory.CreateDirectory(Path.Combine(root, "relatude.data"));
+        File.WriteAllText(Path.Combine(root, "relatude.data", "installation"), "");
         var host = TestServerHost.Start(root);
         try {
             var installation = host.Server.LicenseLogin.DescribeInstallation();

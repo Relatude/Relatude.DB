@@ -35,23 +35,65 @@ public class GraphQLEndpointToolsTests {
         var handmade = files.Single(f => f.FileName == "handmade.json");
         Assert.IsNotNull(handmade.Definition);
         Assert.AreEqual("handmade", handmade.Definition!.Name, "a nameless file is named after itself");
-        Assert.AreEqual(GraphQLEndpointStore.IdFromKey(["graphql", "handmade.json"]), handmade.Definition.Id);
-        Assert.AreEqual(GraphQLEndpointStore.IdFromKey(["graphql", "HANDMADE.json"]), handmade.Definition.Id, "the derived id does not depend on case");
+        Assert.AreEqual(GraphQLEndpointStore.IdFromFileName("handmade.json"), handmade.Definition.Id);
+        Assert.AreEqual(GraphQLEndpointStore.IdFromFileName("HANDMADE.json"), handmade.Definition.Id, "the derived id does not depend on case");
         var broken = files.Single(f => f.FileName == "broken.json");
         Assert.IsNull(broken.Definition);
         Assert.IsNotNull(broken.Error);
-        var reloaded = files.Single(f => f.FileName == "public-api.json").Definition!;
+        var loaded = files.Single(f => f.FileName == "public-api.json");
+        var reloaded = loaded.Definition!;
         Assert.AreEqual(def.Id, reloaded.Id);
         Assert.AreEqual("/api/graphql", reloaded.Url);
 
-        // saving to the existing key keeps the file name
+        // saving an endpoint keeps its file name
         reloaded.Url = "/changed";
-        var again = store.Save(reloaded, saved.Key);
+        var again = store.Save(reloaded, loaded.Layer);
         Assert.AreEqual("public-api.json", again.FileName);
         Assert.AreEqual("/changed", store.Load().Single(f => f.FileName == "public-api.json").Definition!.Url);
 
-        store.Delete(saved.Key);
+        store.Delete(store.Load().Single(f => f.FileName == "public-api.json").Layer!);
         Assert.AreEqual(3, store.Load().Count);
+        store.DeleteFile(broken.Source, broken.Key);
+        Assert.AreEqual(2, store.Load().Count);
+    }
+
+    [TestMethod]
+    public void Store_KeepsWhatIsSavedHereInData_OverTheEndpointsInSettings() {
+        var settingsIo = new IOProviderMemory();
+        var dataIo = new IOProviderMemory();
+        var folders = new LayeredDefinitionFolders(new DefinitionFolder(settingsIo, ["graphql"], "relatude.settings/graphql"), new DefinitionFolder(dataIo, ["overrides", "graphql"], "relatude.data/overrides/graphql"));
+        var store = new GraphQLEndpointStore(folders);
+        // deployed with the application, written by hand without an id
+        settingsIo.WriteAllTextUTF8(["graphql", "public.json"], "{ \"name\": \"Public\", \"url\": \"/public\" }");
+        var file = store.Load().Single();
+        Assert.AreEqual(DefinitionSource.Settings, file.Source);
+        Assert.AreEqual("relatude.settings/graphql/public.json", file.Display);
+
+        // a change made here goes to DATA, in a file of the same name, and replaces it
+        file.Definition!.Url = "/changed";
+        var saved = store.Save(file.Definition, file.Layer);
+        Assert.AreEqual(DefinitionSource.Data, saved.Source);
+        Assert.IsTrue(dataIo.Exists(["overrides", "graphql", "public.json"]));
+        var inForce = store.Load().Single();
+        Assert.AreEqual("/changed", inForce.Definition!.Url);
+        Assert.AreEqual(DataChange.Changed, inForce.Layer!.Change);
+        Assert.AreEqual("{ \"name\": \"Public\", \"url\": \"/public\" }", settingsIo.ReadAllTextUTF8(["graphql", "public.json"]), "SETTINGS is never written by a save");
+
+        // deleted here: a marker in DATA; moved: SETTINGS loses its file
+        store.Delete(inForce.Layer);
+        Assert.AreEqual(0, store.Load(out var layers).Count, "taken away on this installation");
+        Assert.AreEqual(DataChange.Removed, layers.Single().Change);
+        Assert.IsTrue(store.DiscardData(layers.Single()));
+        Assert.AreEqual("/public", store.Load().Single().Definition!.Url, "discarded: SETTINGS again");
+
+        // a new one, moved into SETTINGS: served the same, now from there
+        var added = store.Save(new GraphQLEndpointDefinition { Name = "Shop", Url = "/shop" }, null);
+        Assert.AreEqual("shop.json", added.FileName);
+        store.Load(out layers);
+        Assert.IsTrue(store.MoveToSettings(layers.Single(l => l.SettingsKey == null)));
+        Assert.IsTrue(settingsIo.Exists(["graphql", "shop.json"]));
+        Assert.IsFalse(dataIo.GetFiles().Any());
+        Assert.IsTrue(store.Load().All(f => f.Source == DefinitionSource.Settings));
     }
 
     [TestMethod]

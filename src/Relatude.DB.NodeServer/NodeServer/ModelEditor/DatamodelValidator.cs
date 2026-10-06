@@ -321,8 +321,8 @@ public sealed class DatamodelValidator {
 
     void checkOverridesAndText(string draftJson, Datamodel draft, Datamodel active, SourceWritePlan plan, DatamodelValidation result) {
         var issues = result.Issues;
-        // what the draft overrides differently from the shared file is written to the installation's file;
-        // the shared one, part of the application, is only ever written by moving overrides into it
+        // what the draft overrides differently from the SETTINGS file is written to the DATA file; the
+        // SETTINGS one, part of the application, is only ever written by moving overrides into it
         var file = _container.OverridesFile;
         PlannedFile? planned;
         try {
@@ -332,9 +332,9 @@ public sealed class DatamodelValidator {
             return;
         }
         if (planned != null && !file.CanWrite) {
-            // nothing to write for a draft that says what the shared file says, and nothing to delete
+            // nothing to write for a draft that says what the SETTINGS file says, and nothing to delete
             if (planned.Action == PlannedFileAction.Write) {
-                issues.Add(DatamodelIssue.Error("overrides-nowhere", "The overrides change for this installation, but the database has no primary storage provider (IoDatabase) to keep them in. "
+                issues.Add(DatamodelIssue.Error("overrides-nowhere", "The overrides on THIS SERVER change, but the database has no primary storage provider (IoDatabase) to keep them in. "
                     + "Set one in the database's settings. "));
             }
         } else if (planned != null) {

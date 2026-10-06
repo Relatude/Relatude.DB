@@ -178,7 +178,10 @@ public partial class RelatudeDBServer {
         if (!System.IO.Path.IsPathRooted(dataFolderPath)) dataFolderPath = environmentRoot.SuperPathCombine(dataFolderPath);
         _rootDataFolderPath = dataFolderPath;
 
-        if (tempFolderPath == null) tempFolderPath = Defaults.TempFolderPath;
+        if (tempFolderPath == null) {
+            tempFolderPath = Defaults.TempFolderPath;
+            DataFolderMigration.RemoveLegacyTempFolder(environmentRoot, Log);
+        }
         if (!Path.IsPathRooted(tempFolderPath)) tempFolderPath = environmentRoot.SuperPathCombine(tempFolderPath);
         _tempIO = new IOProviderDisk(tempFolderPath);
         var tempFiles = _tempIO.GetFiles();
@@ -192,6 +195,9 @@ public partial class RelatudeDBServer {
         // relatude.settings/relatude.db.json; one an older version kept elsewhere is moved there first
         _settingsLoader = settings ?? new LocalSettingsLoaderFile(SettingsFileLocation.Find(_rootDataFolderPath,
             msg => { Log(msg); Console.WriteLine("relatude.db: " + msg); }, startupWarning));
+        // and the data folder an older version called relatude.db is relatude.data, before anything reads it
+        DataFolderMigration.Run(_rootDataFolderPath, (_settingsLoader as LocalSettingsLoaderFile)?.FilePath,
+            msg => { Log(msg); Console.WriteLine("relatude.db: " + msg); }, startupWarning);
         if (tempCount == 0) Log("Loading settings using: " + _settingsLoader.GetType().FullName);
         await loadSettingsAndCreateContainersAsync(firstStart: true);
         cleanUploadFolders();

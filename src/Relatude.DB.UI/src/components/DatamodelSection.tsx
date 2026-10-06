@@ -571,7 +571,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
   // the two files the overrides are kept in, for the forms to say which one a value is in
   const overridesInfo = page?.overrides;
   const overrides = useMemo(
-    () => ({ shared: overridesInfo?.shared ?? null, sharedLocation: overridesInfo?.sharedLocation ?? "relatude.settings/datamodel.overrides.json", location: overridesInfo?.location ?? "overrides/datamodel.overrides.json" }),
+    () => ({ settings: overridesInfo?.settings ?? null, settingsLocation: overridesInfo?.settingsLocation ?? "relatude.settings/datamodel.json", dataLocation: overridesInfo?.dataLocation ?? "overrides/datamodel.overrides.json" }),
     [overridesInfo],
   );
   const ctx: EditorContext | null = useMemo(
@@ -650,11 +650,11 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     if (v.plan?.settingsChange) lines.push("The source list in the settings file changes.");
     if (v.plan?.overridesChange) {
       const removed = v.plan.files.some((f) => f.sourceId === page?.overrides.planId && f.action === "delete");
-      const where = page?.overrides.location ?? "the database's storage";
+      const where = page?.overrides.dataLocation ?? "the database's storage";
       lines.push(
         removed
-          ? `Nothing is overridden for this installation alone any more: its overrides file, ${where}, is removed.`
-          : `The overrides of this installation are saved in ${where}. The shared ones, in ${page?.overrides.sharedLocation}, are not changed: move overrides there from Sources, Overrides.`,
+          ? `Nothing is overridden on THIS SERVER any more: its file, ${where}, is removed.`
+          : `The overrides are saved on THIS SERVER, ${where}. SHARED, ${page?.overrides.settingsLocation}, is not changed: move overrides there from Sources, Overrides.`,
       );
     }
     if (v.textIndexOffTypes.length > 0) lines.push(`Text indexing is turned off for ${v.textIndexOffTypes.length} type${v.textIndexOffTypes.length === 1 ? "" : "s"}: ${v.textIndexOffTypes.length === 1 ? "its" : "their"} nodes' text is taken out of the text index.`);
@@ -1310,8 +1310,8 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
                       f.sourceId === page.overrides.planId ? (
                         <div key={f.path} className={"dm-plan-file " + f.action} title={f.path}>
                           <span className="dm-plan-action">{f.action === "delete" ? "delete" : f.exists ? "rewrite" : "create"}</span>
-                          <span className="dm-mono">{page.overrides.location}</span>
-                          <span className="muted">overrides</span>
+                          <span className="dm-mono">{page.overrides.dataLocation}</span>
+                          <span className="muted">overrides on THIS SERVER</span>
                         </div>
                       ) : (
                         <div key={f.path} className={"dm-plan-file " + f.action} title={f.path}>

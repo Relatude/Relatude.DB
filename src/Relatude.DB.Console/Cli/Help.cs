@@ -215,7 +215,7 @@ public static class Help {
             --name <name>           database name (default: MyDatabase)
             --namespace <ns>        namespace of your model types
             --assembly-name <name>  assembly the model types live in (default: the project name)
-            --path <folder>         data folder, relative to the application folder (default: relatude.db)
+            --path <folder>         data folder, relative to the application folder (default: relatude.data)
             --user <name>           admin user for the admin UI
             --password <password>   admin password
             --force                 overwrite an existing file

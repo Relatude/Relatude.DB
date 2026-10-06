@@ -270,6 +270,20 @@
       ],
       "port": 5099,
       "autoPort": false
+    },
+    {
+      "name": "website-simple-verify-dll",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["examples/Website.Simple/bin/ClaudeVerify/Debug/net10.0/Website.Simple.dll", "--contentRoot", "C:/WAF/Code/Relatude.DB/examples/Website.Simple", "--urls", "http://localhost:5064", "--RelatudeDB:NoLoginRequiredForLocalhost=true", "--RelatudeDB:ContainerSettings:0:IOSettings:0:Path=relatude.db2"],
+      "port": 5064,
+      "autoPort": false
+    },
+    {
+      "name": "website-simple-dmshared-dll",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["examples/Website.Simple/bin/ClaudeDmShared/Debug/net10.0/Website.Simple.dll", "--contentRoot", "C:/Users/ogulb/AppData/Local/Temp/claude/C--WAF-Code-Relatude-DB/7d5933c7-155e-4b52-9e9d-6bea64da414a/scratchpad/site", "--urls", "http://localhost:5095", "--RelatudeDB:NoLoginRequiredForLocalhost=true"],
+      "port": 5095,
+      "autoPort": false
     }
   ]
 }

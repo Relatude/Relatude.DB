@@ -5,11 +5,11 @@ namespace Relatude.DB.NodeServer.Settings;
 /// <summary>
 /// The short name of a database (<see cref="NodeStoreContainerSettingsBase.ShortName"/>): a short,
 /// file-system-safe name the server uses for the folder it keeps the database's settings files in,
-/// below relatude.settings - relatude.settings/{short name}/logs/ holds the definitions of its custom
-/// logs, and relatude.settings/{short name}/datamodel.overrides.json the datamodel overrides every
+/// below relatude.settings: relatude.settings/{short name}/ holds the definitions of its custom logs
+/// (logs/) and GraphQL endpoints (graphql/), and its datamodel overrides (datamodel.json) - what every
 /// installation shares. A database without one keeps them directly in relatude.settings
-/// (relatude.settings/logs/, relatude.settings/datamodel.overrides.json), which is all an installation
-/// with one database needs. Short names are unique within an
+/// (relatude.settings/logs/, relatude.settings/graphql/, relatude.settings/datamodel.json), which is all
+/// an installation with one database needs. Short names are unique within an
 /// installation, and only one database can be without one.
 /// </summary>
 public static class DatabaseShortName {
@@ -22,11 +22,13 @@ public static class DatabaseShortName {
     };
     // the folders relatude.settings has for the database without a short name: a short name naming one
     // of them would put that database's folder inside the other database's
-    static readonly HashSet<string> _reservedBySettings = new(StringComparer.OrdinalIgnoreCase) { LogsFolderName };
+    static readonly HashSet<string> _reservedBySettings = new(StringComparer.OrdinalIgnoreCase) { LogsFolderName, GraphQLFolderName };
     /// <summary>The folder below a database's settings folder holding the definitions of its custom logs.</summary>
     public const string LogsFolderName = "logs";
+    /// <summary>The folder below a database's settings folder holding the definitions of its GraphQL endpoints.</summary>
+    public const string GraphQLFolderName = "graphql";
     /// <summary>The file in a database's settings folder holding the datamodel overrides every installation shares.</summary>
-    public const string DatamodelOverridesFileName = "datamodel.overrides.json";
+    public const string DatamodelFileName = "datamodel.json";
 
     /// <summary>Why a short name cannot be used, or null when it can. Empty can: it means none.</summary>
     public static string? Problem(string? shortName) {
@@ -60,7 +62,10 @@ public static class DatabaseShortName {
     /// relatude.settings/{short name}/logs, or relatude.settings/logs for none.</summary>
     public static string LogDefinitionsFolder(string? shortName) => SettingsFolder(shortName) + "/" + LogsFolderName;
 
+    /// <summary>The folder of a database's GraphQL endpoint definitions, relative to the root data folder.</summary>
+    public static string GraphQLFolder(string? shortName) => SettingsFolder(shortName) + "/" + GraphQLFolderName;
+
     /// <summary>The file of a database's shared datamodel overrides, relative to the root data folder:
-    /// relatude.settings/{short name}/datamodel.overrides.json, or relatude.settings/datamodel.overrides.json for none.</summary>
-    public static string DatamodelOverridesFile(string? shortName) => SettingsFolder(shortName) + "/" + DatamodelOverridesFileName;
+    /// relatude.settings/{short name}/datamodel.json, or relatude.settings/datamodel.json for none.</summary>
+    public static string DatamodelFile(string? shortName) => SettingsFolder(shortName) + "/" + DatamodelFileName;
 }

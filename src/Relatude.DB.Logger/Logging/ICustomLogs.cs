@@ -1,9 +1,12 @@
+using Relatude.DB.IO;
+
 namespace Relatude.DB.Logging;
 /// <summary>
 /// Logs defined while the application runs rather than in code: each one is a <see cref="LogSettings"/>
-/// kept as a json file in the log folder (log.[key].settings.json), so a log defined in the admin UI
-/// is there again after a restart, and one written by hand or copied from another database is
-/// picked up when the database opens.
+/// kept as a json file ({key}.json), so a log defined in the admin UI is there again after a restart, and
+/// one written by hand or copied from another database is picked up when the database opens. On a server
+/// the files are in two folders: SETTINGS (in relatude.settings, deployed with the application) and DATA
+/// (this installation's, where the admin UI saves); see <see cref="LayeredDefinitionFolders"/>.
 ///
 /// Recording is the only part an application needs:
 /// <code>
@@ -16,11 +19,16 @@ namespace Relatude.DB.Logging;
 public interface ICustomLogs {
     /// <summary>The store the custom logs live in: every read, search and statistic goes through it.</summary>
     ILogStore LogStore { get; }
-    /// <summary>Where the definitions are kept, for people: relatude.settings/logs/{database short name}
-    /// on a server (see <see cref="LogDefinitionFolder"/>).</summary>
-    string DefinitionsFolder { get; }
-    /// <summary>The file a log's definition is kept in, for people.</summary>
+    /// <summary>The SETTINGS folder, for people: relatude.settings/[short name]/logs on a server; null when there is none.</summary>
+    string? SettingsFolder { get; }
+    /// <summary>The DATA folder, where every change made here is saved, for people.</summary>
+    string DataFolder { get; }
+    /// <summary>The file a log's definition in force is kept in, for people.</summary>
     string DefinitionFileOf(string logKey);
+    /// <summary>Which folder the definition in force comes from; null for a log that is not there.</summary>
+    DefinitionSource? SourceOf(string logKey);
+    /// <summary>What DATA holds, definition by definition: logs added, changed or taken away here.</summary>
+    IReadOnlyList<CustomLogDataEntry> DataEntries { get; }
     /// <summary>Copies of every definition, ordered by name. Changing one changes nothing: use <see cref="Update"/>.</summary>
     IReadOnlyList<LogSettings> GetDefinitions();
     /// <summary>A copy of one definition, or null when there is no log with the key.</summary>
@@ -52,9 +60,17 @@ public interface ICustomLogs {
     CustomLogChanges Update(LogSettings settings, bool rebuildStatistics = false);
     /// <summary>Turns recording, statistics, or both on or off, and saves it. Omitted switches are left alone.</summary>
     void SetEnabled(string logKey, bool? log, bool? statistics);
-    /// <summary>Removes a log's definition; <paramref name="deleteRecorded"/> deletes its entries and
-    /// statistics too. Kept, they are picked up again by a log created later with the same key.</summary>
+    /// <summary>Removes a log's definition - a log SETTINGS defines is taken away on this installation by a
+    /// marker in DATA; <paramref name="deleteRecorded"/> deletes its entries and statistics too. Kept, they
+    /// are picked up again by a log created later with the same key.</summary>
     void Delete(string logKey, bool deleteRecorded);
+    /// <summary>Moves what DATA holds for these logs into SETTINGS: definitions written there, markers taking
+    /// their SETTINGS file away. Nothing that runs changes. Returns how many were moved.</summary>
+    int MoveToSettings(IEnumerable<string> logKeys);
+    /// <summary>Drops what DATA holds for these logs: each goes back to its SETTINGS definition (entries
+    /// moved as an update would), comes back when DATA took it away, or goes when only DATA had it - what
+    /// it recorded is kept. Returns the keys discarded.</summary>
+    IReadOnlyList<string> DiscardData(IEnumerable<string> logKeys);
     /// <summary>The files the log has in its folder of the log storage (log/{key}/): entries, text
     /// copies, statistics, and entries left behind in another file layout. Its definition is kept
     /// elsewhere (<see cref="DefinitionFileOf"/>).</summary>
@@ -87,6 +103,9 @@ public interface ICustomLogs {
 
 /// <summary>A definition file that could not be read as a log.</summary>
 public sealed record CustomLogLoadError(string FileKey, string Message);
+
+/// <summary>What DATA holds for one log, beside where SETTINGS has it.</summary>
+public sealed record CustomLogDataEntry(string Key, string? Name, DataChange Change, string DataFile, string? SettingsFile);
 
 /// <summary>One file a custom log has in its folder of the log storage.</summary>
 /// <param name="Kind">"entries", "text", "statistics", "statistics-backup", or

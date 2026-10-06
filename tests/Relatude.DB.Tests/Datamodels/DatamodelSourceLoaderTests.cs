@@ -151,16 +151,16 @@ namespace Relatude.Datamodels {
         public void JsonFileSource_DefaultPath_IsAFolderOfItsOwnNamedAfterTheSource() {
             var id = new Guid("11111111-0000-0000-0000-000000000009");
             string folderOf(string? name) => DatamodelSourceLoader.DefaultPath(new DatamodelSource { Id = id, Name = name, Type = DatamodelSourceType.RuntimeTypes });
-            Assert.AreEqual("relatude.db/modelsources/JsonModel", DatamodelSourceLoader.DefaultPath(jsonSource(null)));
-            Assert.AreEqual("relatude.db/modelsources/JsonModel/library.json", DatamodelSourceLoader.DefaultPath(jsonSource(null, "library.json")), "Reference names a file in it");
-            Assert.AreEqual("relatude.db/modelsources/Shop Models", folderOf("Shop Models"));
-            Assert.AreEqual("relatude.db/modelsources/a_b_c_d", folderOf("a/b\\c:d"), "separators and what Windows refuses become '_' on every system");
-            Assert.AreEqual("relatude.db/modelsources/v1.2", folderOf("  v1.2. . "), "trailing dots and spaces go, as Windows would drop them");
-            Assert.AreEqual("relatude.db/modelsources/_con", folderOf("con"), "a name Windows reserves");
-            Assert.AreEqual("relatude.db/modelsources/_NUL.json", folderOf("NUL.json"), "reserved with an extension too");
-            Assert.AreEqual("relatude.db/modelsources/" + id, folderOf(".."), "never a way out of the folder");
-            Assert.AreEqual("relatude.db/modelsources/" + id, folderOf(null));
-            Assert.AreEqual("relatude.db/modelsources/" + id, folderOf("   "));
+            Assert.AreEqual("relatude.data/modelsources/JsonModel", DatamodelSourceLoader.DefaultPath(jsonSource(null)));
+            Assert.AreEqual("relatude.data/modelsources/JsonModel/library.json", DatamodelSourceLoader.DefaultPath(jsonSource(null, "library.json")), "Reference names a file in it");
+            Assert.AreEqual("relatude.data/modelsources/Shop Models", folderOf("Shop Models"));
+            Assert.AreEqual("relatude.data/modelsources/a_b_c_d", folderOf("a/b\\c:d"), "separators and what Windows refuses become '_' on every system");
+            Assert.AreEqual("relatude.data/modelsources/v1.2", folderOf("  v1.2. . "), "trailing dots and spaces go, as Windows would drop them");
+            Assert.AreEqual("relatude.data/modelsources/_con", folderOf("con"), "a name Windows reserves");
+            Assert.AreEqual("relatude.data/modelsources/_NUL.json", folderOf("NUL.json"), "reserved with an extension too");
+            Assert.AreEqual("relatude.data/modelsources/" + id, folderOf(".."), "never a way out of the folder");
+            Assert.AreEqual("relatude.data/modelsources/" + id, folderOf(null));
+            Assert.AreEqual("relatude.data/modelsources/" + id, folderOf("   "));
         }
 
         [TestMethod]
@@ -173,7 +173,7 @@ namespace Relatude.Datamodels {
             Assert.IsFalse(dm.NodeTypes.Values.Any(t => t.CodeName == "SlAuthor"), "the old folder is not read without being named");
             var notice = dm.SourceNotices.Single();
             StringAssert.Contains(notice, "set Filepath to \"Models/Json\"");
-            StringAssert.Contains(notice, "relatude.db/modelsources/JsonModel");
+            StringAssert.Contains(notice, "relatude.data/modelsources/JsonModel");
         }
 
         [TestMethod]

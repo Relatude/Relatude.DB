@@ -18,7 +18,6 @@ import {
   IconCode,
   IconDatabase,
   IconExternalLink,
-  IconFileDiff,
   IconFileText,
   IconFolders,
   IconGauge,
@@ -63,6 +62,7 @@ import {
 } from "../server/settings";
 import { Loading } from "./Loading";
 import { OverridesDialog } from "./OverridesDialog";
+import { DataButton, SourceTag } from "./SourceTag";
 
 // Where a programmatic scroll leaves a group's heading, and the line at which the contents counts a
 // heading as passed. The line sits a hair below the landing point, so a group that was scrolled to
@@ -79,6 +79,15 @@ const spyLine = scrollOffset + 2;
  * without every component between them carrying it.
  */
 const LazyPickers = createContext<(setting: SettingView) => PickerLoader | undefined>(() => undefined);
+/** The files the page's values come from, for the tags to say where a value is and where a change goes. */
+interface SettingsFiles {
+  /** SHARED: relatude.settings/relatude.db.json */
+  settingsFile: string;
+  /** THIS SERVER: the overrides file in the default database's data folder; null when saves go into relatude.db.json */
+  dataFile: string | null;
+  configSection: string | null;
+}
+const SettingsFilesContext = createContext<SettingsFiles>({ settingsFile: "relatude.db.json", dataFile: null, configSection: null });
 
 /**
  * The settings pages, server scope and database scope alike. The server sends the whole page -
@@ -399,7 +408,10 @@ export function SettingsSection({
 
   return (
     <LazyPickers.Provider value={lazyPicker}>
-    <div className="settings">
+    <SettingsFilesContext.Provider value={{ settingsFile: page.settingsFile, dataFile: page.overrides?.file ?? null, configSection: page.configSection ?? null }}>
+    {/* without the comments the rows lose their dividers and most of their padding: what is left is a
+        label and a value, and a rule between every two of those is more line than content */}
+    <div className={"settings" + (showComments ? "" : " compact")}>
       <div className="settings-toolbar">
         <div className="settings-search">
           <IconSearch size={15} stroke={1.8} />
@@ -420,7 +432,7 @@ export function SettingsSection({
           <input type="checkbox" checked={onlyChanged} onChange={(e) => setOnlyChanged(e.target.checked)} />
           Only settings that differ from their default
         </label>
-        <label className="settings-check" title="The line under each setting saying what it does. Turning it off fits far more settings on the screen.">
+        <label className="settings-check" title="The line under each setting saying what it does. Turning it off lists the settings compactly, fitting far more on the screen.">
           <input
             type="checkbox"
             checked={showComments}
@@ -437,18 +449,12 @@ export function SettingsSection({
           {page.configSection ? ` · ${page.configSection} section` : ""}
         </span>
         {page.overrides && (
-          <button
-            className="icon-button labelled"
-            title={
-              page.overrides.error
-                ? `The overrides file could not be read: ${page.overrides.error}`
-                : `Saving here writes to ${page.overrides.file}, merged over ${page.settingsFile} at every start. List what it holds, and move it into ${page.settingsFile}.`
-            }
+          <DataButton
+            count={page.overrides.count}
+            error={page.overrides.error ? "The THIS SERVER file could not be read: " + page.overrides.error : null}
+            title={`Saving here writes to THIS SERVER, ${page.overrides.file} - this installation's - merged over SHARED, ${page.settingsFile}, at every start. List what THIS SERVER holds, and move it into ${page.settingsFile}.`}
             onClick={() => setShowOverrides(true)}
-          >
-            <IconFileDiff size={15} stroke={1.8} className={page.overrides.error ? "tone-danger" : "tone-override"} />
-            Overrides{page.overrides.error ? " · not read" : page.overrides.count > 0 ? ` · ${page.overrides.count}` : ""}
-          </button>
+          />
         )}
         {page.scope === "database" && (
           <button
@@ -583,6 +589,7 @@ export function SettingsSection({
         </div>
       )}
     </div>
+    </SettingsFilesContext.Provider>
     </LazyPickers.Provider>
   );
 }
@@ -745,7 +752,7 @@ function ListEditor({
       })}
       {list.removedHere.length > 0 && (
         <div className="setting-items-removed">
-          Removed here, still in relatude.db.json: {list.removedHere.join(", ")}. The Overrides button moves the removal there, or takes it back.
+          Removed here, still in relatude.db.json: {list.removedHere.join(", ")}. THIS SERVER at the top of the page moves the removal there, or takes it back.
         </div>
       )}
       <button className="action-button" disabled={busy || list.locked} onClick={onAdd} title={list.locked ? "This list comes from appsettings" : undefined}>
@@ -829,7 +836,7 @@ function SettingRow({
           <div className="setting-override">
             <IconLock size={13} stroke={1.8} />
             <span>
-              Set in appsettings
+              Set in APPSETTINGS (the configuration)
               {setting.configuredValue !== null && setting.configuredValue !== undefined ? (
                 <>
                   {" to "}
@@ -894,34 +901,56 @@ function SettingRow({
 }
 
 function Badges({ setting, edited, clearsSecret }: { setting: SettingView; edited: boolean; clearsSecret: boolean }) {
+  const files = useContext(SettingsFilesContext);
   return (
     <>
       {edited && <span className="setting-badge unsaved">unsaved</span>}
-      {setting.overridden && (
-        <span className="setting-badge config" title="Set in appsettings: the RelatudeDB section of appsettings.json or appsettings.{Environment}.json, an environment variable or user secrets">
-          from appsettings
-        </span>
-      )}
-      {setting.codeSet && <span className="setting-badge config">from code</span>}
+      <SettingSource setting={setting} files={files} />
       {setting.readOnly && !setting.overridden && <span className="setting-badge">read only</span>}
-      {/* "from appsettings" already says the value is not this server's own, so default-vs-custom would only add noise */}
-      {!setting.readOnly && !setting.overridden && !setting.codeSet && (setting.isDefault ? <span className="setting-badge faint">default</span> : <span className="setting-badge custom">custom</span>)}
-      {setting.inOverrides && (
-        <span
-          className="setting-badge overrides"
-          title={`Saved in relatude.db.overrides.json, merged over relatude.db.json at every start. relatude.db.json has: ${
-            setting.secret ? (setting.fileHasValue ? "a secret" : "nothing") : setting.fileHasValue ? display(setting.fileValue) : "not set"
-          }`}
-        >
-          in overrides
-        </span>
-      )}
       {/* what it takes to apply is only worth saying for a setting that can actually be changed here */}
       {!setting.readOnly && setting.applies === "reopen" && <span className="setting-badge applies">needs reopen</span>}
       {!setting.readOnly && setting.applies === "restart" && <span className="setting-badge applies">needs restart</span>}
       {clearsSecret && <span className="setting-badge config">will be cleared</span>}
       {setting.secret && !clearsSecret && <span className="setting-badge faint">{setting.hasValue ? "secret set" : "not set"}</span>}
     </>
+  );
+}
+
+/**
+ * Where a setting's value comes from, as one tag: APPSETTINGS (the configuration section), CODE (the
+ * application's settings callbacks), THIS SERVER (relatude.db.overrides.json, saved on this page), SHARED
+ * (relatude.db.json) or DEFAULT (nothing sets it). The tooltip says where the value is and where a change
+ * made here is written.
+ */
+function SettingSource({ setting, files }: { setting: SettingView; files: SettingsFiles }) {
+  const writesTo = files.dataFile ? `A value saved here is written to THIS SERVER, ${files.dataFile}.` : `A value saved here is written to ${files.settingsFile}.`;
+  if (setting.overridden) {
+    return (
+      <SourceTag
+        kind="appsettings"
+        title={`Set in APPSETTINGS: the ${files.configSection ?? "RelatudeDB"} section of appsettings.json or appsettings.{Environment}.json, an environment variable or user secrets. It wins over both files, and this page never writes it.`}
+      />
+    );
+  }
+  if (setting.codeSet) {
+    return <SourceTag kind="code" title="Set by the application's code at every start (OnServerSettingsInit, OnContainerSettingsInit or OnStoreSettingsInit). It is never written to the files." />;
+  }
+  if (setting.inOverrides) {
+    const settingsHas = setting.secret ? (setting.fileHasValue ? "a secret" : "nothing") : setting.fileHasValue ? display(setting.fileValue) : "not set";
+    return (
+      <SourceTag
+        kind="data"
+        title={`Saved on THIS SERVER, ${files.dataFile ?? "the overrides file"}, merged over SHARED, ${files.settingsFile}, at every start. ${files.settingsFile} has: ${settingsHas}. Move it there with THIS SERVER at the top of the page.`}
+      />
+    );
+  }
+  if (setting.readOnly) return null;
+  if (setting.isDefault) return <SourceTag kind="default" title={`Not set to anything else: the built-in default applies. ${writesTo}`} />;
+  return (
+    <SourceTag
+      kind="settings"
+      title={`From SHARED, ${files.settingsFile} - part of the application, kept in source control and deployed to every installation. ${writesTo}${files.dataFile ? " THIS SERVER wins over it." : ""}`}
+    />
   );
 }
 

@@ -364,8 +364,8 @@ export function CustomLogEditor({
       {mode === "json" ? (
         <section className="panel">
           <h3>
-            <code className="clog-h3-file">{info.definitionsFolder}/{current.key || "…"}.json</code>{" "}
-            <span className="panel-sub">the definition file, kept with the application's settings: edit it here, or paste one in</span>
+            <code className="clog-h3-file">{info.dataFolder}/{current.key || "…"}.json</code>{" "}
+            <span className="panel-sub">the definition file on THIS SERVER, where saving writes it: edit it here, or paste one in. Move it into SHARED ({info.settingsFolder ?? "relatude.settings"}) from THIS SERVER on the logs page</span>
           </h3>
           {jsonError && <div className="logs-note clog-bad-note">{jsonError}</div>}
           <div className="clog-json-editor">

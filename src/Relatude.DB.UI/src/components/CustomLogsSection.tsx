@@ -48,6 +48,8 @@ import type { DatabaseInfo } from "../server/serverInfo";
 import { lint } from "../code/lint";
 import { logIcon, type LogIconType } from "../logIcons";
 import { Loading } from "./Loading";
+import { DataButton, SourceTag } from "./SourceTag";
+import { CustomLogsDataDialog } from "./CustomLogsDataDialog";
 
 /**
  * The Logs page: logs someone defines for a database, rather than the logs the database keeps about
@@ -595,6 +597,7 @@ function Overview({
 }) {
   const importInput = useRef<HTMLInputElement>(null);
   const [broken, setBroken] = useState<CustomLogLoadError | null>(null);
+  const [dataOpen, setDataOpen] = useState(false);
 
   async function toggle(logKey: string, change: { log?: boolean; statistics?: boolean }) {
     try {
@@ -664,7 +667,12 @@ function Overview({
             }}
           />
           <span className="logs-spacer" />
-          <button className="action-button" onClick={reload} title={`Read the definition files in ${info.definitionsFolder} again, for definitions changed on disk`}>
+          <DataButton
+            count={info.dataEntries.length}
+            title={`Logs defined or changed here are saved on THIS SERVER, ${info.dataFolder} - this installation's - over SHARED, ${info.settingsFolder ?? "relatude.settings"}. List what THIS SERVER holds, and move it into SHARED.`}
+            onClick={() => setDataOpen(true)}
+          />
+          <button className="action-button" onClick={reload} title={`Read the definition files in ${info.settingsFolder ?? info.dataFolder} and ${info.dataFolder} again, for definitions changed on disk`}>
             <IconReload size={15} stroke={1.8} /> Reload from disk
           </button>
         </div>
@@ -674,7 +682,7 @@ function Overview({
           <div className="log-table">
             <OverviewHead />
             {info.logs.map((log) => (
-              <OverviewRow key={log.key} log={log} onOpen={onOpen} onToggle={(change) => toggle(log.key, change)} />
+              <OverviewRow key={log.key} log={log} source={info.sources[log.key]} info={info} onOpen={onOpen} onToggle={(change) => toggle(log.key, change)} />
             ))}
           </div>
         )}
@@ -750,6 +758,7 @@ function Overview({
         setBroken(null);
         onChanged();
       }} />}
+      {dataOpen && <CustomLogsDataDialog storeId={db.id} info={info} onClose={() => setDataOpen(false)} onChanged={onChanged} />}
     </div>
   );
 }
@@ -778,11 +787,16 @@ function OverviewHead() {
 function OverviewRow({
   log,
   icon: Icon = IconFileAnalytics,
+  source,
+  info,
   onOpen,
   onToggle,
 }: {
   log: CustomLogSummary;
   icon?: LogIconType;
+  /** where the log's definition comes from: SHARED or THIS SERVER; a built-in log has none */
+  source?: "settings" | "data";
+  info?: CustomLogsInfo;
   onOpen: (key: string) => void;
   onToggle?: (change: { log?: boolean; statistics?: boolean }) => void;
 }) {
@@ -794,6 +808,17 @@ function OverviewRow({
           {log.name || log.key}
           <span className="clog-name-key">{log.key}</span>
         </span>
+        {source && info && (
+          <SourceTag
+            kind={source}
+            small
+            title={
+              source === "settings"
+                ? `Defined in SHARED, ${info.settingsFolder}/ - part of the application, on every installation. A change saved here is written to THIS SERVER, ${info.dataFolder}/.`
+                : `Defined or changed on this installation: THIS SERVER, ${info.dataFolder}/. Move it into SHARED with THIS SERVER on the toolbar.`
+            }
+          />
+        )}
       </span>
       <span>
         {log.activity ? (

@@ -5,6 +5,7 @@ using Relatude.DB.DataStores;
 using Relatude.DB.GraphQL;
 using Relatude.DB.GraphQL.Endpoints;
 using Relatude.DB.GraphQL.Schema;
+using Relatude.DB.IO;
 using Relatude.DB.Query.Data;
 
 namespace Relatude.DB.NodeServer.UI;
@@ -15,6 +16,7 @@ sealed class UIGraphQL(RelatudeDBServer server) {
     sealed record EndpointPayload(Guid StoreId, Guid Id);
     sealed record DefinitionPayload(Guid StoreId, JsonElement Definition);
     sealed record ExecutePayload(Guid StoreId, Guid? Id, JsonElement? Definition, string Query, JsonElement? Variables, string? OperationName);
+    sealed record IdsPayload(Guid StoreId, Guid[]? Ids);
 
     internal void Register(UICommands commands) {
         commands.Register("graphql-endpoints", ctx => (object?)list(ctx.Payload<StorePayload>().StoreId));
@@ -22,7 +24,7 @@ sealed class UIGraphQL(RelatudeDBServer server) {
             var p = ctx.Payload<EndpointPayload>();
             var c = container(p.StoreId);
             var file = server.GraphQL.Find(c.Settings.Id, p.Id) ?? throw new Exception("The endpoint was not found.");
-            return (object?)new { definition = definitionJson(file.Definition!), file = file.FileName, preview = preview(c, file.Definition!) };
+            return (object?)new { definition = definitionJson(file.Definition!), file = file.Display, source = sourceName(file.Source), preview = preview(c, file.Definition!) };
         });
         commands.Register("graphql-preview", ctx => {
             var p = ctx.Payload<DefinitionPayload>();
@@ -40,12 +42,25 @@ sealed class UIGraphQL(RelatudeDBServer server) {
             var errors = issues.Where(i => i.IsError).Select(i => i.Message).ToList();
             if (errors.Count > 0) throw new Exception(string.Join(" ", errors));
             var saved = server.GraphQL.Save(c, def);
-            return (object?)new { id = def.Id, file = saved.FileName };
+            return (object?)new { id = def.Id, file = saved.Display, source = sourceName(saved.Source) };
         });
         commands.Register("graphql-delete", ctx => {
             var p = ctx.Payload<EndpointPayload>();
             server.GraphQL.Delete(container(p.StoreId), p.Id);
             return (object?)new { deleted = true };
+        });
+        // what DATA holds, and moving it into SETTINGS or dropping it
+        commands.Register("graphql-data-move", ctx => {
+            var p = ctx.Payload<IdsPayload>();
+            var c = container(p.StoreId);
+            var moved = server.GraphQL.MoveToSettings(c, p.Ids ?? []);
+            return (object?)new { moved, dataEntries = dataEntries(c) };
+        });
+        commands.Register("graphql-data-discard", ctx => {
+            var p = ctx.Payload<IdsPayload>();
+            var c = container(p.StoreId);
+            var discarded = server.GraphQL.DiscardData(c, p.Ids ?? []);
+            return (object?)new { discarded, dataEntries = dataEntries(c) };
         });
         commands.Register("graphql-reload", ctx => {
             server.GraphQL.Invalidate();
@@ -117,25 +132,53 @@ sealed class UIGraphQL(RelatudeDBServer server) {
     object list(Guid storeId) {
         var c = container(storeId);
         var files = server.GraphQL.Files(c.Settings.Id);
+        var store = server.GraphQL.StoreFor(c);
         var dm = datamodelOf(c);
         return new {
             open = c.IsOpen(),
             state = c.StateName,
             adminRoot = server.ApiUrlRoot,
             endpoints = files.Select(f => f.Definition == null
-                ? new EndpointSummary(null, f.FileName, f.FileName, null, false, "Selected", false, false, false, false, false, false, 0, 0, f.Error)
-                : new EndpointSummary(f.Definition.Id, f.Definition.Name, f.FileName, f.Definition.Url, f.Definition.Enabled, f.Definition.Mode.ToString(),
+                ? new EndpointSummary(null, f.FileName, f.Display, sourceName(f.Source), null, false, "Selected", false, false, false, false, false, false, 0, 0, f.Error)
+                : new EndpointSummary(f.Definition.Id, f.Definition.Name, f.Display, sourceName(f.Source), f.Definition.Url, f.Definition.Enabled, f.Definition.Mode.ToString(),
                     f.Definition.ExactNames, f.Definition.AllowMutations, f.Definition.EnableExplorer, f.Definition.EnableFacetSearch, f.Definition.EnableIntrospection,
                     !string.IsNullOrEmpty(f.Definition.ApiKey),
                     f.Definition.Mode == GraphQLEndpointMode.WholeDatamodel ? (dm == null ? 0 : exposableTypes(dm, f.Definition.IncludeSystemTypes).Count()) : f.Definition.Types.Count,
                     f.Definition.Views.Count, null)).ToList(),
             catalog = dm == null ? null : catalog(dm),
+            // where the definitions are kept: SETTINGS in relatude.settings, DATA with the database
+            settingsFolder = store?.Folders.Settings?.Display,
+            dataFolder = store?.Folders.Data.Display,
+            dataEntries = dataEntries(c),
+            // where relatude.settings is not the one in source control, moving into it is undone by the next deployment
+            development = server.IsDevelopment,
+            environment = server.EnvironmentName,
             // a url is the server's, across every database, so a new endpoint is given one nobody answers on yet
             usedUrls = server.GraphQL.AllDefinitions().Select(d => GraphQLEndpointDefinition.NormalizeUrl(d.Url)).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
         };
     }
 
-    sealed record EndpointSummary(Guid? Id, string Name, string File, string? Url, bool Enabled, string Mode, bool ExactNames, bool AllowMutations, bool Explorer, bool Facets, bool Introspection, bool ApiKey, int TypeCount, int ViewCount, string? Error);
+    static string sourceName(DefinitionSource source) => source == DefinitionSource.Settings ? "settings" : "data";
+
+    /// <summary>What DATA holds, endpoint by endpoint: added, changed or taken away on this installation.</summary>
+    object[] dataEntries(NodeStoreContainer c) {
+        var store = server.GraphQL.StoreFor(c);
+        if (store == null) return [];
+        return [.. server.GraphQL.Layers(c.Settings.Id).Where(l => l.DataKey != null).Select(l => {
+            string? name = null;
+            try {
+                name = l.DataText != null ? GraphQLEndpointDefinition.FromJson(l.DataText).Name : l.SettingsText != null ? GraphQLEndpointDefinition.FromJson(l.SettingsText).Name : null;
+            } catch { }
+            return (object)new {
+                id = l.Id, name = string.IsNullOrWhiteSpace(name) ? Path.GetFileNameWithoutExtension(l.DataKey!.FileName()) : name,
+                change = UICustomLogs.changeName(l.Change!.Value),
+                dataFile = store.Folders.Data.DisplayOf(l.DataKey!),
+                settingsFile = l.SettingsKey == null ? null : store.Folders.Settings?.DisplayOf(l.SettingsKey),
+            };
+        })];
+    }
+
+    sealed record EndpointSummary(Guid? Id, string Name, string File, string Source, string? Url, bool Enabled, string Mode, bool ExactNames, bool AllowMutations, bool Explorer, bool Facets, bool Introspection, bool ApiKey, int TypeCount, int ViewCount, string? Error);
 
     static IEnumerable<NodeTypeModel> exposableTypes(Datamodel dm, bool includeSystem)
         => dm.NodeTypes.Values.Where(t => t.Id != NodeConstants.BaseNodeTypeId && !t.Hidden && !t.IsInnerNode && (includeSystem || t.Namespace != "Relatude.DB.Native.Models"));

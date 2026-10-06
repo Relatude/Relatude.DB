@@ -24,7 +24,7 @@ public static class DatamodelSourceLoader {
     /// (<see cref="DefaultPath"/>). It sits in the default database's folder, beside datamodels/ where the
     /// editor keeps its drafts and history.
     /// </summary>
-    public const string DefaultRuntimeTypesFolder = "relatude.db/" + FileKeyUtility.ModelSourcesFolderName;
+    public const string DefaultRuntimeTypesFolder = "relatude.data/" + FileKeyUtility.ModelSourcesFolderName;
     /// <summary>Where runtime types sources without a Filepath read from before October 2026, named in the
     /// note an empty source leaves when that folder is still there.</summary>
     const string legacyJsonFolder = "Models/Json";
@@ -290,7 +290,7 @@ public static class DatamodelSourceLoader {
     }
     /// <summary>
     /// The folder a runtime types source with no Filepath reads from, relative to the application's folder:
-    /// relatude.db/modelsources/{name} (<see cref="DefaultRuntimeTypesFolder"/>, <see cref="FolderNameOf"/>).
+    /// relatude.data/modelsources/{name} (<see cref="DefaultRuntimeTypesFolder"/>, <see cref="FolderNameOf"/>).
     /// It follows the name, so a source renamed without a Filepath would look for its files in a folder
     /// of the new name; the data model editor and the settings page write the old folder into the
     /// source's Filepath when they rename one.

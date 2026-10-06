@@ -4,8 +4,8 @@ obj/
 
 # The database itself: transaction log, indexes, uploaded files, and the changes made in the admin UI on
 # this machine. Delete the folder to start over. relatude.settings/ is NOT ignored: it is part of the application.
-relatude.db/
-relatude.db.temp/
+relatude.data/
+relatude.data.temp/
 
 # Editors and OS
 .vs/

@@ -48,6 +48,8 @@ import {
 } from "../server/graphql";
 import type { DatabaseInfo } from "../server/serverInfo";
 import { CodeEditor } from "./CodeEditor";
+import { DataButton, SourceTag } from "./SourceTag";
+import { EndpointsDataDialog } from "./EndpointsDataDialog";
 import { GraphQLExplorer, type ExplorerSource } from "./GraphQLExplorer";
 import { CopyText } from "./CopyText";
 import { Loading } from "./Loading";
@@ -150,6 +152,7 @@ export function ApiSection({ db }: { db: DatabaseInfo }) {
       <div className="api-body">
         {!editing ? (
           <Overview
+            storeId={db.id}
             info={info}
             drafts={drafts}
             onOpen={setTab}
@@ -180,18 +183,21 @@ export function ApiSection({ db }: { db: DatabaseInfo }) {
 // ---- overview ----
 
 function Overview({
+  storeId,
   info,
   drafts,
   onOpen,
   onNew,
   onReload,
 }: {
+  storeId: string;
   info: EndpointsInfo;
   drafts: Record<string, EndpointDefinition>;
   onOpen: (id: string) => void;
   onNew: () => void;
   onReload: () => void;
 }) {
+  const [dataOpen, setDataOpen] = useState(false);
   return (
     <div className="logs-body">
       <section className="panel">
@@ -203,6 +209,13 @@ function Overview({
             <IconPlus size={15} stroke={1.8} /> New endpoint
           </button>
           <span className="logs-spacer" />
+          {info.dataFolder && (
+            <DataButton
+              count={info.dataEntries.length}
+              title={`Endpoints defined or changed here are saved on THIS SERVER, ${info.dataFolder} - this installation's - over SHARED, ${info.settingsFolder}. List what THIS SERVER holds, and move it into SHARED.`}
+              onClick={() => setDataOpen(true)}
+            />
+          )}
           <button className="action-button" onClick={onReload} title="Read the endpoint files again, for files edited by hand">
             <IconRefresh size={15} stroke={1.8} /> Reload from disk
           </button>
@@ -210,8 +223,9 @@ function Overview({
         {!info.open && <div className="logs-note">The database is {info.state.toLowerCase()}; its endpoints answer with 503 until it is open, and the schema cannot be previewed.</div>}
         {info.endpoints.length === 0 ? (
           <p className="muted api-empty">
-            An endpoint is a json file in the database's <code>graphql</code> folder: the url it answers on, the node types and properties it exposes and under which
-            names, views defined by a query, and whether it takes mutations. Create one here, or drop a file in the folder and reload.
+            An endpoint is a json file - in SHARED, <code>{info.settingsFolder ?? "relatude.settings/graphql"}</code>, kept in source control, or on THIS SERVER,{" "}
+            <code>{info.dataFolder ?? "overrides/graphql"}</code>, where saving here writes: the url it answers on, the node types and properties it exposes and under which
+            names, views defined by a query, and whether it takes mutations. Create one here, or drop a file in either folder and reload.
           </p>
         ) : (
           <div className="log-table api-table">
@@ -242,7 +256,18 @@ function Overview({
                 <span className="num">{e.error ? "" : e.typeCount}</span>
                 <span className="num">{e.error ? "" : e.viewCount}</span>
                 <span>{e.error ? "" : e.allowMutations ? "allowed" : "read only"}</span>
-                <span className="muted mono">{e.file}</span>
+                <span className="muted mono api-file">
+                  <SourceTag
+                    kind={e.source}
+                    small
+                    title={
+                      e.source === "settings"
+                        ? `Defined in SHARED, ${e.file} - part of the application, on every installation. A change saved here is written to THIS SERVER, ${info.dataFolder}.`
+                        : `Defined or changed on this installation: THIS SERVER, ${e.file}. Move it into SHARED with THIS SERVER on the toolbar.`
+                    }
+                  />{" "}
+                  {e.file}
+                </span>
                 <span className="api-row-pages">
                   {e.id && !e.error && <PublicPageButtons pages={e} look="row" />}
                 </span>
@@ -251,6 +276,7 @@ function Overview({
           </div>
         )}
       </section>
+      {dataOpen && <EndpointsDataDialog storeId={storeId} info={info} onClose={() => setDataOpen(false)} onChanged={onReload} />}
     </div>
   );
 }

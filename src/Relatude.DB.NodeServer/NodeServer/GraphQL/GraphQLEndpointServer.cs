@@ -2,13 +2,16 @@ using System.Runtime.CompilerServices;
 using Relatude.DB.DataStores;
 using Relatude.DB.GraphQL;
 using Relatude.DB.GraphQL.Endpoints;
+using Relatude.DB.IO;
 
 namespace Relatude.DB.NodeServer.GraphQL;
 
 /// <summary>
-/// Serves the GraphQL endpoints defined for each database: the definitions are "graphql/*.json" files on the
-/// database's storage, loaded on demand and mapped to their urls by a middleware. Executors are built per store
-/// instance and definition, so a reopened database or a saved definition gets a fresh schema.
+/// Serves the GraphQL endpoints defined for each database: the definitions are json files in two folders -
+/// SETTINGS, graphql/ in the database's folder in relatude.settings, and DATA, overrides/graphql/ on its storage
+/// (see <see cref="GraphQLEndpointStore"/>) - loaded on demand and mapped to their urls by a middleware.
+/// Executors are built per store instance and definition, so a reopened database or a saved definition gets a
+/// fresh schema.
 /// </summary>
 public sealed class GraphQLEndpointServer {
     sealed class Route(Guid containerId, GraphQLEndpointFile file) {
@@ -23,6 +26,7 @@ public sealed class GraphQLEndpointServer {
     readonly object _lock = new();
     readonly ConditionalWeakTable<IDataStore, Executors> _executors = [];
     Dictionary<Guid, List<GraphQLEndpointFile>> _files = [];
+    Dictionary<Guid, List<LayeredDefinition>> _layers = [];
     Dictionary<string, Route> _routes = new(StringComparer.OrdinalIgnoreCase);
     string? _loadedFor; // the container set the tables were built for
 
@@ -43,8 +47,8 @@ public sealed class GraphQLEndpointServer {
     }
 
     public GraphQLEndpointStore? StoreFor(NodeStoreContainer container) {
-        var io = _server.GetOrNullIO(container.Settings.IoDatabase);
-        return io == null ? null : new GraphQLEndpointStore(io);
+        var folders = _server.GraphQLDefinitionsFor(container.Settings);
+        return folders == null ? null : new GraphQLEndpointStore(folders);
     }
 
     public List<GraphQLEndpointFile> Files(Guid containerId) {
@@ -61,19 +65,54 @@ public sealed class GraphQLEndpointServer {
         lock (_lock) return _files.Values.SelectMany(l => l).Where(f => f.Definition != null).Select(f => f.Definition!).ToList();
     }
 
+    /// <summary>What both folders have for every endpoint of a database, the ones taken away included.</summary>
+    public List<LayeredDefinition> Layers(Guid containerId) {
+        ensureLoaded();
+        lock (_lock) return _layers.TryGetValue(containerId, out var layers) ? [.. layers] : [];
+    }
+    LayeredDefinition? layer(Guid containerId, Guid endpointId) {
+        var id = endpointId.ToString();
+        return Layers(containerId).FirstOrDefault(l => string.Equals(l.Id, id, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Saves a definition to the database's DATA (see <see cref="GraphQLEndpointStore.Save"/>).</summary>
     public GraphQLEndpointFile Save(NodeStoreContainer container, GraphQLEndpointDefinition definition) {
         var store = StoreFor(container) ?? throw new Exception("The database has no storage provider for its endpoint files.");
-        var existing = definition.Id == Guid.Empty ? null : Find(container.Settings.Id, definition.Id);
-        var saved = store.Save(definition, existing?.Key);
+        var existing = definition.Id == Guid.Empty ? null : layer(container.Settings.Id, definition.Id);
+        var saved = store.Save(definition, existing);
         Invalidate();
         return saved;
     }
 
+    /// <summary>Takes an endpoint away on this installation; a file that could not be read is deleted.</summary>
     public void Delete(NodeStoreContainer container, Guid endpointId) {
         var store = StoreFor(container) ?? throw new Exception("The database has no storage provider for its endpoint files.");
         var existing = Find(container.Settings.Id, endpointId) ?? throw new Exception("The endpoint was not found.");
-        store.Delete(existing.Key);
+        if (existing.Layer != null) store.Delete(existing.Layer);
+        else store.DeleteFile(existing.Source, existing.Key);
         Invalidate();
+    }
+
+    /// <summary>Moves what DATA has for these endpoints into SETTINGS. Nothing that is served changes.</summary>
+    public int MoveToSettings(NodeStoreContainer container, IEnumerable<Guid> endpointIds) {
+        var store = StoreFor(container) ?? throw new Exception("The database has no storage provider for its endpoint files.");
+        var moved = 0;
+        foreach (var id in endpointIds.Distinct()) {
+            if (layer(container.Settings.Id, id) is { } l && store.MoveToSettings(l)) moved++;
+        }
+        Invalidate();
+        return moved;
+    }
+
+    /// <summary>Drops what DATA has for these endpoints: each goes back to its SETTINGS definition, or goes.</summary>
+    public int DiscardData(NodeStoreContainer container, IEnumerable<Guid> endpointIds) {
+        var store = StoreFor(container) ?? throw new Exception("The database has no storage provider for its endpoint files.");
+        var discarded = 0;
+        foreach (var id in endpointIds.Distinct()) {
+            if (layer(container.Settings.Id, id) is { } l && store.DiscardData(l)) discarded++;
+        }
+        Invalidate();
+        return discarded;
     }
 
     /// <summary>The executor for a definition over the container's open store; cached until either changes.</summary>
@@ -100,16 +139,19 @@ public sealed class GraphQLEndpointServer {
         lock (_lock) {
             if (_loadedFor == signature) return;
             var files = new Dictionary<Guid, List<GraphQLEndpointFile>>();
+            var layers = new Dictionary<Guid, List<LayeredDefinition>>();
             var routes = new Dictionary<string, Route>(StringComparer.OrdinalIgnoreCase);
             foreach (var container in _server.GetContainers()) {
                 List<GraphQLEndpointFile> list;
+                List<LayeredDefinition> found = [];
                 try {
-                    list = StoreFor(container)?.Load() ?? [];
+                    list = StoreFor(container)?.Load(out found) ?? [];
                 } catch (Exception ex) {
                     RelatudeDBServer.Trace($"GraphQL endpoints of {container.Settings.Name} could not be read: {ex.Message}");
                     list = [];
                 }
                 files[container.Settings.Id] = list;
+                layers[container.Settings.Id] = found;
                 foreach (var file in list) {
                     var def = file.Definition;
                     if (def == null || !def.Enabled) continue;
@@ -123,6 +165,7 @@ public sealed class GraphQLEndpointServer {
                 }
             }
             _files = files;
+            _layers = layers;
             _routes = routes;
             _loadedFor = signature;
         }

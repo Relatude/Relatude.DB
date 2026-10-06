@@ -31,10 +31,10 @@ sealed class UIDatamodel {
         commands.Register("datamodel-history-delete", ctx => historyDelete(ctx.Payload<HistoryPayload>()));
         commands.Register("datamodel-export", ctx => export(ctx.Payload<ExportPayload>()));
         commands.Register("datamodel-code", ctx => code(ctx.Payload<CodePayload>()));
-        // the overrides of this installation, and moving them into the file every installation shares
+        // the overrides in DATA, and moving them into SETTINGS
         commands.Register("datamodel-overrides-get", ctx => overridesGet(ctx.Payload<StorePayload>().StoreId));
         commands.Register("datamodel-overrides-move", ctx => overridesMove(ctx.Payload<OverridesPathsPayload>()));
-        commands.Register("datamodel-overrides-shared-text", ctx => overridesSharedText(ctx.Payload<OverridesPathsPayload>()));
+        commands.Register("datamodel-overrides-settings-text", ctx => overridesSettingsText(ctx.Payload<OverridesPathsPayload>()));
         // the type reference form: process wide lookups, on demand (see AssemblyScanner)
         commands.Register("datamodel-scan-assemblies", ctx => AssemblyScanner.ScanAssemblies());
         commands.Register("datamodel-scan-namespaces", ctx => AssemblyScanner.ScanNamespaces(ctx.Payload<ReferencePayload>().Reference));
@@ -103,29 +103,29 @@ sealed class UIDatamodel {
         };
     }
     /// <summary>
-    /// The two files a database's overrides are kept in. The model carries what is in force - the shared
-    /// file's with this installation's merged over them - so the shared file's own content comes along
-    /// too: the page tells from it which of the two an override is in, and what a reset goes back to.
+    /// The two files a database's overrides are kept in. The model carries what is in force - the SETTINGS
+    /// file's with the DATA file's merged over them - so the SETTINGS file's own content comes along too: the
+    /// page tells from it which of the two an override is in, and what taking one away goes back to.
     /// </summary>
     object describeOverridesFiles(NodeStoreContainer c) {
         var file = c.OverridesFile;
-        JsonElement? shared = null;
-        string? sharedError = null;
+        JsonElement? settings = null;
+        string? settingsError = null;
         try {
-            var o = file.ReadShared();
-            if (o != null) shared = JsonSerializer.SerializeToElement(o, DatamodelJson.Options);
+            var o = file.ReadSettings();
+            if (o != null) settings = JsonSerializer.SerializeToElement(o, DatamodelJson.Options);
         } catch (Exception error) {
-            sharedError = error.Message;
+            settingsError = error.Message;
         }
         return new {
             PlanId = DatamodelOverridesFile.PlanId,
-            file.Location,
+            file.DataLocation,
             Writable = file.CanWrite,
             Exists = safe(() => file.Exists(_server)),
-            file.SharedLocation,
-            SharedExists = safe(() => file.SharedExists),
-            Shared = shared,
-            SharedError = sharedError,
+            file.SettingsLocation,
+            SettingsExists = safe(() => file.SettingsExists),
+            Settings = settings,
+            SettingsError = settingsError,
             // where relatude.settings is not the one in source control, moving overrides into it is undone by the next deployment
             Development = _server.IsDevelopment,
             Environment = _server.EnvironmentName,
@@ -299,35 +299,35 @@ sealed class UIDatamodel {
         return new { Deleted = drafts(c).DeleteHistory(p.Key) };
     }
 
-    // ---- this installation's overrides, and moving them into the shared file ----
+    // ---- the overrides in DATA, and moving them into SETTINGS ----
 
     /// <summary>
-    /// What this installation's overrides file holds, entry by entry, beside what the shared file says for
-    /// each: the list the page moves from. It is the file as the last activation wrote it - a change the
-    /// draft makes is not in it yet.
+    /// What the DATA file holds, entry by entry, beside what the SETTINGS file says for each: the list the
+    /// page moves from. It is the file as the last activation wrote it - a change the draft makes is not in
+    /// it yet.
     /// </summary>
     object overridesGet(Guid storeId) {
         var c = container(storeId);
         var file = c.OverridesFile;
-        var shared = file.ReadSharedLayer();
-        var installation = file.ReadInstallationLayer(_server);
+        var settings = file.ReadSettingsLayer();
+        var data = file.ReadDataLayer(_server);
         return new {
             Files = describeOverridesFiles(c),
-            Entries = DatamodelOverridesLayers.Entries(installation).Select(e => {
-                var sharedValue = DatamodelOverridesLayers.Get(shared, new(e.TypeId, e.PropertyId, e.Attribute), out var inShared);
+            Entries = DatamodelOverridesLayers.Entries(data).Select(e => {
+                var settingsValue = DatamodelOverridesLayers.Get(settings, new(e.TypeId, e.PropertyId, e.Attribute), out var inSettings);
                 return new {
                     e.TypeId,
                     e.PropertyId,
                     e.Attribute,
                     e.TypeName,
                     e.PropertyName,
-                    // null: the shared value is taken away on this installation, and the source's applies
+                    // null: the SETTINGS value is taken away on this installation, and the source's applies
                     Reset = e.Value == null,
                     Value = e.Value?.DeepClone(),
-                    InShared = inShared,
-                    SharedValue = sharedValue?.DeepClone(),
-                    // says what the shared file says: comes from there anyway, and goes at the next activation
-                    SameAsShared = inShared ? JsonNode.DeepEquals(sharedValue, e.Value) : e.Value == null,
+                    InSettings = inSettings,
+                    SettingsValue = settingsValue?.DeepClone(),
+                    // says what the SETTINGS file says: comes from there anyway, and goes at the next activation
+                    SameAsSettings = inSettings ? JsonNode.DeepEquals(settingsValue, e.Value) : e.Value == null,
                 };
             }).ToArray(),
         };
@@ -336,14 +336,14 @@ sealed class UIDatamodel {
         var c = container(p.StoreId);
         int moved;
         lock (c.OverridesWriteLock) {
-            moved = c.OverridesFile.MoveToShared(_server, paths(p), activeOrNull(c));
+            moved = c.OverridesFile.MoveToSettings(_server, paths(p), activeOrNull(c));
         }
         return new { Moved = moved, View = overridesGet(p.StoreId) };
     }
-    object overridesSharedText(OverridesPathsPayload p) {
+    object overridesSettingsText(OverridesPathsPayload p) {
         var c = container(p.StoreId);
         var file = c.OverridesFile;
-        return new { Content = file.SharedTextWith(_server, paths(p), activeOrNull(c)), FileName = Settings.DatabaseShortName.DatamodelOverridesFileName, file.SharedLocation };
+        return new { Content = file.SettingsTextWith(_server, paths(p), activeOrNull(c)), FileName = Settings.DatabaseShortName.DatamodelFileName, file.SettingsLocation };
     }
     static IEnumerable<DatamodelOverridesLayers.AttributePath> paths(OverridesPathsPayload p)
         => (p.Entries ?? []).Where(e => !string.IsNullOrEmpty(e.Attribute)).Select(e => new DatamodelOverridesLayers.AttributePath(e.TypeId, e.PropertyId, e.Attribute));

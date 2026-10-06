@@ -8,12 +8,15 @@ namespace Relatude.DB.Logging;
 /// <summary>
 /// The custom logs of one log folder; see <see cref="ICustomLogs"/>.
 ///
-/// The settings files are the definitions: one {key}.json per log in a <see cref="LogDefinitionFolder"/>
-/// - relatude.settings/logs/{database short name}/ on a server - while the logs' data is in the log
-/// folder of their storage, one folder per log. What is running is a <see cref="Logging.LogStore"/>
-/// built from copies of them, so a definition handed out can be changed freely without changing a
-/// log that runs on it, and a change reaches the log only through <see cref="Update"/>, which saves
-/// the file before the log is rebuilt on it.
+/// The definitions are one {key}.json per log in two folders (<see cref="LayeredDefinitionFolders"/>): on a
+/// server, SETTINGS is logs/ in the database's folder in relatude.settings - in source control, deployed
+/// with the application - and DATA is overrides/logs/ on the database's storage, where every change made
+/// here is saved. A log's definition in DATA replaces the one in SETTINGS, and a marker there takes one
+/// away; <see cref="MoveToSettings"/> and <see cref="DiscardData"/> deal with what DATA holds. The logs'
+/// data is in the log folder of their storage, one folder per log. What is running is a
+/// <see cref="Logging.LogStore"/> built from copies of the definitions, so a definition handed out can be
+/// changed freely without changing a log that runs on it, and a change reaches the log only through
+/// <see cref="Update"/>, which saves the file before the log is rebuilt on it.
 ///
 /// Recording goes straight to the store, lock-free; defining, changing and deleting hold one lock,
 /// so two of them never interleave. Thread-safe.
@@ -28,17 +31,14 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
     const int moveChunkFiles = 500;
 
     readonly IIOProvider _io;
-    readonly LogDefinitionFolder _folder;
-    readonly Action<string>? _log;
+    readonly LayeredDefinitionFolders _folders;
     readonly HashSet<string> _reserved;
     readonly object _lock = new();
     volatile LogStore _store;
-    // the definitions as they were saved, by key. Never handed out: callers get copies
+    // the definitions in force as they were saved, by key. Never handed out: callers get copies
     Dictionary<string, LogSettings> _definitions = new(StringComparer.OrdinalIgnoreCase);
-    // where a definition was read from, when that is not the file it would be saved to (a file
-    // renamed by hand, or one an older version kept beside the data that could not be moved): saving
-    // writes the right file and removes this one, so the log is not defined twice at the next start
-    Dictionary<string, (IIOProvider Io, string[] Key)> _sourceFiles = new(StringComparer.OrdinalIgnoreCase);
+    // what each folder has for every key, those taken away included
+    Dictionary<string, LayeredDefinition> _layers = new(StringComparer.OrdinalIgnoreCase);
     List<CustomLogLoadError> _loadErrors = [];
     // the files behind the load errors, by the name they are listed under
     Dictionary<string, (IIOProvider Io, string[] Key)> _brokenFiles = new(StringComparer.OrdinalIgnoreCase);
@@ -49,20 +49,39 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
     /// <param name="reservedKeys">Keys a custom log may not take: those of the logs defined in code,
     /// which keep their files in the same folder.</param>
     /// <param name="definitions">Where the definitions are kept. Null keeps them in the log folder of
-    /// <paramref name="io"/>, as log/{key}.json. Definitions an older version saved in the log folder as
-    /// log.{key}.settings.json are moved into it.</param>
-    /// <param name="log">Told what moving those older definitions did, and what it could not do.</param>
-    public CustomLogs(IIOProvider io, IEnumerable<string>? reservedKeys = null, LogDefinitionFolder? definitions = null, Action<string>? log = null) {
+    /// <paramref name="io"/>, as logs/{key}.json, with no SETTINGS folder.</param>
+    /// <param name="log">Unused; kept for callers that pass a logger.</param>
+    public CustomLogs(IIOProvider io, IEnumerable<string>? reservedKeys = null, LayeredDefinitionFolders? definitions = null, Action<string>? log = null) {
         _io = io;
-        _folder = definitions ?? LogDefinitionFolder.InLogFolder(io);
-        _log = log;
+        _folders = definitions ?? new LayeredDefinitionFolders(null, new DefinitionFolder(io, [FileKeyUtility.LogFolderName], FileKeyUtility.LogFolderName));
         _reserved = new(reservedKeys ?? [], StringComparer.OrdinalIgnoreCase);
         _store = new LogStore(io, load());
     }
 
     public ILogStore LogStore => _store;
-    public string DefinitionsFolder => _folder.Display;
-    public string DefinitionFileOf(string logKey) => _folder.DisplayOf(logKey);
+    public string? SettingsFolder => _folders.Settings?.Display;
+    public string DataFolder => _folders.Data.Display;
+    public string DefinitionFileOf(string logKey) {
+        lock (_lock) {
+            if (_layers.TryGetValue(logKey, out var layer)) {
+                if (layer.DataKey != null) return _folders.Data.DisplayOf(layer.DataKey);
+                if (layer.SettingsKey != null) return _folders.Settings!.DisplayOf(layer.SettingsKey);
+            }
+            return _folders.Data.DisplayOf(_folders.Data.FileKey(FileKeyUtility.Logger_DefinitionFileName(logKey)));
+        }
+    }
+    public DefinitionSource? SourceOf(string logKey) {
+        lock (_lock) return _layers.TryGetValue(logKey, out var layer) ? layer.Source : null;
+    }
+    public IReadOnlyList<CustomLogDataEntry> DataEntries {
+        get {
+            lock (_lock) {
+                return [.. _layers.Values.Where(l => l.DataKey != null).OrderBy(l => l.Id, StringComparer.OrdinalIgnoreCase).Select(l => new CustomLogDataEntry(
+                    l.Id, _definitions.TryGetValue(l.Id, out var d) ? d.Name : null, l.Change!.Value,
+                    _folders.Data.DisplayOf(l.DataKey!), l.SettingsKey == null ? null : _folders.Settings!.DisplayOf(l.SettingsKey)))];
+            }
+        }
+    }
     public IReadOnlyCollection<string> ReservedKeys => _reserved;
     public bool AnyEnabled => _anyEnabled;
 
@@ -89,85 +108,59 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
         if (_reserved.Contains(logKey)) return $"'{logKey}' is the key of one of the database's activity logs.";
         lock (_lock) {
             if (_definitions.ContainsKey(logKey)) return $"There is already a log with the key '{logKey}'.";
-            if (_folder.IO.Exists(_folder.FileKey(logKey))) return $"There is already a definition file for '{logKey}': {_folder.DisplayOf(logKey)}.";
         }
         return null;
     }
 
     // ---- reading the definitions ----
 
+    // a definition is known by its key; a file without one by its name
+    static string idOf(string[] fileKey, System.Text.Json.Nodes.JsonObject json) {
+        foreach (var (name, value) in json) {
+            if (string.Equals(name, nameof(LogSettings.Key), StringComparison.OrdinalIgnoreCase) && value is System.Text.Json.Nodes.JsonValue v
+                && v.TryGetValue<string>(out var key) && !string.IsNullOrWhiteSpace(key)) return key;
+        }
+        return Path.GetFileNameWithoutExtension(fileKey.FileName());
+    }
+
     List<LogSettings> load() {
-        moveLegacyDefinitions();
+        var (found, errors) = LayeredDefinitions.Read(_folders, idOf, StringComparer.OrdinalIgnoreCase);
         var definitions = new Dictionary<string, LogSettings>(StringComparer.OrdinalIgnoreCase);
-        var sources = new Dictionary<string, (IIOProvider, string[])>(StringComparer.OrdinalIgnoreCase);
-        var errors = new List<CustomLogLoadError>();
+        var layers = new Dictionary<string, LayeredDefinition>(StringComparer.OrdinalIgnoreCase);
+        var loadErrors = new List<CustomLogLoadError>();
         var broken = new Dictionary<string, (IIOProvider, string[])>(StringComparer.OrdinalIgnoreCase);
-        // the definitions where they are kept, then what an older version kept beside the data and
-        // was not moved: read where it is, and moved by the next save
-        var files = _folder.FileKeys().Select(k => (Io: _folder.IO, Key: k, Display: _folder.DisplayOf(k), Legacy: false))
-            .Concat(FileKeyUtility.Logger_GetAllLegacySettingsFileKeys(_io).Select(k => (Io: _io, Key: k, Display: k.AsKeyString(), Legacy: true)))
-            .ToArray();
-        foreach (var file in files) {
-            LogSettings settings;
-            try {
-                if (!file.Io.ExistsAndIsNotEmpty(file.Key)) throw new Exception("The file is empty.");
-                settings = LogSettings.Load(file.Io, file.Key);
-            } catch (Exception error) {
-                errors.Add(new(file.Display, error.Message));
-                broken[file.Display] = (file.Io, file.Key);
-                continue;
-            }
+        foreach (var error in errors) {
+            loadErrors.Add(new(error.Display, error.Message));
+            broken[error.Display] = (folderOf(error.Source).IO, error.Key);
+        }
+        foreach (var layer in found) {
             // the system logs are defined in code; settings saved for them here are theirs, not a
             // custom log with the same name
-            if (_reserved.Contains(settings.Key)) continue;
-            if (!definitions.TryAdd(settings.Key, settings)) {
-                errors.Add(new(file.Display, file.Legacy
-                    ? $"An older copy of the definition of '{settings.Key}', from before the definitions were kept in {_folder.Display}. The one there is the one read: delete this copy once nothing in it is missed."
-                    : $"Another settings file already defines the log '{settings.Key}'."));
-                broken[file.Display] = (file.Io, file.Key);
-                continue;
+            if (_reserved.Contains(layer.Id)) continue;
+            layers[layer.Id] = layer;
+            if (!layer.InForce) continue;
+            var (folder, key) = layer.DataKey != null ? (_folders.Data, layer.DataKey) : (_folders.Settings!, layer.SettingsKey!);
+            try {
+                definitions[layer.Id] = LogSettings.FromJson(layer.Text!);
+            } catch (Exception error) {
+                var display = folder.DisplayOf(key);
+                loadErrors.Add(new(display, error.Message));
+                broken[display] = (folder.IO, key);
             }
-            if (file.Legacy || !file.Key.IsSameKey(_folder.FileKey(settings.Key))) sources[settings.Key] = (file.Io, file.Key);
         }
         _definitions = definitions;
-        _sourceFiles = sources;
-        _loadErrors = errors;
+        _layers = layers;
+        _loadErrors = loadErrors;
         _brokenFiles = broken;
         updateAnyEnabled();
         return [.. definitions.Values.Select(s => s.Clone())];
     }
-
-    /// <summary>
-    /// Moves the definitions an older version kept beside the logs' data - log/log.{key}.settings.json in
-    /// the log storage - to where they are kept now. The text goes across as it is, comments and all:
-    /// written there and read back before the old file is deleted, so a failure leaves the definition
-    /// where it was, to be read there and moved by the next change to the log. A definition already in
-    /// the new place is never overwritten: an identical old copy is deleted, another one is left, and
-    /// <see cref="load"/> lists it as a file that does not count.
-    /// </summary>
-    void moveLegacyDefinitions() {
-        var moved = new List<string>();
-        foreach (var legacy in FileKeyUtility.Logger_GetAllLegacySettingsFileKeys(_io)) {
-            var logKey = FileKeyUtility.Logger_KeyOfFileName(legacy.FileName());
-            if (logKey == null || !_io.ExistsAndIsNotEmpty(legacy)) continue; // an empty file is listed as one that does not read
-            var target = _folder.FileKey(logKey);
-            try {
-                var text = _io.ReadAllTextUTF8(legacy);
-                if (_folder.IO.ExistsAndIsNotEmpty(target)) {
-                    if (_folder.IO.ReadAllTextUTF8(target) == text) _io.DeleteFileIfItExists(legacy);
-                    continue;
-                }
-                _folder.IO.WriteAllTextUTF8(target, text);
-                if (_folder.IO.ReadAllTextUTF8(target) != text) throw new Exception("the copy did not read back the same");
-                _io.DeleteFileIfItExists(legacy);
-                moved.Add(logKey);
-            } catch (Exception error) {
-                _log?.Invoke($"Could not move the log definition {legacy.AsKeyString()} to {_folder.DisplayOf(target)} ({error.Message}). It is read where it is, and moved by the next change to the log.");
-            }
-        }
-        if (moved.Count > 0) {
-            _log?.Invoke($"Moved the {(moved.Count == 1 ? "definition" : "definitions")} of {string.Join(", ", moved.Select(k => "'" + k + "'"))} out of the log folder into {_folder.Display}.");
-        }
+    DefinitionFolder folderOf(DefinitionSource source) => source == DefinitionSource.Settings ? _folders.Settings! : _folders.Data;
+    // what the folders have after a write: the definitions in force are kept by the caller, which knows
+    // what it changed
+    void rereadLayers() {
+        var (found, _) = LayeredDefinitions.Read(_folders, idOf, StringComparer.OrdinalIgnoreCase);
+        _layers = found.Where(l => !_reserved.Contains(l.Id)).ToDictionary(l => l.Id, StringComparer.OrdinalIgnoreCase);
     }
     void updateAnyEnabled() => _anyEnabled = _definitions.Values.Any(s => s.IsEnabled());
 
@@ -175,9 +168,17 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
     // and sharing nothing with what the caller holds.
     static LogSettings prepare(LogSettings settings) => LogSettings.FromJson(settings.ToJson());
 
+    // to DATA, where everything changed here goes - unless it says what SETTINGS says, which it then comes from
     void save(LogSettings settings) {
-        settings.Save(_folder.IO, _folder.FileKey(settings.Key));
-        if (_sourceFiles.Remove(settings.Key, out var source)) source.Io.DeleteFileIfItExists(source.Key);
+        _layers.TryGetValue(settings.Key, out var layer);
+        var fileName = FileKeyUtility.Logger_DefinitionFileName(settings.Key);
+        // a DATA file named for another key (renamed by hand) is saved under the log's own name
+        if (layer?.DataKey != null && layer.SettingsKey == null && !string.Equals(layer.DataKey.FileName(), fileName, StringComparison.OrdinalIgnoreCase)) {
+            _folders.Data.IO.DeleteFileIfItExists(layer.DataKey);
+            layer = null;
+        }
+        LayeredDefinitions.SaveData(_folders, layer, settings.ToJson(), fileName, text => LogSettings.FromJson(text).ToJson());
+        rereadLayers();
     }
     void ensureOpen() {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -264,15 +265,62 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
             if (deleteRecorded) _store.DeleteLogAndStatistics(old.Key);
             _store.RemoveLog(old.Key);
             if (deleteRecorded) removeFolderIfEmpty(old.Key);
-            _folder.IO.DeleteFileIfItExists(_folder.FileKey(old.Key));
-            if (_sourceFiles.Remove(old.Key, out var source)) source.Io.DeleteFileIfItExists(source.Key);
-            // an older copy left beside the data would define the log again at the next start
-            var legacy = FileKeyUtility.Logger_GetLegacySettings(old.Key);
-            _io.DeleteFileIfItExists(legacy);
-            foreach (var name in _brokenFiles.Where(b => b.Value.Io == _io && b.Value.Key.IsSameKey(legacy)).Select(b => b.Key).ToArray()) forgetBroken(name);
+            // a log SETTINGS defines is taken away on this installation by a marker in DATA
+            if (_layers.TryGetValue(old.Key, out var layer)) LayeredDefinitions.Remove(_folders, layer, nameof(LogSettings.Key));
             _definitions.Remove(old.Key);
+            rereadLayers();
             updateAnyEnabled();
         }
+    }
+
+    // ---- what DATA holds ----
+
+    public int MoveToSettings(IEnumerable<string> logKeys) {
+        if (_folders.Settings == null) throw new InvalidOperationException("These logs have no SHARED folder (relatude.settings) to move definitions into.");
+        lock (_lock) {
+            ensureOpen();
+            var moved = 0;
+            foreach (var key in logKeys.Distinct(StringComparer.OrdinalIgnoreCase)) {
+                if (_layers.TryGetValue(key, out var layer) && LayeredDefinitions.MoveToSettings(_folders, layer)) moved++;
+            }
+            rereadLayers();
+            return moved;
+        }
+    }
+
+    public IReadOnlyList<string> DiscardData(IEnumerable<string> logKeys) {
+        var discarded = new List<string>();
+        lock (_lock) {
+            ensureOpen();
+            foreach (var key in logKeys.Distinct(StringComparer.OrdinalIgnoreCase)) {
+                if (!_layers.TryGetValue(key, out var layer) || layer.DataKey == null) continue;
+                if (layer.SettingsKey == null) {
+                    // only this installation had it: the log goes, what it recorded stays for a log made later with the key
+                    if (_definitions.Remove(key)) _store.RemoveLog(key);
+                    LayeredDefinitions.DiscardData(_folders, layer);
+                } else {
+                    var settings = LogSettings.FromJson(layer.SettingsText!);
+                    if (_definitions.TryGetValue(key, out var old)) {
+                        // back to what SETTINGS says, the way an update gets there: entries moved, statistics kept right
+                        var changes = plan(old, settings);
+                        if (changes.MovesEntries) moveEntries(old, settings);
+                        else if (changes.Changed) _store.ReplaceLog(settings.Clone());
+                        if (changes.DiscardsStatistics) {
+                            if (settings.EnableStatistics && _store.GetTimestampOfFirstRecord(key) != null) _store.RebuildStatistics(key);
+                            else _store.DeleteStatistics(key);
+                        }
+                    } else {
+                        _store.AddLog(settings.Clone()); // taken away here, back now
+                    }
+                    _definitions[key] = settings;
+                    LayeredDefinitions.DiscardData(_folders, layer);
+                }
+                discarded.Add(key);
+            }
+            rereadLayers();
+            updateAnyEnabled();
+        }
+        return discarded;
     }
 
     /// <summary>
@@ -523,11 +571,12 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
             ensureOpen();
             if (_reserved.Contains(settings.Key)) throw new ArgumentException($"'{settings.Key}' is the key of one of the database's activity logs.");
             if (_definitions.ContainsKey(settings.Key)) throw new ArgumentException($"There is already a log with the key '{settings.Key}'.");
-            io.DeleteFileIfItExists(key);
-            settings.Save(_folder.IO, _folder.FileKey(settings.Key));
+            // mended where it is: the file is the one that did not read, in whichever folder it is
+            io.WriteAllTextUTF8(key, settings.ToJson());
             _store.AddLog(settings.Clone());
             _definitions[settings.Key] = settings;
             forgetBroken(fileKey);
+            rereadLayers();
             updateAnyEnabled();
         }
     }

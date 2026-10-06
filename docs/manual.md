@@ -771,27 +771,26 @@ by* names the other types that do). The **Sources** view lists every override be
 them for this installation and reopens the database; the nodes of a type whose indexed text changed are queued for text
 indexing, and a type whose text indexing is turned off has its text taken out of the index first.
 
-**Shared overrides, and this installation's.** A database keeps its overrides in two files, the
-way the settings are kept in `relatude.db.json` and `relatude.db.overrides.json`
-([§12](#12-registering-the-model--the-admin-ui)):
+**SHARED and THIS SERVER.** A database keeps its overrides in two files, the way the settings are kept
+in `relatude.db.json` and `relatude.db.overrides.json` ([§12](#12-registering-the-model--the-admin-ui)):
 
-| File | What it is | Written by |
-|---|---|---|
-| `relatude.settings/datamodel.overrides.json`, or `relatude.settings/<ShortName>/datamodel.overrides.json` for a database with a short name | part of the application: commit it and deploy it with the code, and every installation has the same overrides | you, or moving overrides into it from the admin UI |
-| `overrides/datamodel.overrides.json` on the database's storage provider | what the data model editor changed on this installation, beside the other changes made in the admin UI; it survives a redeploy and is not in source control | activating a model |
+| | File | What it is | Written by |
+|---|---|---|---|
+| SHARED | `relatude.settings/datamodel.json`, or `relatude.settings/<ShortName>/datamodel.json` for a database with a short name | part of the application: commit it and deploy it with the code, and every installation has the same overrides | you, or moving overrides into it from the admin UI |
+| THIS SERVER | `overrides/datamodel.overrides.json` on the database's storage provider - `relatude.data/overrides/` with the defaults | what the data model editor changed on this installation, beside the other changes made in the admin UI; it survives a redeploy and is not in source control | activating a model |
 
-When the database opens, this installation's file is merged over the shared one. A value there
-replaces the shared value. `null` takes the shared value away, so the attribute follows the source
-again on this installation. Activating writes only this installation's file, and only what differs
-from the shared one: an override set back to the shared value leaves the file.
+When the database opens, THIS SERVER is merged over SHARED. A value on THIS SERVER replaces the SHARED value.
+`null` takes the SHARED value away, so the attribute follows the source again on this installation.
+Activating writes only the THIS SERVER file, and only what differs from SHARED: an override set back to the
+SHARED value leaves the file.
 
 ```jsonc
-// relatude.db/overrides/datamodel.overrides.json: this installation's
+// relatude.data/overrides/datamodel.overrides.json: THIS SERVER, this installation's
 {
   "NodeTypes": {
     "3ad77060-788d-21b2-31c1-4305dcae3437": {
       "Name": "Shop.Models.Product",
-      "TextIndex": null,                  // the shared file says false; here the source decides
+      "TextIndex": null,                  // SHARED says false; here the source decides
       "Properties": {
         "8b1aa6c4-205e-740c-73ca-26d1e39111dc": { "Name": "Price", "Indexed": true, "DefaultValue": 0 }
       }
@@ -800,16 +799,18 @@ from the shared one: an override set back to the shared value leaves the file.
 }
 ```
 
-The shared file has the same shape, without the `null`s. Both are keyed by ids, with names beside
-them for reading.
+The SHARED file has the same shape, without the `null`s. Both are keyed by ids, with names beside
+them for reading. In the editor every overridden field is tagged with where its value is: *shared*,
+*this server*, or *this server · removed* for a SHARED value taken away here; the tooltip names the file, and the
+arrow beside the field takes one file away at a time.
 
-*Moving overrides into the shared file.* In **Sources**, **Overrides**, choose **Move to shared…**.
-The dialog lists this installation's file entry by entry, beside what the shared file says. Select
-overrides and choose **Move into shared**: they are written into the shared file and removed from
-this installation's. Nothing in force changes, so the database is not reopened. Then commit the
-shared file. A moved `null` removes the value from the shared file. **Discard** puts the shared value
-back in the draft (or the source's, where the shared file has none), to be activated like any other
-change. Unactivated changes in the draft are not in the file, so activate them before moving them.
+*Moving overrides into SHARED.* In **Sources**, **Overrides**, choose **Move to shared…**. The
+dialog lists the THIS SERVER file entry by entry, beside what SHARED says. Select overrides and choose
+**Move into shared**: they are written into the SHARED file and removed from THIS SERVER. Nothing in force
+changes, so the database is not reopened. Then commit the SHARED file. A moved `null` removes the
+value from SHARED. **Discard** puts the SHARED value back in the draft (or the source's, where
+SHARED has none), to be activated like any other change. Unactivated changes in the draft are not on
+THIS SERVER, so activate them before moving them.
 
 Move where the application runs from its project folder, in the Development environment: there
 `relatude.settings` is the folder in source control. On a deployed server it is the deployed copy, and
@@ -817,16 +818,10 @@ the next deployment replaces it, with whatever was moved into it. The dialog war
 Development. **Download shared file** gives the file with the selected overrides moved in, without
 changing anything, so you can commit it by hand.
 
-The shared file is found by the database's short name, so give the short name in `relatude.db.json`.
+The SHARED file is found by the database's short name, so give the short name in `relatude.db.json`.
 A short name saved on one installation from the settings page lands in `relatude.db.overrides.json`,
-and that installation then reads other shared files than the rest. The settings page and the start-up
+and that installation then reads other SHARED files than the rest. The settings page and the start-up
 log say so.
-
-(Older versions kept this installation's file in `datamodels/`. Such a file is moved the first time
-the database's overrides are looked for, and an older copy beside a newer file is left alone and said
-so in the start-up log. The setting `DatamodelOverridesPath` named a file of the site to keep the
-overrides in instead; it is no longer used. At start, a file it names is copied to the shared place
-when that has none, and the start-up log asks you to remove the setting.)
 
 An override whose type or property is gone, a value that does not parse, an attribute that cannot be
 overridden: each is skipped with a warning in the log and in the editor, never a reason for the
@@ -1803,7 +1798,7 @@ Everything that is *not* code lives in `relatude.db.json`: storage backends, ind
 stores, AI providers, admin credentials and datamodel sources. It sits in `relatude.settings/`
 below the root data folder — `ServerOptions.DefaultDataFolderPath` resolved against the app's
 content root, so by default `relatude.settings/relatude.db.json` in the app's own folder, with
-`relatude.db/` (the data) and `relatude.db.temp/` (scratch, emptied at every start) beside
+`relatude.data/` (the data) and `relatude.data.temp/` (scratch, emptied at every start) beside
 `relatude.settings/`. Relative paths in the file still resolve against the root data folder, not
 against the folder the file is in. The Web SDK publishes the file like any other `.json` in the
 project. The same folder holds the other files every installation shares: the definitions of custom
@@ -1843,7 +1838,7 @@ One server holds N containers (databases); each container names the storage it u
       "WaitUntilOpen": false,          // true blocks startup until the store is open
 
       "IOSettings": [                  // storage backends this container may use
-        { "Id": "1a2b…", "Name": "Local disk", "IOType": "LocalDisk", "Path": "relatude.db" }
+        { "Id": "1a2b…", "Name": "Local disk", "IOType": "LocalDisk", "Path": "relatude.data" }
       ],
       "IoDatabase": "1a2b…",           // the transaction log — the source of truth
       "IoIndexes": null,               // persisted index files; falls back to IoDatabase
@@ -1967,7 +1962,7 @@ own users.
 |---|---|---|
 | `Id` | – | The container's identity. `DefaultStoreId` points at it, and it survives renames. |
 | `Name`, `Description` | null | Labels. `Name` is what the CLI's `--store` matches and what the admin UI shows. |
-| `ShortName` | null | A short folder name for the database — letters, digits, `-` and `_` — naming the folder the server keeps its settings files in: `relatude.settings/<ShortName>/logs/` holds the definitions of its logs ([§32.1](#321-defining-a-log)), and `relatude.settings/<ShortName>/datamodel.overrides.json` the datamodel overrides every installation shares ([§3.1](#31-overriding-attributes)). Without one they are kept directly in `relatude.settings/logs/` and `relatude.settings/datamodel.overrides.json`, which is all an installation with one database needs. Set it in `relatude.db.json`: a short name saved for one installation from the settings page makes it read other shared files than the rest, and the settings page and the start-up log say so. Short names are unique, and only one database can be without one; the settings page refuses a clash, and the start-up log warns about one written by hand. A database added on the Databases page while another has none gets a short name made from its name. Changed on the settings page, its files are moved along when the database next opens. |
+| `ShortName` | null | A short folder name for the database — letters, digits, `-` and `_` — naming its folder in `relatude.settings/`, its SHARED folder: `relatude.settings/<ShortName>/` holds the definitions of its logs (`logs/`, [§32.1](#321-defining-a-log)) and GraphQL endpoints (`graphql/`, [§33.2](#332-the-definition-file)) and its datamodel overrides (`datamodel.json`, [§3.1](#31-overriding-attributes)). Without one they are kept directly in `relatude.settings/`, which is all an installation with one database needs. Set it in `relatude.db.json`: a short name saved for one installation from the settings page makes it read other SHARED files than the rest, and the settings page and the start-up log say so. Short names are unique, and only one database can be without one; the settings page refuses a clash, and the start-up log warns about one written by hand. A database added on the Databases page while another has none gets a short name made from its name. Changed on the settings page, its files are moved along when the database next opens. |
 | `AutoOpen` | `false` | Open this database when the host starts. Without it the database exists but stays closed until something opens it — usually the admin UI. |
 | `WaitUntilOpen` | `false` | Block startup until the open completes. Off by default, so the app starts immediately and requests arriving during the open get the 503 progress page instead. Turn it on when a failed open should fail the boot. |
 | `IOSettings` | one local-disk entry | The storage backends this container may use. See below. |
@@ -1984,7 +1979,7 @@ own users.
 #### `IOSettings` — a storage backend
 
 ```jsonc
-{ "Id": "1a2b…", "Name": "Local disk", "IOType": "LocalDisk", "Path": "relatude.db" }
+{ "Id": "1a2b…", "Name": "Local disk", "IOType": "LocalDisk", "Path": "relatude.data" }
 { "Id": "9d8c…", "Name": "Azure",      "IOType": "AzureBlobStorage",
   "BlobConnectionString": "…", "BlobContainerName": "mydb", "LockBlob": true }
 { "Id": "0000…", "Name": "In memory",  "IOType": "Memory" }
@@ -1995,7 +1990,7 @@ own users.
 | `Id` | – | What the `Io…` fields and `FileStoreSettings.IoProviderId` refer to. |
 | `Name` | null | Label. |
 | `IOType` | `Memory` | `Memory` (nothing survives a restart — tests and demos), `LocalDisk`, or `AzureBlobStorage`. |
-| `Path` | `"~"` | `LocalDisk` only. A leading `~` or a relative path is combined with the content root, and the result must stay under it — a path that escapes the content root is refused. `relatude.db` is the conventional value. |
+| `Path` | `"~"` | `LocalDisk` only. A leading `~` or a relative path is combined with the content root, and the result must stay under it — a path that escapes the content root is refused. `relatude.data` is the conventional value (older versions used `relatude.db`, which the server renames at start). |
 | `BlobConnectionString` | null | `AzureBlobStorage` only, required. |
 | `BlobContainerName` | null | `AzureBlobStorage` only, required. |
 | `LockBlob` | `false` | Take a blob lease so a second process cannot open the same database. Worth having wherever two instances could overlap. |
@@ -2013,7 +2008,7 @@ colliding.
 
 A new installation gets this store, named as `LocalSettings.DefaultFileStore`: the server's default
 settings, `relatude new` / `relatude init`, and a database added under **Databases** in the admin UI all
-write one. A store added under **Settings › File stores**, or made in code with `new FileStoreSettings()`
+write one. A store added under **Settings › FileValue providers**, or made in code with `new FileStoreSettings()`
 or `FileStoreSettings.CreateMultiFile(ioProviderId)`, also starts with `SameHashSameFile` on and
 `SHA256`.
 
@@ -2271,7 +2266,7 @@ the settings pages compares the settings in force with `relatude.db.json` as it 
 only the difference to `relatude.db.overrides.json`, kept with the default database:
 
 ```jsonc
-// relatude.db/overrides/relatude.db.overrides.json, beside the default database's data/ and state/ folders
+// relatude.data/overrides/relatude.db.overrides.json, beside the default database's data/ and state/ folders
 {
   "Name": "Production",
   "ContainerSettings": [
@@ -2311,11 +2306,21 @@ no longer has is reported at startup and skipped, rather than added as half an e
 and values that do not fit a setting are warnings, as in the configuration section. A file that is not
 valid JSON stops the start, because the next save would otherwise write over everything in it.
 
-**On the settings pages** a field saved in the overrides file is marked *in overrides*. Hovering the
-mark shows what `relatude.db.json` has, and the restore button beside the field puts that value back
-as an edit you then save. A list element added there is marked *added here*, and elements removed
-there are named under the list. The **Overrides** button in the toolbar lists everything in the file —
-the server's settings and every database's — with both values side by side:
+**On the settings pages** every field is tagged with where its value comes from, and the tag's
+tooltip names the file and says where a change made here is written:
+
+| Tag | The value comes from |
+|---|---|
+| *default* | nothing: the built-in default applies |
+| *shared* | `relatude.settings/relatude.db.json` - SHARED, part of the application |
+| *this server* | `relatude.db.overrides.json` - THIS SERVER, saved on this installation; the tooltip shows what `relatude.db.json` has |
+| *appsettings* | the configuration section (appsettings, environment variables, secrets); the field is locked |
+| *code* | the settings callbacks in `Program.cs`; the field is locked |
+
+The restore button beside a *this server* field puts the `relatude.db.json` value back as an edit you then
+save. A list element added on THIS SERVER is marked *added here*, and elements removed there are named under
+the list. The **THIS SERVER** button in the toolbar lists everything in the file — the server's settings and
+every database's — with both values side by side:
 
 - **Move into relatude.db.json** writes the selected entries, or all of them, into `relatude.db.json`
   and takes them out of the overrides file. Nothing that is running changes. Settings decided by the
@@ -2327,13 +2332,16 @@ the server's settings and every database's — with both values side by side:
 - **Discard** puts back what `relatude.db.json` says for the selected entries — a value, a removed
   element restored, an added element taken out again — and saves.
 
+The same tags, and a **THIS SERVER** button with a dialog like this one, are on the model editor's
+overrides ([§3.1](#31-overriding-attributes)), the Logs page ([§32.1](#321-defining-a-log)) and the API
+page ([§33.2](#332-the-definition-file)).
+
 **Where the file is.** It is kept with the default database — the one `DefaultStoreId` names — in an
 `overrides/` folder at the root of the storage provider that database keeps its files in. On local
 disk that folder is beside its `data/`, `state/` and `logs/` folders, so with the default settings
-`relatude.db/overrides/relatude.db.overrides.json`; on Azure Blob storage it is a blob under
+`relatude.data/overrides/relatude.db.overrides.json`; on Azure Blob storage it is a blob under
 `overrides/` in the database's container. Wherever the database's files go, the admin UI's changes go
-with them. Earlier versions kept the file at the root of the storage itself; the server moves such a
-file into `overrides/` when it starts, and finds it at the root until then.
+with them.
 
 The file has to be found before the settings are put together, so the default database is looked up
 in `relatude.db.json` with the configuration section over it — never with the overrides file itself.
@@ -2343,7 +2351,7 @@ and the next start finds it there. Moving such a change into `relatude.db.json` 
 to the new place. Values set by the settings callbacks are not consulted, as they run later. If you
 change the database's folder in `relatude.db.json` by hand, move the file together with the
 database's own files. With no database to follow, the file is kept at
-`relatude.db/overrides/relatude.db.overrides.json` below the root data folder.
+`relatude.data/overrides/relatude.db.overrides.json` below the root data folder.
 
 If the storage cannot be reached when the server starts — a blob service that is down, say — the
 server starts anyway, on `relatude.db.json` and configuration alone, and the settings pages say so and
@@ -2377,54 +2385,65 @@ MyApp/                                 the content root, and the root data folde
 ├── appsettings.json                   configuration, every environment   committed, no secrets
 ├── appsettings.Development.json       … what Development changes         committed
 ├── appsettings.Production.json        … what Production changes          committed, no secrets
-├── relatude.settings/                 what the application says          committed, deployed
+├── relatude.settings/                 SHARED: what the application says   committed, deployed
 │   ├── relatude.db.json               databases, storage, index engines, model sources
-│   ├── datamodel.overrides.json       the shared datamodel overrides (§3.1)
+│   ├── datamodel.json                 the datamodel overrides (§3.1)
 │   ├── logs/                          log definitions, one <key>.json per log (§32.1)
-│   └── <ShortName>/                   the same two, per database with a short name
-│       ├── datamodel.overrides.json
-│       └── logs/
-├── relatude.db/                       this installation's database       never committed or deployed
+│   ├── graphql/                       GraphQL endpoints, one <name>.json per endpoint (§33.2)
+│   └── <ShortName>/                   the same three, per database with a short name
+│       ├── datamodel.json
+│       ├── logs/
+│       └── graphql/
+├── relatude.data/                     THIS SERVER: this installation's database   never committed or deployed
 │   ├── data/ state/ backup/ logs/ …   transaction log, state, backups, log entries, indexes, files
 │   ├── overrides/                     what the admin UI changed here
 │   │   ├── relatude.db.overrides.json   the settings (default database only)
-│   │   └── datamodel.overrides.json     the datamodel overrides
+│   │   ├── datamodel.overrides.json     the datamodel overrides
+│   │   ├── logs/                        log definitions added, changed or taken away here
+│   │   └── graphql/                     endpoints added, changed or taken away here
 │   ├── datamodels/                    the model editor's draft and model history
-│   ├── graphql/                       GraphQL endpoints from the API page (§33.2)
 │   ├── modelsources/                  model files of RuntimeTypes sources with no Filepath
 │   └── installation/                  this installation's id
-└── relatude.db.temp/                  scratch, emptied at every start    never committed or deployed
+└── relatude.data.temp/                scratch, emptied at every start    never committed or deployed
 ```
 
-Every other database has the folders from `data/` to `graphql/` in its own storage; `modelsources/`
+Every other database has the folders from `data/` to `datamodels/` in its own storage; `modelsources/`
 and `installation/` are the default database's only. `relatude.settings/` sits in the root data
-folder, beside `relatude.db/`: moving the root data folder with `ServerOptions.DefaultDataFolderPath`
-takes the settings folder along, out of the project. The shared files of a database are found by its
+folder, beside `relatude.data/`: moving the root data folder with `ServerOptions.DefaultDataFolderPath`
+takes the settings folder along, out of the project. A database's SHARED files are found by its
 short name, so give each database its `ShortName` in `relatude.db.json`, where every installation
 reads it ([§12.1](#121-every-setting-in-relatudedbjson)).
+
+Older versions called the data folder `relatude.data/` and the scratch folder `relatude.data.temp/`. At
+start the server renames an old data folder to `relatude.data/` and changes the paths in
+`relatude.db.json` and `relatude.db.overrides.json` that point into it — as text, so their comments
+stay — and deletes the old scratch folder.
 
 **Who writes what:**
 
 | What | Kept in | Written by | Belongs to |
 |---|---|---|---|
 | The model, hooks, middleware | the code | you | the application: committed, built, deployed |
-| `relatude.db.json` | `relatude.settings/` | you, `relatude new` / `relatude init`, **Move into relatude.db.json** on the settings pages | the application |
-| Shared datamodel overrides | `relatude.settings/`, `relatude.settings/<ShortName>/` | you, **Move to shared…** in the model editor | the application |
-| Log definitions | `relatude.settings/logs/`, `relatude.settings/<ShortName>/logs/` | the Logs page, `CustomLogs.Create` / `Update`, you | the application |
-| The `RelatudeDB` section | `appsettings.json`, `appsettings.{Environment}.json` | you | the application, per environment — no secrets |
+| `relatude.db.json` | `relatude.settings/` | you, `relatude new` / `relatude init`, **Move into relatude.db.json** on the settings pages | SHARED: the application |
+| Datamodel overrides | `relatude.settings/`, `relatude.settings/<ShortName>/` (`datamodel.json`) | you, **Move to shared…** in the model editor | SHARED: the application |
+| Log definitions | `relatude.settings/…/logs/` | you, **THIS SERVER** on the Logs page | SHARED: the application |
+| GraphQL endpoints | `relatude.settings/…/graphql/` | you, **THIS SERVER** on the API page | SHARED: the application |
+| The `RelatudeDB` section | `appsettings.json`, `appsettings.{Environment}.json` | you | APPSETTINGS: the application, per environment — no secrets |
 | Secrets | user secrets, environment variables, a vault | you, and whoever runs the server | the environment — never a file in source control |
-| Settings changed in the admin UI | `overrides/relatude.db.overrides.json` | the settings pages | the installation |
-| Datamodel overrides activated in the admin UI | `overrides/datamodel.overrides.json` | the model editor | the installation |
-| GraphQL endpoints | `graphql/` | the API page | the installation |
+| Settings changed in the admin UI | `overrides/relatude.db.overrides.json` | the settings pages | THIS SERVER: the installation |
+| Datamodel overrides activated in the admin UI | `overrides/datamodel.overrides.json` | the model editor | THIS SERVER: the installation |
+| Log definitions made or changed in the admin UI | `overrides/logs/` | the Logs page, `CustomLogs.Create` / `Update` / `Delete` | THIS SERVER: the installation |
+| GraphQL endpoints made or changed in the admin UI | `overrides/graphql/` | the API page | THIS SERVER: the installation |
 | Model files of a `RuntimeTypes` source | its `Filepath`; without one `modelsources/<Name>` | the model editor | the application when `Filepath` is in the project, else the installation |
-| The data | `relatude.db/` | the engine | the installation: backed up, never committed or deployed |
+| The data | `relatude.data/` | the engine | THIS SERVER: the installation, backed up, never committed or deployed |
 
 At every start the layers are merged, a later one over an earlier one. The settings are
 `relatude.db.json`, then `relatude.db.overrides.json`, then the `RelatudeDB` configuration section,
 then the settings callbacks in `Program.cs` (the table [above](#changes-made-in-the-admin-ui-relatudedboverridesjson)).
-A datamodel is what the sources declare, then `[PropertyOverride]` in code, then the shared overrides
-file, then this installation's ([§3.1](#31-overriding-attributes)). A log definition has one place
-only, in `relatude.settings/`.
+A datamodel is what the sources declare, then `[PropertyOverride]` in code, then the SHARED
+overrides, then THIS SERVER ([§3.1](#31-overriding-attributes)). A log or an endpoint is defined whole: the
+definition on THIS SERVER replaces the SHARED one with the same key or id, and a marker on THIS SERVER takes a
+SHARED one away on that installation.
 
 #### While you develop
 
@@ -2432,31 +2451,28 @@ only, in `relatude.settings/`.
 so the `relatude.settings/` the application reads is the very folder in source control, and what the
 admin UI writes into it is ready to commit:
 
-- **Log definitions** made or changed on the Logs page are written straight into
-  `relatude.settings/…/logs/`. Commit them with the code that records into them.
-- **Settings** changed on the settings pages go to `relatude.db/overrides/relatude.db.overrides.json`,
+- **Settings** changed on the settings pages go to `relatude.data/overrides/relatude.db.overrides.json`,
   outside source control — the place to try a value out. To make a change part of the application,
-  choose **Overrides** on the settings page, **Move into relatude.db.json**, and commit the file.
+  choose **THIS SERVER** on the settings page, **Move into relatude.db.json**, and commit the file.
 - **Model changes** in the model editor are written into the source wherever it can be written — the
   generated C# files of a `CompiledTypes` source with `GenerateModelFile` (rebuild and restart to see
-  them), or a `RuntimeTypes` source's model files — and saved as this installation's overrides where
-  it cannot. **Move to shared…** in the overrides dialog puts them into
-  `relatude.settings/…/datamodel.overrides.json`; commit that file.
-- A `RuntimeTypes` source without a `Filepath` keeps its model files in `relatude.db/modelsources/`,
+  them), or a `RuntimeTypes` source's model files — and saved as overrides on THIS SERVER where it cannot.
+  **Move to shared…** in the overrides panel puts them into `relatude.settings/…/datamodel.json`;
+  commit that file.
+- **Log definitions** and **GraphQL endpoints** made or changed in the admin UI go to THIS SERVER,
+  `relatude.data/overrides/logs/` and `…/graphql/`. **THIS SERVER** on the Logs page and on the API page
+  moves them into `relatude.settings/…/logs/` and `…/graphql/`; commit those.
+- A `RuntimeTypes` source without a `Filepath` keeps its model files in `relatude.data/modelsources/`,
   inside the data folder. For a model that belongs to the application, give the source a `Filepath`
   in the project — `"Models/Json"`, say, which resolves against the root data folder — and commit
   that folder.
-- **GraphQL endpoints** made on the API page are files in `relatude.db/graphql/`, so they stay on the
-  machine they were made on. An endpoint the application depends on is mapped in code
-  ([§33.9](#339-code-first-mapping-an-endpoint-in-programcs)), or its file is copied to each
-  installation.
 
 The `.gitignore` leaves out the data folder and the scratch folder, and nothing else of Relatude's —
 `relatude.settings/` is committed:
 
 ```text
-relatude.db/
-relatude.db.temp/
+relatude.data/
+relatude.data.temp/
 ```
 
 **Secrets do not go into `relatude.db.json`.** `relatude new` and `relatude init` write a random
@@ -2468,62 +2484,61 @@ project can be logged into at once. Before the repository is shared, move both i
 
 The Web SDK makes every `.json` file in the project folder content, copied to the build output and to
 the publish folder. That is what takes `relatude.settings/` and the appsettings files to a server, and
-it would take the data folder too: the admin UI changes, model history and GraphQL endpoints of a
-developer's machine, deployed over the server's own. So the project file leaves the data folder out —
+it would take the data folder too: the admin UI changes and model history of a developer's machine,
+deployed over the server's own. So the project file leaves the data folder out —
 the project types of `relatude new` have this, and an older project needs it added:
 
 ```xml
 <PropertyGroup>
-  <DefaultItemExcludes>$(DefaultItemExcludes);relatude.db\**;relatude.db.temp\**</DefaultItemExcludes>
+  <DefaultItemExcludes>$(DefaultItemExcludes);relatude.data\**;relatude.data.temp\**</DefaultItemExcludes>
 </PropertyGroup>
 ```
 
 Look in the publish folder before the first deployment: `relatude.settings/relatude.db.json` must be
-there, and `relatude.db/` must not. A server that finds no settings file writes one that points at the
+there, and `relatude.data/` must not. A server that finds no settings file writes one that points at the
 bundled demo model, so a database full of `Relatude.DB.Demo.Models` types is a deployment that left
 `relatude.settings/` behind.
 
 #### On a server
 
 **A deployment leaves the data alone.** It replaces the code, `relatude.settings/` and the appsettings
-files, and nothing in the data folder. With the defaults that folder is `relatude.db/` inside the
+files, and nothing in the data folder. With the defaults that folder is `relatude.data/` inside the
 application's folder, which works on a virtual machine, under IIS or on Azure App Service as long as
 the deployment never deletes files it did not put there: turn off options such as *Remove additional
-files at destination*, and keep `relatude.db/` out of an `rsync --delete`. Two other places are common:
+files at destination*, and keep `relatude.data/` out of an `rsync --delete`. Two other places are common:
 
-- **In a container**, mount a volume at `relatude.db/` below the content root. The image carries the
+- **In a container**, mount a volume at `relatude.data/` below the content root. The image carries the
   code and `relatude.settings/`; the volume carries the installation.
 - **On Azure Blob storage** — an `IOSettings` entry of type `AzureBlobStorage` for `IoDatabase` — the
-  database, and with it `overrides/` and `graphql/`, live in the blob container, and the application's
+  database, and with it `overrides/`, live in the blob container, and the application's
   folder holds only what was deployed. With deployment slots this is where the database belongs: a
   swap makes the other slot's folder the production one, so a database kept in the folder would change
   places with the code.
 
 **The admin UI's changes stay with the installation.** What an administrator changes on a server —
-settings, datamodel overrides, GraphQL endpoints — is kept in the data folder, so it survives every
-deployment, and what each deployment's `relatude.db.json` and shared overrides say still applies
-underneath it. That is the point of the split: a deployment changes what the application says, and
+settings, datamodel overrides, log definitions, GraphQL endpoints — is kept on THIS SERVER, the data folder,
+so it survives every deployment, and what each deployment's SHARED files say still applies underneath it. That is the point of the split: a deployment changes what the application says, and
 an installation's own changes stay on top.
 
 **Some admin UI actions write into `relatude.settings/` and the project's files**, which on a server
-are the deployed copy: saving a log definition on the Logs page, **Move into relatude.db.json** on the
-settings page, **Move to shared…** in the model editor, and activating a model change of a
-`RuntimeTypes` source whose `Filepath` is in the application's folder. What they write there lasts until a deployment replaces the folder —
+are the deployed copy: every move from a **THIS SERVER** dialog — on the settings page, in the model editor,
+on the Logs and API pages — and activating a model change of a `RuntimeTypes` source whose `Filepath`
+is in the application's folder. What they write there lasts until a deployment replaces the folder —
 in a container, until the container is replaced — and a moved entry has left the overrides file by
-then as well, so it is gone from the installation too. The model editor's dialog warns before a move
-outside the Development environment. On a server, take a change home through source control instead:
+then as well, so it is gone from the installation too. The **THIS SERVER** dialogs warn before a move outside
+the Development environment. On a server, take a change home through source control instead:
 
 | Changed on a server | To make it part of the application |
 |---|---|
-| A setting | **Overrides** on the settings page lists every entry beside what `relatude.db.json` says. Put the value into `relatude.db.json` in source control and deploy it. Once the deployed file says the same, the entry changes nothing, and the next save leaves it out of the overrides file. |
-| A datamodel override | In the model editor's **Move to shared…**, **Download shared file** gives the shared file with the chosen overrides in it and changes nothing on the server. Commit it in place of the old one, and deploy. |
-| A log definition | The log's Definition view shows the file. Copy it into `relatude.settings/…/logs/` in source control before the next deployment. A definition a deployment took away leaves the entries and statistics in the data folder, and a definition with the same key picks them up again. |
+| A setting | **THIS SERVER** on the settings page lists every entry beside what `relatude.db.json` says. Put the value into `relatude.db.json` in source control and deploy it. Once the deployed file says the same, the entry changes nothing, and the next save leaves it out of the overrides file. |
+| A datamodel override | In the model editor's **Move to shared…**, **Download shared file** gives `datamodel.json` with the chosen overrides in it and changes nothing on the server. Commit it in place of the old one, and deploy. |
+| A log definition | **THIS SERVER** on the Logs page lists what THIS SERVER holds. The log's Definition view shows the file: copy it into `relatude.settings/…/logs/` in source control and deploy it. A definition taken away by a deployment leaves the entries and statistics in the data folder, and a definition with the same key picks them up again. |
 | A model in a `RuntimeTypes` source | Copy the files from the source's `Filepath` into source control before the next deployment — or make the change in development, commit it and deploy it. |
-| A GraphQL endpoint | It stays with the installation. Copy its file into another installation's `graphql/` folder and choose **Reload from disk** there, or map the endpoint in code. |
+| A GraphQL endpoint | **THIS SERVER** on the API page lists what THIS SERVER holds. Copy the endpoint's file into `relatude.settings/…/graphql/` in source control and deploy it, or map the endpoint in code. |
 
-A copy of a data folder carries the installation's changes with it: production's `relatude.db/`
-restored on a test server brings production's settings overrides, datamodel overrides and GraphQL
-endpoints along. Look through the **Overrides** dialogs after such a restore.
+A copy of a data folder carries the installation's changes with it: production's `relatude.data/`
+restored on a test server brings production's settings, datamodel overrides, log definitions and
+GraphQL endpoints on THIS SERVER along. Look through the **THIS SERVER** dialogs after such a restore.
 
 #### appsettings, environment variables and secrets
 
@@ -2653,7 +2668,7 @@ deployments of the same binary:
     "Type": "CompiledTypes",           // see the table below
     "Namespace": "VenueApp.Models",    // one namespace, or a pattern: "VenueApp.Models.*" takes it and everything under it
     "Reference": "VenueApp",           // assembly name; null means the current project (the entry assembly)
-    "Filepath": null,                  // RuntimeTypes: model file or folder; null = relatude.db/modelsources/{Name}
+    "Filepath": null,                  // RuntimeTypes: model file or folder; null = relatude.data/modelsources/{Name}
     "FileIO": null,                    // legacy: read a model file through an IO provider instead
     "SourceCodePath": null,            // CompiledTypes: the folder with the C# files, for the model editor
     "GenerateModelFile": false,        // CompiledTypes: the model editor owns that folder and regenerates it
@@ -2666,7 +2681,7 @@ deployments of the same binary:
 | `Type` | What it does |
 |---|---|
 | `CompiledTypes` | loads the assembly named by `Reference` (or the entry assembly — the current project — when it is null or empty) and adds every type whose namespace matches `Namespace`. `Namespace` is required: one namespace, or a pattern in which `*` stands for any run of characters — `VenueApp.Models.*` takes `VenueApp.Models` and every namespace under it, `VenueApp.*.Models` takes `VenueApp.Web.Models` and `VenueApp.Api.Models`. Called `AssemblyNameReference`, and then `TypeReference`, before September 2026; both old names still read, and a settings file carrying one is rewritten to `CompiledTypes` when it is loaded. The single-type `TypeNameReference` kind was removed at the same time: name the type's namespace instead. |
-| `RuntimeTypes` | reads model files from disk when the database opens: serialised `Datamodel` JSON, in the form the model editor writes, so the model can change without rebuilding the application. `Filepath` may name a file or a folder (searched recursively). Left empty, the source gets a folder of its own named after it, `relatude.db/modelsources/{Name}`, beside the default database's files (characters no file system takes become `_`); renaming such a source in the admin UI writes that folder into `Filepath`, so its files are not left behind. Until October 2026 the default was `Models/Json`, for every source alike. Each node type still needs a backing CLR class of the same full name at runtime for the mapper to compile against. Called `JsonFile`, and then `TextFiles`, before September 2026 — and a `TextFiles` source could also hold `.cs` files compiled while the database opened, chosen by a `FileFormat` key. That kind is gone: **a source of any of the old file kinds is dropped from the settings file when it is loaded**, along with the `FileFormat` key, so a model kept in files is added again as a `RuntimeTypes` source (from the model editor, or by hand). |
+| `RuntimeTypes` | reads model files from disk when the database opens: serialised `Datamodel` JSON, in the form the model editor writes, so the model can change without rebuilding the application. `Filepath` may name a file or a folder (searched recursively). Left empty, the source gets a folder of its own named after it, `relatude.data/modelsources/{Name}`, beside the default database's files (characters no file system takes become `_`); renaming such a source in the admin UI writes that folder into `Filepath`, so its files are not left behind. Until October 2026 the default was `Models/Json`, for every source alike. Each node type still needs a backing CLR class of the same full name at runtime for the mapper to compile against. Called `JsonFile`, and then `TextFiles`, before September 2026 — and a `TextFiles` source could also hold `.cs` files compiled while the database opened, chosen by a `FileFormat` key. That kind is gone: **a source of any of the old file kinds is dropped from the settings file when it is loaded**, along with the `FileFormat` key, so a model kept in files is added again as a `RuntimeTypes` source (from the model editor, or by hand). |
 | `Code` | **reserved.** It is the id stamped on types added from `OnDatamodelInit`, and configuring it as a source throws. |
 
 Relative `Filepath` values resolve against the root data folder. Every source must carry a unique
@@ -4858,24 +4873,26 @@ file, or from code. All three end up as the same thing:
 | **Weeks start on** | What a week is, for the weekly statistics. |
 | **Also write a text copy**, **Compress** | A tab separated `.txt` beside every entries file, readable without the database; smaller entries files. |
 
-The definition is saved as `relatude.settings/logs/<key>.json`, below the application's folder
-beside `relatude.settings/relatude.db.json` — so it is deployed, and kept in source control, with the
-application. A database with a short name (its `ShortName` setting,
-[§12.1](#121-every-setting-in-relatudedbjson)) keeps its definitions in
-`relatude.settings/<short name>/logs/` instead; only one database of an installation can be without
-one. The file is what the log *is*: a
-definition written there by hand, or copied from another application, is picked up when the database
-opens (or with **Reload from disk** on the Logs page). A log defined on a deployed server is written
-into the deployed copy of the folder, so copy its definition into source control before the next
-deployment ([§12.2](#on-a-server)).
+A definition is a `<key>.json` file, in two places like every definition the admin UI edits. SHARED
+is `relatude.settings/logs/` below the application's folder, beside `relatude.settings/relatude.db.json`
+— deployed, and kept in source control, with the application. THIS SERVER is `overrides/logs/` on the
+database's storage, `relatude.data/overrides/logs/` with the defaults: what is defined or changed on
+the Logs page, or with `CustomLogs.Create` and `Update`, is saved there, and replaces the SHARED
+definition with the same key. Deleting a log defined in SHARED writes a marker on THIS SERVER that takes it
+away on this installation. A database with a short name (its `ShortName` setting,
+[§12.1](#121-every-setting-in-relatudedbjson)) keeps its SHARED files in `relatude.settings/<short name>/logs/`
+instead; only one database of an installation can be without one. The files are what the logs *are*:
+a definition written by hand into either folder, or copied from another application, is picked up when
+the database opens (or with **Reload from disk** on the Logs page).
 
-Older versions kept the definition beside the entries, as `log/log.<key>.settings.json` (later `logs/…`) in the
-database's log storage. Such a file is moved into the database's `logs/` folder below `relatude.settings` when the
-database opens — the text as it is, comments and all, written there and read back before the old file
-is deleted. If it cannot be written there (a read-only deployment), it is read where it is and moved by
-the next change to the log; if the new folder already has a definition for the key, the old copy is
-listed on the Logs page as a file that does not count, to be deleted. The Definition
-view of a log shows the same file as JSON and edits it as text as well as through the form:
+Each log on the Logs page is tagged *shared* or *this server*. **THIS SERVER** on its toolbar lists what THIS SERVER
+holds — logs added, changed or taken away here — and moves the selection into SHARED, or discards it:
+a log goes back to its SHARED definition, entries moved as a change of definition would move them;
+one only THIS SERVER had goes, and what it recorded is kept for a log made later with the same key. Move in
+development and commit the folder; on a deployed server the SHARED folder is the deployed copy, which
+the next deployment replaces ([§12.2](#on-a-server)).
+
+The Definition view of a log shows its file as JSON and edits it as text as well as through the form:
 
 ```json
 {
@@ -4928,7 +4945,7 @@ if (!db.CustomLogs.HasLog("requests")) {
         Name = "Duration (ms)", DataType = LogDataType.Double,
         Statistics = [new(StatisticsType.CountSumAvgMinMax)],
     });
-    db.CustomLogs.Create(requests);   // saves relatude.settings/logs/requests.json and starts the log
+    db.CustomLogs.Create(requests);   // saves overrides/logs/requests.json on THIS SERVER and starts the log
 }
 ```
 
@@ -5360,13 +5377,17 @@ a url, even across databases. While the endpoint's database is not open, its url
 
 ### 33.2 The definition file
 
-An endpoint is its file: `graphql/<name>.json` on the database's `IoDatabase` storage provider, next
-to the database's own files. Every `.json` file in that folder is an endpoint, so you can also write a
-definition by hand, copy it from another database or keep it in source control. The folder belongs to
-the installation, not the application: a deployment does not carry it
-([§12.2](#122-what-goes-where-source-control-deployment-and-appsettings)), so an endpoint every
-installation needs is copied to each, or mapped in code ([§33.9](#339-code-first-mapping-an-endpoint-in-programcs)). **Reload from disk**
-on the API page reads the folder again. A file without an `id` gets one derived from its file name.
+An endpoint is its file, `<name>.json`, in two places like every definition the admin UI edits.
+SHARED is `relatude.settings/graphql/` (`relatude.settings/<short name>/graphql/` for a database with
+a short name) — deployed, and kept in source control, with the application. THIS SERVER is `overrides/graphql/`
+on the database's `IoDatabase` storage provider, `relatude.data/overrides/graphql/` with the defaults:
+an endpoint created or changed on the API page is saved there, and replaces the SHARED endpoint with
+the same id; deleting a SHARED endpoint writes a marker on THIS SERVER that takes it away on this
+installation. Every `.json` file in either folder is an endpoint, so you can also write a definition by
+hand or copy it from another database. **THIS SERVER** on the API page lists what THIS SERVER holds and moves it into
+SHARED, or discards it; each endpoint in the list is tagged *shared* or *this server*. **Reload from disk**
+reads both folders again. A file without an `id` gets one derived from its file name, the same in
+either folder.
 A file that cannot be read as a definition stays in the list, marked with what is wrong with it.
 The reader is lenient: comments and trailing commas are allowed, property names can be in any case,
 and enum values are written by name.

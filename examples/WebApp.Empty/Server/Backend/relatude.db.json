@@ -21,7 +21,7 @@
         {
           "Id": "c9154057-bcbd-4f3a-aed7-ddce5db17233",
           "Name": "Local disk",
-          "Path": "relatude.db",
+          "Path": "relatude.data",
           "BlobConnectionString": null,
           "BlobContainerName": null,
           "LockBlob": false,

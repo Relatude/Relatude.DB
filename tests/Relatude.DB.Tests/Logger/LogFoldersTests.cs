@@ -4,9 +4,9 @@ using Relatude.DB.Logging.Statistics;
 
 namespace Relatude.Logger;
 /// <summary>
-/// Every log keeps its files in a folder of its own below the log folder (log/{key}/), and the
-/// definitions of custom logs are kept apart from the data, in a <see cref="LogDefinitionFolder"/>.
-/// The files an older version kept directly in the log folder - data and definitions alike - are moved.
+/// Every log keeps its files in a folder of its own below the log folder (logs/{key}/), and the
+/// definitions of custom logs are kept apart from the data, in two folders (<see cref="LayeredDefinitionFolders"/>):
+/// SETTINGS, deployed with the application, and DATA, this installation's, where every change is saved.
 /// </summary>
 [TestClass]
 public class LogFoldersTests {
@@ -73,208 +73,133 @@ public class LogFoldersTests {
         }
     }
 
-    [TestMethod]
-    public void FilesOfTheOldFlatLayoutAreMovedIntoTheFolderOfTheirLog() {
-        var io = new IOProviderMemory();
-        using (var store = new LogStore(io, [orders()])) record(store, 4);
-        // the layout an older version wrote: every file directly in the log folder
-        foreach (var key in io.GetFiles().Select(f => f.KeyOf()).Where(k => k.Length == 3 && k[0] == "logs").ToArray()) io.RenameFile(key, ["logs", key.FileName()]);
-        io.WriteAllTextUTF8(["logs", "log.gone.day.2026-01-01.bin"], "x"); // a log nothing defines any more
-        io.WriteAllTextUTF8(["logs", "log.Orders.settings.json"], "{}"); // a definition: not data, moved elsewhere
-        io.WriteAllTextUTF8(["logs", "critical.error.txt"], "boom");
-        var said = new List<string>();
-        Assert.IsTrue(LogFileLayout.MoveIntoLogFolders(io, said.Add) >= 4);
-        Assert.AreEqual(0, FileKeyUtility.Logger_GetLegacyFlatFileKeys(io).Length, "nothing of the old layout is left");
-        Assert.IsTrue(io.Exists(["logs", "gone", "log.gone.day.2026-01-01.bin"]), "moved whether a log is defined for it or not");
-        Assert.IsTrue(io.Exists(["logs", "log.Orders.settings.json"]), "definitions are not data");
-        Assert.IsTrue(io.Exists(["logs", "critical.error.txt"]));
-        Assert.IsTrue(said.Any(s => s.Contains("logs/orders/")), string.Join(" | ", said));
-        using var again = new LogStore(io, [orders()]);
-        Assert.AreEqual(4, count(again), "the entries are read from their new place");
-        Assert.AreEqual(0, LogFileLayout.MoveIntoLogFolders(io), "a second run has nothing to move");
-    }
+    static LayeredDefinitionFolders folders(IIOProvider settings, IIOProvider data)
+        => new(new DefinitionFolder(settings, [], "relatude.settings/logs"), new DefinitionFolder(data, ["overrides", "logs"], "relatude.data/overrides/logs"));
 
     [TestMethod]
-    public void TheOldLogFolderIsMovedToLogsAndItsFlatFilesIntoTheFolderOfTheirLog() {
-        var io = new IOProviderMemory();
-        io.WriteAllTextUTF8(["log", "orders", "log.orders.day.2026-01-01.bin"], "in a folder already");
-        io.WriteAllTextUTF8(["log", "log.flat.day.2026-01-01.bin"], "flat");
-        io.WriteAllTextUTF8(["log", "critical.error.txt"], "boom");
-        var said = new List<string>();
-        Assert.AreEqual(4, LogFileLayout.MoveIntoLogFolders(io, said.Add), "three out of log/, then the flat one into its folder: " + string.Join(" | ", said));
-        Assert.AreEqual("in a folder already", io.ReadAllTextUTF8(["logs", "orders", "log.orders.day.2026-01-01.bin"]));
-        Assert.IsTrue(io.Exists(["logs", "flat", "log.flat.day.2026-01-01.bin"]));
-        Assert.IsTrue(io.Exists(["logs", "critical.error.txt"]));
-        Assert.IsFalse(io.GetFiles().Any(f => f.Key.StartsWith("log/")), "nothing is left in log/");
-        Assert.AreEqual(0, LogFileLayout.MoveIntoLogFolders(io));
-    }
-
-    [TestMethod]
-    public void OnDiskTheOldLogFolderIsRenamedWhole() {
-        var root = newRoot("rename-folder");
-        try {
-            var io = new IOProviderDisk(root);
-            using (var store = new LogStore(io, [orders()])) record(store, 3);
-            // the layout an older version wrote: logs/ called log/
-            Directory.Move(Path.Combine(root, "logs"), Path.Combine(root, "log"));
-            Assert.IsFalse(io.GetFiles().Any(f => f.Key.StartsWith("log")), "the disk provider does not list the old folder");
-            var said = new List<string>();
-            Assert.IsTrue(LogFileLayout.MoveIntoLogFolders(new IOProviderDisk(root), said.Add) >= 3);
-            Assert.IsFalse(Directory.Exists(Path.Combine(root, "log")));
-            StringAssert.Contains(said.Single(), "Renamed the log folder");
-            using var again = new LogStore(new IOProviderDisk(root), [orders()]);
-            Assert.AreEqual(3, count(again));
-        } finally {
-            try { Directory.Delete(root, true); } catch { }
-        }
-    }
-
-    [TestMethod]
-    public void OnDiskTheOldLogFolderIsMovedFileByFileWhenLogsIsThereAlready() {
-        var root = newRoot("merge-folder");
-        try {
-            Directory.CreateDirectory(Path.Combine(root, "log", "orders"));
-            File.WriteAllText(Path.Combine(root, "log", "orders", "log.orders.day.2026-01-01.bin"), "old");
-            Directory.CreateDirectory(Path.Combine(root, "logs", "query"));
-            File.WriteAllText(Path.Combine(root, "logs", "query", "log.query.day.2026-10-01.bin"), "new");
-            var io = new IOProviderDisk(root);
-            Assert.AreEqual(1, LogFileLayout.MoveIntoLogFolders(io));
-            Assert.AreEqual("old", File.ReadAllText(Path.Combine(root, "logs", "orders", "log.orders.day.2026-01-01.bin")));
-            Assert.AreEqual("new", File.ReadAllText(Path.Combine(root, "logs", "query", "log.query.day.2026-10-01.bin")));
-            Assert.IsFalse(Directory.Exists(Path.Combine(root, "log")), "the emptied old folder is removed");
-        } finally {
-            try { Directory.Delete(root, true); } catch { }
-        }
-    }
-
-    [TestMethod]
-    public void AMoveNeverOverwritesAFileOfAnotherSize() {
-        var io = new IOProviderMemory();
-        io.WriteAllTextUTF8(["logs", "orders", "log.orders.day.2026-01-01.bin"], "newer and longer");
-        io.WriteAllTextUTF8(["logs", "log.orders.day.2026-01-01.bin"], "older");
-        io.WriteAllTextUTF8(["logs", "orders", "log.orders.day.2026-01-02.bin"], "same");
-        io.WriteAllTextUTF8(["logs", "log.orders.day.2026-01-02.bin"], "same");
-        var said = new List<string>();
-        LogFileLayout.MoveIntoLogFolders(io, said.Add);
-        Assert.AreEqual("newer and longer", io.ReadAllTextUTF8(["logs", "orders", "log.orders.day.2026-01-01.bin"]));
-        Assert.IsTrue(io.Exists(["logs", "log.orders.day.2026-01-01.bin"]), "left where it is");
-        Assert.IsTrue(said.Any(s => s.Contains("another size")));
-        Assert.IsFalse(io.Exists(["logs", "log.orders.day.2026-01-02.bin"]), "the copy of an interrupted move is finished off");
-    }
-
-    [TestMethod]
-    public void DefinitionsAreKeptInTheirOwnFolderAndTheDataInTheLogStorage() {
+    public void DefinitionsAreKeptApartFromTheData_AndWhatIsSavedHereGoesToData() {
         var data = new IOProviderMemory();
         var settings = new IOProviderMemory();
-        var folder = new LogDefinitionFolder(settings, [], "relatude.settings/logs/db");
-        var logs = new CustomLogs(data, ["system"], folder);
+        var logs = new CustomLogs(data, ["system"], folders(settings, data));
         logs.Create(orders());
-        Assert.IsTrue(settings.Exists(["Orders.json"]));
-        Assert.IsFalse(data.GetFiles().Any(f => f.Key.EndsWith(".json")), "no definition with the data");
-        Assert.AreEqual("relatude.settings/logs/db/Orders.json", logs.DefinitionFileOf("Orders"));
-        Assert.AreEqual("relatude.settings/logs/db", logs.DefinitionsFolder);
+        Assert.IsTrue(data.Exists(["overrides", "logs", "Orders.json"]), "saved in DATA");
+        Assert.IsFalse(settings.GetFiles().Any(), "SETTINGS is never written by a save");
+        Assert.AreEqual("relatude.data/overrides/logs/Orders.json", logs.DefinitionFileOf("Orders"));
+        Assert.AreEqual(DefinitionSource.Data, logs.SourceOf("Orders"));
+        Assert.AreEqual("relatude.settings/logs", logs.SettingsFolder);
+        Assert.AreEqual(DataChange.Added, logs.DataEntries.Single().Change);
         logs.Record("Orders", ("amount", 1.0));
         logs.FlushToDiskNow();
         Assert.IsTrue(data.GetFiles().Any(f => f.Key.StartsWith("logs/orders/")));
         Assert.IsTrue(logs.GetFiles("Orders").All(f => f.Kind != "left-over") && logs.GetFiles("Orders").Any(f => f.Kind == "entries"));
         logs.Dispose();
 
-        var again = new CustomLogs(data, ["system"], folder);
+        var again = new CustomLogs(data, ["system"], folders(settings, data));
         Assert.AreEqual(1, count(again.LogStore));
         again.Delete("Orders", deleteRecorded: true);
-        Assert.IsFalse(settings.Exists(["Orders.json"]));
+        Assert.IsFalse(data.Exists(["overrides", "logs", "Orders.json"]), "only DATA had it: the file goes");
+        Assert.AreEqual(0, again.DataEntries.Count);
         again.Dispose();
     }
 
     [TestMethod]
-    public void AnOldDefinitionBesideTheDataIsMovedAsItIs() {
+    public void DataReplacesSettings_AndDeletingASettingsLogLeavesAMarkerInData() {
         var data = new IOProviderMemory();
         var settings = new IOProviderMemory();
-        var text = "// written by hand\n" + orders().ToJson();
-        data.WriteAllTextUTF8(FileKeyUtility.Logger_GetLegacySettings("Orders"), text);
-        var said = new List<string>();
-        var logs = new CustomLogs(data, ["system"], new LogDefinitionFolder(settings, [], "relatude.settings/logs/db"), said.Add);
-        Assert.IsTrue(logs.HasLog("Orders"));
-        Assert.AreEqual(text, settings.ReadAllTextUTF8(["Orders.json"]), "the text goes across as it is, comments and all");
-        Assert.IsFalse(data.Exists(FileKeyUtility.Logger_GetLegacySettings("Orders")));
-        Assert.AreEqual(0, logs.LoadErrors.Count);
-        Assert.IsTrue(said.Any(s => s.Contains("'Orders'")), string.Join(" | ", said));
-        logs.Dispose();
-    }
+        settings.WriteAllTextUTF8(["Orders.json"], "// by hand\n" + orders(s => s.Name = "From settings").ToJson());
+        var logs = new CustomLogs(data, ["system"], folders(settings, data));
+        Assert.AreEqual("From settings", logs.GetDefinition("Orders")!.Name);
+        Assert.AreEqual(DefinitionSource.Settings, logs.SourceOf("Orders"));
+        Assert.AreEqual(0, logs.DataEntries.Count);
 
-    [TestMethod]
-    public void AnOldDefinitionIsMovedWithinTheLogFolderWhenThatIsWhereDefinitionsAreKept() {
-        var io = new IOProviderMemory();
-        io.WriteAllTextUTF8(FileKeyUtility.Logger_GetLegacySettings("Orders"), orders().ToJson());
-        var logs = new CustomLogs(io, ["system"]);
-        Assert.IsTrue(logs.HasLog("Orders"));
-        Assert.IsTrue(io.Exists(["logs", "Orders.json"]));
-        Assert.IsFalse(io.Exists(FileKeyUtility.Logger_GetLegacySettings("Orders")));
-        Assert.AreEqual(0, logs.LoadErrors.Count);
-        logs.Dispose();
-    }
-
-    [TestMethod]
-    public void AnOldCopyOfADefinitionThatWasMovedBeforeIsListedAndCanBeDeleted() {
-        var data = new IOProviderMemory();
-        var settings = new IOProviderMemory();
-        settings.WriteAllTextUTF8(["Orders.json"], orders(s => s.Name = "The one read").ToJson());
-        data.WriteAllTextUTF8(FileKeyUtility.Logger_GetLegacySettings("Orders"), orders(s => s.Name = "An older copy").ToJson());
-        var logs = new CustomLogs(data, ["system"], new LogDefinitionFolder(settings, [], "relatude.settings/logs/db"));
-        Assert.AreEqual("The one read", logs.GetDefinition("Orders")!.Name);
-        Assert.AreEqual(1, logs.LoadErrors.Count);
-        var error = logs.LoadErrors[0];
-        Assert.AreEqual("logs/log.Orders.settings.json", error.FileKey);
-        StringAssert.Contains(error.Message, "older copy");
-        StringAssert.Contains(logs.ReadBrokenDefinition(error.FileKey), "An older copy");
-        logs.DeleteBrokenDefinition(error.FileKey);
-        Assert.IsFalse(data.Exists(FileKeyUtility.Logger_GetLegacySettings("Orders")));
-        Assert.AreEqual(0, logs.LoadErrors.Count);
-        Assert.IsTrue(settings.Exists(["Orders.json"]), "the one read is untouched");
-        logs.Dispose();
-    }
-
-    [TestMethod]
-    public void AnOldDefinitionThatCannotBeMovedIsReadWhereItIsAndMovedByTheNextSave() {
-        var data = new IOProviderMemory();
-        var settings = new FailingWrites(new IOProviderMemory());
-        data.WriteAllTextUTF8(FileKeyUtility.Logger_GetLegacySettings("Orders"), orders().ToJson());
-        var said = new List<string>();
-        var logs = new CustomLogs(data, ["system"], new LogDefinitionFolder(settings, [], "relatude.settings/logs/db"), said.Add);
-        Assert.IsTrue(logs.HasLog("Orders"), "read where it is");
-        Assert.IsTrue(data.Exists(FileKeyUtility.Logger_GetLegacySettings("Orders")), "and left there");
-        Assert.IsTrue(said.Any(s => s.Contains("Could not move")), string.Join(" | ", said));
-        settings.Fail = false;
         logs.SetEnabled("Orders", log: false, statistics: null);
-        Assert.IsTrue(settings.Exists(["Orders.json"]), "the next save writes it where it belongs...");
-        Assert.IsFalse(data.Exists(FileKeyUtility.Logger_GetLegacySettings("Orders")), "...and removes the old one");
+        Assert.AreEqual(DefinitionSource.Data, logs.SourceOf("Orders"), "a change made here is DATA's");
+        Assert.AreEqual(DataChange.Changed, logs.DataEntries.Single().Change);
+        StringAssert.StartsWith(settings.ReadAllTextUTF8(["Orders.json"]), "// by hand", "SETTINGS keeps its file, comments and all");
+        logs.SetEnabled("Orders", log: true, statistics: null);
+        Assert.AreEqual(DefinitionSource.Settings, logs.SourceOf("Orders"), "saying what SETTINGS says is not kept twice");
+        Assert.IsFalse(data.Exists(["overrides", "logs", "Orders.json"]));
+
+        logs.Delete("Orders", deleteRecorded: false);
+        Assert.IsFalse(logs.HasLog("Orders"));
+        Assert.IsTrue(settings.Exists(["Orders.json"]), "SETTINGS is not this installation's to delete");
+        StringAssert.Contains(data.ReadAllTextUTF8(["overrides", "logs", "Orders.json"]), LayeredDefinitions.RemovedMarker);
+        Assert.AreEqual(DataChange.Removed, logs.DataEntries.Single().Change);
+        logs.Dispose();
+        var again = new CustomLogs(data, ["system"], folders(settings, data));
+        Assert.IsFalse(again.HasLog("Orders"), "taken away at the next start too");
+        Assert.AreEqual(0, again.LoadErrors.Count);
+        again.Dispose();
+    }
+
+    [TestMethod]
+    public void MovingIntoSettings_ChangesNothingThatRuns_AndDiscardingGoesBackToSettings() {
+        var data = new IOProviderMemory();
+        var settings = new IOProviderMemory();
+        settings.WriteAllTextUTF8(["Orders.json"], orders(s => s.Name = "From settings").ToJson());
+        var logs = new CustomLogs(data, ["system"], folders(settings, data));
+        var changed = orders(s => s.Name = "Changed here");
+        logs.Update(changed);
+        var added = orders(s => { s.Key = "Refunds"; s.Name = "Refunds"; });
+        logs.Create(added);
+        Assert.AreEqual(2, logs.DataEntries.Count);
+
+        // discarding the change puts SETTINGS back; discarding the new log takes it away, its data kept
+        record(logs.LogStore, 2);
+        var discarded = logs.DiscardData(["Orders", "Refunds", "nothing-there"]);
+        CollectionAssert.AreEquivalent(new[] { "Orders", "Refunds" }, discarded.ToArray());
+        Assert.AreEqual("From settings", logs.GetDefinition("Orders")!.Name);
+        Assert.IsFalse(logs.HasLog("Refunds"));
+        Assert.AreEqual(2, count(logs.LogStore), "what Orders recorded is kept");
+        Assert.AreEqual(0, logs.DataEntries.Count);
+
+        // a change moved into SETTINGS: the same definition, now from there
+        logs.Update(changed);
+        logs.Delete("Orders", deleteRecorded: false);
+        logs.Create(added);
+        Assert.AreEqual(2, logs.MoveToSettings(["Orders", "Refunds"]));
+        Assert.IsFalse(settings.Exists(["Orders.json"]), "the marker took the SETTINGS file away");
+        Assert.AreEqual("Refunds", LogSettings.FromJson(settings.ReadAllTextUTF8(["Refunds.json"])).Name);
+        Assert.AreEqual(0, logs.DataEntries.Count);
+        Assert.AreEqual(DefinitionSource.Settings, logs.SourceOf("Refunds"));
+        Assert.IsFalse(data.GetFiles().Any(f => f.Key.StartsWith("overrides/")), "DATA holds nothing more");
         logs.Dispose();
     }
 
-    /// <summary>A provider whose writes fail while <see cref="Fail"/> is set: a read-only deployment, say.</summary>
-    sealed class FailingWrites(IIOProvider inner) : IIOProvider {
-        public bool Fail { get; set; } = true;
-        public IReadStream OpenRead(string[] path, long position) => inner.OpenRead(path, position);
-        public IAppendStream OpenAppend(string[] path) => Fail ? throw new UnauthorizedAccessException("read-only") : inner.OpenAppend(path);
-        public bool Exists(string[] path) => inner.Exists(path);
-        public bool DoesNotExistOrIsEmpty(string[] path) => inner.DoesNotExistOrIsEmpty(path);
-        public void DeleteFileIfItExists(string[] path) => inner.DeleteFileIfItExists(path);
-        public FileMeta[] GetFiles() => inner.GetFiles();
-        public long GetFileSizeOrZeroIfUnknown(string[] path) => inner.GetFileSizeOrZeroIfUnknown(path);
-        public bool CanRenameFile => inner.CanRenameFile;
-        public void RenameFile(string[] path, string[] newPath) => inner.RenameFile(path, newPath);
-        public bool CanRenameFolder => inner.CanRenameFolder;
-        public void RenameFolder(string[] path, string[] newPath) => inner.RenameFolder(path, newPath);
-        public bool SupportsEmptyFolders => inner.SupportsEmptyFolders;
-        public bool CanTruncate => inner.CanTruncate;
-        public void TruncateFile(string[] path, long newLength) => inner.TruncateFile(path, newLength);
-        public void CloseAllOpenStreams() => inner.CloseAllOpenStreams();
-        public bool TryGetLocalFilePath(string[] path, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out string localFilePath) => inner.TryGetLocalFilePath(path, out localFilePath);
-        public bool TryGetLocalFolderPath(string[] path, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out string localFolderPath) => inner.TryGetLocalFolderPath(path, out localFolderPath);
-        public bool TryMoveIfSameDrive(string fromLocalFilePath, string[] destination) => inner.TryMoveIfSameDrive(fromLocalFilePath, destination);
-        public void DeleteFolderIfItExists(string[] path) => inner.DeleteFolderIfItExists(path);
-        public bool DeleteFolderIfEmpty(string[] path) => inner.DeleteFolderIfEmpty(path);
-        public void EnsureFolder(string[] path) => inner.EnsureFolder(path);
-        public Task<FolderMeta> GetFolderAsync(string[] path, bool recursive, bool withFiles) => inner.GetFolderAsync(path, recursive, withFiles);
+    [TestMethod]
+    public void OnDiskTheDataFolderIsReadBackToo() {
+        // the disk provider lists only some folders; overrides/logs/ has to be among them, or a change saved
+        // here would be written and never read again
+        var root = newRoot("layers");
+        try {
+            var settings = new IOProviderDisk(Path.Combine(root, "relatude.settings"), plainFolder: true);
+            var data = new IOProviderDisk(Path.Combine(root, "relatude.data"));
+            settings.WriteAllTextUTF8(["logs", "Orders.json"], orders(s => s.Name = "From settings").ToJson());
+            var definitions = new LayeredDefinitionFolders(new DefinitionFolder(settings, ["logs"], "relatude.settings/logs"), new DefinitionFolder(data, ["overrides", "logs"], "relatude.data/overrides/logs"));
+            var logs = new CustomLogs(data, ["system"], definitions);
+            logs.SetEnabled("Orders", log: false, statistics: null);
+            Assert.IsTrue(File.Exists(Path.Combine(root, "relatude.data", "overrides", "logs", "Orders.json")));
+            Assert.AreEqual(DefinitionSource.Data, logs.SourceOf("Orders"), "read back from DATA");
+            Assert.AreEqual(1, logs.DataEntries.Count);
+            logs.Dispose();
+            var again = new CustomLogs(new IOProviderDisk(Path.Combine(root, "relatude.data")), ["system"], definitions);
+            Assert.IsFalse(again.GetDefinition("Orders")!.EnableLog, "and at the next start");
+            Assert.AreEqual(1, again.DiscardData(["Orders"]).Count);
+            Assert.IsTrue(again.GetDefinition("Orders")!.EnableLog);
+            again.Dispose();
+        } finally {
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    [TestMethod]
+    public void WithoutASettingsFolderTheDefinitionsAreInTheLogFolder() {
+        var io = new IOProviderMemory();
+        var logs = new CustomLogs(io, ["system"]);
+        logs.Create(orders());
+        Assert.IsTrue(io.Exists(["logs", "Orders.json"]));
+        Assert.IsNull(logs.SettingsFolder);
+        Assert.AreEqual("logs", logs.DataFolder);
+        logs.Dispose();
     }
 }

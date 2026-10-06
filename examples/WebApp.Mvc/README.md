@@ -21,7 +21,7 @@ Models/                     node classes in the namespace WebAppMvc.Models (see 
 Middleware/                 serves files stored in the database by their URL
 wwwroot/                    static files: css, images, scripts
 relatude.settings/          relatude.db.json, the database settings: where the data lives, which namespace holds the model
-relatude.db/                the database itself, created on first start (git-ignored)
+relatude.data/              the database itself, created on first start (git-ignored)
 ```
 
 ## Prerequisites
@@ -37,7 +37,7 @@ From this folder:
 dotnet run --launch-profile https
 ```
 
-Open <https://localhost:7238>. The first start creates the database in `relatude.db/`. If the
+Open <https://localhost:7238>. The first start creates the database in `relatude.data/`. If the
 browser rejects the development certificate, run `dotnet dev-certs https --trust` once.
 
 ## The admin UI
@@ -155,7 +155,7 @@ time.
 
 ## Data and settings
 
-- `relatude.db/` holds everything: transaction log, indexes, uploaded files. Stop the app and
+- `relatude.data/` holds everything: transaction log, indexes, uploaded files. Stop the app and
   delete the folder to start over.
 - `relatude.settings/relatude.db.json` is the configuration. `DatamodelSources` names the model namespace,
   `WaitUntilOpen` makes the app wait for the database before it serves requests, `LocalSettings`

@@ -348,7 +348,7 @@ sealed partial class UISettings {
             note(s.IoBackup, "the backups");
             note(s.IoLog, "the activity log");
             foreach (var store in s.FileStoreSettings ?? []) {
-                if (store.IoProviderId == id) used.Add("a file store" + of);
+                if (store.IoProviderId == id) used.Add("a FileValue provider" + of);
             }
             foreach (var source in s.DatamodelSources ?? []) {
                 if (source.FileIO == id) used.Add("the datamodel source \"" + (source.Name ?? source.Id.ToString()) + "\"" + of);
@@ -369,9 +369,9 @@ sealed partial class UISettings {
         foreach (var container in _server.GetContainers()) {
             var s = container.Settings;
             if (s.LocalSettings?.DefaultFileStore != id) continue;
-            used.Add("the default file store" + (s.Id == containerId ? "" : " of \"" + (string.IsNullOrEmpty(s.Name) ? s.Id.ToString() : s.Name) + "\""));
+            used.Add("the default FileValue provider" + (s.Id == containerId ? "" : " of \"" + (string.IsNullOrEmpty(s.Name) ? s.Id.ToString() : s.Name) + "\""));
         }
-        var warning = "Files already uploaded into this store record its id and stop resolving once it is gone."
+        var warning = "Files already uploaded into this FileValue provider record its id and stop resolving once it is gone."
             + " The missing-file scan under Files is what tells you whether it holds any.";
         return new Usage([.. used], [.. used], warning);
     }

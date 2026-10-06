@@ -12,10 +12,10 @@ using System.Text.Json;
 namespace Relatude.Server;
 
 /// <summary>
-/// The definitions of a database's custom logs are kept with the application's settings:
-/// relatude.settings/logs/ for the database without a short name, relatude.settings/{short name}/logs/
-/// for the others. Short names are unique, only one database can be without one, and a new short name
-/// takes the folder along.
+/// A database's SETTINGS - the definitions of its custom logs and GraphQL endpoints, its datamodel
+/// overrides - are kept with the application's settings: relatude.settings/ for the database without a
+/// short name, relatude.settings/{short name}/ for the others. Short names are unique, only one database can
+/// be without one, and a new short name takes the files along. What is saved in the admin UI goes to DATA.
 /// </summary>
 [TestClass]
 public class LogDefinitionsFolderTests {
@@ -77,18 +77,35 @@ public class LogDefinitionsFolderTests {
         Assert.IsFalse(DatabaseShortName.Same(null, "a"));
         Assert.AreEqual("relatude.settings/logs", DatabaseShortName.LogDefinitionsFolder(null));
         Assert.AreEqual("relatude.settings/main/logs", DatabaseShortName.LogDefinitionsFolder("main"));
+        Assert.AreEqual("relatude.settings/main/graphql", DatabaseShortName.GraphQLFolder("main"));
+        Assert.AreEqual("relatude.settings/datamodel.json", DatabaseShortName.DatamodelFile(null));
+        Assert.IsNotNull(DatabaseShortName.Problem("graphql"), "the endpoints folder of the database without a short name");
+    }
+
+    // a definition in SETTINGS, as the application would deploy it
+    static void writeSettingsDefinition(string root, string? shortName) {
+        Directory.CreateDirectory(Path.GetDirectoryName(definitionFile(root, shortName))!);
+        File.WriteAllText(definitionFile(root, shortName), requests().ToJson());
     }
 
     [TestMethod]
-    public async Task ADatabaseWithoutAShortNameKeepsItsLogDefinitionsInRelatudeSettingsLogs() {
+    public async Task ADatabaseWithoutAShortNameReadsItsLogDefinitionsFromRelatudeSettingsLogs() {
         var root = newRoot("none");
+        writeSettingsDefinition(root, null);
         var host = TestServerHost.Start(root);
         try {
             var custom = host.Server.Containers.Values.Single().GetLogger().CustomLogs;
-            custom.Create(requests());
-            Assert.IsTrue(File.Exists(definitionFile(root, null)));
-            Assert.AreEqual("relatude.settings/logs", custom.DefinitionsFolder);
+            Assert.IsTrue(custom.HasLog("requests"));
+            Assert.AreEqual("relatude.settings/logs", custom.SettingsFolder);
             Assert.AreEqual("relatude.settings/logs/requests.json", custom.DefinitionFileOf("requests"));
+            Assert.AreEqual(DefinitionSource.Settings, custom.SourceOf("requests"));
+            // what is saved here goes to DATA, with the database
+            var changed = requests();
+            changed.Name = "Changed here";
+            custom.Update(changed);
+            Assert.AreEqual(DefinitionSource.Data, custom.SourceOf("requests"));
+            StringAssert.Contains(custom.DefinitionFileOf("requests"), "overrides/logs/requests.json");
+            Assert.AreEqual("Requests", LogSettings.FromJson(File.ReadAllText(definitionFile(root, null))).Name, "SETTINGS is not written");
         } finally {
             await host.DisposeAsync();
             deleteRoot(root);
@@ -101,7 +118,12 @@ public class LogDefinitionsFolderTests {
         var host = startWithAdmin(root, 1);
         try {
             var container = host.Server.Containers.Values.Single();
-            container.GetLogger().CustomLogs.Create(requests());
+            // every kind of SETTINGS file a database has, so all of them are seen to follow
+            writeSettingsDefinition(root, null);
+            File.WriteAllText(Path.Combine(root, "relatude.settings", "datamodel.json"), "{ \"NodeTypes\": {} }");
+            Directory.CreateDirectory(Path.Combine(root, "relatude.settings", "graphql"));
+            File.WriteAllText(Path.Combine(root, "relatude.settings", "graphql", "api.json"), "{ \"url\": \"/api\" }");
+            container.GetLogger().CustomLogs.Reload();
             var saved = await saveShortName(host, container.Settings.Id, "main");
             Assert.AreEqual(0, rejected(saved), saved.ToString());
             Assert.IsTrue(saved.GetProperty("reopened").GetBoolean());
@@ -109,7 +131,9 @@ public class LogDefinitionsFolderTests {
             Assert.IsTrue(custom.HasLog("requests"), "the log is found under the new short name");
             Assert.IsTrue(File.Exists(definitionFile(root, "main")));
             Assert.IsFalse(Directory.Exists(Path.Combine(root, "relatude.settings", "logs")), "the old folder is not left behind empty");
-            Assert.AreEqual("relatude.settings/main/logs", custom.DefinitionsFolder);
+            Assert.AreEqual("relatude.settings/main/logs", custom.SettingsFolder);
+            Assert.IsTrue(File.Exists(Path.Combine(root, "relatude.settings", "main", "datamodel.json")), "the datamodel overrides follow");
+            Assert.IsTrue(File.Exists(Path.Combine(root, "relatude.settings", "main", "graphql", "api.json")), "and the endpoints");
 
             Assert.AreEqual(0, rejected(await saveShortName(host, container.Settings.Id, "")));
             Assert.IsTrue(container.GetLogger().CustomLogs.HasLog("requests"));
@@ -135,8 +159,8 @@ public class LogDefinitionsFolderTests {
             Assert.AreEqual(1, rejected(await saveShortName(host, second.Settings.Id, "bad name")));
             Assert.AreEqual(1, rejected(await saveShortName(host, second.Settings.Id, "logs")));
             Assert.AreEqual(0, rejected(await saveShortName(host, second.Settings.Id, "reports")));
-            Assert.AreEqual("relatude.settings/reports/logs", second.GetLogger().CustomLogs.DefinitionsFolder);
-            Assert.AreEqual("relatude.settings/logs", first.GetLogger().CustomLogs.DefinitionsFolder);
+            Assert.AreEqual("relatude.settings/reports/logs", second.GetLogger().CustomLogs.SettingsFolder);
+            Assert.AreEqual("relatude.settings/logs", first.GetLogger().CustomLogs.SettingsFolder);
             var sameRefused = await saveShortName(host, first.Settings.Id, "REPORTS");
             Assert.AreEqual(1, rejected(sameRefused), "names are compared without case");
             StringAssert.Contains(reason(sameRefused), "already has the short name");
@@ -158,26 +182,6 @@ public class LogDefinitionsFolderTests {
             host.Server.GetContainers().Single(c => c.Settings.Id == host.Server.Settings.DefaultStoreId).Settings.ShortName = "main";
             var another = await command(host, "database-create", new { name = "Archive", autoOpen = false });
             Assert.IsNull(host.Server.Containers[another.GetProperty("storeId").GetGuid()].Settings.ShortName);
-        } finally {
-            await host.DisposeAsync();
-            deleteRoot(root);
-        }
-    }
-
-    [TestMethod]
-    public async Task DefinitionsInTheEarlierLayoutAreMoved() {
-        var root = newRoot("earlier");
-        // relatude.settings/logs/db/ was where a database without a short name kept them for a while
-        var earlier = Path.Combine(root, "relatude.settings", "logs", "db");
-        Directory.CreateDirectory(earlier);
-        File.WriteAllText(Path.Combine(earlier, "requests.json"), requests().ToJson());
-        var host = TestServerHost.Start(root);
-        try {
-            var custom = host.Server.Containers.Values.Single().GetLogger().CustomLogs;
-            Assert.IsTrue(custom.HasLog("requests"));
-            Assert.IsTrue(File.Exists(definitionFile(root, null)));
-            Assert.IsFalse(Directory.Exists(earlier));
-            Assert.IsTrue(host.Server.GetStartUpLog().Any(l => l.Item2.Contains("Moved the log definitions")));
         } finally {
             await host.DisposeAsync();
             deleteRoot(root);

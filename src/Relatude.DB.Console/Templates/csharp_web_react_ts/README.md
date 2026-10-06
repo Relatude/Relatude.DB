@@ -11,7 +11,7 @@ Backend/                    ASP.NET Core minimal API + Relatude.DB (C#, net10.0)
   Models/                   node classes in the namespace __NAMESPACE__.Models (see Models/README.md)
   Middleware/               serves files stored in the database by their URL
   relatude.settings/        relatude.db.json, the database settings: where the data lives, which namespace holds the model
-  relatude.db/              the database itself, created on first start (git-ignored)
+  relatude.data/            the database itself, created on first start (git-ignored)
 Client/                     React + TypeScript + Vite
   src/App.tsx               the UI
   src/api.ts                one function per /api endpoint
@@ -40,7 +40,7 @@ npm install --prefix Client && npm run dev --prefix Client
 
 Open <http://localhost:5173>. Vite serves the client and proxies `/api` and `/relatude.db` to the
 Backend on <https://localhost:7238>. The first Backend start creates the database in
-`Backend/relatude.db/`. If the browser or the proxy rejects the development certificate, run
+`Backend/relatude.data/`. If the browser or the proxy rejects the development certificate, run
 `dotnet dev-certs https --trust` once.
 
 ## The admin UI
@@ -124,7 +124,7 @@ same time.
 
 ## Data and settings
 
-- `Backend/relatude.db/` holds everything: transaction log, indexes, uploaded files. Stop the
+- `Backend/relatude.data/` holds everything: transaction log, indexes, uploaded files. Stop the
   Backend and delete the folder to start over.
 - `Backend/relatude.settings/relatude.db.json` is the configuration. `DatamodelSources` names the model namespace,
   `WaitUntilOpen` makes the app wait for the database before it serves requests, `LocalSettings`

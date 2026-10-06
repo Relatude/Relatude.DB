@@ -264,13 +264,32 @@ export interface CustomLogLoadError {
   message: string;
 }
 
+/** What THIS SERVER holds for one log, beside where SHARED has it. */
+export interface CustomLogDataEntry {
+  key: string;
+  name: string | null;
+  /** added: only THIS SERVER has it; changed: THIS SERVER's replaces SHARED's; removed: THIS SERVER takes SHARED's away; same: says what SHARED says */
+  change: "added" | "changed" | "removed" | "same";
+  dataFile: string;
+  settingsFile: string | null;
+}
+
 export interface CustomLogsInfo {
   open: boolean;
   state: string;
   /** The IO provider the log folder is in, for downloading a log's files as they are. */
   ioId: string | null;
-  /** Where the definitions are kept, outside the database's storage: relatude.settings/logs/{short name}. */
-  definitionsFolder: string;
+  /** SHARED: where the definitions every installation has are kept, relatude.settings/[short name]/logs; null when there is none. */
+  settingsFolder: string | null;
+  /** THIS SERVER: where a definition saved here is written, the overrides/logs folder in the database's data folder. */
+  dataFolder: string;
+  /** the folder each log's definition in force comes from, by key */
+  sources: Record<string, "settings" | "data">;
+  /** what THIS SERVER holds: logs added, changed or taken away on this installation */
+  dataEntries: CustomLogDataEntry[];
+  /** the application runs in the Development environment, where relatude.settings is usually the one in source control */
+  development: boolean;
+  environment: string;
   /** The keys of the database's activity logs, which a log defined here cannot take. */
   reservedKeys: string[];
   totalBytes: number;
@@ -983,4 +1002,15 @@ export function recordingCode(d: { key: string; properties: { key: string; dataT
     `    ["${columns[0].key}"] = ${csharpSample(columns[0].dataType, columns[0].key)},`,
     `}, timestampUtc: DateTime.UtcNow.AddMinutes(-5));`,
   ].join("\n");
+}
+
+// ---- what THIS SERVER holds, and moving it into SHARED ----
+
+/** Moves what THIS SERVER holds for these logs into SHARED. Nothing that runs changes. */
+export function moveCustomLogData(storeId: string, keys: string[]): Promise<{ moved: number; dataEntries: CustomLogDataEntry[] }> {
+  return send<{ moved: number; dataEntries: CustomLogDataEntry[] }>("custom-logs-data-move", { storeId, keys });
+}
+/** Drops what THIS SERVER holds for these logs: back to SHARED, back from being taken away, or gone. */
+export function discardCustomLogData(storeId: string, keys: string[]): Promise<{ discarded: string[]; dataEntries: CustomLogDataEntry[] }> {
+  return send<{ discarded: string[]; dataEntries: CustomLogDataEntry[] }>("custom-logs-data-discard", { storeId, keys });
 }

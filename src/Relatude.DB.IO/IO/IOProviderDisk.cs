@@ -136,8 +136,9 @@ public class IOProviderDisk : IIOProvider {
                 var dir = new DirectoryInfo(Path.Combine(BaseFolder, folder));
                 if (!dir.Exists) continue;
                 files.AddRange(dir.GetFiles().Select(f => FileMeta.FromFileInfo(f, folder + "/" + f.Name)));
-                // every log keeps its files in a folder of its own below the log folder (log/{key}/)
-                if (folder != FileKeyUtility.LogFolderName) continue;
+                // every log keeps its files in a folder of its own below the log folder (logs/{key}/), and
+                // what the admin UI saves is in folders below the overrides folder (overrides/logs/, overrides/graphql/)
+                if (folder != FileKeyUtility.LogFolderName && folder != FileKeyUtility.OverridesFolderName) continue;
                 foreach (var sub in foldersOf(dir)) {
                     files.AddRange(filesOf(sub).Select(f => FileMeta.FromFileInfo(f, folder + "/" + sub.Name + "/" + f.Name)));
                 }

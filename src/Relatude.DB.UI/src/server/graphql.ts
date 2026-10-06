@@ -62,7 +62,10 @@ export interface EndpointDefinition {
 export interface EndpointSummary {
   id: string | null;
   name: string;
+  /** the file in force, for people: relatude.settings/graphql/x.json or relatude.data/overrides/graphql/x.json */
   file: string;
+  /** the folder it is in: SHARED (part of the application) or THIS SERVER (this installation's) */
+  source: "settings" | "data";
   url: string | null;
   enabled: boolean;
   mode: EndpointMode;
@@ -111,6 +114,23 @@ export interface EndpointsInfo {
   catalog: { types: CatalogType[] } | null;
   /** the urls every endpoint on the server answers on, every database's: a new endpoint is given one not among them */
   usedUrls?: string[];
+  /** SHARED: relatude.settings/[short name]/graphql; null when the database has no storage for endpoints */
+  settingsFolder: string | null;
+  /** THIS SERVER: where a definition saved here is written */
+  dataFolder: string | null;
+  /** what THIS SERVER holds: endpoints added, changed or taken away on this installation */
+  dataEntries: EndpointDataEntry[];
+  development: boolean;
+  environment: string;
+}
+
+/** What THIS SERVER holds for one endpoint, beside where SHARED has it. */
+export interface EndpointDataEntry {
+  id: string;
+  name: string;
+  change: "added" | "changed" | "removed" | "same";
+  dataFile: string;
+  settingsFile: string | null;
 }
 
 export interface EndpointIssue {
@@ -150,6 +170,7 @@ export interface EndpointExampleGroup {
 export interface EndpointLoad {
   definition: EndpointDefinition;
   file: string;
+  source: "settings" | "data";
   preview: EndpointPreview;
 }
 
@@ -169,8 +190,17 @@ export function previewEndpoint(storeId: string, definition: EndpointDefinition,
   return send<EndpointPreview>("graphql-preview", { storeId, definition }, signal);
 }
 
-export function saveEndpoint(storeId: string, definition: EndpointDefinition): Promise<{ id: string; file: string }> {
-  return send<{ id: string; file: string }>("graphql-save", { storeId, definition });
+export function saveEndpoint(storeId: string, definition: EndpointDefinition): Promise<{ id: string; file: string; source: "settings" | "data" }> {
+  return send<{ id: string; file: string; source: "settings" | "data" }>("graphql-save", { storeId, definition });
+}
+
+/** Moves what THIS SERVER holds for these endpoints into SHARED. Nothing that is served changes. */
+export function moveEndpointData(storeId: string, ids: string[]): Promise<{ moved: number; dataEntries: EndpointDataEntry[] }> {
+  return send<{ moved: number; dataEntries: EndpointDataEntry[] }>("graphql-data-move", { storeId, ids });
+}
+/** Drops what THIS SERVER holds for these endpoints: back to SHARED, or gone. */
+export function discardEndpointData(storeId: string, ids: string[]): Promise<{ discarded: number; dataEntries: EndpointDataEntry[] }> {
+  return send<{ discarded: number; dataEntries: EndpointDataEntry[] }>("graphql-data-discard", { storeId, ids });
 }
 
 export function deleteEndpoint(storeId: string, id: string): Promise<{ deleted: boolean }> {
