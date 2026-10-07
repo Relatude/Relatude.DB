@@ -91,7 +91,7 @@ public static partial class ExplorerPage {
             name,
             description = definition.Description,
             url = path,
-            apiKey = !string.IsNullOrEmpty(definition.ApiKey),
+            apiKey = definition.RequiresApiKey,
             introspection = definition.EnableIntrospection,
             mutations = definition.AllowMutations,
             explorer = definition.EnableExplorer,

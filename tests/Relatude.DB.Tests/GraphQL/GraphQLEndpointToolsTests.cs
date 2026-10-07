@@ -104,7 +104,7 @@ public class GraphQLEndpointToolsTests {
             var article = dm.NodeTypes.Values.First(t => t.CodeName == "Article");
             var other = new GraphQLEndpointDefinition { Id = Guid.NewGuid(), Name = "Other", Url = "/Taken/" };
             var def = new GraphQLEndpointDefinition {
-                Id = Guid.NewGuid(), Name = "", Url = "taken", MaxPageSize = 5, DefaultPageSize = 10, AllowMutations = true, ApiKey = "abc",
+                Id = Guid.NewGuid(), Name = "", Url = "taken", MaxPageSize = 5, DefaultPageSize = 10, AllowMutations = true, ApiKeys = [new() { Name = "Shorty", Key = "abc" }],
                 Mode = GraphQLEndpointMode.Selected,
                 Types = [
                     new GraphQLTypeDefinition { NodeTypeId = article.Id, Name = "My Post" },
@@ -130,7 +130,7 @@ public class GraphQLEndpointToolsTests {
             Assert.IsTrue(errors.Any(e => e.Contains("query is empty")), string.Join(" | ", errors));
             Assert.IsTrue(warnings.Any(w => w.Contains("Ghost")), string.Join(" | ", warnings));
             Assert.IsTrue(warnings.Any(w => w.Contains("My Post") && w.Contains("MyPost")), string.Join(" | ", warnings));
-            Assert.IsTrue(warnings.Any(w => w.Contains("API key is short")), string.Join(" | ", warnings));
+            Assert.IsTrue(warnings.Any(w => w.Contains("API key Shorty is short")), string.Join(" | ", warnings));
 
             var fine = GraphQLEndpointValidator.Validate(new GraphQLEndpointDefinition { Name = "ok", Url = "/ok", Mode = GraphQLEndpointMode.WholeDatamodel }, dm, [other]);
             Assert.AreEqual(0, fine.Count, string.Join(" | ", fine.Select(i => i.Message)));
@@ -142,7 +142,7 @@ public class GraphQLEndpointToolsTests {
         var (store, _, _) = Open();
         try {
             var def = new GraphQLEndpointDefinition {
-                Name = "Demo", Url = "/graphql", Mode = GraphQLEndpointMode.WholeDatamodel, AllowMutations = true, ApiKey = "k-1234567890",
+                Name = "Demo", Url = "/graphql", Mode = GraphQLEndpointMode.WholeDatamodel, AllowMutations = true, ApiKeys = [new() { Name = "Demo client", Key = "k-1234567890" }],
                 Views = [new GraphQLViewDefinition { Name = "bigArticles", Query = "Article.Where(a => a.IntegerNum > 10)" }],
             };
             var gql = new RelatudeGraphQL(store.Datastore, def);
@@ -230,7 +230,7 @@ public class GraphQLEndpointToolsTests {
     public async Task Http_Handler_Api_Key_And_Get_Switch() {
         var (store, _, _) = Open();
         try {
-            var def = new GraphQLEndpointDefinition { Name = "Keyed", Url = "/k", Mode = GraphQLEndpointMode.WholeDatamodel, ApiKey = "s3cret-key", EnableGetRequests = false };
+            var def = new GraphQLEndpointDefinition { Name = "Keyed", Url = "/k", Mode = GraphQLEndpointMode.WholeDatamodel, ApiKeys = [new() { Name = "Client", Key = "s3cret-key" }], EnableGetRequests = false };
             var gql = new RelatudeGraphQL(store.Datastore, def);
             var (noKey, noKeyBody, _) = await call(gql, "POST", "{\"query\":\"{ articles { totalCount } }\"}");
             Assert.AreEqual(401, noKey);
@@ -248,6 +248,68 @@ public class GraphQLEndpointToolsTests {
             var (sdlNoKey, _, _) = await call(gql, "GET", query: "?sdl");
             Assert.AreEqual(401, sdlNoKey, "but only with the key");
         } finally { store.Dispose(); }
+    }
+
+    [TestMethod]
+    public async Task Http_Handler_Takes_Any_Key_That_Has_Not_Expired() {
+        var (store, _, _) = Open();
+        try {
+            const string query = "{\"query\":\"{ articles { totalCount } }\"}";
+            var def = new GraphQLEndpointDefinition {
+                Name = "Keyed", Url = "/k", Mode = GraphQLEndpointMode.WholeDatamodel,
+                ApiKeys = [
+                    new() { Name = "Web site", Key = "web-site-key", Expires = DateTime.UtcNow.AddDays(30) },
+                    new() { Name = "App", Key = "app-key-1234" },
+                    new() { Name = "Old partner", Key = "old-partner-key", Expires = DateTime.UtcNow.AddDays(-1) },
+                ],
+            };
+            var gql = new RelatudeGraphQL(store.Datastore, def);
+            Assert.AreEqual(200, (await call(gql, "POST", query, setup: r => r.Headers["X-Api-Key"] = "web-site-key")).Status, "a key with an expiry date ahead");
+            Assert.AreEqual(200, (await call(gql, "POST", query, setup: r => r.Headers.Authorization = "Bearer app-key-1234")).Status, "a key that never expires");
+            var (expired, expiredBody, _) = await call(gql, "POST", query, setup: r => r.Headers["X-Api-Key"] = "old-partner-key");
+            Assert.AreEqual(401, expired, "an expired key is turned away");
+            StringAssert.Contains(expiredBody, "expired");
+            var (wrong, wrongBody, _) = await call(gql, "POST", query, setup: r => r.Headers["X-Api-Key"] = "no-such-key");
+            Assert.AreEqual(401, wrong);
+            StringAssert.Contains(wrongBody, "not accepted");
+
+            // expiry never opens the endpoint: with every key expired, every request is turned away
+            var closed = new GraphQLEndpointDefinition {
+                Name = "Closed", Url = "/c", Mode = GraphQLEndpointMode.WholeDatamodel,
+                ApiKeys = [new() { Name = "Gone", Key = "gone-key-1234", Expires = DateTime.UtcNow.AddMinutes(-1) }],
+            };
+            var closedGql = new RelatudeGraphQL(store.Datastore, closed);
+            Assert.AreEqual(401, (await call(closedGql, "POST", query)).Status);
+            Assert.AreEqual(401, (await call(closedGql, "POST", query, setup: r => r.Headers["X-Api-Key"] = "gone-key-1234")).Status);
+        } finally { store.Dispose(); }
+    }
+
+    [TestMethod]
+    public void Validator_Checks_The_Api_Keys() {
+        var now = new DateTime(2026, 10, 7, 12, 0, 0, DateTimeKind.Utc);
+        List<GraphQLEndpointIssue> issuesOf(params GraphQLApiKey[] keys)
+            => GraphQLEndpointValidator.Validate(new GraphQLEndpointDefinition { Name = "ok", Url = "/ok", Mode = GraphQLEndpointMode.WholeDatamodel, ApiKeys = [.. keys] }, null, [], now);
+        string all(List<GraphQLEndpointIssue> issues) => string.Join(" | ", issues.Select(i => i.Severity + ": " + i.Message));
+
+        var fine = issuesOf(new() { Name = "Web", Key = "web-key-1234", Expires = now.AddDays(1) }, new() { Name = "App", Key = "app-key-1234" });
+        Assert.AreEqual(0, fine.Count, all(fine));
+
+        var bad = issuesOf(
+            new() { Name = "", Key = "nameless-key" },
+            new() { Name = "Web", Key = "" },
+            new() { Name = "web", Key = "same-key-1234" },
+            new() { Name = "Copy", Key = "same-key-1234" });
+        Assert.IsTrue(bad.Any(i => i.IsError && i.Message.Contains("needs a name")), all(bad));
+        Assert.IsTrue(bad.Any(i => i.IsError && i.Message.Contains("Web is empty")), all(bad));
+        Assert.IsTrue(bad.Any(i => i.IsError && i.Message.Contains("name web is used twice")), all(bad));
+        Assert.IsTrue(bad.Any(i => i.IsError && i.Message.Contains("web and Copy are the same key")), all(bad));
+
+        var someExpired = issuesOf(new() { Name = "Old", Key = "old-key-1234", Expires = now.AddDays(-3) }, new() { Name = "New", Key = "new-key-1234" });
+        Assert.IsTrue(someExpired.Any(i => !i.IsError && i.Message.Contains("Old expired on 2026-10-04")), all(someExpired));
+        Assert.IsFalse(someExpired.Any(i => i.IsError), "an expired key is advice, not a reason to refuse saving");
+
+        var allExpired = issuesOf(new GraphQLApiKey { Name = "Old", Key = "old-key-1234", Expires = now });
+        Assert.IsTrue(allExpired.Any(i => !i.IsError && i.Message.Contains("every request is turned away")), all(allExpired));
     }
 
     [TestMethod]

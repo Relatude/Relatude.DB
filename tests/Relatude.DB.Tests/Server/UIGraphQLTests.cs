@@ -78,12 +78,21 @@ public class UIGraphQLTests {
             await command(host, "graphql-save", new { storeId, definition = JsonDocument.Parse(definition.ToJson()).RootElement });
             Assert.IsTrue(await passesThrough(host, "/gql-test"), "a disabled endpoint is not served");
             definition.Enabled = true;
-            definition.ApiKey = "the-secret-key";
+            definition.ApiKeys = [
+                new() { Name = " Web site ", Key = " the-secret-key " },
+                new() { Name = "Retired", Key = "retired-key-1234", Expires = DateTime.UtcNow.AddDays(-1) },
+            ];
             await command(host, "graphql-save", new { storeId, definition = JsonDocument.Parse(definition.ToJson()).RootElement });
             var (noKey, _) = await request(host, "/gql-test", "{\"query\":\"{ __typename }\"}");
             Assert.AreEqual(401, noKey);
             var (withKey, _) = await request(host, "/gql-test", "{\"query\":\"{ __typename }\"}", "the-secret-key");
-            Assert.AreEqual(200, withKey);
+            Assert.AreEqual(200, withKey, "the key is saved trimmed");
+            var (retired, _) = await request(host, "/gql-test", "{\"query\":\"{ __typename }\"}", "retired-key-1234");
+            Assert.AreEqual(401, retired, "an expired key is turned away");
+            var savedKeys = prop(prop(await command(host, "graphql-endpoint", new { storeId, id }), "definition"), "apiKeys").EnumerateArray().ToList();
+            Assert.AreEqual(2, savedKeys.Count);
+            Assert.AreEqual("Web site", prop(savedKeys[0], "name").GetString());
+            Assert.IsTrue((await command(host, "graphql-endpoints", new { storeId })).GetProperty("endpoints")[0].GetProperty("apiKey").GetBoolean());
             Assert.AreEqual(1, (await command(host, "graphql-endpoints", new { storeId })).GetProperty("endpoints").GetArrayLength(), "saving again rewrote the same file");
 
             // the file is what the server reads: a hand-written one in DATA appears after a reload
@@ -174,7 +183,7 @@ public class UIGraphQLTests {
             Assert.AreEqual(JsonValueKind.Array, json.GetProperty("guide").GetProperty("examples").ValueKind);
 
             // the schema is no more open than the endpoint: the key is needed, and introspection must be on
-            definition.ApiKey = "the-secret-key";
+            definition.ApiKeys = [new() { Name = "Explorer", Key = "the-secret-key" }];
             await command(host, "graphql-save", new { storeId, definition = JsonDocument.Parse(definition.ToJson()).RootElement });
             if (Relatude.DB.GraphQL.Endpoints.ExplorerPage.Available) {
                 var keyed = await get(host, "/pub", "", "text/html");

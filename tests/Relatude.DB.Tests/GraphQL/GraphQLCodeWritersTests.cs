@@ -13,7 +13,7 @@ namespace Relatude.GraphQL;
 public class GraphQLCodeWritersTests {
 
     static GraphQLEndpointDefinition writable() => new() {
-        Name = "Demo", Url = "/graphql", Mode = GraphQLEndpointMode.WholeDatamodel, AllowMutations = true, ApiKey = "k-1234567890",
+        Name = "Demo", Url = "/graphql", Mode = GraphQLEndpointMode.WholeDatamodel, AllowMutations = true, ApiKeys = [new() { Name = "Demo client", Key = "k-1234567890" }],
         Views = [new GraphQLViewDefinition { Name = "bigArticles", Query = "Article.Where(a => a.IntegerNum > 10)", Description = "Above ten." }],
     };
 

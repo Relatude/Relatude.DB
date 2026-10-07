@@ -6,6 +6,19 @@ using Relatude.DB.Datamodels;
 
 namespace Relatude.DB.GraphQL.Endpoints;
 
+/// <summary>What a request's API key amounts to on an endpoint.</summary>
+public enum ApiKeyCheck {
+    /// <summary>The endpoint has no keys, so it asks for none.</summary>
+    Open,
+    Accepted,
+    /// <summary>The request carries no key.</summary>
+    Missing,
+    /// <summary>The key is none of the endpoint's.</summary>
+    Rejected,
+    /// <summary>The key is one of the endpoint's, but its expiry date has passed.</summary>
+    Expired,
+}
+
 /// <summary>
 /// GraphQL over HTTP for one executor: POST {"query","operationName","variables"} (or a raw application/graphql body),
 /// GET ?query=... when the endpoint allows it, GET ?sdl for the schema text when introspection is on. With the explorer switched on, a browser
@@ -30,8 +43,13 @@ public static class GraphQLHttpHandler {
                 return;
             }
         }
-        if (!IsAuthorized(http, definition)) {
-            await writeErrors(http, StatusCodes.Status401Unauthorized, $"This endpoint requires an API key in the {ApiKeyHeader} header or as a bearer token.");
+        var keyCheck = CheckApiKey(http, definition, DateTime.UtcNow, out var usedKey);
+        if (keyCheck is ApiKeyCheck.Missing or ApiKeyCheck.Rejected or ApiKeyCheck.Expired) {
+            await writeErrors(http, StatusCodes.Status401Unauthorized, keyCheck switch {
+                ApiKeyCheck.Expired => $"The API key expired on {usedKey!.Expires!.Value:yyyy-MM-dd HH:mm} UTC.",
+                ApiKeyCheck.Rejected => "The API key was not accepted.",
+                _ => $"This endpoint requires an API key in the {ApiKeyHeader} header or as a bearer token.",
+            });
             return;
         }
         if (HttpMethods.IsOptions(http.Request.Method)) {
@@ -139,15 +157,29 @@ public static class GraphQLHttpHandler {
     /// <summary>Scheme, host and path base of a request: what <c>url(absolute: true)</c> puts in front of a relative file url.</summary>
     public static string OriginOf(HttpRequest request) => request.Scheme + "://" + request.Host + request.PathBase;
 
-    public static bool IsAuthorized(HttpContext http, GraphQLEndpointDefinition definition) {
-        if (string.IsNullOrEmpty(definition.ApiKey)) return true;
+    public static bool IsAuthorized(HttpContext http, GraphQLEndpointDefinition definition)
+        => CheckApiKey(http, definition, DateTime.UtcNow, out _) is ApiKeyCheck.Open or ApiKeyCheck.Accepted;
+
+    /// <summary>
+    /// What the request's key amounts to on the endpoint, and the key it matched (for Accepted and Expired). Every key
+    /// is compared, by hash and in constant time, so the answer takes as long whichever key matches.
+    /// </summary>
+    public static ApiKeyCheck CheckApiKey(HttpContext http, GraphQLEndpointDefinition definition, DateTime utcNow, out GraphQLApiKey? matched) {
+        matched = null;
+        if (!definition.RequiresApiKey) return ApiKeyCheck.Open;
         string? provided = http.Request.Headers[ApiKeyHeader].FirstOrDefault();
         if (provided == null) {
             var auth = http.Request.Headers.Authorization.FirstOrDefault();
             if (auth != null && auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) provided = auth[7..].Trim();
         }
-        if (string.IsNullOrEmpty(provided)) return false;
-        return CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(provided), Encoding.UTF8.GetBytes(definition.ApiKey));
+        if (string.IsNullOrEmpty(provided)) return ApiKeyCheck.Missing;
+        var providedHash = SHA256.HashData(Encoding.UTF8.GetBytes(provided));
+        foreach (var key in definition.ApiKeys) {
+            if (string.IsNullOrEmpty(key.Key)) continue;
+            if (CryptographicOperations.FixedTimeEquals(providedHash, SHA256.HashData(Encoding.UTF8.GetBytes(key.Key))) && matched == null) matched = key;
+        }
+        if (matched == null) return ApiKeyCheck.Rejected;
+        return matched.IsExpired(utcNow) ? ApiKeyCheck.Expired : ApiKeyCheck.Accepted;
     }
 
     public static Task WriteErrorsAsync(HttpContext http, int statusCode, string message) => writeErrors(http, statusCode, message);

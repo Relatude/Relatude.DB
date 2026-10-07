@@ -126,7 +126,7 @@ public class GraphQLFacetSearchTests {
             Assert.AreEqual(404, (await send(host, "nonsense", new { })).Status);
 
             // the key gates the facets as it gates the queries
-            definition.ApiKey = "the-secret-key";
+            definition.ApiKeys = [new() { Name = "Facets", Key = "the-secret-key" }];
             await command(host, "graphql-save", new { storeId, definition = JsonDocument.Parse(definition.ToJson()).RootElement });
             Assert.AreEqual(401, (await send(host, "model", null)).Status);
             Assert.AreEqual(200, (await send(host, "model", null, "the-secret-key")).Status);

@@ -105,6 +105,55 @@ a.api-page-button:hover {
 
 .api-key-row .text-input {
   flex: 1;
+  min-width: 0;
+}
+
+/* api keys: name, key, expiry date, how long it has left */
+.api-apikey-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(240px, 2fr) 190px 130px 30px;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.api-apikey-row > .text-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.api-apikey-head {
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.api-apikey-status {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.api-apikey-status.soon {
+  color: var(--warning, #b7791f);
+}
+
+.api-apikey-status.expired {
+  color: var(--danger);
+}
+
+.panel h3 .panel-sub.api-bad {
+  color: var(--danger);
+}
+
+@container (max-width: 760px) {
+  .api-apikey-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .api-apikey-head {
+    display: none;
+  }
 }
 
 /* types: the list of node types and the detail of one */

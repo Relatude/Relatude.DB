@@ -13,7 +13,10 @@ public sealed class GraphQLEndpointIssue {
 /// <summary>Checks an endpoint definition before it is saved: names, url, limits, and what it refers to in the datamodel.</summary>
 public static class GraphQLEndpointValidator {
 
-    public static List<GraphQLEndpointIssue> Validate(GraphQLEndpointDefinition def, Datamodel? dm, IEnumerable<GraphQLEndpointDefinition> others) {
+    public static List<GraphQLEndpointIssue> Validate(GraphQLEndpointDefinition def, Datamodel? dm, IEnumerable<GraphQLEndpointDefinition> others)
+        => Validate(def, dm, others, DateTime.UtcNow);
+
+    public static List<GraphQLEndpointIssue> Validate(GraphQLEndpointDefinition def, Datamodel? dm, IEnumerable<GraphQLEndpointDefinition> others, DateTime utcNow) {
         var issues = new List<GraphQLEndpointIssue>();
         void error(string m) => issues.Add(new GraphQLEndpointIssue { Severity = "error", Message = m });
         void warning(string m) => issues.Add(new GraphQLEndpointIssue { Severity = "warning", Message = m });
@@ -34,10 +37,10 @@ public static class GraphQLEndpointValidator {
         if (def.MaxPageSize < def.DefaultPageSize) error("The maximum page size is smaller than the default page size.");
         if (def.MaxQueryDepth < 1) error("The maximum query depth must be at least 1.");
         if (def.MaxIncludeDepth < 0) error("The maximum relation depth cannot be negative.");
-        if (!string.IsNullOrEmpty(def.ApiKey) && def.ApiKey.Trim().Length < 8) warning("The API key is short; use at least 8 characters.");
+        checkApiKeys();
         if (def.EnableExplorer && !def.EnableIntrospection) warning("The explorer reads the schema through introspection, which is switched off: the page will say so and stay empty.");
         if (def.EnableFacetSearch && def.MaxFacetCards < 1) error("The facet search's maximum cards must be at least 1.");
-        if (def.AllowMutations && string.IsNullOrEmpty(def.ApiKey)) warning("Mutations are allowed without an API key: anyone who can reach the url can change data.");
+        if (def.AllowMutations && !def.RequiresApiKey) warning("Mutations are allowed without an API key: anyone who can reach the url can change data.");
 
         if (def.Mode == GraphQLEndpointMode.Selected) {
             if (def.Types.Count == 0) warning("No types are selected, so the endpoint exposes nothing.");
@@ -84,6 +87,26 @@ public static class GraphQLEndpointValidator {
             }
         }
         return issues;
+
+        void checkApiKeys() {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var secrets = new Dictionary<string, string>(StringComparer.Ordinal);
+            var expired = 0;
+            foreach (var k in def.ApiKeys) {
+                var label = string.IsNullOrWhiteSpace(k.Name) ? "(unnamed)" : k.Name.Trim();
+                if (string.IsNullOrWhiteSpace(k.Name)) error("Every API key needs a name.");
+                else if (!names.Add(k.Name.Trim())) error($"The API key name {label} is used twice.");
+                if (string.IsNullOrWhiteSpace(k.Key)) error($"The API key {label} is empty.");
+                else {
+                    if (k.Key.Trim().Length < 8) warning($"The API key {label} is short; use at least 8 characters.");
+                    if (secrets.TryGetValue(k.Key.Trim(), out var first)) error($"The API keys {first} and {label} are the same key.");
+                    else secrets[k.Key.Trim()] = label;
+                }
+                if (k.IsExpired(utcNow)) expired++;
+            }
+            if (expired > 0 && expired == def.ApiKeys.Count) warning(expired == 1 ? "The API key has expired, so every request is turned away." : "Every API key has expired, so every request is turned away.");
+            else foreach (var k in def.ApiKeys.Where(k => k.IsExpired(utcNow))) warning($"The API key {(string.IsNullOrWhiteSpace(k.Name) ? "(unnamed)" : k.Name.Trim())} expired on {k.Expires!.Value:yyyy-MM-dd}.");
+        }
 
         void checkName(string? name, string what) {
             if (string.IsNullOrWhiteSpace(name)) return;

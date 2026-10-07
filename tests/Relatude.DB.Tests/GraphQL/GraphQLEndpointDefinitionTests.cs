@@ -197,7 +197,8 @@ public class GraphQLEndpointDefinitionTests {
     [TestMethod]
     public void Definition_Json_Round_Trips() {
         var def = new GraphQLEndpointDefinition {
-            Id = Guid.NewGuid(), Name = "Public", Url = "/api/graphql", Mode = GraphQLEndpointMode.Selected, ExactNames = true, AllowMutations = true, ApiKey = "secret-key",
+            Id = Guid.NewGuid(), Name = "Public", Url = "/api/graphql", Mode = GraphQLEndpointMode.Selected, ExactNames = true, AllowMutations = true,
+            ApiKeys = [new() { Name = "Web", Key = "secret-key", Expires = new DateTime(2027, 10, 7, 0, 0, 0, DateTimeKind.Utc) }, new() { Name = "App", Key = "other-key" }],
             Types = [new GraphQLTypeDefinition { NodeTypeId = Guid.NewGuid(), Name = "Post", ReadOnly = true, Properties = [new GraphQLPropertyDefinition { PropertyId = Guid.NewGuid(), Name = "title" }] }],
             Views = [new GraphQLViewDefinition { Name = "recent", Query = "Article.Where(a => a.IntegerNum > 1)" }],
         };
@@ -210,6 +211,13 @@ public class GraphQLEndpointDefinitionTests {
         Assert.AreEqual("title", back.Types[0].Properties![0].Name);
         Assert.AreEqual("recent", back.Views[0].Name);
         Assert.IsTrue(back.ExactNames && back.AllowMutations);
+        Assert.AreEqual(2, back.ApiKeys.Count);
+        Assert.AreEqual("Web", back.ApiKeys[0].Name);
+        Assert.AreEqual("secret-key", back.ApiKeys[0].Key);
+        Assert.AreEqual(new DateTime(2027, 10, 7, 0, 0, 0, DateTimeKind.Utc), back.ApiKeys[0].Expires);
+        Assert.AreEqual(DateTimeKind.Utc, back.ApiKeys[0].Expires!.Value.Kind);
+        Assert.IsNull(back.ApiKeys[1].Expires);
+        Assert.IsFalse(json.Contains("\"apiKey\""), "only the list is written");
         // hand-written files may be sparse and commented
         var sparse = GraphQLEndpointDefinition.FromJson("""
             {
@@ -223,5 +231,30 @@ public class GraphQLEndpointDefinitionTests {
         Assert.AreEqual("/all", GraphQLEndpointDefinition.NormalizeUrl(" all/ "));
         Assert.IsNull(GraphQLEndpointDefinition.NormalizeUrl("/"));
         Assert.IsNull(GraphQLEndpointDefinition.NormalizeUrl("a b"));
+    }
+
+    [TestMethod]
+    public void Definition_Json_Reads_The_Old_Single_Key_Into_The_List() {
+        var old = GraphQLEndpointDefinition.FromJson("""{ "name": "Old", "url": "/old", "apiKey": "the-old-key" }""");
+        Assert.AreEqual(1, old.ApiKeys.Count);
+        Assert.AreEqual(GraphQLEndpointDefinition.LegacyApiKeyName, old.ApiKeys[0].Name);
+        Assert.AreEqual("the-old-key", old.ApiKeys[0].Key);
+        Assert.IsNull(old.ApiKeys[0].Expires, "the old key never expired");
+        Assert.IsTrue(old.RequiresApiKey);
+        var written = old.ToJson();
+        Assert.IsFalse(written.Contains("\"apiKey\""), written);
+        StringAssert.Contains(written, "\"apiKeys\"");
+
+        // a file with both keeps the list and adds the old key only when it is not already in it
+        var both = GraphQLEndpointDefinition.FromJson("""{ "name": "Both", "apiKey": "k1-key-1234", "apiKeys": [{ "name": "First", "key": "k1-key-1234" }] }""");
+        Assert.AreEqual(1, both.ApiKeys.Count);
+        Assert.AreEqual("First", both.ApiKeys[0].Name);
+
+        // an expiry written without a zone is UTC
+        var dated = GraphQLEndpointDefinition.FromJson("""{ "name": "Dated", "apiKeys": [{ "name": "A", "key": "a-key-12345", "expires": "2027-01-01" }] }""");
+        Assert.AreEqual(new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc), dated.ApiKeys[0].Expires);
+        Assert.AreEqual(DateTimeKind.Utc, dated.ApiKeys[0].Expires!.Value.Kind);
+
+        Assert.IsFalse(GraphQLEndpointDefinition.FromJson("""{ "name": "Open", "apiKey": "" }""").RequiresApiKey);
     }
 }

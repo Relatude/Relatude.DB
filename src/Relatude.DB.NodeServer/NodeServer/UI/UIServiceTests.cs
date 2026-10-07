@@ -82,10 +82,12 @@ sealed class UIServiceTests(RelatudeDBServer server) {
 
     /// <summary>
     /// One operation of the Imaging service. The form names the operation and carries its fields as
-    /// the service names them: description, instruction, hint and language as text; width, height,
+    /// the service names them: description, instruction, hint, question and language as text; width, height,
     /// factor and the four margins as numbers; transparent and fresh as "true"; and the images as
     /// files under image, mask, inspiration and references. Every image answer comes back as the PNG,
-    /// with what it cost, its size and its SHA-256 in headers; image-to-meta as JSON.
+    /// with what it cost, its size and its SHA-256 in headers; image-to-meta and the questions as JSON. rotate-if-needed
+    /// comes back as the image turned, with X-Rotation saying how far, or as JSON with a rotation of 0
+    /// when the image was left as it is.
     /// </summary>
     async Task<IResult> imagingTestAsync(HttpContext ctx) {
         try {
@@ -121,9 +123,21 @@ sealed class UIServiceTests(RelatudeDBServer server) {
                 case "shrink-image":
                     image = await provider.ShrinkImageAsync(await requiredFileAsync(form, "image", cancellationToken), margins(form), fresh, cancellationToken);
                     break;
+                case "rotate-if-needed":
+                    var rotation = await provider.RotateIfNeededAsync(await requiredFileAsync(form, "image", cancellationToken), fresh, cancellationToken);
+                    if (rotation.Image == null) return Results.Json(new { rotation.Rotation, rotation.Credits, rotation.CreditsLeft, rotation.Cached }, RelatudeDBJsonOptions.Default);
+                    ctx.Response.Headers["X-Rotation"] = rotation.Rotation.ToString(CultureInfo.InvariantCulture);
+                    image = rotation.Image;
+                    break;
                 case "image-to-meta":
                     var meta = await provider.ImageToMetaAsync(await requiredFileAsync(form, "image", cancellationToken), text(form, "language"), fresh, cancellationToken);
                     return Results.Json(meta, RelatudeDBJsonOptions.Default);
+                case "ask-about-image":
+                    var answer = await provider.AskAboutImageAsync(await requiredFileAsync(form, "image", cancellationToken), text(form, "question") ?? "", fresh, cancellationToken);
+                    return Results.Json(answer, RelatudeDBJsonOptions.Default);
+                case "ask-about-image-bool":
+                    var yesNo = await provider.AskAboutImageBoolAsync(await requiredFileAsync(form, "image", cancellationToken), text(form, "question") ?? "", fresh, cancellationToken);
+                    return Results.Json(yesNo, RelatudeDBJsonOptions.Default);
                 default:
                     throw new ArgumentException("There is no operation called '" + operation + "'. ");
             }

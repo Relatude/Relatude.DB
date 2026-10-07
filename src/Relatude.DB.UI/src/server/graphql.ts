@@ -50,13 +50,24 @@ export interface EndpointDefinition {
   /** the node type the explorer's first query and guide, and the facet search, open on; null lets them choose */
   defaultNodeTypeId?: string | null;
   includeSystemTypes: boolean;
-  apiKey?: string | null;
+  /** with any keys, requests must carry one that has not expired; keys that have all expired turn every request away */
+  apiKeys: EndpointApiKey[];
   maxQueryDepth: number;
   maxIncludeDepth: number;
   defaultPageSize: number;
   maxPageSize: number;
   types: EndpointTypeDef[];
   views: EndpointViewDef[];
+}
+
+/** One key an endpoint accepts. */
+export interface EndpointApiKey {
+  /** who or what the key is for */
+  name: string;
+  /** the secret clients send in X-Api-Key or as a bearer token */
+  key: string;
+  /** when it stops working, an ISO time in UTC; null never */
+  expires?: string | null;
 }
 
 export interface EndpointSummary {
@@ -269,7 +280,7 @@ function endpointDefaults(): EndpointDefinition {
     enableFacetSearch: false,
     maxFacetCards: 200_000,
     includeSystemTypes: false,
-    apiKey: null,
+    apiKeys: [],
     maxQueryDepth: 16,
     maxIncludeDepth: 8,
     defaultPageSize: 25,
@@ -279,12 +290,20 @@ function endpointDefaults(): EndpointDefinition {
   };
 }
 
+/** The name the old single key gets in the list (GraphQLEndpointDefinition.LegacyApiKeyName). */
+const legacyApiKeyName = "API key";
+
 /** Fills in what a hand-written file may leave out, so the form has every field. */
-export function normalizeDefinition(d: Partial<EndpointDefinition>): EndpointDefinition {
+export function normalizeDefinition(d: Partial<EndpointDefinition> & { apiKey?: string | null }): EndpointDefinition {
   const base = endpointDefaults();
+  // a file written before apiKeys has one key, "apiKey"; the server reads it into the list the same way
+  const { apiKey: legacyKey, ...rest } = d;
+  const apiKeys = (d.apiKeys ?? []).filter((k) => !!k);
+  if (legacyKey?.trim() && !apiKeys.some((k) => k.key === legacyKey)) apiKeys.unshift({ name: legacyApiKeyName, key: legacyKey, expires: null });
   return {
     ...base,
-    ...d,
+    ...rest,
+    apiKeys,
     types: (d.types ?? []).map((t) => ({ ...t, properties: t.properties === undefined ? null : t.properties })),
     views: d.views ?? [],
   };

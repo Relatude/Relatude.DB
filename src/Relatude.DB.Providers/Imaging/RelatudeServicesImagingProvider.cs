@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Relatude.DB.Common;
@@ -147,6 +148,29 @@ public class RelatudeServicesImagingProvider : IImagingProvider {
         return imageAsync("shrink-image", body, fresh, [input], cancellationToken);
     }
 
+    /// <summary>
+    /// The service answers the image turned, as any image answer, with X-Rotation saying how far; or no
+    /// content and a rotation of 0 when it left the image as it is.
+    /// </summary>
+    public async Task<ImagingRotation> RotateIfNeededAsync(byte[] image, bool fresh = false, CancellationToken cancellationToken = default) {
+        var input = ServiceFile.Of(image, nameof(image));
+        const string operation = "rotate-if-needed";
+        var (response, key) = await _client.PostAsync(operation, write(w => w.WriteString("image", input.Sha256)), fresh, [input], cancellationToken);
+        using (response) {
+            var said = RelatudeServiceClient.Header(response, "X-Rotation");
+            if (!int.TryParse(said, NumberStyles.Integer, CultureInfo.InvariantCulture, out var rotation) || rotation is not (0 or 90 or 180 or 270))
+                throw new RelatudeServiceException(0, $"The {Name} answered {operation} without a rotation of 0, 90, 180 or 270: '{said}'. ");
+            var credits = RelatudeServiceClient.IntHeader(response, "X-Credits");
+            var creditsLeft = RelatudeServiceClient.IntHeader(response, "X-Credits-Left");
+            var cached = RelatudeServiceClient.WasCached(response);
+            if (rotation == 0) return new ImagingRotation(0, null, credits, creditsLeft, cached);
+            var png = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+            if (png.Length == 0) throw new RelatudeServiceException(0, $"The {Name} answered {operation} with a rotation of {rotation} but without the image. ");
+            var turned = imageOf(png, response, key);
+            return new ImagingRotation(rotation, turned, credits, creditsLeft, cached);
+        }
+    }
+
     sealed record MetaAnswer(string? Title, string? Description, string[]? Keywords, string? Language, ImagingFocusPoint? Focus, ImagingObject[]? Objects, int Credits, int CreditsLeft);
 
     public async Task<ImagingMeta> ImageToMetaAsync(byte[] image, string? language = null, bool fresh = false, CancellationToken cancellationToken = default) {
@@ -161,6 +185,35 @@ public class RelatudeServicesImagingProvider : IImagingProvider {
             var meta = _client.Parse<MetaAnswer>(json, "image-to-meta", "what an image shows");
             return new ImagingMeta(meta.Title ?? "", meta.Description ?? "", meta.Keywords ?? [], meta.Language, meta.Focus, meta.Objects ?? [],
                 meta.Credits, meta.CreditsLeft, RelatudeServiceClient.WasCached(response));
+        }
+    }
+
+    sealed record TextAnswer(string? Answer, int Credits, int CreditsLeft);
+
+    public async Task<ImagingAnswer> AskAboutImageAsync(byte[] image, string question, bool fresh = false, CancellationToken cancellationToken = default) {
+        var answer = await askAsync<TextAnswer>("ask-about-image", image, question, fresh, "an answer", cancellationToken);
+        return new ImagingAnswer(answer.Value.Answer ?? "", answer.Value.Credits, answer.Value.CreditsLeft, answer.Cached);
+    }
+
+    sealed record BoolAnswer(bool Answer, int Certainty, int Credits, int CreditsLeft);
+
+    public async Task<ImagingBoolAnswer> AskAboutImageBoolAsync(byte[] image, string question, bool fresh = false, CancellationToken cancellationToken = default) {
+        var answer = await askAsync<BoolAnswer>("ask-about-image-bool", image, question, fresh, "a yes or a no", cancellationToken);
+        return new ImagingBoolAnswer(answer.Value.Answer, answer.Value.Certainty, answer.Value.Credits, answer.Value.CreditsLeft, answer.Cached);
+    }
+
+    /// <summary>A question about an image, and the service's JSON answer to it, read as <typeparamref name="T"/>.</summary>
+    async Task<(T Value, bool Cached)> askAsync<T>(string operation, byte[] image, string question, bool fresh, string what, CancellationToken cancellationToken) where T : class {
+        if (string.IsNullOrWhiteSpace(question)) throw new ArgumentException("A question is required. ", nameof(question));
+        var input = ServiceFile.Of(image, nameof(image));
+        var body = write(w => {
+            w.WriteString("image", input.Sha256);
+            w.WriteString("question", question);
+        });
+        var (response, _) = await _client.PostAsync(operation, body, fresh, [input], cancellationToken);
+        using (response) {
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            return (_client.Parse<T>(json, operation, what), RelatudeServiceClient.WasCached(response));
         }
     }
 
@@ -181,13 +234,18 @@ public class RelatudeServicesImagingProvider : IImagingProvider {
         using (response) {
             var png = await response.Content.ReadAsByteArrayAsync(cancellationToken);
             if (png.Length == 0) throw new RelatudeServiceException(0, $"The {Name} answered {operation} without an image. ");
-            var sha256 = RelatudeServiceClient.Header(response, "X-Sha256")?.Trim().ToLowerInvariant();
-            if (string.IsNullOrEmpty(sha256)) sha256 = ServiceFile.Sha256Of(png);
-            _client.MarkHeld(key, sha256);
-            var (width, height) = PngSize(png);
-            return new ImagingImage(png, width, height, sha256,
-                RelatudeServiceClient.IntHeader(response, "X-Credits"), RelatudeServiceClient.IntHeader(response, "X-Credits-Left"), RelatudeServiceClient.WasCached(response));
+            return imageOf(png, response, key);
         }
+    }
+
+    /// <summary>An image answer's PNG with what the headers say of it; the service holds it for the license from then on.</summary>
+    ImagingImage imageOf(byte[] png, HttpResponseMessage response, string key) {
+        var sha256 = RelatudeServiceClient.Header(response, "X-Sha256")?.Trim().ToLowerInvariant();
+        if (string.IsNullOrEmpty(sha256)) sha256 = ServiceFile.Sha256Of(png);
+        _client.MarkHeld(key, sha256);
+        var (width, height) = PngSize(png);
+        return new ImagingImage(png, width, height, sha256,
+            RelatudeServiceClient.IntHeader(response, "X-Credits"), RelatudeServiceClient.IntHeader(response, "X-Credits-Left"), RelatudeServiceClient.WasCached(response));
     }
 
     /// <summary>The width and height a PNG's header gives, or zeros for anything that is not a PNG.</summary>

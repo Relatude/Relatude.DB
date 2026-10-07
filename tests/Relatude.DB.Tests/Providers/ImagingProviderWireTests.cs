@@ -333,6 +333,71 @@ public class ImagingProviderWireTests {
         Assert.AreEqual(0, stub.Requests.Count);
     }
 
+    /// <summary>
+    /// The service answers rotate-if-needed with the image turned and X-Rotation saying how far, held
+    /// for the license like any answer; or with no content and a rotation of 0 when it left it as it is.
+    /// </summary>
+    [TestMethod]
+    public async Task RotateIfNeededSaysHowFarAndHasTheImageOnlyWhenItWasTurned() {
+        await using var stub = await RelatudeServiceStub.StartAsync("imaging");
+        using var imaging = provider(stub);
+        var photo = RelatudeServiceStub.FakePng(640, 480, seed: 1);
+        var turned = RelatudeServiceStub.FakePng(480, 640, seed: 2);
+        stub.EnqueueImage(turned, [.. priced(turned, credits: 1, left: 41), ("X-Rotation", "90")]);
+
+        var rotation = await imaging.RotateIfNeededAsync(photo);
+
+        Assert.AreEqual(90, rotation.Rotation);
+        Assert.IsTrue(rotation.Rotated);
+        CollectionAssert.AreEqual(turned, rotation.Image!.Png);
+        Assert.AreEqual((480, 640), (rotation.Image.Width, rotation.Image.Height));
+        Assert.AreEqual(RelatudeServiceStub.Sha256(turned), rotation.Image.Sha256);
+        Assert.AreEqual((1, 41, false), (rotation.Credits, rotation.CreditsLeft, rotation.Cached));
+        var call = stub.Operations().Single();
+        Assert.AreEqual("/api/imaging/rotate-if-needed", call.Path);
+        Assert.AreEqual(RelatudeServiceStub.Sha256(photo), call.Json.GetProperty("image").GetString());
+
+        // left as it is: no image, and nothing to read but the headers
+        stub.EnqueueNoContent(("X-Rotation", "0"), ("X-Credits", "1"), ("X-Credits-Left", "40"), ("X-Cache", "hit"));
+        var left = await imaging.RotateIfNeededAsync(photo, fresh: true);
+        Assert.AreEqual(0, left.Rotation);
+        Assert.IsFalse(left.Rotated);
+        Assert.IsNull(left.Image);
+        Assert.AreEqual((1, 40, true), (left.Credits, left.CreditsLeft, left.Cached));
+        Assert.AreEqual("no-cache", stub.Operations()[^1].Header("Cache-Control"));
+        Assert.AreEqual(1, stub.Calls("PUT", "/files/").Length, "the photo is sent once");
+
+        // an answer that names no turn the service makes is a failure, not a guess
+        stub.EnqueueImage(turned, [.. priced(turned), ("X-Rotation", "45")]);
+        var error = await Assert.ThrowsExactlyAsync<RelatudeServiceException>(() => imaging.RotateIfNeededAsync(photo));
+        StringAssert.Contains(error.Message, "'45'");
+    }
+
+    [TestMethod]
+    public async Task AQuestionAboutAnImageIsAnsweredInWordsOrWithYesOrNoAndACertainty() {
+        await using var stub = await RelatudeServiceStub.StartAsync("imaging");
+        using var imaging = provider(stub);
+        var photo = RelatudeServiceStub.FakePng(640, 480, seed: 1);
+        stub.EnqueueJson(200, """{"answer":"A red bicycle.","credits":1,"creditsLeft":20}""");
+        stub.EnqueueJson(200, """{"answer":false,"certainty":92,"credits":1,"creditsLeft":19}""", ("X-Cache", "hit"));
+
+        var words = await imaging.AskAboutImageAsync(photo, "What is leaning on the wall?");
+        var yesNo = await imaging.AskAboutImageBoolAsync(photo, "Is it raining?", fresh: true);
+
+        Assert.AreEqual(("A red bicycle.", 1, 20, false), (words.Answer, words.Credits, words.CreditsLeft, words.Cached));
+        Assert.AreEqual((false, 92, 19, true), (yesNo.Answer, yesNo.Certainty, yesNo.CreditsLeft, yesNo.Cached));
+        var (ask, askBool) = (stub.Operations()[0], stub.Operations()[1]);
+        Assert.AreEqual("/api/imaging/ask-about-image", ask.Path);
+        Assert.AreEqual("What is leaning on the wall?", ask.Json.GetProperty("question").GetString());
+        Assert.AreEqual(RelatudeServiceStub.Sha256(photo), ask.Json.GetProperty("image").GetString());
+        Assert.AreEqual("/api/imaging/ask-about-image-bool", askBool.Path);
+        Assert.AreEqual("Is it raining?", askBool.Json.GetProperty("question").GetString());
+        Assert.AreEqual("no-cache", askBool.Header("Cache-Control"));
+        Assert.AreEqual(1, stub.Calls("PUT", "/files/").Length, "the photo is sent once for both questions");
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => imaging.AskAboutImageAsync(photo, " "));
+        Assert.AreEqual(2, stub.Operations().Length, "a question that is no question is refused before anything is sent");
+    }
+
     [TestMethod]
     public async Task WhatTheServiceWouldRefuseIsRefusedBeforeAnythingIsSent() {
         await using var stub = await RelatudeServiceStub.StartAsync("imaging");

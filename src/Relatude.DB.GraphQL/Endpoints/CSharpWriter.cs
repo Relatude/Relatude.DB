@@ -125,7 +125,7 @@ public static class CSharpWriter {
 
     public static string WriteSample(GqlSchema schema) {
         var def = schema.Definition;
-        var hasKey = !string.IsNullOrEmpty(def.ApiKey);
+        var hasKey = def.RequiresApiKey;
         var sb = new StringBuilder();
         sb.AppendLine($"// Sample client for the GraphQL endpoint \"{def.Name}\" at {def.Url}. Needs the generated types file.");
         sb.AppendLine("using System.Net.Http.Json;");

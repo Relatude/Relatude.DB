@@ -504,6 +504,21 @@ public class LicenseLoginTests {
         Assert.AreEqual(200, ((IStatusCodeHttpResult)result).StatusCode ?? 200);
     }
 
+    [TestMethod]
+    public async Task Describe_NamesTheApiKey_WhenTheLicenseServerDoes() {
+        var host = startServer(_apiKey.ToString(), licenseKey: null);
+        try {
+            var status = await host.Server.LicenseLogin.DescribeAsync();
+            Assert.AreEqual("valid", status.State);
+            Assert.AreEqual("Production site", status.License!.ApiKeyName);
+            // a license server from before the names leaves it out
+            var older = JsonSerializer.Deserialize<LicenseLogin.LicenseInfo>("""{ "id": "6f9619ff-8b86-d011-b42d-00c04fc964ff", "name": "Old", "features": [], "limits": [], "accounts": [], "messageToAllEditors": "", "messageToAllVisitors": "" }""", new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            Assert.IsNull(older!.ApiKeyName);
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
     // ---- SMS senders ----
 
     [TestMethod]
@@ -590,6 +605,7 @@ public class LicenseLoginTests {
                         features = Array.Empty<object>(), limits = Array.Empty<object>(), accounts = Array.Empty<object>(),
                         messageToAllEditors = "", messageToAllVisitors = "", stopEdit = false, stopVisit = false,
                         smsSenders = new[] { "Acme", "+4791234567" },
+                        apiKeyName = "Production site",
                     })
                     : Results.NotFound(new { reason = "Unknown API key." });
             });

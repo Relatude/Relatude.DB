@@ -52,11 +52,14 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     /// license server writes them: names of up to eleven letters and digits, and phone numbers with their
     /// country code. A message goes as one of these or as the SMS service's own sender, never as anything
     /// else. Null from a license server older than the list, which means none.</param>
+    /// <param name="ApiKeyName">What the license's people call the API key the license was asked for
+    /// with, so the page can say which of its keys this installation holds. Null for a key without a
+    /// name, and from a license server older than the names.</param>
     public sealed record LicenseInfo(
         Guid Id, string Name, bool Disabled, bool Expired, DateTime? ExpiresUtc,
         FeatureInfo[] Features, LimitInfo[] Limits, AccountInfo[] Accounts,
         string MessageToAllEditors, string MessageToAllVisitors, bool StopEdit, bool StopVisit,
-        string[]? SmsSenders = null) {
+        string[]? SmsSenders = null, string? ApiKeyName = null) {
         /// <summary>Neither disabled nor expired: its features, limits and credits are honoured.</summary>
         public bool Active => !Disabled && !Expired;
     }

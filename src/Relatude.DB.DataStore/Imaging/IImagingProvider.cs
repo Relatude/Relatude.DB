@@ -4,7 +4,8 @@ using Relatude.DB.FileConversion;
 namespace Relatude.DB.Imaging;
 
 /// <summary>
-/// Image AI on behalf of the database: creating images, changing them, and saying what they show, so
+/// Image AI on behalf of the database: creating images, changing them, saying what they show and
+/// answering questions about them, so
 /// application code does not hold a vendor account of its own. Reached through <c>NodeStore.Imaging</c>.
 ///
 /// <para>One implementation ships: <c>RelatudeServicesImagingProvider</c>, which calls the hosted
@@ -64,12 +65,37 @@ public interface IImagingProvider : IDisposable {
     Task<ImagingImage> ShrinkImageAsync(byte[] image, ImageMargins margins, bool fresh = false, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The image turned the right way up when it is upside down or on its side: what it shows is looked
+    /// at, so a photo taken with the camera turned, or scanned upside down, stands upright again. When
+    /// it is upright already, or which way is up cannot be told - a pattern, a view from straight above -
+    /// it is left as it is. <see cref="ImagingRotation.Rotation"/> says how far it was turned clockwise:
+    /// 0, 90, 180 or 270, and <see cref="ImagingRotation.Image"/> is the image turned, or null when it was
+    /// left as it is. A call that leaves it as it is costs the same as one that turns it.
+    /// </summary>
+    Task<ImagingRotation> RotateIfNeededAsync(byte[] image, bool fresh = false, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// What the image shows, for search and for cropping: a title, a description and keywords in
     /// <paramref name="language"/> (a code such as en or nb, or the provider's choice), and where
     /// available the point it is about and the things in it. The text in an image is not read: that
     /// is OCR, which belongs to <see cref="Relatude.DB.FileToText.IFileToTextProvider"/>.
     /// </summary>
     Task<ImagingMeta> ImageToMetaAsync(byte[] image, string? language = null, bool fresh = false, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The answer to <paramref name="question"/> about the image, in words, in the language the question
+    /// is asked in: what is in it, what is going on, what something looks like. When the image does not
+    /// show what the question asks about, the answer says so rather than guess. The answer is kept for
+    /// this license only, since a question is words someone wrote.
+    /// </summary>
+    Task<ImagingAnswer> AskAboutImageAsync(byte[] image, string question, bool fresh = false, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Yes (true) or no (false) to <paramref name="question"/> about the image - "Is there a person in
+    /// it?", "Is it taken outdoors?" - with how sure the answer is: <see cref="ImagingBoolAnswer.Certainty"/>
+    /// from 0, a guess with the image saying nothing either way, to 100, the image plainly showing it.
+    /// </summary>
+    Task<ImagingBoolAnswer> AskAboutImageBoolAsync(byte[] image, string question, bool fresh = false, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Every operation the service has and whether it can be called there, what a call costs, and how
@@ -87,6 +113,19 @@ public interface IImagingProvider : IDisposable {
 public sealed record ImagingImage(byte[] Png, int Width, int Height, string Sha256, int Credits, int CreditsLeft, bool Cached);
 
 /// <summary>
+/// What <see cref="IImagingProvider.RotateIfNeededAsync"/> did: <see cref="Rotation"/> is how far the
+/// image was turned clockwise to stand upright - 0, 90, 180 or 270 - and <see cref="Image"/> the image
+/// turned, as a PNG, or null when it was left as it is: upright already, or with no telling which way is
+/// up. A quarter turn swaps the width and the height. <see cref="Credits"/>, <see cref="CreditsLeft"/>
+/// and <see cref="Cached"/> are as for <see cref="ImagingImage"/>.
+/// </summary>
+public sealed record ImagingRotation(int Rotation, ImagingImage? Image, int Credits, int CreditsLeft, bool Cached) {
+    /// <summary>Whether the image was turned, so <see cref="Image"/> is there.</summary>
+    [JsonIgnore]
+    public bool Rotated => Image != null;
+}
+
+/// <summary>
 /// What an image shows. Title, description and keywords are always there, possibly empty. Focus is
 /// the point the image is about and Objects what is in it, both in pixels of the image as shown and
 /// both optional: not every provider finds them.
@@ -96,6 +135,21 @@ public sealed record ImagingMeta(string Title, string Description, string[] Keyw
 
 /// <summary>A point in pixels, from the top left corner of the image as shown.</summary>
 public sealed record ImagingFocusPoint(int X, int Y);
+
+/// <summary>
+/// The answer to a question about an image (<see cref="IImagingProvider.AskAboutImageAsync"/>), in words,
+/// in the language the question was asked in. <see cref="Credits"/>, <see cref="CreditsLeft"/> and
+/// <see cref="Cached"/> are as for <see cref="ImagingImage"/>.
+/// </summary>
+public sealed record ImagingAnswer(string Answer, int Credits, int CreditsLeft, bool Cached);
+
+/// <summary>
+/// The answer to a yes-or-no question about an image (<see cref="IImagingProvider.AskAboutImageBoolAsync"/>):
+/// <see cref="Answer"/> true for yes, and <see cref="Certainty"/> how sure that is, from 0 - a guess, the
+/// image saying nothing either way - to 100, the image plainly showing it. A "no" at 20 says little; a
+/// "no" at 95 says the image shows it is not so.
+/// </summary>
+public sealed record ImagingBoolAnswer(bool Answer, int Certainty, int Credits, int CreditsLeft, bool Cached);
 
 /// <summary>
 /// Something in an image and the box around it, in pixels of the image as shown. <see cref="Type"/>
@@ -121,11 +175,11 @@ public sealed record ImageMargins(int Top = 0, int Right = 0, int Bottom = 0, in
 /// <see cref="PartBytes"/> in one request, larger in parts of that size, at most <see cref="MaxFileBytes"/>.
 /// </summary>
 public sealed record ImagingOperations(ImagingOperationInfo[] Operations, int CreditsPerOperation, int CreditsPerCachedOperation, int PartBytes, long MaxFileBytes) {
-    /// <summary>Whether the operation with this key - create-image, upscale, image-to-meta, ... - can be called.</summary>
+    /// <summary>Whether the operation with this key - create-image, upscale, rotate-if-needed, image-to-meta, ... - can be called.</summary>
     public bool IsAvailable(string key) => Operations.Any(o => o.Available && string.Equals(o.Key, key, StringComparison.OrdinalIgnoreCase));
 }
 
-/// <summary>One operation: its key (create-image, manipulate-image, remove-background, upscale, remove-object, expand-image, shrink-image, image-to-meta), a name for people, and whether it can be called.</summary>
+/// <summary>One operation: its key (create-image, manipulate-image, remove-background, upscale, remove-object, expand-image, shrink-image, rotate-if-needed, image-to-meta, ask-about-image, ask-about-image-bool), a name for people, and whether it can be called.</summary>
 public sealed record ImagingOperationInfo(string Key, string Name, bool Available);
 
 /// <summary>

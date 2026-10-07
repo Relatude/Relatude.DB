@@ -67,6 +67,8 @@ export interface LicenseInfo {
    * server, which means none.
    */
   smsSenders?: string[] | null;
+  /** what the API key the license was asked for with is called; null for a key without a name, missing from an older license server */
+  apiKeyName?: string | null;
   /** neither disabled nor expired */
   active: boolean;
 }
@@ -322,13 +324,42 @@ export function fetchImagingOperations(serviceUrl: string): Promise<ImagingOpera
   return send<ImagingOperations>("license-imaging-operations", { serviceUrl });
 }
 
-/** An image an operation made: the PNG, its size, its SHA-256 at the service, and what it cost. */
+/** An image an operation made: the PNG, its size, its SHA-256 at the service, and what it cost. For rotate-if-needed, how far it was turned clockwise. */
 export interface ImagingImageResult {
   kind: "image";
   png: Blob;
   width: number;
   height: number;
   sha256: string;
+  credits: number;
+  creditsLeft: number;
+  cached: boolean;
+  rotation?: number;
+}
+
+/** ask-about-image's answer, in words, in the language the question was asked in. */
+export interface ImagingAnswerResult {
+  kind: "answer";
+  answer: string;
+  credits: number;
+  creditsLeft: number;
+  cached: boolean;
+}
+
+/** ask-about-image-bool's answer: true for yes, and how sure it is from 0 (a guess) to 100 (plainly shown). */
+export interface ImagingBoolResult {
+  kind: "bool";
+  answer: boolean;
+  certainty: number;
+  credits: number;
+  creditsLeft: number;
+  cached: boolean;
+}
+
+/** rotate-if-needed leaving the image as it is: upright already, or with no telling which way is up. */
+export interface ImagingLeftAsIsResult {
+  kind: "left-as-is";
+  rotation: 0;
   credits: number;
   creditsLeft: number;
   cached: boolean;
@@ -383,11 +414,16 @@ function intHeader(response: Response, name: string): number {
 /**
  * Runs one operation of the Imaging service with this installation's API key, charged to the license.
  * The form names the operation and carries the service's own fields, the images as files. An image
- * comes back as the PNG with what it cost in headers; image-to-meta as JSON.
+ * comes back as the PNG with what it cost in headers; image-to-meta and the questions as JSON, and
+ * rotate-if-needed leaving the image as it is as JSON with a rotation of 0.
  */
-export async function runImagingTest(form: FormData, signal?: AbortSignal): Promise<ImagingImageResult | ImagingMetaResult> {
+export async function runImagingTest(
+  form: FormData,
+  signal?: AbortSignal,
+): Promise<ImagingImageResult | ImagingMetaResult | ImagingLeftAsIsResult | ImagingAnswerResult | ImagingBoolResult> {
   const response = await postTest("imaging-test", form, signal);
   if ((response.headers.get("content-type") ?? "").startsWith("image/")) {
+    const rotation = response.headers.get("X-Rotation");
     return {
       kind: "image",
       png: await response.blob(),
@@ -397,9 +433,14 @@ export async function runImagingTest(form: FormData, signal?: AbortSignal): Prom
       credits: intHeader(response, "X-Credits"),
       creditsLeft: intHeader(response, "X-Credits-Left"),
       cached: response.headers.get("X-Cache") === "hit",
+      ...(rotation === null ? {} : { rotation: Number(rotation) }),
     };
   }
-  const meta = (await response.json()) as Omit<ImagingMetaResult, "kind">;
+  const answer = await response.json();
+  if (typeof answer?.rotation === "number") return { ...(answer as Omit<ImagingLeftAsIsResult, "kind">), rotation: 0, kind: "left-as-is" };
+  if (typeof answer?.certainty === "number") return { ...(answer as Omit<ImagingBoolResult, "kind">), kind: "bool" };
+  if (typeof answer?.answer === "string") return { ...(answer as Omit<ImagingAnswerResult, "kind">), kind: "answer" };
+  const meta = answer as Omit<ImagingMetaResult, "kind">;
   return { ...meta, keywords: meta.keywords ?? [], objects: meta.objects ?? [], kind: "meta" };
 }
 

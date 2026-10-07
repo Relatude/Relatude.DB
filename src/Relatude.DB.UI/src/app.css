@@ -75,14 +75,14 @@
    * they mean nothing - they are labels, not states - and because a set of eleven has to be told
    * apart as a set: the three blues in particular are chosen against each other (cyan-leaning,
    * true, indigo) rather than each on its own, the three greens by how light they are (dark, middle,
-   * light), and the red is held clear of the orange. Every one is a shade that reads on a light
+   * light), and the brown is held clear of the orange by being muted where it is bright. Every one reads on a light
    * panel; the dark theme lightens all eleven below.
    */
   --nav-purple: #6b3fb5;
   --nav-blue-light: #1a86c4;
   --nav-blue: #1f6fd0;
   --nav-blue-dark: #35399b;
-  --nav-red: #c4302a;
+  --nav-brown: #8a5a44;
   --nav-orange: #cc5a11;
   --nav-green-dark: #1f6b3b;
   --nav-green: #2f7a44;
@@ -139,7 +139,7 @@
   --nav-blue-light: #6ecbf5;
   --nav-blue: #5c9fe8;
   --nav-blue-dark: #7a86e0;
-  --nav-red: #f2867c;
+  --nav-brown: #cfa58c;
   --nav-orange: #f5945a;
   --nav-green-dark: #4e9e63;
   --nav-green: #6fbf85;
@@ -1117,8 +1117,8 @@ a {
   --nav-tone: var(--nav-blue-dark);
 }
 
-.nav-tone-red {
-  --nav-tone: var(--nav-red);
+.nav-tone-brown {
+  --nav-tone: var(--nav-brown);
 }
 
 .nav-tone-orange {
@@ -12065,6 +12065,20 @@ body.pg-resizing {
 
 /* the first five characters of the saved API key, beside its name: enough to tell which key is saved
    against the list in the portal, and too little to be of use to anyone reading it off the screen */
+/* the saved API key's name in Relatude Services, before its first characters */
+.license-key-name {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 7px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .license-key-start {
   padding: 0 6px;
   border-radius: 4px;
@@ -12324,10 +12338,11 @@ body.pg-resizing {
   outline-offset: 2px;
 }
 
-/* the fields on the left and the answer on the right, stacked on a narrow screen */
+/* the fields in a column on the left and the answer, given the rest of the width to be looked at, on the right;
+   stacked on a narrow screen */
 .license-imaging-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
   gap: 16px 24px;
   align-items: start;
 }
@@ -12372,7 +12387,8 @@ body.pg-resizing {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 160px;
+  height: var(--iv-stage-height);
+  margin-top: 36px;
   border: 1px dashed var(--border);
   border-radius: 8px;
   font-size: 13px;
@@ -12447,6 +12463,233 @@ body.pg-resizing {
 
 .license-imaging-keywords {
   margin: 4px 0;
+}
+
+/* an answer in words may run to a few sentences on lines of their own */
+.license-imaging-answer-text {
+  white-space: pre-wrap;
+}
+
+/* ImageViewer: a bar of zoom buttons over a stage the picture is fitted to, zoomed in and moved about in, with a
+   split to drag left and right between the before and the after */
+.license-imaging {
+  --iv-stage-height: clamp(300px, 62vh, 720px);
+}
+
+.iv {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.iv-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+}
+
+.iv-bar .icon-button:not(.labelled) {
+  width: 28px;
+  height: 28px;
+}
+
+.iv-spacer {
+  flex: 1;
+}
+
+.iv-zoom {
+  min-width: 54px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-soft);
+}
+
+.iv-zoom:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.iv-view {
+  position: relative;
+}
+
+/* the checkerboard is on the picture, not the stage, so a transparent background reads as one in either theme */
+.iv-stage {
+  display: flex;
+  height: var(--iv-stage-height, 480px);
+  padding: 12px;
+  box-sizing: border-box;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  overscroll-behavior: contain;
+  touch-action: none;
+  user-select: none;
+}
+
+.iv-stage.overflows {
+  cursor: grab;
+}
+
+.iv-stage.splits {
+  cursor: ew-resize;
+}
+
+.iv-stage.dragging-pan {
+  cursor: grabbing;
+}
+
+.iv-stage.dragging-split {
+  cursor: ew-resize;
+}
+
+/* margin: auto centres a picture smaller than the stage and lets a larger one scroll to every edge */
+.iv-frame {
+  position: relative;
+  flex: none;
+  margin: auto;
+  line-height: 0;
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+/* until the picture's size is known it is read, not shown, and takes no room */
+.iv-frame.loading {
+  visibility: hidden;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.iv-frame,
+.iv-before {
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #d9d9d9 25%, transparent 25%), linear-gradient(-45deg, #d9d9d9 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #d9d9d9 75%), linear-gradient(-45deg, transparent 75%, #d9d9d9 75%);
+  background-size: 16px 16px;
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
+}
+
+.iv-frame > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.iv-frame.pixelated img {
+  image-rendering: pixelated;
+}
+
+/* the before covers the after up to the split: it takes the whole picture, cut off at the split */
+.iv-before {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* the part of the picture the before became (all of it, unless it was expanded or shrunk); it keeps its own shape */
+.iv-before-box {
+  position: absolute;
+}
+
+.iv-before-box > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* the split: a white line, with room either side of it to be taken hold of */
+.iv-split {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 16px;
+  margin-left: -8px;
+  cursor: ew-resize;
+  outline: none;
+}
+
+.iv-split::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 7px;
+  width: 2px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
+}
+
+/* the grip, a round handle with arrows either way, in the middle of what is seen of the split (set by the viewer) */
+.iv-split-grip {
+  position: absolute;
+  left: 50%;
+  top: var(--iv-grip-y, 50%);
+  width: 30px;
+  height: 30px;
+  box-sizing: border-box;
+  transform: translate(-50%, -50%);
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.iv-split-grip::before,
+.iv-split-grip::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  border: 5px solid transparent;
+  margin-top: -5px;
+}
+
+.iv-split-grip::before {
+  left: 1px;
+  border-right-color: #fff;
+}
+
+.iv-split-grip::after {
+  right: 1px;
+  border-left-color: #fff;
+}
+
+.iv-split:focus-visible .iv-split-grip {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.iv-label {
+  position: absolute;
+  top: 10px;
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.iv-label.before {
+  left: 10px;
+}
+
+.iv-label.after {
+  right: 10px;
 }
 
 /* the mask editor: the tools on a line above, the image with the paint laid over it below */

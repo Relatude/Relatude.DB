@@ -37,7 +37,10 @@ sealed class UIGraphQL(RelatudeDBServer server) {
             var def = parse(p.Definition);
             def.Name = def.Name.Trim();
             def.Url = GraphQLEndpointDefinition.NormalizeUrl(def.Url) ?? def.Url;
-            if (string.IsNullOrWhiteSpace(def.ApiKey)) def.ApiKey = null;
+            foreach (var key in def.ApiKeys) {
+                key.Name = key.Name?.Trim() ?? "";
+                key.Key = key.Key?.Trim() ?? "";
+            }
             var issues = validate(c, def);
             var errors = issues.Where(i => i.IsError).Select(i => i.Message).ToList();
             if (errors.Count > 0) throw new Exception(string.Join(" ", errors));
@@ -142,7 +145,7 @@ sealed class UIGraphQL(RelatudeDBServer server) {
                 ? new EndpointSummary(null, f.FileName, f.Display, sourceName(f.Source), null, false, "Selected", false, false, false, false, false, false, 0, 0, f.Error)
                 : new EndpointSummary(f.Definition.Id, f.Definition.Name, f.Display, sourceName(f.Source), f.Definition.Url, f.Definition.Enabled, f.Definition.Mode.ToString(),
                     f.Definition.ExactNames, f.Definition.AllowMutations, f.Definition.EnableExplorer, f.Definition.EnableFacetSearch, f.Definition.EnableIntrospection,
-                    !string.IsNullOrEmpty(f.Definition.ApiKey),
+                    f.Definition.RequiresApiKey,
                     f.Definition.Mode == GraphQLEndpointMode.WholeDatamodel ? (dm == null ? 0 : exposableTypes(dm, f.Definition.IncludeSystemTypes).Count()) : f.Definition.Types.Count,
                     f.Definition.Views.Count, null)).ToList(),
             catalog = dm == null ? null : catalog(dm),

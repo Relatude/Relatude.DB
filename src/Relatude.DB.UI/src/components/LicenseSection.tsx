@@ -52,7 +52,10 @@ import {
   type AiCompletionResult,
   type AiEmbeddingResult,
   type FileToTextResult,
+  type ImagingAnswerResult,
+  type ImagingBoolResult,
   type ImagingImageResult,
+  type ImagingLeftAsIsResult,
   type ImagingMetaResult,
   type SmsReceipt,
   type InstallationInfo,
@@ -65,6 +68,7 @@ import { Loading } from "./Loading";
 import { FoldHead } from "./LogsSection";
 import { CopyText } from "./CopyText";
 import { DialogTools } from "./DialogTools";
+import { ImageViewer, type ImageInset } from "./ImageViewer";
 
 /**
  * The Services module: the Relatude Services account this installation runs under - whether it has
@@ -431,11 +435,19 @@ function LicensePanel({ status, onReload }: { status: LicenseStatus; onReload: (
             label="API key"
             locked={apiKeyLocked}
             extra={
-              status.apiKeyStart && (
-                <span className="license-key-start" title={`The saved API key starts with ${status.apiKeyStart}`}>
-                  {status.apiKeyStart}…
-                </span>
-              )
+              <>
+                {/* what the key is called in Relatude Services, when the license server says - and the key has a name there */}
+                {status.license?.apiKeyName && (
+                  <span className="license-key-name" title="What this API key is called on the license's page in Relatude Services">
+                    {status.license.apiKeyName}
+                  </span>
+                )}
+                {status.apiKeyStart && (
+                  <span className="license-key-start" title={`The saved API key starts with ${status.apiKeyStart}`}>
+                    {status.apiKeyStart}…
+                  </span>
+                )}
+              </>
             }
             hint={apiKeyLocked ? undefined : "A secret: once saved, only its first five characters are shown. On a production server, keep it in configuration or user secrets instead."}
           >
@@ -1358,7 +1370,7 @@ interface ImagingOp {
   image: boolean;
   mask?: "optional" | "required";
   extra?: "inspiration" | "references";
-  text?: { field: "description" | "instruction" | "hint"; label: string; required: boolean; placeholder: string };
+  text?: { field: "description" | "instruction" | "hint" | "question"; label: string; required: boolean; placeholder: string };
   size?: boolean;
   transparent?: boolean;
   factor?: boolean;
@@ -1395,7 +1407,20 @@ const imagingOps: ImagingOp[] = [
     text: { field: "hint", label: "Hint", required: false, placeholder: "What the new space should show" },
   },
   { key: "shrink-image", label: "Shrink", image: true, margins: true },
+  { key: "rotate-if-needed", label: "Rotate if needed", image: true },
   { key: "image-to-meta", label: "Describe", image: true, language: true },
+  {
+    key: "ask-about-image",
+    label: "Ask",
+    image: true,
+    text: { field: "question", label: "Question", required: true, placeholder: "What is the person in the picture holding?" },
+  },
+  {
+    key: "ask-about-image-bool",
+    label: "Ask yes / no",
+    image: true,
+    text: { field: "question", label: "Question", required: true, placeholder: "Is there a dog in the picture?" },
+  },
 ];
 
 const marginSides = ["top", "right", "bottom", "left"] as const;
@@ -1421,7 +1446,7 @@ function ImagingTestPanel({ configuredUrl }: { configuredUrl: string }) {
   const [imageTurn, setImageTurn] = useState(0);
   const [mask, setMask] = useState<File | null>(null);
   const [extra, setExtra] = useState<File[]>([]);
-  const [texts, setTexts] = useState({ description: "", instruction: "", hint: "" });
+  const [texts, setTexts] = useState({ description: "", instruction: "", hint: "", question: "" });
   const [size, setSize] = useState({ width: "", height: "" });
   const [transparent, setTransparent] = useState(false);
   const [factor, setFactor] = useState("2");
@@ -1429,7 +1454,13 @@ function ImagingTestPanel({ configuredUrl }: { configuredUrl: string }) {
   const [language, setLanguage] = useState("en");
   const [fresh, setFresh] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ op: ImagingOp; answer: ImagingImageResult | ImagingMetaResult; input: File | null } | null>(null);
+  const [result, setResult] = useState<{
+    op: ImagingOp;
+    answer: ImagingImageResult | ImagingMetaResult | ImagingLeftAsIsResult | ImagingAnswerResult | ImagingBoolResult;
+    input: File | null;
+    inset: ImageInset | null;
+    question: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const available = (key: string) => offer?.info?.operations.find((o) => o.key === key)?.available;
@@ -1462,7 +1493,10 @@ function ImagingTestPanel({ configuredUrl }: { configuredUrl: string }) {
       if (op.factor) form.set("factor", factor);
       if (op.margins) for (const side of marginSides) if (Number(margins[side]) > 0) form.set(side, String(Number(margins[side])));
       if (op.language && language.trim()) form.set("language", language.trim());
-      setResult({ op, answer: await runImagingTest(form), input: op.image ? image[0] : null });
+      // where the image sent lies on an expanded or shrunk answer: in by the margins, or out by them
+      const sign = op.key === "expand-image" ? 1 : op.key === "shrink-image" ? -1 : 0;
+      const inset = sign === 0 ? null : { top: sign * (Number(margins.top) || 0), right: sign * (Number(margins.right) || 0), bottom: sign * (Number(margins.bottom) || 0), left: sign * (Number(margins.left) || 0) };
+      setResult({ op, answer: await runImagingTest(form), input: op.image ? image[0] : null, inset, question: texts.question.trim() });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1632,7 +1666,18 @@ function ImagingTestPanel({ configuredUrl }: { configuredUrl: string }) {
         <div className="license-imaging-answer">
           {result ? (
             result.answer.kind === "image" ? (
-              <ImagingImageAnswer opKey={result.op.key} answer={result.answer} onUse={takeAsImage} />
+              <ImagingImageAnswer
+                opKey={result.op.key}
+                answer={result.answer}
+                // a turn is no change to lay over the image: a quarter of one does not even have its shape
+                input={result.answer.rotation === undefined ? result.input : null}
+                inset={result.inset}
+                onUse={takeAsImage}
+              />
+            ) : result.answer.kind === "left-as-is" ? (
+              <ImagingLeftAsIsAnswer answer={result.answer} input={result.input} />
+            ) : result.answer.kind === "answer" || result.answer.kind === "bool" ? (
+              <ImagingQuestionAnswer answer={result.answer} question={result.question} input={result.input} />
             ) : (
               <ImagingMetaAnswer meta={result.answer} input={result.input} />
             )
@@ -1645,21 +1690,32 @@ function ImagingTestPanel({ configuredUrl }: { configuredUrl: string }) {
   );
 }
 
-function ImagingImageAnswer({ opKey, answer, onUse }: { opKey: string; answer: ImagingImageResult; onUse: (answer: ImagingImageResult) => void }) {
+/** An image answer, laid over the image it was made from (when there was one) with a split to drag between them. */
+function ImagingImageAnswer({
+  opKey,
+  answer,
+  input,
+  inset,
+  onUse,
+}: {
+  opKey: string;
+  answer: ImagingImageResult;
+  input: File | null;
+  inset: ImageInset | null;
+  onUse: (answer: ImagingImageResult) => void;
+}) {
   const src = useObjectUrl(answer.png);
+  const before = useObjectUrl(input);
   return (
     <div className="license-imaging-result">
-      {src && (
-        <a className="license-imaging-picture" href={src} target="_blank" rel="noreferrer" title="Open at full size">
-          <img src={src} alt={"The answer to " + opKey} />
-        </a>
-      )}
+      {src && <ImageViewer src={src} alt={"The answer to " + opKey} before={before} beforeInset={inset} />}
       <div className="license-status license-status-ok">
         <span className="license-status-icon">
           <IconCircleCheck size={20} stroke={1.8} />
         </span>
         <div className="license-status-text">
           <strong>
+            {answer.rotation !== undefined && `Turned ${answer.rotation}° clockwise · `}
             {answer.width} × {answer.height} PNG
           </strong>
           <span className="license-muted">
@@ -1671,6 +1727,12 @@ function ImagingImageAnswer({ opKey, answer, onUse }: { opKey: string; answer: I
           </code>
         </div>
         <div className="license-actions">
+          {src && (
+            <a className="action-button" href={src} target="_blank" rel="noreferrer" title="Open the answer at full size in a new tab">
+              <IconExternalLink size={14} stroke={1.8} />
+              Open
+            </a>
+          )}
           {src && (
             <a className="action-button" href={src} download={opKey + ".png"}>
               <IconDownload size={14} stroke={1.8} />
@@ -1687,31 +1749,84 @@ function ImagingImageAnswer({ opKey, answer, onUse }: { opKey: string; answer: I
   );
 }
 
+/** The answer to a question about the image, in words or as yes or no with how sure, under the question and beside the image. */
+function ImagingQuestionAnswer({ answer, question, input }: { answer: ImagingAnswerResult | ImagingBoolResult; question: string; input: File | null }) {
+  const src = useObjectUrl(input);
+  return (
+    <div className="license-imaging-result">
+      {src && <ImageViewer src={src} alt="The image asked about" />}
+      <div className="license-status license-status-ok">
+        <span className="license-status-icon">
+          <IconCircleCheck size={20} stroke={1.8} />
+        </span>
+        <div className="license-status-text">
+          {question && <span className="license-muted">{question}</span>}
+          {answer.kind === "bool" ? (
+            <strong title="How sure the answer is, from 0 (a guess: the image says nothing either way) to 100 (it plainly shows it)">
+              {answer.answer ? "Yes" : "No"} · {answer.certainty} % sure
+            </strong>
+          ) : (
+            <span className="license-imaging-answer-text">{answer.answer}</span>
+          )}
+          <span className="license-muted">
+            {credits(answer.credits)} · {answer.creditsLeft.toLocaleString()} left
+            {answer.cached ? " · the answer kept from before" : ""}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** rotate-if-needed leaving the image as it is, with the image it looked at. */
+function ImagingLeftAsIsAnswer({ answer, input }: { answer: ImagingLeftAsIsResult; input: File | null }) {
+  const src = useObjectUrl(input);
+  return (
+    <div className="license-imaging-result">
+      {src && <ImageViewer src={src} alt="The image, left as it is" />}
+      <div className="license-status license-status-ok">
+        <span className="license-status-icon">
+          <IconCircleCheck size={20} stroke={1.8} />
+        </span>
+        <div className="license-status-text">
+          <strong>Left as it is · not turned</strong>
+          <span>It stands the right way up already, or which way is up could not be told.</span>
+          <span className="license-muted">
+            {credits(answer.credits)} · {answer.creditsLeft.toLocaleString()} left
+            {answer.cached ? " · the answer kept from before" : ""}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** What image-to-meta said, with the image beside it and the focus point and the boxes of what is in it drawn on top. */
 function ImagingMetaAnswer({ meta, input }: { meta: ImagingMetaResult; input: File | null }) {
   const src = useObjectUrl(input);
-  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
   const percent = (part: number, whole: number) => (whole > 0 ? (100 * part) / whole : 0) + "%";
   return (
     <div className="license-imaging-result">
       {src && (
-        <div className="license-imaging-picture license-imaging-marked">
-          <img src={src} alt="The image described" onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })} />
-          {natural &&
-            meta.objects.map((o, i) => (
-              <span
-                key={i}
-                className="license-imaging-box"
-                style={{ left: percent(o.x, natural.w), top: percent(o.y, natural.h), width: percent(o.width, natural.w), height: percent(o.height, natural.h) }}
-                title={`${o.type}${o.name ? ": " + o.name : ""} (${Math.round(o.confidence * 100)} %)`}
-              >
-                <span>{o.name || o.type}</span>
-              </span>
-            ))}
-          {natural && meta.focus && (
-            <span className="license-imaging-focus" style={{ left: percent(meta.focus.x, natural.w), top: percent(meta.focus.y, natural.h) }} title="The point the image is about" />
+        <ImageViewer src={src} alt="The image described">
+          {(natural) => (
+            <>
+              {meta.objects.map((o, i) => (
+                <span
+                  key={i}
+                  className="license-imaging-box"
+                  style={{ left: percent(o.x, natural.w), top: percent(o.y, natural.h), width: percent(o.width, natural.w), height: percent(o.height, natural.h) }}
+                  title={`${o.type}${o.name ? ": " + o.name : ""} (${Math.round(o.confidence * 100)} %)`}
+                >
+                  <span>{o.name || o.type}</span>
+                </span>
+              ))}
+              {meta.focus && (
+                <span className="license-imaging-focus" style={{ left: percent(meta.focus.x, natural.w), top: percent(meta.focus.y, natural.h) }} title="The point the image is about" />
+              )}
+            </>
           )}
-        </div>
+        </ImageViewer>
       )}
       <div className="license-status license-status-ok">
         <span className="license-status-icon">

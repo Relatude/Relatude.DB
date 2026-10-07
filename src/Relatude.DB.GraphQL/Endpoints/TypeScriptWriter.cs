@@ -109,8 +109,8 @@ public static class TypeScriptWriter {
         sb.AppendLine("// The types come from the generated model file (the \"TypeScript types\" tab).");
         sb.AppendLine();
         sb.AppendLine($"const endpoint = \"{def.Url}\";");
-        var hasKey = !string.IsNullOrEmpty(def.ApiKey);
-        if (hasKey) sb.AppendLine("const apiKey = \"<the endpoint's api key>\";");
+        var hasKey = def.RequiresApiKey;
+        if (hasKey) sb.AppendLine("const apiKey = \"<one of the endpoint's api keys>\";");
         sb.AppendLine();
         sb.AppendLine("export async function gql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {");
         sb.AppendLine("  const response = await fetch(endpoint, {");

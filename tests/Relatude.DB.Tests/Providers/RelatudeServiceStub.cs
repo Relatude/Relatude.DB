@@ -74,6 +74,11 @@ sealed class RelatudeServiceStub : IAsyncDisposable {
         lock (_answers) _answers.Enqueue(new(200, png, "image/png", headers));
     }
 
+    /// <summary>A 204: the headers, and no body.</summary>
+    public void EnqueueNoContent(params (string Name, string Value)[] headers) {
+        lock (_answers) _answers.Enqueue(new(204, [], "", headers));
+    }
+
     public Request Single() {
         lock (Requests) {
             Assert.AreEqual(1, Requests.Count, "expected exactly one request");
@@ -214,7 +219,7 @@ sealed class RelatudeServiceStub : IAsyncDisposable {
             return;
         }
         context.Response.StatusCode = answer.Status;
-        context.Response.ContentType = answer.ContentType;
+        if (answer.ContentType.Length > 0) context.Response.ContentType = answer.ContentType;
         foreach (var (name, value) in answer.Headers) context.Response.Headers[name] = value;
         await context.Response.Body.WriteAsync(answer.Body);
     }

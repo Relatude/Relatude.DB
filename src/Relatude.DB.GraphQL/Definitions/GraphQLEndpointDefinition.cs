@@ -53,8 +53,17 @@ public sealed class GraphQLEndpointDefinition {
     public Guid? DefaultNodeTypeId { get; set; }
     /// <summary>Whole-datamodel mode only: also expose the built-in system node types (users, groups, cultures...).</summary>
     public bool IncludeSystemTypes { get; set; }
-    /// <summary>When set, requests must carry it in an "X-Api-Key" header or as a bearer token.</summary>
-    public string? ApiKey { get; set; }
+    /// <summary>
+    /// When there are any, requests must carry one that has not expired, in an "X-Api-Key" header or as a bearer
+    /// token. Keys that have all expired keep the endpoint closed: expiry never opens it.
+    /// </summary>
+    public List<GraphQLApiKey> ApiKeys { get; set; } = [];
+    /// <summary>The single key of files written before <see cref="ApiKeys"/>; <see cref="FromJson"/> moves it there.</summary>
+    [JsonInclude, JsonPropertyName("apiKey")]
+    string? legacyApiKey { get => null; set => _legacyApiKey = value; }
+    string? _legacyApiKey;
+    /// <summary>The name a key read from a file's old single "apiKey" gets.</summary>
+    public const string LegacyApiKeyName = "API key";
     public int MaxQueryDepth { get; set; } = 16;
     public int MaxIncludeDepth { get; set; } = 8;
     public int DefaultPageSize { get; set; } = 25;
@@ -79,8 +88,19 @@ public sealed class GraphQLEndpointDefinition {
         var def = JsonSerializer.Deserialize<GraphQLEndpointDefinition>(json, _json) ?? throw new JsonException("The endpoint definition is empty.");
         def.Types ??= [];
         def.Views ??= [];
+        def.ApiKeys ??= [];
+        def.ApiKeys.RemoveAll(k => k == null);
+        if (!string.IsNullOrWhiteSpace(def._legacyApiKey) && !def.ApiKeys.Any(k => k.Key == def._legacyApiKey)) {
+            def.ApiKeys.Insert(0, new GraphQLApiKey { Name = LegacyApiKeyName, Key = def._legacyApiKey });
+        }
+        def._legacyApiKey = null;
+        foreach (var key in def.ApiKeys) key.Expires = GraphQLApiKey.AsUtc(key.Expires);
         return def;
     }
+
+    /// <summary>Whether requests must carry a key: any key at all, expired or not.</summary>
+    [JsonIgnore]
+    public bool RequiresApiKey => ApiKeys.Count > 0;
 
     /// <summary>The definition the code-first <see cref="GraphQLOptions"/> API stands for: the whole datamodel in GraphQL-style names.</summary>
     public static GraphQLEndpointDefinition FromOptions(GraphQLOptions options) => new() {
@@ -111,6 +131,26 @@ public sealed class GraphQLEndpointDefinition {
         if (path.Contains("//", StringComparison.Ordinal) || path.Any(char.IsWhiteSpace)) return null;
         return path;
     }
+}
+
+/// <summary>One key an endpoint accepts: who it is for, the secret clients send, and when it stops working.</summary>
+public sealed class GraphQLApiKey {
+    /// <summary>Who or what the key is for, such as the client that uses it.</summary>
+    public string Name { get; set; } = "";
+    /// <summary>The secret clients send in the "X-Api-Key" header or as a bearer token.</summary>
+    public string Key { get; set; } = "";
+    /// <summary>The moment the key stops working, in UTC; null for a key that does not expire.</summary>
+    public DateTime? Expires { get; set; }
+
+    public bool IsExpired(DateTime utcNow) => Expires is DateTime e && e <= utcNow;
+
+    /// <summary>A time read from a file as UTC: one without a zone ("2027-01-01") is taken as UTC, a local one is converted.</summary>
+    public static DateTime? AsUtc(DateTime? time) => time switch {
+        null => null,
+        { Kind: DateTimeKind.Utc } t => t,
+        { Kind: DateTimeKind.Local } t => t.ToUniversalTime(),
+        DateTime t => DateTime.SpecifyKind(t, DateTimeKind.Utc),
+    };
 }
 
 public sealed class GraphQLTypeDefinition {

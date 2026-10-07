@@ -65,6 +65,7 @@ concept builds on the last.
 **Part V — APIs**
 
 33. [GraphQL endpoints](#33-graphql-endpoints) · [33.2 the definition file](#332-the-definition-file) · [33.4 querying](#334-querying) · [33.6 mutations](#336-mutations) · [33.9 code-first](#339-code-first-mapping-an-endpoint-in-programcs)
+34. [AI services](#34-ai-services) · [34.1 text](#341-text-embeddings-and-completions) · [34.2 images](#342-images) · [34.3 files to text](#343-files-to-text) · [34.4 prices and errors](#344-prices-answers-kept-and-errors)
 
 ---
 ---
@@ -1973,6 +1974,7 @@ own users.
 | `IoLog` | falls back to `IoDatabase` | Where the activity logs, and the logs defined for the database ([§32](#32-logs--recording-what-the-application-does)), are written. |
 | `FileStoreSettings` | `[]` | The file stores holding `FileValue` bytes. See below. |
 | `AISettings` | null | The container's AI provider and semantic index. Required for semantic/vector search. See below. |
+| `ImagingSettings`, `FileToTextSettings` | null | The image AI and the file reader behind `db.Imaging` and `db.FileToText`. Null on a server is the hosted Relatude service, charged to the license. See [§34](#34-ai-services). |
 | `DatamodelSources` | the bundled demo model | Where the model comes from — the previous section. |
 | `LocalSettings` | all defaults | The engine knobs. See below. |
 
@@ -2833,7 +2835,7 @@ What you do in it:
 | **Status** | Store state, running file conversions, activity and timings. |
 | **Activity** | What the database records about itself — queries, transactions, actions, tasks, metrics, the system trace — each log switched on or off, with its entries, search and graphs. |
 | **Logs** | Logs of your own: define one, and read what the application recorded into it as graphs, entries and the spread of a column's values. The **Built-in logs** switch shows the Activity logs here too, read only. See [§32](#32-logs--recording-what-the-application-does). |
-| **API** | GraphQL endpoints over the database: each one a url, the types and properties it exposes and under which names, views, mutations, an API key, generated client code, and an explorer to try queries. See [§33](#33-graphql-endpoints). |
+| **API** | GraphQL endpoints over the database: each one a url, the types and properties it exposes and under which names, views, mutations, API keys with expiry dates, generated client code, and an explorer to try queries. See [§33](#33-graphql-endpoints). |
 | **Memory** (on the dashboard) | Every memory budget of one database on one line - the node and result set caches, each index engine, the state store - each showing what it is actually holding against what it is allowed. Dragging a budget takes effect at once where the part can be re-sized while it runs; saving keeps them for the next start, in `relatude.db.overrides.json` like every change made on the settings pages. |
 
 Two habits worth forming:
@@ -5351,7 +5353,7 @@ There are two ways to have one:
 
 | | |
 |---|---|
-| **Defined in the admin UI** | The database's **API** page. Each database can have any number of endpoints, each on its own url. An endpoint chooses the types and properties it shows and what to call them, and can have views, an API key, mutations, a public explorer page and a facet search. Each endpoint is a JSON file in the database's `graphql` folder, served by a middleware that `UseRelatudeDB` installs, so there is no code to write. See [§33.1](#331-an-endpoint-in-the-admin-ui). |
+| **Defined in the admin UI** | The database's **API** page. Each database can have any number of endpoints, each on its own url. An endpoint chooses the types and properties it shows and what to call them, and can have views, API keys, mutations, a public explorer page and a facet search. Each endpoint is a JSON file in the database's `graphql` folder, served by a middleware that `UseRelatudeDB` installs, so there is no code to write. See [§33.1](#331-an-endpoint-in-the-admin-ui). |
 | **Code-first** | `app.MapRelatudeDBGraphQL("/graphql")` maps one route over the whole datamodel, configured in `Program.cs`. See [§33.9](#339-code-first-mapping-an-endpoint-in-programcs). |
 
 Both use the `Relatude.DB.GraphQL` library, which ships in the `Relatude.DB.Server` package. It has no
@@ -5372,7 +5374,7 @@ views:
 
 | View | What it is for |
 |---|---|
-| **Settings** | The name, url, description, mode, switches and limits of [§33.2](#332-the-definition-file), and the API key (the wand button generates one). |
+| **Settings** | The name, url, description, mode, switches and limits of [§33.2](#332-the-definition-file), and the API keys: **Add key** adds one with a generated key that expires in a year. Give it a name, such as the client that uses it, and change or clear the expiry date. Each key shows how long it has left. |
 | **Types** | The node types and properties to expose, and the names they appear under: the GraphQL type name, the two root field names and a name per field. Mark a type **Read only** to leave it out of the mutations. This view is only used in the *Selected types and properties* mode. |
 | **Views** | Root fields defined by a query ([§33.5](#335-views)). |
 | **Code** | Generated code to copy or download: the schema as SDL, TypeScript types and a TypeScript client, and C# types and a C# client. |
@@ -5393,13 +5395,13 @@ mutations, and its file. Buttons on each row open the endpoint's public pages:
 
 - **Explore** opens the explorer and **Pivot** opens the facet page, when they are switched on
   ([§33.8](#338-the-explorer-and-the-facet-page)).
-- **SDL** shows the schema as text, when introspection is on and the endpoint has no API key.
+- **SDL** shows the schema as text, when introspection is on and the endpoint has no API keys.
 
 The endpoints are served by a middleware that `UseRelatudeDB` installs after its own authorization
 middleware. An endpoint's url can be any path the admin UI does not use. No two endpoints may share
 a url, even across databases. While the endpoint's database is not open, its url answers `503`.
 
-> **The url is public.** The admin UI's login does not cover an endpoint. Protect it with an API key
+> **The url is public.** The admin UI's login does not cover an endpoint. Protect it with API keys
 > or a reverse proxy, or expose only what anyone may see ([§33.10](#3310-who-reads-and-the-limits)).
 
 ### 33.2 The definition file
@@ -5428,7 +5430,10 @@ and enum values are written by name.
   "allowMutations": false,
   "enableExplorer": true,
   "enableFacetSearch": true,
-  "apiKey": null,
+  "apiKeys": [
+    { "name": "Web site", "key": "6f1c…", "expires": "2027-10-07T00:00:00Z" },
+    { "name": "Mobile app", "key": "a93e…" }
+  ],
   "defaultPageSize": 25,
   "maxPageSize": 200,
   "types": [
@@ -5477,7 +5482,7 @@ in the ids, so a file is usually easiest to start there.
 | `maxFacetCards` | 200,000 | The most nodes the facet page draws. |
 | `defaultNodeTypeId` | none | The type the explorer and the facet page open on. Without it they choose one themselves. |
 | `includeSystemTypes` | `false` | In whole-datamodel mode only: also expose the built-in users, groups, collections and cultures. |
-| `apiKey` | none | When set, every request must carry this key ([§33.7](#337-over-http)). |
+| `apiKeys[]` | none | With any keys, every request must carry one that has not expired ([§33.7](#337-over-http)). Each key has a `name`, the `key` itself and `expires`, the moment it stops working in UTC. Leave out `expires` for a key that never expires. A date without a time, such as `"2027-10-07"`, means 00:00 UTC on that day. A file from an earlier version with a single `apiKey` is read as one key named *API key* that never expires, and is written back as `apiKeys`. |
 | `maxQueryDepth` | 16 | How deeply a query's selection may nest, fragments included. |
 | `maxIncludeDepth` | 8 | How many relations deep a selection may follow. |
 | `defaultPageSize`, `maxPageSize` | 25, 200 | The page size used when a query asks for none, and the largest page size allowed. A larger `pageSize` is cut down to the maximum, not refused. |
@@ -5821,7 +5826,7 @@ datamodel's validation rules ([§3](#3-scalar-properties-and-their-attributes)) 
 is rejected becomes an error on its field. There are no file uploads through GraphQL: upload files
 as described in [§17](#17-uploading-files) and keep the id.
 
-An endpoint that allows mutations without an API key lets anyone who can reach its url change
+An endpoint that allows mutations without API keys lets anyone who can reach its url change
 data. The editor warns about this, and so should you.
 
 ### 33.7 Over HTTP
@@ -5839,14 +5844,19 @@ The status codes are:
 
 - `200` when there is `data`, even if some fields failed;
 - `400` when the request produced no data at all (syntax, validation, variables) or the body is not valid JSON;
-- `401` when the API key is missing or wrong;
+- `401` when the API key is missing, wrong or expired;
 - `503` while the database is not open.
 
 Every answer carries `extensions.durationMs`, the time the request took on the server.
 
-With an `apiKey` set, every request must carry it, either in an `X-Api-Key` header or as
-`Authorization: Bearer <key>`. The key is compared in constant time. The explorer and facet pages are themselves served without the key, because the page is
-where the key is typed in; everything the page then reads requires it.
+With `apiKeys`, every request must carry one of them, either in an `X-Api-Key` header or as
+`Authorization: Bearer <key>`. Any key that has not expired is accepted. A key that has expired is
+turned away with a `401` that says so. Expiry never opens an endpoint: when every key has expired,
+every request is turned away until a new key is added or the keys are removed. Give each client a
+key of its own, so that one can be replaced or retired without the others. To replace a key, add the
+new one, move the client over, then remove the old one or let it expire. The key is compared in
+constant time. The explorer and facet pages are themselves served without a key, because the page
+is where the key is typed in; everything the page then reads requires one.
 
 ```bash
 curl -s https://example.com/api/graphql -H "Content-Type: application/json" -H "X-Api-Key: $KEY" \
@@ -5888,7 +5898,7 @@ similar to GraphiQL. It has:
   several root fields, the views and the mutations.
 
 The explorer reads the schema through introspection, so it stays empty when introspection is off.
-If the endpoint has an API key, the page asks for it and keeps it for the browser session. The same
+If the endpoint has API keys, the page asks for one and keeps it for the browser session. The same
 explorer is the **Explorer** view in the admin UI's editor, where it runs against the draft.
 
 **The facet page** (`enableFacetSearch`) is the admin UI's faceted search
@@ -5972,7 +5982,7 @@ the same context.
 
 **Keeping it closed.** The switches that matter:
 
-- `apiKey` keeps out every request without the key, including the facet page's data.
+- `apiKeys` keeps out every request without a key that has not expired, including the facet page's data.
 - With `enableIntrospection` off, the schema is not served: `__schema` and `__type` fail, `?sdl`
   answers `403`, and the explorer stays empty. Clients that already know the queries are unaffected.
 - With `enableGetRequests` off, queries are only accepted as POST requests, so a query cannot be put
@@ -5990,6 +6000,185 @@ A request over a depth limit is refused as a whole, with an error and no data. A
 the maximum is cut down to it. A "many" relation field without `top` returns all its related nodes, so a model
 where one node has thousands of partners is better served by querying from the other side, or by a
 view.
+
+---
+
+## 34. AI services
+
+The store reaches three kinds of AI, each through a provider configured for the database, so
+application code calls the account the installation already has rather than holding a vendor
+account of its own:
+
+| | Reached through | What it does | Configured by |
+|---|---|---|---|
+| **Text** | `db.AI` | Embeddings - which semantic search ([§21](#21-text-and-semantic-search)) uses by itself - and completions | `AISettings` ([§12.1](#aisettings--embeddings-completions-and-the-vector-index)) |
+| **Images** | `db.Imaging` | Create images, change them, describe them, turn them upright, answer questions about them | `ImagingSettings` |
+| **Files to text** | `db.FileToText` | The text of documents, spreadsheets, PDFs, e-mails and pictures, the last read by OCR | `FileToTextSettings` |
+
+On a server, images and files to text are always there: with no settings they call the hosted
+Relatude Imaging and FileToText services, and each call is charged to the installation's own license,
+to its `ai_image` and `filetotext` credit accounts. Text needs `AISettings`; with `TypeName`
+`RelatudeServices` it calls the hosted Relatude AI service the same way, charged to `ai_embeddings` and
+`ai_completion`, and with another type it calls your own OpenAI, Azure or Anthropic account. A license
+without the credit account a call is charged to is refused before anything is charged.
+
+`ImagingSettings` and `FileToTextSettings` take three keys: `TypeName` (empty or `RelatudeServices` for
+the hosted service, otherwise the full type name of your own `IImagingProvider` or
+`IFileToTextProvider`), `ServiceUrl` (empty for the hosted service; set it for a self-hosted one) and
+`ApiKey` (only where there is no license key: a store built from code, or your own provider).
+
+The **Relatude Services** page of the admin UI has a test panel for each, which makes real calls with the
+installation's key - so they are charged - and shows the answers: every imaging operation with the
+image before and after, a file's text, a completion and an embedding. A store built from code, without
+a server, is given its providers in the constructor:
+`new NodeStore(datastore, imaging: new RelatudeServicesImagingProvider(settings))`.
+`db.HasImagingProvider` and `db.HasFileToTextProvider` say whether there is one; `db.Imaging` and
+`db.FileToText` throw when there is not.
+
+### 34.1 Text: embeddings and completions
+
+```csharp
+// a completion with the configured model, or with one of CompletionModelsByKey
+string summary = await db.AI.GetCompletionAsync("Summarise in one sentence: " + article.Body);
+string careful = await db.AI.GetCompletionAsync(prompt, modelKey: "strong");
+
+// vectors, one per paragraph, in order; ones computed before come from the embedding cache
+List<float[]> vectors = await db.AI.GetEmbeddingsAsync(["first paragraph", "second paragraph"]);
+```
+
+Semantic search calls the embeddings itself as nodes are indexed and as queries are run, so most
+applications never call `GetEmbeddingsAsync`. With `RelatudeServices` the model names are the service's
+own keys, not vendor deployments: `embedding-small` and `embedding-large` for embeddings, `fast` and
+`balanced` for completions, and `CompletionModelsByKey` maps your keys onto them, such as
+`{ "strong": "balanced" }`. Left empty, the service picks its default. The service charges by the
+characters sent and received, so a caller can work out a price before calling.
+
+### 34.2 Images
+
+Every image operation takes the image as its bytes - PNG, JPEG or WebP - and gives back a PNG, or
+what the image shows. A stored file goes in and comes back like this:
+
+```csharp
+var photo = await db.FileDownloadAsync(venue, v => v.Photo);
+
+var cutout = await db.Imaging.RemoveBackgroundAsync(photo);
+var larger = await db.Imaging.UpscaleAsync(cutout.Png, 2);   // the cutout is named, not sent again
+await db.FileUploadAsync(venue, v => v.Photo, larger.Png, "venue.png");
+```
+
+| Method | What it gives |
+|---|---|
+| `CreateImageAsync(description, inspiration?, width?, height?, transparent?)` | A new image from a description, perhaps in the look of some images. Both sizes or neither; `transparent` asks for the subject on transparency, as for a logo |
+| `ManipulateImageAsync(image, instruction, references?, mask?)` | The image changed as the instruction says - "make it winter" - at its own size; with a mask, only where the mask is white |
+| `RemoveBackgroundAsync(image)` | The subject on transparency |
+| `UpscaleAsync(image, factor)` | The image 2 or 4 times larger each way, with detail rather than blur |
+| `RemoveObjectAsync(image, mask)` | The image without what the mask covers, filled in as if it had never been there |
+| `ExpandImageAsync(image, margins, hint?)` | The image on a larger canvas, the new space filled to match; `hint` says what it should show |
+| `ShrinkImageAsync(image, margins)` | The image on a smaller canvas, with the people and the subject kept whole |
+| `RotateIfNeededAsync(image)` | The image turned the right way up when it is upside down or on its side ([below](#turning-an-image-the-right-way-up)) |
+| `ImageToMetaAsync(image, language?)` | What it shows: a title, a description and keywords in the language asked for, the point it is about, and the things in it with a box round each |
+| `AskAboutImageAsync(image, question)` | The answer to a question about it, in words ([below](#asking-about-an-image)) |
+| `AskAboutImageBoolAsync(image, question)` | Yes or no to a question about it, and how sure, 0 to 100 |
+| `GetOperationsAsync()` | Which operations the service offers, what a call costs and how large a file may be. Free, and needs no license |
+
+An image answer is an `ImagingImage`: the `Png`, its `Width` and `Height`, its `Sha256`, and what the
+call cost (`Credits`), what is left (`CreditsLeft`) and whether it was given from before (`Cached`).
+
+- **Sizes** are the image as it is shown: a JPEG whose Exif orientation turns it is taken turned, and
+  so is its answer.
+- **A mask** is an image the size of the image it goes with: white, or opaque, where the change is to
+  be made, and black, or transparent, where the image is to stay as it is.
+- **Margins** are pixels on each side: `new ImageMargins(Top: 100, Left: 50)`, or `ImageMargins.All(64)`.
+- **Passing an answer on is free of uploads.** The service keeps every image it is sent and every image
+  it makes, named by its SHA-256, so the cutout above is upscaled without being sent back. An image is
+  sent once, however many calls use it.
+- **Text in an image** is read by `db.FileToText`, not by `ImageToMetaAsync`, which describes what
+  the image shows and leaves the words out.
+
+#### Describing an image
+
+```csharp
+var meta = await db.Imaging.ImageToMetaAsync(photo, "nb");
+string title = meta.Title;                // "Fullsatt konsertsal"
+string[] keywords = meta.Keywords;        // ["konsert", "publikum", "scene", ...]
+if (meta.Focus is { } focus) { /* the point to crop around, in pixels of the image */ }
+foreach (var thing in meta.Objects) { /* thing.ObjectType, thing.Name, thing.Confidence, thing.X ... */ }
+```
+
+`Focus` is the centre of the most prominent face or head when there is a person or an animal in the
+image, which is the point to keep when an image is cropped to another shape. `Focus` and `Objects`
+are optional: not every provider finds them.
+
+#### Turning an image the right way up
+
+```csharp
+var turn = await db.Imaging.RotateIfNeededAsync(photo);
+if (turn.Rotated) await db.FileUploadAsync(venue, v => v.Photo, turn.Image!.Png, "photo.png");
+// turn.Rotation: how far it was turned clockwise - 0, 90, 180 or 270
+```
+
+What the image shows is looked at - people standing up, the sky at the top, text the right way - so a
+photo taken with the camera turned, or scanned upside down, stands upright again. When it is upright
+already, or which way is up cannot be told - a pattern, a view from straight above - it is left as it
+is: `Rotation` is 0 and `Image` null, and nothing comes back but the answer. Either way the call costs
+the same, since the image was looked at. A quarter turn swaps the width and the height. This is not
+the same as Exif orientation, which the service already applies: it is for images whose pixels are
+the wrong way round.
+
+#### Asking about an image
+
+```csharp
+var answer = await db.Imaging.AskAboutImageAsync(photo, "Hva står det på skiltet over døra?");
+Console.WriteLine(answer.Answer);   // in the language the question was asked in
+
+var dog = await db.Imaging.AskAboutImageBoolAsync(photo, "Is there a dog in the picture?");
+bool surelyADog = dog.Answer && dog.Certainty >= 80;
+```
+
+`AskAboutImageAsync` answers in words, briefly, and says so when the image does not show what was
+asked rather than guess. `AskAboutImageBoolAsync` answers `true` for yes and `false` for no, with
+`Certainty` from 0 - a guess, the image saying nothing either way - to 100, the image plainly showing
+it. So a `false` at 20 says little, while a `false` at 95 says the image shows it is not so: decide on
+both. A question is words someone wrote, so its answer is kept for your license alone, never given to
+another that asks the same.
+
+### 34.3 Files to text
+
+```csharp
+var bytes = await db.FileDownloadAsync(contract, c => c.Document);
+var result = await db.FileToText.ExtractTextAsync(bytes, "contract.pdf", ["nb", "en"]);
+string text = result.Text;
+```
+
+A file is judged by what it holds, not by its name: a PDF called `notes.txt` is read as a PDF. The
+languages, most likely first, help OCR. The answer, a `FileToTextResult`, has the `Text` - lines ending
+in `\n`, pages separated by a form feed, and `PageTexts` split at them - the `Format` it was taken to
+be, `Pages`, `Characters`, whether it was `Truncated` at a limit and whether any of it was read from
+pictures (`Ocr`), and the `Title`, `Author` and `Language` the file gives itself. A kind of file
+nothing reads is refused with a 415 before anything is charged; `GetFormatsAsync()` lists the kinds
+the service knows, and which it reads. A stream works as well as bytes.
+
+### 34.4 Prices, answers kept, and errors
+
+These hold for images and files to text alike.
+
+- **What a call costs** is the same for every operation, whoever does the work behind the service, and
+  is in every answer: `Credits` for the call and `CreditsLeft` on the account. `GetOperationsAsync` and
+  `GetFormatsAsync` say the price before you call.
+- **The same call made again** is answered from what the service kept, at a lower price, and the answer
+  says `Cached`. Pass `fresh: true` for a new one - another take on a description, say - which is made
+  and paid for again.
+- **A refusal** is a `RelatudeServiceException` repeating the service's own reason, written to be shown
+  to whoever configured the installation, with its `StatusCode`: 400 the call is wrong, 402 out of
+  credits or no credit account for the service, 403 the key or the license may not be used, 415 a file
+  nothing reads, 422 the image or the text was turned down, 501 not offered there, 502 it could not be
+  done right now. `MayHaveBeenCharged` says whether the call may have cost credits: false for the
+  refusals given before anything is charged, true otherwise, since credits taken are never given back.
+- **Retries** are made for you only where nothing can have been charged - the service too busy, or the
+  license server out of reach - so no call is paid for twice. A call that may have been charged is
+  never repeated behind your back.
+- **Your own provider** implements `IImagingProvider` or `IFileToTextProvider`, and is named by its full
+  type name in `TypeName`; no calling code changes.
 
 ---
 
@@ -6016,6 +6205,7 @@ your build, read the source — it is small and well commented:
 | The command line tool | `src/Relatude.DB.Console/` — `relatude help all` for its reference |
 | Logs, statistics and HyperLogLog | `src/Relatude.DB.Logger/Logging/` — `ICustomLogs.cs`, `LogSettings.cs`, `LogValues.cs`, `Statistics/HyperLogLog.cs` |
 | GraphQL endpoints | `src/Relatude.DB.GraphQL/` — `Definitions/GraphQLEndpointDefinition.cs`, `GraphQLOptions.cs`, `Schema/SchemaBuilder.cs`, `Endpoints/GraphQLHttpHandler.cs`; the server side in `src/Relatude.DB.NodeServer/NodeServer/GraphQL/` |
+| AI services | `src/Relatude.DB.DataStore/AI/IAIProvider.cs`, `Imaging/IImagingProvider.cs`, `FileToText/IFileToTextProvider.cs`; the hosted services' clients in `src/Relatude.DB.Providers/` |
 
 For measured numbers rather than API surface, see the
 [vector index benchmarks](vector-matrix.html) — a matrix sweep of the three vector engines over

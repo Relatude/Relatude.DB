@@ -4,6 +4,7 @@ import {
   IconApi,
   IconArrowBackUp,
   IconBraces,
+  IconCalendarOff,
   IconCode,
   IconCompass,
   IconCube3dSphere,
@@ -38,6 +39,7 @@ import {
   reloadEndpoints,
   saveEndpoint,
   type CatalogType,
+  type EndpointApiKey,
   type EndpointDefinition,
   type EndpointExample,
   type EndpointExampleGroup,
@@ -514,6 +516,7 @@ function SettingsForm({
     </label>
   );
   return (
+    <>
     <section className="panel">
       <h3>
         Endpoint <span className="panel-sub">what it answers on and how</span>
@@ -585,18 +588,6 @@ function SettingsForm({
             <span className="clog-field-hint bad">The explorer reads the schema through introspection, which is off: the page will say so and stay empty.</span>
           )}
         </div>
-        <label className="clog-field">
-          <span className="clog-field-label">API key</span>
-          <span className="api-key-row">
-            <input className="text-input mono" value={def.apiKey ?? ""} onChange={(e) => onChange({ apiKey: e.target.value || null })} placeholder="None: the url is open" spellCheck={false} />
-            <button className="icon-button" title="Generate a key" onClick={() => onChange({ apiKey: newKey() })}>
-              <IconWand size={16} stroke={1.8} />
-            </button>
-          </span>
-          <span className={"clog-field-hint" + (def.allowMutations && !def.apiKey ? " bad" : "")}>
-            {def.apiKey ? "Clients send it in the X-Api-Key header or as a bearer token." : def.allowMutations ? "Mutations without a key: anyone who can reach the url can change data." : "Optional. Required in X-Api-Key or Authorization: Bearer when set."}
-          </span>
-        </label>
         {number("defaultPageSize", "Default page size", "Items per page when a query gives no pageSize.")}
         {number("maxPageSize", "Maximum page size", "The pageSize argument is capped here.")}
         {number("maxQueryDepth", "Maximum query depth", "Nesting of the selection, fragments included.")}
@@ -610,7 +601,102 @@ function SettingsForm({
         )}
       </div>
     </section>
+    <ApiKeysEditor def={def} onChange={onChange} />
+    </>
   );
+}
+
+// ---- api keys ----
+
+const dayMs = 24 * 60 * 60 * 1000;
+
+/** The endpoint's keys: one per client, each with a name and an expiry date, so one can be replaced or retired alone. */
+function ApiKeysEditor({ def, onChange }: { def: EndpointDefinition; onChange: (patch: Partial<EndpointDefinition>) => void }) {
+  const keys = def.apiKeys;
+  const now = Date.now();
+  const live = keys.filter((k) => !k.expires || Date.parse(k.expires) > now).length;
+  function updateKey(index: number, patch: Partial<EndpointApiKey>) {
+    onChange({ apiKeys: keys.map((k, i) => (i === index ? { ...k, ...patch } : k)) });
+  }
+  function addKey() {
+    // a year from today; the name is left to be typed, since it is what tells the keys apart
+    const expires = new Date(now);
+    expires.setUTCFullYear(expires.getUTCFullYear() + 1);
+    onChange({ apiKeys: [...keys, { name: "", key: newKey(), expires: expiryOf(expires.toISOString().slice(0, 10)) }] });
+  }
+  return (
+    <section className="panel">
+      <h3>
+        API keys{" "}
+        <span className={"panel-sub" + (keys.length > 0 && live === 0 ? " api-bad" : "")}>
+          {keys.length === 0 ? "none: the url is open" : live === keys.length ? `${keys.length} in use` : `${live} of ${keys.length} in use`}
+        </span>
+      </h3>
+      <p className="muted api-help">
+        With any keys, every request must carry one that has not expired, in the <code>X-Api-Key</code> header or as <code>Authorization: Bearer</code>. Give each client a key
+        of its own, so that one can be replaced or retired without the others. A key stops working at 00:00 UTC on its expiry date; once every key has expired, every
+        request is turned away.
+      </p>
+      {keys.length > 0 && (
+        <div className="api-apikey-row api-apikey-head">
+          <span>Name</span>
+          <span>Key</span>
+          <span>Expires (UTC)</span>
+          <span />
+          <span />
+        </div>
+      )}
+      {keys.map((k, i) => {
+        const status = expiryStatus(k.expires, now);
+        return (
+          <div key={i} className="api-apikey-row">
+            <input className="text-input" value={k.name} placeholder="Who uses it, such as Web site" autoFocus={!k.name} onChange={(e) => updateKey(i, { name: e.target.value })} />
+            <span className="api-key-row">
+              <input className="text-input mono" value={k.key} placeholder="The key" spellCheck={false} autoComplete="off" onChange={(e) => updateKey(i, { key: e.target.value })} />
+              <button className="icon-button" title="Generate a new key. Once saved, clients with the old one are turned away." onClick={() => updateKey(i, { key: newKey() })}>
+                <IconWand size={16} stroke={1.8} />
+              </button>
+              <CopyText text={k.key} title="Copy the key" />
+            </span>
+            <span className="api-key-row">
+              <input className="text-input" type="date" value={k.expires ? k.expires.slice(0, 10) : ""} onChange={(e) => updateKey(i, { expires: e.target.value ? expiryOf(e.target.value) : null })} />
+              <button className="icon-button" title="No expiry date: the key works until it is removed" disabled={!k.expires} onClick={() => updateKey(i, { expires: null })}>
+                <IconCalendarOff size={16} stroke={1.8} />
+              </button>
+            </span>
+            <span className={"api-apikey-status " + status.tone} title={k.expires ? `Stops working ${new Date(k.expires).toUTCString()}` : undefined}>
+              {status.label}
+            </span>
+            <button className="icon-button danger" title="Remove the key. Once saved, clients with it are turned away." onClick={() => onChange({ apiKeys: keys.filter((_, j) => j !== i) })}>
+              <IconTrash size={16} stroke={1.8} />
+            </button>
+          </div>
+        );
+      })}
+      <div className="logs-toolbar">
+        <button className="action-button" onClick={addKey}>
+          <IconPlus size={15} stroke={1.8} /> Add key
+        </button>
+        {keys.length === 0 && def.allowMutations && <span className="clog-field-hint bad">Mutations without a key: anyone who can reach the url can change data.</span>}
+      </div>
+    </section>
+  );
+}
+
+/** The expiry a date picked in the form stands for: the start of that day, UTC. */
+function expiryOf(date: string): string {
+  return date + "T00:00:00Z";
+}
+
+function expiryStatus(expires: string | null | undefined, now: number): { label: string; tone: "" | "soon" | "expired" } {
+  if (!expires) return { label: "never expires", tone: "" };
+  const left = Date.parse(expires) - now;
+  if (Number.isNaN(left)) return { label: "", tone: "" };
+  if (left <= 0) return { label: "expired", tone: "expired" };
+  const days = Math.floor(left / dayMs);
+  if (days < 1) return { label: "less than a day left", tone: "soon" };
+  if (days < 60) return { label: days === 1 ? "1 day left" : `${days} days left`, tone: days <= 14 ? "soon" : "" };
+  return { label: `${Math.round(days / 30.44)} months left`, tone: "" };
 }
 
 function normalizeUrl(url: string): string | null {
@@ -1085,7 +1171,7 @@ function AdminExplorer({ storeId, endpointKey, def, open, tools }: { storeId: st
       load: (signal) => fetchExplorer(storeId, definition, signal),
       execute: async (request) => (await executeEndpoint(storeId, { definition, ...request })).result,
       endpoint: window.location.origin + url,
-      apiKey: !!definition.apiKey,
+      apiKey: definition.apiKeys.length > 0,
       introspection: definition.enableIntrospection,
       audience: "admin",
     };
@@ -1113,7 +1199,7 @@ function publicPagesOf(def: EndpointDefinition): PublicPages {
     explorer: !!def.enableExplorer,
     facets: !!def.enableFacetSearch,
     introspection: def.enableIntrospection,
-    apiKey: !!def.apiKey,
+    apiKey: def.apiKeys.length > 0,
   };
 }
 
