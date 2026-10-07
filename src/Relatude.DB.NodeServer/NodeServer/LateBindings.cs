@@ -4,6 +4,8 @@ using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.IO;
+using Relatude.DB.FileToText;
+using Relatude.DB.Imaging;
 using Relatude.DB.SMS;
 using Relatude.DB.Tasks;
 using System.Reflection;
@@ -132,6 +134,34 @@ public static class LateBindings {
             return new RelatudeServicesSMSProvider(smsSettings, licenseApiKey, senderCheck);
         }
         return create<ISMSProvider>(smsSettings.TypeName, null, null, [smsSettings]);
+    }
+    /// <summary>
+    /// The imaging provider a database calls for image AI. One implementation so far, the hosted
+    /// Relatude service, which is also what no settings and an empty type name mean: it needs no
+    /// account of its own, and costs nothing until code calls it. It calls with
+    /// <paramref name="licenseApiKey"/>, the installation's own key. Anything else is taken as the full
+    /// type name of a custom provider and resolved the same way a custom SMS provider is.
+    /// <para>The names are matched the way <see cref="RelatudeServicesImagingProvider.IsProviderName"/>
+    /// matches them, which is also the rule the settings page hides the API key by.</para>
+    /// </summary>
+    public static IImagingProvider CreateImagingProvider(ImagingProviderSettings? imagingSettings, Func<string?>? licenseApiKey = null) {
+        imagingSettings ??= new();
+        if (string.IsNullOrWhiteSpace(imagingSettings.TypeName) || RelatudeServicesImagingProvider.IsProviderName(imagingSettings.TypeName)) {
+            return new RelatudeServicesImagingProvider(imagingSettings, licenseApiKey);
+        }
+        return create<IImagingProvider>(imagingSettings.TypeName, null, null, [imagingSettings]);
+    }
+    /// <summary>
+    /// The provider a database reads the text of files with. One implementation so far, the hosted
+    /// Relatude service, which is also what no settings and an empty type name mean, for the same
+    /// reasons as <see cref="CreateImagingProvider"/>.
+    /// </summary>
+    public static IFileToTextProvider CreateFileToTextProvider(FileToTextProviderSettings? fileToTextSettings, Func<string?>? licenseApiKey = null) {
+        fileToTextSettings ??= new();
+        if (string.IsNullOrWhiteSpace(fileToTextSettings.TypeName) || RelatudeServicesFileToTextProvider.IsProviderName(fileToTextSettings.TypeName)) {
+            return new RelatudeServicesFileToTextProvider(fileToTextSettings, licenseApiKey);
+        }
+        return create<IFileToTextProvider>(fileToTextSettings.TypeName, null, null, [fileToTextSettings]);
     }
     internal static IIOProvider CreateAzureBlobIOProvider(IOSettings ioSettings) {
         if (ioSettings.BlobContainerName == null) throw new Exception("BlobContainerName is required for AzureBlobIOProvider.");

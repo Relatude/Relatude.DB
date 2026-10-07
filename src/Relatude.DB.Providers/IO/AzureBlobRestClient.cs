@@ -18,11 +18,17 @@ internal class BlobListItem {
     public long ContentLength;
     public DateTime LastModifiedUtc;
     public DateTime CreatedOnUtc;
+    /// <summary>available, leased, expired, breaking or broken; null when the service did not say.</summary>
+    public string? LeaseState;
+    /// <summary>infinite or fixed while the blob is leased, otherwise null.</summary>
+    public string? LeaseDuration;
 }
 internal class BlobProperties {
     public long ContentLength;
     public DateTime LastModifiedUtc;
     public DateTime CreatedOnUtc;
+    public string? LeaseState;
+    public string? LeaseDuration;
 }
 /// <summary>
 /// Minimal Azure Blob Storage REST client covering the operations the IO provider needs:
@@ -188,6 +194,8 @@ internal class AzureBlobRestClient : IDisposable {
                     ContentLength = long.TryParse(properties.Element("Content-Length")?.Value, out var length) ? length : 0,
                     LastModifiedUtc = parseHttpDate(properties.Element("Last-Modified")?.Value),
                     CreatedOnUtc = parseHttpDate(properties.Element("Creation-Time")?.Value),
+                    LeaseState = properties.Element("LeaseState")?.Value,
+                    LeaseDuration = properties.Element("LeaseDuration")?.Value,
                 });
             }
             marker = root.Element("NextMarker")?.Value;
@@ -204,10 +212,14 @@ internal class AzureBlobRestClient : IDisposable {
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
         if (!response.IsSuccessStatusCode) throw error(response, "get properties");
         response.Headers.TryGetValues("x-ms-creation-time", out var creation);
+        response.Headers.TryGetValues("x-ms-lease-state", out var leaseState);
+        response.Headers.TryGetValues("x-ms-lease-duration", out var leaseDuration);
         return new BlobProperties {
             ContentLength = response.Content.Headers.ContentLength ?? 0,
             LastModifiedUtc = response.Content.Headers.LastModified?.UtcDateTime ?? DateTime.MinValue,
             CreatedOnUtc = parseHttpDate(creation?.FirstOrDefault()),
+            LeaseState = leaseState?.FirstOrDefault(),
+            LeaseDuration = leaseDuration?.FirstOrDefault(),
         };
     }
     public void CreateAppendBlobIfNotExists(string blobName) {
@@ -270,18 +282,17 @@ internal class AzureBlobRestClient : IDisposable {
         using var stream = await response.Content.ReadAsStreamAsync();
         await stream.ReadExactlyAsync(destination, 0, length);
     }
+    /// <summary>
+    /// Deletes the blob; one that is not there is not an error. A blob someone else holds a lease on
+    /// fails with LeaseIdMissing, and what to do about that is the caller's decision: breaking the
+    /// lease of a process that is still running is exactly what the lease is there to prevent.
+    /// </summary>
     public void DeleteBlobIfExists(string blobName) {
         var r = new Request { Method = HttpMethod.Delete, BlobName = blobName };
         using var response = HttpRetry.Send(_http, () => build(r));
         if (response.IsSuccessStatusCode) return;
         var ex = error(response, "delete");
         if (ex.StatusCode == 404) return; // BlobNotFound or ContainerNotFound
-        if (ex.ErrorCode == "LeaseIdMissing") { // left over lease from a crashed process, break it and retry once
-            BreakLease(blobName);
-            using var retry = HttpRetry.Send(_http, () => build(new Request { Method = HttpMethod.Delete, BlobName = blobName }));
-            if (retry.IsSuccessStatusCode || (int)retry.StatusCode == 404) return;
-            throw error(retry, "delete");
-        }
         throw ex;
     }
     Request leaseRequest(string blobName, string action) => new() {
@@ -290,16 +301,35 @@ internal class AzureBlobRestClient : IDisposable {
         Query = { new("comp", "lease") },
         XmsHeaders = { ["x-ms-lease-action"] = action }
     };
-    public string AcquireLease(string blobName) {
+    /// <summary>
+    /// Takes a lease on the blob for <paramref name="durationSeconds"/> - 15 to 60, or -1 for one that
+    /// never ends on its own - and returns its id. Fails with 409 LeaseAlreadyPresent while someone
+    /// else holds one.
+    /// <para>With <paramref name="proposedLeaseId"/> the lease gets that id, which is what makes a
+    /// retried request safe: an attempt whose response was lost has made the lease ours already, and
+    /// acquiring an active lease with its own id succeeds. Without one, the retry would find the blob
+    /// leased - by us, under an id nobody knows - and the lease would be stranded.</para>
+    /// </summary>
+    public string AcquireLease(string blobName, int durationSeconds = -1, string? proposedLeaseId = null) {
         var r = leaseRequest(blobName, "acquire");
-        r.XmsHeaders["x-ms-lease-duration"] = "-1"; // infinite
+        r.XmsHeaders["x-ms-lease-duration"] = durationSeconds.ToString(CultureInfo.InvariantCulture);
+        if (proposedLeaseId != null) r.XmsHeaders["x-ms-proposed-lease-id"] = proposedLeaseId;
         using var response = HttpRetry.Send(_http, () => build(r));
         if (!response.IsSuccessStatusCode) {
-            if ((int)response.StatusCode == 409) throw new AzureBlobRequestException(409, "LeaseAlreadyPresent", $"The blob {blobName} is locked by another process. ");
-            throw error(response, "acquire lease");
+            var ex = error(response, "acquire lease");
+            if (ex.StatusCode == 409) throw new AzureBlobRequestException(409, ex.ErrorCode ?? "LeaseAlreadyPresent", $"The blob {blobName} is leased by another process. ");
+            throw ex;
         }
         response.Headers.TryGetValues("x-ms-lease-id", out var leaseIds);
         return leaseIds?.FirstOrDefault() ?? throw new Exception("The lease response had no x-ms-lease-id header. ");
+    }
+    /// <summary>Starts the lease's duration over. Also brings back a lease that has expired, as long as
+    /// nobody has written the blob or leased it since; otherwise it fails with a 409.</summary>
+    public void RenewLease(string blobName, string leaseId) {
+        var r = leaseRequest(blobName, "renew");
+        r.XmsHeaders["x-ms-lease-id"] = leaseId;
+        using var response = HttpRetry.Send(_http, () => build(r));
+        if (!response.IsSuccessStatusCode) throw error(response, "renew lease");
     }
     public void ReleaseLease(string blobName, string leaseId) {
         var r = leaseRequest(blobName, "release");

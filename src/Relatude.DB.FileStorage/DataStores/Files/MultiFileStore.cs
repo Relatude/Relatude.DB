@@ -20,10 +20,14 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
     readonly string[] _basePath;
     public Guid Id { get; }
     readonly int folderDepth;
-    public HashAlgorithmName HashAlgorithm { get; }
-    readonly bool _sameHashSameFile;
+    /// <summary>How the store writes a new file: the hash it computes over it, and whether it keeps one
+    /// copy per content - with the race guard that needs. One object, swapped whole by
+    /// <see cref="SetWriteOptions"/>, so an upload reads both from the same moment.</summary>
+    sealed record WriteOptions(HashAlgorithmName Hash, bool SameHashSameFile, HashState? State);
+    volatile WriteOptions _write;
+    public HashAlgorithmName HashAlgorithm => _write.Hash;
     /// <summary>Whether new files are kept once per content (see the class).</summary>
-    public bool SameHashSameFile => _sameHashSameFile;
+    public bool SameHashSameFile => _write.SameHashSameFile;
     /// <summary>What uploads into a store keeping one copy per hash and the unreferenced sweep coordinate
     /// on. Kept per IO provider rather than per store, as every MultiFile store on a provider shares its
     /// folder: whichever of them sweeps it must see the files any of them just handed out.</summary>
@@ -38,8 +42,6 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
         public object LockOf(string key) => Locks[(StringComparer.OrdinalIgnoreCase.GetHashCode(key) & int.MaxValue) % Locks.Length];
     }
     static readonly ConditionalWeakTable<IIOProvider, HashState> _hashStates = new();
-    // only with sameHashSameFile; a sweep looks the state of its provider up, as another store may own it
-    readonly HashState? _hashState;
     // how long a hand-out is remembered: longer than the grace period any sweep is given
     static readonly TimeSpan _handedOutMemory = TimeSpan.FromHours(1);
     public MultiFileStore(Guid id, IIOProvider ioProvider, int? folderDepth, bool sameHashSameFile = false, FileHashAlgorithm hashAlgorithm = FileHashAlgorithm.MD5) {
@@ -47,13 +49,28 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
         _ioProvider = ioProvider;
         _basePath = [FileKeyUtility.MultiFileStoreFolderKey];
         this.folderDepth = folderDepth.HasValue ? folderDepth.Value : 2;
-        HashAlgorithm = hashAlgorithm switch {
+        _write = writeOptions(sameHashSameFile, hashAlgorithm);
+    }
+    WriteOptions writeOptions(bool sameHashSameFile, FileHashAlgorithm hashAlgorithm) => new(
+        hashAlgorithm switch {
             FileHashAlgorithm.MD5 => HashAlgorithmName.MD5,
             FileHashAlgorithm.SHA256 => HashAlgorithmName.SHA256,
             _ => throw new ArgumentOutOfRangeException(nameof(hashAlgorithm), hashAlgorithm, "Unknown file hash algorithm. "),
-        };
-        _sameHashSameFile = sameHashSameFile;
-        if (sameHashSameFile) _hashState = _hashStates.GetValue(ioProvider, _ => new HashState());
+        },
+        sameHashSameFile,
+        // only with sameHashSameFile; a sweep looks the state of its provider up, as another store may own it
+        sameHashSameFile ? _hashStates.GetValue(_ioProvider, _ => new HashState()) : null);
+    /// <summary>
+    /// Changes how the store writes new files from now on, while it is open: what a changed
+    /// FileStoreSettings.HashAlgorithm or SameHashSameFile otherwise only does at the next open. Files
+    /// already stored are read as before, whichever way they were written. An upload under way finishes
+    /// the way it started.
+    /// </summary>
+    public void SetWriteOptions(bool sameHashSameFile, FileHashAlgorithm hashAlgorithm) {
+        var current = _write;
+        var next = writeOptions(sameHashSameFile, hashAlgorithm);
+        if (next.Hash == current.Hash && next.SameHashSameFile == current.SameHashSameFile) return;
+        _write = next;
     }
     public object Location => (_ioProvider, _basePath.AsKeyString()); // the provider by reference: one per configured provider
     public async Task<FileInsertResult> InsertAsync(Guid newFileId, Stream sourceStream, string? fileName) {
@@ -63,11 +80,12 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
         return await insertAsync(newFileId, sourceStream.Length, sourceStream.ReadAsync, fileName);
     }
     async Task<FileInsertResult> insertAsync(Guid fileId, long length, Func<byte[], int, Task<int>> readAsync, string? friendlyFileName) {
+        var write = _write; // the hash it starts with is the one it is kept by
         var usedFileName = getSafeFilename(fileId, friendlyFileName);
         var fullPath = getFullPath(fileId, usedFileName);
         string fileHash;
         using (var outStream = _ioProvider.OpenAppend(fullPath)) { // closed before the file can be moved
-            using var hash = IncrementalHash.CreateHash(HashAlgorithm);
+            using var hash = IncrementalHash.CreateHash(write.Hash);
             var bufferSize = 1024 * 1024; // 1MB buffer
             bufferSize = length < bufferSize ? (int)length : bufferSize;
             var buffer = new byte[bufferSize];
@@ -83,7 +101,7 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
             if (totalBytesRead != length) throw new Exception("Length mismatch");
             fileHash = Convert.ToHexString(hash.GetHashAndReset());
         }
-        if (_sameHashSameFile) return keepOneCopy(fileId, usedFileName, fileHash, length);
+        if (write.SameHashSameFile) return keepOneCopy(fileId, usedFileName, fileHash, length, write.State!);
         return new FileInsertResult(fileHash, stringToBytes(usedFileName), length, fileId);
     }
     // A file kept by its hash has the first 128 bits of the hash as its file id, so its folders come
@@ -94,13 +112,12 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
     string fileNameOfHash(string fileHash, long length) => fileHash[(folderDepth * 2)..].ToLowerInvariant() + "-" + length;
     // Moves a file just written under its upload id to the place named after its hash, or deletes it
     // when the same content is there already, and returns what the file value must point at.
-    FileInsertResult keepOneCopy(Guid uploadedFileId, string uploadedFileName, string fileHash, long length) {
+    FileInsertResult keepOneCopy(Guid uploadedFileId, string uploadedFileName, string fileHash, long length, HashState state) {
         var fileId = fileIdOfHash(fileHash);
         var fileName = fileNameOfHash(fileHash, length);
         var uploadedPath = getFullPath(uploadedFileId, uploadedFileName);
         var path = getFullPath(fileId, fileName);
         var key = path.AsKeyString();
-        var state = _hashState!;
         lock (state.LockOf(key)) {
             var alreadyStored = length == 0 ? _ioProvider.Exists(path) : _ioProvider.GetFileSizeOrZeroIfUnknown(path) == length;
             if (alreadyStored) {
@@ -213,12 +230,13 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
         await outStream.AppendAsyncNoChecksumOrLock(buffer, length);
     }
     public Task<FileInsertResult> CompletePartialUpload(Guid fileId, byte[] fileKey, string fileHash, long length) {
-        if (!_sameHashSameFile) return Task.FromResult(new FileInsertResult(fileHash, fileKey, length, fileId));
+        var write = _write;
+        if (!write.SameHashSameFile) return Task.FromResult(new FileInsertResult(fileHash, fileKey, length, fileId));
         var usedFileName = stringFromBytes(fileKey);
         // the name it is moved to carries the length, so the parts must all be there
         var stored = _ioProvider.GetFileSizeOrZeroIfUnknown(getFullPath(fileId, usedFileName));
         if (stored != length) throw new Exception("The uploaded file is " + stored + " bytes, expected " + length + ". ");
-        return Task.FromResult(keepOneCopy(fileId, usedFileName, fileHash, length));
+        return Task.FromResult(keepOneCopy(fileId, usedFileName, fileHash, length, write.State!));
     }
     public bool TryGetLocalFilePath(FileValue value, [MaybeNullWhen(false)] out string localFilePath) {
         var path = getFullPath(value);
@@ -241,7 +259,7 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
         }
         countFiles(root);
         // this store's own, or that of another store keeping one copy per hash in the same folder
-        var hashState = _hashState ?? (_hashStates.TryGetValue(_ioProvider, out var shared) ? shared : null);
+        var hashState = _write.State ?? (_hashStates.TryGetValue(_ioProvider, out var shared) ? shared : null);
         // A folder found empty in the listing may have got a file since - an upload writes into a folder
         // named by its file id - so it is only removed if it is empty at that moment, never recursively.
         // Virtual folders (blob storage, memory) go with their last file, so there is nothing to remove.

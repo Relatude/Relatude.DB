@@ -3681,6 +3681,35 @@ a.action-button {
   margin-bottom: 12px;
 }
 
+/* the target store's hash and one copy per content: its own settings, on one line under it */
+.rewrite-options-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.rewrite-dialog .rewrite-options-row .select {
+  width: auto;
+  min-width: 150px;
+}
+
+.rewrite-one-copy {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.rewrite-one-copy.disabled {
+  opacity: 0.55;
+}
+
+/* a change here changes the store's settings, which is worth more than a muted line */
+.rewrite-options-note {
+  color: var(--text-soft);
+}
+
 .move-dialog .move-mode {
   width: fit-content;
   margin-bottom: 12px;
@@ -6248,9 +6277,34 @@ svg.tone-override {
   background: var(--accent-soft);
 }
 
-/* the state leads the facts line, beside the orb that already showed it */
+/* the state leads the facts line, beside the orb that already showed it. It shares its place with
+   what pressing the orb would do, one over the other, so pointing at the orb fades one into the
+   other instead of moving the facts after it */
 .db-card-facts > .db-card-state {
   flex: none;
+  display: grid;
+}
+
+.db-card-state > span {
+  grid-area: 1 / 1;
+  transition: opacity 0.3s ease;
+}
+
+.db-card-state-hint {
+  opacity: 0;
+  color: var(--text-soft);
+}
+
+.db-card-state-sizer {
+  visibility: hidden;
+}
+
+.db-card:has(.power-orb.power-switch:is(:hover, :focus-visible):not(:disabled)) .db-card-state-now {
+  opacity: 0;
+}
+
+.db-card:has(.power-orb.power-switch:is(:hover, :focus-visible):not(:disabled)) .db-card-state-hint {
+  opacity: 1;
 }
 
 .db-card-facts {
@@ -10634,6 +10688,7 @@ body.pg-resizing {
   .power-core,
   .dash-state-word,
   .dash-state-detail > span,
+  .db-card-state > span,
   .dash-state .dash-tile-actions {
     transition: none;
   }
@@ -12198,6 +12253,391 @@ body.pg-resizing {
   margin: 6px 0 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* the Imaging and file to text tests: under the address, one line of what the service offers */
+.license-offer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 6px;
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.license-offer-bad {
+  color: var(--danger);
+}
+
+.license-formats {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.license-format {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--badge-bg);
+  color: var(--text-soft);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+}
+
+/* the operations, one button each; the chosen one in the accent, one the service does not offer struck through */
+.license-ops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.license-op {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--button-bg);
+  color: var(--text);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.license-op:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.license-op.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.license-op.unavailable {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+.license-op:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* the fields on the left and the answer on the right, stacked on a narrow screen */
+.license-imaging-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px 24px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .license-imaging-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.license-imaging-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.license-imaging-fields .license-save {
+  align-self: flex-start;
+}
+
+.license-imaging-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 12px;
+}
+
+.license-imaging-row .license-field {
+  flex: 0 1 100px;
+}
+
+.license-imaging-check {
+  padding-bottom: 7px;
+}
+
+.license-imaging-narrow {
+  max-width: 160px;
+}
+
+.license-imaging-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.license-imaging-result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* a picture on a checkerboard, so a transparent background reads as one in either theme */
+.license-imaging-picture {
+  position: relative;
+  align-self: flex-start;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  line-height: 0;
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #d9d9d9 25%, transparent 25%), linear-gradient(-45deg, #d9d9d9 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #d9d9d9 75%), linear-gradient(-45deg, transparent 75%, #d9d9d9 75%);
+  background-size: 16px 16px;
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
+}
+
+.license-imaging-picture img {
+  display: block;
+  max-width: 100%;
+  max-height: 420px;
+}
+
+/* what image-to-meta found, drawn where it found it */
+.license-imaging-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid var(--accent);
+  border-radius: 3px;
+}
+
+.license-imaging-box > span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 1px 5px;
+  border-bottom-right-radius: 3px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.license-imaging-focus {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  box-sizing: border-box;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+}
+
+.license-imaging-keywords {
+  margin: 4px 0;
+}
+
+/* the mask editor: the tools on a line above, the image with the paint laid over it below */
+.license-mask-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.license-mask-size {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.license-mask-size input {
+  width: 110px;
+  accent-color: var(--accent);
+}
+
+.license-mask-size span {
+  min-width: 40px;
+}
+
+/* undo, load and clear keep together on the right, on the first line or, when narrow, the next */
+.license-mask-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.license-mask-stage {
+  user-select: none;
+}
+
+/* the paint is opaque red on its own canvas and made see-through here, so strokes that cross do not darken */
+.license-mask-paint {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.6;
+  touch-action: none;
+  cursor: none;
+}
+
+.license-mask-stage.idle .license-mask-paint {
+  cursor: default;
+}
+
+.license-mask-ring {
+  position: absolute;
+  display: none;
+  box-sizing: border-box;
+  border: 1.5px solid #fff;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.55),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.55);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.license-mask-ring.erasing {
+  border-style: dashed;
+}
+
+.license-mask-stage.idle .license-mask-ring {
+  display: none !important;
+}
+
+/* a file to send, chosen or dropped, with a row for each one chosen */
+.license-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.license-pick.over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.license-pick-choose {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.license-picked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.license-picked-thumb {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--badge-bg);
+  color: var(--text-muted);
+}
+
+.license-picked-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the file to text test: the file, the languages and Read on one line */
+.license-filetotext-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(140px, 1fr) auto;
+  gap: 12px 16px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .license-filetotext-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.license-filetotext-fields .license-save {
+  align-self: start;
+  padding-top: 20px;
+}
+
+.license-filetotext-result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+/* the text as the service gave it, page by page, in a box of its own that scrolls */
+.license-text-result {
+  max-height: 420px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.license-text-page + .license-text-page {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.license-text-page-no {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.license-text-page pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
 }
 
 .license-columns {

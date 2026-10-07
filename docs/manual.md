@@ -1993,7 +1993,19 @@ own users.
 | `Path` | `"~"` | `LocalDisk` only. A leading `~` or a relative path is combined with the content root, and the result must stay under it — a path that escapes the content root is refused. `relatude.data` is the conventional value (older versions used `relatude.db`, which the server renames at start). |
 | `BlobConnectionString` | null | `AzureBlobStorage` only, required. |
 | `BlobContainerName` | null | `AzureBlobStorage` only, required. |
-| `LockBlob` | `false` | Take a blob lease so a second process cannot open the same database. Worth having wherever two instances could overlap. |
+| `LockBlob` | `false` | Lease every blob with an open stream, so a second process cannot write or delete it - another instance, or the next process of an overlapped recycle. Worth having wherever two instances could overlap. See *Blob leases* below. |
+
+**Blob leases.** A lease lasts 60 seconds and is renewed in the background for as long as the stream is
+open, and it is let go of when the last stream on the blob closes - also when the close fails, or when the
+open fails half-way. A process that dies without letting go therefore blocks its blobs for at most a
+minute: an open that finds a blob leased waits up to 75 seconds for it, and then fails with a
+`FileLockedException`, which the startup restart treats as a lock, not as corruption. Readers of one blob
+in the same process share its lease. A write that finds its lease expired - the process was paused past
+it - renews it and carries on, as long as nobody touched the blob meanwhile; if another process has taken
+it, the write fails instead. Earlier versions leased for ever and could leave such a lease behind,
+which then blocked every open of that blob for good. To release them, open **Files** in the admin UI on
+the storage and press the **Leases** button (the open lock): it lists the leased blobs and breaks every
+lease this server does not hold itself. Break them only when no other instance uses the storage.
 
 Within a `LocalDisk` folder the engine keeps its own layout — `data/`, `state/`, `backup/`, `logs/` and
 an index folder with one subfolder per engine — so several roles can share one backend without
@@ -2036,27 +2048,38 @@ implicit store.
 
 Changing the default store, or turning on `SameHashSameFile` or `SHA256`, only affects new uploads. To
 move the files already stored, use **Storage › File storage › Rewrite files…** in the admin UI. Pick the
-store to read from and the store to write with. The job runs in the background while the database stays
-in use, and its progress can be minimized to the top bar like the other file jobs.
+store to write the files into, and how it writes them: the hash (MD5 or SHA256) and **Same hash, same
+file**. Those two are the store's own settings - changing them in the dialog saves them, and the open
+store writes new uploads that way from then on, without a reopen. They cannot be chosen for the implicit
+store, for a `SingleFile` store, or where configuration or code decides them. The job runs in the
+background while the database stays in use, and its progress can be minimized to the top bar like the
+other file jobs.
 
-- Every file value that points into the source store gets a copy written by the target store, with that
-  store's hash, layout and, where it keeps one copy per content, sharing. Revisions and embedded objects
-  are included. A stored file that several values share is copied once.
+- Every file that belongs in the store - the files of the properties whose uploads go there: the default
+  store, or the store a file property names - is written into it, wherever it is stored now. Files of
+  properties that upload into another store stay where they are. A store nothing uploads into has
+  nothing that belongs in it; make it the default first.
+- A file stored elsewhere gets a copy written by the target store, with that store's hash, layout and,
+  where it keeps one copy per content, sharing. Revisions and embedded objects are included. A stored
+  file that several values share is copied once.
 - The name, image size, meta data and extracted text stay the same, and nothing is re-indexed.
 - Each node is updated under its own lock. A value that changed while its file was being copied (a new
   upload, say) is left alone.
-- With the **same store on both sides**, only the files the store would now write differently are
-  rewritten: a hash of the other algorithm, or a file not yet kept by its hash. That is how files
-  stored before `SameHashSameFile` or `SHA256` was turned on are brought up to date.
+- A file **already in the store** is rewritten only where the store would now write it differently: a
+  hash of the other algorithm, or a file not yet kept by its hash. That is how files stored before
+  `SameHashSameFile` or `SHA256` was turned on are brought up to date.
 - **The old copies are left where they are.** Older versions in a node's history still point at them.
   **Storage › Missing and redundant files** removes them; after that, those older versions can no
   longer give their files back.
 - A file that cannot be read is reported and its value is left as it was. Running the rewrite again
   picks up whatever is left, including the rest of a cancelled run.
 
-From code, call `DataStoreLocal.RewriteFilesAsync(fromStoreId, toStoreId, onProgress, cancellationToken)`.
-`Guid.Empty` names the implicit store. The call returns a `RewriteFilesResult` with the counts and the
-values it could not rewrite.
+From code, call `DataStoreLocal.RewriteFilesAsync(toStoreId, onProgress, cancellationToken)` for what the
+dialog does, or `RewriteFilesAsync(fromStoreId, toStoreId, …)` to move every file of one store into
+another regardless of where its property uploads. `Guid.Empty` names the implicit store. Both return a
+`RewriteFilesResult` with the counts and the values that could not be rewritten.
+`DataStoreLocal.SetFileStoreWriteOptions(storeId, sameHashSameFile, hashAlgorithm)` changes how an open
+`MultiFile` store writes new files; the settings are what it opens with next time.
 
 #### `AISettings` — embeddings, completions and the vector index
 

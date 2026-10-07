@@ -456,6 +456,21 @@ sealed partial class UISettings {
     }
 
     /// <summary>
+    /// Saves database settings by path the way the settings page does, without reopening anything: for a
+    /// page that changes a setting as part of what it does (the rewrite dialog, the target store's hash).
+    /// The same checks apply - a setting decided by configuration or by code is refused - and what was
+    /// refused is returned.
+    /// </summary>
+    internal List<RejectedSetting> SaveDatabaseValues(Guid storeId, Dictionary<string, JsonElement> values) {
+        lock (_saveLock) {
+            var settings = getContainer(storeId).Settings;
+            var result = apply(SettingsCatalog.Database, settings, values, storeId);
+            if (result.Changed.Count > 0) _server.UpdateWAFServerSettingsFile();
+            return result.Rejected;
+        }
+    }
+
+    /// <summary>
     /// Live IO providers are built once and cached by id, so a provider whose folder or container has
     /// just changed would keep serving the old location even after the database is reopened. Dropping
     /// the cached instance is what makes the edit real; anything still holding the old one keeps

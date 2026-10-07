@@ -22,6 +22,14 @@ public class FrParagraph {
     public string Code { get; set; } = string.Empty;
     public FileValue File { get; set; } = FileValue.Empty;
 }
+// a property whose uploads go to a store of its own, whatever the default store is
+[Node]
+public class FrPinned {
+    [PublicIdProperty]
+    public Guid Id { get; set; }
+    [FileProperty(FileStorageProviderId = "bbbbbbbb-0000-0000-0000-00000000000b")]
+    public FileValue File { get; set; } = FileValue.Empty;
+}
 
 /// <summary>
 /// DataStoreLocal.RewriteFilesAsync: every file value pointing into one store - revisions and embedded
@@ -38,6 +46,7 @@ public class RewriteFilesTests {
         var dm = new Datamodel();
         dm.Add<FrArticle>();
         dm.Add<FrParagraph>();
+        dm.Add<FrPinned>();
         return dm;
     }
     static NodeStore open(IIOProvider dbIo, IFileStore[]? stores, Guid? defaultStore, bool textIndex = false)
@@ -230,6 +239,79 @@ public class RewriteFilesTests {
 
         Assert.AreEqual(1, result.ValuesRewritten);
         Assert.AreEqual(before, pendingTasks(store), "moving a file changes nothing an index reads");
+    }
+
+    [TestMethod]
+    public async Task IntoOneStore_MovesWhatBelongsThere_FromEveryStore_AndCatchesUpItsOwn() {
+        var dbIo = new IOProviderMemory();
+        var ioA = new IOProviderMemory();
+        var ioB = new IOProviderMemory();
+        var x = bytes(2100, 10);
+        var y = bytes(1300, 11);
+        Guid implicitOne = Guid.NewGuid(), inA = Guid.NewGuid(), alsoInA = Guid.NewGuid(), pinned = Guid.NewGuid();
+        using (var store = open(dbIo, null, null)) { // before any store was configured: the implicit one
+            store.Insert(new FrArticle { Id = implicitOne, Title = "implicit" });
+            await upload(store, filePath(store, implicitOne), x, "implicit.bin");
+        }
+        using var reopened = open(dbIo, [new MultiFileStore(_a, ioA, 2), new MultiFileStore(_b, ioB, 2)], _a);
+        reopened.Insert(new FrArticle { Id = inA, Title = "a" });
+        reopened.Insert(new FrArticle { Id = alsoInA, Title = "a too" });
+        reopened.Insert(new FrPinned { Id = pinned });
+        await upload(reopened, filePath(reopened, inA), x, "a.bin");
+        await upload(reopened, filePath(reopened, alsoInA), y, "a-too.bin");
+        await upload(reopened, new PropertyPath(pinned, property(reopened, typeof(FrPinned), "File")), y, "pinned.bin");
+        Assert.AreEqual(_b, stored(reopened, pinned).Single().StorageId, "the property names store B");
+        // A starts writing with SHA256 and one copy per content, as the rewrite dialog does to it
+        Assert.IsTrue(local(reopened).SetFileStoreWriteOptions(_a, true, FileHashAlgorithm.SHA256));
+
+        var result = await local(reopened).RewriteFilesAsync(_a);
+
+        Assert.IsNull(result.FromStoreId);
+        Assert.AreEqual(3, result.ValuesFound, "the implicit file and A's two; the pinned one belongs in B");
+        Assert.AreEqual(3, result.ValuesRewritten);
+        foreach (var id in new[] { implicitOne, inA, alsoInA }) {
+            var value = stored(reopened, id).Single();
+            Assert.AreEqual(_a, value.StorageId);
+            Assert.AreEqual(64, value.Hash.Length);
+            Assert.IsTrue(FileValue.IsKeptByHash(value));
+        }
+        Assert.AreEqual(stored(reopened, implicitOne).Single().FileId, stored(reopened, inA).Single().FileId, "the same bytes from two stores, one copy now");
+        CollectionAssert.AreEqual(x, await read(reopened, stored(reopened, implicitOne).Single()));
+        var pinnedValue = stored(reopened, pinned).Single();
+        Assert.AreEqual(_b, pinnedValue.StorageId, "a property uploading into another store keeps its file there");
+        Assert.AreEqual(32, pinnedValue.Hash.Length);
+
+        var again = await local(reopened).RewriteFilesAsync(_a);
+        Assert.AreEqual(3, again.ValuesUpToDate);
+        Assert.AreEqual(0, again.ValuesRewritten);
+        // into B: only the pinned property's file belongs there, and it is written the way B writes
+        var intoB = await local(reopened).RewriteFilesAsync(_b);
+        Assert.AreEqual(1, intoB.ValuesFound);
+        Assert.AreEqual(1, intoB.ValuesUpToDate);
+    }
+
+    [TestMethod]
+    public async Task WriteOptions_ChangedOnAnOpenStore_ApplyToTheNextUpload() {
+        var dbIo = new IOProviderMemory();
+        var io = new IOProviderMemory();
+        using var store = open(dbIo, [new MultiFileStore(_a, io, 2)], _a);
+        var x = bytes(1800, 12);
+        Guid before = Guid.NewGuid(), one = Guid.NewGuid(), two = Guid.NewGuid();
+        foreach (var id in new[] { before, one, two }) store.Insert(new FrArticle { Id = id, Title = id.ToString() });
+        await upload(store, filePath(store, before), x, "before.bin");
+        Assert.AreEqual(32, stored(store, before).Single().Hash.Length, "MD5, one copy per upload");
+
+        local(store).SetFileStoreWriteOptions(_a, true, FileHashAlgorithm.SHA256);
+        await upload(store, filePath(store, one), x, "one.bin");
+        await upload(store, filePath(store, two), x, "two.bin");
+
+        var first = stored(store, one).Single();
+        var second = stored(store, two).Single();
+        Assert.AreEqual(64, first.Hash.Length);
+        Assert.IsTrue(FileValue.IsKeptByHash(first));
+        Assert.AreEqual(first.FileId, second.FileId, "one copy per content from now on");
+        CollectionAssert.AreEqual(x, await read(store, stored(store, before).Single()), "a file stored the old way reads as before");
+        Assert.IsFalse(local(store).SetFileStoreWriteOptions(Guid.Empty, true, FileHashAlgorithm.SHA256), "the implicit store has no settings to keep a change in");
     }
 
     [TestMethod]

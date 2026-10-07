@@ -10,9 +10,11 @@ namespace Relatude.DB.IO {
     // in general: the read buffer size should be so small that the blob access latency is comparable to the download time of the read buffer
     // a first appriximation 50kb is a good size for the read buffer, and 2mb for the write buffer
     public class AzureBlobIOAppendStream : IAppendStream {
+        readonly AzureBlobIOProvider _provider;
         readonly AzureBlobRestClient _client;
         readonly string _blobName;
-        readonly string? _leaseId;
+        // the provider's lease on the blob, shared with any other stream it has open on it; null without lockBlob
+        readonly AzureBlobIOProvider.HeldLease? _lease;
         readonly Action<long> _disposeCallback;
         MemoryStream _writeBuffer;
         long _committedLength; // length of the blob on the server, always _length minus what is in the write buffer
@@ -23,17 +25,15 @@ namespace Relatude.DB.IO {
         readonly object _lock = new();
         ChecksumUtil _checkSum = new();
         public string FileKey { get; }
-        internal AzureBlobIOAppendStream(AzureBlobRestClient client, string blobName, string fileKey, bool lockBlob, Action<long> disposeCallback) {
+        // the blob exists and is leased by the time this runs: the provider does both, and gives the lease
+        // back when this throws
+        internal AzureBlobIOAppendStream(AzureBlobIOProvider provider, AzureBlobRestClient client, string blobName, AzureBlobIOProvider.HeldLease? lease, Action<long> disposeCallback) {
             _disposeCallback = disposeCallback;
-            FileKey = fileKey;
+            FileKey = blobName;
+            _provider = provider;
             _client = client;
             _blobName = blobName;
-            AzureBlobIOProvider.EnsureResetOfLeaseId(client, blobName);
-            _client.CreateAppendBlobIfNotExists(blobName);
-            if (lockBlob) {
-                _leaseId = _client.AcquireLease(blobName);
-                AzureBlobIOProvider.SaveLastLeaseId(blobName, _leaseId);
-            }
+            _lease = lease;
             _writeBuffer = new MemoryStream();
             _committedLength = _client.GetProperties(blobName)?.ContentLength ?? 0;
             _length = _committedLength;
@@ -81,37 +81,59 @@ namespace Relatude.DB.IO {
                 var buffer = _writeBuffer.GetBuffer();
                 var total = (int)_writeBuffer.Length;
                 if (total <= _maxBufferBeforeFlush) {
-                    _client.AppendBlock(_blobName, buffer, total, _leaseId, _committedLength);
-                    _committedLength += total;
+                    appendBlock(buffer, total);
                 } else {
                     var offset = 0;
                     while (offset < total) {
                         var blockSize = (int)Math.Min(total - offset, _maxBufferBeforeFlush);
                         var block = new byte[blockSize];
                         Array.Copy(buffer, offset, block, 0, blockSize);
-                        _client.AppendBlock(_blobName, block, blockSize, _leaseId, _committedLength);
-                        _committedLength += blockSize;
+                        appendBlock(block, blockSize);
                         offset += blockSize;
                     }
                 }
                 _writeBuffer = new MemoryStream();
             }
         }
+        // An append on a leased blob fails with a 412 once the lease is not ours any more. When it merely
+        // expired - nobody wrote or leased the blob since - renewing it brings it back and the append is
+        // made again; otherwise another process may be writing the blob, and this one must stop.
+        void appendBlock(byte[] data, int count) {
+            try {
+                _client.AppendBlock(_blobName, data, count, _lease?.LeaseId, _committedLength);
+            } catch (AzureBlobRequestException err) when (isLeaseFailure(err)) {
+                if (!_provider.TryRecoverLease(_lease!)) throw leaseLost(err);
+                _client.AppendBlock(_blobName, data, count, _lease!.LeaseId, _committedLength);
+            }
+            _committedLength += count;
+        }
+        async Task appendBlockAsync(byte[] data, int count) {
+            try {
+                await _client.AppendBlockAsync(_blobName, data, count, _lease?.LeaseId, _committedLength);
+            } catch (AzureBlobRequestException err) when (isLeaseFailure(err)) {
+                if (!_provider.TryRecoverLease(_lease!)) throw leaseLost(err);
+                await _client.AppendBlockAsync(_blobName, data, count, _lease!.LeaseId, _committedLength);
+            }
+            _committedLength += count;
+        }
+        bool isLeaseFailure(AzureBlobRequestException err) => _lease != null && err.StatusCode == 412
+            && err.ErrorCode != null && err.ErrorCode.StartsWith("Lease", StringComparison.Ordinal);
+        IOException leaseLost(AzureBlobRequestException err) => new IOException("The lease on \"" + _blobName + "\" is no longer this process's"
+            + (_lease?.LostReason is string reason ? " (" + reason.TrimEnd() + ")" : "")
+            + ", so nothing more is written to it: another process may be writing it now. The database has to be opened again. " + err.Message, err);
         async Task flushAsync(bool deepFlush) {
             if (_writeBuffer.Length == 0) return;
             var buffer = _writeBuffer.GetBuffer();
             var total = (int)_writeBuffer.Length;
             if (total <= _maxBufferBeforeFlush) {
-                await _client.AppendBlockAsync(_blobName, buffer, total, _leaseId, _committedLength);
-                _committedLength += total;
+                await appendBlockAsync(buffer, total);
             } else {
                 var offset = 0;
                 while (offset < total) {
                     var blockSize = (int)Math.Min(total - offset, _maxBufferBeforeFlush);
                     var block = new byte[blockSize];
                     Array.Copy(buffer, offset, block, 0, blockSize);
-                    await _client.AppendBlockAsync(_blobName, block, blockSize, _leaseId, _committedLength);
-                    _committedLength += blockSize;
+                    await appendBlockAsync(block, blockSize);
                     offset += blockSize;
                 }
             }
@@ -160,30 +182,27 @@ namespace Relatude.DB.IO {
                 _readBufferOffset = position;
                 var lengthToRead = (int)Math.Min(_committedLength - position, _readBufferSize);
                 if (_readBuffer == null) _readBuffer = new byte[_readBufferSize];
-                _client.DownloadRange(_blobName, position, lengthToRead, _leaseId, _readBuffer);
+                _client.DownloadRange(_blobName, position, lengthToRead, null, _readBuffer); // a lease guards writes, reading needs none
                 Array.Copy(_readBuffer, 0, result, resultOffset, count);
             } else { // too big, download directly. No point in readbuffer
                 var block = new byte[count];
-                _client.DownloadRange(_blobName, position, count, _leaseId, block);
+                _client.DownloadRange(_blobName, position, count, null, block);
                 Array.Copy(block, 0, result, resultOffset, count);
             }
         }
         public void RecordChecksum() => _checkSum.RecordChecksum();
         public void WriteChecksum() => _checkSum.WriteChecksum(this);
         bool _isDisposed = false;
+        // the lease and the provider's count are given back whether or not the last flush gets through:
+        // the stream is finished either way, and a failed flush must not leave the blob locked
         public void Dispose() {
             if (_isDisposed) return;
             _isDisposed = true;
-            Flush(true);
-            if (_leaseId != null) {
-                try {
-                    _client.ReleaseLease(_blobName, _leaseId);
-                    AzureBlobIOProvider.DeleteLastLeaseId(_blobName);
-                } catch {
-                    // release failed, keep the lease file so the next open can release or break the lease
-                }
+            try {
+                Flush(true);
+            } finally {
+                _disposeCallback(_length);
             }
-            _disposeCallback(_length);
         }
 
         public async Task AppendAsyncNoChecksumOrLock(byte[] buffer, int count) {

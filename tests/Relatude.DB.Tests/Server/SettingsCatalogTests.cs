@@ -3,6 +3,8 @@ using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 using Relatude.DB.NodeServer;
 using Relatude.DB.NodeServer.Settings;
+using Relatude.DB.FileToText;
+using Relatude.DB.Imaging;
 using Relatude.DB.SMS;
 using System.Text.Json;
 using System.Reflection;
@@ -330,6 +332,34 @@ public class SettingsCatalogTests {
         // what stays: the provider type and the sender, the only two the service reads
         CollectionAssert.AreEqual(new[] { "SMSSettings.TypeName", "SMSSettings.From" },
             sms.Settings.Where(s => s.HiddenWhen == null && s.VisibleWhen == null).Select(s => s.Path).ToArray());
+    }
+
+    /// <summary>
+    /// The Imaging and FileToText API keys are only for a custom provider: the Relatude services call
+    /// with the installation's license, so the page hides the key while the provider type names them -
+    /// the same names <c>LateBindings.CreateImagingProvider</c> and <c>CreateFileToTextProvider</c> build
+    /// the services for. The service URL stays: a self-hosted or test deployment is set there.
+    /// </summary>
+    [TestMethod]
+    public void TheImagingAndFileToTextKeysAreHiddenForTheRelatudeServices() {
+        foreach (var (groupId, prefix, isService, names) in new (string, string, Func<string?, bool>, string[])[] {
+            ("imaging", "ImagingSettings", RelatudeServicesImagingProvider.IsProviderName,
+                ["", RelatudeServicesImagingProvider.ShortName, nameof(RelatudeServicesImagingProvider)]),
+            ("filetotext", "FileToTextSettings", RelatudeServicesFileToTextProvider.IsProviderName,
+                ["", RelatudeServicesFileToTextProvider.ShortName, nameof(RelatudeServicesFileToTextProvider)]),
+        }) {
+            var group = SettingsCatalog.Database.SelectMany(s => s.Groups).Single(g => g.Id == groupId);
+            var rule = group.Settings.Single(s => s.Path == prefix + ".ApiKey").HiddenWhen;
+            Assert.IsNotNull(rule, prefix + ".ApiKey is shown for the Relatude service, which does not use it.");
+            Assert.AreEqual(prefix + ".TypeName", rule!.Path);
+            Assert.IsNull(rule.And);
+            foreach (var value in rule.Values) {
+                Assert.IsTrue(value == "" || isService(value), "\"" + value + "\" hides the key, but it names a custom provider.");
+            }
+            CollectionAssert.IsSubsetOf(names, rule.Values, prefix + ".ApiKey is shown for one of the names the Relatude service is built for.");
+            CollectionAssert.AreEqual(new[] { prefix + ".TypeName", prefix + ".ServiceUrl" },
+                group.Settings.Where(s => s.HiddenWhen == null && s.VisibleWhen == null).Select(s => s.Path).ToArray());
+        }
     }
 
     /// <summary>

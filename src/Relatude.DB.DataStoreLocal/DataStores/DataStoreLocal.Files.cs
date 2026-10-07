@@ -19,6 +19,18 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return fileStore;
     }
+    /// <summary>
+    /// Changes how an open MultiFile store writes new files - its hash, and whether it keeps one copy per
+    /// content - without reopening the database; what a changed setting otherwise does at the next open.
+    /// False for a store that has no such choice: a SingleFile one, and the implicit store, which has no
+    /// settings to keep the change in - it would be back to MD5 and one copy per upload at the next open.
+    /// Files already stored are read as before.
+    /// </summary>
+    public bool SetFileStoreWriteOptions(Guid fileStoreId, bool sameHashSameFile, FileHashAlgorithm hashAlgorithm) {
+        if (fileStoreId == Guid.Empty || getFileStore(fileStoreId) is not MultiFileStore multi) return false;
+        multi.SetWriteOptions(sameHashSameFile, hashAlgorithm);
+        return true;
+    }
     /// <summary>The store an upload into a file property goes to: the one the property names, or the
     /// default store when it names none (Guid.Empty).</summary>
     IFileStore getFileStoreOfProperty(Guid fileStorageProviderId) {

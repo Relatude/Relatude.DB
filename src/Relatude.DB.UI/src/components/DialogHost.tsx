@@ -112,6 +112,13 @@ function ActiveDialog() {
             <DialogTools onClose={closeDialog} closeTitle="Cancel" />
           </h3>
           <div className="dialog-body">{dialog.body}</div>
+          {dialog.details.length > 0 && (
+            <div className="dialog-details">
+              {dialog.details.map((detail, i) => (
+                <div key={i}>{detail}</div>
+              ))}
+            </div>
+          )}
           {dialog.option && (
             <label className="login-remember dialog-option">
               <input type="checkbox" checked={dialog.option.checked} onChange={toggleConfirmOption} />

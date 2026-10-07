@@ -3,10 +3,15 @@ import { IconAlertTriangle } from "@tabler/icons-react";
 import { DialogTools } from "./DialogTools";
 import type { FileStoreChoice } from "../server/storage";
 
-/** What the dialog was answered with: the ids of the two file stores (all zeros for the implicit one). */
+/**
+ * What the dialog was answered with: the store the files are written into (all zeros for the implicit
+ * one), and - only where the store lets them be chosen - the hash it writes with and whether it keeps
+ * one copy per content. Those two become the store's settings.
+ */
 export interface RewriteChoice {
-  fromStore: string;
   toStore: string;
+  hashAlgorithm?: string; // MD5 | SHA256
+  sameHashSameFile?: boolean;
 }
 
 interface Props {
@@ -15,48 +20,62 @@ interface Props {
   onRewrite: (choice: RewriteChoice) => void;
 }
 
-/** How a store writes a file, in a few words: what the choice between two stores turns on. */
+/** How a store writes a file, in a few words: what a rewrite into it turns on. */
 export function describeFileStore(s: FileStoreChoice): string {
-  const parts = [s.implicit ? `Implicit store on ${s.name}` : s.name, s.type, s.hashAlgorithm];
+  const parts = [storeName(s), s.type, s.hashAlgorithm];
   if (s.sameHashSameFile) parts.push("one copy per content");
   if (s.isDefault) parts.push("default");
   return parts.join(" · ");
 }
 
+function storeName(s: FileStoreChoice): string {
+  return s.implicit ? `Implicit store on ${s.name}` : s.name;
+}
+
+/** Why a store's hash and one copy per content cannot be chosen here, or null when they can. */
+function writeOptionsFixed(s: FileStoreChoice): string | null {
+  if (s.implicit) return "The implicit store has no settings of its own: it hashes with MD5 and stores every upload on its own. Add a file store under Settings to choose.";
+  if (s.type !== "MultiFile") return "A SingleFile store hashes with MD5 and stores every upload on its own.";
+  if (s.writeOptionsLockedBy) return `Set by ${s.writeOptionsLockedBy}, so it cannot be changed here.`;
+  return null;
+}
+
 /**
- * Which file store the files are read from and which one writes them again. Two uses, one dialog: moving
- * the files of a database to another store - off the implicit store, or onto blob storage - and, with the
- * same store on both sides, catching the files stored before "Same hash, same file" or a new hash was
- * turned on up with how the store writes files now.
+ * Rewrite files: one store to write into, and how it writes. Every file that belongs in the store - the
+ * files of the properties whose uploads go there - is written into it again, wherever it is stored now.
+ * That one choice covers both reasons to rewrite: files stored elsewhere are moved in (off the implicit
+ * store, onto blob storage), and files already there but written another way - before a new hash or
+ * "Same hash, same file" was turned on - are caught up.
  *
- * It starts out reading from a store that is not the default and writing to the default one, which is the
- * move people make after adding a store and making it the default. The dialog is its own confirmation:
- * it says what will happen, and the button does it.
+ * The hash and one copy per content are the store's own settings, shown here because they are what the
+ * rewrite does; changing them changes the settings, so uploads from then on are written the same way.
+ * The dialog is its own confirmation: it says what will happen, and the button does it.
  */
 export function RewriteFilesDialog(p: Props) {
   const defaultStore = p.stores.find((s) => s.isDefault) ?? p.stores[0];
-  const [fromId, setFromId] = useState(() => (p.stores.find((s) => !s.isDefault) ?? defaultStore).id);
   const [toId, setToId] = useState(defaultStore.id);
-  const from = p.stores.find((s) => s.id === fromId) ?? defaultStore;
   const to = p.stores.find((s) => s.id === toId) ?? defaultStore;
-  const same = from.id === to.id;
-  // a SingleFile store hashes with MD5 and shares nothing, so rewriting one into itself changes nothing
-  const problem = same && to.type !== "MultiFile" ? "A SingleFile store writes files the way they already are. Pick another store to write to." : null;
+  const [hash, setHash] = useState(to.hashAlgorithm);
+  const [oneCopy, setOneCopy] = useState(to.sameHashSameFile);
+  const fixed = writeOptionsFixed(to);
+  const changed = !fixed && (hash !== to.hashAlgorithm || oneCopy !== to.sameHashSameFile);
+  const problem = !to.receivesUploads
+    ? "Nothing uploads into this store: it is not the default store, and no file property names it, so no file belongs in it. Make it the default store first."
+    : null;
+  const othersReceive = p.stores.some((s) => s.id !== to.id && s.receivesUploads);
+
+  // a store picked brings its own settings with it
+  function pick(id: string) {
+    const store = p.stores.find((s) => s.id === id) ?? defaultStore;
+    setToId(store.id);
+    setHash(store.hashAlgorithm);
+    setOneCopy(store.sameHashSameFile);
+  }
 
   function submit() {
     if (problem) return;
-    p.onRewrite({ fromStore: from.id, toStore: to.id });
+    p.onRewrite(fixed ? { toStore: to.id } : { toStore: to.id, hashAlgorithm: hash, sameHashSameFile: oneCopy });
   }
-
-  const select = (value: string, onChange: (id: string) => void) => (
-    <select className="select" value={value} onChange={(e) => onChange(e.target.value)}>
-      {p.stores.map((s) => (
-        <option key={s.id} value={s.id}>
-          {describeFileStore(s)}
-        </option>
-      ))}
-    </select>
-  );
 
   return (
     <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && p.onCancel()}>
@@ -76,29 +95,47 @@ export function RewriteFilesDialog(p: Props) {
           <DialogTools onClose={p.onCancel} closeTitle="Cancel" />
         </h3>
         <div className="dialog-body">
-          Every file of one file store is written again by another, and the file values point at the new copies from then on - revisions and
-          embedded objects included. Names, image sizes and extracted text stay, nothing is indexed again, and the database stays in use.
+          The files are written again into one store, and the file values point at the new copies from then on - revisions and embedded objects
+          included. Names, image sizes and extracted text stay, nothing is indexed again, and the database stays in use.
         </div>
         <label className="dialog-field">
-          <span className="muted">Read the files of</span>
-          {select(from.id, setFromId)}
-        </label>
-        <label className="dialog-field">
-          <span className="muted">Write them with</span>
-          {select(to.id, setToId)}
+          <span className="muted">Write the files into</span>
+          <select className="select" value={to.id} onChange={(e) => pick(e.target.value)}>
+            {p.stores.map((s) => (
+              <option key={s.id} value={s.id}>
+                {storeName(s) + " · " + s.type + (s.isDefault ? " · default" : "")}
+              </option>
+            ))}
+          </select>
           {problem ? (
             <span className="dialog-error">{problem}</span>
-          ) : same ? (
-            <span className="muted">
-              The same store: only files not yet written the way it writes them now are rewritten
-              {to.sameHashSameFile ? ` - with a ${to.hashAlgorithm} hash, one copy per content.` : ` - with a ${to.hashAlgorithm} hash.`}
-            </span>
           ) : (
             <span className="muted">
-              Each file gets a {to.hashAlgorithm} hash{to.sameHashSameFile ? ", and identical files share one copy" : ""}.
+              Files stored elsewhere are moved into it, and files already in it that were written another way are written again.
+              {othersReceive ? " Files of properties that upload into another store stay where they are." : ""}
             </span>
           )}
         </label>
+        <div className="dialog-field rewrite-options">
+          <span className="muted">Written with</span>
+          <div className="rewrite-options-row">
+            <select className="select" value={hash} disabled={fixed !== null} onChange={(e) => setHash(e.target.value)} aria-label="File hash">
+              <option value="SHA256">SHA256 hash</option>
+              <option value="MD5">MD5 hash</option>
+            </select>
+            <label className={"rewrite-one-copy" + (fixed ? " disabled" : "")}>
+              <input type="checkbox" checked={oneCopy} disabled={fixed !== null} onChange={(e) => setOneCopy(e.target.checked)} />
+              Same hash, same file
+              <span className="muted">- identical files share one copy</span>
+            </label>
+          </div>
+          <span className={fixed ? "muted" : changed ? "rewrite-options-note" : "muted"}>
+            {fixed ??
+              (changed
+                ? "Saved as this store's settings when the rewrite starts: new uploads are written the same way from then on."
+                : "This store's own settings: what is chosen here is how new uploads are written too.")}
+          </span>
+        </div>
         <div className="files-notice">
           <IconAlertTriangle size={15} stroke={1.8} />
           <span>

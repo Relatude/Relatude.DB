@@ -25,6 +25,8 @@ public sealed class UIServer {
     readonly UILogs _logs;
     readonly UICustomLogs _customLogs;
     readonly UIFileTransfer _transfer;
+    readonly UIServiceTests _serviceTests;
+    readonly UISettings _settings;
     string? _lastContainersJson;
     public UIEventStream Events { get; } = new();
     public UICommands Commands { get; }
@@ -38,8 +40,11 @@ public sealed class UIServer {
         Shared = new UISharedTasks(server);
         Shared.Register(Commands);
         registerBuiltInCommands();
-        new UISettings(server).Register(Commands);
+        _settings = new UISettings(server);
+        _settings.Register(Commands);
         new UILicense(server).Register(Commands);
+        _serviceTests = new UIServiceTests(server);
+        _serviceTests.Register(Commands);
         _logs = new UILogs(server);
         _logs.Register(Commands);
         _customLogs = new UICustomLogs(server);
@@ -122,6 +127,7 @@ public sealed class UIServer {
         app.MapGet(path + "stream", Events.Connect);
         app.MapPost(path + "command", (Delegate)Commands.Execute); // Delegate overload, so the returned IResult is written to the response
         _transfer.Map(app, path); // uploads and batched downloads (binary, so not commands): see UIFileTransfer
+        _serviceTests.Map(app, path); // the Imaging and FileToText tests carry images and files both ways: see UIServiceTests
         // the query page's csv export (a file download, so not a command): the same search payload
         // the page runs, streamed back as rows instead of counted into facets
         app.MapPost(path + "query-csv", async (HttpContext ctx, UIQuery.SearchPayload payload) => {
@@ -502,6 +508,36 @@ public sealed class UIServer {
         }
     }
     static string[] splitFolderPath(string? folderPath) => folderPath?.Split('/', StringSplitOptions.RemoveEmptyEntries) ?? [];
+    /// <summary>
+    /// What the rewrite dialog chose for the target store's hash and one copy per content becomes the
+    /// store's settings - saved the way the settings page saves them, so new uploads are written the same
+    /// way and the next rewrite does not undo this one - and the open store is brought in line with its
+    /// settings, which also takes up a change saved on the settings page without a reopen.
+    /// </summary>
+    void applyWriteOptions(NodeStoreContainer c, DataStoreLocal local, Guid toStore, string? hashAlgorithm, bool? sameHashSameFile) {
+        var fs = c.Settings.FileStoreSettings?.FirstOrDefault(f => f.Id == toStore);
+        if (fs == null || fs.StoreType != FileStoreEngine.MultiFile) {
+            if (hashAlgorithm != null || sameHashSameFile != null) {
+                var changed = (hashAlgorithm != null && !string.Equals(hashAlgorithm, nameof(DataStores.Files.FileHashAlgorithm.MD5), StringComparison.OrdinalIgnoreCase))
+                    || sameHashSameFile == true;
+                if (changed) throw new Exception("Only a configured MultiFile store has a hash and one copy per content to choose. ");
+            }
+            return;
+        }
+        var prefix = "FileStoreSettings[" + fs.Id + "].";
+        var values = new Dictionary<string, JsonElement>();
+        if (hashAlgorithm != null && !string.Equals(hashAlgorithm, fs.HashAlgorithm.ToString(), StringComparison.OrdinalIgnoreCase)) {
+            values[prefix + nameof(fs.HashAlgorithm)] = JsonSerializer.SerializeToElement(hashAlgorithm);
+        }
+        if (sameHashSameFile is bool same && same != fs.SameHashSameFile) {
+            values[prefix + nameof(fs.SameHashSameFile)] = JsonSerializer.SerializeToElement(same);
+        }
+        if (values.Count > 0) {
+            var rejected = _settings.SaveDatabaseValues(c.Settings.Id, values);
+            if (rejected.Count > 0) throw new Exception(string.Join(" ", rejected.Select(r => r.Reason)));
+        }
+        local.SetFileStoreWriteOptions(fs.Id, fs.SameHashSameFile, fs.HashAlgorithm);
+    }
     /// <summary>Where the file conversion engine keeps its cache: the "converted" folder of the
     /// index IO provider, falling back to the database one when no separate index provider is
     /// configured (the same fallback DataStoreLocal makes for its converter IO provider).</summary>
@@ -1087,6 +1123,21 @@ public sealed class UIServer {
             }
             return (object?)new { Deleted = deleted, Errors = errors };
         });
+        // the blobs of an Azure storage someone holds a lease on. Leases taken now end by themselves when
+        // not renewed; one that never does was left by an older version and blocks every open of that
+        // blob until it is broken here
+        Commands.Register("io-leases", ctx => {
+            var p = ctx.Payload<IoFolderPayload>();
+            if (_server.GetIO(p.IoId) is not AzureBlobIOProvider azure) return (object?)new { Supported = false, Leases = Array.Empty<LeasedBlob>() };
+            return (object?)new { Supported = true, Leases = azure.GetLeasedFiles(splitFolderPath(p.Path)) };
+        });
+        // breaks them, all but the ones this server holds for its own open files
+        Commands.Register("io-break-leases", ctx => {
+            var p = ctx.Payload<IoDeleteFilesPayload>();
+            if (_server.GetIO(p.IoId) is not AzureBlobIOProvider azure) throw new Exception("Only blob storage has leases. ");
+            var (broken, skipped, errors) = azure.BreakLeases(p.Keys);
+            return (object?)new { Broken = broken, Skipped = skipped, Errors = errors };
+        });
         // ---- storage section: backups, database download / upload ----
         Commands.Register("backup-list", ctx => {
             var p = ctx.Payload<IoListPayload>();
@@ -1541,14 +1592,29 @@ public sealed class UIServer {
         // before a configured store became the default still point at it.
         Commands.Register("file-store-choices", ctx => {
             var p = ctx.Payload<IoListPayload>();
-            var s = getContainer(p.StoreId).Settings;
+            var c = getContainer(p.StoreId);
+            var s = c.Settings;
             var ioNames = (s.IOSettings ?? []).ToDictionary(io => io.Id, io => string.IsNullOrEmpty(io.Name) ? io.IOType.ToString() : io.Name);
             string ioName(Guid ioId) => ioNames.TryGetValue(ioId, out var name) ? name : ioId.ToString();
             var configured = s.FileStoreSettings ?? [];
             var defaultId = s.LocalSettings?.DefaultFileStore;
             var implicitIsDefault = !configured.Any(fs => fs.Id == defaultId);
-            var choices = configured.Select(fs => new {
-                fs.Id,
+            // the stores file properties name: their uploads go there instead of to the default store
+            var named = new HashSet<Guid>();
+            if (c.Store != null) {
+                foreach (var f in c.Store.Datastore.Datamodel.Properties.Values.OfType<Datamodels.Properties.FilePropertyModel>()) {
+                    if (f.FileStorageProviderId != Guid.Empty) named.Add(f.FileStorageProviderId);
+                }
+            }
+            // a store's hash and one copy per content can be chosen in the rewrite dialog, unless something
+            // other than the settings files decides them
+            string? writeOptionsLockedBy(Settings.FileStoreSettings fs) {
+                var prefix = "FileStoreSettings[" + fs.Id + "].";
+                return _server.DecidedOutsideTheSettingsFiles(Settings.SettingsOverlay.OverridePath(s.Id, prefix + nameof(fs.HashAlgorithm)))
+                    ?? _server.DecidedOutsideTheSettingsFiles(Settings.SettingsOverlay.OverridePath(s.Id, prefix + nameof(fs.SameHashSameFile)));
+            }
+            var choices = configured.Select(fs => new FileStoreChoice {
+                Id = fs.Id,
                 Name = ioName(fs.IoProviderId),
                 Type = fs.StoreType.ToString(),
                 // what a SingleFile store does whatever its settings say (see NodeStoreContainer)
@@ -1556,9 +1622,11 @@ public sealed class UIServer {
                 SameHashSameFile = fs.StoreType == FileStoreEngine.MultiFile && fs.SameHashSameFile,
                 IsDefault = fs.Id == defaultId,
                 Implicit = false,
+                ReceivesUploads = fs.Id == defaultId || named.Contains(fs.Id),
+                WriteOptionsLockedBy = fs.StoreType == FileStoreEngine.MultiFile ? writeOptionsLockedBy(fs) : null,
             }).ToList();
             if (s.IoDatabase is Guid dbIo && dbIo != Guid.Empty) {
-                choices.Add(new {
+                choices.Add(new FileStoreChoice {
                     Id = Guid.Empty,
                     Name = ioName(dbIo),
                     Type = FileStoreEngine.MultiFile.ToString(),
@@ -1566,6 +1634,7 @@ public sealed class UIServer {
                     SameHashSameFile = false,
                     IsDefault = implicitIsDefault,
                     Implicit = true,
+                    ReceivesUploads = implicitIsDefault,
                 });
             }
             return (object?)choices;
@@ -1587,13 +1656,16 @@ public sealed class UIServer {
                     (object)await local.FindMissingFilesAsync(j.SetProgress, j.Cancellation.Token)),
                 "duplicates" => FileScanJobs.Start(p.StoreId, "duplicate files", async j =>
                     (object)await local.FindDuplicateFilesAsync(j.SetProgress, j.Cancellation.Token)),
-                // writes every file of one store again through another (or the same one, with what it
-                // does now): moving stores, or catching old files up with a new hash or one copy per content
-                "rewrite" => FileScanJobs.Start(p.StoreId, "rewrite files", async j =>
-                    (object)await local.RewriteFilesAsync(
-                        p.FromStore ?? throw new Exception("Name the file store to rewrite from. "),
-                        p.ToStore ?? throw new Exception("Name the file store to rewrite to. "),
-                        j.SetProgress, j.Cancellation.Token)),
+                // writes the files that belong in one store into it, the way it writes files now (or, with
+                // a FromStore, every file of that store): moving stores, or catching old files up with a new
+                // hash or one copy per content
+                "rewrite" => FileScanJobs.Start(p.StoreId, "rewrite files", async j => {
+                    var toStore = p.ToStore ?? throw new Exception("Name the file store to rewrite to. ");
+                    applyWriteOptions(getContainer(p.StoreId), local, toStore, p.HashAlgorithm, p.SameHashSameFile);
+                    return (object)(p.FromStore is Guid fromStore
+                        ? await local.RewriteFilesAsync(fromStore, toStore, j.SetProgress, j.Cancellation.Token)
+                        : await local.RewriteFilesAsync(toStore, j.SetProgress, j.Cancellation.Token));
+                }),
                 _ => throw new Exception("Unknown file scan: " + p.Scan),
             };
             var title = p.Scan switch {
@@ -1749,7 +1821,26 @@ sealed class IoInfo {
 }
 sealed record ZipRequestPayload(Guid IoId, string[] Keys, string? BasePath);
 sealed record IoDeleteFilesPayload(Guid IoId, string[] Keys);
-// FromStore and ToStore: the file stores of a rewrite, Guid.Empty being the implicit store
-sealed record FileScanStartPayload(Guid StoreId, string Scan, bool CountOnly, Guid? FromStore = null, Guid? ToStore = null);
+/// <summary>A file store as the file values know it, for the rewrite dialog.</summary>
+sealed class FileStoreChoice {
+    public Guid Id { get; init; }
+    public string Name { get; init; } = "";
+    public string Type { get; init; } = "";
+    public string HashAlgorithm { get; init; } = "";
+    public bool SameHashSameFile { get; init; }
+    public bool IsDefault { get; init; }
+    public bool Implicit { get; init; }
+    /// <summary>Uploads go here: it is the default store, or a file property names it. A rewrite into a
+    /// store that receives none has nothing that belongs in it.</summary>
+    public bool ReceivesUploads { get; init; }
+    /// <summary>What decides the store's hash and one copy per content when it is not the settings files
+    /// (the configuration section, the application's code); null when they can be chosen.</summary>
+    public string? WriteOptionsLockedBy { get; init; }
+}
+// FromStore and ToStore: the file stores of a rewrite, Guid.Empty being the implicit store.
+// ToStore without a FromStore: the files that belong in it, from wherever they are. HashAlgorithm and
+// SameHashSameFile, when given, become the target store's settings before it writes
+sealed record FileScanStartPayload(Guid StoreId, string Scan, bool CountOnly, Guid? FromStore = null, Guid? ToStore = null,
+    string? HashAlgorithm = null, bool? SameHashSameFile = null);
 sealed record FileScanJobPayload(Guid JobId);
 sealed record ConversionCancelPayload(Guid StoreId, Guid Id, bool Permanently);

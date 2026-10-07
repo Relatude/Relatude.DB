@@ -2,6 +2,8 @@ using Relatude.DB.AI;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Files;
+using Relatude.DB.FileToText;
+using Relatude.DB.Imaging;
 using Relatude.DB.SMS;
 using System.Text.Json.Serialization;
 
@@ -79,6 +81,10 @@ public class NodeStoreContainerSettings : NodeStoreContainerSettingsBase {
     public AIProviderSettings? AISettings { get; set; }
     /// <summary>How this database sends text messages, reached from code as <c>NodeStore.SMS</c>. Null on a database that sends none.</summary>
     public SMSProviderSettings? SMSSettings { get; set; }
+    /// <summary>How this database reaches image AI, reached from code as <c>NodeStore.Imaging</c>. Null is the hosted Relatude Imaging service, called with the installation's license.</summary>
+    public ImagingProviderSettings? ImagingSettings { get; set; }
+    /// <summary>How this database reads the text of files, reached from code as <c>NodeStore.FileToText</c>. Null is the hosted Relatude FileToText service, called with the installation's license.</summary>
+    public FileToTextProviderSettings? FileToTextSettings { get; set; }
     public DatamodelSource[]? DatamodelSources { get; set; }
     public SettingsLocal? LocalSettings { get; set; }
 }

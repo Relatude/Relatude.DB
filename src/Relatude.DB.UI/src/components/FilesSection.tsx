@@ -21,6 +21,7 @@ import {
   IconHistory,
   IconLayoutGrid,
   IconList,
+  IconLockOpen,
   IconPencil,
   IconRefresh,
   IconSearch,
@@ -30,6 +31,7 @@ import {
   IconWorld,
 } from "@tabler/icons-react";
 import {
+  breakLeases,
   createFolder,
   deleteFiles,
   deleteFolderWithProgress,
@@ -39,6 +41,7 @@ import {
   fetchFolder,
   fetchFolderSize,
   fetchIoList,
+  fetchLeases,
   fetchNameMap,
   folderNote,
   friendlyName,
@@ -58,6 +61,7 @@ import {
   type FolderListing,
   type FolderSize,
   type IoInfo,
+  type LeasedBlob,
   type MoveResult,
   type NameMap,
   type UploadEntry,
@@ -999,6 +1003,59 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     await uploadWithDialog(io, target, entries);
   }
 
+  /**
+   * Blob storage only: which blobs below this folder are leased, and breaking the leases nobody is
+   * going to let go of. A lease this version takes ends within a minute of its process stopping; one
+   * that never ends was left by an older version, and blocks every open of its blob until it is broken.
+   * The ones this server holds for its own open files are never offered.
+   */
+  async function onLeases() {
+    if (!ioId) return;
+    const io = ioId;
+    const where = showPath(path) || "this storage";
+    let leases: LeasedBlob[];
+    try {
+      leases = (await fetchLeases(io, path)).leases;
+    } catch (e) {
+      showError("Could not list the leases", e instanceof Error ? e.message : String(e));
+      return;
+    }
+    const others = leases.filter((l) => !l.heldHere);
+    const own = leases.length - others.length;
+    const ownLine = `${own} blob${own === 1 ? " is" : "s are"} leased by this server for files it has open; those leases end when the files close.`;
+    if (others.length === 0) {
+      showInfo("No leases to break", own === 0 ? `Nothing in ${where} is leased.` : ownLine);
+      return;
+    }
+    const forever = others.filter((l) => l.infinite).length;
+    const { ok } = await showConfirm(
+      `Break ${others.length} lease${others.length === 1 ? "" : "s"}?`,
+      `${others.length === 1 ? "One blob" : others.length + " blobs"} in ${where} ${others.length === 1 ? "is" : "are"} leased by another process. ` +
+        (forever === others.length
+          ? `${others.length === 1 ? "Its lease never ends" : "None of these leases ends"} by itself: left by an older version of Relatude.DB, or taken by another tool. `
+          : forever > 0
+            ? `${forever} of them never end by themselves: left by an older version of Relatude.DB, or taken by another tool. `
+            : "") +
+        "A lease taken by this version ends within a minute of its process stopping, so one that is still held may belong to an instance that is running - " +
+        "breaking it lets two processes write the same files. Break them only when no other instance uses this storage." +
+        (own > 0 ? " " + ownLine : ""),
+      {
+        confirmLabel: "Break leases",
+        danger: true,
+        details: others.map((l) => showPath(l.key) + (l.infinite ? " · never ends" : l.state === "breaking" ? " · breaking" : "")),
+      },
+    );
+    if (!ok) return;
+    try {
+      const result = await breakLeases(io, others.map((l) => l.key));
+      const done = `${result.broken} lease${result.broken === 1 ? "" : "s"} broken.`;
+      if (result.errors.length > 0) showError("Not every lease could be broken", done, result.errors);
+      else setMessage(done);
+    } catch (e) {
+      showError("Could not break the leases", e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function onDeleteFolder() {
     if (!ioId || path === "") return;
     if (primaryData && !(await confirmPrimaryData(`Deleting ${showPath(path)} and everything below it.`))) return;
@@ -1165,6 +1222,15 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
         >
           <IconFolderX size={16} stroke={1.8} className="tone-danger" />
         </button>
+        {io?.type === "AzureBlobStorage" && (
+          <button
+            className="icon-button"
+            title="Leases: which blobs below this folder another process holds a lease on, and breaking the leases nobody is going to let go of"
+            onClick={onLeases}
+          >
+            <IconLockOpen size={16} stroke={1.8} className="tone-data" />
+          </button>
+        )}
         <input
           ref={fileInput}
           type="file"

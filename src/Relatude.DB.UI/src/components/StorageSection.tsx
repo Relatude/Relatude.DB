@@ -397,16 +397,17 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   }
 
   /**
-   * Writes the files of one store again through another (or the same one), on the server and while the
-   * database stays in use - so it can be put in the top bar like the scans. What it did is reported in a
-   * dialog of its own, with the values it had to leave as they were listed.
+   * Writes the files that belong in one store into it, the way it writes files now, on the server and
+   * while the database stays in use - so it can be put in the top bar like the scans. What it did is
+   * reported in a dialog of its own, with the values it had to leave as they were listed.
    */
   async function rewriteFiles(choice: RewriteChoice, stores: FileStoreChoice[]) {
     setRewriteStores(null);
-    const nameOf = (id: string) => {
-      const store = stores.find((s) => s.id === id);
-      return store ? describeFileStore(store) : id;
-    };
+    const store = stores.find((s) => s.id === choice.toStore);
+    // the target as it writes now: with the hash and one copy per content the dialog chose
+    const target = store
+      ? describeFileStore({ ...store, hashAlgorithm: choice.hashAlgorithm ?? store.hashAlgorithm, sameHashSameFile: choice.sameHashSameFile ?? store.sameHashSameFile })
+      : choice.toStore;
     const progress = await runWithProgress(`Rewrite files in ${db.name}`, (ctl) => runFileScan(ctl, db.id, "rewrite", false, undefined, choice), {
       minimizable: true,
       key: rewriteKey,
@@ -414,23 +415,22 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
     const result = progress?.rewrite;
     if (!result) return;
     const plural = (n: number, word: string) => `${formatCount(n)} ${word}${n === 1 ? "" : "s"}`;
-    const same = choice.fromStore === choice.toStore;
-    const upToDate = result.valuesUpToDate > 0 ? ` ${plural(result.valuesUpToDate, "value")} already had ${result.valuesUpToDate === 1 ? "its" : "their"} file written the way the store writes files now.` : "";
+    const upToDate = result.valuesUpToDate > 0 ? ` ${plural(result.valuesUpToDate, "value")} already had ${result.valuesUpToDate === 1 ? "its" : "their"} file written that way.` : "";
     if (result.valuesFound === 0) {
-      setFilesMessage(`No file values point into ${nameOf(choice.fromStore)}.`);
-      showInfo("Nothing to rewrite", `No file value points into ${nameOf(choice.fromStore)}, so there was nothing to write again.`);
+      setFilesMessage(`No files belong in ${target}.`);
+      showInfo("Nothing to rewrite", `No file value belongs in ${target}, so there was nothing to write again.`);
       return;
     }
     if (result.valuesRewritten === 0 && result.failedCount === 0) {
       setFilesMessage(`Nothing to rewrite.${upToDate}`);
-      showInfo("Nothing to rewrite", `Every file value pointing into ${nameOf(choice.fromStore)} is already written the way it would be now.${upToDate}`);
+      showInfo("Nothing to rewrite", `Every file that belongs in ${target} is already there, written the way it writes files now.${upToDate}`);
       return;
     }
     const summary =
-      `Rewrote ${plural(result.valuesRewritten, "file value")}: ${plural(result.filesCopied, "file")} (${formatBytes(result.bytesCopied)}) written ${same ? "again" : "to " + nameOf(choice.toStore)}.` +
+      `Rewrote ${plural(result.valuesRewritten, "file value")}: ${plural(result.filesCopied, "file")} (${formatBytes(result.bytesCopied)}) written into ${target}.` +
       (result.failedCount > 0 ? ` ${plural(result.failedCount, "value")} could not be rewritten.` : "");
     setFilesMessage(summary);
-    const cleanup = ` The old copies are still in ${nameOf(choice.fromStore)}: "Missing and redundant files" removes them.`;
+    const cleanup = ` The old copies are still where they were: "Missing and redundant files" removes them.`;
     if (result.failedCount > 0) {
       const shown = result.failures.slice(0, maxListedMissing);
       const details = shown.map((f) => `${f.nodeType.split(".").pop()}.${f.property} — ${f.fileName} (${formatBytes(f.size)}) — ${f.reason}`);
@@ -928,7 +928,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
               ? "the database must be open"
               : rewriteRunning
                 ? `${rewriteTask?.label || "rewriting…"}`
-                : "writes the files of one file store again with another - or the same one with its hash and one copy per content - and points the file values at the copies"}
+                : "writes the files into one file store again, with its hash and one copy per content, and points the file values at the copies"}
           </span>
         </div>
         <div className="process-action">

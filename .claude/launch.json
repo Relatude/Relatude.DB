@@ -279,6 +279,13 @@
       "autoPort": false
     },
     {
+      "name": "website-simple-lease-verify",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["examples/Website.Simple/bin/ClaudeVerify/Debug/net10.0/Website.Simple.dll", "--contentRoot", "C:/Users/ogulb/AppData/Local/Temp/claude/C--WAF-Code-Relatude-DB/4e515dc3-9e65-486c-b281-dee1187d09f3/scratchpad/lease-site", "--urls", "http://localhost:5101", "--RelatudeDB:NoLoginRequiredForLocalhost=true", "--RelatudeDB:ContainerSettings:0:IOSettings:0:IOType=AzureBlobStorage", "--RelatudeDB:ContainerSettings:0:IOSettings:0:BlobConnectionString=UseDevelopmentStorage=true", "--RelatudeDB:ContainerSettings:0:IOSettings:0:BlobContainerName=relatude-lease-verify", "--RelatudeDB:ContainerSettings:0:IOSettings:0:LockBlob=true"],
+      "port": 5101,
+      "autoPort": false
+    },
+    {
       "name": "website-simple-dmshared-dll",
       "runtimeExecutable": "dotnet",
       "runtimeArgs": ["examples/Website.Simple/bin/ClaudeDmShared/Debug/net10.0/Website.Simple.dll", "--contentRoot", "C:/Users/ogulb/AppData/Local/Temp/claude/C--WAF-Code-Relatude-DB/7d5933c7-155e-4b52-9e9d-6bea64da414a/scratchpad/site", "--urls", "http://localhost:5095", "--RelatudeDB:NoLoginRequiredForLocalhost=true"],

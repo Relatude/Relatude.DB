@@ -2655,10 +2655,21 @@ own users.</p>
 <tr>
 <td><code>LockBlob</code></td>
 <td><code>false</code></td>
-<td>Take a blob lease so a second process cannot open the same database. Worth having wherever two instances could overlap.</td>
+<td>Lease every blob with an open stream, so a second process cannot write or delete it - another instance, or the next process of an overlapped recycle. Worth having wherever two instances could overlap. See <em>Blob leases</em> below.</td>
 </tr>
 </tbody>
 </table>
+<p><strong>Blob leases.</strong> A lease lasts 60 seconds and is renewed in the background for as long as the stream is
+open, and it is let go of when the last stream on the blob closes - also when the close fails, or when the
+open fails half-way. A process that dies without letting go therefore blocks its blobs for at most a
+minute: an open that finds a blob leased waits up to 75 seconds for it, and then fails with a
+<code>FileLockedException</code>, which the startup restart treats as a lock, not as corruption. Readers of one blob
+in the same process share its lease. A write that finds its lease expired - the process was paused past
+it - renews it and carries on, as long as nobody touched the blob meanwhile; if another process has taken
+it, the write fails instead. Earlier versions leased for ever and could leave such a lease behind,
+which then blocked every open of that blob for good. To release them, open <strong>Files</strong> in the admin UI on
+the storage and press the <strong>Leases</strong> button (the open lock): it lists the leased blobs and breaks every
+lease this server does not hold itself. Break them only when no other instance uses the storage.</p>
 <p>Within a <code>LocalDisk</code> folder the engine keeps its own layout — <code>data/</code>, <code>state/</code>, <code>backup/</code>, <code>logs/</code> and
 an index folder with one subfolder per engine — so several roles can share one backend without
 colliding.</p>
@@ -2725,27 +2736,38 @@ implicit store.</p>
 <h5 id="moving-files-to-another-store-or-bringing-old-files-up-to-date">Moving files to another store, or bringing old files up to date<a class="anchor" href="#moving-files-to-another-store-or-bringing-old-files-up-to-date" aria-label="Link to this section">#</a></h5>
 <p>Changing the default store, or turning on <code>SameHashSameFile</code> or <code>SHA256</code>, only affects new uploads. To
 move the files already stored, use <strong>Storage › File storage › Rewrite files…</strong> in the admin UI. Pick the
-store to read from and the store to write with. The job runs in the background while the database stays
-in use, and its progress can be minimized to the top bar like the other file jobs.</p>
+store to write the files into, and how it writes them: the hash (MD5 or SHA256) and <strong>Same hash, same
+file</strong>. Those two are the store's own settings - changing them in the dialog saves them, and the open
+store writes new uploads that way from then on, without a reopen. They cannot be chosen for the implicit
+store, for a <code>SingleFile</code> store, or where configuration or code decides them. The job runs in the
+background while the database stays in use, and its progress can be minimized to the top bar like the
+other file jobs.</p>
 <ul>
-<li>Every file value that points into the source store gets a copy written by the target store, with that
-  store's hash, layout and, where it keeps one copy per content, sharing. Revisions and embedded objects
-  are included. A stored file that several values share is copied once.</li>
+<li>Every file that belongs in the store - the files of the properties whose uploads go there: the default
+  store, or the store a file property names - is written into it, wherever it is stored now. Files of
+  properties that upload into another store stay where they are. A store nothing uploads into has
+  nothing that belongs in it; make it the default first.</li>
+<li>A file stored elsewhere gets a copy written by the target store, with that store's hash, layout and,
+  where it keeps one copy per content, sharing. Revisions and embedded objects are included. A stored
+  file that several values share is copied once.</li>
 <li>The name, image size, meta data and extracted text stay the same, and nothing is re-indexed.</li>
 <li>Each node is updated under its own lock. A value that changed while its file was being copied (a new
   upload, say) is left alone.</li>
-<li>With the <strong>same store on both sides</strong>, only the files the store would now write differently are
-  rewritten: a hash of the other algorithm, or a file not yet kept by its hash. That is how files
-  stored before <code>SameHashSameFile</code> or <code>SHA256</code> was turned on are brought up to date.</li>
+<li>A file <strong>already in the store</strong> is rewritten only where the store would now write it differently: a
+  hash of the other algorithm, or a file not yet kept by its hash. That is how files stored before
+  <code>SameHashSameFile</code> or <code>SHA256</code> was turned on are brought up to date.</li>
 <li><strong>The old copies are left where they are.</strong> Older versions in a node's history still point at them.
   <strong>Storage › Missing and redundant files</strong> removes them; after that, those older versions can no
   longer give their files back.</li>
 <li>A file that cannot be read is reported and its value is left as it was. Running the rewrite again
   picks up whatever is left, including the rest of a cancelled run.</li>
 </ul>
-<p>From code, call <code>DataStoreLocal.RewriteFilesAsync(fromStoreId, toStoreId, onProgress, cancellationToken)</code>.
-<code>Guid.Empty</code> names the implicit store. The call returns a <code>RewriteFilesResult</code> with the counts and the
-values it could not rewrite.</p>
+<p>From code, call <code>DataStoreLocal.RewriteFilesAsync(toStoreId, onProgress, cancellationToken)</code> for what the
+dialog does, or <code>RewriteFilesAsync(fromStoreId, toStoreId, …)</code> to move every file of one store into
+another regardless of where its property uploads. <code>Guid.Empty</code> names the implicit store. Both return a
+<code>RewriteFilesResult</code> with the counts and the values that could not be rewritten.
+<code>DataStoreLocal.SetFileStoreWriteOptions(storeId, sameHashSameFile, hashAlgorithm)</code> changes how an open
+<code>MultiFile</code> store writes new files; the settings are what it opens with next time.</p>
 <h4 id="aisettings-embeddings-completions-and-the-vector-index"><code>AISettings</code> — embeddings, completions and the vector index<a class="anchor" href="#aisettings-embeddings-completions-and-the-vector-index" aria-label="Link to this section">#</a></h4>
 <div class="codehilite"><pre><span></span><code>&quot;AISettings&quot;: {
   &quot;TypeName&quot;: &quot;AzureAIProvider&quot;,

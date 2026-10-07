@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
+using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Files;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores;
@@ -22,9 +23,25 @@ public sealed partial class DataStoreLocal : IDataStore {
     /// node's history still point at them. Running it again picks up whatever is left, cancelled runs
     /// included.</para>
     /// </summary>
-    public async Task<RewriteFilesResult> RewriteFilesAsync(Guid fromStoreId, Guid toStoreId, Action<string, int>? onProgress = null, CancellationToken cancellationToken = default) {
+    public Task<RewriteFilesResult> RewriteFilesAsync(Guid fromStoreId, Guid toStoreId, Action<string, int>? onProgress = null, CancellationToken cancellationToken = default)
+        => rewriteFilesAsync(fromStoreId, toStoreId, onProgress, cancellationToken);
+    /// <summary>
+    /// Brings the files that belong in <paramref name="toStoreId"/> into it, written the way it writes files
+    /// now: every file value of a property whose uploads go to that store - the property names it, or names
+    /// none and it is the default store - wherever its file is stored today, revisions and embedded objects
+    /// included. A value already in the store is rewritten only where the store would now write it
+    /// differently, as with the same store on both sides of the other overload. Files of properties that
+    /// upload into another store stay where they are.
+    /// <para>One call for both reasons to rewrite: moving files onto a store that took over - a new default,
+    /// blob storage - and catching old files up with a hash or one copy per content turned on later.
+    /// Everything else is as with <see cref="RewriteFilesAsync(Guid, Guid, Action{string, int}?, CancellationToken)"/>.</para>
+    /// </summary>
+    public Task<RewriteFilesResult> RewriteFilesAsync(Guid toStoreId, Action<string, int>? onProgress = null, CancellationToken cancellationToken = default)
+        => rewriteFilesAsync(null, toStoreId, onProgress, cancellationToken);
+    // without a store to read from, the values that belong in the target are read from wherever they are
+    async Task<RewriteFilesResult> rewriteFilesAsync(Guid? fromStoreId, Guid toStoreId, Action<string, int>? onProgress, CancellationToken cancellationToken) {
         validateDatabaseState();
-        var from = getFileStore(fromStoreId);
+        if (fromStoreId is Guid fromId) getFileStore(fromId); // an unknown store fails before anything is read
         var to = getFileStore(toStoreId);
         var activityId = RegisterActvity(DataStoreActivityCategory.RunningTask, "Rewriting files");
         try {
@@ -39,20 +56,29 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
             var result = new RewriteFilesResult { FromStoreId = fromStoreId, ToStoreId = toStoreId };
             var failures = new List<RewriteFileFailure>();
-            var sameStore = from.Id == to.Id;
             var (hashLength, keepsOneCopy) = writesFilesAs(to);
-            bool needsRewrite(FileValue v) => !sameStore || v.Hash.Length != hashLength || (keepsOneCopy && !FileValue.IsKeptByHash(v));
-            bool isCandidate(FileValue v) => v.StorageId == from.Id && needsRewrite(v);
+            // where each file property's uploads go now: the store it names, or the default one. Built once,
+            // as the workers below read it side by side
+            var homes = Datamodel.Properties.Values.OfType<FilePropertyModel>()
+                .ToDictionary(f => f.Id, f => f.FileStorageProviderId != Guid.Empty ? f.FileStorageProviderId : _defaultFileStore.Id);
+            bool belongs(Guid propertyId, FileValue v) => fromStoreId is Guid fromId
+                ? v.StorageId == fromId
+                : (homes.TryGetValue(propertyId, out var home) ? home : _defaultFileStore.Id) == to.Id;
+            bool needsRewrite(FileValue v) => v.StorageId != to.Id || v.Hash.Length != hashLength || (keepsOneCopy && !FileValue.IsKeptByHash(v));
+            bool isCandidate(Guid propertyId, FileValue v) => belongs(propertyId, v) && needsRewrite(v);
+            // a stored file is its store and its id: two stores keeping one copy per content give the same
+            // bytes the same id
+            static (Guid, Guid) storedFile(FileValue v) => (v.StorageId, v.FileId);
 
             // 1: which nodes have values to rewrite, and which stored files more than one value points at -
             // those are copied once and the copy shared, the rest are copied as they come
             report("Identifying types with file properties", 0);
             var nodeIds = nodeIdsThatMayContainFiles(cancellationToken) ?? [];
             var todo = new List<int>();
-            var references = new Dictionary<Guid, int>();
+            var references = new Dictionary<(Guid, Guid), int>();
             long bytesToCopy = 0;
-            var values = new List<FileValue>();
-            var inNode = new HashSet<Guid>();
+            var values = new List<(Guid PropertyId, FileValue Value)>();
+            var inNode = new HashSet<(Guid, Guid)>();
             const int batchSize = 1000;
             for (var offset = 0; offset < nodeIds.Length; offset += batchSize) {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -64,16 +90,17 @@ public sealed partial class DataStoreLocal : IDataStore {
                         values.Clear();
                         collectFileValues(node, values);
                         inNode.Clear();
-                        foreach (var v in values) {
-                            if (v.StorageId != from.Id) continue;
+                        foreach (var (propertyId, v) in values) {
+                            if (!belongs(propertyId, v)) continue;
                             result.ValuesFound++;
                             if (!needsRewrite(v)) { result.ValuesUpToDate++; continue; }
                             // counted per node, the way a node lets go of its files below (revisions repeat them)
-                            if (!inNode.Add(v.FileId)) continue;
-                            if (references.TryGetValue(v.FileId, out var n)) {
-                                references[v.FileId] = n + 1;
+                            var stored = storedFile(v);
+                            if (!inNode.Add(stored)) continue;
+                            if (references.TryGetValue(stored, out var n)) {
+                                references[stored] = n + 1;
                             } else {
-                                references[v.FileId] = 1;
+                                references[stored] = 1;
                                 bytesToCopy += v.Size;
                             }
                         }
@@ -94,31 +121,33 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
 
             // 2: per node, copy its files, then point its values at the copies
-            var copies = new Dictionary<Guid, Lazy<Task<FileInsertResult>>>();
+            var copies = new Dictionary<(Guid, Guid), Lazy<Task<FileInsertResult>>>();
             var copyLock = new object(); // guards shared and copies, which every worker reads and changes
             var reportLock = new object();
             int filesCopied = 0, nodesDone = 0;
             long bytesCopied = 0;
             Task<FileInsertResult> copyOf(FileValue v) {
                 Lazy<Task<FileInsertResult>>? copy = null;
+                var stored = storedFile(v);
                 lock (copyLock) {
                     // the first node to need a shared file copies it, the others wait for that copy
-                    if (shared.ContainsKey(v.FileId) && !copies.TryGetValue(v.FileId, out copy)) {
-                        copies[v.FileId] = copy = new Lazy<Task<FileInsertResult>>(() => copyFile(v));
+                    if (shared.ContainsKey(stored) && !copies.TryGetValue(stored, out copy)) {
+                        copies[stored] = copy = new Lazy<Task<FileInsertResult>>(() => copyFile(v));
                     }
                 }
                 return copy?.Value ?? copyFile(v);
             }
             // forgets a shared copy once every node pointing at it has been dealt with
-            void doneWith(Guid fileId) {
+            void doneWith((Guid, Guid) stored) {
                 lock (copyLock) {
-                    if (!shared.TryGetValue(fileId, out var left)) return;
-                    if (left > 1) shared[fileId] = left - 1;
-                    else { shared.Remove(fileId); copies.Remove(fileId); }
+                    if (!shared.TryGetValue(stored, out var left)) return;
+                    if (left > 1) shared[stored] = left - 1;
+                    else { shared.Remove(stored); copies.Remove(stored); }
                 }
             }
             async Task<FileInsertResult> copyFile(FileValue v) {
                 FileInsertResult r;
+                var from = getFileStore(v.StorageId);
                 if (from.TryGetLocalFilePath(v, out var localPath)) {
                     await using var file = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1 << 20, true);
                     if (file.Length != v.Size) throw new Exception("The stored file is " + file.Length + " bytes, not the " + v.Size + " the value records. ");
@@ -151,7 +180,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
             async Task rewriteNode(int id, CancellationToken ct) {
                 // the values as they are now: the node may have changed since it was counted
-                var found = new List<FileValue>();
+                var found = new List<(Guid PropertyId, FileValue Value)>();
                 Guid nodeGuid, nodeTypeId;
                 _lock.EnterReadLock();
                 try {
@@ -162,15 +191,16 @@ public sealed partial class DataStoreLocal : IDataStore {
                 } finally {
                     _lock.ExitReadLock();
                 }
-                var targets = new Dictionary<Guid, FileInsertResult>();
-                foreach (var v in found.Where(isCandidate).DistinctBy(v => v.FileId)) {
+                var candidates = found.Where(f => isCandidate(f.PropertyId, f.Value)).Select(f => f.Value).ToList();
+                var targets = new Dictionary<(Guid, Guid), FileInsertResult>();
+                foreach (var v in candidates.DistinctBy(storedFile)) {
                     ct.ThrowIfCancellationRequested();
                     try {
-                        targets[v.FileId] = await copyOf(v);
+                        targets[storedFile(v)] = await copyOf(v);
                     } catch (Exception err) {
                         // every value of the node pointing at it stays as it was: revisions repeat a file
-                        foreach (var same in found.Where(f => isCandidate(f) && f.FileId == v.FileId)) fail(nodeGuid, nodeTypeId, same, err.Message);
-                        doneWith(v.FileId);
+                        foreach (var same in candidates.Where(f => storedFile(f) == storedFile(v))) fail(nodeGuid, nodeTypeId, same, err.Message);
+                        doneWith(storedFile(v));
                     }
                 }
                 if (targets.Count == 0) return;
@@ -179,15 +209,15 @@ public sealed partial class DataStoreLocal : IDataStore {
                 try {
                     lockId = await RequestLockAsync(id, 30_000, 30_000);
                 } catch (Exception err) {
-                    foreach (var v in found.Where(v => targets.ContainsKey(v.FileId))) fail(nodeGuid, nodeTypeId, v, "The node could not be locked: " + err.Message);
-                    foreach (var fileId in targets.Keys) doneWith(fileId);
+                    foreach (var v in candidates.Where(v => targets.ContainsKey(storedFile(v)))) fail(nodeGuid, nodeTypeId, v, "The node could not be locked: " + err.Message);
+                    foreach (var stored in targets.Keys) doneWith(stored);
                     return;
                 }
                 try {
                     var rewritten = 0;
                     // only a value still pointing at the copy that was read is changed
-                    FileValue? replace(FileValue v) {
-                        if (v.StorageId != from.Id || !targets.TryGetValue(v.FileId, out var r)) return null;
+                    FileValue? replace(Guid propertyId, FileValue v) {
+                        if (!isCandidate(propertyId, v) || !targets.TryGetValue(storedFile(v), out var r)) return null;
                         rewritten++;
                         return v.CopyWithStoredFile(to.Id, r.FileId, r.StoreKey, r.FileHash, r.Length);
                     }
@@ -219,10 +249,10 @@ public sealed partial class DataStoreLocal : IDataStore {
                         lock (failures) result.ValuesRewritten += rewritten;
                     }
                 } catch (Exception err) {
-                    foreach (var v in found.Where(v => targets.ContainsKey(v.FileId))) fail(nodeGuid, nodeTypeId, v, err.Message);
+                    foreach (var v in candidates.Where(v => targets.ContainsKey(storedFile(v)))) fail(nodeGuid, nodeTypeId, v, err.Message);
                 } finally {
                     ReleaseLock(lockId);
-                    foreach (var fileId in targets.Keys) doneWith(fileId);
+                    foreach (var stored in targets.Keys) doneWith(stored);
                 }
             }
             // a few files at a time keeps blob storage busy; a SingleFile store appends one file after another
@@ -252,13 +282,29 @@ public sealed partial class DataStoreLocal : IDataStore {
         var hashLength = multi.HashAlgorithm == HashAlgorithmName.SHA256 ? 64 : 32;
         return (hashLength, multi.SameHashSameFile);
     }
+    /// <summary>Every file value of a node with the id of the property holding it: all revisions, embedded
+    /// objects included.</summary>
+    static void collectFileValues(INodeData node, List<(Guid PropertyId, FileValue Value)> into) {
+        if (node is NodeDataRevisions revisions) { // revision containers hold no values of their own
+            foreach (var revision in revisions.Revisions) collectFileValues(revision, into);
+            return;
+        }
+        foreach (var entry in node.Values) {
+            if (entry.Value is FileValue fileValue) {
+                if (!fileValue.IsEmpty) into.Add((entry.PropertyId, fileValue));
+            } else if (entry.Value is IInnerNodeDataMap innerNodes) {
+                foreach (var inner in innerNodes) collectFileValues(inner, into);
+            }
+        }
+    }
     /// <summary>Replaces the file values of a writable node copy, embedded objects included, with what
-    /// <paramref name="replace"/> answers (null keeps a value). True when anything was replaced.</summary>
-    static bool replaceFileValues(NodeDataAbstract node, Func<FileValue, FileValue?> replace) {
+    /// <paramref name="replace"/> answers for the property and the value (null keeps a value). True when
+    /// anything was replaced.</summary>
+    static bool replaceFileValues(NodeDataAbstract node, Func<Guid, FileValue, FileValue?> replace) {
         var changed = false;
         foreach (var entry in node.Values.ToArray()) {
             if (entry.Value is FileValue value) {
-                if (value.IsEmpty || replace(value) is not FileValue replacement) continue;
+                if (value.IsEmpty || replace(entry.PropertyId, value) is not FileValue replacement) continue;
                 node.AddOrUpdate(entry.PropertyId, replacement);
                 changed = true;
             } else if (entry.Value is IInnerNodeDataMap inner) {

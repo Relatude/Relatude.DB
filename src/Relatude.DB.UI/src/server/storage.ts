@@ -513,14 +513,14 @@ export interface RewriteFailure {
   reason: string;
 }
 
-/** What rewriting the files of one store into another did (see RewriteFilesResult on the server). */
+/** What a rewrite of files into a store did (see RewriteFilesResult on the server). */
 export interface RewriteResult {
-  fromStoreId: string;
+  fromStoreId: string | null; // null: the files that belong in the target, from wherever they were
   toStoreId: string;
   nodesScanned: number;
-  valuesFound: number; // values pointing into the source store
+  valuesFound: number; // values that belong in the target store
   valuesRewritten: number;
-  valuesUpToDate: number; // same store only: already written the way the store writes files now
+  valuesUpToDate: number; // already in the target, written the way it writes files now
   filesCopied: number;
   bytesCopied: number;
   failedCount: number;
@@ -550,6 +550,10 @@ export interface FileStoreChoice {
   sameHashSameFile: boolean;
   isDefault: boolean;
   implicit: boolean;
+  /** uploads go here: the default store, or one a file property names */
+  receivesUploads: boolean;
+  /** what decides its hash and one copy per content when the settings files do not, else null */
+  writeOptionsLockedBy: string | null;
 }
 
 export function fetchFileStoreChoices(storeId: string): Promise<FileStoreChoice[]> {
@@ -565,8 +569,8 @@ export async function runFileScan(
   countOnly: boolean,
   /** named when two scans share one dialog, so the bar starting again reads as the next of them */
   phase?: string,
-  /** a rewrite's two stores */
-  stores?: { fromStore: string; toStore: string },
+  /** a rewrite's target store, and how it is to write (see RewriteChoice) */
+  stores?: { fromStore?: string; toStore: string; hashAlgorithm?: string; sameHashSameFile?: boolean },
 ): Promise<FileScanProgress> {
   const say = (text: string) => (phase ? phase + " — " + text : text);
   ctl.set({ label: say("Starting…"), total: 100, done: 0, meta: "0%" }); // the job reports percent, so the bar counts to 100

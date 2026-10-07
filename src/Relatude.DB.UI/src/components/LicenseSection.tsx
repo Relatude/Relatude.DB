@@ -1,18 +1,28 @@
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   IconAlertTriangle,
+  IconArrowBackUp,
+  IconBrush,
   IconCircleCheck,
   IconCloud,
+  IconDownload,
+  IconEraser,
   IconExternalLink,
+  IconFileText,
   IconFingerprint,
   IconInfoCircle,
+  IconPhoto,
   IconPlugConnected,
   IconPlugConnectedX,
   IconMessage,
   IconRefresh,
   IconSend,
   IconSparkles,
+  IconTrash,
+  IconUpload,
+  IconWand,
+  IconX,
 } from "@tabler/icons-react";
 import { showConfirm } from "../dialogs";
 import { masterLoginOptions } from "../server/auth";
@@ -21,13 +31,19 @@ import { Combo, type PickerLoader } from "./Combo";
 import { fetchWhoAmI } from "../server/serverInfo";
 import {
   cancelPairing,
+  fetchFileToTextFormats,
+  fetchImagingOperations,
   fetchLicenseStatus,
   licenseCarriesAi,
+  licenseCarriesFileToText,
+  licenseCarriesImaging,
   licenseCarriesSms,
   licenseMayUseAnySmsSender,
   licenseSmsSenders,
   lookUpApiKey,
   pollPairing,
+  runFileToTextTest,
+  runImagingTest,
   saveLicenseSettings,
   sendTestSms,
   startPairing,
@@ -35,13 +51,16 @@ import {
   testAiEmbedding,
   type AiCompletionResult,
   type AiEmbeddingResult,
+  type FileToTextResult,
+  type ImagingImageResult,
+  type ImagingMetaResult,
   type SmsReceipt,
   type InstallationInfo,
   type LicenseAccount,
   type LicenseStatus,
   type PairingHandle,
 } from "../server/license";
-import { formatTime } from "../format";
+import { formatBytes, formatTime } from "../format";
 import { Loading } from "./Loading";
 import { FoldHead } from "./LogsSection";
 import { CopyText } from "./CopyText";
@@ -110,6 +129,8 @@ export function LicenseSection({ onChanged }: { onChanged?: (status: LicenseStat
           completions={licenseCarriesAi(status, "completions")}
         />
       )}
+      {licenseCarriesImaging(status) && <ImagingTestPanel configuredUrl={status.imagingServiceUrl ?? ""} />}
+      {licenseCarriesFileToText(status) && <FileToTextTestPanel configuredUrl={status.fileToTextServiceUrl ?? ""} />}
       <WhatALicenseIs />
     </div>
   );
@@ -227,7 +248,7 @@ function WhatALicenseIs() {
           <strong>No.</strong> The database runs fully without a license; nothing expires or is held back.
         </li>
         <li>
-          <strong>It is free</strong>, and lets this installation use <strong>Relatude Services</strong> for AI and text messages instead of your own vendor keys.
+          <strong>It is free</strong>, and lets this installation use <strong>Relatude Services</strong> for AI, images, the text of files and text messages instead of your own vendor keys.
         </li>
         <li>It also lets people you choose sign in with a Relatude Cloud account instead of the master password.</li>
       </ul>
@@ -582,7 +603,24 @@ const foldMs = 180;
  * the panel is opened again - and `inert` keeps the folded fields out of the tab order. It is
  * clipped only while it moves: once open and still, a model list may reach past the panel's edge.
  */
-function TestPanel({ className, icon, title, sub, label, children }: { className: string; icon: ReactNode; title: string; sub: string; label: string; children: ReactNode }) {
+function TestPanel({
+  className,
+  icon,
+  title,
+  sub,
+  label,
+  onOpen,
+  children,
+}: {
+  className: string;
+  icon: ReactNode;
+  title: string;
+  sub: string;
+  label: string;
+  /** told when the panel is opened, for a test that asks its service something only once somebody looks */
+  onOpen?: () => void;
+  children: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const [settled, setSettled] = useState(false);
   useEffect(() => {
@@ -594,7 +632,14 @@ function TestPanel({ className, icon, title, sub, label, children }: { className
   return (
     <section className={"panel " + className + (open ? "" : " folded")}>
       <h3 className="with-fold">
-        <FoldHead open={open} label={label} onToggle={() => setOpen(!open)}>
+        <FoldHead
+          open={open}
+          label={label}
+          onToggle={() => {
+            if (!open) onOpen?.();
+            setOpen(!open);
+          }}
+        >
           {icon} {title}
           <span className="panel-sub"> · {sub}</span>
         </FoldHead>
@@ -852,6 +897,991 @@ function AiCompletionTest({ serviceUrl, loadModels }: { serviceUrl: string; load
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * What a service offers, asked of the address in the panel once the panel is open and the address
+ * has stopped changing for a moment. Asking costs nothing and needs no license. Null until there is
+ * an answer for this very address.
+ */
+function useServiceInfo<T>(enabled: boolean, url: string, load: (url: string) => Promise<T>): { info: T | null; error: string | null } | null {
+  const [state, setState] = useState<{ url: string; info: T | null; error: string | null } | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let stale = false;
+    const timer = window.setTimeout(() => {
+      load(url)
+        .then((info) => !stale && setState({ url, info, error: null }))
+        .catch((e) => !stale && setState({ url, info: null, error: e instanceof Error ? e.message : String(e) }));
+    }, 400);
+    return () => {
+      stale = true;
+      window.clearTimeout(timer);
+    };
+  }, [enabled, url, load]);
+  return state?.url === url ? state : null;
+}
+
+/** An object url for a blob while it is shown, let go when the blob changes or the component goes. */
+function useObjectUrl(blob: Blob | null): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!blob) {
+      setUrl(null);
+      return;
+    }
+    const made = URL.createObjectURL(blob);
+    setUrl(made);
+    return () => URL.revokeObjectURL(made);
+  }, [blob]);
+  return url;
+}
+
+function credits(n: number): string {
+  return `${n.toLocaleString()} ${n === 1 ? "credit" : "credits"}`;
+}
+
+/**
+ * A file or files to send, chosen with the button or dropped on the field. Each chosen file is a row
+ * with its name and size, a thumbnail when it is a picture, and a way to take it out again.
+ */
+function FilePick({
+  label,
+  hint,
+  accept,
+  files,
+  multiple,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  accept?: string;
+  files: File[];
+  multiple?: boolean;
+  disabled?: boolean;
+  onChange: (files: File[]) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const [over, setOver] = useState(false);
+  const take = (chosen: File[]) => {
+    if (chosen.length > 0) onChange(multiple ? [...files, ...chosen] : chosen.slice(0, 1));
+  };
+  return (
+    <div className="license-field">
+      <span className="license-field-label">{label}</span>
+      <div
+        className={"license-pick" + (over ? " over" : "")}
+        onDragOver={(e) => {
+          if (disabled || !e.dataTransfer.types.includes("Files")) return;
+          e.preventDefault();
+          setOver(true);
+        }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => {
+          if (disabled) return;
+          e.preventDefault();
+          setOver(false);
+          take(Array.from(e.dataTransfer.files));
+        }}
+      >
+        {files.map((file, i) => (
+          <PickedFile key={i + ":" + file.name + ":" + file.size} file={file} disabled={disabled} onRemove={() => onChange(files.filter((_, j) => j !== i))} />
+        ))}
+        {(multiple || files.length === 0) && (
+          <div className="license-pick-choose">
+            <button type="button" className="action-button" onClick={() => input.current?.click()} disabled={disabled}>
+              <IconUpload size={14} stroke={1.8} />
+              {files.length === 0 ? "Choose…" : "Add…"}
+            </button>
+            <span className="license-muted">or drop {multiple ? "files" : "one"} here</span>
+          </div>
+        )}
+        <input
+          ref={input}
+          type="file"
+          hidden
+          accept={accept}
+          multiple={multiple}
+          onChange={(e) => {
+            const chosen = Array.from(e.currentTarget.files ?? []);
+            // or choosing the same file twice in a row is not a change
+            e.currentTarget.value = "";
+            take(chosen);
+          }}
+        />
+      </div>
+      {hint && <span className="license-muted license-field-hint">{hint}</span>}
+    </div>
+  );
+}
+
+function PickedFile({ file, disabled, onRemove }: { file: File; disabled?: boolean; onRemove: () => void }) {
+  const picture = file.type.startsWith("image/");
+  const src = useObjectUrl(picture ? file : null);
+  return (
+    <div className="license-picked">
+      {picture ? (
+        src && <img className="license-picked-thumb" src={src} alt="" />
+      ) : (
+        <span className="license-picked-thumb">
+          <IconFileText size={16} stroke={1.6} />
+        </span>
+      )}
+      <span className="license-picked-name" title={file.name}>
+        {file.name}
+      </span>
+      <span className="license-muted">{formatBytes(file.size)}</span>
+      <button type="button" className="icon-button" onClick={onRemove} disabled={disabled} title={"Take " + file.name + " out"}>
+        <IconX size={13} stroke={1.8} />
+      </button>
+    </div>
+  );
+}
+
+/** How much the mask editor's undo may hold: a large image keeps fewer steps. */
+const maskUndoBytes = 120_000_000;
+
+function paintContext(canvas: HTMLCanvasElement) {
+  return canvas.getContext("2d", { willReadFrequently: true })!;
+}
+
+/** The paint as the mask the service takes: as large as the canvas, white where painted and black elsewhere. Null when nothing is painted. */
+function paintToMask(canvas: HTMLCanvasElement): Promise<Blob | null> {
+  const paint = paintContext(canvas).getImageData(0, 0, canvas.width, canvas.height);
+  const p = paint.data;
+  let any = false;
+  for (let i = 0; i < p.length; i += 4) {
+    const a = p[i + 3];
+    if (a) any = true;
+    p[i] = p[i + 1] = p[i + 2] = a;
+    p[i + 3] = 255;
+  }
+  if (!any) return Promise.resolve(null);
+  const out = document.createElement("canvas");
+  out.width = canvas.width;
+  out.height = canvas.height;
+  out.getContext("2d")!.putImageData(paint, 0, 0);
+  return new Promise((resolve) => out.toBlob(resolve, "image/png"));
+}
+
+/** A mask file as paint: the lighter a pixel, the more it is painted, stretched to the canvas when its size differs. */
+async function drawMaskFile(canvas: HTMLCanvasElement, file: Blob) {
+  const bitmap = await createImageBitmap(file);
+  const g = paintContext(canvas);
+  g.globalCompositeOperation = "source-over";
+  g.clearRect(0, 0, canvas.width, canvas.height);
+  g.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const paint = g.getImageData(0, 0, canvas.width, canvas.height);
+  const p = paint.data;
+  for (let i = 0; i < p.length; i += 4) {
+    // a transparent pixel is black: nothing changes there
+    p[i + 3] = Math.round(((p[i] * 299 + p[i + 1] * 587 + p[i + 2] * 114) / 1000) * (p[i + 3] / 255));
+    p[i] = 255;
+    p[i + 1] = 0;
+    p[i + 2] = 0;
+  }
+  g.putImageData(paint, 0, 0);
+}
+
+/**
+ * The mask painted onto the image itself rather than made elsewhere and chosen as a file. The paint
+ * lies on a canvas of the image's own size, however small the picture shows here, so what is handed
+ * on is the mask the service asks for: as large as the image, white where it was painted and black
+ * where it was not - or null while nothing is. A mask made elsewhere can be loaded and painted on
+ * from there, and Undo steps back a stroke at a time.
+ */
+function MaskEditor({
+  label,
+  image,
+  mask,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  image: File;
+  mask: File | null;
+  disabled?: boolean;
+  onChange: (mask: File | null) => void;
+}) {
+  const src = useObjectUrl(image);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const ring = useRef<HTMLSpanElement>(null);
+  const loadInput = useRef<HTMLInputElement>(null);
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  const [erasing, setErasing] = useState(false);
+  const [brush, setBrush] = useState(28);
+  const [undoDepth, setUndoDepth] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const undo = useRef<ImageData[]>([]);
+  const stroke = useRef<{ id: number; x: number; y: number } | null>(null);
+  // the mask the editor opened with - painted before, under another operation - drawn once the canvas has the image's size
+  const initial = useRef(mask);
+  // a mask made before a later one, or after the editor closed, is not handed on
+  const made = useRef(0);
+  useEffect(
+    () => () => {
+      made.current++;
+    },
+    [],
+  );
+
+  async function handOn() {
+    const turn = ++made.current;
+    const blob = await paintToMask(canvas.current!);
+    if (turn === made.current) onChange(blob && new File([blob], "mask.png", { type: "image/png" }));
+  }
+
+  function keep() {
+    const c = canvas.current!;
+    const steps = Math.max(1, Math.floor(maskUndoBytes / (c.width * c.height * 4)));
+    undo.current.push(paintContext(c).getImageData(0, 0, c.width, c.height));
+    if (undo.current.length > steps) undo.current.splice(0, undo.current.length - steps);
+    setUndoDepth(undo.current.length);
+  }
+
+  function stepBack() {
+    const last = undo.current.pop();
+    setUndoDepth(undo.current.length);
+    if (!last) return;
+    paintContext(canvas.current!).putImageData(last, 0, 0);
+    void handOn();
+  }
+
+  function clear() {
+    keep();
+    const c = canvas.current!;
+    paintContext(c).clearRect(0, 0, c.width, c.height);
+    made.current++;
+    onChange(null);
+  }
+
+  async function load(file: File) {
+    setError(null);
+    keep();
+    try {
+      await drawMaskFile(canvas.current!, file);
+      void handOn();
+    } catch {
+      stepBack();
+      setError(file.name + " could not be read as an image.");
+    }
+  }
+
+  /** Where the pointer is on the canvas, in the image's own pixels, and how many of those one pixel on screen is. */
+  function at(e: React.PointerEvent<HTMLCanvasElement>) {
+    const c = e.currentTarget;
+    const box = c.getBoundingClientRect();
+    const scale = c.width / box.width;
+    return { x: (e.clientX - box.left) * scale, y: (e.clientY - box.top) * (c.height / box.height), scale };
+  }
+
+  function dab(from: { x: number; y: number }, to: { x: number; y: number }, scale: number) {
+    const g = paintContext(canvas.current!);
+    const width = brush * scale;
+    g.globalCompositeOperation = erasing ? "destination-out" : "source-over";
+    g.fillStyle = "#f00";
+    g.strokeStyle = "#f00";
+    g.lineWidth = width;
+    g.lineCap = "round";
+    g.lineJoin = "round";
+    g.beginPath();
+    if (from.x === to.x && from.y === to.y) {
+      g.arc(to.x, to.y, width / 2, 0, Math.PI * 2);
+      g.fill();
+    } else {
+      g.moveTo(from.x, from.y);
+      g.lineTo(to.x, to.y);
+      g.stroke();
+    }
+  }
+
+  /** The brush's outline where it would paint: at the pointer, or in the middle while its size is set. */
+  function showRing(x: number, y: number) {
+    const r = ring.current;
+    if (!r) return;
+    r.style.display = "block";
+    r.style.left = x + "px";
+    r.style.top = y + "px";
+  }
+
+  function hideRing() {
+    if (ring.current) ring.current.style.display = "none";
+  }
+
+  function end(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (stroke.current?.id !== e.pointerId) return;
+    stroke.current = null;
+    void handOn();
+  }
+
+  const ready = size !== null && !disabled;
+  return (
+    <div className="license-field">
+      <span className="license-field-label">{label}</span>
+      <div className="license-mask-tools" role="toolbar" aria-label="Mask">
+        <button
+          type="button"
+          className={"icon-button labelled" + (erasing ? "" : " active")}
+          aria-pressed={!erasing}
+          onClick={() => setErasing(false)}
+          disabled={!ready}
+          title="Paint where the change goes"
+        >
+          <IconBrush size={15} stroke={1.8} />
+          Paint
+        </button>
+        <button
+          type="button"
+          className={"icon-button labelled" + (erasing ? " active" : "")}
+          aria-pressed={erasing}
+          onClick={() => setErasing(true)}
+          disabled={!ready}
+          title="Rub out paint where the image should stay as it is"
+        >
+          <IconEraser size={15} stroke={1.8} />
+          Erase
+        </button>
+        <label className="license-mask-size" title="The brush, as wide as it shows on the picture">
+          <input
+            type="range"
+            min={4}
+            max={120}
+            value={brush}
+            disabled={!ready}
+            aria-label="Brush size"
+            onChange={(e) => {
+              setBrush(Number(e.target.value));
+              const c = canvas.current;
+              if (c) showRing(c.clientWidth / 2, c.clientHeight / 2);
+            }}
+            onPointerUp={hideRing}
+            onBlur={hideRing}
+          />
+          <span>{brush} px</span>
+        </label>
+        <span className="license-mask-actions">
+          <button type="button" className="icon-button" onClick={stepBack} disabled={!ready || undoDepth === 0} title="Undo the last stroke">
+            <IconArrowBackUp size={15} stroke={1.8} />
+          </button>
+          <button type="button" className="icon-button" onClick={() => loadInput.current?.click()} disabled={!ready} title="Load a mask made elsewhere: white where the change goes">
+            <IconUpload size={15} stroke={1.8} />
+          </button>
+          <button type="button" className="icon-button danger" onClick={clear} disabled={!ready || !mask} title="Clear the mask">
+            <IconTrash size={15} stroke={1.8} />
+          </button>
+        </span>
+        <input
+          ref={loadInput}
+          type="file"
+          hidden
+          accept={imageTypes}
+          onChange={(e) => {
+            const chosen = e.currentTarget.files?.[0];
+            e.currentTarget.value = "";
+            if (chosen) void load(chosen);
+          }}
+        />
+      </div>
+      <div className={"license-imaging-picture license-mask-stage" + (ready ? "" : " idle")}>
+        {src && (
+          <img
+            src={src}
+            alt="The image the mask is painted on"
+            draggable={false}
+            onLoad={(e) => {
+              const c = canvas.current!;
+              c.width = e.currentTarget.naturalWidth;
+              c.height = e.currentTarget.naturalHeight;
+              undo.current = [];
+              setUndoDepth(0);
+              setSize({ w: c.width, h: c.height });
+              if (initial.current) void drawMaskFile(c, initial.current).catch(() => undefined);
+            }}
+          />
+        )}
+        <canvas
+          ref={canvas}
+          className="license-mask-paint"
+          onPointerDown={(e) => {
+            if (!ready || e.button !== 0) return;
+            e.preventDefault();
+            e.currentTarget.setPointerCapture(e.pointerId);
+            keep();
+            const p = at(e);
+            dab(p, p, p.scale);
+            stroke.current = { id: e.pointerId, x: p.x, y: p.y };
+          }}
+          onPointerMove={(e) => {
+            if (!ready) return;
+            showRing(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
+            const s = stroke.current;
+            if (!s || s.id !== e.pointerId) return;
+            const p = at(e);
+            dab(s, p, p.scale);
+            s.x = p.x;
+            s.y = p.y;
+          }}
+          onPointerUp={end}
+          onPointerCancel={end}
+          onPointerLeave={hideRing}
+        />
+        <span ref={ring} className={"license-mask-ring" + (erasing ? " erasing" : "")} style={{ width: brush, height: brush }} />
+      </div>
+      {error ? (
+        <span className="license-field-hint license-offer-bad">{error}</span>
+      ) : (
+        <span className="license-muted license-field-hint">
+          {mask && size
+            ? `Sent as a ${size.w} × ${size.h} mask: white where painted, black elsewhere.`
+            : "Paint over the image where the change goes. What is not painted stays as it is."}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** What the service says about itself, under the address: what it offers, what a call costs, and how large a file may be. */
+function ServiceOffer({ answer, children }: { answer: { error: string | null } | null; children?: ReactNode }) {
+  if (!answer) return <p className="license-muted license-offer">Asking the service what it offers…</p>;
+  if (answer.error) return <p className="license-offer license-offer-bad">The service did not answer: {answer.error}</p>;
+  return <div className="license-muted license-offer">{children}</div>;
+}
+
+/** The operations of the Imaging service as the test offers them, and the fields each takes, named as the service names them. */
+interface ImagingOp {
+  key: string;
+  label: string;
+  image: boolean;
+  mask?: "optional" | "required";
+  extra?: "inspiration" | "references";
+  text?: { field: "description" | "instruction" | "hint"; label: string; required: boolean; placeholder: string };
+  size?: boolean;
+  transparent?: boolean;
+  factor?: boolean;
+  margins?: boolean;
+  language?: boolean;
+}
+
+const imagingOps: ImagingOp[] = [
+  {
+    key: "create-image",
+    label: "Create",
+    image: false,
+    extra: "inspiration",
+    text: { field: "description", label: "Description", required: true, placeholder: "A lighthouse on a rocky coast at dusk, oil painting" },
+    size: true,
+    transparent: true,
+  },
+  {
+    key: "manipulate-image",
+    label: "Manipulate",
+    image: true,
+    mask: "optional",
+    extra: "references",
+    text: { field: "instruction", label: "Instruction", required: true, placeholder: "Make it a winter scene" },
+  },
+  { key: "remove-background", label: "Remove background", image: true },
+  { key: "upscale", label: "Upscale", image: true, factor: true },
+  { key: "remove-object", label: "Remove object", image: true, mask: "required" },
+  {
+    key: "expand-image",
+    label: "Expand",
+    image: true,
+    margins: true,
+    text: { field: "hint", label: "Hint", required: false, placeholder: "What the new space should show" },
+  },
+  { key: "shrink-image", label: "Shrink", image: true, margins: true },
+  { key: "image-to-meta", label: "Describe", image: true, language: true },
+];
+
+const marginSides = ["top", "right", "bottom", "left"] as const;
+const imageTypes = "image/png,image/jpeg,image/webp";
+
+/**
+ * Real calls to the Relatude Imaging service, one operation at a time, so whoever set up the license
+ * can see each one work before code depends on it. Only offered when the license has the "ai_image"
+ * credit account every operation is charged to, which is why each answer says what it cost. The same
+ * call made again is answered from what the service kept, at its price for that, unless "New answer"
+ * asks for another. An image answer can be taken as the image of the next call - upscale a cutout,
+ * say - which the service then knows by its name and does not need sent.
+ */
+function ImagingTestPanel({ configuredUrl }: { configuredUrl: string }) {
+  const [serviceUrl, setServiceUrl] = useState(configuredUrl);
+  const url = serviceUrl.trim();
+  const [opened, setOpened] = useState(false);
+  const offer = useServiceInfo(opened, url, fetchImagingOperations);
+  const [opKey, setOpKey] = useState("remove-background");
+  const op = imagingOps.find((o) => o.key === opKey)!;
+  const [image, setImage] = useState<File[]>([]);
+  // a new image starts a new mask, in a new editor, even when it is the same file chosen again
+  const [imageTurn, setImageTurn] = useState(0);
+  const [mask, setMask] = useState<File | null>(null);
+  const [extra, setExtra] = useState<File[]>([]);
+  const [texts, setTexts] = useState({ description: "", instruction: "", hint: "" });
+  const [size, setSize] = useState({ width: "", height: "" });
+  const [transparent, setTransparent] = useState(false);
+  const [factor, setFactor] = useState("2");
+  const [margins, setMargins] = useState({ top: "", right: "", bottom: "", left: "" });
+  const [language, setLanguage] = useState("en");
+  const [fresh, setFresh] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ op: ImagingOp; answer: ImagingImageResult | ImagingMetaResult; input: File | null } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const available = (key: string) => offer?.info?.operations.find((o) => o.key === key)?.available;
+  const marginTotal = marginSides.reduce((sum, side) => sum + (Number(margins[side]) || 0), 0);
+  const ready =
+    (!op.image || image.length > 0) &&
+    (op.mask !== "required" || mask !== null) &&
+    (!op.text?.required || texts[op.text.field].trim().length > 0) &&
+    (!op.size || !size.width.trim() === !size.height.trim()) &&
+    (!op.margins || marginTotal > 0);
+
+  async function run() {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const form = new FormData();
+      form.set("serviceUrl", url);
+      form.set("operation", op.key);
+      if (fresh) form.set("fresh", "true");
+      if (op.image) form.set("image", image[0]);
+      if (op.mask && mask) form.set("mask", mask);
+      if (op.extra) for (const file of extra) form.append(op.extra, file);
+      if (op.text && texts[op.text.field].trim()) form.set(op.text.field, texts[op.text.field].trim());
+      if (op.size && size.width.trim()) {
+        form.set("width", size.width.trim());
+        form.set("height", size.height.trim());
+      }
+      if (op.transparent && transparent) form.set("transparent", "true");
+      if (op.factor) form.set("factor", factor);
+      if (op.margins) for (const side of marginSides) if (Number(margins[side]) > 0) form.set(side, String(Number(margins[side])));
+      if (op.language && language.trim()) form.set("language", language.trim());
+      setResult({ op, answer: await runImagingTest(form), input: op.image ? image[0] : null });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function chooseImage(files: File[]) {
+    setImage(files);
+    setImageTurn((t) => t + 1);
+    setMask(null);
+  }
+
+  /** The answer becomes the image of the next call: the service holds it already, so it is named, not sent. */
+  function takeAsImage(answer: ImagingImageResult) {
+    chooseImage([new File([answer.png], (result?.op.key ?? "answer") + ".png", { type: "image/png" })]);
+    if (!op.image) setOpKey("upscale");
+  }
+
+  return (
+    <TestPanel
+      className="license-imaging"
+      icon={<IconPhoto size={15} stroke={1.8} />}
+      title="Test Imaging"
+      sub="real calls to the imaging service, charged to the license"
+      label="the imaging test"
+      onOpen={() => setOpened(true)}
+    >
+      <div className="license-ai-url">
+        <Field label="Service URL" hint={configuredUrl ? "the address a database here uses" : undefined} locked={false}>
+          <input className="text-input" value={serviceUrl} placeholder="https://imaging.services.relatude.com (the hosted service)" spellCheck={false} onChange={(e) => setServiceUrl(e.target.value)} />
+        </Field>
+        <ServiceOffer answer={offer}>
+          {offer?.info && (
+            <>
+              {credits(offer.info.creditsPerOperation)} a call, {credits(offer.info.creditsPerCachedOperation)} for an answer made before · images up to{" "}
+              {formatBytes(offer.info.maxFileBytes)}
+            </>
+          )}
+        </ServiceOffer>
+      </div>
+      <div className="license-ops" role="tablist" aria-label="Operation">
+        {imagingOps.map((o) => {
+          const offered = available(o.key);
+          return (
+            <button
+              key={o.key}
+              role="tab"
+              aria-selected={o.key === op.key}
+              className={"license-op" + (o.key === op.key ? " active" : "") + (offered === false ? " unavailable" : "")}
+              title={o.key + (offered === false ? " - not offered by this service" : "")}
+              onClick={() => {
+                setOpKey(o.key);
+                setError(null);
+              }}
+              disabled={busy}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+      <div className="license-imaging-body">
+        <div className="license-imaging-fields">
+          {available(op.key) === false && <p className="license-offer license-offer-bad">This service does not offer {op.key}: a call would be refused, and cost nothing.</p>}
+          {op.image && <FilePick label="Image" hint="PNG, JPEG or WebP" accept={imageTypes} files={image} disabled={busy} onChange={chooseImage} />}
+          {op.mask &&
+            (image.length > 0 ? (
+              <MaskEditor
+                key={imageTurn}
+                label={op.mask === "required" ? "Mask" : "Mask (optional)"}
+                image={image[0]}
+                mask={mask}
+                disabled={busy}
+                onChange={setMask}
+              />
+            ) : (
+              <div className="license-field">
+                <span className="license-field-label">{op.mask === "required" ? "Mask" : "Mask (optional)"}</span>
+                <span className="license-muted license-field-hint">Choose the image first, then paint on it where the change goes.</span>
+              </div>
+            ))}
+          {op.text && (
+            <Field label={op.text.label + (op.text.required ? "" : " (optional)")} locked={false}>
+              <textarea
+                className="text-input license-sms-message"
+                rows={2}
+                value={texts[op.text.field]}
+                placeholder={op.text.placeholder}
+                disabled={busy}
+                onChange={(e) => {
+                  const field = op.text!.field;
+                  const value = e.target.value;
+                  setTexts((t) => ({ ...t, [field]: value }));
+                }}
+              />
+            </Field>
+          )}
+          {op.extra && (
+            <FilePick
+              label={op.extra === "inspiration" ? "Inspiration (optional)" : "References (optional)"}
+              hint={op.extra === "inspiration" ? "Images whose look the new one should take after." : "Other images the change may draw on. Not every provider can combine images."}
+              accept={imageTypes}
+              files={extra}
+              multiple
+              disabled={busy}
+              onChange={setExtra}
+            />
+          )}
+          {op.size && (
+            <div className="license-imaging-row">
+              <Field label="Width" locked={false}>
+                <input className="text-input" inputMode="numeric" value={size.width} placeholder="any" disabled={busy} onChange={(e) => setSize({ ...size, width: e.target.value })} />
+              </Field>
+              <Field label="Height" locked={false}>
+                <input className="text-input" inputMode="numeric" value={size.height} placeholder="any" disabled={busy} onChange={(e) => setSize({ ...size, height: e.target.value })} />
+              </Field>
+              {op.transparent && (
+                <label className="license-toggle license-imaging-check">
+                  <input type="checkbox" checked={transparent} disabled={busy} onChange={(e) => setTransparent(e.target.checked)} />
+                  <span>Transparent background</span>
+                </label>
+              )}
+            </div>
+          )}
+          {op.factor && (
+            <Field label="Factor" locked={false}>
+              <select className="select license-imaging-narrow" value={factor} disabled={busy} onChange={(e) => setFactor(e.target.value)}>
+                <option value="2">2 × larger</option>
+                <option value="4">4 × larger</option>
+              </select>
+            </Field>
+          )}
+          {op.margins && (
+            <div className="license-imaging-row">
+              {marginSides.map((side) => (
+                <Field key={side} label={side[0].toUpperCase() + side.slice(1)} locked={false}>
+                  <input
+                    className="text-input"
+                    inputMode="numeric"
+                    value={margins[side]}
+                    placeholder="0"
+                    disabled={busy}
+                    onChange={(e) => setMargins({ ...margins, [side]: e.target.value })}
+                  />
+                </Field>
+              ))}
+            </div>
+          )}
+          {op.language && (
+            <Field label="Language" hint="A code such as en or nb, for the title, description and keywords." locked={false}>
+              <input className="text-input license-imaging-narrow" value={language} spellCheck={false} disabled={busy} onChange={(e) => setLanguage(e.target.value)} />
+            </Field>
+          )}
+          <div className="license-save">
+            <button className="action-button primary" onClick={run} disabled={busy || !ready}>
+              <IconWand size={15} stroke={1.8} />
+              {busy ? "Working…" : op.label}
+            </button>
+            <label className="license-toggle" title="Make the call again, and pay for it again, rather than take the answer kept for the same call">
+              <input type="checkbox" checked={fresh} disabled={busy} onChange={(e) => setFresh(e.target.checked)} />
+              <span>New answer</span>
+            </label>
+          </div>
+          {error && <div className="license-error">{error}</div>}
+        </div>
+        <div className="license-imaging-answer">
+          {result ? (
+            result.answer.kind === "image" ? (
+              <ImagingImageAnswer opKey={result.op.key} answer={result.answer} onUse={takeAsImage} />
+            ) : (
+              <ImagingMetaAnswer meta={result.answer} input={result.input} />
+            )
+          ) : (
+            <div className="license-imaging-empty license-muted">{busy ? "The service is working on it…" : "The answer shows here."}</div>
+          )}
+        </div>
+      </div>
+    </TestPanel>
+  );
+}
+
+function ImagingImageAnswer({ opKey, answer, onUse }: { opKey: string; answer: ImagingImageResult; onUse: (answer: ImagingImageResult) => void }) {
+  const src = useObjectUrl(answer.png);
+  return (
+    <div className="license-imaging-result">
+      {src && (
+        <a className="license-imaging-picture" href={src} target="_blank" rel="noreferrer" title="Open at full size">
+          <img src={src} alt={"The answer to " + opKey} />
+        </a>
+      )}
+      <div className="license-status license-status-ok">
+        <span className="license-status-icon">
+          <IconCircleCheck size={20} stroke={1.8} />
+        </span>
+        <div className="license-status-text">
+          <strong>
+            {answer.width} × {answer.height} PNG
+          </strong>
+          <span className="license-muted">
+            {credits(answer.credits)} · {answer.creditsLeft.toLocaleString()} left · {formatBytes(answer.png.size)}
+            {answer.cached ? " · the answer kept from before" : ""}
+          </span>
+          <code className="license-ai-vector" title="The image's name at the service: a later call naming it sends nothing">
+            sha256 {answer.sha256}
+          </code>
+        </div>
+        <div className="license-actions">
+          {src && (
+            <a className="action-button" href={src} download={opKey + ".png"}>
+              <IconDownload size={14} stroke={1.8} />
+              Download
+            </a>
+          )}
+          <button className="action-button" onClick={() => onUse(answer)} title="Take this answer as the image of the next call">
+            <IconArrowBackUp size={14} stroke={1.8} />
+            Use as image
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** What image-to-meta said, with the image beside it and the focus point and the boxes of what is in it drawn on top. */
+function ImagingMetaAnswer({ meta, input }: { meta: ImagingMetaResult; input: File | null }) {
+  const src = useObjectUrl(input);
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
+  const percent = (part: number, whole: number) => (whole > 0 ? (100 * part) / whole : 0) + "%";
+  return (
+    <div className="license-imaging-result">
+      {src && (
+        <div className="license-imaging-picture license-imaging-marked">
+          <img src={src} alt="The image described" onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })} />
+          {natural &&
+            meta.objects.map((o, i) => (
+              <span
+                key={i}
+                className="license-imaging-box"
+                style={{ left: percent(o.x, natural.w), top: percent(o.y, natural.h), width: percent(o.width, natural.w), height: percent(o.height, natural.h) }}
+                title={`${o.type}${o.name ? ": " + o.name : ""} (${Math.round(o.confidence * 100)} %)`}
+              >
+                <span>{o.name || o.type}</span>
+              </span>
+            ))}
+          {natural && meta.focus && (
+            <span className="license-imaging-focus" style={{ left: percent(meta.focus.x, natural.w), top: percent(meta.focus.y, natural.h) }} title="The point the image is about" />
+          )}
+        </div>
+      )}
+      <div className="license-status license-status-ok">
+        <span className="license-status-icon">
+          <IconCircleCheck size={20} stroke={1.8} />
+        </span>
+        <div className="license-status-text">
+          <strong>{meta.title || "No title"}</strong>
+          {meta.description && <span>{meta.description}</span>}
+          {meta.keywords.length > 0 && (
+            <div className="license-chips license-imaging-keywords">
+              {meta.keywords.map((k) => (
+                <span key={k} className="license-chip">
+                  {k}
+                </span>
+              ))}
+            </div>
+          )}
+          <span className="license-muted">
+            {meta.language ? meta.language + " · " : ""}
+            {meta.objects.length} {meta.objects.length === 1 ? "thing" : "things"} found{meta.focus ? " · a focus point" : ""} · {credits(meta.credits)} ·{" "}
+            {meta.creditsLeft.toLocaleString()} left{meta.cached ? " · the answer kept from before" : ""}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** the most of a text put on the page; the whole of it is in the download */
+const shownTextChars = 200_000;
+
+/**
+ * A real file read through the Relatude FileToText service, so whoever set up the license can see what
+ * the service makes of the files the database holds before code depends on it. Only offered when the
+ * license has the "filetotext" credit account every file is charged to. The kinds of file the service
+ * reads are listed once the panel is open; a file it cannot read is refused for nothing.
+ */
+function FileToTextTestPanel({ configuredUrl }: { configuredUrl: string }) {
+  const [serviceUrl, setServiceUrl] = useState(configuredUrl);
+  const url = serviceUrl.trim();
+  const [opened, setOpened] = useState(false);
+  const offer = useServiceInfo(opened, url, fetchFileToTextFormats);
+  const [file, setFile] = useState<File[]>([]);
+  const [languages, setLanguages] = useState("");
+  const [fresh, setFresh] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<FileToTextResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const readable = offer?.info?.formats.filter((f) => f.available) ?? [];
+
+  async function run() {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const form = new FormData();
+      form.set("serviceUrl", url);
+      form.set("file", file[0]);
+      if (languages.trim()) form.set("languages", languages.trim());
+      if (fresh) form.set("fresh", "true");
+      setResult(await runFileToTextTest(form));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <TestPanel
+      className="license-filetotext"
+      icon={<IconFileText size={15} stroke={1.8} />}
+      title="Test file to text"
+      sub="reads a real file, charged to the license"
+      label="the file to text test"
+      onOpen={() => setOpened(true)}
+    >
+      <div className="license-ai-url">
+        <Field label="Service URL" hint={configuredUrl ? "the address a database here uses" : undefined} locked={false}>
+          <input className="text-input" value={serviceUrl} placeholder="https://filetotext.services.relatude.com (the hosted service)" spellCheck={false} onChange={(e) => setServiceUrl(e.target.value)} />
+        </Field>
+        <ServiceOffer answer={offer}>
+          {offer?.info && (
+            <>
+              <span>
+                {credits(offer.info.creditsPerOperation)} a file, {credits(offer.info.creditsPerCachedOperation)} for one read before · files up to{" "}
+                {formatBytes(offer.info.maxFileBytes)} · reads {readable.length} kinds of file:
+              </span>
+              <span className="license-formats">
+                {readable.map((f) => (
+                  <span key={f.key} className="license-format" title={`${f.name} (${f.group})`}>
+                    {f.key}
+                  </span>
+                ))}
+              </span>
+            </>
+          )}
+        </ServiceOffer>
+      </div>
+      <div className="license-filetotext-fields">
+        <FilePick label="File" hint="Judged by what it holds, not by its name." files={file} disabled={busy} onChange={setFile} />
+        <Field label="Languages" hint="Codes such as nb, en, most likely first. They help OCR." locked={false}>
+          <input className="text-input" value={languages} placeholder="nb, en" spellCheck={false} disabled={busy} onChange={(e) => setLanguages(e.target.value)} />
+        </Field>
+        <div className="license-save">
+          <button className="action-button primary" onClick={run} disabled={busy || file.length === 0}>
+            <IconFileText size={15} stroke={1.8} />
+            {busy ? "Reading…" : "Read"}
+          </button>
+          <label className="license-toggle" title="Read the file again, and pay for it again, rather than take the text kept from before">
+            <input type="checkbox" checked={fresh} disabled={busy} onChange={(e) => setFresh(e.target.checked)} />
+            <span>Read anew</span>
+          </label>
+        </div>
+      </div>
+      {error && <div className="license-error">{error}</div>}
+      {result && <FileTextAnswer result={result} />}
+    </TestPanel>
+  );
+}
+
+function FileTextAnswer({ result }: { result: FileToTextResult }) {
+  const pages = useMemo(() => result.text.slice(0, shownTextChars).split("\f"), [result]);
+  const download = useObjectUrl(useMemo(() => new Blob([result.text], { type: "text/plain;charset=utf-8" }), [result]));
+  const facts = [
+    result.pages != null ? `${result.pages} ${result.pages === 1 ? "page" : "pages"}` : null,
+    `${result.characters.toLocaleString()} characters`,
+    result.ocr ? "partly read by OCR" : null,
+    result.truncated ? "cut: the file holds more" : null,
+  ].filter(Boolean);
+  const about = [result.title && `“${result.title}”`, result.author && "by " + result.author, result.language && "in " + result.language].filter(Boolean);
+  const name = (result.fileName || "file").replace(/\.[^.]*$/, "");
+  return (
+    <div className="license-filetotext-result">
+      <div className="license-status license-status-ok">
+        <span className="license-status-icon">
+          <IconCircleCheck size={20} stroke={1.8} />
+        </span>
+        <div className="license-status-text">
+          <strong>
+            Read as {result.format}
+            {result.fileName ? " · " + result.fileName : ""}
+          </strong>
+          <span className="license-muted">
+            {facts.join(" · ")} · {credits(result.credits)} · {result.creditsLeft.toLocaleString()} left{result.cached ? " · the text kept from before" : ""}
+          </span>
+          {about.length > 0 && <span className="license-muted">{about.join(" ")}</span>}
+        </div>
+        <div className="license-actions">
+          <CopyText text={result.text} title="Copy the text" small />
+          {download && (
+            <a className="action-button" href={download} download={name + ".txt"}>
+              <IconDownload size={14} stroke={1.8} />
+              Download
+            </a>
+          )}
+        </div>
+      </div>
+      <div className="license-text-result">
+        {result.text.length === 0 && <p className="license-muted">The file holds no text.</p>}
+        {pages.map((page, i) => (
+          <div key={i} className="license-text-page">
+            {pages.length > 1 && <span className="license-text-page-no">Page {i + 1}</span>}
+            <pre>{page}</pre>
+          </div>
+        ))}
+        {result.text.length > shownTextChars && (
+          <p className="license-muted">The first {shownTextChars.toLocaleString()} characters of {result.text.length.toLocaleString()} are shown; the download has them all.</p>
+        )}
+      </div>
     </div>
   );
 }

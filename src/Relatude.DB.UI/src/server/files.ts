@@ -104,6 +104,26 @@ export function deleteFiles(ioId: string, keys: string[]): Promise<{ deleted: nu
   return send<{ deleted: number; errors: string[] }>("io-delete-files", { ioId, keys });
 }
 
+/** A blob someone holds a lease on (blob storage only). */
+export interface LeasedBlob {
+  key: string;
+  state: string; // leased | breaking
+  /** a lease that never ends by itself: left by an older version, or taken by another tool */
+  infinite: boolean;
+  /** held by this server for one of its own open files */
+  heldHere: boolean;
+}
+
+/** The leased blobs below a folder ("" = the whole storage); supported is false where there are no leases. */
+export function fetchLeases(ioId: string, path: string): Promise<{ supported: boolean; leases: LeasedBlob[] }> {
+  return send<{ supported: boolean; leases: LeasedBlob[] }>("io-leases", { ioId, path });
+}
+
+/** Breaks the leases on these blobs, all but the ones this server holds itself. */
+export function breakLeases(ioId: string, keys: string[]): Promise<{ broken: number; skipped: number; errors: string[] }> {
+  return send<{ broken: number; skipped: number; errors: string[] }>("io-break-leases", { ioId, keys });
+}
+
 export function deleteFolder(ioId: string, path: string): Promise<{ deleted: boolean }> {
   return send<{ deleted: boolean }>("io-delete-folder", { ioId, path });
 }

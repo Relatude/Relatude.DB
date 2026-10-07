@@ -9,6 +9,8 @@ using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer.Settings;
+using Relatude.DB.FileToText;
+using Relatude.DB.Imaging;
 using Relatude.DB.SMS;
 using Relatude.DB.Tasks;
 using Relatude.DB.Web;
@@ -344,6 +346,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     void initializeCore() {
         AIEngine? ai = null;
         ISMSProvider? sms = null;
+        IImagingProvider? imaging = null;
+        IFileToTextProvider? fileToText = null;
         IDataStore? datastore = null;
         try {
             // before anything reads the log files: the store opens its own logger on them
@@ -410,6 +414,14 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 sms = LateBindings.CreateSmsProvider(settings.SMSSettings, () => server.Settings.ApiKey,
                     (sender, cancellationToken) => server.LicenseLogin.CheckSmsSenderAsync(sender, cancellationToken));
             }
+            // Image AI and the text of files, for application code alone as well (NodeStore.Imaging,
+            // NodeStore.FileToText). Unlike SMS they are there without settings: there is no sender to
+            // choose, the hosted Relatude services need nothing but this installation's license, read
+            // at every call like the SMS provider's, and nothing is charged until code calls them.
+            // The settings are for a self-hosted service or a custom provider, which is resolved here
+            // so a type that cannot be built says so when the database opens.
+            imaging = LateBindings.CreateImagingProvider(settings.ImagingSettings, () => server.Settings.ApiKey);
+            fileToText = LateBindings.CreateFileToTextProvider(settings.FileToTextSettings, () => server.Settings.ApiKey);
 
             List<string> toLog = new();
             var indexFolderPath = resolveIndexFolderPath(local, localDiskFolder);
@@ -479,7 +491,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             // read from the index folder, or generated and compiled when the model changed - which
             // is most of an open when there is little to replay
             _openingStep = "Preparing the object mappers";
-            Store = new NodeStore(datastore, sms);
+            Store = new NodeStore(datastore, sms, imaging, fileToText);
             _datastoreBeingBuilt = null;
             server?.RaiseEventStoreInit(this, Store);
         } catch {
@@ -493,9 +505,11 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             } else if (Store == null && ai != null) {
                 try { ai.Dispose(); } catch { }
             }
-            // the store never took ownership, so nothing else will close its http client
-            if (Store == null && sms != null) {
-                try { sms.Dispose(); } catch { }
+            // the store never took ownership, so nothing else will close their http clients
+            if (Store == null) {
+                try { sms?.Dispose(); } catch { }
+                try { imaging?.Dispose(); } catch { }
+                try { fileToText?.Dispose(); } catch { }
             }
             Interlocked.Increment(ref _hasFailedCounter);
             throw;

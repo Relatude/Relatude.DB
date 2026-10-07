@@ -5,6 +5,8 @@ using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
 using Relatude.DB.FileConversion;
+using Relatude.DB.FileToText;
+using Relatude.DB.Imaging;
 using Relatude.DB.IO;
 using Relatude.DB.Native.Models;
 using Relatude.DB.Query;
@@ -101,9 +103,11 @@ public class NodeStore : IDisposable {
     /// </summary>
     public Relatude.DB.Logging.ICustomLogs CustomLogs => Datastore.Logger.CustomLogs;
     readonly ISMSProvider? _sms;
-    // a store made by Context shares the provider with the one it came from, and must not dispose
-    // what it did not make: there is one provider per database, and it outlives any reading context
-    readonly bool _ownsSms;
+    readonly IImagingProvider? _imaging;
+    readonly IFileToTextProvider? _fileToText;
+    // a store made by Context shares the providers with the one it came from, and must not dispose
+    // what it did not make: there is one of each per database, and they outlive any reading context
+    readonly bool _ownsProviders;
     /// <summary>
     /// Sends text messages, as configured for this database. Unlike <see cref="AI"/> nothing inside
     /// the database uses it: it is here so application code can send a message - a confirmation, a
@@ -116,6 +120,29 @@ public class NodeStore : IDisposable {
     public ISMSProvider SMS => _sms ?? throw new Exception("No SMS provider is configured for this database. Set one under Messaging in the admin UI, or as SMSSettings in relatude.db.json. ");
     /// <summary>Whether an SMS provider is configured, and <see cref="SMS"/> can therefore be used.</summary>
     public bool HasSMSProvider => _sms != null;
+    /// <summary>
+    /// Image AI - creating images, changing them, saying what they show - as configured for this
+    /// database. Like <see cref="SMS"/> nothing inside the database uses it: it is here so application
+    /// code can call the service the installation's license already pays for, rather than holding a
+    /// vendor account of its own. On a server it is always there, calling the hosted Relatude Imaging
+    /// service with the installation's license unless the database's ImagingSettings name another.
+    /// <para>Throws when no imaging provider was given, so check <see cref="HasImagingProvider"/> first
+    /// on a path that has to work either way. The provider is owned by the store and disposed with it.</para>
+    /// </summary>
+    public IImagingProvider Imaging => _imaging ?? throw new Exception("No imaging provider is configured for this database. A database on a server has the Relatude Imaging service; a store built from code is given one in its constructor. ");
+    /// <summary>Whether an imaging provider is configured, and <see cref="Imaging"/> can therefore be used.</summary>
+    public bool HasImagingProvider => _imaging != null;
+    /// <summary>
+    /// The text of files - documents, spreadsheets, PDFs, e-mails, and pictures read by OCR - as
+    /// configured for this database, for application code to index or show. On a server it is always
+    /// there, calling the hosted Relatude FileToText service with the installation's license unless
+    /// the database's FileToTextSettings name another.
+    /// <para>Throws when no provider was given, so check <see cref="HasFileToTextProvider"/> first on a
+    /// path that has to work either way. The provider is owned by the store and disposed with it.</para>
+    /// </summary>
+    public IFileToTextProvider FileToText => _fileToText ?? throw new Exception("No file-to-text provider is configured for this database. A database on a server has the Relatude FileToText service; a store built from code is given one in its constructor. ");
+    /// <summary>Whether a file-to-text provider is configured, and <see cref="FileToText"/> can therefore be used.</summary>
+    public bool HasFileToTextProvider => _fileToText != null;
     internal List<INodeTransactionPlugin>? _transactionPlugins = null;
     internal List<INodeTransactionPlugin> TransactionPlugins {
         get {
@@ -146,16 +173,18 @@ public class NodeStore : IDisposable {
     public void SetQueryContext(QueryContext qx) => Datastore.SetDefaultQueryContext(qx);
 
     internal NodeStore NewStoreWithDifferentContext(QueryContext ctx) {
-        return new NodeStore(new DataStoreSession(ctx, Datastore), Mapper, TransactionPlugins, _sms);
+        return new NodeStore(new DataStoreSession(ctx, Datastore), Mapper, TransactionPlugins, _sms, _imaging, _fileToText);
     }
 
-    // the reading context is all that differs, so the new store shares the SMS provider rather than
-    // taking one of its own: it is the database's, and there is only ever one of it to dispose
-    private NodeStore(DataStoreSession datastore, NodeMapper mapper, List<INodeTransactionPlugin> plugins, ISMSProvider? sms) {
+    // the reading context is all that differs, so the new store shares the SMS, imaging and file-to-text
+    // providers rather than taking its own: they are the database's, and there is only ever one of each to dispose
+    private NodeStore(DataStoreSession datastore, NodeMapper mapper, List<INodeTransactionPlugin> plugins, ISMSProvider? sms, IImagingProvider? imaging, IFileToTextProvider? fileToText) {
         Datastore = datastore;
         Mapper = mapper;
         _transactionPlugins = plugins;
         _sms = sms;
+        _imaging = imaging;
+        _fileToText = fileToText;
     }
     /// <summary>
     /// Wraps a data store and builds the object mapping layer for it. On the first run the mapper implementations for
@@ -166,10 +195,14 @@ public class NodeStore : IDisposable {
     /// </summary>
     /// <param name="datastore">The store this one wraps.</param>
     /// <param name="sms">How this database sends text messages, for <see cref="SMS"/>. Null on a database that sends none; disposed with this store.</param>
-    public NodeStore(IDataStore datastore, ISMSProvider? sms = null) {
+    /// <param name="imaging">The image AI of this database, for <see cref="Imaging"/>. Null on a database without; disposed with this store.</param>
+    /// <param name="fileToText">What reads the text of files for this database, for <see cref="FileToText"/>. Null on a database without; disposed with this store.</param>
+    public NodeStore(IDataStore datastore, ISMSProvider? sms = null, IImagingProvider? imaging = null, IFileToTextProvider? fileToText = null) {
         Datastore = datastore;
         _sms = sms;
-        _ownsSms = sms != null;
+        _imaging = imaging;
+        _fileToText = fileToText;
+        _ownsProviders = true;
         var sw = Stopwatch.StartNew();
         datastore.Datamodel.EnsureInitalization();
         if (_transactionPlugins != null) foreach (var plugin in _transactionPlugins) plugin.Database = this;
@@ -1505,8 +1538,12 @@ public class NodeStore : IDisposable {
     /// <summary>Closes the underlying data store. Only dispose the store when the application is shutting down.</summary>
     public virtual void Dispose() {
         Datastore.Dispose();
-        // only the database's own store disposes the SMS provider; a store from Context shares it
-        if (_ownsSms) _sms?.Dispose();
+        // only the database's own store disposes the providers; a store from Context shares them
+        if (_ownsProviders) {
+            _sms?.Dispose();
+            _imaging?.Dispose();
+            _fileToText?.Dispose();
+        }
     }
 
     /// <summary>

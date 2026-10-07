@@ -68,6 +68,8 @@ export interface ConfirmState {
   body: string;
   confirmLabel: string;
   danger: boolean;
+  // the things it is about, one per line under the body, as a message's details are shown
+  details: string[];
   // required = the confirm button stays disabled until it is ticked; used by the extra dialog in
   // front of deleting primary data, where the point is that the choice cannot be made absently
   option: { label: string; checked: boolean; required: boolean } | null;
@@ -526,7 +528,7 @@ function show(message: MessageState): Promise<void> {
 export function showConfirm(
   title: string,
   body: string,
-  options?: { confirmLabel?: string; danger?: boolean; option?: { label: string; checked?: boolean; required?: boolean } },
+  options?: { confirmLabel?: string; danger?: boolean; details?: string[]; option?: { label: string; checked?: boolean; required?: boolean } },
 ): Promise<ConfirmResult> {
   return new Promise((resolve) => {
     whenIdle(() => {
@@ -536,6 +538,7 @@ export function showConfirm(
         body,
         confirmLabel: options?.confirmLabel ?? "OK",
         danger: options?.danger ?? false,
+        details: options?.details ?? [],
         option: options?.option
           ? { label: options.option.label, checked: options.option.checked ?? false, required: options.option.required ?? false }
           : null,

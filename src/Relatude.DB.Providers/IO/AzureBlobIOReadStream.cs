@@ -2,7 +2,6 @@ namespace Relatude.DB.IO;
 public class AzureBlobIOReadStream : IReadStream {
     readonly AzureBlobRestClient _client;
     readonly string _blobName;
-    readonly string? _leaseId;
     ChecksumUtil _checksum = new();
     readonly long _totalLength = 0;
     readonly long _readAheadBufferSize = 1024 * 1024; // 1 mb read ahead buffer
@@ -14,17 +13,14 @@ public class AzureBlobIOReadStream : IReadStream {
     public void ResetByteCounter() {
         _bytesRead = 0;
     }
-    internal AzureBlobIOReadStream(AzureBlobRestClient client, string fileKey, long position, bool lockBlob, Action disposeCallback) {
+    // the provider reads the properties and takes the lease (with lockBlob) before this runs, and lets
+    // go of the lease in the dispose callback: the lease is shared with its other streams on the blob,
+    // and reading needs none, so the downloads go without one
+    internal AzureBlobIOReadStream(AzureBlobRestClient client, string fileKey, long position, BlobProperties? properties, Action disposeCallback) {
         FileKey = fileKey;
         _disposeCallback = disposeCallback;
         _client = client;
         _blobName = fileKey;
-        AzureBlobIOProvider.EnsureResetOfLeaseId(client, fileKey);
-        var properties = _client.GetProperties(fileKey);
-        if (lockBlob && properties != null) {
-            _leaseId = _client.AcquireLease(fileKey);
-            AzureBlobIOProvider.SaveLastLeaseId(fileKey, _leaseId);
-        }
         _readAheadBuffer = Array.Empty<byte>();
         _bufferStartPos = 0;
         if (properties != null) _totalLength = properties.ContentLength;
@@ -43,7 +39,7 @@ public class AzureBlobIOReadStream : IReadStream {
             var lengthToRead = Math.Max(length, _readAheadBufferSize);
             if (Position + lengthToRead > _totalLength) lengthToRead = _totalLength - Position;
             _readAheadBuffer = new byte[lengthToRead];
-            _client.DownloadRange(_blobName, Position, (int)lengthToRead, _leaseId, _readAheadBuffer);
+            _client.DownloadRange(_blobName, Position, (int)lengthToRead, null, _readAheadBuffer);
             _bufferStartPos = Position;
         }
         byte[] result;
@@ -67,14 +63,6 @@ public class AzureBlobIOReadStream : IReadStream {
     public void Dispose() {
         if (_isDisposed) return;
         _isDisposed = true;
-        if (_leaseId != null) {
-            try {
-                _client.ReleaseLease(_blobName, _leaseId); // it can be already released by the caller or deleted
-                AzureBlobIOProvider.DeleteLastLeaseId(_blobName);
-            } catch {
-                // release failed, keep the lease file so the next open can release or break the lease
-            }
-        }
         _disposeCallback();
     }
 
@@ -93,7 +81,7 @@ public class AzureBlobIOReadStream : IReadStream {
             var lengthToRead = Math.Max((long)count, _readAheadBufferSize);
             if (Position + lengthToRead > _totalLength) lengthToRead = _totalLength - Position;
             _readAheadBuffer = new byte[lengthToRead];
-            await _client.DownloadRangeAsync(_blobName, Position, (int)lengthToRead, _leaseId, _readAheadBuffer);
+            await _client.DownloadRangeAsync(_blobName, Position, (int)lengthToRead, null, _readAheadBuffer);
             _bufferStartPos = Position;
         }
 

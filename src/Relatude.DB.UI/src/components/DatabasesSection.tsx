@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { IconCheck, IconDatabasePlus, IconPlayerPlayFilled, IconPlayerStopFilled, IconPlus, IconRefresh, IconStar, IconStarFilled } from "@tabler/icons-react";
+import { IconCheck, IconDatabasePlus, IconPlus, IconRefresh, IconStar, IconStarFilled } from "@tabler/icons-react";
 import { PanelGrid, type PanelRow } from "./PanelGrid";
 import { PowerOrb, powerTone } from "./PowerOrb";
 import { FadeText } from "./FadeText";
-import { showConfirm, showError, showInfo } from "../dialogs";
+import { showError, showInfo } from "../dialogs";
 import { subscribe, subscribeResync } from "../server/channel";
 import { createDatabase, fetchDatabases, setDefaultDatabase, type DatabaseList, type DatabaseRow } from "../server/databases";
 import { closeStore, openStore } from "../server/storage";
@@ -101,9 +101,10 @@ const databasesScope: OverridesScope = {
 };
 
 /**
- * One database. The two things that change what the server does - running or not, default or not -
- * are the two buttons on the right, said in words: an icon alone never says which way it is about to
- * go, and closing a database takes an application offline.
+ * One database. Whether it runs is the power orb, as on the dashboard: it is both how the database
+ * stands and its switch, and pointing at it turns the state word into what pressing it would do,
+ * since a power button never says which way it is about to go. Whether it is the default is the
+ * labelled button on the right.
  */
 function DatabaseCard({
   db,
@@ -123,21 +124,16 @@ function DatabaseCard({
   const [busy, setBusy] = useState<"toggle" | "default" | null>(null);
   const settling = db.state === "Opening" || db.state === "Closing";
   const isOpen = db.state === "Open";
+  // the press shows at once: the list only learns the new state when the server broadcasts it
+  const shownState = busy === "toggle" && !settling ? (isOpen ? "Closing" : "Opening") : db.state;
 
   /**
    * Opening replays the transaction log and rebuilds the indexes; closing takes the database away
-   * from the application until it is opened again. Only closing asks first - the disruptive
-   * direction is the one worth a dialog.
+   * from the application until it is opened again. Neither asks first, the same as the dashboard's
+   * orb: a stop flushes everything before it closes, so nothing is lost, and the same orb starts it
+   * again.
    */
   async function toggle() {
-    if (isOpen) {
-      const confirmed = await showConfirm(
-        `Stop ${db.name}?`,
-        "The application cannot read or write this database until it is started again. Anything not yet flushed is written out first, so nothing is lost.",
-        { confirmLabel: "Stop", danger: true },
-      );
-      if (!confirmed.ok) return;
-    }
     setBusy("toggle");
     try {
       await (isOpen ? closeStore(db.id) : openStore(db.id));
@@ -161,9 +157,15 @@ function DatabaseCard({
   }
 
   return (
-    <div className={"db-card power-" + powerTone(db.state) + (db.isDefault ? " is-default" : "")}>
-      {/* how it stands, the way the dashboard shows it: a picture here, the switch is the button on the right */}
-      <PowerOrb state={db.state} size={38} />
+    <div className={"db-card power-" + powerTone(shownState) + (db.isDefault ? " is-default" : "")}>
+      {/* how it stands and its switch, the way the dashboard shows it */}
+      <PowerOrb
+        state={shownState}
+        size={38}
+        onClick={settling ? undefined : toggle}
+        disabled={busy !== null}
+        title={settling ? db.state : isOpen ? "Stop the database" : db.state === "Error" ? "Start the database again" : "Start the database"}
+      />
       <div className="db-card-main">
         <div className="db-card-head">
           <button className="db-card-name" onClick={() => onOpenSection?.(db.id)} title="Open this database in the pages on the left">
@@ -176,8 +178,18 @@ function DatabaseCard({
           )}
         </div>
         <div className="db-card-facts">
+          {/* the state and what pressing the orb would do share one place, one fading into the other;
+              the longest of the hints holds the place open, so the facts after it never move */}
           <span className="power-word db-card-state">
-            <FadeText fadeKey={db.state}>{db.state}</FadeText>
+            <span className="db-card-state-sizer" aria-hidden="true">
+              press to try again
+            </span>
+            <span className="db-card-state-now">
+              <FadeText fadeKey={shownState}>{shownState}</FadeText>
+            </span>
+            <span className="db-card-state-hint" aria-hidden="true">
+              {isOpen ? "press to stop" : db.state === "Error" ? "press to try again" : "press to start"}
+            </span>
           </span>
           <span title="Where the files of this database live">{db.storage}</span>
           <span>{isOpen ? `${formatCount(db.nodeCount ?? 0)} nodes · ${formatCount(db.relationCount ?? 0)} relations` : "not counted while closed"}</span>
@@ -189,15 +201,6 @@ function DatabaseCard({
         {db.startupError && <div className="db-card-error">{db.startupError}</div>}
       </div>
       <div className="db-card-actions">
-        <button
-          className={"big-button" + (isOpen ? " danger" : " go")}
-          onClick={toggle}
-          disabled={busy !== null || settling}
-          title={isOpen ? "Close this database; the application can no longer reach it" : "Open this database: replays the transaction log and rebuilds the indexes"}
-        >
-          {isOpen ? <IconPlayerStopFilled size={16} stroke={1.8} /> : <IconPlayerPlayFilled size={16} stroke={1.8} />}
-          <span>{busy === "toggle" ? (isOpen ? "Closing…" : "Opening…") : settling ? db.state + "…" : isOpen ? "Stop" : "Start"}</span>
-        </button>
         <button
           className={"big-button quiet" + (db.isDefault ? " on" : "")}
           onClick={makeDefault}

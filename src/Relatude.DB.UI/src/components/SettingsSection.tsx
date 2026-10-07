@@ -15,6 +15,7 @@ import {
   IconArrowBackUp,
   IconChevronDown,
   IconChevronRight,
+  IconCloud,
   IconCode,
   IconDatabase,
   IconExternalLink,
@@ -603,6 +604,7 @@ const sectionIcons: Record<string, ComponentType<{ size?: number; stroke?: numbe
   performance: IconGauge,
   search: IconSparkles,
   messaging: IconMessage,
+  services: IconCloud,
   maintenance: IconArchive,
   diagnostics: IconStethoscope,
 };

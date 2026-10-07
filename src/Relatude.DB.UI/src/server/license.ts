@@ -1,3 +1,4 @@
+import { adminBase } from "./base";
 import { send } from "./channel";
 import { saveServerSettings } from "./settings";
 
@@ -125,6 +126,10 @@ export interface LicenseStatus {
    * from; null when none names one, and the hosted service is meant.
    */
   aiServiceUrl: string | null;
+  /** The Relatude Imaging service address a database here is set up to use, which the imaging test starts from; null for the hosted service. */
+  imagingServiceUrl?: string | null;
+  /** The Relatude FileToText service address a database here is set up to use, which the file-to-text test starts from; null for the hosted service. */
+  fileToTextServiceUrl?: string | null;
   /** settings paths decided by configuration, which cannot be edited from this page */
   locked: string[];
 }
@@ -284,6 +289,164 @@ export function testAiEmbedding(values: { serviceUrl: string; model: string; tex
 /** Answers one prompt through the Relatude AI service, charged to the license like the embedding test. */
 export function testAiCompletion(values: { serviceUrl: string; model: string; text: string }): Promise<AiCompletionResult> {
   return send<AiCompletionResult>("license-ai-complete-test", values);
+}
+
+/** Whether the license has the "ai_image" credit account the Relatude Imaging service charges every operation to; no feature is needed. */
+export function licenseCarriesImaging(status: LicenseStatus): boolean {
+  return status.state === "valid" && !!status.license?.active && status.license.accounts.some((a) => isKey(a.key, "ai_image"));
+}
+
+/** Whether the license has the "filetotext" credit account the Relatude FileToText service charges every file to; no feature is needed. */
+export function licenseCarriesFileToText(status: LicenseStatus): boolean {
+  return status.state === "valid" && !!status.license?.active && status.license.accounts.some((a) => isKey(a.key, "filetotext"));
+}
+
+/** One operation of the Imaging service: its key, which is also its route, a name for people, and whether it can be called there. */
+export interface ImagingOperationInfo {
+  key: string;
+  name: string;
+  available: boolean;
+}
+
+/** What the Imaging service offers and what it costs. Asking costs nothing and needs no license. */
+export interface ImagingOperations {
+  operations: ImagingOperationInfo[];
+  creditsPerOperation: number;
+  creditsPerCachedOperation: number;
+  partBytes: number;
+  maxFileBytes: number;
+}
+
+/** The Imaging service's operations, asked of the address given; empty is the hosted service. */
+export function fetchImagingOperations(serviceUrl: string): Promise<ImagingOperations> {
+  return send<ImagingOperations>("license-imaging-operations", { serviceUrl });
+}
+
+/** An image an operation made: the PNG, its size, its SHA-256 at the service, and what it cost. */
+export interface ImagingImageResult {
+  kind: "image";
+  png: Blob;
+  width: number;
+  height: number;
+  sha256: string;
+  credits: number;
+  creditsLeft: number;
+  cached: boolean;
+}
+
+/** Something in an image and the box around it, in pixels of the image as shown. */
+export interface ImagingObject {
+  type: string;
+  name: string | null;
+  confidence: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** What image-to-meta says an image shows. Focus and objects are optional: not every provider finds them. */
+export interface ImagingMetaResult {
+  kind: "meta";
+  title: string;
+  description: string;
+  keywords: string[];
+  language: string | null;
+  focus: { x: number; y: number } | null;
+  objects: ImagingObject[];
+  credits: number;
+  creditsLeft: number;
+  cached: boolean;
+}
+
+/** A form posted to one of the two test routes, the answer's error turned into an exception in the service's own words. */
+async function postTest(route: string, form: FormData, signal?: AbortSignal): Promise<Response> {
+  const response = await fetch(`${adminBase}/ui/${route}`, { method: "POST", body: form, signal });
+  if (!response.ok) {
+    let message = `The test failed (HTTP ${response.status}).`;
+    try {
+      const body = await response.json();
+      if (typeof body?.error === "string") message = body.error;
+    } catch {
+      // not json, keep the default message
+    }
+    throw new Error(message);
+  }
+  return response;
+}
+
+function intHeader(response: Response, name: string): number {
+  const value = Number(response.headers.get(name));
+  return Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * Runs one operation of the Imaging service with this installation's API key, charged to the license.
+ * The form names the operation and carries the service's own fields, the images as files. An image
+ * comes back as the PNG with what it cost in headers; image-to-meta as JSON.
+ */
+export async function runImagingTest(form: FormData, signal?: AbortSignal): Promise<ImagingImageResult | ImagingMetaResult> {
+  const response = await postTest("imaging-test", form, signal);
+  if ((response.headers.get("content-type") ?? "").startsWith("image/")) {
+    return {
+      kind: "image",
+      png: await response.blob(),
+      width: intHeader(response, "X-Width"),
+      height: intHeader(response, "X-Height"),
+      sha256: response.headers.get("X-Sha256") ?? "",
+      credits: intHeader(response, "X-Credits"),
+      creditsLeft: intHeader(response, "X-Credits-Left"),
+      cached: response.headers.get("X-Cache") === "hit",
+    };
+  }
+  const meta = (await response.json()) as Omit<ImagingMetaResult, "kind">;
+  return { ...meta, keywords: meta.keywords ?? [], objects: meta.objects ?? [], kind: "meta" };
+}
+
+/** One kind of file the FileToText service knows, and whether it reads it there. */
+export interface FileToTextFormat {
+  key: string;
+  name: string;
+  group: string;
+  mediaType: string;
+  extensions: string[];
+  available: boolean;
+}
+
+/** What the FileToText service reads and what a file costs. Asking costs nothing and needs no license. */
+export interface FileToTextFormats {
+  formats: FileToTextFormat[];
+  creditsPerOperation: number;
+  creditsPerCachedOperation: number;
+  partBytes: number;
+  maxFileBytes: number;
+}
+
+/** The FileToText service's formats, asked of the address given; empty is the hosted service. */
+export function fetchFileToTextFormats(serviceUrl: string): Promise<FileToTextFormats> {
+  return send<FileToTextFormats>("license-filetotext-formats", { serviceUrl });
+}
+
+/** The text of a file as the FileToText service read it: pages separated by form feeds, and what the file says of itself. */
+export interface FileToTextResult {
+  text: string;
+  format: string;
+  fileName: string | null;
+  characters: number;
+  pages: number | null;
+  truncated: boolean;
+  ocr: boolean;
+  title: string | null;
+  author: string | null;
+  language: string | null;
+  credits: number;
+  creditsLeft: number;
+  cached: boolean;
+}
+
+/** Reads one file through the FileToText service with this installation's API key, charged to the license. */
+export async function runFileToTextTest(form: FormData, signal?: AbortSignal): Promise<FileToTextResult> {
+  return (await (await postTest("filetotext-test", form, signal)).json()) as FileToTextResult;
 }
 
 /** Whether the rail should draw attention to the Relatude Services entry, and in how many words. */

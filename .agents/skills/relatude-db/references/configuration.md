@@ -102,7 +102,7 @@ One server, N containers (databases), each with its own IO providers, file store
 
 An `IOSettings` entry is a *storage backend*; the `Io…` fields on the container point at one by id. That indirection is what lets the log, the indexes and the file bytes live in different places — local disk for indexes, Azure blob for files — without repeating connection details.
 
-For `AzureBlobStorage`, the entry carries `BlobConnectionString`, `BlobContainerName` and `LockBlob` instead of `Path`. For `LocalDisk`, a path starting with `~` is rooted at the root data folder, and a path that escapes it is rejected with "Path not under root".
+For `AzureBlobStorage`, the entry carries `BlobConnectionString`, `BlobContainerName` and `LockBlob` instead of `Path`. `LockBlob` leases each blob with an open stream for 60 s, renewed while open, so a lease left by a dead process ends within a minute and an open waits up to 75 s for one (then `FileLockedException`); never-ending leases left by older versions are broken in the admin UI under Files › Leases. For `LocalDisk`, a path starting with `~` is rooted at the root data folder, and a path that escapes it is rejected with "Path not under root".
 
 ## Server level
 
@@ -138,7 +138,7 @@ For `AzureBlobStorage`, the entry carries `BlobConnectionString`, `BlobContainer
 | `EnableInstantTextIndexingByDefault` | `false` | Text index written in the transaction instead of by the background queue |
 | `DefaultCultureCode` | `null` | Culture for the empty culture id |
 | `DefaultReadAccess` / `DefaultWriteAccess` | `Everyone` | ACL default |
-| `DefaultFileStore` | unset | Which `FileStoreSettings` entry `FileValue` bytes go to; unset = an implicit `MultiFile` store on `IoDatabase` (one copy per upload, MD5). New installations (`CreateDefault()`, `relatude new`/`init`, a database added in the admin UI) get a `MultiFile` store with `SameHashSameFile` + `SHA256`, named here. Files already uploaded keep reading from the store they recorded (the implicit one is `Guid.Empty`); to move them, or to bring old files up to a store's new hash / one copy per content, use Storage › File storage › Rewrite files… or `DataStoreLocal.RewriteFilesAsync(fromStoreId, toStoreId)` (old copies stay until the unreferenced-files cleanup) |
+| `DefaultFileStore` | unset | Which `FileStoreSettings` entry `FileValue` bytes go to; unset = an implicit `MultiFile` store on `IoDatabase` (one copy per upload, MD5). New installations (`CreateDefault()`, `relatude new`/`init`, a database added in the admin UI) get a `MultiFile` store with `SameHashSameFile` + `SHA256`, named here. Files already uploaded keep reading from the store they recorded (the implicit one is `Guid.Empty`); to move them, or to bring old files up to a store's new hash / one copy per content, use Storage › File storage › Rewrite files… (one target store; its hash and SameHashSameFile are chosen there and saved as its settings) or `DataStoreLocal.RewriteFilesAsync(toStoreId)` - every file whose property uploads into that store, from wherever it is - or `RewriteFilesAsync(fromStoreId, toStoreId)` (old copies stay until the unreferenced-files cleanup) |
 
 **Index engines** — each index kind has a list of engines it may run on and a default id that picks one; the empty guid is the memory index (resident, saved with the state snapshot, otherwise rebuilt from the log at every open):
 

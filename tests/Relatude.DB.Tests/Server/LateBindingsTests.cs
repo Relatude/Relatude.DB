@@ -6,6 +6,8 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Relatude.DB.DataStores;
+using Relatude.DB.FileToText;
+using Relatude.DB.Imaging;
 
 namespace Relatude.Server;
 
@@ -77,6 +79,32 @@ public class LateBindingsTests {
                 "\"" + name + "\" is offered as a provider type but CreateAiProvider does not recognise it, so it would be "
                 + "taken as the type name of a custom provider and fail when the database opens.");
         }
+    }
+
+    /// <summary>
+    /// A database has the hosted Imaging and FileToText services without any settings - they need
+    /// nothing but the installation's license, and cost nothing until code calls them - and the names
+    /// the settings page suggests for them build the same thing, at the address the settings give.
+    /// A name that is neither is a custom provider's type, resolved by name and failing when it is not there.
+    /// </summary>
+    [TestMethod]
+    public void ImagingAndFileToTextAreTheRelatudeServicesUnlessTheSettingsNameAnother() {
+        using (var imaging = LateBindings.CreateImagingProvider(null, () => "key")) {
+            Assert.AreEqual(RelatudeServicesImagingProvider.DefaultServiceUrl, ((RelatudeServicesImagingProvider)imaging).ServiceUrl);
+        }
+        using (var fileToText = LateBindings.CreateFileToTextProvider(null, () => "key")) {
+            Assert.AreEqual(RelatudeServicesFileToTextProvider.DefaultServiceUrl, ((RelatudeServicesFileToTextProvider)fileToText).ServiceUrl);
+        }
+        foreach (var name in new[] { "", RelatudeServicesImagingProvider.ShortName, nameof(RelatudeServicesImagingProvider) }) {
+            using var imaging = LateBindings.CreateImagingProvider(new ImagingProviderSettings { TypeName = name, ServiceUrl = "https://localhost:7101/" });
+            Assert.AreEqual("https://localhost:7101", ((RelatudeServicesImagingProvider)imaging).ServiceUrl, "\"" + name + "\" is the Relatude service");
+        }
+        foreach (var name in new[] { "", RelatudeServicesFileToTextProvider.ShortName, nameof(RelatudeServicesFileToTextProvider) }) {
+            using var fileToText = LateBindings.CreateFileToTextProvider(new FileToTextProviderSettings { TypeName = name, ServiceUrl = "https://localhost:7102" });
+            Assert.AreEqual("https://localhost:7102", ((RelatudeServicesFileToTextProvider)fileToText).ServiceUrl, "\"" + name + "\" is the Relatude service");
+        }
+        Assert.Throws<Exception>(() => LateBindings.CreateImagingProvider(new ImagingProviderSettings { TypeName = "No.Such.ImagingProvider" }));
+        Assert.Throws<Exception>(() => LateBindings.CreateFileToTextProvider(new FileToTextProviderSettings { TypeName = "No.Such.FileToTextProvider" }));
     }
 
     /// <summary>

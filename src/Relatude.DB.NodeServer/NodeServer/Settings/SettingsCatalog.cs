@@ -1,6 +1,8 @@
 using Relatude.DB.AI;
 using Relatude.DB.DataStores;
 using Relatude.DB.Datamodels;
+using Relatude.DB.FileToText;
+using Relatude.DB.Imaging;
 using Relatude.DB.SMS;
 
 namespace Relatude.DB.NodeServer.Settings;
@@ -236,6 +238,21 @@ public static class SettingsCatalog {
     static SettingVisibility relatudeSmsService() => new() {
         Path = "SMSSettings.TypeName",
         Values = ["", RelatudeServicesSMSProvider.ShortName, nameof(RelatudeServicesSMSProvider)],
+    };
+
+    /// <summary>
+    /// What the imaging and file-to-text provider types hold when they mean the hosted Relatude
+    /// service: nothing, or one of the service's two names - the ones <c>LateBindings.CreateImagingProvider</c>
+    /// and <c>CreateFileToTextProvider</c> build the service for. The API key only a custom provider
+    /// uses is hidden for exactly these; SettingsCatalogTests checks the two stay in step.
+    /// </summary>
+    static SettingVisibility relatudeImagingService() => new() {
+        Path = "ImagingSettings.TypeName",
+        Values = ["", RelatudeServicesImagingProvider.ShortName, nameof(RelatudeServicesImagingProvider)],
+    };
+    static SettingVisibility relatudeFileToTextService() => new() {
+        Path = "FileToTextSettings.TypeName",
+        Values = ["", RelatudeServicesFileToTextProvider.ShortName, nameof(RelatudeServicesFileToTextProvider)],
     };
 
     /// <summary>
@@ -557,7 +574,7 @@ public static class SettingsCatalog {
                             new() {
                                 Path = "LockBlob", Label = "Lease the blobs",
                                 VisibleWhen = new() { Path = "IOType", Values = ["AzureBlobStorage"] },
-                                Help = "Takes a lease on the database blobs, so a second instance cannot open the same database and corrupt it. Turn it off only when you are certain one process at a time will write, since a lease left behind by a crashed instance blocks the next start until it expires.",
+                                Help = "Takes a lease on every blob with an open stream, so a second instance cannot write the same database and corrupt it. A lease lasts a minute and is renewed while the file is open, so one left behind by an instance that stopped without letting go holds the next start back for up to a minute - the start waits for it. Leases left by older versions never end: break them under Files, on this storage, with Leases.",
                             },
                             new() {
                                 Path = "Id", Label = "IO provider id", ReadOnly = true,
@@ -1094,6 +1111,57 @@ public static class SettingsCatalog {
                         new() {
                             Path = "SMSSettings.From", Label = "Sender", Placeholder = "the service's own",
                             Help = "What the message appears to come from; leave it empty to use the service's own. The Relatude service only sends as a sender approved for the license - a name of up to 11 letters and digits, or a phone number with its country code - which is requested on the license's page in Relatude Services and approved by Relatude. Any other is refused before anything is sent. A custom provider's gateway decides its own senders.",
+                        },
+                    ],
+                },
+            ],
+        },
+        new() {
+            Id = "services", Title = "Services", Icon = "services",
+            Groups = [
+                new() {
+                    Id = "imaging",
+                    Title = "Image AI",
+                    Help = "Creating images, changing them and saying what they show. Nothing in the database calls it by itself: this is for your own code, which reaches it as NodeStore.Imaging. It is there without any settings, calling the hosted Relatude Imaging service with this installation's license, and nothing is charged until code calls it.",
+                    Settings = [
+                        new() {
+                            Path = "ImagingSettings.TypeName", Label = "Provider type", Placeholder = RelatudeServicesImagingProvider.ShortName,
+                            // the names LateBindings.CreateImagingProvider knows; SettingsCatalogTests checks they stay in step
+                            Help = "Selects the provider implementation. The Relatude service is the only one built in, and what an empty value means: it calls the hosted Relatude Imaging service and charges each call to this installation's license, from its \"ai_image\" credit account, so it needs no API key here. Anything else is taken as the full type name of a custom provider and resolved when the database opens, so a typo shows up as a start-up error.",
+                            Suggestions = [
+                                new() { Value = RelatudeServicesImagingProvider.ShortName, Hint = "billed to your Relatude license, no vendor account" },
+                            ],
+                        },
+                        new() {
+                            Path = "ImagingSettings.ServiceUrl", Label = "Service URL", Placeholder = RelatudeServicesImagingProvider.DefaultServiceUrl,
+                            Help = "Where the service is. Empty is the hosted Relatude Imaging service; set it to call a self-hosted or test deployment of the service, or the endpoint a custom provider calls.",
+                        },
+                        new() {
+                            Path = "ImagingSettings.ApiKey", Label = "API key", Secret = true, HiddenWhen = relatudeImagingService(),
+                            Help = "The key the custom provider sends with. Keep it in appsettings, an environment variable or user secrets rather than the settings file - configuration values are never written back to disk.",
+                        },
+                    ],
+                },
+                new() {
+                    Id = "filetotext",
+                    Title = "File to text",
+                    Help = "The plain text of files - documents, spreadsheets, presentations, e-mails, e-books, PDFs, and pictures read by OCR - for your own code to index or show, which reaches it as NodeStore.FileToText. It is there without any settings, calling the hosted Relatude FileToText service with this installation's license, and nothing is charged until code calls it.",
+                    Settings = [
+                        new() {
+                            Path = "FileToTextSettings.TypeName", Label = "Provider type", Placeholder = RelatudeServicesFileToTextProvider.ShortName,
+                            // the names LateBindings.CreateFileToTextProvider knows; SettingsCatalogTests checks they stay in step
+                            Help = "Selects the provider implementation. The Relatude service is the only one built in, and what an empty value means: it calls the hosted Relatude FileToText service and charges each file to this installation's license, from its \"filetotext\" credit account, so it needs no API key here. Anything else is taken as the full type name of a custom provider and resolved when the database opens, so a typo shows up as a start-up error.",
+                            Suggestions = [
+                                new() { Value = RelatudeServicesFileToTextProvider.ShortName, Hint = "billed to your Relatude license, no vendor account" },
+                            ],
+                        },
+                        new() {
+                            Path = "FileToTextSettings.ServiceUrl", Label = "Service URL", Placeholder = RelatudeServicesFileToTextProvider.DefaultServiceUrl,
+                            Help = "Where the service is. Empty is the hosted Relatude FileToText service; set it to call a self-hosted or test deployment of the service, or the endpoint a custom provider calls.",
+                        },
+                        new() {
+                            Path = "FileToTextSettings.ApiKey", Label = "API key", Secret = true, HiddenWhen = relatudeFileToTextService(),
+                            Help = "The key the custom provider sends with. Keep it in appsettings, an environment variable or user secrets rather than the settings file - configuration values are never written back to disk.",
                         },
                     ],
                 },
