@@ -1,10 +1,12 @@
 using System.Buffers.Binary;
 using System.IO.Compression;
-using System.Text;
+using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace Relatude.DB.FileConversion.ImageEncoders;
 
-internal sealed class PngCodec : IImageCodec
+internal sealed unsafe class PngCodec : IImageCodec
 {
     private static readonly byte[] Signature = [137, 80, 78, 71, 13, 10, 26, 10];
 
@@ -15,498 +17,341 @@ internal sealed class PngCodec : IImageCodec
         return header.Length >= Signature.Length && header[..Signature.Length].SequenceEqual(Signature);
     }
 
-    public InternalImage Decode(ReadOnlySpan<byte> data)
+    public bool TryReadSize(byte[] data, out int width, out int height)
+    {
+        bool ok = data.Length >= 24 && CanDecode(data) && data.AsSpan(12, 4).SequenceEqual("IHDR"u8);
+        width = ok ? BinaryPrimitives.ReadInt32BigEndian(data.AsSpan(16)) : 0;
+        height = ok ? BinaryPrimitives.ReadInt32BigEndian(data.AsSpan(20)) : 0;
+        return ok && width > 0 && height > 0;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public InternalImage Decode(byte[] data, int downscale)
     {
         if (!CanDecode(data))
         {
             throw new ImageFormatException("Invalid PNG signature.");
         }
 
-        int offset = Signature.Length;
-        int width = 0;
-        int height = 0;
-        int bitDepth = 0;
-        int colorType = 0;
-        int interlace = 0;
-        byte[]? palette = null;
-        byte[]? transparency = null;
-        List<byte[]> idatChunks = [];
-
-        while (offset + 12 <= data.Length)
+        int width = 0, height = 0, depth = 0, type = 0, total = 0;
+        byte[]? palette = null, transparency = null;
+        List<(int Offset, int Length)> idat = [];
+        for (int at = 8; at + 12 <= data.Length;)
         {
-            int length = ReadInt32BigEndian(data, offset);
-            if (length < 0 || offset + 12 + length > data.Length)
+            int length = BinaryPrimitives.ReadInt32BigEndian(data.AsSpan(at));
+            if (length < 0 || at + 12 + length > data.Length)
             {
                 throw new ImageFormatException("PNG chunk is truncated.");
             }
 
-            ReadOnlySpan<byte> typeBytes = data.Slice(offset + 4, 4);
-            ReadOnlySpan<byte> payload = data.Slice(offset + 8, length);
-            VerifyCrc(data.Slice(offset + 4, 4 + length), ReadUInt32BigEndian(data, offset + 8 + length));
-            string type = Encoding.ASCII.GetString(typeBytes);
-
-            switch (type)
+            var kind = data.AsSpan(at + 4, 4);
+            var payload = data.AsSpan(at + 8, length);
+            bool header = kind.SequenceEqual("IHDR"u8), plte = kind.SequenceEqual("PLTE"u8), trns = kind.SequenceEqual("tRNS"u8);
+            // image data is left to zlib's own checksum
+            if ((header || plte || trns) && Crc32.Compute(data.AsSpan(at + 4, 4 + length)) != BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(at + 8 + length)))
             {
-                case "IHDR":
-                    if (length != 13)
-                    {
-                        throw new ImageFormatException("Invalid PNG IHDR chunk.");
-                    }
-
-                    width = ReadInt32BigEndian(payload, 0);
-                    height = ReadInt32BigEndian(payload, 4);
-                    bitDepth = payload[8];
-                    colorType = payload[9];
-                    interlace = payload[12];
-                    ValidateHeader(width, height, bitDepth, colorType, interlace);
-                    break;
-
-                case "PLTE":
-                    palette = payload.ToArray();
-                    break;
-
-                case "tRNS":
-                    transparency = payload.ToArray();
-                    break;
-
-                case "IDAT":
-                    idatChunks.Add(payload.ToArray());
-                    break;
-
-                case "IEND":
-                    return DecodePixels(width, height, bitDepth, colorType, palette, transparency, idatChunks);
+                throw new ImageFormatException("PNG CRC check failed.");
             }
 
-            offset += 12 + length;
-        }
-
-        throw new ImageFormatException("PNG image is missing IEND.");
-    }
-
-    public void Encode(InternalImage image, Stream stream, ImageSaveOptions options)
-    {
-        stream.Write(Signature);
-
-        Span<byte> ihdr = stackalloc byte[13];
-        WriteInt32BigEndian(ihdr, 0, image.Width);
-        WriteInt32BigEndian(ihdr, 4, image.Height);
-        ihdr[8] = 8;
-        ihdr[9] = 6;
-        ihdr[10] = 0;
-        ihdr[11] = 0;
-        ihdr[12] = 0;
-        WriteChunk(stream, "IHDR", ihdr);
-
-        byte[] raw = BuildFilteredScanlines(image);
-        using MemoryStream compressed = new();
-        CompressionLevel level = options.PngCompressionLevel <= 0
-            ? CompressionLevel.NoCompression
-            : options.PngCompressionLevel <= 3
-                ? CompressionLevel.Fastest
-                : options.PngCompressionLevel <= 6
-                    ? CompressionLevel.Optimal
-                    : CompressionLevel.SmallestSize;
-
-        using (ZLibStream zlib = new(compressed, level, leaveOpen: true))
-        {
-            zlib.Write(raw);
-        }
-
-        WriteChunk(stream, "IDAT", compressed.ToArray());
-        WriteChunk(stream, "IEND", ReadOnlySpan<byte>.Empty);
-    }
-
-    private static InternalImage DecodePixels(
-        int width,
-        int height,
-        int bitDepth,
-        int colorType,
-        byte[]? palette,
-        byte[]? transparency,
-        List<byte[]> idatChunks)
-    {
-        if (idatChunks.Count == 0)
-        {
-            throw new ImageFormatException("PNG image has no IDAT data.");
-        }
-
-        int channels = ChannelsForColorType(colorType);
-        int bitsPerPixel = channels * bitDepth;
-        int rowBytes = checked((width * bitsPerPixel + 7) / 8);
-        int filterBpp = Math.Max(1, (bitsPerPixel + 7) / 8);
-        byte[] compressed = Combine(idatChunks);
-        byte[] inflated;
-
-        using (MemoryStream source = new(compressed))
-        using (ZLibStream zlib = new(source, CompressionMode.Decompress))
-        using (MemoryStream output = new())
-        {
-            zlib.CopyTo(output);
-            inflated = output.ToArray();
-        }
-
-        int expected = checked((rowBytes + 1) * height);
-        if (inflated.Length < expected)
-        {
-            throw new ImageFormatException("PNG image data is truncated.");
-        }
-
-        if (bitDepth == 8 && colorType == 6)
-        {
-            return DecodeRgba8(width, height, rowBytes, filterBpp, inflated);
-        }
-
-        if (bitDepth == 8 && colorType == 2)
-        {
-            return DecodeRgb8(width, height, rowBytes, filterBpp, inflated, transparency);
-        }
-
-        byte[] unfiltered = new byte[rowBytes * height];
-        byte[] previous = new byte[rowBytes];
-        byte[] current = new byte[rowBytes];
-        int sourceOffset = 0;
-
-        for (int y = 0; y < height; y++)
-        {
-            int filter = inflated[sourceOffset++];
-            inflated.AsSpan(sourceOffset, rowBytes).CopyTo(current);
-            sourceOffset += rowBytes;
-            Unfilter(current, previous, filter, filterBpp);
-            current.CopyTo(unfiltered, y * rowBytes);
-            (previous, current) = (current, previous);
-            Array.Clear(current);
-        }
-
-        byte[] rgba = new byte[checked(width * height * 4)];
-        for (int y = 0; y < height; y++)
-        {
-            ReadOnlySpan<byte> row = unfiltered.AsSpan(y * rowBytes, rowBytes);
-            for (int x = 0; x < width; x++)
+            if (header)
             {
-                ColorRgba color = ReadPixel(row, x, bitDepth, colorType, palette, transparency);
-                int destination = (y * width + x) * 4;
-                rgba[destination] = color.R;
-                rgba[destination + 1] = color.G;
-                rgba[destination + 2] = color.B;
-                rgba[destination + 3] = color.A;
+                if (length != 13) throw new ImageFormatException("Invalid PNG IHDR chunk.");
+                width = BinaryPrimitives.ReadInt32BigEndian(payload);
+                height = BinaryPrimitives.ReadInt32BigEndian(payload[4..]);
+                depth = payload[8];
+                type = payload[9];
+                ValidateHeader(width, height, depth, type, payload[12]);
+            }
+            else if (plte) palette = payload.ToArray();
+            else if (trns) transparency = payload.ToArray();
+            else if (kind.SequenceEqual("IDAT"u8)) { idat.Add((at + 8, length)); total += length; }
+            else if (kind.SequenceEqual("IEND"u8)) break;
+            at += 12 + length;
+        }
+
+        if (width == 0) throw new ImageFormatException("PNG image is missing IHDR.");
+        if (idat.Count == 0) throw new ImageFormatException("PNG image has no IDAT data.");
+        var compressed = new byte[total];
+        int copied = 0;
+        foreach (var (offset, length) in idat)
+        {
+            Buffer.BlockCopy(data, offset, compressed, copied, length);
+            copied += length;
+        }
+
+        int channels = ChannelsForColorType(type), bits = channels * depth;
+        int rowBytes = checked((width * bits + 7) / 8), stride = rowBytes + 1, bpp = Math.Max(1, bits / 8);
+        var raw = GC.AllocateUninitializedArray<byte>(checked(stride * height));
+        using (var zlib = new ZLibStream(new MemoryStream(compressed), CompressionMode.Decompress))
+        {
+            if (zlib.ReadAtLeast(raw, raw.Length, throwOnEndOfStream: false) < raw.Length)
+            {
+                throw new ImageFormatException("PNG image data is truncated.");
             }
         }
 
-        return new InternalImage(width, height, rgba);
-    }
-
-    private static InternalImage DecodeRgba8(int width, int height, int rowBytes, int filterBpp, byte[] inflated)
-    {
-        byte[] rgba = new byte[checked(width * height * 4)];
-        byte[] previous = new byte[rowBytes];
-        byte[] current = new byte[rowBytes];
-        int sourceOffset = 0;
-
-        for (int y = 0; y < height; y++)
+        var zero = new byte[rowBytes];
+        fixed (byte* r = raw, z = zero)
         {
-            int filter = inflated[sourceOffset++];
-            inflated.AsSpan(sourceOffset, rowBytes).CopyTo(current);
-            sourceOffset += rowBytes;
-            Unfilter(current, previous, filter, filterBpp);
-            current.CopyTo(rgba, y * rowBytes);
-            (previous, current) = (current, previous);
-            Array.Clear(current);
-        }
-
-        return new InternalImage(width, height, rgba);
-    }
-
-    private static InternalImage DecodeRgb8(int width, int height, int rowBytes, int filterBpp, byte[] inflated, byte[]? transparency)
-    {
-        byte[] rgba = new byte[checked(width * height * 4)];
-        byte[] previous = new byte[rowBytes];
-        byte[] current = new byte[rowBytes];
-        int transparentR = -1;
-        int transparentG = -1;
-        int transparentB = -1;
-        if (transparency is { Length: >= 6 })
-        {
-            transparentR = BinaryPrimitives.ReadUInt16BigEndian(transparency.AsSpan(0, 2));
-            transparentG = BinaryPrimitives.ReadUInt16BigEndian(transparency.AsSpan(2, 2));
-            transparentB = BinaryPrimitives.ReadUInt16BigEndian(transparency.AsSpan(4, 2));
-        }
-
-        int sourceOffset = 0;
-        for (int y = 0; y < height; y++)
-        {
-            int filter = inflated[sourceOffset++];
-            inflated.AsSpan(sourceOffset, rowBytes).CopyTo(current);
-            sourceOffset += rowBytes;
-            Unfilter(current, previous, filter, filterBpp);
-
-            int destination = y * width * 4;
-            int source = 0;
-            for (int x = 0; x < width; x++)
+            for (int y = 0; y < height; y++)
             {
-                byte r = current[source++];
-                byte g = current[source++];
-                byte b = current[source++];
-                rgba[destination++] = r;
-                rgba[destination++] = g;
-                rgba[destination++] = b;
-                rgba[destination++] = r == transparentR && g == transparentG && b == transparentB ? (byte)0 : (byte)255;
+                byte* row = r + (long)y * stride + 1;
+                Unfilter(row[-1], row, y == 0 ? z : row - stride, rowBytes, bpp);
             }
-
-            (previous, current) = (current, previous);
-            Array.Clear(current);
         }
 
-        return new InternalImage(width, height, rgba);
-    }
-
-    private static ColorRgba ReadPixel(
-        ReadOnlySpan<byte> row,
-        int x,
-        int bitDepth,
-        int colorType,
-        byte[]? palette,
-        byte[]? transparency)
-    {
-        return colorType switch
+        uint[]? lut = type == 3 ? PaletteLut(palette, transparency) : type == 0 && depth < 16 ? GrayLut(depth, transparency) : null;
+        int mask = (1 << depth) - 1;
+        var rgba = GC.AllocateUninitializedArray<byte>(checked(width * height * 4));
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        void Row(int y)
         {
-            0 => ReadGrayscale(row, x, bitDepth, transparency),
-            2 => ReadTruecolor(row, x, bitDepth, transparency),
-            3 => ReadIndexed(row, x, bitDepth, palette, transparency),
-            4 => ReadGrayscaleAlpha(row, x, bitDepth),
-            6 => ReadRgba(row, x, bitDepth),
-            _ => throw new ImageFormatException($"Unsupported PNG color type: {colorType}.")
-        };
-    }
-
-    private static ColorRgba ReadGrayscale(ReadOnlySpan<byte> row, int x, int bitDepth, byte[]? transparency)
-    {
-        int sample = ReadSample(row, x, bitDepth);
-        byte gray = ScaleSample(sample, bitDepth);
-        byte alpha = 255;
-        if (transparency is { Length: >= 2 } && sample == BinaryPrimitives.ReadUInt16BigEndian(transparency))
-        {
-            alpha = 0;
-        }
-
-        return new ColorRgba(gray, gray, gray, alpha);
-    }
-
-    private static ColorRgba ReadTruecolor(ReadOnlySpan<byte> row, int x, int bitDepth, byte[]? transparency)
-    {
-        int bytesPerSample = bitDepth / 8;
-        int offset = x * 3 * bytesPerSample;
-        int r = ReadComponent(row, offset, bitDepth);
-        int g = ReadComponent(row, offset + bytesPerSample, bitDepth);
-        int b = ReadComponent(row, offset + bytesPerSample * 2, bitDepth);
-        byte alpha = 255;
-        if (transparency is { Length: >= 6 }
-            && r == BinaryPrimitives.ReadUInt16BigEndian(transparency.AsSpan(0, 2))
-            && g == BinaryPrimitives.ReadUInt16BigEndian(transparency.AsSpan(2, 2))
-            && b == BinaryPrimitives.ReadUInt16BigEndian(transparency.AsSpan(4, 2)))
-        {
-            alpha = 0;
-        }
-
-        return new ColorRgba(ScaleSample(r, bitDepth), ScaleSample(g, bitDepth), ScaleSample(b, bitDepth), alpha);
-    }
-
-    private static ColorRgba ReadIndexed(ReadOnlySpan<byte> row, int x, int bitDepth, byte[]? palette, byte[]? transparency)
-    {
-        if (palette is null || palette.Length % 3 != 0)
-        {
-            throw new ImageFormatException("Indexed PNG palette is missing or invalid.");
-        }
-
-        int index = ReadPacked(row, x, bitDepth);
-        if (index * 3 + 2 >= palette.Length)
-        {
-            throw new ImageFormatException("Indexed PNG pixel references a missing palette entry.");
-        }
-
-        byte alpha = transparency is not null && index < transparency.Length ? transparency[index] : (byte)255;
-        return new ColorRgba(palette[index * 3], palette[index * 3 + 1], palette[index * 3 + 2], alpha);
-    }
-
-    private static ColorRgba ReadGrayscaleAlpha(ReadOnlySpan<byte> row, int x, int bitDepth)
-    {
-        int bytesPerSample = bitDepth / 8;
-        int offset = x * 2 * bytesPerSample;
-        int graySample = ReadComponent(row, offset, bitDepth);
-        int alphaSample = ReadComponent(row, offset + bytesPerSample, bitDepth);
-        byte gray = ScaleSample(graySample, bitDepth);
-        return new ColorRgba(gray, gray, gray, ScaleSample(alphaSample, bitDepth));
-    }
-
-    private static ColorRgba ReadRgba(ReadOnlySpan<byte> row, int x, int bitDepth)
-    {
-        int bytesPerSample = bitDepth / 8;
-        int offset = x * 4 * bytesPerSample;
-        return new ColorRgba(
-            ScaleSample(ReadComponent(row, offset, bitDepth), bitDepth),
-            ScaleSample(ReadComponent(row, offset + bytesPerSample, bitDepth), bitDepth),
-            ScaleSample(ReadComponent(row, offset + bytesPerSample * 2, bitDepth), bitDepth),
-            ScaleSample(ReadComponent(row, offset + bytesPerSample * 3, bitDepth), bitDepth));
-    }
-
-    private static int ReadComponent(ReadOnlySpan<byte> row, int offset, int bitDepth)
-    {
-        return bitDepth == 16 ? BinaryPrimitives.ReadUInt16BigEndian(row[offset..]) : row[offset];
-    }
-
-    private static int ReadSample(ReadOnlySpan<byte> row, int x, int bitDepth)
-    {
-        return bitDepth >= 8 ? ReadComponent(row, x * (bitDepth / 8), bitDepth) : ReadPacked(row, x, bitDepth);
-    }
-
-    private static int ReadPacked(ReadOnlySpan<byte> row, int x, int bitDepth)
-    {
-        int bit = x * bitDepth;
-        int value = row[bit / 8];
-        int shift = 8 - bitDepth - bit % 8;
-        return (value >> shift) & ((1 << bitDepth) - 1);
-    }
-
-    private static byte ScaleSample(int sample, int bitDepth)
-    {
-        return bitDepth switch
-        {
-            16 => (byte)(sample >> 8),
-            8 => (byte)sample,
-            _ => (byte)((sample * 255 + ((1 << bitDepth) - 1) / 2) / ((1 << bitDepth) - 1))
-        };
-    }
-
-    private static void Unfilter(Span<byte> current, ReadOnlySpan<byte> previous, int filter, int bpp)
-    {
-        for (int i = 0; i < current.Length; i++)
-        {
-            int left = i >= bpp ? current[i - bpp] : 0;
-            int up = previous[i];
-            int upLeft = i >= bpp ? previous[i - bpp] : 0;
-            int value = filter switch
+            fixed (byte* r = raw, o = rgba)
             {
-                0 => current[i],
-                1 => current[i] + left,
-                2 => current[i] + up,
-                3 => current[i] + ((left + up) >> 1),
-                4 => current[i] + Paeth(left, up, upLeft),
-                _ => throw new ImageFormatException($"Invalid PNG filter type: {filter}.")
-            };
-            current[i] = (byte)value;
-        }
-    }
-
-    private static byte[] BuildFilteredScanlines(InternalImage image)
-    {
-        int stride = image.Width * 4;
-        byte[] output = new byte[(stride + 1) * image.Height];
-        byte[] previous = new byte[stride];
-        byte[] row = new byte[stride];
-        byte[] best = new byte[stride];
-        byte[] candidate = new byte[stride];
-
-        for (int y = 0; y < image.Height; y++)
-        {
-            image.Pixels.Slice(y * stride, stride).CopyTo(row);
-
-            int bestFilter = 0;
-            int bestScore = int.MaxValue;
-            for (int filter = 0; filter <= 4; filter++)
-            {
-                int score = FilterAndScore(row, previous, candidate, filter, 4);
-                if (score < bestScore)
+                byte* s = r + (long)y * stride + 1;
+                uint* d = (uint*)(o + (long)y * width * 4);
+                if (lut != null && depth == 8)
+                    for (int x = 0; x < width; x++) d[x] = lut[s[x]];
+                else if (lut != null)
+                    for (int x = 0, bit = 0; x < width; x++, bit += depth) d[x] = lut[(s[bit >> 3] >> (8 - depth - (bit & 7))) & mask];
+                else if (depth == 8 && type == 6)
+                    Buffer.MemoryCopy(s, d, rowBytes, rowBytes);
+                else if (depth == 8 && type == 4)
+                    for (int x = 0; x < width; x++, s += 2) d[x] = s[0] * 0x010101u | (uint)s[1] << 24;
+                else if (depth == 8)
                 {
-                    bestScore = score;
-                    bestFilter = filter;
-                    candidate.CopyTo(best, 0);
+                    uint key = transparency is { Length: >= 6 } t ? (uint)(t[1] | t[3] << 8 | t[5] << 16) : uint.MaxValue;
+                    for (int x = 0; x < width; x++, s += 3)
+                    {
+                        uint c = (uint)(s[0] | s[1] << 8 | s[2] << 16);
+                        d[x] = c == key ? c : c | 0xFF000000u;
+                    }
                 }
+                else
+                    for (int x = 0; x < width; x++, s += channels * 2) d[x] = Pixel16(s, type, transparency);
             }
-
-            int destination = y * (stride + 1);
-            output[destination] = (byte)bestFilter;
-            best.CopyTo(output, destination + 1);
-            row.CopyTo(previous, 0);
         }
 
-        return output;
+        if (InternalImage.ShouldParallelize(width, height)) Parallel.For(0, height, Row);
+        else for (int y = 0; y < height; y++) Row(y);
+        return new InternalImage(width, height, rgba);
     }
 
-    private static int FilterAndScore(ReadOnlySpan<byte> row, ReadOnlySpan<byte> previous, Span<byte> output, int filter, int bpp)
+    private static uint[] PaletteLut(byte[]? palette, byte[]? transparency)
     {
-        int score = 0;
+        if (palette is null || palette.Length % 3 != 0) throw new ImageFormatException("Indexed PNG palette is missing or invalid.");
+        var lut = new uint[256];
+        Array.Fill(lut, 0xFF000000u);
+        for (int i = 0; i < palette.Length / 3 && i < 256; i++)
+        {
+            uint alpha = transparency is not null && i < transparency.Length ? transparency[i] : 255u;
+            lut[i] = (uint)(palette[i * 3] | palette[i * 3 + 1] << 8 | palette[i * 3 + 2] << 16) | alpha << 24;
+        }
+
+        return lut;
+    }
+
+    private static uint[] GrayLut(int depth, byte[]? transparency)
+    {
+        int max = (1 << depth) - 1, key = transparency is { Length: >= 2 } ? BinaryPrimitives.ReadUInt16BigEndian(transparency) : -1;
+        var lut = new uint[256];
+        for (int v = 0; v <= max; v++) lut[v] = (uint)((v * 255 + max / 2) / max) * 0x010101u | (v == key ? 0u : 0xFF000000u);
+        return lut;
+    }
+
+    private static uint Pixel16(byte* s, int type, byte[]? transparency)
+    {
+        int s0 = s[0] << 8 | s[1], s1 = s[2] << 8 | s[3], s2 = s[4] << 8 | s[5];
+        bool keyed = type switch
+        {
+            0 => transparency is { Length: >= 2 } && s0 == BinaryPrimitives.ReadUInt16BigEndian(transparency),
+            2 => transparency is { Length: >= 6 } && s0 == BinaryPrimitives.ReadUInt16BigEndian(transparency)
+                && s1 == BinaryPrimitives.ReadUInt16BigEndian(transparency.AsSpan(2)) && s2 == BinaryPrimitives.ReadUInt16BigEndian(transparency.AsSpan(4)),
+            _ => false,
+        };
+        return type switch
+        {
+            0 => s[0] * 0x010101u | (keyed ? 0u : 0xFF000000u),
+            4 => s[0] * 0x010101u | (uint)s[2] << 24,
+            2 => (uint)(s[0] | s[2] << 8 | s[4] << 16) | (keyed ? 0u : 0xFF000000u),
+            _ => (uint)(s[0] | s[2] << 8 | s[4] << 16 | s[6] << 24),
+        };
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void Unfilter(int filter, byte* c, byte* p, int n, int bpp)
+    {
         switch (filter)
         {
             case 0:
-                for (int i = 0; i < row.Length; i++)
-                {
-                    byte value = row[i];
-                    output[i] = value;
-                    score += value < 128 ? value : 256 - value;
-                }
-
                 break;
-
             case 1:
-                for (int i = 0; i < row.Length; i++)
-                {
-                    int left = i >= bpp ? row[i - bpp] : 0;
-                    byte value = (byte)(row[i] - left);
-                    output[i] = value;
-                    score += value < 128 ? value : 256 - value;
-                }
-
+                for (int i = bpp; i < n; i++) c[i] += c[i - bpp];
                 break;
-
             case 2:
-                for (int i = 0; i < row.Length; i++)
-                {
-                    byte value = (byte)(row[i] - previous[i]);
-                    output[i] = value;
-                    score += value < 128 ? value : 256 - value;
-                }
-
+                int j = 0;
+                if (Vector.IsHardwareAccelerated)
+                    for (; j <= n - Vector<byte>.Count; j += Vector<byte>.Count)
+                        Unsafe.WriteUnaligned(c + j, Unsafe.ReadUnaligned<Vector<byte>>(c + j) + Unsafe.ReadUnaligned<Vector<byte>>(p + j));
+                for (; j < n; j++) c[j] += p[j];
                 break;
-
             case 3:
-                for (int i = 0; i < row.Length; i++)
-                {
-                    int left = i >= bpp ? row[i - bpp] : 0;
-                    byte value = (byte)(row[i] - ((left + previous[i]) >> 1));
-                    output[i] = value;
-                    score += value < 128 ? value : 256 - value;
-                }
-
+                for (int i = 0; i < bpp; i++) c[i] += (byte)(p[i] >> 1);
+                for (int i = bpp; i < n; i++) c[i] += (byte)((c[i - bpp] + p[i]) >> 1);
                 break;
-
             case 4:
-                for (int i = 0; i < row.Length; i++)
+                for (int i = 0; i < bpp; i++) c[i] += p[i];
+                for (int i = bpp; i < n; i++) c[i] += (byte)Paeth(c[i - bpp], p[i], p[i - bpp]);
+                break;
+            default:
+                throw new ImageFormatException($"Invalid PNG filter type: {filter}.");
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public void Encode(InternalImage image, Stream stream, ImageSaveOptions options)
+    {
+        int w = image.Width, h = image.Height;
+        var px = MemoryMarshal.Cast<byte, uint>(image.Pixels);
+        bool opaque = true, gray = true;
+        Dictionary<uint, int>? colors = [];
+        uint last = ~px[0];
+        foreach (uint p in px)
+        {
+            if (p == last) continue;
+            last = p;
+            if (p < 0xFF000000u) opaque = false;
+            if (((p ^ (p >> 8)) & 0xFFFF) != 0) gray = false;
+            if (colors != null && !colors.ContainsKey(p))
+            {
+                if (colors.Count == 256) colors = null;
+                else colors[p] = colors.Count;
+            }
+
+            if (!opaque && !gray && colors == null) break;
+        }
+
+        // grey keeps the filters working on photos; a palette wins on graphics
+        int type = gray ? (opaque ? 0 : 4) : colors != null ? 3 : opaque ? 2 : 6;
+        int depth = type == 3 ? colors!.Count switch { <= 2 => 1, <= 4 => 2, <= 16 => 4, _ => 8 } : 8;
+        int channels = ChannelsForColorType(type), rowBytes = (w * channels * depth + 7) / 8, bpp = Math.Max(1, channels * depth / 8);
+
+        stream.Write(Signature);
+        Span<byte> ihdr = stackalloc byte[13];
+        BinaryPrimitives.WriteInt32BigEndian(ihdr, w);
+        BinaryPrimitives.WriteInt32BigEndian(ihdr[4..], h);
+        ihdr[8] = (byte)depth;
+        ihdr[9] = (byte)type;
+        ihdr[10] = ihdr[11] = ihdr[12] = 0;
+        WriteChunk(stream, "IHDR"u8, ihdr);
+        if (type == 3)
+        {
+            var plte = new byte[colors!.Count * 3];
+            var trns = new byte[colors.Count];
+            int translucent = 0;
+            foreach (var (c, i) in colors)
+            {
+                plte[i * 3] = (byte)c;
+                plte[i * 3 + 1] = (byte)(c >> 8);
+                plte[i * 3 + 2] = (byte)(c >> 16);
+                trns[i] = (byte)(c >> 24);
+                if (trns[i] != 255) translucent = Math.Max(translucent, i + 1);
+            }
+
+            WriteChunk(stream, "PLTE"u8, plte);
+            if (translucent > 0) WriteChunk(stream, "tRNS"u8, trns.AsSpan(0, translucent));
+        }
+
+        CompressionLevel level = options.PngCompressionLevel <= 0 ? CompressionLevel.NoCompression
+            : options.PngCompressionLevel <= 3 ? CompressionLevel.Fastest
+            : options.PngCompressionLevel <= 6 ? CompressionLevel.Optimal
+            : CompressionLevel.SmallestSize;
+        using MemoryStream compressed = new();
+        using (ZLibStream zlib = new(compressed, level, leaveOpen: true))
+        {
+            byte[] row = new byte[rowBytes], previous = new byte[rowBytes], best = new byte[rowBytes + 1], candidate = new byte[rowBytes + 1];
+            for (int y = 0; y < h; y++)
+            {
+                var source = px.Slice(y * w, w);
+                if (type == 6) MemoryMarshal.AsBytes(source).CopyTo(row);
+                else Array.Clear(row);
+                for (int x = 0, bit = 0; type != 6 && x < w; x++, bit += depth * channels)
                 {
-                    int left = i >= bpp ? row[i - bpp] : 0;
-                    int up = previous[i];
-                    int upLeft = i >= bpp ? previous[i - bpp] : 0;
-                    byte value = (byte)(row[i] - Paeth(left, up, upLeft));
-                    output[i] = value;
-                    score += value < 128 ? value : 256 - value;
+                    uint p = source[x];
+                    switch (type)
+                    {
+                        case 0: row[x] = (byte)p; break;
+                        case 4: row[2 * x] = (byte)p; row[2 * x + 1] = (byte)(p >> 24); break;
+                        case 2: row[3 * x] = (byte)p; row[3 * x + 1] = (byte)(p >> 8); row[3 * x + 2] = (byte)(p >> 16); break;
+                        default: row[bit >> 3] |= (byte)(colors![p] << (8 - depth - (bit & 7))); break;
+                    }
                 }
 
+                if (type == 3)
+                {
+                    zlib.WriteByte(0);
+                    zlib.Write(row);
+                }
+                else
+                {
+                    int bestScore = int.MaxValue;
+                    for (int filter = 0; filter <= 4; filter++)
+                    {
+                        int score = FilterAndScore(row, previous, candidate.AsSpan(1), filter, bpp);
+                        if (score < bestScore)
+                        {
+                            bestScore = score;
+                            candidate[0] = (byte)filter;
+                            (best, candidate) = (candidate, best);
+                        }
+                    }
+
+                    zlib.Write(best);
+                }
+
+                (previous, row) = (row, previous);
+            }
+        }
+
+        WriteChunk(stream, "IDAT"u8, compressed.GetBuffer().AsSpan(0, (int)compressed.Length));
+        WriteChunk(stream, "IEND"u8, ReadOnlySpan<byte>.Empty);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static int FilterAndScore(ReadOnlySpan<byte> row, ReadOnlySpan<byte> previous, Span<byte> output, int filter, int bpp)
+    {
+        int n = row.Length, first = Math.Min(bpp, n);
+        switch (filter)
+        {
+            case 0:
+                row.CopyTo(output);
+                break;
+            case 1:
+                row[..first].CopyTo(output);
+                for (int i = bpp; i < n; i++) output[i] = (byte)(row[i] - row[i - bpp]);
+                break;
+            case 2:
+                for (int i = 0; i < n; i++) output[i] = (byte)(row[i] - previous[i]);
+                break;
+            case 3:
+                for (int i = 0; i < first; i++) output[i] = (byte)(row[i] - (previous[i] >> 1));
+                for (int i = bpp; i < n; i++) output[i] = (byte)(row[i] - ((row[i - bpp] + previous[i]) >> 1));
+                break;
+            default:
+                for (int i = 0; i < first; i++) output[i] = (byte)(row[i] - previous[i]);
+                for (int i = bpp; i < n; i++) output[i] = (byte)(row[i] - Paeth(row[i - bpp], previous[i], previous[i - bpp]));
                 break;
         }
 
+        int score = 0;
+        foreach (sbyte v in MemoryMarshal.Cast<byte, sbyte>(output[..n])) score += v < 0 ? -v : v;
         return score;
     }
 
     private static int Paeth(int a, int b, int c)
     {
-        int p = a + b - c;
-        int pa = Math.Abs(p - a);
-        int pb = Math.Abs(p - b);
-        int pc = Math.Abs(p - c);
-        if (pa <= pb && pa <= pc)
-        {
-            return a;
-        }
-
-        return pb <= pc ? b : c;
+        int pa = Math.Abs(b - c), pb = Math.Abs(a - c), pc = Math.Abs(a + b - 2 * c);
+        return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
     }
 
     private static void ValidateHeader(int width, int height, int bitDepth, int colorType, int interlace)
@@ -550,74 +395,23 @@ internal sealed class PngCodec : IImageCodec
         };
     }
 
-    private static byte[] Combine(List<byte[]> chunks)
-    {
-        int length = chunks.Sum(static chunk => chunk.Length);
-        byte[] output = new byte[length];
-        int offset = 0;
-        foreach (byte[] chunk in chunks)
-        {
-            chunk.CopyTo(output, offset);
-            offset += chunk.Length;
-        }
-
-        return output;
-    }
-
-    private static void WriteChunk(Stream stream, string type, ReadOnlySpan<byte> payload)
+    private static void WriteChunk(Stream stream, ReadOnlySpan<byte> type, ReadOnlySpan<byte> payload)
     {
         Span<byte> length = stackalloc byte[4];
-        WriteInt32BigEndian(length, 0, payload.Length);
+        BinaryPrimitives.WriteInt32BigEndian(length, payload.Length);
         stream.Write(length);
-
-        byte[] typeBytes = Encoding.ASCII.GetBytes(type);
-        stream.Write(typeBytes);
+        stream.Write(type);
         stream.Write(payload);
-
-        uint crc = Crc32.Compute(typeBytes, payload);
-        Span<byte> crcBytes = stackalloc byte[4];
-        BinaryPrimitives.WriteUInt32BigEndian(crcBytes, crc);
-        stream.Write(crcBytes);
-    }
-
-    private static void VerifyCrc(ReadOnlySpan<byte> typeAndPayload, uint expected)
-    {
-        uint actual = Crc32.Compute(typeAndPayload);
-        if (actual != expected)
-        {
-            throw new ImageFormatException("PNG CRC check failed.");
-        }
-    }
-
-    private static int ReadInt32BigEndian(ReadOnlySpan<byte> data, int offset)
-    {
-        return BinaryPrimitives.ReadInt32BigEndian(data[offset..]);
-    }
-
-    private static uint ReadUInt32BigEndian(ReadOnlySpan<byte> data, int offset)
-    {
-        return BinaryPrimitives.ReadUInt32BigEndian(data[offset..]);
-    }
-
-    private static void WriteInt32BigEndian(Span<byte> data, int offset, int value)
-    {
-        BinaryPrimitives.WriteInt32BigEndian(data[offset..], value);
+        Span<byte> crc = stackalloc byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(crc, Crc32.Compute(type, payload));
+        stream.Write(crc);
     }
 
     private static class Crc32
     {
         private static readonly uint[] Table = BuildTable();
 
-        public static uint Compute(ReadOnlySpan<byte> data)
-        {
-            uint crc = 0xffffffffu;
-            foreach (byte value in data)
-            {
-                crc = Table[(crc ^ value) & 0xff] ^ (crc >> 8);
-            }
-
-            return crc ^ 0xffffffffu;
-        }
+        public static uint Compute(ReadOnlySpan<byte> data) => Compute(data, []);
 
         public static uint Compute(ReadOnlySpan<byte> first, ReadOnlySpan<byte> second)
         {

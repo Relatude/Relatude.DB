@@ -1,9 +1,12 @@
+using System.Buffers;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
 
 namespace Relatude.DB.FileConversion.ImageEncoders;
 
-internal sealed class InternalImage
+internal sealed unsafe class InternalImage
 {
     private const int LinearShift = 14;
     private const int LinearOne = 1 << LinearShift;
@@ -43,19 +46,20 @@ internal sealed class InternalImage
 
     public static InternalImage Load(string path, ImageLoadOptions? options = null)
     {
-        byte[] data = File.ReadAllBytes(path);
-        InternalImage image = ImageCodecs.FindDecoder(data).Decode(data);
-        return image.Apply(options);
+        return Load(File.ReadAllBytes(path)).Apply(options);
     }
 
     public static InternalImage Load(Stream stream, ImageLoadOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
-
-        byte[] data = ReadStreamToEnd(stream);
-        InternalImage image = ImageCodecs.FindDecoder(data).Decode(data);
-        return image.Apply(options);
+        return Load(ReadAll(stream)).Apply(options);
     }
+
+    /// <summary>Decodes the image, at 1/2, 1/4 or 1/8 of its size when downscale asks for it and the format can.</summary>
+    public static InternalImage Load(byte[] data, int downscale = 1) => ImageCodecs.FindDecoder(data).Decode(data, downscale);
+
+    /// <summary>The size the image decodes to, read from its header.</summary>
+    public static bool TryReadSize(byte[] data, out int width, out int height) => ImageCodecs.TryReadSize(data, out width, out height);
 
     public static InternalImage Create(int width, int height, Func<int, int, ColorRgba> fill)
     {
@@ -158,7 +162,7 @@ internal sealed class InternalImage
         {
             ResizeKernel.Nearest => ResizeNearest(options.Width, options.Height),
             ResizeKernel.Bilinear => ResizeBilinear(options.Width, options.Height),
-            _ => ResizeLanczos(options.Width, options.Height)
+            _ => Convolve(options.Width == Width ? null : LanczosPlan(Width, options.Width), options.Height == Height ? null : LanczosPlan(Height, options.Height))
         };
     }
 
@@ -167,7 +171,7 @@ internal sealed class InternalImage
         ValidateFinite(amount, nameof(amount));
         int offset = (int)Math.Round(amount * 255);
         if (offset == 0) return Clone();
-        byte[] destination = new byte[_rgba.Length];
+        byte[] destination = NewPixels(_rgba.Length);
         ApplyRgbLut(destination, BuildOffsetLut(offset));
         return new InternalImage(Width, Height, destination);
     }
@@ -177,7 +181,7 @@ internal sealed class InternalImage
         ValidateFinite(amount, nameof(amount));
         double factor = Math.Max(0, 1 + amount);
         if (factor == 1) return Clone();
-        byte[] destination = new byte[_rgba.Length];
+        byte[] destination = NewPixels(_rgba.Length);
         ApplySaturation(destination, factor);
         return new InternalImage(Width, Height, destination);
     }
@@ -187,14 +191,14 @@ internal sealed class InternalImage
         ValidateFinite(amount, nameof(amount));
         double factor = Math.Max(0, 1 + amount);
         if (factor == 1) return Clone();
-        byte[] destination = new byte[_rgba.Length];
+        byte[] destination = NewPixels(_rgba.Length);
         ApplyRgbLut(destination, BuildContrastLut(factor));
         return new InternalImage(Width, Height, destination);
     }
 
     public InternalImage FlipHorizontal()
     {
-        byte[] destination = new byte[_rgba.Length];
+        byte[] destination = NewPixels(_rgba.Length);
         if (ShouldParallelize(Width, Height))
         {
             unsafe
@@ -232,7 +236,7 @@ internal sealed class InternalImage
 
     public InternalImage FlipVertical()
     {
-        byte[] destination = new byte[_rgba.Length];
+        byte[] destination = NewPixels(_rgba.Length);
         int stride = Width * 4;
         if (ShouldParallelize(Width, Height))
         {
@@ -250,7 +254,7 @@ internal sealed class InternalImage
 
     public InternalImage Invert()
     {
-        byte[] destination = new byte[_rgba.Length];
+        byte[] destination = NewPixels(_rgba.Length);
         InvertCore(destination);
         return new InternalImage(Width, Height, destination);
     }
@@ -326,7 +330,7 @@ internal sealed class InternalImage
 
     public InternalImage Rotate180()
     {
-        byte[] destination = new byte[_rgba.Length];
+        byte[] destination = NewPixels(_rgba.Length);
         if (ShouldParallelize(Width, Height))
         {
             unsafe
@@ -392,6 +396,7 @@ internal sealed class InternalImage
 
         return new InternalImage(destinationWidth, destinationHeight, destination);
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         void ProcessNearestRow(int y)
         {
             double dy = y - destinationCenterY;
@@ -417,6 +422,7 @@ internal sealed class InternalImage
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         void ProcessBilinearRow(int y)
         {
             double dy = y - destinationCenterY;
@@ -461,7 +467,17 @@ internal sealed class InternalImage
         ValidateFinite(radius, nameof(radius));
         if (radius < 0) throw new ArgumentOutOfRangeException(nameof(radius), "Blur radius cannot be negative.");
         if (radius <= 0) return Clone();
-        return new InternalImage(Width, Height, BlurPixels(radius));
+        if (radius > 4)
+        {
+            // a wide blur is a small blur of a smaller picture, so its cost does not grow with the radius
+            int factor = (int)(radius / 2);
+            return Resize(Math.Max(1, (Width + factor - 1) / factor), Math.Max(1, (Height + factor - 1) / factor))
+                .Blur(radius / factor).Resize(Width, Height);
+        }
+
+        double twoSigmaSquared = 2 * radius * radius, support = Math.Ceiling(3 * radius);
+        double Gauss(double x) => Math.Exp(-x * x / twoSigmaSquared);
+        return Convolve(BuildPlan(Width, Width, support, Gauss), BuildPlan(Height, Height, support, Gauss));
     }
 
     public InternalImage Sharpen(double amount = 1, double radius = 1)
@@ -470,9 +486,8 @@ internal sealed class InternalImage
         ValidateFinite(radius, nameof(radius));
         if (radius < 0) throw new ArgumentOutOfRangeException(nameof(radius), "Sharpen radius cannot be negative.");
         if (amount == 0 || radius == 0) return Clone();
-        byte[] blurPixels = BlurPixels(radius);
-        byte[] destination = new byte[_rgba.Length];
-        ApplySharpen(destination, blurPixels, amount);
+        byte[] destination = NewPixels(_rgba.Length);
+        ApplySharpen(destination, Blur(radius)._rgba, amount);
         return new InternalImage(Width, Height, destination);
     }
 
@@ -493,8 +508,9 @@ internal sealed class InternalImage
         int m20 = (int)MathF.Round((0.213f - cos * 0.213f - sin * 0.787f) * one);
         int m21 = (int)MathF.Round((0.715f - cos * 0.715f + sin * 0.715f) * one);
         int m22 = (int)MathF.Round((0.072f + cos * 0.928f + sin * 0.072f) * one);
-        byte[] dst = new byte[_rgba.Length];
+        byte[] dst = NewPixels(_rgba.Length);
         int stride = Width * 4;
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         void ProcessRow(int y) {
             int row = y * stride;
             for (int x = 0; x < Width; x++) {
@@ -545,7 +561,7 @@ internal sealed class InternalImage
         return image;
     }
 
-    private static byte[] ReadStreamToEnd(Stream stream)
+    internal static byte[] ReadAll(Stream stream)
     {
         if (stream.CanSeek)
         {
@@ -570,19 +586,6 @@ internal sealed class InternalImage
         using MemoryStream memory = new();
         stream.CopyTo(memory);
         return memory.ToArray();
-    }
-
-    private byte[] BlurPixels(double radius)
-    {
-        int[] kernel = BuildGaussianKernel(radius);
-        int kernelRadius = kernel.Length / 2;
-        byte[] temp = new byte[_rgba.Length];
-        byte[] destination = new byte[_rgba.Length];
-        int[] horizontalOffsets = BuildClampedOffsetMap(Width, kernelRadius, 4);
-        int[] verticalOffsets = BuildClampedOffsetMap(Height, kernelRadius, Width * 4);
-        ApplyPremultipliedHorizontalBlur(kernel, horizontalOffsets, temp);
-        ApplyPremultipliedVerticalBlur(kernel, verticalOffsets, temp, destination);
-        return destination;
     }
 
     private void ApplyRgbLut(byte[] destination, byte[] lut)
@@ -741,6 +744,7 @@ internal sealed class InternalImage
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static unsafe void ApplyRgbLutRow(byte* source, byte* destination, byte* lut, int width)
     {
         for (int x = 0; x < width; x++)
@@ -754,6 +758,7 @@ internal sealed class InternalImage
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static unsafe void ApplySaturationRow(byte* source, byte* destination, int width, int fixedFactor)
     {
         for (int x = 0; x < width; x++)
@@ -771,6 +776,7 @@ internal sealed class InternalImage
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static unsafe void ApplySharpenRow(byte* source, byte* blur, byte* destination, int width, int fixedAmount)
     {
         for (int x = 0; x < width; x++)
@@ -785,6 +791,7 @@ internal sealed class InternalImage
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static unsafe void InvertRow(byte* source, byte* destination, int width)
     {
         uint* sourcePixels = (uint*)source;
@@ -795,6 +802,7 @@ internal sealed class InternalImage
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static unsafe void FlipHorizontalRow(uint* sourcePixels, uint* destinationPixels, int width)
     {
         for (int x = 0; x < width; x++)
@@ -803,6 +811,7 @@ internal sealed class InternalImage
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static unsafe void Rotate90ClockwiseRow(uint* sourcePixels, uint* destinationPixels, int width, int height, int y)
     {
         uint* sourceRow = sourcePixels + y * width;
@@ -813,6 +822,7 @@ internal sealed class InternalImage
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static unsafe void Rotate90CounterClockwiseRow(uint* sourcePixels, uint* destinationPixels, int width, int height, int y)
     {
         uint* sourceRow = sourcePixels + y * width;
@@ -822,6 +832,7 @@ internal sealed class InternalImage
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static unsafe void Rotate180Row(uint* sourcePixels, uint* destinationPixels, int width, int height, int y)
     {
         uint* sourceRow = sourcePixels + (height - 1 - y) * width;
@@ -832,6 +843,7 @@ internal sealed class InternalImage
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static unsafe void ResizeNearestRow(uint* sourcePixels, uint* destinationPixels, int sourceWidth, int destinationWidth, int* sourceXs, int sourceY, int destinationY)
     {
         uint* sourceRow = sourcePixels + sourceY * sourceWidth;
@@ -839,80 +851,6 @@ internal sealed class InternalImage
         for (int x = 0; x < destinationWidth; x++)
         {
             destinationRow[x] = sourceRow[sourceXs[x]];
-        }
-    }
-
-    private void ApplyPremultipliedHorizontalBlur(int[] kernel, int[] sourceOffsets, byte[] temp)
-    {
-        if (ShouldParallelize(Width, Height)) Parallel.For(0, Height, ProcessRow);
-        else for (int y = 0; y < Height; y++) ProcessRow(y);
-
-        void ProcessRow(int y)
-        {
-            int row = y * Width * 4;
-            for (int x = 0; x < Width; x++)
-            {
-                long sumR = 0, sumG = 0, sumB = 0, sumA = 0;
-                for (int k = 0; k < kernel.Length; k++)
-                {
-                    int sourceOffset = row + sourceOffsets[x + k];
-                    int weight = kernel[k];
-                    int alpha = _rgba[sourceOffset + 3];
-                    sumR += (long)_rgba[sourceOffset] * alpha * weight;
-                    sumG += (long)_rgba[sourceOffset + 1] * alpha * weight;
-                    sumB += (long)_rgba[sourceOffset + 2] * alpha * weight;
-                    sumA += (long)alpha * weight;
-                }
-
-                int destinationOffset = row + x * 4;
-                temp[destinationOffset]     = DividePremultipliedFixed(sumR);
-                temp[destinationOffset + 1] = DividePremultipliedFixed(sumG);
-                temp[destinationOffset + 2] = DividePremultipliedFixed(sumB);
-                temp[destinationOffset + 3] = (byte)ClampToByte(DivideFixed(sumA));
-            }
-        }
-    }
-
-    private void ApplyPremultipliedVerticalBlur(int[] kernel, int[] sourceOffsets, byte[] temp, byte[] destination)
-    {
-        if (ShouldParallelize(Width, Height)) Parallel.For(0, Height, ProcessRow);
-        else for (int y = 0; y < Height; y++) ProcessRow(y);
-
-        void ProcessRow(int y)
-        {
-            int destinationRow = y * Width * 4;
-            for (int x = 0; x < Width; x++)
-            {
-                long sumR = 0, sumG = 0, sumB = 0, sumA = 0;
-                for (int k = 0; k < kernel.Length; k++)
-                {
-                    int sourceOffset = sourceOffsets[y + k] + x * 4;
-                    int weight = kernel[k];
-                    sumR += (long)temp[sourceOffset] * weight;
-                    sumG += (long)temp[sourceOffset + 1] * weight;
-                    sumB += (long)temp[sourceOffset + 2] * weight;
-                    sumA += (long)temp[sourceOffset + 3] * weight;
-                }
-
-                int alpha = ClampToByte(DivideFixed(sumA));
-                int premulR = DivideFixed(sumR);
-                int premulG = DivideFixed(sumG);
-                int premulB = DivideFixed(sumB);
-                int destinationOffset = destinationRow + x * 4;
-                if (alpha == 0)
-                {
-                    destination[destinationOffset] = 0;
-                    destination[destinationOffset + 1] = 0;
-                    destination[destinationOffset + 2] = 0;
-                    destination[destinationOffset + 3] = 0;
-                    continue;
-                }
-
-                destination[destinationOffset]     = (byte)ClampToByte((premulR * 255 + alpha / 2) / alpha);
-                destination[destinationOffset + 1] = (byte)ClampToByte((premulG * 255 + alpha / 2) / alpha);
-                destination[destinationOffset + 2] = (byte)ClampToByte((premulB * 255 + alpha / 2) / alpha);
-                destination[destinationOffset + 3] = (byte)alpha;
-            }
         }
     }
 
@@ -972,6 +910,7 @@ internal sealed class InternalImage
 
         return new InternalImage(width, height, destination);
 
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         void ProcessRow(int y)
         {
             LinearContribution yContribution = yMap[y];
@@ -998,92 +937,211 @@ internal sealed class InternalImage
         }
     }
 
-    private InternalImage ResizeLanczos(int width, int height)
+    // resampled with premultiplied alpha, so transparent pixels lend no colour to their neighbours
+    private InternalImage Convolve(ResamplePlan? horizontal, ResamplePlan? vertical)
     {
-        ResamplePlan horizontalPlan = BuildResamplePlan(Width, width);
-        ResamplePlan verticalPlan = BuildResamplePlan(Height, height);
-        InternalImage horizontal = ResizeLanczosHorizontal(horizontalPlan);
-        return horizontal.ResizeLanczosVertical(verticalPlan);
+        if (horizontal == null && vertical == null) return Clone();
+        bool alpha = HasTranslucency();
+        InternalImage source = alpha ? Premultiplied() : this;
+        InternalImage result;
+        if (horizontal == null) result = source.ResampleVertical(vertical!);
+        else if (vertical == null) result = source.ResampleHorizontal(horizontal);
+        else
+        {
+            // the vertical pass is vectorised and the horizontal one is not, so the cheaper order goes
+            long horizontalFirst = (long)Height * horizontal.Size * horizontal.Taps * 4 + (long)vertical.Size * horizontal.Size * vertical.Taps;
+            long verticalFirst = (long)vertical.Size * Width * vertical.Taps + (long)vertical.Size * horizontal.Size * horizontal.Taps * 4;
+            result = verticalFirst < horizontalFirst
+                ? source.ResampleVertical(vertical).ResampleHorizontal(horizontal)
+                : source.ResampleHorizontal(horizontal).ResampleVertical(vertical);
+        }
+
+        if (alpha) result.Unpremultiply();
+        return result;
     }
 
-    private InternalImage ResizeLanczosHorizontal(ResamplePlan plan)
+    private InternalImage ResampleHorizontal(ResamplePlan plan)
     {
-        byte[] destination = new byte[CheckedPixelByteCount(plan.DestinationSize, Height)];
-        int destinationStride = plan.DestinationSize * 4;
+        int width = plan.Size;
+        byte[] destination = NewPixels(CheckedPixelByteCount(width, Height));
+        ForRows(Height, width, Row);
+        return new InternalImage(width, Height, destination);
 
-        if (ShouldParallelize(plan.DestinationSize, Height)) Parallel.For(0, Height, ProcessRow);
-        else for (int y = 0; y < Height; y++) ProcessRow(y);
-
-        return new InternalImage(plan.DestinationSize, Height, destination);
-
-        void ProcessRow(int y)
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        void Row(int y)
         {
-            int sourceRow = y * Width * 4;
-            int destinationRow = y * destinationStride;
-            for (int x = 0; x < plan.DestinationSize; x++)
+            fixed (byte* source = _rgba, target = destination)
+            fixed (int* start = plan.Start, count = plan.Count, offset = plan.Offset, weights = plan.Weights)
             {
-                long sumR = 0, sumG = 0, sumB = 0, sumA = 0;
-                int start = plan.Offsets[x];
-                int end = start + plan.Counts[x];
-
-                for (int i = start; i < end; i++)
+                byte* row = source + (long)y * Width * 4;
+                uint* output = (uint*)(target + (long)y * width * 4);
+                for (int x = 0; x < width; x++)
                 {
-                    int sourceOffset = sourceRow + plan.Indices[i] * 4;
-                    int weight = plan.Weights[i];
-                    sumR += _rgba[sourceOffset] * weight;
-                    sumG += _rgba[sourceOffset + 1] * weight;
-                    sumB += _rgba[sourceOffset + 2] * weight;
-                    sumA += _rgba[sourceOffset + 3] * weight;
+                    uint* p = (uint*)row + start[x];
+                    int* w = weights + offset[x];
+                    var sum = Vector128.Create(ResampleHalf);
+                    for (int i = 0, n = count[x]; i < n; i++)
+                        sum += Vector128.WidenLower(Vector128.WidenLower(Vector128.CreateScalarUnsafe(p[i]).AsByte())).AsInt32() * w[i];
+                    sum = Vector128.Min(Vector128.Max(Vector128.ShiftRightArithmetic(sum, ResampleShift), Vector128<int>.Zero), Vector128.Create(255));
+                    output[x] = Vector128.Narrow(Vector128.Narrow(sum.AsUInt32(), sum.AsUInt32()), Vector128<ushort>.Zero).AsUInt32().ToScalar();
                 }
-
-                int destinationOffset = destinationRow + x * 4;
-                destination[destinationOffset]     = (byte)ClampToByte(DivideFixed(sumR));
-                destination[destinationOffset + 1] = (byte)ClampToByte(DivideFixed(sumG));
-                destination[destinationOffset + 2] = (byte)ClampToByte(DivideFixed(sumB));
-                destination[destinationOffset + 3] = (byte)ClampToByte(DivideFixed(sumA));
             }
         }
     }
 
-    private InternalImage ResizeLanczosVertical(ResamplePlan plan)
+    private InternalImage ResampleVertical(ResamplePlan plan)
     {
-        byte[] destination = new byte[CheckedPixelByteCount(Width, plan.DestinationSize)];
-        int sourceStride = Width * 4;
+        int height = plan.Size, n = Width * 4;
+        byte[] destination = NewPixels(CheckedPixelByteCount(Width, height));
+        ForRows(height, Width, Row);
+        return new InternalImage(Width, height, destination);
 
-        if (ShouldParallelize(Width, plan.DestinationSize)) Parallel.For(0, plan.DestinationSize, ProcessRow);
-        else for (int y = 0; y < plan.DestinationSize; y++) ProcessRow(y);
-
-        return new InternalImage(Width, plan.DestinationSize, destination);
-
-        void ProcessRow(int y)
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        void Row(int y)
         {
-            int destinationRow = y * sourceStride;
-            int start = plan.Offsets[y];
-            int end = start + plan.Counts[y];
-
-            for (int x = 0; x < Width; x++)
+            int[] sums = ArrayPool<int>.Shared.Rent(n);
+            fixed (byte* source = _rgba, target = destination)
+            fixed (int* acc = sums)
             {
-                long sumR = 0, sumG = 0, sumB = 0, sumA = 0;
-                int channelOffset = x * 4;
+                new Span<int>(acc, n).Fill(ResampleHalf);
+                for (int t = 0, start = plan.Start[y], offset = plan.Offset[y]; t < plan.Count[y]; t++)
+                    AccumulateRow(acc, source + (long)(start + t) * n, plan.Weights[offset + t], n);
+                StoreRow(acc, target + (long)y * n, n);
+            }
 
-                for (int i = start; i < end; i++)
-                {
-                    int sourceOffset = plan.Indices[i] * sourceStride + channelOffset;
-                    int weight = plan.Weights[i];
-                    sumR += _rgba[sourceOffset] * weight;
-                    sumG += _rgba[sourceOffset + 1] * weight;
-                    sumB += _rgba[sourceOffset + 2] * weight;
-                    sumA += _rgba[sourceOffset + 3] * weight;
-                }
+            ArrayPool<int>.Shared.Return(sums);
+        }
+    }
 
-                int destinationOffset = destinationRow + channelOffset;
-                destination[destinationOffset]     = (byte)ClampToByte(DivideFixed(sumR));
-                destination[destinationOffset + 1] = (byte)ClampToByte(DivideFixed(sumG));
-                destination[destinationOffset + 2] = (byte)ClampToByte(DivideFixed(sumB));
-                destination[destinationOffset + 3] = (byte)ClampToByte(DivideFixed(sumA));
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void AccumulateRow(int* acc, byte* row, int weight, int n)
+    {
+        int i = 0;
+        if (Vector.IsHardwareAccelerated)
+        {
+            var w = new Vector<int>(weight);
+            int lanes = Vector<int>.Count;
+            for (; i <= n - Vector<byte>.Count; i += Vector<byte>.Count)
+            {
+                Vector.Widen(Unsafe.ReadUnaligned<Vector<byte>>(row + i), out Vector<ushort> low, out Vector<ushort> high);
+                Vector.Widen(low, out Vector<uint> a, out Vector<uint> b);
+                Vector.Widen(high, out Vector<uint> c, out Vector<uint> d);
+                int* s = acc + i;
+                Unsafe.WriteUnaligned(s, Unsafe.ReadUnaligned<Vector<int>>(s) + Vector.AsVectorInt32(a) * w);
+                Unsafe.WriteUnaligned(s + lanes, Unsafe.ReadUnaligned<Vector<int>>(s + lanes) + Vector.AsVectorInt32(b) * w);
+                Unsafe.WriteUnaligned(s + 2 * lanes, Unsafe.ReadUnaligned<Vector<int>>(s + 2 * lanes) + Vector.AsVectorInt32(c) * w);
+                Unsafe.WriteUnaligned(s + 3 * lanes, Unsafe.ReadUnaligned<Vector<int>>(s + 3 * lanes) + Vector.AsVectorInt32(d) * w);
+            }
+        }
+
+        for (; i < n; i++) acc[i] += row[i] * weight;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void StoreRow(int* acc, byte* row, int n)
+    {
+        int i = 0;
+        if (Vector.IsHardwareAccelerated)
+        {
+            var max = new Vector<int>(255);
+            int lanes = Vector<int>.Count;
+            for (; i <= n - Vector<byte>.Count; i += Vector<byte>.Count)
+            {
+                var a = Vector.AsVectorUInt32(Vector.Min(Vector.Max(Vector.ShiftRightArithmetic(Unsafe.ReadUnaligned<Vector<int>>(acc + i), ResampleShift), Vector<int>.Zero), max));
+                var b = Vector.AsVectorUInt32(Vector.Min(Vector.Max(Vector.ShiftRightArithmetic(Unsafe.ReadUnaligned<Vector<int>>(acc + i + lanes), ResampleShift), Vector<int>.Zero), max));
+                var c = Vector.AsVectorUInt32(Vector.Min(Vector.Max(Vector.ShiftRightArithmetic(Unsafe.ReadUnaligned<Vector<int>>(acc + i + 2 * lanes), ResampleShift), Vector<int>.Zero), max));
+                var d = Vector.AsVectorUInt32(Vector.Min(Vector.Max(Vector.ShiftRightArithmetic(Unsafe.ReadUnaligned<Vector<int>>(acc + i + 3 * lanes), ResampleShift), Vector<int>.Zero), max));
+                Unsafe.WriteUnaligned(row + i, Vector.Narrow(Vector.Narrow(a, b), Vector.Narrow(c, d)));
+            }
+        }
+
+        for (; i < n; i++) row[i] = (byte)Clip(acc[i]);
+    }
+
+    private static uint Clip(int value)
+    {
+        value >>= ResampleShift;
+        return (uint)(value < 0 ? 0 : value > 255 ? 255 : value);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private bool HasTranslucency()
+    {
+        ReadOnlySpan<uint> pixels = MemoryMarshal.Cast<byte, uint>(_rgba);
+        int i = 0;
+        if (Vector.IsHardwareAccelerated)
+        {
+            var opaque = new Vector<uint>(0xFF000000u);
+            for (; i <= pixels.Length - Vector<uint>.Count; i += Vector<uint>.Count)
+                if (!Vector.EqualsAll(new Vector<uint>(pixels[i..]) & opaque, opaque)) return true;
+        }
+
+        for (; i < pixels.Length; i++)
+            if (pixels[i] < 0xFF000000u) return true;
+        return false;
+    }
+
+    private InternalImage Premultiplied()
+    {
+        byte[] destination = NewPixels(_rgba.Length);
+        ForRows(Height, Width, Row);
+        return new InternalImage(Width, Height, destination);
+
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        void Row(int y)
+        {
+            for (int i = y * Width * 4, end = i + Width * 4; i < end; i += 4)
+            {
+                int a = _rgba[i + 3];
+                destination[i] = (byte)((_rgba[i] * a + 127) / 255);
+                destination[i + 1] = (byte)((_rgba[i + 1] * a + 127) / 255);
+                destination[i + 2] = (byte)((_rgba[i + 2] * a + 127) / 255);
+                destination[i + 3] = (byte)a;
             }
         }
     }
+
+    private void Unpremultiply()
+    {
+        ForRows(Height, Width, Row);
+
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        void Row(int y)
+        {
+            for (int i = y * Width * 4, end = i + Width * 4; i < end; i += 4)
+            {
+                int a = _rgba[i + 3];
+                if (a == 255) continue;
+                if (a == 0)
+                {
+                    _rgba[i] = _rgba[i + 1] = _rgba[i + 2] = 0;
+                    continue;
+                }
+
+                _rgba[i] = (byte)Math.Min(255, (_rgba[i] * 255 + a / 2) / a);
+                _rgba[i + 1] = (byte)Math.Min(255, (_rgba[i + 1] * 255 + a / 2) / a);
+                _rgba[i + 2] = (byte)Math.Min(255, (_rgba[i + 2] * 255 + a / 2) / a);
+            }
+        }
+    }
+
+    /// <summary>This image on a larger canvas of the given colour, its top left corner at x, y.</summary>
+    public InternalImage Pad(int width, int height, int x, int y, ColorRgba background)
+    {
+        byte[] pixels = new byte[CheckedPixelByteCount(width, height)];
+        Fill(pixels, background);
+        for (int row = 0; row < Height; row++)
+            Buffer.BlockCopy(_rgba, row * Width * 4, pixels, ((y + row) * width + x) * 4, Width * 4);
+        return new InternalImage(width, height, pixels);
+    }
+
+    private static void ForRows(int rows, int width, Action<int> row)
+    {
+        if (ShouldParallelize(width, rows)) Parallel.For(0, rows, row);
+        else for (int y = 0; y < rows; y++) row(y);
+    }
+
+    private static byte[] NewPixels(int length) => GC.AllocateUninitializedArray<byte>(length);
 
     private static int[] BuildNearestMap(int sourceSize, int destinationSize)
     {
@@ -1097,7 +1155,7 @@ internal sealed class InternalImage
         return map;
     }
 
-    private static bool ShouldParallelize(int width, int height) =>
+    internal static bool ShouldParallelize(int width, int height) =>
         Environment.ProcessorCount > 1 && (long)width * height >= 250_000;
 
     private static byte[] BuildOffsetLut(int offset)
@@ -1112,50 +1170,6 @@ internal sealed class InternalImage
         byte[] lut = new byte[256];
         for (int i = 0; i < lut.Length; i++) lut[i] = ClampToByte(128 + (i - 128) * factor);
         return lut;
-    }
-
-    private static int[] BuildClampedOffsetMap(int size, int radius, int stride)
-    {
-        int[] map = new int[size + radius * 2];
-        for (int i = 0; i < map.Length; i++)
-        {
-            int coordinate = Math.Clamp(i - radius, 0, size - 1);
-            map[i] = coordinate * stride;
-        }
-
-        return map;
-    }
-
-    private static int[] BuildGaussianKernel(double radius)
-    {
-        if (radius > 256) throw new ArgumentOutOfRangeException(nameof(radius), "Blur radius is limited to 256 pixels.");
-
-        int kernelRadius = Math.Max(1, (int)Math.Ceiling(radius * 3));
-        double sigma = Math.Max(0.01, radius);
-        double sigma2 = 2 * sigma * sigma;
-        int[] kernel = new int[kernelRadius * 2 + 1];
-        double[] raw = new double[kernel.Length];
-        double sum = 0;
-
-        for (int i = 0; i < raw.Length; i++)
-        {
-            int x = i - kernelRadius;
-            double weight = Math.Exp(-(x * x) / sigma2);
-            raw[i] = weight;
-            sum += weight;
-        }
-
-        int fixedSum = 0;
-        int strongest = 0;
-        for (int i = 0; i < kernel.Length; i++)
-        {
-            kernel[i] = Math.Max(1, (int)Math.Round(raw[i] / sum * ResampleOne));
-            fixedSum += kernel[i];
-            if (kernel[i] > kernel[strongest]) strongest = i;
-        }
-
-        kernel[strongest] += ResampleOne - fixedSum;
-        return kernel;
     }
 
     private static void Fill(byte[] destination, ColorRgba color)
@@ -1197,81 +1211,60 @@ internal sealed class InternalImage
         return map;
     }
 
-    private static ResamplePlan BuildResamplePlan(int sourceSize, int destinationSize)
+    private static ResamplePlan LanczosPlan(int sourceSize, int destinationSize)
     {
-        int[] offsets = new int[destinationSize];
-        int[] counts = new int[destinationSize];
+        double filterScale = Math.Max(1, (double)sourceSize / destinationSize);
+        return BuildPlan(sourceSize, destinationSize, 3 * filterScale, x => Lanczos(x / filterScale));
+    }
+
+    // for each destination pixel, the run of source pixels it is made from and their weights; edges are clamped
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static ResamplePlan BuildPlan(int sourceSize, int destinationSize, double support, Func<double, double> kernel)
+    {
         double scale = (double)sourceSize / destinationSize;
-        double filterScale = Math.Max(1, scale);
-        double radius = 3 * filterScale;
-        int estimatedContributions = Math.Clamp((int)Math.Ceiling(radius * 2 + 1), 1, sourceSize);
-        int estimatedCapacity = (int)Math.Min((long)destinationSize * estimatedContributions, 4_000_000);
-        List<int> indices = new(estimatedCapacity);
-        List<int> weights = new(estimatedCapacity);
-        List<int> localIndices = new(estimatedContributions);
-        List<double> localWeights = new(estimatedContributions);
-
-        for (int destination = 0; destination < destinationSize; destination++)
+        int[] start = new int[destinationSize], count = new int[destinationSize], offset = new int[destinationSize];
+        List<int> weights = new(destinationSize * ((int)Math.Ceiling(support) * 2 + 1));
+        double[] local = new double[Math.Min(sourceSize, (int)Math.Ceiling(support) * 2 + 2)];
+        int[] fixedLocal = new int[local.Length];
+        for (int d = 0; d < destinationSize; d++)
         {
-            offsets[destination] = indices.Count;
-            double center = (destination + 0.5) * scale - 0.5;
-            int left = (int)Math.Ceiling(center - radius);
-            int right = (int)Math.Floor(center + radius);
-            localIndices.Clear();
-            localWeights.Clear();
-            double weightSum = 0;
-
-            for (int source = left; source <= right; source++)
+            double center = (d + 0.5) * scale - 0.5;
+            int left = (int)Math.Ceiling(center - support), right = (int)Math.Floor(center + support);
+            int lo = Math.Clamp(left, 0, sourceSize - 1), n = Math.Clamp(right, 0, sourceSize - 1) - lo + 1;
+            Array.Clear(local, 0, n);
+            double sum = 0;
+            for (int s = left; s <= right; s++)
             {
-                double weight = Lanczos((center - source) / filterScale);
-                if (Math.Abs(weight) < 1e-12) continue;
-                localIndices.Add(Math.Clamp(source, 0, sourceSize - 1));
-                localWeights.Add(weight);
-                weightSum += weight;
+                double w = kernel(center - s);
+                local[Math.Clamp(s, 0, sourceSize - 1) - lo] += w;
+                sum += w;
             }
 
-            if (localIndices.Count == 0 || Math.Abs(weightSum) < 1e-12)
+            if (Math.Abs(sum) < 1e-12)
             {
-                int nearest = Math.Clamp((int)Math.Round(center), 0, sourceSize - 1);
-                indices.Add(nearest);
-                weights.Add(ResampleOne);
-                counts[destination] = 1;
-                continue;
+                Array.Clear(local, 0, n);
+                local[Math.Clamp((int)Math.Round(center), lo, lo + n - 1) - lo] = sum = 1;
             }
 
-            int fixedSum = 0;
-            int strongestWeightIndex = -1;
-            int strongestWeightMagnitude = 0;
-            for (int i = 0; i < localIndices.Count; i++)
+            int total = 0, strongest = 0;
+            for (int i = 0; i < n; i++)
             {
-                int fixedWeight = (int)Math.Round(localWeights[i] / weightSum * ResampleOne);
-                if (fixedWeight == 0) continue;
-                indices.Add(localIndices[i]);
-                weights.Add(fixedWeight);
-                fixedSum += fixedWeight;
-                int magnitude = Math.Abs(fixedWeight);
-                if (magnitude > strongestWeightMagnitude)
-                {
-                    strongestWeightMagnitude = magnitude;
-                    strongestWeightIndex = weights.Count - 1;
-                }
+                fixedLocal[i] = (int)Math.Round(local[i] / sum * ResampleOne);
+                total += fixedLocal[i];
+                if (Math.Abs(fixedLocal[i]) > Math.Abs(fixedLocal[strongest])) strongest = i;
             }
 
-            if (strongestWeightIndex < 0)
-            {
-                int nearest = Math.Clamp((int)Math.Round(center), 0, sourceSize - 1);
-                indices.Add(nearest);
-                weights.Add(ResampleOne);
-            }
-            else
-            {
-                weights[strongestWeightIndex] += ResampleOne - fixedSum;
-            }
-
-            counts[destination] = indices.Count - offsets[destination];
+            fixedLocal[strongest] += ResampleOne - total;
+            int first = 0, last = n - 1;
+            while (first < last && fixedLocal[first] == 0) first++;
+            while (last > first && fixedLocal[last] == 0) last--;
+            start[d] = lo + first;
+            count[d] = last - first + 1;
+            offset[d] = weights.Count;
+            for (int i = first; i <= last; i++) weights.Add(fixedLocal[i]);
         }
 
-        return new ResamplePlan(destinationSize, offsets, counts, indices.ToArray(), weights.ToArray());
+        return new ResamplePlan(destinationSize, start, count, offset, weights.ToArray());
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1284,19 +1277,8 @@ internal sealed class InternalImage
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int DivideFixed(long value) =>
-        (int)((value + (value >= 0 ? ResampleHalf : -ResampleHalf)) / ResampleOne);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int DivideLinearFixed(long value) =>
         (int)((value + (value >= 0 ? LinearHalf : -LinearHalf)) / LinearOne);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static byte DividePremultipliedFixed(long value)
-    {
-        const long denominator = 255L * ResampleOne;
-        return (byte)ClampToByte((int)((value + denominator / 2) / denominator));
-    }
 
     private static int ToFixedFactor(double factor)
     {
@@ -1342,12 +1324,10 @@ internal sealed class InternalImage
 
     private readonly record struct LinearContribution(int First, int Second, int Weight);
 
-    private sealed record ResamplePlan(
-        int DestinationSize,
-        int[] Offsets,
-        int[] Counts,
-        int[] Indices,
-        int[] Weights);
+    private sealed record ResamplePlan(int Size, int[] Start, int[] Count, int[] Offset, int[] Weights)
+    {
+        public int Taps => Math.Max(1, Weights.Length / Size);
+    }
 
     // ── Drawing ─────────────────────────────────────────────────────────────
 

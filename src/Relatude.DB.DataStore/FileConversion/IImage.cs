@@ -25,25 +25,30 @@ public readonly struct CropHints {
 public static class IImageExt {
     public static IImage Adjust(this IImage source, FileAdjustmentImage adj) {
         var img = source;
+        // every step returns a new image: the one before it is let go at once, which matters for unmanaged ones
+        IImage Step(IImage next) {
+            if (!ReferenceEquals(img, source) && !ReferenceEquals(img, next)) img.Dispose();
+            return next;
+        }
 
         // 1. Rotation — applied first so subsequent resize works on the rotated canvas
         if (adj.Rotation is double rot && rot != 0)
-            img = img.Rotate(rot);
+            img = Step(img.Rotate(rot));
 
         // 2. The part of the source to work from: the rectangle asked for, or the window a zoom
         //    means. Cropping to it first is what keeps any magnification to a single resample.
         var cropped = SourceRect(img.Width, img.Height, adj, out var cropX, out var cropY, out var cropW, out var cropH);
         if (cropped) {
-            img = img.Crop(cropX, cropY, cropW, cropH);
+            img = Step(img.Crop(cropX, cropY, cropW, cropH));
             // a zoom with no size asked for keeps the canvas it had, which is what zoom has always meant
             if (adj.SourceWidth == null && adj.SourceHeight == null && adj.Width == null && adj.Height == null)
-                img = img.Resize(source.Width, source.Height, ImageCropMode.Stretch);
+                img = Step(img.Resize(source.Width, source.Height, ImageCropMode.Stretch));
         }
 
         // 3. Resize — proportions are preserved unless CropMode is Stretch
         if (adj.Width.HasValue || adj.Height.HasValue) {
             var cropMode = adj.CropMode ?? ImageCropMode.Fit;
-            img = img.Resize(adj.Width, adj.Height, cropMode, cropped ? CropHints.Background(adj) : CropHints.From(adj));
+            img = Step(img.Resize(adj.Width, adj.Height, cropMode, cropped ? CropHints.Background(adj) : CropHints.From(adj)));
         }
 
         // 5. Light/dark adaptation — before the fine-grained colour adjustments below, so that those
@@ -51,14 +56,14 @@ public static class IImageExt {
         var invert = adj.InvertLuminance == true;
         if (!invert && adj.AutoLightDarkMode is AutoLightDarkSwitch mode && mode != AutoLightDarkSwitch.None)
             invert = img.AnalyzeTone().ShouldInvertLuminance(mode);
-        if (invert) img = img.InvertLuminance();
+        if (invert) img = Step(img.InvertLuminance());
 
         // 6. Colour and tone adjustments (FileAdjustmentImage uses -100..100 / -180..180 ranges)
-        if (adj.Brightness is double b && b != 0) img = img.AdjustBrightness(b);
-        if (adj.Contrast is double c && c != 0) img = img.AdjustContrast(c);
-        if (adj.Saturation is double s && s != 0) img = img.AdjustSaturation(s);
-        if (adj.HueShift is double h && h != 0) img = img.AdjustHue(h);
-        if (adj.Sharpness is double sh && sh != 0) img = img.AdjustSharpness(sh);
+        if (adj.Brightness is double b && b != 0) img = Step(img.AdjustBrightness(b));
+        if (adj.Contrast is double c && c != 0) img = Step(img.AdjustContrast(c));
+        if (adj.Saturation is double s && s != 0) img = Step(img.AdjustSaturation(s));
+        if (adj.HueShift is double h && h != 0) img = Step(img.AdjustHue(h));
+        if (adj.Sharpness is double sh && sh != 0) img = Step(img.AdjustSharpness(sh));
 
         return img;
     }

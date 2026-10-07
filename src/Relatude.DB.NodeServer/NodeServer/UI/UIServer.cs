@@ -266,9 +266,10 @@ public sealed class UIServer {
             var opened = OpenFileForReading(io, fileKey);
             if (opened == null) return Results.NotFound();
             using var stream = opened;
-            using var image = converter.Load(stream);
+            var adj = new FileAdjustmentImage { Width = width, CropMode = ImageCropMode.Fit };
+            using var image = converter.LoadFor(stream, ref adj, out var meta);
             // a picture already smaller than the tile is only re-encoded, never blown up
-            var scaled = image.Width > width ? image.Adjust(new FileAdjustmentImage { Width = width, CropMode = ImageCropMode.Fit }) : image;
+            var scaled = meta.Width > width ? image.Adjust(adj) : image;
             try {
                 bytes = scaled.Encode(outFormat, 80);
             } finally {

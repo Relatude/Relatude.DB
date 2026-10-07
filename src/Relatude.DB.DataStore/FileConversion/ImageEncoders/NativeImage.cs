@@ -12,6 +12,58 @@ public sealed class NativeImage : IImage {
     internal NativeImage(InternalImage image) => _image = image;
     
     public static NativeImage Load(Stream stream) => new(InternalImage.Load(stream));
+
+    /// <summary>
+    /// The picture to apply the adjustment to, decoded no larger than the result needs: a jpeg asked for at a
+    /// fraction of its size decodes at 1/2, 1/4 or 1/8 of it. The adjustment comes back rescaled to what was
+    /// decoded; width and height are the original's.
+    /// </summary>
+    public static NativeImage LoadFor(Stream stream, ref FileAdjustmentImage adj, out int width, out int height) {
+        var data = InternalImage.ReadAll(stream);
+        if (!InternalImage.TryReadSize(data, out width, out height)) {
+            var full = InternalImage.Load(data);
+            (width, height) = (full.Width, full.Height);
+            return new(full);
+        }
+        var image = InternalImage.Load(data, Downscale(width, height, adj));
+        if (image.Width != width && (adj.FocusX.HasValue || adj.FocusY.HasValue)) {
+            var scaled = FileAdjustmentImage.FromBytes(adj.ToBytes());
+            scaled.FocusX = adj.FocusX * image.Width / width;
+            scaled.FocusY = adj.FocusY * image.Height / height;
+            adj = scaled;
+        }
+        return new(image);
+    }
+
+    /// <summary>The size of the image in the stream, from its header where the format has one.</summary>
+    public static (int Width, int Height) ReadSize(Stream stream) {
+        var data = InternalImage.ReadAll(stream);
+        if (InternalImage.TryReadSize(data, out var width, out var height)) return (width, height);
+        var image = InternalImage.Load(data);
+        return (image.Width, image.Height);
+    }
+
+    // the largest decode reduction that still leaves at least the pixels the adjustment scales the whole picture to
+    static int Downscale(int width, int height, FileAdjustmentImage adj) {
+        if (adj.Width == null && adj.Height == null || adj.SourceWidth != null || adj.SourceHeight != null || adj.Zoom != null) return 1;
+        double rotation = adj.Rotation ?? 0;
+        if (rotation % 90 != 0) return 1;
+        if (rotation % 180 != 0) (width, height) = (height, width);
+        double needW, needH;
+        var mode = adj.CropMode ?? ImageCropMode.Fit;
+        if (mode == ImageCropMode.Stretch) {
+            needW = adj.Width ?? width;
+            needH = adj.Height ?? height;
+        } else {
+            double sx = (double)(adj.Width ?? 0) / width, sy = (double)(adj.Height ?? 0) / height;
+            double scale = adj.Width == null ? sy : adj.Height == null ? sx : mode == ImageCropMode.Fit ? Math.Min(sx, sy) : Math.Max(sx, sy);
+            needW = width * scale;
+            needH = height * scale;
+        }
+        int factor = 8;
+        while (factor > 1 && ((width + factor - 1) / factor < needW || (height + factor - 1) / factor < needH)) factor /= 2;
+        return factor;
+    }
     public static NativeImage Create(int width, int height) => new(InternalImage.Create(width, height));
 
     // ── Metadata  ──────────────────────────────────────────────────────────
@@ -132,11 +184,7 @@ public sealed class NativeImage : IImage {
         int scaledH = Math.Max(1, (int)Math.Round(src.Height * scale));
         var scaled = src.Resize(scaledW, scaledH);
         if (scaledW == canvasW && scaledH == canvasH) return scaled;
-        int offX = (canvasW - scaledW) / 2, offY = (canvasH - scaledH) / 2;
-        return InternalImage.Create(canvasW, canvasH, (x, y) => {
-            int sx = x - offX, sy = y - offY;
-            return sx >= 0 && sy >= 0 && sx < scaledW && sy < scaledH ? scaled[sx, sy] : bg;
-        });
+        return scaled.Pad(canvasW, canvasH, (canvasW - scaledW) / 2, (canvasH - scaledH) / 2, bg);
     }
 
     static InternalImage ResizeAuto(InternalImage src, int targetW, int targetH, int? focusX, int? focusY, int? offsetX, int? offsetY, ColorRgba bg) {

@@ -37,8 +37,23 @@ internal sealed class WebpCodec : IImageCodec
             && BinaryPrimitives.ReadUInt32LittleEndian(header[8..]) == Webp;
     }
 
-    public InternalImage Decode(ReadOnlySpan<byte> data)
+    public bool TryReadSize(byte[] data, out int width, out int height)
     {
+        width = height = 0;
+        if (data.Length < 30 || !CanDecode(data) || BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(12)) != Vp8l || data[20] != 0x2f)
+        {
+            return false;
+        }
+
+        uint bits = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(21));
+        width = (int)(bits & 0x3fff) + 1;
+        height = (int)((bits >> 14) & 0x3fff) + 1;
+        return true;
+    }
+
+    public InternalImage Decode(byte[] bytes, int downscale)
+    {
+        ReadOnlySpan<byte> data = bytes;
         if (!CanDecode(data))
         {
             throw new ImageFormatException("Invalid WEBP RIFF header.");

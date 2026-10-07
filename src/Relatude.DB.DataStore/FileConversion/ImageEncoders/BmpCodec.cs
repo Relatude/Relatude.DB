@@ -15,8 +15,17 @@ internal sealed class BmpCodec : IImageCodec
         return header.Length >= 2 && header[0] == (byte)'B' && header[1] == (byte)'M';
     }
 
-    public InternalImage Decode(ReadOnlySpan<byte> data)
+    public bool TryReadSize(byte[] data, out int width, out int height)
     {
+        bool ok = data.Length >= 26 && CanDecode(data);
+        width = ok ? ReadInt32(data, 18) : 0;
+        height = ok ? Math.Abs(ReadInt32(data, 22)) : 0;
+        return ok && width > 0 && height > 0;
+    }
+
+    public InternalImage Decode(byte[] bytes, int downscale)
+    {
+        ReadOnlySpan<byte> data = bytes;
         if (data.Length < 54 || !CanDecode(data))
         {
             throw new ImageFormatException("Invalid BMP header.");

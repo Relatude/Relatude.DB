@@ -31,21 +31,33 @@ public abstract class ImageConverterBase : IFileConverter {
         };
     }
     public async Task<ConversionProgress> DoConvertWork(InputFileSource source, FileConversionInfo info) {
-        var input = await source.OpenInputStream();
-        var image = Load(input);
-        var meta = getMeta(image);
+        await using var input = await source.OpenInputStream();
         if (info.ToFormat == FileFormat.FileMetaJson) {
-            return new(new(FileConversionStatus.Ready, 100), new MemoryStream(meta.ToBytes()));
+            return new(new(FileConversionStatus.Ready, 100), new MemoryStream(ReadMeta(input).ToBytes()));
         }
+        var adj = (FileAdjustmentImage)info.IdWithAdjustment.Adjustment;
+        using var image = LoadFor(input, ref adj, out var meta);
         if (_engine != null) {
             // to avoid later meta lookups as image is already opened and meta is available
             _engine.Store.UpdateFileMetaIfNotSet(info.IdWithAdjustment.PropertyPath, info.IdWithAdjustment.FileId, meta);
         }
-        var imgAdj = (FileAdjustmentImage)info.IdWithAdjustment.Adjustment;
-        image = image.Adjust(imgAdj);
-        var bytes = image.Encode(info.Formats.To);
-        var stream = new MemoryStream(bytes);
-        return new(new(FileConversionStatus.Ready, 100), stream);
+        using var adjusted = image.Adjust(adj);
+        var bytes = adjusted.Encode(info.Formats.To, adj.Quality);
+        return new(new(FileConversionStatus.Ready, 100), new MemoryStream(bytes));
+    }
+    /// <summary>
+    /// The image an adjustment is to be applied to, and the adjustment to apply. A converter may decode a
+    /// smaller picture when the result does not need every pixel, handing back the adjustment rescaled to it;
+    /// the meta always describes the original.
+    /// </summary>
+    public virtual IImage LoadFor(Stream input, ref FileAdjustmentImage adj, out BasicFileMeta meta) {
+        var image = Load(input);
+        meta = getMeta(image);
+        return image;
+    }
+    protected virtual BasicFileMeta ReadMeta(Stream input) {
+        using var image = Load(input);
+        return getMeta(image);
     }
     public bool TryGetLiveStatus(Guid key, [MaybeNullWhen(false)] out FileConversionProgressInfo status) {
         status = null;

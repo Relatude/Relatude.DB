@@ -36,6 +36,20 @@ internal static class ImageCodecs
         throw new ImageFormatException("The stream does not contain a supported JPEG, PNG, WEBP, or BMP image.");
     }
 
+    public static bool TryReadSize(byte[] data, out int width, out int height)
+    {
+        width = height = 0;
+        foreach (IImageCodec codec in Codecs)
+        {
+            if (codec.CanDecode(data))
+            {
+                return codec.TryReadSize(data, out width, out height);
+            }
+        }
+
+        return false;
+    }
+
     public static IImageCodec FindEncoder(ImageFormat format)
     {
         foreach (IImageCodec codec in Codecs)
