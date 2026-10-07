@@ -5,8 +5,8 @@ namespace Relatude.DB.FileConversion.ImageEncoders;
 
 /// <summary>
 /// A VP8 key frame (lossy WebP) from Y, U and V planes padded to whole macroblocks. Each macroblock is
-/// predicted as one 16x16 block or as sixteen 4x4 blocks, whichever costs less in distortion plus bits;
-/// the token probabilities are then fitted to the frame before it is written.
+/// predicted as one 16x16 block or as sixteen 4x4 blocks, whichever costs less in distortion plus bits, and
+/// quantized by its segment; the token probabilities are then fitted to the frame before it is written.
 /// </summary>
 internal sealed unsafe class Vp8Encoder {
     const int MbLevels = 400; // 16 luma blocks, 4 + 4 chroma blocks, the luma DC block
@@ -21,9 +21,16 @@ internal sealed unsafe class Vp8Encoder {
     }
 
     readonly byte[] _y, _u, _v, _ry, _ru, _rv;
-    readonly int _width, _height, _mbw, _mbh, _ys, _uvs, _q;
-    readonly Vp8.Quant _quant;
-    readonly long _lambda;
+    readonly int _width, _height, _mbw, _mbh, _ys, _uvs;
+    Vp8.Quant _quant; // of the macroblock being analysed
+    long _lambda;
+    // up to four segments of macroblocks, each with its own quantizer and filter strength
+    readonly byte[] _segment;
+    readonly int[] _segQ = new int[4], _segFilter = new int[4];
+    readonly Vp8.Quant[] _segQuant = new Vp8.Quant[4];
+    readonly long[] _segLambda = new long[4];
+    readonly byte[] _segProbs = [255, 255, 255];
+    int _segments, _dqUvDc, _dqUvAc;
     readonly short[] _levels;
     readonly byte[] _modes, _info; // info: i4 | skip << 1, ymode << 2, uvmode << 4
     readonly byte[] _topModes, _topNz;
@@ -34,11 +41,10 @@ internal sealed unsafe class Vp8Encoder {
         _mbw = (width + 15) >> 4; _mbh = (height + 15) >> 4;
         _ys = _mbw * 16; _uvs = _mbw * 8;
         _ry = new byte[y.Length]; _ru = new byte[u.Length]; _rv = new byte[v.Length];
-        // libwebp's quality to quantizer mapping, without its segment-based adaptation
+        _segment = new byte[_mbw * _mbh];
+        // libwebp's quality to quantizer mapping, then adapted per segment
         double c = quality / 100.0, linear = c < 0.75 ? c * (2.0 / 3) : 2 * c - 1;
-        _q = Math.Clamp((int)(127 * (1 - Math.Cbrt(linear))), 0, 127);
-        _quant = Vp8.QuantFor(_q);
-        _lambda = Math.Max(1, _quant.Y1Ac * _quant.Y1Ac / 25);
+        Segment(Math.Cbrt(linear));
         _levels = new short[_mbw * _mbh * MbLevels];
         _modes = new byte[_mbw * _mbh * 16];
         _info = new byte[_mbw * _mbh];
@@ -186,6 +192,127 @@ internal sealed unsafe class Vp8Encoder {
         return c.Cost;
     }
 
+    // ── Segments (libwebp's spatial noise shaping) ───────────────────────────
+
+    // the coefficient histogram of a block's residual: values / 8, the last bin catching the rest
+    static void Collect(int* bins, byte* src, int stride, byte* pred, int size) {
+        short* c = stackalloc short[16];
+        for (int y = 0; y < size; y += 4)
+            for (int x = 0; x < size; x += 4) {
+                Vp8.ForwardDct(src + y * stride + x, stride, pred + y * Vp8.Bps + x, c);
+                for (int k = 0; k < 16; k++) bins[Math.Min(Math.Abs((int)c[k]) >> 3, 31)]++;
+            }
+    }
+
+    // how far the residual spreads: high for a busy block, which hides coarser quantization
+    static int Spread(int* bins) {
+        int max = 0, last = 1;
+        for (int k = 0; k < 32; k++)
+            if (bins[k] > 0) {
+                max = Math.Max(max, bins[k]);
+                last = k;
+            }
+        return max > 1 ? 510 * last / max : 0;
+    }
+
+    // libwebp's measure of each macroblock in a row, from the DC prediction of the source; the row's chroma total
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    void MeasureRow(int mby, byte[] values, long[] uvSums) {
+        byte* yb = stackalloc byte[Vp8.LumaBuffer];
+        byte* ub = stackalloc byte[Vp8.ChromaBuffer];
+        byte* vb = stackalloc byte[Vp8.ChromaBuffer];
+        int* bins = stackalloc int[32];
+        fixed (byte* sy = _y, su = _u, sv = _v)
+            for (int mbx = 0; mbx < _mbw; mbx++) {
+                Vp8.LoadEdges(yb, sy, _ys, 16, mbx, mby, _mbw);
+                Vp8.LoadEdges(ub, su, _uvs, 8, mbx, mby, _mbw);
+                Vp8.LoadEdges(vb, sv, _uvs, 8, mbx, mby, _mbw);
+                Vp8.PredictBlock(yb + Vp8.Origin, 16, 0, mby > 0, mbx > 0);
+                Vp8.PredictBlock(ub + Vp8.Origin, 8, 0, mby > 0, mbx > 0);
+                Vp8.PredictBlock(vb + Vp8.Origin, 8, 0, mby > 0, mbx > 0);
+                new Span<int>(bins, 32).Clear();
+                Collect(bins, sy + (long)mby * 16 * _ys + mbx * 16, _ys, yb + Vp8.Origin, 16);
+                int luma = Spread(bins);
+                new Span<int>(bins, 32).Clear();
+                Collect(bins, su + (long)mby * 8 * _uvs + mbx * 8, _uvs, ub + Vp8.Origin, 8);
+                Collect(bins, sv + (long)mby * 8 * _uvs + mbx * 8, _uvs, vb + Vp8.Origin, 8);
+                int chroma = Spread(bins);
+                values[mby * _mbw + mbx] = (byte)Math.Clamp(255 - ((3 * luma + chroma + 2) >> 2), 0, 255);
+                uvSums[mby] += chroma;
+            }
+    }
+
+    /// <summary>
+    /// Groups the macroblocks by how busy they are (k-means on libwebp's measure) and gives each group a
+    /// quantizer bent away from the base one: busy groups coarser, smooth ones finer.
+    /// </summary>
+    void Segment(double cBase) {
+        int count = _mbw * _mbh;
+        var values = new byte[count];
+        var uvSums = new long[_mbh];
+        if (InternalImage.ShouldParallelize(_width, _height)) Parallel.For(0, _mbh, mby => MeasureRow(mby, values, uvSums));
+        else for (int mby = 0; mby < _mbh; mby++) MeasureRow(mby, values, uvSums);
+        var histogram = new int[256];
+        foreach (byte value in values) histogram[value]++;
+
+        // k-means on the histogram, centers spread evenly to start with
+        int lo = 0, hi = 255;
+        while (lo < 255 && histogram[lo] == 0) lo++;
+        while (hi > lo && histogram[hi] == 0) hi--;
+        var centers = new int[4];
+        var map = new int[256];
+        for (int k = 0; k < 4; k++) centers[k] = lo + (2 * k + 1) * (hi - lo) / 8;
+        int mid = lo;
+        for (int iteration = 0; iteration < 6; iteration++) {
+            var sum = new long[4];
+            var weight = new long[4];
+            for (int a = lo, n = 0; a <= hi; a++) {
+                if (histogram[a] == 0) continue;
+                while (n < 3 && Math.Abs(a - centers[n + 1]) < Math.Abs(a - centers[n])) n++;
+                map[a] = n;
+                sum[n] += (long)a * histogram[a];
+                weight[n] += histogram[a];
+            }
+            long weighted = 0, total = 0;
+            int displaced = 0;
+            for (int n = 0; n < 4; n++) {
+                if (weight[n] == 0) continue;
+                int center = (int)((sum[n] + weight[n] / 2) / weight[n]);
+                displaced += Math.Abs(centers[n] - center);
+                centers[n] = center;
+                weighted += center * weight[n];
+                total += weight[n];
+            }
+            mid = (int)((weighted + total / 2) / total);
+            if (displaced < 5) break;
+        }
+        int min = centers.Min(), max = Math.Max(centers.Max(), min + 1);
+        var counts = new int[4];
+        for (int i = 0; i < count; i++) counts[_segment[i] = (byte)map[values[i]]]++;
+
+        const double amp = 0.9 * 50 / 100.0 / 128; // libwebp's default noise-shaping strength
+        for (int s = 0; s < 4; s++) {
+            int alpha = Math.Clamp(255 * (centers[s] - mid) / (max - min), -127, 127);
+            _segQ[s] = Math.Clamp((int)(127 * (1 - Math.Pow(cBase, 1 - amp * alpha))), 0, 127);
+            int level = Vp8Tables.AcTable[_segQ[s]] * 3 / 8;
+            _segFilter[s] = level < 2 ? 0 : Math.Min(level, 63);
+        }
+        // chroma is quantized a little coarser when it is busy, and its DC a little finer
+        _dqUvAc = Math.Clamp((int)(uvSums.Sum() / count - 64) * 10 / 70 / 2, -4, 6);
+        _dqUvDc = -2;
+        for (int s = 0; s < 4; s++) {
+            _segQuant[s] = Vp8.QuantFor(_segQ[s], uvDc: _dqUvDc, uvAc: _dqUvAc);
+            _segLambda[s] = Math.Max(1, _segQuant[s].Y1Ac * _segQuant[s].Y1Ac / 25);
+        }
+        bool same = _segQ.All(q => q == _segQ[0]) && _segFilter.All(f => f == _segFilter[0]);
+        _segments = same ? 1 : 4;
+        if (same) Array.Clear(_segment);
+        static byte Probability(int zeros, int ones) => zeros + ones == 0 ? (byte)255 : (byte)((255 * zeros + (zeros + ones) / 2) / (zeros + ones));
+        _segProbs[0] = Probability(counts[0] + counts[1], counts[2] + counts[3]);
+        _segProbs[1] = Probability(counts[0], counts[1]);
+        _segProbs[2] = Probability(counts[2], counts[3]);
+    }
+
     // ── Analysis: modes, levels and the reconstruction ───────────────────────
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
@@ -238,6 +365,8 @@ internal sealed unsafe class Vp8Encoder {
                 new Span<byte>(leftNz, 9).Clear();
                 for (int mbx = 0; mbx < _mbw; mbx++) {
                     int mb = mby * _mbw + mbx;
+                    _quant = _segQuant[_segment[mb]];
+                    _lambda = _segLambda[_segment[mb]];
                     byte* src = sy + (long)mby * 16 * _ys + mbx * 16;
                     byte* nz = tn + mbx * 9;
                     byte* top = tm + mbx * 4;
@@ -458,12 +587,6 @@ internal sealed unsafe class Vp8Encoder {
         return skips;
     }
 
-    // a filter strength that follows the quantizer
-    int FilterLevel() {
-        int level = Vp8Tables.AcTable[_q] * 3 / 8;
-        return level < 2 ? 0 : Math.Min(level, 63);
-    }
-
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     byte[] Write() {
         // token probabilities fitted to this frame, where the saving pays for the update
@@ -488,14 +611,28 @@ internal sealed unsafe class Vp8Encoder {
         var head = new BoolWriter();
         var w = new WriteSink(head);
         head.PutBits(0, 2); // colour space, clamping
-        head.PutBits(0, 1); // no segments
+        if (_segments > 1) {
+            head.PutBits(0b1111, 4); // segments, a map, their data, as absolute values
+            for (int s = 0; s < 4; s++) head.PutSigned(_segQ[s], 7);
+            for (int s = 0; s < 4; s++) head.PutSigned(_segFilter[s], 6);
+            foreach (byte p in _segProbs) {
+                head.Put(p != 255, 128);
+                if (p != 255) head.PutBits(p, 8);
+            }
+        } else {
+            head.PutBits(0, 1);
+        }
         head.PutBits(0, 1); // the normal loop filter
-        head.PutBits(FilterLevel(), 6);
+        head.PutBits(_segFilter.Max(), 6); // with absolute segment strengths only whether it is on
         head.PutBits(0, 3); // sharpness
         head.PutBits(0, 1); // no filter deltas
         head.PutBits(0, 2); // one token partition
-        head.PutBits(_q, 7);
-        for (int i = 0; i < 5; i++) head.PutSigned(0, 4);
+        head.PutBits(_segQ[0], 7);
+        head.PutSigned(0, 4);
+        head.PutSigned(0, 4);
+        head.PutSigned(0, 4);
+        head.PutSigned(_dqUvDc, 4);
+        head.PutSigned(_dqUvAc, 4);
         head.PutBits(0, 1); // refresh entropy probabilities
         for (int i = 0; i < 1056; i++) {
             bool changed = probs[i] != Vp8Tables.CoeffProbs[i];
@@ -511,6 +648,11 @@ internal sealed unsafe class Vp8Encoder {
             for (int mbx = 0; mbx < _mbw; mbx++) {
                 int mb = mby * _mbw + mbx, info = _info[mb], mode16 = (info >> 2) & 3;
                 bool i4 = (info & 1) != 0;
+                if (_segments > 1) {
+                    int segment = _segment[mb];
+                    if (head.Put(segment >= 2, _segProbs[0])) head.Put(segment == 3, _segProbs[2]);
+                    else head.Put(segment == 1, _segProbs[1]);
+                }
                 head.Put((info & 2) != 0, skipProb);
                 head.Put(!i4, 145);
                 if (!i4) {

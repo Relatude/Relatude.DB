@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -160,22 +161,19 @@ internal sealed class WebpCodec : IImageCodec {
         var rgba = GC.AllocateUninitializedArray<byte>(checked(w * h * 4));
         byte[] Y = dec.Y, U = dec.U, V = dec.V;
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        void Band(int band) {
-            int[] su = new int[cw], sv = new int[cw];
-            for (int y = band * 16, y1 = Math.Min(h, y + 16); y < y1; y++) {
-                int near = (y >> 1) * uvs, far = Math.Clamp((y & 1) == 0 ? (y >> 1) - 1 : (y >> 1) + 1, 0, ch - 1) * uvs;
-                for (int i = 0; i < cw; i++) {
-                    su[i] = 3 * U[near + i] + U[far + i];
-                    sv[i] = 3 * V[near + i] + V[far + i];
-                }
-                int row = y * w * 4;
-                for (int x = 0; x < w; x++) {
-                    int i = x >> 1, j = Math.Clamp((x & 1) == 0 ? i - 1 : i + 1, 0, cw - 1);
-                    int u = (3 * su[i] + su[j] + 8) >> 4, v = (3 * sv[i] + sv[j] + 8) >> 4, luma = MultHi(Y[y * ys + x], 19077);
-                    rgba[row + x * 4] = Clip8(luma + MultHi(v, 26149) - 14234);
-                    rgba[row + x * 4 + 1] = Clip8(luma - MultHi(u, 6419) - MultHi(v, 13320) + 8708);
-                    rgba[row + x * 4 + 2] = Clip8(luma + MultHi(u, 33050) - 17685);
-                    rgba[row + x * 4 + 3] = 255;
+        unsafe void Band(int band) {
+            var blended = new ushort[2 * (cw + 2)];
+            var rows = new byte[4 * cw];
+            fixed (byte* py = Y, pu = U, pv = V, o = rgba, r = rows)
+            fixed (ushort* su = blended) {
+                ushort* sv = su + cw + 2;
+                for (int y = band * 16, y1 = Math.Min(h, y + 16); y < y1; y++) {
+                    int near = (y >> 1) * uvs, far = Math.Clamp((y & 1) == 0 ? (y >> 1) - 1 : (y >> 1) + 1, 0, ch - 1) * uvs;
+                    Blend(pu + near, pu + far, su + 1, cw);
+                    Blend(pv + near, pv + far, sv + 1, cw);
+                    Spread(su + 1, cw, r);
+                    Spread(sv + 1, cw, r + 2 * cw);
+                    YuvRow(py + (long)y * ys, r, r + 2 * cw, (uint*)(o + (long)y * w * 4), w);
                 }
             }
         }
@@ -183,6 +181,79 @@ internal sealed class WebpCodec : IImageCodec {
         if (InternalImage.ShouldParallelize(w, h)) Parallel.For(0, bands, Band);
         else for (int b = 0; b < bands; b++) Band(b);
         return rgba;
+    }
+
+    // a row of chroma blended vertically, 3 parts near to 1 part far, with the end samples repeated on either side
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    static unsafe void Blend(byte* near, byte* far, ushort* s, int n) {
+        int i = 0;
+        if (Vector.IsHardwareAccelerated)
+            for (; i <= n - Vector<byte>.Count; i += Vector<byte>.Count) {
+                Vector.Widen(Unsafe.ReadUnaligned<Vector<byte>>(near + i), out Vector<ushort> n0, out Vector<ushort> n1);
+                Vector.Widen(Unsafe.ReadUnaligned<Vector<byte>>(far + i), out Vector<ushort> f0, out Vector<ushort> f1);
+                Unsafe.WriteUnaligned(s + i, n0 * 3 + f0);
+                Unsafe.WriteUnaligned(s + i + Vector<ushort>.Count, n1 * 3 + f1);
+            }
+        for (; i < n; i++) s[i] = (ushort)(3 * near[i] + far[i]);
+        s[-1] = s[0];
+        s[n] = s[n - 1];
+    }
+
+    // the blended row spread to full width, two bytes per sample: each sample weighs 3 to its neighbour's 1
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    static unsafe void Spread(ushort* s, int n, byte* output) {
+        var pairs = (ushort*)output;
+        int i = 0;
+        if (Vector.IsHardwareAccelerated)
+            for (; i <= n - Vector<ushort>.Count; i += Vector<ushort>.Count) {
+                var centre = Unsafe.ReadUnaligned<Vector<ushort>>(s + i) * 3 + new Vector<ushort>(8);
+                var left = Vector.ShiftRightLogical(centre + Unsafe.ReadUnaligned<Vector<ushort>>(s + i - 1), 4);
+                var right = Vector.ShiftRightLogical(centre + Unsafe.ReadUnaligned<Vector<ushort>>(s + i + 1), 4);
+                Unsafe.WriteUnaligned(pairs + i, left | Vector.ShiftLeft(right, 8));
+            }
+        for (; i < n; i++) {
+            int centre = 3 * s[i] + 8;
+            pairs[i] = (ushort)((centre + s[i - 1]) >> 4 | (centre + s[i + 1]) >> 4 << 8);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    static unsafe void YuvRow(byte* y, byte* u, byte* v, uint* dst, int w) {
+        int x = 0;
+        if (Vector.IsHardwareAccelerated)
+            for (; x <= w - Vector<byte>.Count; x += Vector<byte>.Count) {
+                Vector.Widen(Unsafe.ReadUnaligned<Vector<byte>>(y + x), out Vector<ushort> y0, out Vector<ushort> y1);
+                Vector.Widen(Unsafe.ReadUnaligned<Vector<byte>>(u + x), out Vector<ushort> u0, out Vector<ushort> u1);
+                Vector.Widen(Unsafe.ReadUnaligned<Vector<byte>>(v + x), out Vector<ushort> v0, out Vector<ushort> v1);
+                Rgba(dst + x, y0, u0, v0);
+                Rgba(dst + x + Vector<ushort>.Count, y1, u1, v1);
+            }
+        for (; x < w; x++) {
+            int luma = MultHi(y[x], 19077);
+            dst[x] = Clip8(luma + MultHi(v[x], 26149) - 14234) | (uint)Clip8(luma - MultHi(u[x], 6419) - MultHi(v[x], 13320) + 8708) << 8
+                | (uint)Clip8(luma + MultHi(u[x], 33050) - 17685) << 16 | 0xFF000000u;
+        }
+    }
+
+    // MultHi in 16-bit lanes: the constant's high byte times v, plus its low byte times v over 256
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static Vector<ushort> MultHi(Vector<ushort> v, int c) => v * (ushort)(c >> 8) + Vector.ShiftRightLogical(v * (ushort)(c & 255), 8);
+
+    // (a - b) / 64 as a byte, where below zero is zero
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static Vector<ushort> Clip(Vector<ushort> a, Vector<ushort> b) => Vector.Min(Vector.ShiftRightLogical(Vector.Max(a, b) - b, 6), new Vector<ushort>(255));
+
+    // the scalar arithmetic above, a lane per pixel, kept unsigned
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static unsafe void Rgba(uint* dst, Vector<ushort> y, Vector<ushort> u, Vector<ushort> v) {
+        var luma = MultHi(y, 19077);
+        var r = Clip(luma + MultHi(v, 26149), new Vector<ushort>(14234));
+        var g = Clip(luma + new Vector<ushort>(8708), MultHi(u, 6419) + MultHi(v, 13320));
+        var b = Clip(luma + MultHi(u, 33050), new Vector<ushort>(17685));
+        Vector.Widen(r | Vector.ShiftLeft(g, 8), out Vector<uint> rg0, out Vector<uint> rg1);
+        Vector.Widen(b | new Vector<ushort>(0xFF00), out Vector<uint> ba0, out Vector<uint> ba1);
+        Unsafe.WriteUnaligned(dst, rg0 | Vector.ShiftLeft(ba0, 16));
+        Unsafe.WriteUnaligned(dst + Vector<uint>.Count, rg1 | Vector.ShiftLeft(ba1, 16));
     }
 
     // planes padded to whole macroblocks by repeating the last row and column

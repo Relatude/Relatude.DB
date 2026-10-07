@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
 
 namespace Relatude.DB.FileConversion.ImageEncoders;
 
@@ -81,16 +82,16 @@ internal sealed unsafe class PngCodec : IImageCodec
 
         int channels = ChannelsForColorType(type), bits = channels * depth;
         int rowBytes = checked((width * bits + 7) / 8), stride = rowBytes + 1, bpp = Math.Max(1, bits / 8);
-        var raw = GC.AllocateUninitializedArray<byte>(checked(stride * height));
+        var raw = GC.AllocateUninitializedArray<byte>(checked(stride * height + 4));
         using (var zlib = new ZLibStream(new MemoryStream(compressed), CompressionMode.Decompress))
         {
-            if (zlib.ReadAtLeast(raw, raw.Length, throwOnEndOfStream: false) < raw.Length)
+            if (zlib.ReadAtLeast(raw.AsSpan(0, stride * height), stride * height, throwOnEndOfStream: false) < stride * height)
             {
                 throw new ImageFormatException("PNG image data is truncated.");
             }
         }
 
-        var zero = new byte[rowBytes];
+        var zero = new byte[rowBytes + 4];
         fixed (byte* r = raw, z = zero)
         {
             for (int y = 0; y < height; y++)
@@ -181,6 +182,12 @@ internal sealed unsafe class PngCodec : IImageCodec
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Unfilter(int filter, byte* c, byte* p, int n, int bpp)
     {
+        if (bpp is 3 or 4 && filter is 1 or 3 or 4)
+        {
+            UnfilterPixels(filter, c, p, n, bpp);
+            return;
+        }
+
         switch (filter)
         {
             case 0:
@@ -205,6 +212,55 @@ internal sealed unsafe class PngCodec : IImageCodec
                 break;
             default:
                 throw new ImageFormatException($"Invalid PNG filter type: {filter}.");
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static Vector128<short> Pixel4(byte* p) => Vector128.WidenLower(Vector128.CreateScalarUnsafe(*(uint*)p).AsByte()).AsInt16();
+
+    // a whole pixel at a time, the one to its left kept in a register: Sub, Average and Paeth depend on it
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void UnfilterPixels(int filter, byte* c, byte* p, int n, int bpp)
+    {
+        var mask = Vector128.Create((short)255);
+        Vector128<short> left = default, upLeft = default;
+        for (int i = 0; i < n; i += bpp)
+        {
+            Vector128<short> x = Pixel4(c + i), pred;
+            if (filter == 1)
+            {
+                pred = left;
+            }
+            else
+            {
+                var up = Pixel4(p + i);
+                if (filter == 3)
+                {
+                    pred = Vector128.ShiftRightArithmetic(left + up, 1);
+                }
+                else
+                {
+                    var pa = Vector128.Abs(up - upLeft);
+                    var pb = Vector128.Abs(left - upLeft);
+                    var pc = Vector128.Abs(left + up - upLeft - upLeft);
+                    pred = Vector128.ConditionalSelect(Vector128.LessThanOrEqual(pa, pb) & Vector128.LessThanOrEqual(pa, pc), left,
+                        Vector128.ConditionalSelect(Vector128.LessThanOrEqual(pb, pc), up, upLeft));
+                }
+
+                upLeft = up;
+            }
+
+            left = (x + pred) & mask;
+            uint v = Vector128.Narrow(left.AsUInt16(), left.AsUInt16()).AsUInt32().ToScalar();
+            if (bpp == 4)
+            {
+                *(uint*)(c + i) = v;
+            }
+            else
+            {
+                *(ushort*)(c + i) = (ushort)v;
+                c[i + 2] = (byte)(v >> 16);
+            }
         }
     }
 
