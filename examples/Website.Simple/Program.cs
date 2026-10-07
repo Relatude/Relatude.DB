@@ -2,7 +2,6 @@
 using Relatude.DB.Datamodels;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.FileConversion;
-using Relatude.DB.GraphQL;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer;
@@ -15,8 +14,8 @@ using Website.Simple.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddRelatudeDB(options => {
-    options.FileConverters.Add(new SkiaImageConverter());
-    options.FileConverters.Add(new FFMpegVideoConverter());
+    //options.FileConverters.Add(new SkiaImageConverter());
+    //options.FileConverters.Add(new FFMpegVideoConverter());
     options.OnDatamodelInit = (dm, container) => {
         dm.Add<DemoArticle>();
         // the Wikipedia demo model, so the corpus import in the admin UI's storage page has
@@ -51,9 +50,6 @@ var app = builder.Build();
 
 app.UseCors("AllowALL"); // FOR VS CODE DEVELOPMENT ONLY - NEVER ALLOW ALL CORS
 
-app.MapGet("/sms", (RelatudeDBContext ctx) => {
-    ctx.Database.SMS.SendAsync("+4793423700", "Hello from Relatude.DB!", "test").Wait();
-});
 
 app.MapGet("/", (RelatudeDBContext ctx) => {
     var count = ctx.Database.Count(); //.Query<DemoArticle>().Count();
