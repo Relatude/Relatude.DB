@@ -117,11 +117,45 @@ public class NativeImageCodecTests {
         Assert.AreEqual((200, 100), (result.Width, result.Height));
     }
 
+    // written by libwebp (through Pillow): the hash is of the pixels libwebp decodes them to, which ours must equal
+    static readonly (string Name, string Base64, string Sha256)[] LibwebpFiles = [
+        ("lossy with alpha", "UklGRs4AAABXRUJQVlA4WAoAAAAQAAAAFwAADwAAQUxQSCMAAAABFyAQSNKefo2ICAcFbSQpZ5L94evkVxDR/wmAizj3Meyv6wBWUDgghAAAALAEAJ0BKhgAEAA+bTCTRiQjIaEwCACADYlsAJ0yhHA3kD4AAUBwEE5JZUaTVgAA/v5yeX2t3X7w4nzT9SGXfjNfz2aaquRtomNFn0Niwrb+cYTU1QwzIff/zi/B7zGTzikyXvMTAGKA2lLov8n6/YwDt2ug/SP8YFv+DGiguOVK6vtsAA==", "7bb915e03f6c9156d1370953a324e7019048dbbe330e1a4af86d5cc563407053"),
+        ("lossless", "UklGRnQAAABXRUJQVlA4TGgAAAAvF8ADEA2ISRP22z+xISL6PwE2VF0YKEjbgKl/27sSBmLA+z8BCMoHKIQkyWmDJ3l/wAsfAdS2bcNiTikSCyb78rcMg0AQIrMtMNsEIPDL6Su7BwBAUVQbABjEHfkb8UOGHgYx1Fn+Fg==", "accfb8ef4bd645b1853156cca3102a8335b8bad73f9271298492576d09a57f13"),
+        ("animated, first frame", "UklGRuIBAABXRUJQVlA4WAoAAAASAAAAFwAADwAAQU5JTQYAAAAAAAAAAABBTk1G1gAAAAAAAAEAABcAAA0AAGQAAAJBTFBIKAAAAAEXIBZM8bAzKCJCg1EbSY6a5EZ+0TjvdQgi+j8OSZIAZinrXwAA3z5WUDggjgAAADAEAJ0BKhgADgA+bTSTRqQjIaEwCACADYlsAJ0yhHA3oAE92NUxBALGAAD+/lpWrT2evDBj6BbilreEJPwjlRcc01UF92xzotB0MZ/4xbfpk/Gj+PHRln9O7a4/aNt5L7WKxXfZ9EK38hFlmrnmEQ08EbxD0YL+f+fv0+gGY62P+6aZ/ZfEkXHKleXgAABBTk1G2AAAAAAAAAEAABcAAA0AAGQAAAJBTFBIKAAAAAEXIBZM8bAzKCJCg1EbSY6a5EZ+0TjvdQgi+j8OSZIAZinrXwAA3z5WUDggkAAAADAEAJ0BKhgADgA+bSyTRaQioZgEAEAGxLYdwvBGYwQ5Vh34cQAL7kSi7gD+493+ff/xyAX9H3P/82N9pJspKkyeMXlxjePIOcFXCcTC2SY1E7jbKn2hLbl/axv6f8//Z+Cio4f/y3zxUtz819rZ5kFTvSGyw7l1cvv1oXdVp+RnnbzHHP+pQa3Hxz6FuQAAAA==", "61c7957e89131aaf8937026c0201b66eaabe1da64a599819a3a7d9d7da3e792f"),
+    ];
+
+    [TestMethod]
+    public void Webp_ReadsWhatLibwebpWrites() {
+        foreach (var (name, base64, sha256) in LibwebpFiles) {
+            var data = Convert.FromBase64String(base64);
+            Assert.IsTrue(InternalImage.TryReadSize(data, out var width, out var height), name);
+            var image = InternalImage.Load(data);
+            Assert.AreEqual((24, 16), (image.Width, image.Height), name);
+            Assert.AreEqual((width, height), (image.Width, image.Height), name);
+            Assert.AreEqual(sha256, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(image.Pixels)), name);
+        }
+    }
+
+    [TestMethod]
+    public void Webp_RoundTripKeepsThePictureAndExactAlpha() {
+        var source = Picture(333, 251, alpha: true);
+        foreach (var quality in new[] { 50, 85 }) {
+            var back = InternalImage.Load(Save(source, ImageFormat.Webp, quality));
+            Assert.AreEqual((333, 251), (back.Width, back.Height));
+            Assert.IsTrue(Psnr(source, back) > 32, $"q{quality}: {Psnr(source, back):F1} dB");
+            for (int i = 3; i < source.Pixels.Length; i += 4) Assert.AreEqual(source.Pixels[i], back.Pixels[i], "alpha is kept exactly");
+        }
+        var opaque = Picture(64, 48);
+        var small = Save(opaque, ImageFormat.Webp, 85);
+        Assert.AreEqual("VP8 ", System.Text.Encoding.ASCII.GetString(small, 12, 4), "an opaque picture needs no extended header");
+        Assert.IsTrue(Save(opaque, ImageFormat.Webp, 50).Length < Save(opaque, ImageFormat.Webp, 95).Length);
+    }
+
     [TestMethod]
     public void Converter_DeclinesFormatsItCannotRead() {
         var converter = new NativeImageConverter();
         Assert.IsTrue(converter.SupportsConversion(FileType.Image, FileFormat.Jpeg, FileType.Image, FileFormat.Png));
+        Assert.IsTrue(converter.SupportsConversion(FileType.Image, FileFormat.Webp, FileType.Image, FileFormat.Webp));
         Assert.IsFalse(converter.SupportsConversion(FileType.Image, FileFormat.Gif, FileType.Image, FileFormat.Png));
-        Assert.IsFalse(converter.SupportsConversion(FileType.Image, FileFormat.Webp, FileType.Image, FileFormat.Png));
     }
 }

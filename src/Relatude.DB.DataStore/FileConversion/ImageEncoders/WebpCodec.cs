@@ -1,646 +1,245 @@
 using System.Buffers.Binary;
-using System.Text;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace Relatude.DB.FileConversion.ImageEncoders;
 
-internal sealed class WebpCodec : IImageCodec
-{
-    private const uint Riff = 0x46464952;
-    private const uint Webp = 0x50424557;
-    private const uint Vp8l = 0x4c385056;
-
-    private static readonly (int X, int Y)[] DistanceMap =
-    [
-        (0, 1), (1, 0), (1, 1), (-1, 1), (0, 2), (2, 0), (1, 2), (-1, 2),
-        (2, 1), (-2, 1), (2, 2), (-2, 2), (0, 3), (3, 0), (1, 3), (-1, 3),
-        (3, 1), (-3, 1), (2, 3), (-2, 3), (3, 2), (-3, 2), (0, 4), (4, 0),
-        (1, 4), (-1, 4), (4, 1), (-4, 1), (3, 3), (-3, 3), (2, 4), (-2, 4),
-        (4, 2), (-4, 2), (0, 5), (3, 4), (-3, 4), (4, 3), (-4, 3), (5, 0),
-        (1, 5), (-1, 5), (5, 1), (-5, 1), (2, 5), (-2, 5), (5, 2), (-5, 2),
-        (4, 4), (-4, 4), (3, 5), (-3, 5), (5, 3), (-5, 3), (0, 6), (6, 0),
-        (1, 6), (-1, 6), (6, 1), (-6, 1), (2, 6), (-2, 6), (6, 2), (-6, 2),
-        (4, 5), (-4, 5), (5, 4), (-5, 4), (3, 6), (-3, 6), (6, 3), (-6, 3),
-        (0, 7), (7, 0), (1, 7), (-1, 7), (5, 5), (-5, 5), (7, 1), (-7, 1),
-        (4, 6), (-4, 6), (6, 4), (-6, 4), (2, 7), (-2, 7), (7, 2), (-7, 2),
-        (3, 7), (-3, 7), (7, 3), (-7, 3), (5, 6), (-5, 6), (6, 5), (-6, 5),
-        (8, 0), (4, 7), (-4, 7), (7, 4), (-7, 4), (8, 1), (8, 2), (6, 6),
-        (-6, 6), (8, 3), (5, 7), (-5, 7), (7, 5), (-7, 5), (8, 4), (6, 7),
-        (-6, 7), (7, 6), (-7, 6), (8, 5), (7, 7), (-7, 7), (8, 6), (8, 7)
-    ];
+/// <summary>
+/// WebP: reads lossy and lossless images, alpha, the extended format and the first frame of an animation;
+/// writes lossy, with any alpha kept losslessly.
+/// </summary>
+internal sealed class WebpCodec : IImageCodec {
+    const uint Lossy = 0x20385056, Lossless = 0x4c385056, Extended = 0x58385056, Alpha = 0x48504c41, Frame = 0x464d4e41;
 
     public ImageFormat Format => ImageFormat.Webp;
 
-    public bool CanDecode(ReadOnlySpan<byte> header)
-    {
-        return header.Length >= 12
-            && BinaryPrimitives.ReadUInt32LittleEndian(header) == Riff
-            && BinaryPrimitives.ReadUInt32LittleEndian(header[8..]) == Webp;
-    }
+    public bool CanDecode(ReadOnlySpan<byte> header) =>
+        header.Length >= 12 && header[..4].SequenceEqual("RIFF"u8) && header.Slice(8, 4).SequenceEqual("WEBP"u8);
 
-    public bool TryReadSize(byte[] data, out int width, out int height)
-    {
+    static int U24(byte[] d, int at) => d[at] | d[at + 1] << 8 | d[at + 2] << 16;
+
+    public bool TryReadSize(byte[] data, out int width, out int height) {
         width = height = 0;
-        if (data.Length < 30 || !CanDecode(data) || BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(12)) != Vp8l || data[20] != 0x2f)
-        {
-            return false;
+        if (data.Length < 30 || !CanDecode(data)) return false;
+        uint kind = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(12));
+        if (kind == Extended) {
+            (width, height) = (U24(data, 24) + 1, U24(data, 27) + 1);
+        } else if (kind == Lossy) {
+            (width, height) = (BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(26)) & 0x3fff, BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(28)) & 0x3fff);
+        } else if (kind == Lossless && data[20] == 0x2f) {
+            uint bits = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(21));
+            (width, height) = ((int)(bits & 0x3fff) + 1, (int)((bits >> 14) & 0x3fff) + 1);
         }
-
-        uint bits = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(21));
-        width = (int)(bits & 0x3fff) + 1;
-        height = (int)((bits >> 14) & 0x3fff) + 1;
-        return true;
+        return width > 0 && height > 0;
     }
 
-    public InternalImage Decode(byte[] bytes, int downscale)
-    {
-        ReadOnlySpan<byte> data = bytes;
-        if (!CanDecode(data))
-        {
-            throw new ImageFormatException("Invalid WEBP RIFF header.");
+    static List<(uint Kind, int Offset, int Length)> Chunks(byte[] d, int start, int end) {
+        var chunks = new List<(uint, int, int)>();
+        for (int at = start; at + 8 <= end;) {
+            uint kind = BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(at));
+            int length = BinaryPrimitives.ReadInt32LittleEndian(d.AsSpan(at + 4));
+            if (length < 0 || at + 8 + length > end) throw new ImageFormatException("WEBP chunk is truncated.");
+            chunks.Add((kind, at + 8, length));
+            at += 8 + length + (length & 1);
         }
-
-        int offset = 12;
-        while (offset + 8 <= data.Length)
-        {
-            uint fourCc = BinaryPrimitives.ReadUInt32LittleEndian(data[offset..]);
-            int length = BinaryPrimitives.ReadInt32LittleEndian(data[(offset + 4)..]);
-            if (length < 0 || offset + 8 + length > data.Length)
-            {
-                throw new ImageFormatException("WEBP chunk is truncated.");
-            }
-
-            ReadOnlySpan<byte> payload = data.Slice(offset + 8, length);
-            if (fourCc == Vp8l)
-            {
-                return DecodeLossless(payload);
-            }
-
-            offset += 8 + length + (length & 1);
-        }
-
-        throw new ImageFormatException("Only lossless WEBP VP8L chunks are supported.");
+        return chunks;
     }
 
-    public void Encode(InternalImage image, Stream stream, ImageSaveOptions options)
-    {
-        if (image.Width > 16384 || image.Height > 16384)
-        {
-            throw new ArgumentOutOfRangeException(nameof(image), "WEBP lossless images are limited to 16384 x 16384 pixels.");
+    public InternalImage Decode(byte[] data, int downscale) {
+        if (!CanDecode(data)) throw new ImageFormatException("Invalid WEBP RIFF header.");
+        int end = (int)Math.Min(data.Length, 8L + BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(4)));
+        var chunks = Chunks(data, 12, end);
+        int canvasWidth = 0, canvasHeight = 0;
+        foreach (var (kind, offset, length) in chunks) {
+            if (kind == Extended && length >= 10) (canvasWidth, canvasHeight) = (U24(data, offset + 4) + 1, U24(data, offset + 7) + 1);
+            if (kind != Frame || length < 16) continue;
+            // the first frame of an animation, on its canvas
+            var frame = Image(data, Chunks(data, offset + 16, offset + length));
+            int x = 2 * U24(data, offset), y = 2 * U24(data, offset + 3);
+            if (x == 0 && y == 0 && frame.Width == canvasWidth && frame.Height == canvasHeight) return frame;
+            if (x + frame.Width > canvasWidth || y + frame.Height > canvasHeight) throw new ImageFormatException("WEBP frame lies outside its canvas.");
+            return frame.Pad(canvasWidth, canvasHeight, x, y, default);
         }
+        return Image(data, chunks);
+    }
 
-        byte[] payload = EncodeLosslessPayload(image);
-        int paddedPayloadLength = payload.Length + (payload.Length & 1);
-        int riffSize = 4 + 8 + paddedPayloadLength;
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    static InternalImage Image(byte[] d, List<(uint Kind, int Offset, int Length)> chunks) {
+        (int Offset, int Length)? alpha = null;
+        foreach (var (kind, offset, length) in chunks) {
+            if (kind == Alpha) alpha = (offset, length);
+            if (kind == Lossless) {
+                var argb = Vp8L.Decode(d, offset, length, out int w, out int h);
+                var rgba = GC.AllocateUninitializedArray<byte>(argb.Length * 4);
+                var pixels = MemoryMarshal.Cast<byte, uint>(rgba.AsSpan());
+                for (int i = 0; i < argb.Length; i++) {
+                    uint p = argb[i];
+                    pixels[i] = (p & 0xff00ff00) | ((p >> 16) & 0xff) | ((p & 0xff) << 16);
+                }
+                return new InternalImage(w, h, rgba);
+            }
+            if (kind == Lossy) {
+                var vp8 = Vp8Decoder.Decode(d, offset, length);
+                var rgba = ToRgba(vp8);
+                if (alpha is { } a) {
+                    var values = DecodeAlpha(d, a.Offset, a.Length, vp8.Width, vp8.Height);
+                    for (int i = 0; i < values.Length; i++) rgba[i * 4 + 3] = values[i];
+                }
+                return new InternalImage(vp8.Width, vp8.Height, rgba);
+            }
+        }
+        throw new ImageFormatException("WEBP file has no image data.");
+    }
 
-        WriteFourCc(stream, "RIFF");
-        WriteUInt32(stream, (uint)riffSize);
-        WriteFourCc(stream, "WEBP");
-        WriteFourCc(stream, "VP8L");
-        WriteUInt32(stream, (uint)payload.Length);
+    // ── Alpha ────────────────────────────────────────────────────────────────
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    static byte[] DecodeAlpha(byte[] d, int offset, int length, int width, int height) {
+        if (length < 1) throw new ImageFormatException("WEBP alpha chunk is empty.");
+        int method = d[offset] & 3, filter = (d[offset] >> 2) & 3, count = width * height;
+        byte[] a;
+        if (method == 0) {
+            if (length - 1 < count) throw new ImageFormatException("WEBP alpha is truncated.");
+            a = d.AsSpan(offset + 1, count).ToArray();
+        } else if (method == 1) {
+            var argb = Vp8L.DecodeHeaderless(d, offset + 1, length - 1, width, height);
+            a = new byte[count];
+            for (int i = 0; i < count; i++) a[i] = (byte)(argb[i] >> 8);
+        } else {
+            throw new ImageFormatException("Unsupported WEBP alpha compression.");
+        }
+        if (filter != 0)
+            for (int i = 0; i < count; i++) a[i] = (byte)(a[i] + AlphaPrediction(a, i, width, filter));
+        return a;
+    }
+
+    // what an alpha value is predicted from: left, above, or the gradient of both (nothing for the very first)
+    static int AlphaPrediction(byte[] a, int i, int width, int filter) {
+        int x = i % width;
+        if (i < width) return x == 0 ? 0 : a[i - 1];
+        if (x == 0) return a[i - width];
+        return filter switch {
+            1 => a[i - 1],
+            2 => a[i - width],
+            _ => Math.Clamp(a[i - 1] + a[i - width] - a[i - width - 1], 0, 255),
+        };
+    }
+
+    // the filter whose residuals look cheapest, applied, then coded as a lossless image of greens
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    static byte[] EncodeAlpha(InternalImage image) {
+        int w = image.Width, n = w * image.Height;
+        ReadOnlySpan<byte> pixels = image.Pixels;
+        var a = new byte[n];
+        for (int i = 0; i < n; i++) a[i] = pixels[i * 4 + 3];
+        byte[] best = a;
+        int bestFilter = 0;
+        double bestCost = double.MaxValue;
+        for (int filter = 0; filter < 4; filter++) {
+            var r = new byte[n];
+            var histogram = new int[256];
+            for (int i = 0; i < n; i++) histogram[r[i] = (byte)(a[i] - (filter == 0 ? 0 : AlphaPrediction(a, i, w, filter)))]++;
+            double cost = 0;
+            foreach (int c in histogram) if (c > 0) cost -= c * Math.Log2((double)c / n);
+            if (cost < bestCost) (bestCost, best, bestFilter) = (cost, r, filter);
+        }
+        var greens = new uint[n];
+        for (int i = 0; i < n; i++) greens[i] = (uint)best[i] << 8;
+        return [(byte)(1 | bestFilter << 2), .. Vp8L.EncodeHeaderless(greens, w)];
+    }
+
+    // ── Colour conversion (libwebp's BT.601 limited range) ───────────────────
+
+    static int MultHi(int v, int c) => (v * c) >> 8;
+    static byte Clip8(int v) => (v & ~16383) == 0 ? (byte)(v >> 6) : v < 0 ? (byte)0 : (byte)255;
+
+    // chroma upsampled with the 9-3-3-1 filter libwebp uses by default
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    static byte[] ToRgba(Vp8Decoder dec) {
+        int w = dec.Width, h = dec.Height, ys = dec.YStride, uvs = dec.UvStride, cw = (w + 1) >> 1, ch = (h + 1) >> 1;
+        var rgba = GC.AllocateUninitializedArray<byte>(checked(w * h * 4));
+        byte[] Y = dec.Y, U = dec.U, V = dec.V;
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        void Band(int band) {
+            int[] su = new int[cw], sv = new int[cw];
+            for (int y = band * 16, y1 = Math.Min(h, y + 16); y < y1; y++) {
+                int near = (y >> 1) * uvs, far = Math.Clamp((y & 1) == 0 ? (y >> 1) - 1 : (y >> 1) + 1, 0, ch - 1) * uvs;
+                for (int i = 0; i < cw; i++) {
+                    su[i] = 3 * U[near + i] + U[far + i];
+                    sv[i] = 3 * V[near + i] + V[far + i];
+                }
+                int row = y * w * 4;
+                for (int x = 0; x < w; x++) {
+                    int i = x >> 1, j = Math.Clamp((x & 1) == 0 ? i - 1 : i + 1, 0, cw - 1);
+                    int u = (3 * su[i] + su[j] + 8) >> 4, v = (3 * sv[i] + sv[j] + 8) >> 4, luma = MultHi(Y[y * ys + x], 19077);
+                    rgba[row + x * 4] = Clip8(luma + MultHi(v, 26149) - 14234);
+                    rgba[row + x * 4 + 1] = Clip8(luma - MultHi(u, 6419) - MultHi(v, 13320) + 8708);
+                    rgba[row + x * 4 + 2] = Clip8(luma + MultHi(u, 33050) - 17685);
+                    rgba[row + x * 4 + 3] = 255;
+                }
+            }
+        }
+        int bands = (h + 15) / 16;
+        if (InternalImage.ShouldParallelize(w, h)) Parallel.For(0, bands, Band);
+        else for (int b = 0; b < bands; b++) Band(b);
+        return rgba;
+    }
+
+    // planes padded to whole macroblocks by repeating the last row and column
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    static (byte[] Y, byte[] U, byte[] V) ToYuv(InternalImage image) {
+        int w = image.Width, h = image.Height, mbw = (w + 15) >> 4, mbh = (h + 15) >> 4, ys = mbw * 16, uvs = mbw * 8;
+        var Y = new byte[ys * mbh * 16];
+        var U = new byte[uvs * mbh * 8];
+        var V = new byte[uvs * mbh * 8];
+        ReadOnlySpan<byte> p = image.Pixels;
+        for (int y = 0; y < mbh * 16; y++)
+            for (int x = 0, row = Math.Min(y, h - 1) * w; x < ys; x++) {
+                int o = (row + Math.Min(x, w - 1)) * 4;
+                Y[y * ys + x] = (byte)((16839 * p[o] + 33059 * p[o + 1] + 6420 * p[o + 2] + (16 << 16) + (1 << 15)) >> 16);
+            }
+        for (int y = 0; y < mbh * 8; y++)
+            for (int x = 0; x < uvs; x++) {
+                int r = 0, g = 0, b = 0;
+                for (int k = 0; k < 4; k++) {
+                    int o = (Math.Min(2 * y + (k >> 1), h - 1) * w + Math.Min(2 * x + (k & 1), w - 1)) * 4;
+                    r += p[o];
+                    g += p[o + 1];
+                    b += p[o + 2];
+                }
+                U[y * uvs + x] = (byte)Math.Clamp((-9719 * r - 19081 * g + 28800 * b + (128 << 18) + (1 << 17)) >> 18, 0, 255);
+                V[y * uvs + x] = (byte)Math.Clamp((28800 * r - 24116 * g - 4684 * b + (128 << 18) + (1 << 17)) >> 18, 0, 255);
+            }
+        return (Y, U, V);
+    }
+
+    // ── Writing ──────────────────────────────────────────────────────────────
+
+    public void Encode(InternalImage image, Stream stream, ImageSaveOptions options) {
+        if (image.Width > 16383 || image.Height > 16383) throw new ArgumentOutOfRangeException(nameof(image), "WEBP images are limited to 16383 x 16383 pixels.");
+        var (y, u, v) = ToYuv(image);
+        byte[] frame = Vp8Encoder.Encode(y, u, v, image.Width, image.Height, options.Quality);
+        bool translucent = false;
+        ReadOnlySpan<byte> pixels = image.Pixels;
+        for (int i = 3; i < pixels.Length && !translucent; i += 4) translucent = pixels[i] != 255;
+        byte[]? alpha = translucent ? EncodeAlpha(image) : null;
+        static int Size(int length) => 8 + length + (length & 1);
+        int riff = 4 + Size(frame.Length) + (alpha == null ? 0 : Size(10) + Size(alpha.Length));
+        stream.Write("RIFF"u8);
+        stream.Write(BitConverter.GetBytes(riff));
+        stream.Write("WEBP"u8);
+        if (alpha != null) {
+            int w = image.Width - 1, h = image.Height - 1;
+            Chunk(stream, "VP8X"u8, [0x10, 0, 0, 0, (byte)w, (byte)(w >> 8), (byte)(w >> 16), (byte)h, (byte)(h >> 8), (byte)(h >> 16)]);
+            Chunk(stream, "ALPH"u8, alpha);
+        }
+        Chunk(stream, "VP8 "u8, frame);
+    }
+
+    static void Chunk(Stream stream, ReadOnlySpan<byte> kind, ReadOnlySpan<byte> payload) {
+        stream.Write(kind);
+        stream.Write(BitConverter.GetBytes(payload.Length));
         stream.Write(payload);
-        if ((payload.Length & 1) != 0)
-        {
-            stream.WriteByte(0);
-        }
-    }
-
-    private static InternalImage DecodeLossless(ReadOnlySpan<byte> payload)
-    {
-        if (payload.Length < 5 || payload[0] != 0x2f)
-        {
-            throw new ImageFormatException("Invalid WEBP lossless payload.");
-        }
-
-        Vp8LBitReader reader = new(payload[1..].ToArray());
-        int width = reader.ReadBits(14) + 1;
-        int height = reader.ReadBits(14) + 1;
-        _ = reader.ReadBit();
-        int version = reader.ReadBits(3);
-        if (version != 0)
-        {
-            throw new ImageFormatException("Unsupported WEBP lossless version.");
-        }
-
-        if (reader.ReadBit() != 0)
-        {
-            throw new ImageFormatException("WEBP lossless transforms are not supported by this decoder.");
-        }
-
-        int colorCacheBits = 0;
-        int colorCacheSize = 0;
-        if (reader.ReadBit() != 0)
-        {
-            colorCacheBits = reader.ReadBits(4);
-            if (colorCacheBits is < 1 or > 11)
-            {
-                throw new ImageFormatException("Invalid WEBP color cache size.");
-            }
-
-            colorCacheSize = 1 << colorCacheBits;
-        }
-
-        if (reader.ReadBit() != 0)
-        {
-            throw new ImageFormatException("WEBP meta-prefix images are not supported by this decoder.");
-        }
-
-        Vp8LHuffman green = ReadPrefixCode(reader, 256 + 24 + colorCacheSize);
-        Vp8LHuffman red = ReadPrefixCode(reader, 256);
-        Vp8LHuffman blue = ReadPrefixCode(reader, 256);
-        Vp8LHuffman alpha = ReadPrefixCode(reader, 256);
-        Vp8LHuffman distance = ReadPrefixCode(reader, 40);
-
-        byte[] rgba = new byte[checked(width * height * 4)];
-        uint[] colorCache = colorCacheSize == 0 ? [] : new uint[colorCacheSize];
-        int pixel = 0;
-        while (pixel < width * height)
-        {
-            int symbol = green.Decode(reader);
-            if (symbol < 256)
-            {
-                byte g = (byte)symbol;
-                byte r = (byte)red.Decode(reader);
-                byte b = (byte)blue.Decode(reader);
-                byte a = (byte)alpha.Decode(reader);
-                uint argb = PackArgb(a, r, g, b);
-                WritePixel(rgba, pixel++, argb);
-                InsertColorCache(colorCache, colorCacheBits, argb);
-            }
-            else if (symbol < 280)
-            {
-                int length = ReadPrefixValue(reader, symbol - 256);
-                int distanceCode = ReadPrefixValue(reader, distance.Decode(reader));
-                int copyDistance = DistanceCodeToPixelDistance(distanceCode, width);
-                if (copyDistance <= 0 || copyDistance > pixel)
-                {
-                    throw new ImageFormatException("Invalid WEBP backward reference.");
-                }
-
-                for (int i = 0; i < length && pixel < width * height; i++)
-                {
-                    uint argb = ReadPixelAsArgb(rgba, pixel - copyDistance);
-                    WritePixel(rgba, pixel++, argb);
-                    InsertColorCache(colorCache, colorCacheBits, argb);
-                }
-            }
-            else
-            {
-                int index = symbol - 280;
-                if (index >= colorCache.Length)
-                {
-                    throw new ImageFormatException("Invalid WEBP color cache index.");
-                }
-
-                uint argb = colorCache[index];
-                WritePixel(rgba, pixel++, argb);
-                InsertColorCache(colorCache, colorCacheBits, argb);
-            }
-        }
-
-        return new InternalImage(width, height, rgba);
-    }
-
-    private static byte[] EncodeLosslessPayload(InternalImage image)
-    {
-        using MemoryStream memory = new();
-        memory.WriteByte(0x2f);
-        Vp8LBitWriter writer = new(memory);
-        writer.WriteBits(image.Width - 1, 14);
-        writer.WriteBits(image.Height - 1, 14);
-        writer.WriteBit(HasAlpha(image) ? 1 : 0);
-        writer.WriteBits(0, 3);
-
-        writer.WriteBit(0);
-        writer.WriteBit(0);
-        writer.WriteBit(0);
-
-        WriteLiteralPrefixCode(writer, 280);
-        WriteLiteralPrefixCode(writer, 256);
-        WriteLiteralPrefixCode(writer, 256);
-        WriteLiteralPrefixCode(writer, 256);
-        WriteSingleSymbolPrefixCode(writer, 0);
-
-        Vp8LHuffmanEncoder literal = Vp8LHuffmanEncoder.EightBitLiterals();
-        ReadOnlySpan<byte> pixels = image.Pixels;
-        for (int i = 0; i < pixels.Length; i += 4)
-        {
-            literal.Write(writer, pixels[i + 1]);
-            literal.Write(writer, pixels[i]);
-            literal.Write(writer, pixels[i + 2]);
-            literal.Write(writer, pixels[i + 3]);
-        }
-
-        writer.Flush();
-        return memory.ToArray();
-    }
-
-    private static void WriteLiteralPrefixCode(Vp8LBitWriter writer, int alphabetSize)
-    {
-        writer.WriteBit(0);
-        writer.WriteBits(8, 4);
-
-        Span<int> codeLengthCodeLengths = stackalloc int[19];
-        codeLengthCodeLengths[0] = 1;
-        codeLengthCodeLengths[8] = 1;
-        int[] order = [17, 18, 0, 1, 2, 3, 4, 5, 16, 6, 7, 8];
-        foreach (int symbol in order)
-        {
-            writer.WriteBits(codeLengthCodeLengths[symbol], 3);
-        }
-
-        writer.WriteBit(0);
-        for (int i = 0; i < alphabetSize; i++)
-        {
-            writer.WriteBit(i < 256 ? 1 : 0);
-        }
-    }
-
-    private static void WriteSingleSymbolPrefixCode(Vp8LBitWriter writer, int symbol)
-    {
-        writer.WriteBit(1);
-        writer.WriteBit(0);
-        writer.WriteBit(symbol > 1 ? 1 : 0);
-        writer.WriteBits(symbol, symbol > 1 ? 8 : 1);
-    }
-
-    private static Vp8LHuffman ReadPrefixCode(Vp8LBitReader reader, int alphabetSize)
-    {
-        int[] codeLengths = new int[alphabetSize];
-        if (reader.ReadBit() != 0)
-        {
-            int symbols = reader.ReadBit() + 1;
-            int isFirstEightBits = reader.ReadBit();
-            int symbol0 = reader.ReadBits(1 + 7 * isFirstEightBits);
-            if (symbol0 >= alphabetSize)
-            {
-                throw new ImageFormatException("WEBP simple prefix code is out of range.");
-            }
-
-            codeLengths[symbol0] = 1;
-            if (symbols == 2)
-            {
-                int symbol1 = reader.ReadBits(8);
-                if (symbol1 >= alphabetSize)
-                {
-                    throw new ImageFormatException("WEBP simple prefix code is out of range.");
-                }
-
-                codeLengths[symbol1] = 1;
-            }
-
-            return new Vp8LHuffman(codeLengths);
-        }
-
-        int[] order = [17, 18, 0, 1, 2, 3, 4, 5, 16, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
-        int numCodeLengths = 4 + reader.ReadBits(4);
-        int[] codeLengthCodeLengths = new int[19];
-        for (int i = 0; i < numCodeLengths; i++)
-        {
-            codeLengthCodeLengths[order[i]] = reader.ReadBits(3);
-        }
-
-        Vp8LHuffman codeLengthCode = new(codeLengthCodeLengths);
-        int maxSymbol = alphabetSize;
-        if (reader.ReadBit() != 0)
-        {
-            int lengthBits = 2 + 2 * reader.ReadBits(3);
-            maxSymbol = 2 + reader.ReadBits(lengthBits);
-            if (maxSymbol > alphabetSize)
-            {
-                throw new ImageFormatException("WEBP prefix code exceeds alphabet size.");
-            }
-        }
-
-        int index = 0;
-        int previous = 8;
-        while (index < maxSymbol)
-        {
-            int symbol = codeLengthCode.Decode(reader);
-            if (symbol <= 15)
-            {
-                codeLengths[index++] = symbol;
-                if (symbol != 0)
-                {
-                    previous = symbol;
-                }
-            }
-            else if (symbol == 16)
-            {
-                int repeat = 3 + reader.ReadBits(2);
-                for (int i = 0; i < repeat && index < maxSymbol; i++)
-                {
-                    codeLengths[index++] = previous;
-                }
-            }
-            else if (symbol == 17)
-            {
-                int repeat = 3 + reader.ReadBits(3);
-                index += Math.Min(repeat, maxSymbol - index);
-            }
-            else if (symbol == 18)
-            {
-                int repeat = 11 + reader.ReadBits(7);
-                index += Math.Min(repeat, maxSymbol - index);
-            }
-            else
-            {
-                throw new ImageFormatException("Invalid WEBP code length symbol.");
-            }
-        }
-
-        return new Vp8LHuffman(codeLengths);
-    }
-
-    private static int ReadPrefixValue(Vp8LBitReader reader, int prefixCode)
-    {
-        if (prefixCode < 4)
-        {
-            return prefixCode + 1;
-        }
-
-        int extraBits = (prefixCode - 2) >> 1;
-        int offset = (2 + (prefixCode & 1)) << extraBits;
-        return offset + reader.ReadBits(extraBits) + 1;
-    }
-
-    private static int DistanceCodeToPixelDistance(int distanceCode, int width)
-    {
-        if (distanceCode <= 120)
-        {
-            (int x, int y) = DistanceMap[distanceCode - 1];
-            int distance = x + y * width;
-            return distance < 1 ? 1 : distance;
-        }
-
-        return distanceCode - 120;
-    }
-
-    private static bool HasAlpha(InternalImage image)
-    {
-        ReadOnlySpan<byte> pixels = image.Pixels;
-        for (int i = 3; i < pixels.Length; i += 4)
-        {
-            if (pixels[i] != 255)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static uint PackArgb(byte a, byte r, byte g, byte b)
-    {
-        return (uint)(a << 24 | r << 16 | g << 8 | b);
-    }
-
-    private static void WritePixel(byte[] rgba, int pixel, uint argb)
-    {
-        int offset = pixel * 4;
-        rgba[offset] = (byte)(argb >> 16);
-        rgba[offset + 1] = (byte)(argb >> 8);
-        rgba[offset + 2] = (byte)argb;
-        rgba[offset + 3] = (byte)(argb >> 24);
-    }
-
-    private static uint ReadPixelAsArgb(byte[] rgba, int pixel)
-    {
-        int offset = pixel * 4;
-        return PackArgb(rgba[offset + 3], rgba[offset], rgba[offset + 1], rgba[offset + 2]);
-    }
-
-    private static void InsertColorCache(uint[] cache, int bits, uint argb)
-    {
-        if (cache.Length == 0)
-        {
-            return;
-        }
-
-        uint index = (0x1e35a7bdu * argb) >> (32 - bits);
-        cache[index] = argb;
-    }
-
-    private static void WriteFourCc(Stream stream, string value)
-    {
-        stream.Write(Encoding.ASCII.GetBytes(value));
-    }
-
-    private static void WriteUInt32(Stream stream, uint value)
-    {
-        Span<byte> bytes = stackalloc byte[4];
-        BinaryPrimitives.WriteUInt32LittleEndian(bytes, value);
-        stream.Write(bytes);
-    }
-
-    private sealed class Vp8LBitReader
-    {
-        private readonly byte[] _data;
-        private int _position;
-        private int _bitOffset;
-
-        public Vp8LBitReader(byte[] data)
-        {
-            _data = data;
-        }
-
-        public int ReadBit()
-        {
-            if (_position >= _data.Length)
-            {
-                throw new ImageFormatException("WEBP bitstream is truncated.");
-            }
-
-            int bit = (_data[_position] >> _bitOffset) & 1;
-            _bitOffset++;
-            if (_bitOffset == 8)
-            {
-                _bitOffset = 0;
-                _position++;
-            }
-
-            return bit;
-        }
-
-        public int ReadBits(int count)
-        {
-            int value = 0;
-            for (int i = 0; i < count; i++)
-            {
-                value |= ReadBit() << i;
-            }
-
-            return value;
-        }
-    }
-
-    private sealed class Vp8LBitWriter
-    {
-        private readonly Stream _stream;
-        private int _currentByte;
-        private int _bitOffset;
-
-        public Vp8LBitWriter(Stream stream)
-        {
-            _stream = stream;
-        }
-
-        public void WriteBit(int bit)
-        {
-            _currentByte |= (bit & 1) << _bitOffset;
-            _bitOffset++;
-            if (_bitOffset == 8)
-            {
-                FlushByte();
-            }
-        }
-
-        public void WriteBits(int value, int count)
-        {
-            if (count == 8)
-            {
-                WriteByteBits(value);
-                return;
-            }
-
-            for (int i = 0; i < count; i++)
-            {
-                WriteBit((value >> i) & 1);
-            }
-        }
-
-        public void Flush()
-        {
-            if (_bitOffset > 0)
-            {
-                FlushByte();
-            }
-        }
-
-        private void FlushByte()
-        {
-            _stream.WriteByte((byte)_currentByte);
-            _currentByte = 0;
-            _bitOffset = 0;
-        }
-
-        private void WriteByteBits(int value)
-        {
-            value &= 0xff;
-            if (_bitOffset == 0)
-            {
-                _stream.WriteByte((byte)value);
-                return;
-            }
-
-            _currentByte |= (value << _bitOffset) & 0xff;
-            _stream.WriteByte((byte)_currentByte);
-            _currentByte = value >> (8 - _bitOffset);
-        }
-    }
-
-    private sealed class Vp8LHuffman
-    {
-        private readonly Dictionary<int, int> _symbols = [];
-        private readonly int _singleSymbol;
-
-        public Vp8LHuffman(int[] codeLengths)
-        {
-            int nonZero = 0;
-            int singleSymbol = -1;
-            for (int i = 0; i < codeLengths.Length; i++)
-            {
-                if (codeLengths[i] != 0)
-                {
-                    nonZero++;
-                    singleSymbol = i;
-                }
-            }
-
-            if (nonZero == 0)
-            {
-                _singleSymbol = 0;
-                return;
-            }
-
-            if (nonZero == 1)
-            {
-                _singleSymbol = singleSymbol;
-                return;
-            }
-
-            _singleSymbol = -1;
-            int code = 0;
-            for (int length = 1; length <= 15; length++)
-            {
-                for (int symbol = 0; symbol < codeLengths.Length; symbol++)
-                {
-                    if (codeLengths[symbol] == length)
-                    {
-                        _symbols[(length << 16) | code] = symbol;
-                        code++;
-                    }
-                }
-
-                code <<= 1;
-            }
-        }
-
-        public int Decode(Vp8LBitReader reader)
-        {
-            if (_singleSymbol >= 0)
-            {
-                return _singleSymbol;
-            }
-
-            int code = 0;
-            for (int length = 1; length <= 15; length++)
-            {
-                code = (code << 1) | reader.ReadBit();
-                if (_symbols.TryGetValue((length << 16) | code, out int symbol))
-                {
-                    return symbol;
-                }
-            }
-
-            throw new ImageFormatException("Invalid WEBP Huffman code.");
-        }
-    }
-
-    private sealed class Vp8LHuffmanEncoder
-    {
-        private readonly (int Code, int Length)[] _codes;
-
-        private Vp8LHuffmanEncoder((int Code, int Length)[] codes)
-        {
-            _codes = codes;
-        }
-
-        public static Vp8LHuffmanEncoder EightBitLiterals()
-        {
-            (int Code, int Length)[] codes = new (int Code, int Length)[256];
-            for (int i = 0; i < codes.Length; i++)
-            {
-                codes[i] = (ReverseBits(i, 8), 8);
-            }
-
-            return new Vp8LHuffmanEncoder(codes);
-        }
-
-        public void Write(Vp8LBitWriter writer, int symbol)
-        {
-            (int code, int length) = _codes[symbol];
-            writer.WriteBits(code, length);
-        }
-
-        private static int ReverseBits(int value, int count)
-        {
-            int result = 0;
-            for (int i = 0; i < count; i++)
-            {
-                result = (result << 1) | ((value >> i) & 1);
-            }
-
-            return result;
-        }
+        if ((payload.Length & 1) != 0) stream.WriteByte(0);
     }
 }

@@ -292,10 +292,11 @@ public sealed class UIServer {
 
     /// <summary>
     /// A converter that reads the format, and what it should write. Png keeps transparency, which a
-    /// thumbnail of an icon or a logo needs; everything else is jpeg, which is far smaller.
+    /// thumbnail of an icon or a logo needs; webp stays webp, which keeps it too and is small; everything
+    /// else is jpeg, which is far smaller.
     /// </summary>
     bool tryGetImageConverter(FileFormat format, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out ImageConverterBase? converter, out FileFormat outFormat) {
-        outFormat = format is FileFormat.Png or FileFormat.Gif or FileFormat.Webp ? FileFormat.Png : FileFormat.Jpeg;
+        outFormat = format is FileFormat.Png or FileFormat.Gif ? FileFormat.Png : format == FileFormat.Webp ? FileFormat.Webp : FileFormat.Jpeg;
         foreach (var candidate in _server.Options?.FileConverters ?? []) {
             if (candidate is ImageConverterBase image && image.SupportsConversion(format, outFormat)) {
                 converter = image;
