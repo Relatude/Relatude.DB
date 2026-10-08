@@ -71,6 +71,11 @@ public sealed class UISharedTasks {
         if (id is not Guid taskId || taskId == Guid.Empty) return null;
         return new SharedTaskRef(taskId, storeId, title, userOf(ctx.Http));
     }
+    /// <summary>The same for a request that is not a command - a download the browser fetches as a url - with the task id on its query.</summary>
+    public SharedTaskRef? RefOf(HttpContext http, Guid? taskId, Guid? storeId, string title) {
+        if (taskId is not Guid id || id == Guid.Empty) return null;
+        return new SharedTaskRef(id, storeId, title, userOf(http));
+    }
 
     /// <summary>
     /// Makes a job the server side of the task: <paramref name="poll"/> says where it is whenever the

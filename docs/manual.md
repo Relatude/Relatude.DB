@@ -2174,7 +2174,7 @@ them.
 | `DefaultWriteAccess` | `Everyone` | Present in the settings object; not read by the current build — write access comes from the type and the node's metadata. |
 | `DefaultFileStore` | null | Which `FileStoreSettings` entry `FileValue` properties use when they do not name one. Must match an entry, or the open throws. Null means the implicit `MultiFile` store on `IoDatabase`. A new installation names the store it is created with. |
 | `ImageDefaultFormat` | `Jpeg` | Format an adaptive image variant resolves to (`FileFormat.Image`, the default `RequestedFormat`): `Jpeg`, `WebP` or `Png`. A site-wide switch to WebP is this one key — see [§18.1](#181-asset-urls-files-variants-and-deeplinks). |
-| `ImageDefaultQuality` | 85 | Quality used when the request does not name one. |
+| `ImageDefaultQuality` | 85 | Quality used when the request does not name one. Changing this or `ImageDefaultFormat` converts the adaptive variants again as they are next requested, under new URLs ([§18.1](#181-asset-urls-files-variants-and-deeplinks)). |
 | `UrlOptions` | flat `DefaultUrlManager` | The URL manager's configuration — [§18](#18-urls-and-the-url-manager). |
 
 **Durability.** How eagerly writes reach the disk. The defaults trade a sub-second window for
@@ -3610,6 +3610,23 @@ file when the request is served:
 
 So `?w=1200` alone is a complete request, and a site-wide switch to WebP is one setting rather than a
 sweep through every `GetUrl` call. Naming a format explicitly always wins.
+
+#### Converted variants are cached, and their URLs are stable
+
+A variant is converted once and kept in the `converted` folder of the index storage (`IoIndexes`, else
+the database storage), keyed by the file and the adjustment. The adjustment is normalized first — out
+of range values clamped, `#AABBCC` and `aabbcc` the same color — so one picture is converted once
+whether it is asked for by an encoded URL, a readable one, the admin UI or code. A variant is written
+next to its key and moved into place whole, so a crash never leaves half a picture behind.
+
+File URLs carry a version, and a ready response may be cached for 30 days, so the version changes
+exactly when what the URL serves may: another file content, *Delete converted files* in the admin UI,
+or — for adaptive variants — a change of `ImageDefaultFormat` or `ImageDefaultQuality`. A restart does
+not change it, so browsers and CDNs keep their copies.
+
+A failed conversion is reported as failed for an hour and then tried again on the next request, as a
+failure can be passing (the source briefly unreachable, a converter still being installed). A
+conversion canceled permanently stays canceled until the errors are cleared.
 
 ### 18.2 Links inside HTML and Markdown
 

@@ -35,35 +35,36 @@ public class FileIdWithAdjustment {
         return sharedSourceFormat is { } format ? key.CombineHashGuid(("source format " + format).GenerateHashGuid()) : key;
     }
 }
-public enum FileAdjustmentType {
-    Image,
-    Video,
-    Meta,
+public enum FileAdjustmentType { // the first byte of ToBytes: fixed numbers, like FileFormat
+    Image = 0,
+    Video = 1,
+    Meta = 2,
 }
 public abstract class FileAdjustmentBase {
     public FileFormat RequestedFormat { get; set; }
+    /// <summary>A small result is kept in memory only, never written to the converted file cache. Part of
+    /// the key, so a temporary request never decides whether a persistent one of the same picture is kept.</summary>
     public bool Temporary { get; set; } = false;
     public abstract FileAdjustmentType GetAdjustmentType();
-    static Dictionary<string, Guid> _staticKeyCache = [];
-    Guid? _key;
-    string? _stringKey;
-    object _localKeyLock = new();
-    public Guid GetKey() {
-        lock (_localKeyLock) {
-            if (_key != null) return _key.Value;
-            if (_stringKey == null) _stringKey = GenerateStringKey();
-        }
-        lock (_staticKeyCache) {
-            if (!_staticKeyCache.TryGetValue(_stringKey, out var guid)) {
-                guid = _stringKey.GenerateHashGuid();
-                _staticKeyCache[_stringKey] = guid;
-            }
-            _key = guid;
-        }
-        return _key.Value;
-    }
+    /// <summary>
+    /// The key of the adjustment as it is now. Computed on every call rather than kept: the properties
+    /// are settable, and a key kept from before a change would name another picture (an adjustment
+    /// reused for a list of sizes would hand out the URL of the first size for all of them).
+    /// </summary>
+    public Guid GetKey() => GenerateStringKey().GenerateHashGuid();
     public virtual void BasicSanitization() {
         if (RequestedFormat == FileFormat.Unknown) RequestedFormat = FileFormat.Png;
+    }
+    /// <summary>
+    /// A sanitized copy: values out of range clamped or dropped, and equivalent ways of asking for the
+    /// same picture written one way. Conversions are keyed by this form whichever way the adjustment
+    /// arrived (an encoded URL token, a readable URL, the admin UI, application code), so one picture
+    /// is converted and cached once. This instance is never changed.
+    /// </summary>
+    public FileAdjustmentBase Normalized() {
+        var copy = FromBytes(ToBytes()); // the round trip also turns NaN and other "not set" markers into null
+        copy.BasicSanitization();
+        return copy;
     }
     protected abstract string GenerateStringKey();
     public abstract byte[] ToBytes();
@@ -97,11 +98,8 @@ public class FileAdjustmentMeta : FileAdjustmentBase {
         if (bytes.Length >= 6) obj.Temporary = bytes[5] != 0;
         return obj;
     }
-    protected override string GenerateStringKey() {
-        Span<byte> buf = stackalloc byte[4];
-        BitConverter.TryWriteBytes(buf, (int)RequestedFormat);
-        return buf.ToString();
-    }
+    // (this used to be Span<byte>.ToString(), which is the type name, so every meta key was the same)
+    protected override string GenerateStringKey() => "Meta" + (int)RequestedFormat + (Temporary ? "Tmp" : string.Empty);
 }
 public class FileAdjustmentImage : FileAdjustmentBase {
     public FileAdjustmentImage() {
@@ -203,6 +201,7 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         if (SourceWidth.HasValue || SourceHeight.HasValue) key += "S" + SourceX + "," + SourceY + "," + SourceWidth + "," + SourceHeight;
         if (AutoBackgroundColor.HasValue) key += AutoBackgroundColor.Value.ToString();
         if (InvertLuminance.HasValue) key += "Inv" + InvertLuminance.Value.ToString();
+        if (Temporary) key += "Tmp"; // before the free text color; a persistent key stays what it always was
         if (BackgroundColor != null) key += BackgroundColor;
         return key;
     }
@@ -231,6 +230,15 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         if (TimeOffsetPercentage.HasValue) TimeOffsetPercentage = Math.Clamp(TimeOffsetPercentage.Value, 0, 100);
         if (CropMode.HasValue && !Enum.IsDefined(CropMode.Value)) CropMode = null;
         if (AutoLightDarkMode.HasValue && !Enum.IsDefined(AutoLightDarkMode.Value)) AutoLightDarkMode = null;
+        BackgroundColor = canonicalColor(BackgroundColor);
+    }
+    // a hex color written the way the readable URL formats write it ("#aabbcc"), so "AABBCC",
+    // "#AABBCC" and "#aabbcc" are one picture; anything else is left to the color parser as it is
+    static string? canonicalColor(string? color) {
+        if (color == null) return null;
+        var hex = color.Trim().TrimStart('#');
+        if (hex.Length == 0) return null;
+        return hex.All(char.IsAsciiHexDigit) ? "#" + hex.ToLowerInvariant() : color.Trim();
     }
     const int CURRENT_VERSION = 4;
     const int FIXED_SIZE = 136; // as below, plus the four source rectangle ints
@@ -323,7 +331,8 @@ public class FileAdjustmentVideo : FileAdjustmentBase {
         base.BasicSanitization();
         if (Width.HasValue) Width = Width <= 0 ? null : Math.Clamp(Width.Value, 1, 10_000);
         if (Height.HasValue) Height = Height <= 0 ? null : Math.Clamp(Height.Value, 1, 10_000);
-        TargetBitRateInMbps = Math.Clamp(TargetBitRateInMbps, 0.01, 100); // 
+        // 0 (or less) is "not set": the converter picks the bit rate. Clamping it to the minimum asked for 10 kbps.
+        TargetBitRateInMbps = TargetBitRateInMbps > 0 ? Math.Clamp(TargetBitRateInMbps, 0.01, 100) : 0;
     }
     public override FileAdjustmentType GetAdjustmentType() => FileAdjustmentType.Video;
     const int CURRENT_VERSION = 2;
@@ -336,6 +345,7 @@ public class FileAdjustmentVideo : FileAdjustmentBase {
         BitConverter.TryWriteBytes(buf[p..], TargetBitRateInMbps); p += 8;
         var key = Convert.ToHexString(buf);
         if (CropNotZoom) key += "CropNotZoom";
+        if (Temporary) key += "Tmp";
         return key;
     }
 

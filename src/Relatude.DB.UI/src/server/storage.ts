@@ -62,10 +62,12 @@ export function fetchDbFileInfo(storeId: string): Promise<DbFileInfo> {
   return send<DbFileInfo>("db-file-info", { storeId });
 }
 
-// the existing (authenticated) database download endpoints; the truncated variant rewrites
-// the store to a temp file first, so the download starts once the rewrite is done
-export function databaseDownloadUrl(storeId: string, truncated: boolean): string {
-  return `${adminBase}/maintenance/${truncated ? "download-truncated-db" : "download-full-db"}?storeId=${storeId}&namePrefix=`;
+// the existing (authenticated) database download endpoints; the truncated variant rewrites the
+// store to a temp file and sends it while it is being written. Given a task id, it attaches the
+// rewrite and the transfer to that task on the board, for a progress dialog to follow.
+export function databaseDownloadUrl(storeId: string, truncated: boolean, taskId: string | null = null): string {
+  const url = `${adminBase}/maintenance/${truncated ? "download-truncated-db" : "download-full-db"}?storeId=${storeId}&namePrefix=`;
+  return taskId ? `${url}&taskId=${taskId}` : url;
 }
 
 export function fetchMaintenanceInfo(storeId: string): Promise<MaintenanceInfo> {
@@ -647,105 +649,6 @@ export async function addDemoContent(ctl: ProgressController, storeId: string, c
         continue;
       }
       if (progress.state === "failed") throw new Error(progress.error ?? "Adding demo content failed.");
-      if (progress.state === "cancelled") throw new DOMException("Aborted", "AbortError");
-      return progress;
-    }
-  } finally {
-    ctl.signal.removeEventListener("abort", cancelJob);
-  }
-}
-
-// ---- wikipedia corpus ----
-// The other demo source: a real Wikipedia corpus, imported from the two files the corpus builder
-// writes - the JSONL of articles, and the .wikimg bundle of their pictures. Neither ships with
-// anything and the corpus runs to tens of gigabytes, so the server looks for them in the usual
-// places and the panel takes a typed path for everything else.
-
-export interface WikiImportInfo {
-  open: boolean;
-  available: boolean; // the datamodel has the wikipedia demo types
-  nodeType: string;
-  articles: number;
-  categories: number;
-  topics: number;
-  images: number;
-  corpusPath: string | null; // what the server found on disk, if anything
-  corpusBytes: number;
-  bundlePath: string | null;
-  bundleBytes: number;
-}
-
-export interface WikiPathInfo {
-  exists: boolean;
-  bytes: number;
-  message: string;
-  corpusPath?: string | null; // set when the path was a folder holding a corpus
-  bundlePath?: string | null;
-}
-
-export interface WikiImportResult {
-  articles: number;
-  articlesSkipped: number;
-  categories: number;
-  topics: number;
-  images: number;
-  imageFiles: number;
-  imageBytes: number;
-  sections: number;
-  links: number;
-  corpusLinesRead: number;
-  corpusBytesRead: number;
-  elapsedMs: number;
-  articlesMissingFromBundle: number;
-  imagesMissingFromBundle: number;
-}
-
-export interface WikiImportProgress {
-  state: "running" | "done" | "cancelled" | "failed";
-  description: string;
-  percent: number;
-  error: string | null;
-  result: WikiImportResult | null;
-}
-
-export interface WikiImportRequest {
-  corpusPath: string;
-  bundlePath: string;
-  count: number;
-  importImages: boolean;
-  leadImageOnly: boolean;
-  importSections: boolean;
-  importLinks: boolean;
-}
-
-export function fetchWikiInfo(storeId: string): Promise<WikiImportInfo> {
-  return send<WikiImportInfo>("wiki-info", { storeId });
-}
-
-// Says what a typed path points at while the user is still typing, rather than only when a run fails.
-export function checkWikiPath(path: string): Promise<WikiPathInfo> {
-  return send<WikiPathInfo>("wiki-browse", { path });
-}
-
-// Imports behind a progress dialog. Like the other long jobs this is a server job that is polled:
-// a corpus of this size outlives any request. Cancelling stops the server job too and keeps every
-// article it had already committed.
-export async function importWikiCorpus(ctl: ProgressController, storeId: string, request: WikiImportRequest): Promise<WikiImportProgress> {
-  ctl.set({ label: "Starting…", total: 100, done: 0, meta: "0%" }); // the job reports percent, so the bar counts to 100
-  const { jobId } = await send<{ jobId: string }>("wiki-start", { storeId, ...request, taskId: ctl.taskId });
-  const cancelJob = () => {
-    void send("wiki-cancel", { jobId }).catch(() => {}); // a job that already finished is not an error worth showing
-  };
-  ctl.signal.addEventListener("abort", cancelJob, { once: true });
-  try {
-    for (;;) {
-      const progress = await send<WikiImportProgress>("wiki-progress", { jobId });
-      ctl.set({ label: progress.description || "Importing…", done: progress.percent, meta: progress.percent + "%" });
-      if (progress.state === "running") {
-        await new Promise((r) => setTimeout(r, 400));
-        continue;
-      }
-      if (progress.state === "failed") throw new Error(progress.error ?? "The import failed.");
       if (progress.state === "cancelled") throw new DOMException("Aborted", "AbortError");
       return progress;
     }

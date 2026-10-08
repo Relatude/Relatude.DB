@@ -814,11 +814,13 @@ public static class SettingsCatalog {
                     Settings = [
                         new() {
                             Path = "LocalSettings.ImageDefaultFormat", Label = "Default image format", Applies = SettingApplies.Live,
-                            Help = "WebP is markedly smaller than Jpeg at the same quality; Jpeg is the safest for very old clients. Png is lossless, and much larger for photographs.",
+                            Help = "WebP is markedly smaller than Jpeg at the same quality; Jpeg is the safest for very old clients. Png is lossless, and much larger for photographs. "
+                                + "Changing it converts every adaptive image again as it is next requested, under new URLs so browsers fetch the new files. The files converted before stay in the cache until it is cleared.",
                         },
                         new() {
                             Path = "LocalSettings.ImageDefaultQuality", Label = "Default image quality", Applies = SettingApplies.Live,
-                            Help = "The encoder quality, 1-100. Above roughly 90 the file grows faster than the picture improves. Changing it does not touch images already converted and cached.",
+                            Help = "The encoder quality, 1-100. Above roughly 90 the file grows faster than the picture improves. "
+                                + "Changing it converts every adaptive image that has no quality of its own again as it is next requested, under new URLs so browsers fetch the new files. The files converted before stay in the cache until it is cleared.",
                         },
                     ],
                 },

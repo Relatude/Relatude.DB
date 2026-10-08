@@ -18,7 +18,6 @@ import {
   IconRefresh,
   IconRestore,
   IconTools,
-  IconWorld,
   IconTrash,
 } from "@tabler/icons-react";
 import { runWithProgress, showChoice, showConfirm, showError, showInfo } from "../dialogs";
@@ -28,9 +27,6 @@ import { waitForSharedJob } from "../server/sharedTasks";
 import {
   addDemoContent,
   backupNow,
-  checkWikiPath,
-  fetchWikiInfo,
-  importWikiCorpus,
   databaseDownloadUrl,
   deleteConvertedFiles,
   downloadFileStorage,
@@ -57,7 +53,6 @@ import {
   type MaintenanceInfo,
   type TimeTravelResult,
   type UnreferencedResult,
-  type WikiImportInfo,
 } from "../server/storage";
 import type { DatabaseInfo } from "../server/serverInfo";
 import { TimeTravelDialog } from "./TimeTravelDialog";
@@ -74,17 +69,6 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const [demoCount, setDemoCount] = useState("1000");
   const [demoWikipedia, setDemoWikipedia] = useState(false);
   const [demoMessage, setDemoMessage] = useState<string | null>(null);
-  const [wiki, setWiki] = useState<WikiImportInfo | null>(null);
-  const [wikiCorpus, setWikiCorpus] = useState("");
-  const [wikiBundle, setWikiBundle] = useState("");
-  const [wikiCount, setWikiCount] = useState("1000");
-  const [wikiImages, setWikiImages] = useState(true);
-  const [wikiLeadOnly, setWikiLeadOnly] = useState(true);
-  const [wikiSections, setWikiSections] = useState(true);
-  const [wikiLinks, setWikiLinks] = useState(false);
-  const [wikiMessage, setWikiMessage] = useState<string | null>(null);
-  const [wikiCorpusNote, setWikiCorpusNote] = useState<string | null>(null);
-  const [wikiBundleNote, setWikiBundleNote] = useState<string | null>(null);
   const [truncate, setTruncate] = useState(false);
   const [keepForever, setKeepForever] = useState(false);
   // whether the go-back-in-time dialog is up; it finds the files and moments it offers itself
@@ -103,7 +87,6 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   // database under the UI (reverting to a backup), where there is nothing to carry on with meanwhile.
   const demoKey = `demo:${db.id}`;
   const truncateKey = `truncate:${db.id}`;
-  const wikiKey = `wiki:${db.id}`;
   const backupKey = `backup:${db.id}`;
   const stateKey = `state:${db.id}`;
   const reindexKey = `reindex:${db.id}`;
@@ -113,9 +96,9 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const convertedKey = `converted:${db.id}`;
   const storageDownloadKey = `storage-download:${db.id}`;
   const uploadKey = `db-upload:${db.id}`;
+  const dbDownloadKey = `db-download:${db.id}`;
   const demoTask = useProgressTask(demoKey);
   const truncateTask = useProgressTask(truncateKey);
-  const wikiTask = useProgressTask(wikiKey);
   const backupTask = useProgressTask(backupKey);
   const stateTask = useProgressTask(stateKey);
   const reindexTask = useProgressTask(reindexKey);
@@ -125,9 +108,9 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const convertedTask = useProgressTask(convertedKey);
   const storageDownloadTask = useProgressTask(storageDownloadKey);
   const uploadTask = useProgressTask(uploadKey);
+  const dbDownloadTask = useProgressTask(dbDownloadKey);
   const demoRunning = demoTask?.status === "running";
   const truncateRunning = truncateTask?.status === "running";
-  const wikiRunning = wikiTask?.status === "running";
   const backupRunning = backupTask?.status === "running";
   const stateRunning = stateTask?.status === "running";
   const reindexRunning = reindexTask?.status === "running";
@@ -137,6 +120,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const convertedRunning = convertedTask?.status === "running";
   const storageDownloadRunning = storageDownloadTask?.status === "running";
   const uploadRunning = uploadTask?.status === "running";
+  const dbDownloadRunning = dbDownloadTask?.status === "running";
 
   const load = useCallback(() => {
     fetchBackupList(db.id)
@@ -156,15 +140,6 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       .catch(() => {});
     fetchDemoInfo(db.id)
       .then(setDemo)
-      .catch(() => {});
-    fetchWikiInfo(db.id)
-      .then((info) => {
-        setWiki(info);
-        // the paths the server found are a starting point, not a decision: only fill the boxes
-        // while they are still empty, so a path the user typed is never overwritten by a reload
-        setWikiCorpus((current) => current || info.corpusPath || "");
-        setWikiBundle((current) => current || info.bundlePath || "");
-      })
       .catch(() => {});
   }, [db.id]);
   useEffect(load, [load]);
@@ -572,80 +547,6 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
     load();
   }
 
-  /**
-   * Checks a typed path against the server, so the panel can say what it points at - "2.1 GB",
-   * "no such file", or which corpus and archive a folder holds - before a run is started rather
-   * than only when one fails.
-   */
-  async function onCheckWikiPath(path: string, which: "corpus" | "bundle") {
-    const setNote = which === "corpus" ? setWikiCorpusNote : setWikiBundleNote;
-    if (!path.trim()) {
-      setNote(null);
-      return;
-    }
-    try {
-      const info = await checkWikiPath(path);
-      // a folder resolves to the files in it, which is the friendliest thing to paste
-      if (info.corpusPath && which === "corpus") setWikiCorpus(info.corpusPath);
-      if (info.bundlePath && which === "bundle") setWikiBundle(info.bundlePath);
-      setNote(info.message || (info.exists ? formatBytes(info.bytes) : "not found"));
-    } catch (e) {
-      setNote(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  /**
-   * Imports a real Wikipedia corpus - articles with their sections, categories, predicted topics,
-   * coordinates and photographs. The count is how many to add on top of what is there: the import
-   * walks past the articles it has already stored, so a second run continues rather than repeats.
-   */
-  async function onImportWikiCorpus() {
-    const count = Math.floor(Number(wikiCount));
-    if (!Number.isFinite(count) || count < 1) {
-      showError("Wikipedia corpus", "Enter how many articles to import.");
-      return;
-    }
-    if (!wikiCorpus.trim()) {
-      showError("Wikipedia corpus", "Give the path of the corpus .jsonl file.");
-      return;
-    }
-    setWikiMessage(null); // a cancelled or failed run must not leave the last run's line standing
-    const progress = await runWithProgress(
-      `Import Wikipedia corpus into ${db.name}`,
-      (ctl) =>
-        importWikiCorpus(ctl, db.id, {
-          corpusPath: wikiCorpus.trim(),
-          bundlePath: wikiBundle.trim(),
-          count,
-          importImages: wikiImages,
-          leadImageOnly: wikiLeadOnly,
-          importSections: wikiSections,
-          importLinks: wikiLinks,
-        }),
-      { minimizable: true, key: wikiKey },
-    );
-    const result = progress?.result;
-    if (result) {
-      const seconds = result.elapsedMs / 1000;
-      const perSecond = seconds > 0 ? Math.round(result.articles / seconds) : result.articles;
-      const parts = [
-        `${formatCount(result.articles)} article${result.articles === 1 ? "" : "s"}`,
-        `${formatCount(result.categories)} categories`,
-        `${formatCount(result.topics)} topics`,
-        `${formatCount(result.images)} images`,
-      ];
-      if (result.imageFiles > 0) parts.push(`${formatCount(result.imageFiles)} picture files (${formatBytes(result.imageBytes)})`);
-      if (result.links > 0) parts.push(`${formatCount(result.links)} links`);
-      setWikiMessage(
-        `Imported ${parts.join(", ")} in ${seconds.toFixed(1)} s (${formatCount(perSecond)} articles/s).`
-          + (result.articlesSkipped > 0 ? ` Walked past ${formatCount(result.articlesSkipped)} already stored.` : "")
-          + " Indexing them runs as background tasks.",
-      );
-    }
-    // a cancelled or failed run keeps what it managed to import, so the counts are read back either way
-    load();
-  }
-
   async function onDownloadDatabase() {
     const choice = await showConfirm(
       "Download database",
@@ -653,13 +554,26 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       { confirmLabel: "Download", option: { label: "Truncated version (current state only)", checked: false } },
     );
     if (!choice.ok) return;
-    const link = document.createElement("a");
-    link.href = databaseDownloadUrl(db.id, choice.option);
-    link.download = "";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    if (choice.option) setDbFileMessage("Preparing the truncated copy — the download starts when the rewrite is done.");
+    if (!choice.option) {
+      startDownload(databaseDownloadUrl(db.id, false));
+      return;
+    }
+    // The truncated copy is a rewrite on the server, sent while it is being written: the browser's
+    // own download starts with the first bytes, and this dialog follows the rewrite and then the
+    // transfer on the task board until the last byte has gone out. Nothing stops the rewrite once it
+    // has started; the download itself can be stopped in the browser, which the dialog then says.
+    const done = await runWithProgress(
+      `Download ${db.name} (truncated)`,
+      async (ctl) => {
+        ctl.set({ label: "Starting the rewrite…" });
+        startDownload(databaseDownloadUrl(db.id, true, ctl.taskId));
+        // the request may not have reached the server by the first look: give it a while to
+        const job = await waitForSharedJob(ctl, 1000, 30_000);
+        return job?.message ?? "Downloaded.";
+      },
+      { minimizable: true, key: dbDownloadKey, cancellable: false },
+    );
+    if (done) setDbFileMessage(done);
   }
 
   async function onUploadDatabase(list: FileList | null) {
@@ -789,10 +703,14 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
               </div>
             </div>
             <div className="process-action">
-              <button className="action-button" onClick={onDownloadDatabase}>
+              <button className="action-button" onClick={onDownloadDatabase} disabled={dbDownloadRunning}>
                 <IconDatabaseExport size={14} stroke={1.8} /> Download database
               </button>
-              <span className="muted">a complete copy with history, or a truncated version</span>
+              <span className="muted">
+                {dbDownloadRunning
+                  ? `${dbDownloadTask?.label || "downloading"}${dbDownloadTask?.meta ? " · " + dbDownloadTask.meta : ""}`
+                  : "a complete copy with history, or a truncated version"}
+              </span>
             </div>
             <div className="process-action">
               <button className="action-button" onClick={() => uploadInput.current?.click()} disabled={uploadRunning}>
@@ -1020,130 +938,6 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
         )}
       </section>
       </div>
-      <div className="storage-group">
-        <div className="storage-group-head">
-          <IconWorld size={18} stroke={1.7} />
-          <h2>Wikipedia corpus</h2>
-          <span className="muted">real articles, with structure and pictures</span>
-        </div>
-      <section className="panel">
-        {wiki && (
-          <>
-            <div className="facts-grid storage-facts">
-              <div className="fact">
-                <div className="fact-k">Articles</div>
-                <div className="fact-v">{wiki.available ? formatCount(wiki.articles) : "—"}</div>
-              </div>
-              <div className="fact">
-                <div className="fact-k">Categories</div>
-                <div className="fact-v">{wiki.available ? formatCount(wiki.categories) : "—"}</div>
-              </div>
-              <div className="fact">
-                <div className="fact-k">Topics</div>
-                <div className="fact-v">{wiki.available ? formatCount(wiki.topics) : "—"}</div>
-              </div>
-              <div className="fact">
-                <div className="fact-k">Images</div>
-                <div className="fact-v">{wiki.available ? formatCount(wiki.images) : "—"}</div>
-              </div>
-            </div>
-            <div className="wiki-field">
-              <label htmlFor="wiki-corpus">Corpus file</label>
-              <input
-                id="wiki-corpus"
-                className="text-input wiki-path"
-                type="text"
-                spellCheck={false}
-                placeholder="…\wikicorpus\enwiki.jsonl"
-                value={wikiCorpus}
-                disabled={!wiki.available}
-                onChange={(e) => {
-                  setWikiCorpus(e.target.value);
-                  setWikiCorpusNote(null);
-                }}
-                onBlur={(e) => void onCheckWikiPath(e.target.value, "corpus")}
-              />
-              <span className="muted">
-                {wikiCorpusNote ?? (wiki.corpusBytes > 0 ? formatBytes(wiki.corpusBytes) : "the .jsonl written by the corpus builder; a folder works too")}
-              </span>
-            </div>
-            <div className="wiki-field">
-              <label htmlFor="wiki-bundle">Image bundle</label>
-              <input
-                id="wiki-bundle"
-                className="text-input wiki-path"
-                type="text"
-                spellCheck={false}
-                placeholder="…\wikicorpus\enwiki.wikimg"
-                value={wikiBundle}
-                disabled={!wiki.available || !wikiImages}
-                onChange={(e) => {
-                  setWikiBundle(e.target.value);
-                  setWikiBundleNote(null);
-                }}
-                onBlur={(e) => void onCheckWikiPath(e.target.value, "bundle")}
-              />
-              <span className="muted">
-                {wikiBundleNote ??
-                  (wiki.bundleBytes > 0
-                    ? formatBytes(wiki.bundleBytes)
-                    : "the .wikimg the corpus builder's \"bundle\" command writes beside the corpus")}
-              </span>
-            </div>
-            <label className="login-remember">
-              Articles to import
-              <input
-                className="text-input demo-count"
-                type="number"
-                min={1}
-                step={1000}
-                value={wikiCount}
-                disabled={!wiki.available}
-                onChange={(e) => setWikiCount(e.target.value)}
-              />
-            </label>
-            <label className="login-remember">
-              <input type="checkbox" checked={wikiImages} onChange={(e) => setWikiImages(e.target.checked)} disabled={!wiki.available} />
-              Import the picture files, not just the references
-            </label>
-            <label className="login-remember">
-              <input
-                type="checkbox"
-                checked={wikiLeadOnly}
-                onChange={(e) => setWikiLeadOnly(e.target.checked)}
-                disabled={!wiki.available || !wikiImages}
-              />
-              Only each article's lead picture
-            </label>
-            <label className="login-remember">
-              <input type="checkbox" checked={wikiSections} onChange={(e) => setWikiSections(e.target.checked)} disabled={!wiki.available} />
-              Keep the section structure
-            </label>
-            <label className="login-remember">
-              <input type="checkbox" checked={wikiLinks} onChange={(e) => setWikiLinks(e.target.checked)} disabled={!wiki.available} />
-              Build the article link graph (slow, and only for a corpus built with links)
-            </label>
-            <div className="process-action">
-              <button className="action-button" onClick={onImportWikiCorpus} disabled={!wiki.available || wikiRunning}>
-                <IconDatabaseImport size={14} stroke={1.8} /> Import corpus
-              </button>
-              {/* while the run is minimized the line follows it here too, so the panel it was started
-                  from is not the one place in the UI that has forgotten about it */}
-              <span className="muted">
-                {wikiRunning
-                  ? `${wikiTask?.label || "importing"}${wikiTask?.meta ? " · " + wikiTask.meta : ""}`
-                  : (wikiMessage ??
-                    (!wiki.open
-                      ? "the database must be open"
-                      : !wiki.available
-                        ? `this datamodel has no ${wiki.nodeType} node type to import into`
-                        : "imports articles with their sections, categories, topics, coordinates and pictures, continuing from the ones already stored"))}
-              </span>
-            </div>
-          </>
-        )}
-      </section>
-      </div>
       </div>
       {timeTravel && <TimeTravelDialog db={db} onCancel={() => setTimeTravel(false)} onDone={onWentBackInTime} />}
       {rewriteStores && (
@@ -1158,6 +952,16 @@ const maxListedMissing = 200;
 const maxListedDuplicates = 50;
 
 // what a file storage holds, in one line: the folder it is, or the file it appends to
+/** Hands a url to the browser to download, the way a click on a download link does. */
+function startDownload(url: string) {
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
 function storageHint(storage: FileStorageInfo): string {
   const where = storage.folder ?? storage.files.map((f) => f.key).join(", ");
   return storage.type + (where ? " · " + where : "");

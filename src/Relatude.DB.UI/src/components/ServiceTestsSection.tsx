@@ -573,19 +573,24 @@ function useServiceInfo<T>(url: string, load: (url: string) => Promise<T>): { in
   return state?.url === url ? state : null;
 }
 
-/** An object url for a blob while it is shown, let go when the blob changes or the component goes. */
+/**
+ * An object url for a blob while it is shown, let go when the blob changes or the component goes.
+ * Only ever the url of the blob asked for: on the render where the blob changes, before the new url
+ * is made, it is null rather than the old one - which is let go by then, and whose blob may be gone
+ * (an image taken out leaves no image[0] for the old url to be shown with).
+ */
 function useObjectUrl(blob: Blob | null): string | null {
-  const [url, setUrl] = useState<string | null>(null);
+  const [made, setMade] = useState<{ blob: Blob; url: string } | null>(null);
   useEffect(() => {
     if (!blob) {
-      setUrl(null);
+      setMade(null);
       return;
     }
-    const made = URL.createObjectURL(blob);
-    setUrl(made);
-    return () => URL.revokeObjectURL(made);
+    const url = URL.createObjectURL(blob);
+    setMade({ blob, url });
+    return () => URL.revokeObjectURL(url);
   }, [blob]);
-  return url;
+  return made && made.blob === blob ? made.url : null;
 }
 
 function credits(n: number): string {
@@ -1453,7 +1458,7 @@ function ImagingTest({ credit, configuredUrl, allowed }: { credit: ReactNode; co
                 {op.image ? "Choose an image: it shows here, and the answer after it." : "The new image shows here."}
               </StageEmpty>
             )}
-            {op.image && imageUrl && (
+            {op.image && imageUrl && image.length > 0 && (
               <div className="license-stage-pane" hidden={shown !== "image"}>
                 <ImageViewer
                   src={imageUrl}

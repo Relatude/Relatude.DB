@@ -21,13 +21,18 @@ public sealed partial class DataStoreLocal : IDataStore {
         return _fileConversionEngine.CanConvert(fileValue.Format, adj.RequestedFormat);
     }
     /// <summary>
-    /// Resolves the adaptive FileFormat.Image against the original file and the store defaults
+    /// The adjustment a conversion is keyed, run and cached by. First normalized
+    /// (<see cref="FileAdjustmentBase.Normalized"/>), so the same picture has one key whether it was asked
+    /// for by an encoded URL, a readable one, the admin UI or application code - before, only the encoded
+    /// URLs and the admin UI were sanitized, and the others converted and cached a second copy. Then the
+    /// adaptive FileFormat.Image is resolved against the original file and the store defaults
     /// (SettingsLocal.ImageDefaultFormat / ImageDefaultQuality), so cache keys, converter selection
     /// and content types always see a concrete format. serveOriginal is true for a plain adaptive
     /// request with no adjustments at all, or for a gif at its own size: the original file is served untouched.
     /// </summary>
     FileAdjustmentBase resolveAdaptiveFormat(FileValue fileValue, FileAdjustmentBase adj, out bool serveOriginal) {
         serveOriginal = false;
+        adj = adj.Normalized(); // a copy: the caller's instance may be shared (the URL decoders cache theirs)
         if (adj is not FileAdjustmentImage image || image.RequestedFormat != FileFormat.Image) return adj;
         if (image.IsPlainRequest() || image.KeepsOriginalGif(fileValue.Format, fileValue.Width, fileValue.Height)) {
             serveOriginal = true;
