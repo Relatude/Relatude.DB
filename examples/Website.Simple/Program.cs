@@ -1,4 +1,14 @@
-﻿using Relatude.DB.Common;
+﻿
+
+// THIS PROJECT IS JUST FOR EXPERIMENTING WHILE DEVELOPING FEATURES
+// IT CONTAINS QUICK AND DIRTY CODE FOR PROTOTYPING AND QUICK TESTS
+// IT WILL BE CLEANED UP AS WE GET CLOSER TO FIRST RELEASE
+
+// Ole Gulbrandsen - 01.10.2026
+
+
+
+using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.FileConversion;
@@ -179,10 +189,10 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
             } else if (article.File.FileType == FileType.Image) {
                 var imageAdj = new FileAdjustmentImage() {
                     CropMode = ImageCropMode.Fill,
-                    Width = 440,
-                    Height = 400,
+                    Width = 240,
+                    Height = 200,
                     Saturation = 0,
-                    RequestedFormat = FileFormat.Jpeg,
+                    RequestedFormat = FileFormat.Gif,
                     Sharpness = 0,
                     Temporary = false,
                     Quality = 90

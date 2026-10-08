@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { IconBook, IconChevronLeft, IconChevronRight, IconDeviceDesktop, IconExternalLink, IconLogout, IconUser } from "@tabler/icons-react";
 import { sections, type Section } from "../navigation";
 import { licenseAttention, type LicenseStatus } from "../server/license";
@@ -51,18 +51,21 @@ export function Sidebar({ collapsed, onToggleCollapsed, databases, activeDb, lic
           activeSectionId={activeSectionId}
           onSelectSection={onSelectSection}
         />
-        <div className="nav-group">
-          <div className="nav-group-label">
-            <span className="full">Help</span>
-            <span className="short">?</span>
-          </div>
+        <NavGroup
+          label="Relatude Services"
+          shortLabel="RS"
+          items={sections.filter((s) => s.scope === "services" && !s.hidden && !s.parentId)}
+          badgeFor={badgeFor}
+          activeSectionId={activeSectionId}
+          onSelectSection={onSelectSection}
+        >
           {/* the Relatude.DB site, where the manual is: the one link in the rail that leaves the UI */}
           <a className="nav-item nav-tone-gray" href={siteUrl} target="_blank" rel="noreferrer" title="The Relatude.DB manual — opens in a new tab">
             <IconBook size={16} stroke={1.8} />
             <span className="label">Manual</span>
             <IconExternalLink className="nav-ext" size={12} stroke={1.8} />
           </a>
-        </div>
+        </NavGroup>
         <SignedIn collapsed={collapsed} onLogout={onLogout} />
       </aside>
       <button className="nav-toggle" onClick={onToggleCollapsed} title={collapsed ? "Expand menu" : "Collapse menu"}>
@@ -123,9 +126,11 @@ interface NavGroupProps {
   badgeFor: (s: Section) => { text: string; danger: boolean } | null;
   activeSectionId: string;
   onSelectSection: (id: string) => void;
+  /** after the entries: a link that is not a page of this UI */
+  children?: ReactNode;
 }
 
-function NavGroup({ label, shortLabel, items, badgeFor, activeSectionId, onSelectSection }: NavGroupProps) {
+function NavGroup({ label, shortLabel, items, badgeFor, activeSectionId, onSelectSection, children }: NavGroupProps) {
   // an entry is lit for its own page and for every view of it that is not in the rail
   const active = sections.find((s) => s.id === activeSectionId);
   const activeEntryId = active?.parentId ?? activeSectionId;
@@ -150,6 +155,7 @@ function NavGroup({ label, shortLabel, items, badgeFor, activeSectionId, onSelec
           </button>
         );
       })}
+      {children}
     </div>
   );
 }

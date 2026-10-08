@@ -704,13 +704,18 @@ public class UrlManagerTests {
         // a given quality wins over the default:
         Assert.AreEqual(60, new FileAdjustmentImage() { Width = 100, Quality = 60 }.ResolveAdaptiveFormat(FileFormat.Png, 800, 600, FileFormat.Webp, 85).Quality);
 
-        // a gif that keeps its dimensions stays a gif, preserving animations and palette:
+        // a gif that keeps its dimensions stays a gif, preserving animations and palette - the original file itself:
         var sameSize = new FileAdjustmentImage() { Width = 800, Height = 600 };
         Assert.AreEqual(FileFormat.Gif, sameSize.ResolveAdaptiveFormat(FileFormat.Gif, 800, 600, FileFormat.Webp, 85).RequestedFormat);
         Assert.IsNull(sameSize.ResolveAdaptiveFormat(FileFormat.Gif, 800, 600, FileFormat.Webp, 85).Quality);
-        // a resized or edited gif becomes the default format:
+        Assert.IsTrue(sameSize.KeepsOriginalGif(FileFormat.Gif, 800, 600));
+        Assert.IsFalse(sameSize.KeepsOriginalGif(FileFormat.Png, 800, 600));
+        Assert.IsFalse(new FileAdjustmentImage() { Width = 400 }.KeepsOriginalGif(FileFormat.Gif, 800, 600));
+        // a resized or edited gif becomes webp when that is the default, which animates too:
         Assert.AreEqual(FileFormat.Webp, new FileAdjustmentImage() { Width = 400 }.ResolveAdaptiveFormat(FileFormat.Gif, 800, 600, FileFormat.Webp, 85).RequestedFormat);
         Assert.AreEqual(FileFormat.Webp, new FileAdjustmentImage() { Width = 800, Height = 600, Saturation = -50 }.ResolveAdaptiveFormat(FileFormat.Gif, 800, 600, FileFormat.Webp, 85).RequestedFormat);
+        // and stays a gif with any other default, which would lose the animation:
+        Assert.AreEqual(FileFormat.Gif, new FileAdjustmentImage() { Width = 400 }.ResolveAdaptiveFormat(FileFormat.Gif, 800, 600, FileFormat.Jpeg, 85).RequestedFormat);
 
         // explicit formats pass through unresolved:
         var explicitJpeg = new FileAdjustmentImage() { RequestedFormat = FileFormat.Jpeg, Width = 100 };

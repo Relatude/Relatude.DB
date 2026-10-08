@@ -1,15 +1,16 @@
 using System.Buffers.Binary;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Relatude.DB.FileConversion.ImageEncoders;
 
 /// <summary>
-/// WebP: reads lossy and lossless images, alpha, the extended format and the first frame of an animation;
-/// writes lossy, with any alpha kept losslessly.
+/// WebP: reads lossy and lossless images, alpha, the extended format and animations; writes lossy stills and
+/// animations, with any alpha kept losslessly.
 /// </summary>
 internal sealed class WebpCodec : IImageCodec {
-    const uint Lossy = 0x20385056, Lossless = 0x4c385056, Extended = 0x58385056, Alpha = 0x48504c41, Frame = 0x464d4e41;
+    const uint Lossy = 0x20385056, Lossless = 0x4c385056, Extended = 0x58385056, Alpha = 0x48504c41, Frame = 0x464d4e41, Anim = 0x4d494e41;
 
     public ImageFormat Format => ImageFormat.Webp;
 
@@ -61,6 +62,64 @@ internal sealed class WebpCodec : IImageCodec {
             return frame.Pad(canvasWidth, canvasHeight, x, y, default);
         }
         return Image(data, chunks);
+    }
+
+    // ── Animation ────────────────────────────────────────────────────────────
+
+    /// <summary>True for the extended format with its animation flag set.</summary>
+    public static bool IsAnimated(byte[] d) =>
+        d.Length >= 21 && d.AsSpan(0, 4).SequenceEqual("RIFF"u8) && d.AsSpan(8, 4).SequenceEqual("WEBP"u8)
+        && BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(12)) == Extended && (d[20] & 2) != 0;
+
+    /// <summary>
+    /// The frames of an animated WebP, each composed onto the canvas as libwebp's animation decoder shows it:
+    /// blended or not, then cleared or not. Null when the file is not an animation.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public static Animation? ReadAnimation(byte[] data) {
+        if (!IsAnimated(data)) return null;
+        int end = (int)Math.Min(data.Length, 8L + BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(4)));
+        var chunks = Chunks(data, 12, end);
+        int width = 0, height = 0, loops = 0;
+        uint[]? canvas = null;
+        var frames = new List<InternalImage>();
+        var durations = new List<int>();
+        foreach (var (kind, offset, length) in chunks) {
+            if (kind == Extended && length >= 10) {
+                (width, height) = (U24(data, offset + 4) + 1, U24(data, offset + 7) + 1);
+                if ((long)width * height > Animation.MaxPixels) throw new ImageFormatException("WEBP canvas is too large.");
+                canvas = new uint[width * height];
+            }
+            if (kind == Anim && length >= 6) loops = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(offset + 4));
+            if (kind != Frame || length < 16 || canvas == null) continue;
+            int x = 2 * U24(data, offset), y = 2 * U24(data, offset + 3), flags = data[offset + 15];
+            var frame = Image(data, Chunks(data, offset + 16, offset + length));
+            if (x + frame.Width > width || y + frame.Height > height) throw new ImageFormatException("WEBP frame lies outside its canvas.");
+            var pixels = MemoryMarshal.Cast<byte, uint>(frame.Pixels);
+            for (int row = 0; row < frame.Height; row++) {
+                var source = pixels.Slice(row * frame.Width, frame.Width);
+                var target = canvas.AsSpan((y + row) * width + x, frame.Width);
+                if ((flags & 2) != 0) source.CopyTo(target);
+                else for (int i = 0; i < source.Length; i++) target[i] = Blend(source[i], target[i]);
+            }
+            frames.Add(new InternalImage(width, height, MemoryMarshal.AsBytes(canvas.AsSpan()).ToArray()));
+            durations.Add(U24(data, offset + 12));
+            if ((flags & 1) != 0)
+                for (int row = 0; row < frame.Height; row++) canvas.AsSpan((y + row) * width + x, frame.Width).Clear();
+            if ((frames.Count + 1L) * width * height > Animation.MaxPixels) break;
+        }
+        if (frames.Count == 0) throw new ImageFormatException("WEBP animation has no frames.");
+        return new Animation([.. frames], [.. durations], loops);
+    }
+
+    // libwebp's BlendPixelNonPremult: src over dst, without premultiplied alpha (an opaque src is left alone, as there)
+    static uint Blend(uint src, uint dst) {
+        uint sa = src >> 24;
+        if (sa == 255) return src;
+        if (sa == 0) return dst;
+        uint da = (dst >> 24) * (256 - sa) >> 8, a = sa + da, scale = (1u << 24) / a;
+        uint Channel(int shift) => ((src >> shift & 255) * sa + (dst >> shift & 255) * da) * scale >> 24;
+        return Channel(0) | Channel(8) << 8 | Channel(16) << 16 | a << 24;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
@@ -160,22 +219,19 @@ internal sealed class WebpCodec : IImageCodec {
         var rgba = GC.AllocateUninitializedArray<byte>(checked(w * h * 4));
         byte[] Y = dec.Y, U = dec.U, V = dec.V;
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        void Band(int band) {
-            int[] su = new int[cw], sv = new int[cw];
-            for (int y = band * 16, y1 = Math.Min(h, y + 16); y < y1; y++) {
-                int near = (y >> 1) * uvs, far = Math.Clamp((y & 1) == 0 ? (y >> 1) - 1 : (y >> 1) + 1, 0, ch - 1) * uvs;
-                for (int i = 0; i < cw; i++) {
-                    su[i] = 3 * U[near + i] + U[far + i];
-                    sv[i] = 3 * V[near + i] + V[far + i];
-                }
-                int row = y * w * 4;
-                for (int x = 0; x < w; x++) {
-                    int i = x >> 1, j = Math.Clamp((x & 1) == 0 ? i - 1 : i + 1, 0, cw - 1);
-                    int u = (3 * su[i] + su[j] + 8) >> 4, v = (3 * sv[i] + sv[j] + 8) >> 4, luma = MultHi(Y[y * ys + x], 19077);
-                    rgba[row + x * 4] = Clip8(luma + MultHi(v, 26149) - 14234);
-                    rgba[row + x * 4 + 1] = Clip8(luma - MultHi(u, 6419) - MultHi(v, 13320) + 8708);
-                    rgba[row + x * 4 + 2] = Clip8(luma + MultHi(u, 33050) - 17685);
-                    rgba[row + x * 4 + 3] = 255;
+        unsafe void Band(int band) {
+            var blended = new ushort[2 * (cw + 2)];
+            var rows = new byte[4 * cw];
+            fixed (byte* py = Y, pu = U, pv = V, o = rgba, r = rows)
+            fixed (ushort* su = blended) {
+                ushort* sv = su + cw + 2;
+                for (int y = band * 16, y1 = Math.Min(h, y + 16); y < y1; y++) {
+                    int near = (y >> 1) * uvs, far = Math.Clamp((y & 1) == 0 ? (y >> 1) - 1 : (y >> 1) + 1, 0, ch - 1) * uvs;
+                    Blend(pu + near, pu + far, su + 1, cw);
+                    Blend(pv + near, pv + far, sv + 1, cw);
+                    Spread(su + 1, cw, r);
+                    Spread(sv + 1, cw, r + 2 * cw);
+                    YuvRow(py + (long)y * ys, r, r + 2 * cw, (uint*)(o + (long)y * w * 4), w);
                 }
             }
         }
@@ -183,6 +239,79 @@ internal sealed class WebpCodec : IImageCodec {
         if (InternalImage.ShouldParallelize(w, h)) Parallel.For(0, bands, Band);
         else for (int b = 0; b < bands; b++) Band(b);
         return rgba;
+    }
+
+    // a row of chroma blended vertically, 3 parts near to 1 part far, with the end samples repeated on either side
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    static unsafe void Blend(byte* near, byte* far, ushort* s, int n) {
+        int i = 0;
+        if (Vector.IsHardwareAccelerated)
+            for (; i <= n - Vector<byte>.Count; i += Vector<byte>.Count) {
+                Vector.Widen(Unsafe.ReadUnaligned<Vector<byte>>(near + i), out Vector<ushort> n0, out Vector<ushort> n1);
+                Vector.Widen(Unsafe.ReadUnaligned<Vector<byte>>(far + i), out Vector<ushort> f0, out Vector<ushort> f1);
+                Unsafe.WriteUnaligned(s + i, n0 * 3 + f0);
+                Unsafe.WriteUnaligned(s + i + Vector<ushort>.Count, n1 * 3 + f1);
+            }
+        for (; i < n; i++) s[i] = (ushort)(3 * near[i] + far[i]);
+        s[-1] = s[0];
+        s[n] = s[n - 1];
+    }
+
+    // the blended row spread to full width, two bytes per sample: each sample weighs 3 to its neighbour's 1
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    static unsafe void Spread(ushort* s, int n, byte* output) {
+        var pairs = (ushort*)output;
+        int i = 0;
+        if (Vector.IsHardwareAccelerated)
+            for (; i <= n - Vector<ushort>.Count; i += Vector<ushort>.Count) {
+                var centre = Unsafe.ReadUnaligned<Vector<ushort>>(s + i) * 3 + new Vector<ushort>(8);
+                var left = Vector.ShiftRightLogical(centre + Unsafe.ReadUnaligned<Vector<ushort>>(s + i - 1), 4);
+                var right = Vector.ShiftRightLogical(centre + Unsafe.ReadUnaligned<Vector<ushort>>(s + i + 1), 4);
+                Unsafe.WriteUnaligned(pairs + i, left | Vector.ShiftLeft(right, 8));
+            }
+        for (; i < n; i++) {
+            int centre = 3 * s[i] + 8;
+            pairs[i] = (ushort)((centre + s[i - 1]) >> 4 | (centre + s[i + 1]) >> 4 << 8);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    static unsafe void YuvRow(byte* y, byte* u, byte* v, uint* dst, int w) {
+        int x = 0;
+        if (Vector.IsHardwareAccelerated)
+            for (; x <= w - Vector<byte>.Count; x += Vector<byte>.Count) {
+                Vector.Widen(Unsafe.ReadUnaligned<Vector<byte>>(y + x), out Vector<ushort> y0, out Vector<ushort> y1);
+                Vector.Widen(Unsafe.ReadUnaligned<Vector<byte>>(u + x), out Vector<ushort> u0, out Vector<ushort> u1);
+                Vector.Widen(Unsafe.ReadUnaligned<Vector<byte>>(v + x), out Vector<ushort> v0, out Vector<ushort> v1);
+                Rgba(dst + x, y0, u0, v0);
+                Rgba(dst + x + Vector<ushort>.Count, y1, u1, v1);
+            }
+        for (; x < w; x++) {
+            int luma = MultHi(y[x], 19077);
+            dst[x] = Clip8(luma + MultHi(v[x], 26149) - 14234) | (uint)Clip8(luma - MultHi(u[x], 6419) - MultHi(v[x], 13320) + 8708) << 8
+                | (uint)Clip8(luma + MultHi(u[x], 33050) - 17685) << 16 | 0xFF000000u;
+        }
+    }
+
+    // MultHi in 16-bit lanes: the constant's high byte times v, plus its low byte times v over 256
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static Vector<ushort> MultHi(Vector<ushort> v, int c) => v * (ushort)(c >> 8) + Vector.ShiftRightLogical(v * (ushort)(c & 255), 8);
+
+    // (a - b) / 64 as a byte, where below zero is zero
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static Vector<ushort> Clip(Vector<ushort> a, Vector<ushort> b) => Vector.Min(Vector.ShiftRightLogical(Vector.Max(a, b) - b, 6), new Vector<ushort>(255));
+
+    // the scalar arithmetic above, a lane per pixel, kept unsigned
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static unsafe void Rgba(uint* dst, Vector<ushort> y, Vector<ushort> u, Vector<ushort> v) {
+        var luma = MultHi(y, 19077);
+        var r = Clip(luma + MultHi(v, 26149), new Vector<ushort>(14234));
+        var g = Clip(luma + new Vector<ushort>(8708), MultHi(u, 6419) + MultHi(v, 13320));
+        var b = Clip(luma + MultHi(u, 33050), new Vector<ushort>(17685));
+        Vector.Widen(r | Vector.ShiftLeft(g, 8), out Vector<uint> rg0, out Vector<uint> rg1);
+        Vector.Widen(b | new Vector<ushort>(0xFF00), out Vector<uint> ba0, out Vector<uint> ba1);
+        Unsafe.WriteUnaligned(dst, rg0 | Vector.ShiftLeft(ba0, 16));
+        Unsafe.WriteUnaligned(dst + Vector<uint>.Count, rg1 | Vector.ShiftLeft(ba1, 16));
     }
 
     // planes padded to whole macroblocks by repeating the last row and column
@@ -216,24 +345,83 @@ internal sealed class WebpCodec : IImageCodec {
     // ── Writing ──────────────────────────────────────────────────────────────
 
     public void Encode(InternalImage image, Stream stream, ImageSaveOptions options) {
-        if (image.Width > 16383 || image.Height > 16383) throw new ArgumentOutOfRangeException(nameof(image), "WEBP images are limited to 16383 x 16383 pixels.");
-        var (y, u, v) = ToYuv(image);
-        byte[] frame = Vp8Encoder.Encode(y, u, v, image.Width, image.Height, options.Quality);
-        bool translucent = false;
-        ReadOnlySpan<byte> pixels = image.Pixels;
-        for (int i = 3; i < pixels.Length && !translucent; i += 4) translucent = pixels[i] != 255;
-        byte[]? alpha = translucent ? EncodeAlpha(image) : null;
-        static int Size(int length) => 8 + length + (length & 1);
+        var (frame, alpha) = Compress(image, options.Quality);
         int riff = 4 + Size(frame.Length) + (alpha == null ? 0 : Size(10) + Size(alpha.Length));
         stream.Write("RIFF"u8);
         stream.Write(BitConverter.GetBytes(riff));
         stream.Write("WEBP"u8);
         if (alpha != null) {
-            int w = image.Width - 1, h = image.Height - 1;
-            Chunk(stream, "VP8X"u8, [0x10, 0, 0, 0, (byte)w, (byte)(w >> 8), (byte)(w >> 16), (byte)h, (byte)(h >> 8), (byte)(h >> 16)]);
+            Extension(stream, 0x10, image.Width, image.Height);
             Chunk(stream, "ALPH"u8, alpha);
         }
         Chunk(stream, "VP8 "u8, frame);
+    }
+
+    /// <summary>
+    /// An animation: after the first, each frame is only the rectangle that changed (from even coordinates),
+    /// replacing what was there; frames identical to the one before are merged into it.
+    /// </summary>
+    public static void WriteAnimation(Animation animation, Stream stream, ImageSaveOptions options) {
+        var frames = animation.Frames;
+        int w = frames[0].Width, h = frames[0].Height;
+        if (w > 16383 || h > 16383) throw new ArgumentOutOfRangeException(nameof(animation), "WEBP images are limited to 16383 x 16383 pixels.");
+        var shown = animation.Distinct();
+        var body = new MemoryStream();
+        bool translucent = false;
+        for (int s = 0; s < shown.Count; s++) {
+            var image = frames[shown[s].Frame];
+            var rect = new RectangleI(0, 0, w, h);
+            if (s > 0) {
+                Animation.Changed(MemoryMarshal.Cast<byte, uint>(image.Pixels), MemoryMarshal.Cast<byte, uint>(frames[shown[s - 1].Frame].Pixels), w, h, out rect);
+                rect = new RectangleI(rect.X & ~1, rect.Y & ~1, rect.Right - (rect.X & ~1), rect.Bottom - (rect.Y & ~1));
+                if (rect.Width != w || rect.Height != h) image = image.Crop(rect);
+            }
+            var (frame, alpha) = Compress(image, options.Quality);
+            translucent |= alpha != null;
+            int duration = Math.Min(shown[s].Duration, 0xFFFFFF);
+            var header = new byte[16];
+            Put24(header, 0, rect.X / 2);
+            Put24(header, 3, rect.Y / 2);
+            Put24(header, 6, rect.Width - 1);
+            Put24(header, 9, rect.Height - 1);
+            Put24(header, 12, duration);
+            header[15] = 2; // replace, do not blend; keep after showing
+            body.Write("ANMF"u8);
+            body.Write(BitConverter.GetBytes(16 + (alpha == null ? 0 : Size(alpha.Length)) + Size(frame.Length)));
+            body.Write(header);
+            if (alpha != null) Chunk(body, "ALPH"u8, alpha);
+            Chunk(body, "VP8 "u8, frame);
+        }
+        stream.Write("RIFF"u8);
+        stream.Write(BitConverter.GetBytes(4 + Size(10) + Size(6) + (int)body.Length));
+        stream.Write("WEBP"u8);
+        Extension(stream, (byte)(translucent ? 0x12 : 0x02), w, h);
+        Chunk(stream, "ANIM"u8, [0, 0, 0, 0, (byte)animation.Loops, (byte)(animation.Loops >> 8)]);
+        body.Position = 0;
+        body.CopyTo(stream);
+    }
+
+    // a lossy frame, and its alpha when any pixel is not opaque
+    static (byte[] Frame, byte[]? Alpha) Compress(InternalImage image, int quality) {
+        if (image.Width > 16383 || image.Height > 16383) throw new ArgumentOutOfRangeException(nameof(image), "WEBP images are limited to 16383 x 16383 pixels.");
+        var (y, u, v) = ToYuv(image);
+        byte[] frame = Vp8Encoder.Encode(y, u, v, image.Width, image.Height, quality);
+        bool translucent = false;
+        ReadOnlySpan<byte> pixels = image.Pixels;
+        for (int i = 3; i < pixels.Length && !translucent; i += 4) translucent = pixels[i] != 255;
+        return (frame, translucent ? EncodeAlpha(image) : null);
+    }
+
+    static int Size(int length) => 8 + length + (length & 1);
+
+    static void Put24(byte[] b, int at, int v) => (b[at], b[at + 1], b[at + 2]) = ((byte)v, (byte)(v >> 8), (byte)(v >> 16));
+
+    static void Extension(Stream stream, byte flags, int width, int height) {
+        var payload = new byte[10];
+        payload[0] = flags;
+        Put24(payload, 4, width - 1);
+        Put24(payload, 7, height - 1);
+        Chunk(stream, "VP8X"u8, payload);
     }
 
     static void Chunk(Stream stream, ReadOnlySpan<byte> kind, ReadOnlySpan<byte> payload) {

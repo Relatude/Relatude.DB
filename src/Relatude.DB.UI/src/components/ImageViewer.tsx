@@ -24,19 +24,26 @@ const pixelatedFrom = 2;
  * the picture: the before to the left of it, the after - `src` - to the right, and dragging moves it left and right.
  * The before is drawn in the after's box (or, with `beforeInset`, in the part of it it became), keeping its own
  * shape, so an upscale or a cutout lines up with what it was made from. `children` are drawn on the picture, placed
- * in percent of its size, and zoom with it.
+ * in percent of its size, and zoom with it. `lead` goes first on the bar, before the viewer's own buttons: a switch
+ * between pictures, say, so the stage keeps one bar. `above` goes between the bar and the picture.
  */
 export function ImageViewer({
   src,
   alt,
   before,
   beforeInset,
+  lead,
+  above,
   children,
 }: {
   src: string;
   alt: string;
   before?: string | null;
   beforeInset?: ImageInset | null;
+  /** first on the bar, before the viewer's own buttons */
+  lead?: ReactNode;
+  /** between the bar and the picture: what the picture is, said before it is looked at */
+  above?: ReactNode;
   /** drawn on the picture once its size is known, which they are given in its own pixels */
   children?: (size: { w: number; h: number }) => ReactNode;
 }) {
@@ -191,6 +198,7 @@ export function ImageViewer({
   return (
     <div className="iv">
       <div className="iv-bar">
+        {lead}
         {before && (
           <button
             className={"icon-button labelled iv-toggle" + (compare ? " active" : "")}
@@ -218,6 +226,7 @@ export function ImageViewer({
           <IconZoomReset size={14} stroke={1.8} />
         </button>
       </div>
+      {above}
       <div className="iv-view">
         <div
           ref={stage}

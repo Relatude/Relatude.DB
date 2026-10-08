@@ -1009,12 +1009,14 @@ footer a:hover { color: var(--fg); }
    themes. There are four: the page's light and dark, each in
    black and white or in full colour.
 
-   The black-and-white pair matches the rest of the docs. The dark
-   one is pure greyscale — every channel of every entry is equal —
-   so nothing in it ever picks up a tint; the light one keeps the
-   faint cool cast the animation always had. `fog` and `top`, the
-   horizon and the zenith, are the colours that read as the ground
-   of the frame, so they sit on the docs grounds (#111111, #ffffff).
+   The black-and-white pair matches the rest of the docs, and is the
+   plain look (`plain` below): no sky, nothing glowing, the graph as
+   sharp lines and rings. The dark one is pure greyscale — every
+   channel of every entry is equal — so nothing in it ever picks up
+   a tint; the light one keeps the faint cool cast the animation
+   always had. `fog`, the horizon, is the flat ground the plain look
+   shows in place of a sky, so it sits on the docs grounds (#111111,
+   and near #ffffff).
 
    The colour pair is the same scene with the colour left in: a dawn over night-blue ranges with gold light and
    rose-lit cloud, and a clear morning with blue distance and warm
@@ -1042,6 +1044,11 @@ footer a:hover { color: var(--fg); }
      noseG  how much Rudolph's nose glows (not at all on white)
      flashI how strong the lightning is: its flash across sky and land,
             and how solid the bolt (kept soft in black and white)
+     plain  1: the simple look black and white keeps — no sky, only the
+            flat ground the far ridges fade into; a fraction of the
+            motes, and smaller; half the rain (shorter) and snow (smaller); no birds; the graph as sharp lines and rings, with
+            no pulses, flares or ripples. With halo, bloom, rays and
+            sun at 0 alongside it, nothing glows.
 
    and among the colours, `starC`, `grid` and `bird` are the stars,
    the survey lines and the flock; `snowC`, `rainC`, `flakeC` and
@@ -1053,25 +1060,25 @@ const THEMES = {
   dark: {
     deep :[0.030,0.030,0.030], mid :[0.150,0.150,0.150], lit :[0.600,0.600,0.600],
     hot  :[0.940,0.940,0.940], fog :[0.067,0.067,0.067], top :[0.016,0.016,0.016],
-    sun  :[0.070,0.070,0.070], sunC:[1.000,1.000,1.000],
+    sun  :[0.000,0.000,0.000], sunC:[1.000,1.000,1.000],
     cloLo:[0.022,0.022,0.022], cloHi:[0.080,0.080,0.080],
     dust :[0.850,0.850,0.850], edge:[0.500,0.500,0.500], node:[0.960,0.960,0.960],
     pulse:[1.000,1.000,1.000], starC:[0.940,0.940,0.940], grid:[0.940,0.940,0.940],
     bird :[0.012,0.012,0.012], snowC:[0.720,0.720,0.720], rainC:[0.600,0.600,0.600],
     flakeC:[0.920,0.920,0.920], flashC:[1.000,1.000,1.000],
     noseC:[1.000,1.000,1.000], trailC:[0.950,0.950,0.950],
-    // the sky kept well back, behind the page: the sun (or the moon it
-    // reads as) only a faint trace, faint cloud with little lit edge, and
-    // hardly any shafts
+    // the plain look: no sky (sunI and cloud only matter while a change
+    // from colour crosses over), no glow anywhere
     star:1, sub:0, sunI:0.06, shine:1.00, cloud:0.25, cov:0.52, mist:1.0,
-    bloom:0.30, thresh:1.00, rays:0.06, rthr:0.50, knee:0.70, halo:1.00, noseG:1.0, flashI:0.45
+    bloom:0.00, thresh:1.00, rays:0.00, rthr:0.50, knee:0.70, halo:0.00, noseG:1.0, flashI:0.45,
+    plain:1
   },
   light: {
     // terrain sits darker than the sky so the ridges read as silhouettes,
     // and the overlay tints go dark since they composite over white
     deep :[0.255,0.265,0.278], mid :[0.480,0.492,0.508], lit :[0.760,0.770,0.782],
     hot  :[0.900,0.906,0.912], fog :[0.955,0.960,0.968], top :[0.720,0.730,0.745],
-    sun  :[0.060,0.061,0.063], sunC:[1.000,1.000,1.000],
+    sun  :[0.000,0.000,0.000], sunC:[1.000,1.000,1.000],
     cloLo:[0.700,0.708,0.722], cloHi:[0.990,0.992,0.995],
     // mid-grey, not near-black: dark specks on white read as sensor dirt
     dust :[0.560,0.570,0.585], edge:[0.300,0.315,0.330], node:[0.120,0.128,0.136],
@@ -1079,8 +1086,9 @@ const THEMES = {
     bird :[0.130,0.136,0.146], snowC:[0.970,0.972,0.975], rainC:[0.380,0.390,0.405],
     flakeC:[0.990,0.990,0.992], flashC:[1.000,1.000,1.000],
     noseC:[0.200,0.200,0.200], trailC:[0.540,0.548,0.560],
-    star:0, sub:1, sunI:0.07, shine:0.20, cloud:0.25, cov:0.55, mist:0.8,   // a quiet sky, as the dark
-    bloom:0.08, thresh:1.30, rays:0.03, rthr:1.00, knee:0.96, halo:0.35, noseG:0.0, flashI:0.5
+    star:0, sub:1, sunI:0.07, shine:0.20, cloud:0.25, cov:0.55, mist:0.8,   // plain, as the dark
+    bloom:0.00, thresh:1.30, rays:0.00, rthr:1.00, knee:0.96, halo:0.00, noseG:0.0, flashI:0.5,
+    plain:1
   },
   darkColour: {
     deep :[0.022,0.026,0.062], mid :[0.105,0.100,0.205], lit :[0.760,0.520,0.360],
@@ -1093,7 +1101,8 @@ const THEMES = {
     flakeC:[0.880,0.920,1.000], flashC:[0.860,0.890,1.000],
     noseC:[1.000,0.200,0.110], trailC:[1.000,0.860,0.580],
     star:1, sub:0, sunI:1.00, shine:1.00, cloud:1.00, cov:0.52, mist:1.0,
-    bloom:0.32, thresh:1.00, rays:0.38, rthr:0.50, knee:0.72, halo:1.00, noseG:1.0, flashI:1.0
+    bloom:0.32, thresh:1.00, rays:0.38, rthr:0.50, knee:0.72, halo:1.00, noseG:1.0, flashI:1.0,
+    plain:0
   },
   lightColour: {
     deep :[0.190,0.230,0.330], mid :[0.410,0.460,0.560], lit :[0.820,0.770,0.700],
@@ -1106,7 +1115,8 @@ const THEMES = {
     flakeC:[0.985,0.990,1.000], flashC:[0.920,0.940,1.000],
     noseC:[0.900,0.140,0.100], trailC:[0.940,0.700,0.320],
     star:0, sub:1, sunI:0.60, shine:0.25, cloud:0.85, cov:0.55, mist:0.8,
-    bloom:0.08, thresh:1.30, rays:0.16, rthr:1.00, knee:0.96, halo:0.35, noseG:0.6, flashI:1.0
+    bloom:0.08, thresh:1.30, rays:0.16, rthr:1.00, knee:0.96, halo:0.35, noseG:0.6, flashI:1.0,
+    plain:0
   }
 };
 const K3 = Object.keys(THEMES.dark).filter(k => Array.isArray(THEMES.dark[k]));
@@ -1141,15 +1151,15 @@ const WEATHERS = Object.keys(WEATHER), WK = Object.keys(WEATHER.sunny);
 // `cloLo` / `cloHi` the dark and light of the deck.
 const WEATHER_SKY = {
   dark: {
-    storm: { top:[0.050,0.050,0.050], fog:[0.110,0.110,0.110], sun:[0.020,0.020,0.020],
+    storm: { top:[0.050,0.050,0.050], fog:[0.110,0.110,0.110], sun:[0.000,0.000,0.000],
              cloLo:[0.035,0.035,0.035], cloHi:[0.200,0.200,0.200] },
-    snow:  { top:[0.120,0.120,0.120], fog:[0.240,0.240,0.240], sun:[0.030,0.030,0.030],
+    snow:  { top:[0.120,0.120,0.120], fog:[0.240,0.240,0.240], sun:[0.000,0.000,0.000],
              cloLo:[0.075,0.075,0.075], cloHi:[0.160,0.160,0.160] }
   },
   light: {
-    storm: { top:[0.460,0.465,0.475], fog:[0.620,0.625,0.635], sun:[0.020,0.020,0.020],
+    storm: { top:[0.460,0.465,0.475], fog:[0.620,0.625,0.635], sun:[0.000,0.000,0.000],
              cloLo:[0.330,0.335,0.345], cloHi:[0.600,0.605,0.615] },
-    snow:  { top:[0.800,0.805,0.812], fog:[0.900,0.903,0.908], sun:[0.030,0.030,0.030],
+    snow:  { top:[0.800,0.805,0.812], fog:[0.900,0.903,0.908], sun:[0.000,0.000,0.000],
              cloLo:[0.700,0.705,0.712], cloHi:[0.880,0.883,0.888] }
   },
   darkColour: {
@@ -1424,7 +1434,7 @@ function bakeNoise(N) {
 // The palette is uniform state, not compile-time constants, so a theme can
 // cross-fade at runtime without relinking any program.
 const PAL_SKY = `uniform vec3 C_FOG, C_TOP, C_SUN, C_SUNC, C_CLO, C_CHI, C_STARC, C_FLASHC;
-                 uniform float C_STAR, C_SUNI, C_CLOUD, C_COV;`;
+                 uniform float C_STAR, C_SUNI, C_CLOUD, C_COV, C_PLAIN;`;
 const PAL_TER = `uniform vec3 C_DEEP, C_MID, C_LIT, C_HOT, C_FOG, C_SUN, C_SUNC, C_GRID, C_SNOWC, C_FLASHC;
                  uniform float C_SHINE, C_MIST;`;
 
@@ -1481,6 +1491,12 @@ float hash13(vec3 p){
   return fract((p.x + p.y) * p.z);
 }
 void main(){
+  // The plain look has no sky: one flat ground behind the ranges, the
+  // colour the far ridges fade into, lit only by the lightning. All of it
+  // there, the clouds are not worked out at all.
+  vec3 plainSky = C_FOG + C_FLASHC * (uFlash * 0.25);
+  if (C_PLAIN > 0.999) { frag = vec4(plainSky, 1.0); return; }
+
   vec4 w = uInvVP * vec4(vNdc, 1.0, 1.0);
   vec3 dir = normalize(w.xyz / w.w - uCam);
   float up = dir.y;
@@ -1545,6 +1561,7 @@ void main(){
   }
   // in a snow storm the sky half dissolves into the whiteout
   col  = mix(col, mix(C_FOG, C_TOP, pow(clamp(up, 0.0, 1.0), 0.8) * 0.35), uMist);
+  col  = mix(col, plainSky, C_PLAIN);
   // alpha 1 marks open sky: the light shafts are fed from it
   frag = vec4(col, 1.0);
 }`;
@@ -1662,12 +1679,16 @@ void main(){
 // most of them out at 200+ units where they fog down to nothing. Half the
 // loop period, so the box lands on itself when the flight wraps.
 const DUST_SPAN = 320;
+// The share of the motes the plain look keeps. The seeds are random, so the
+// first instances are an even thinning of the whole field.
+const DUST_KEEP = 0.15;
 
 const DUST_VS = `#version 300 es
 in vec4 aSeed;                 // xyz = home position, w = per-mote variation
 uniform mat4  uVP;
 uniform vec3  uCam, uLight;
 uniform float uTime, uPx, uFwd, uDust;
+uniform float uPlain, uKeep;   // the plain look, and how many motes it keeps
 out float vA;
 out float vB;
 void main(){
@@ -1682,18 +1703,21 @@ void main(){
   gl_Position  = uVP * vec4(p, 1.0);
   float d      = distance(p, uCam);
   // Spread size and brightness across the field: a dense uniform cloud
-  // reads as haze, a varied one reads as depth.
-  gl_PointSize = clamp(170.0 / d, 1.0, 4.2) * uPx * (0.55 + 0.85 * r);
+  // reads as haze, a varied one reads as depth. Smaller in the plain look.
+  gl_PointSize = mix(clamp(170.0 / d, 1.0, 4.2) * (0.55 + 0.85 * r),
+                     clamp(110.0 / d, 1.0, 2.4) * (0.60 + 0.40 * r), uPlain) * uPx;
 
   float near = smoothstep(2.5, 14.0, d);                       // keep the close ones
   float far  = 1.0 - smoothstep(SPAN * 0.32, SPAN * 0.46, d);   // gone before it wraps
   vA = exp(-pow(d * 0.0068, 2.0)) * near * far * (0.20 + 0.45 * r) * uDust;
+  // the ones the plain look leaves out fade as it comes in
+  vA *= mix(1.0, step(float(gl_VertexID), uKeep), uPlain);
 
   // Motes between the eye and the sun catch the light — dust in a sunbeam —
-  // and each one glints now and then as it turns.
+  // and each one glints now and then as it turns. Not in the plain look.
   float fwd = pow(max(dot((p - uCam) / d, uLight), 0.0), 10.0);
   float tw  = 0.70 + 0.30 * sin(uTime * (0.9 + 2.3 * r) + r * 97.0);
-  vB = tw * (1.0 + fwd * 2.5 * uFwd);
+  vB = mix(tw * (1.0 + fwd * 2.5 * uFwd), 1.0, uPlain);
 }`;
 
 const DUST_FS = `#version 300 es
@@ -1702,10 +1726,11 @@ in float vA;
 in float vB;
 uniform vec3 uTint;
 uniform float uSub;
+uniform highp float uPlain;    // highp: must match the vertex stage or linking fails
 out vec4 frag;
 void main(){
   float d = length(gl_PointCoord - 0.5);
-  float a = smoothstep(0.5, 0.06, d) * vA;
+  float a = smoothstep(0.5, mix(0.06, 0.32, uPlain), d) * vA;   // a crisp dot in the plain look
   // added (softened once more by its own alpha) or laid over, as the graph
   frag = mix(vec4(uTint * (a * vB * a), 0.0), vec4(uTint * (a * vB), a), uSub);
 }`;
@@ -1783,6 +1808,7 @@ in float vS, vA, vHw, vDw, vW;
 in vec4  vP;
 uniform vec3  uTint, uHot;
 uniform float uSub, uHalo, uPx, uCore;
+uniform float uPlain;          // the plain look: a sharp line, no pulse
 out vec4 frag;
 void main(){
   float d    = abs(vDw / vW);                          // px from the centre line
@@ -1795,9 +1821,9 @@ void main(){
   float p = 0.0;
   if (vP.x > -1.0) {
     float ds = (vS - vP.x) * vP.z * vP.y;
-    p = (exp(-ds * ds * 0.35) + (ds < 0.0 ? exp(ds / 12.0) * 0.45 : 0.0)) * vP.w;
+    p = (exp(-ds * ds * 0.35) + (ds < 0.0 ? exp(ds / 12.0) * 0.45 : 0.0)) * vP.w * (1.0 - uPlain);
   }
-  float a = (core * 0.80 + glow) * (1.0 + p * 1.6) * vA;
+  float a = (core * mix(0.80, 1.0, uPlain) + glow) * (1.0 + p * 1.6) * vA;
   // Added light on a dark ground, ink laid over a light one, and on the way
   // from one theme to the other a blend of the two, as far as uSub has come,
   // so a slow change of theme never flips the overlays on a single frame.
@@ -1843,31 +1869,39 @@ precision highp float;
 in float vA, vSize, vKind, vPar, vRing;
 uniform vec3  uTint, uHot;
 uniform float uSub, uHalo;
+uniform float uPlain;          // the plain look: sharp rings and nothing else
 out vec4 frag;
+// Measured in device pixels rather than fractions of the sprite: a purely
+// proportional stroke ends up thinner than the anti-alias feather once the
+// sprite is small, which turns distant rings to blobs.
+float glyph(float pr, float D){
+  float R  = 0.33 * D;
+  float hw = max(0.45, 0.07 * D);                       // a fine ring, as in the glyph
+  float ring = smoothstep(hw + 0.55, hw - 0.55, abs(pr - R));
+  float disc = smoothstep(D * 0.50, D * 0.16, pr);
+  return mix(ring, disc, smoothstep(4.8, 3.0, D));      // too small to hole -> dot
+}
 void main(){
   float S  = max(vSize, 2.0);
   float pr = length(gl_PointCoord - 0.5) * S;          // px from the sprite centre
   float a, hot = 0.0;
   if (vKind < 0.5) {
-    // Measured in device pixels rather than fractions of the sprite: a
-    // purely proportional stroke ends up thinner than the anti-alias
-    // feather once the sprite is small, which turns distant rings to blobs.
     float D  = max(vRing, 2.0);
-    float R  = 0.33 * D;
-    float hw = max(0.45, 0.07 * D);                     // a fine ring, as in the glyph
-    float ring = smoothstep(hw + 0.55, hw - 0.55, abs(pr - R));
-    float disc = smoothstep(D * 0.50, D * 0.16, pr);
-    a  = mix(ring, disc, smoothstep(4.8, 3.0, D));      // too small to hole -> dot
+    float fl = vPar * (1.0 - uPlain);
+    a  = glyph(pr, D);
     a += exp(-pr * pr / (D * D * 0.30)) * 0.14 * uHalo;
-    a *= 1.0 + vPar * 1.0;                              // a gentle flare when a pulse arrives
-    hot = vPar;
+    a *= 1.0 + fl;                                      // a gentle flare when a pulse arrives
+    hot = fl;
   } else if (vKind < 1.5) {
+    // a spark; in the plain look the tip of a reaching edge (vPar 1) is a
+    // ring like the node it becomes, and a pulse in flight is not drawn
     float D = max(vRing, 2.0);
-    a   = exp(-pr * pr / (D * D * 0.035)) + exp(-pr * pr / (D * D * 0.30)) * 0.25 * uHalo;
-    hot = 1.0;
+    float g = exp(-pr * pr / (D * D * 0.035)) + exp(-pr * pr / (D * D * 0.30)) * 0.25 * uHalo;
+    a   = mix(g, glyph(pr, D) * vPar, uPlain);
+    hot = 1.0 - uPlain;
   } else if (vKind < 2.5) {
     float f = 1.0 - vPar;
-    a = smoothstep(1.1, 0.2, abs(pr - vRing)) * f * f * 0.55;
+    a = smoothstep(1.1, 0.2, abs(pr - vRing)) * f * f * 0.55 * (1.0 - uPlain);
   } else {
     float D = max(vRing, 2.0);
     a   = exp(-pr * pr / (D * D * 0.012)) + exp(-pr * pr / (D * D * 0.08)) * 0.25;
@@ -1963,6 +1997,7 @@ uniform mat4  uVP;
 uniform vec3  uCam;
 uniform vec2  uRes;
 uniform float uTime, uPx, uWind, uFall, uFog;
+uniform float uPlain;          // the plain look: shorter streaks
 out float vA, vT, vDw, vW, vHw;
 void main(){
   const float SPAN = ${RAIN_SPAN}.0, HGT = 96.0;
@@ -1973,7 +2008,7 @@ void main(){
   p.y = mod(iSeed.y - uTime * fall, HGT) - HGT * 0.5 + uCam.y;
   p.x = mod(iSeed.x + uTime * uWind - uCam.x + SPAN * 0.5, SPAN) - SPAN * 0.5 + uCam.x;
   p.z = mod(iSeed.z - uCam.z + SPAN * 0.5, SPAN) - SPAN * 0.5 + uCam.z;
-  vec3  tail = p - v * 0.028;                        // the streak one glance draws
+  vec3  tail = p - v * (0.028 * (1.0 - 0.35 * uPlain)); // the streak one glance draws
   vec4  ch = uVP * vec4(p, 1.0), ct = uVP * vec4(tail, 1.0);
   if (ch.w < 0.6 || ct.w < 0.6) {                    // at or behind the eye: nothing to draw
     gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
@@ -2020,6 +2055,7 @@ in vec4 aSeed;
 uniform mat4  uVP;
 uniform vec3  uCam;
 uniform float uTime, uPx, uWind, uFall, uFog;
+uniform float uPlain;          // the plain look: smaller flakes
 out float vA;
 void main(){
   const float SPAN = ${SNOW_SPAN}.0, HGT = 110.0;
@@ -2032,7 +2068,8 @@ void main(){
   p.z = mod(aSeed.z + cos(uTime * 0.6 + aSeed.x * 0.17) * 2.4 - uCam.z + SPAN * 0.5, SPAN) - SPAN * 0.5 + uCam.z;
   gl_Position  = uVP * vec4(p, 1.0);
   float d      = distance(p, uCam);
-  gl_PointSize = clamp(240.0 / d, 1.2, 7.5) * uPx * (0.6 + 0.6 * r);
+  gl_PointSize = mix(clamp(240.0 / d, 1.2, 7.5) * (0.6 + 0.6 * r),
+                     clamp(150.0 / d, 1.0, 4.0) * (0.6 + 0.4 * r), uPlain) * uPx;
   vA = smoothstep(1.5, 6.0, d) * (1.0 - smoothstep(SPAN * 0.30, SPAN * 0.47, d))
      * exp(-pow(d * 0.008 * uFog, 2.0)) * (0.32 + 0.40 * r);
 }`;
@@ -2684,7 +2721,8 @@ const TER_PAL = [['C_DEEP','deep'], ['C_MID','mid'], ['C_LIT','lit'], ['C_HOT','
                  ['C_SHINE','shine'], ['C_MIST','mist']];
 const SKY_PAL = [['C_FOG','fog'], ['C_TOP','top'], ['C_SUN','sun'], ['C_SUNC','sunC'],
                  ['C_CLO','cloLo'], ['C_CHI','cloHi'], ['C_STARC','starC'], ['C_FLASHC','flashC'],
-                 ['C_STAR','star'], ['C_SUNI','sunI'], ['C_CLOUD','cloud'], ['C_COV','cov']];
+                 ['C_STAR','star'], ['C_SUNI','sunI'], ['C_CLOUD','cloud'], ['C_COV','cov'],
+                 ['C_PLAIN','plain']];
 const BIRD_PAL = [['C_BIRD','bird'], ['C_FOG','fog'], ['C_SUN','sun'], ['C_SUNC','sunC']];
 const SANTA_PAL = [['C_BIRD','bird'], ['C_FOG','fog'], ['C_SUN','sun'], ['C_NOSE','noseC']];
 function setPalette(prog, list) {
@@ -2985,7 +3023,7 @@ function updateGraph(dt, camX, camZ, cap) {
 
     putPoint(l.ax, l.ay, l.az, e, 0, l.fa);
     if (l.landed) putPoint(l.bx, l.by, l.bz, e, 0, l.fb);
-    else          putPoint(hx, hy, hz, head, 1, 0);
+    else          putPoint(hx, hy, hz, head, 1, 1);         // the reaching tip: par 1
     if (l.p > -1) putPoint(l.ax + (l.bx - l.ax) * l.p, l.ay + (l.by - l.ay) * l.p, l.az + (l.bz - l.az) * l.p, e, 1, 0);
     if (l.ra >= 0) putPoint(l.ax, l.ay, l.az, e, 2, l.ra);
     if (l.rb >= 0) putPoint(l.bx, l.by, l.bz, e, 2, l.rb);
@@ -3052,7 +3090,7 @@ function spawnFlock(camX, camY, camZ) {
 function updateBirds(dt, camX, camY, camZ) {
   if (camZ < lastBirdZ) for (const f of flocks) f.z -= DEPTH;      // back with the loop, like the graph
   lastBirdZ = camZ;
-  if (time >= nextFlock && WEATHER[weatherName].birds) {
+  if (time >= nextFlock && WEATHER[weatherName].birds && !THEMES[themeName].plain) {
     if (flocks.length < 2) spawnFlock(camX, camY, camZ);
     nextFlock = time + (REDUCED ? 70 : 32) + Math.random() * 28;
   }
@@ -3067,8 +3105,9 @@ function updateBirds(dt, camX, camY, camZ) {
     const fx = Math.sin(yaw), fz = Math.cos(yaw);
     f.x += fx * f.speed * dt; f.y += f.vy * dt; f.z += fz * f.speed * dt;
     // in over a second and a half; out by dissolving into the air — and
-    // gone, the same way, when the weather turns
-    const env = Math.min(1, f.t / 1.5, (f.life - f.t) / 4) * wx.birds;
+    // gone, the same way, when the weather turns or the plain look comes in
+    const env = Math.min(1, f.t / 1.5, (f.life - f.t) / 4) * wx.birds * (1 - P.plain);
+    if (env < 0.002) continue;
     for (const b of f.birds) {
       if (nBirds >= BIRD_MAX) break;
       if ((b.gt -= dt) <= 0) {
@@ -3537,7 +3576,10 @@ function frame(now) {
   gl.uniform1f(dustP.u.uDust, wx.dust);
   gl.uniform3fv(dustP.u.uTint, P.dust);
   gl.uniform1f(dustP.u.uSub, P.sub);
-  if (wx.dust > 0.01) gl.drawArrays(gl.POINTS, 0, DUST_N);
+  const nKeep = Math.ceil(DUST_N * DUST_KEEP);
+  gl.uniform1f(dustP.u.uPlain, P.plain);
+  gl.uniform1f(dustP.u.uKeep, nKeep);
+  if (wx.dust > 0.01) gl.drawArrays(gl.POINTS, 0, P.plain > 0.999 ? nKeep : DUST_N);
 
   // --- Santa, laid over the sky as a silhouette in any theme, and his trail
   if (santa.env > 0.002) {
@@ -3575,6 +3617,7 @@ function frame(now) {
     gl.uniform1f(ptP.u.uPx, pxK);
     gl.uniform1f(ptP.u.uMaxPt, PT_MAX);
     gl.uniform1f(ptP.u.uHalo, 1.0);
+    gl.uniform1f(ptP.u.uPlain, 0.0);
     gl.uniform1f(ptP.u.uFog, 1.0);
     gl.uniform1f(ptP.u.uSub, P.sub);
     gl.uniform3fv(ptP.u.uTint, P.trailC);
@@ -3584,7 +3627,8 @@ function frame(now) {
 
   // --- rain and snow, as far as the weather asks for them
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-  const nRain = Math.round(RAIN_N * Math.min(1, wx.rain * 1.4));
+  // the plain look keeps half the rain and half the snow
+  const nRain = Math.round(RAIN_N * Math.min(1, wx.rain * 1.4) * (1 - 0.5 * P.plain));
   if (nRain > 0) {
     gl.useProgram(rainP.p);
     gl.bindVertexArray(rainVao);
@@ -3598,10 +3642,11 @@ function frame(now) {
     gl.uniform1f(rainP.u.uFog, wx.fogK);
     gl.uniform1f(rainP.u.uAmt, wx.rain);
     gl.uniform1f(rainP.u.uSub, P.sub);
+    gl.uniform1f(rainP.u.uPlain, P.plain);
     gl.uniform3fv(rainP.u.uTint, P.rainC);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, nRain);
   }
-  const nSnow = Math.round(SNOW_N * Math.min(1, wx.snow * 1.4));
+  const nSnow = Math.round(SNOW_N * Math.min(1, wx.snow * 1.4) * (1 - 0.5 * P.plain));
   if (nSnow > 0) {
     gl.useProgram(snowP.p);
     gl.bindVertexArray(snowVao);
@@ -3614,11 +3659,13 @@ function frame(now) {
     gl.uniform1f(snowP.u.uFog, wx.fogK);
     gl.uniform1f(snowP.u.uAmt, wx.snow);
     gl.uniform1f(snowP.u.uSub, P.sub);
+    gl.uniform1f(snowP.u.uPlain, P.plain);
     gl.uniform3fv(snowP.u.uTint, P.flakeC);
     gl.drawArrays(gl.POINTS, 0, nSnow);
   }
 
   // --- node graph: edges as glowing quads, then nodes, sparks and ripples
+  // (in the plain look sharp lines and rings only)
   if (ANCH_N) {
     const cap = INTRO ? Math.round(LINK_MAX * smoothstep(0.10, 0.80, k)) : LINK_MAX;
     updateGraph(dt, camX, camZ, cap);
@@ -3634,6 +3681,7 @@ function frame(now) {
       gl.uniform2f(edgeP.u.uRes, W, H);
       gl.uniform1f(edgeP.u.uPx, pxK);
       gl.uniform1f(edgeP.u.uHalo, P.halo);
+      gl.uniform1f(edgeP.u.uPlain, P.plain);
       gl.uniform1f(edgeP.u.uCore, 0.5);
       gl.uniform1f(edgeP.u.uFog, wx.fogK);
       gl.uniform1f(edgeP.u.uSub, P.sub);
@@ -3650,6 +3698,7 @@ function frame(now) {
       gl.uniform1f(ptP.u.uPx, pxK);
       gl.uniform1f(ptP.u.uMaxPt, PT_MAX);
       gl.uniform1f(ptP.u.uHalo, P.halo);
+      gl.uniform1f(ptP.u.uPlain, P.plain);
       gl.uniform1f(ptP.u.uFog, wx.fogK);
       gl.uniform1f(ptP.u.uSub, P.sub);
       gl.uniform3fv(ptP.u.uTint, P.node);
@@ -3671,6 +3720,7 @@ function frame(now) {
     gl.uniform2f(edgeP.u.uRes, W, H);
     gl.uniform1f(edgeP.u.uPx, pxK);
     gl.uniform1f(edgeP.u.uHalo, 1.6);
+    gl.uniform1f(edgeP.u.uPlain, 0.0);
     gl.uniform1f(edgeP.u.uCore, 1.0);
     gl.uniform1f(edgeP.u.uFog, 1.0);
     gl.uniform1f(edgeP.u.uSub, P.sub);

@@ -1,4 +1,6 @@
+using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics;
 
 namespace Relatude.DB.FileConversion.ImageEncoders;
 
@@ -37,7 +39,8 @@ internal static unsafe class Vp8 {
             new Span<byte>(top - 1, size + 5).Fill(127);
         } else {
             byte* above = plane + (long)(y0 - 1) * stride + x0;
-            new Span<byte>(above, size).CopyTo(new Span<byte>(top, size));
+            if (size == 16) Vector128.Store(Vector128.Load(above), top);
+            else *(ulong*)top = *(ulong*)above;
             top[-1] = mbx == 0 ? (byte)129 : above[-1];
             if (size == 16) {
                 if (mbx == mbw - 1) new Span<byte>(top + 16, 4).Fill(above[15]);
@@ -49,8 +52,16 @@ internal static unsafe class Vp8 {
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void Store(byte* buf, byte* plane, int stride, int size, int mbx, int mby) {
-        for (int y = 0; y < size; y++)
-            new Span<byte>(buf + Origin + y * Bps, size).CopyTo(new Span<byte>(plane + (long)(mby * size + y) * stride + mbx * size, size));
+        byte* src = buf + Origin, dst = plane + (long)mby * size * stride + mbx * size;
+        if (size == 16) for (int y = 0; y < 16; y++) Vector128.Store(Vector128.Load(src + y * Bps), dst + (long)y * stride);
+        else for (int y = 0; y < 8; y++) *(ulong*)(dst + (long)y * stride) = *(ulong*)(src + y * Bps);
+    }
+
+    // a row of a 16x16 or 8x8 block
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static void Row(byte* d, int size, Vector128<byte> v) {
+        if (size == 16) Vector128.Store(v, d);
+        else *(ulong*)d = v.AsUInt64().ToScalar();
     }
 
     /// <summary>A 16x16 luma or 8x8 chroma prediction; DC ignores the frame edges it lies on.</summary>
@@ -62,21 +73,26 @@ internal static unsafe class Vp8 {
                 int sum = 0, n = 0;
                 if (hasTop) { for (int i = 0; i < size; i++) sum += top[i]; n += size; }
                 if (hasLeft) { for (int i = 0; i < size; i++) sum += d[i * Bps - 1]; n += size; }
-                byte v = n == 0 ? (byte)128 : (byte)((sum + n / 2) / n);
-                for (int y = 0; y < size; y++) new Span<byte>(d + y * Bps, size).Fill(v);
+                var v = Vector128.Create(n == 0 ? (byte)128 : (byte)((sum + n / 2) / n));
+                for (int y = 0; y < size; y++) Row(d + y * Bps, size, v);
                 break;
             }
-            case TM:
+            case TM: {
+                var t = Vector128.Load(top);
+                Vector128<short> lo = Vector128.WidenLower(t).AsInt16(), hi = Vector128.WidenUpper(t).AsInt16();
                 for (int y = 0; y < size; y++) {
-                    int left = d[y * Bps - 1] - top[-1];
-                    for (int x = 0; x < size; x++) d[y * Bps + x] = Clip(top[x] + left);
+                    var left = Vector128.Create((short)(d[y * Bps - 1] - top[-1]));
+                    Row(d + y * Bps, size, Vector128.Narrow(Pixel(lo + left), Pixel(hi + left)).AsByte());
                 }
                 break;
-            case VE:
-                for (int y = 0; y < size; y++) new Span<byte>(top, size).CopyTo(new Span<byte>(d + y * Bps, size));
+            }
+            case VE: {
+                var t = Vector128.Load(top);
+                for (int y = 0; y < size; y++) Row(d + y * Bps, size, t);
                 break;
+            }
             default:
-                for (int y = 0; y < size; y++) new Span<byte>(d + y * Bps, size).Fill(d[y * Bps - 1]);
+                for (int y = 0; y < size; y++) Row(d + y * Bps, size, Vector128.Create(d[y * Bps - 1]));
                 break;
         }
     }
@@ -93,8 +109,8 @@ internal static unsafe class Vp8 {
         void P(int x, int y, byte v) => d[x + y * Bps] = v;
         switch (mode) {
             case DC: {
-                byte v = (byte)((A + B + C + D + I + J + K + L + 4) >> 3);
-                for (int y = 0; y < 4; y++) new Span<byte>(d + y * Bps, 4).Fill(v);
+                uint v = (uint)((A + B + C + D + I + J + K + L + 4) >> 3) * 0x01010101u;
+                for (int y = 0; y < 4; y++) *(uint*)(d + y * Bps) = v;
                 break;
             }
             case TM:
@@ -109,10 +125,10 @@ internal static unsafe class Vp8 {
                 break;
             }
             case HE:
-                new Span<byte>(d, 4).Fill(Avg3(X, I, J));
-                new Span<byte>(d + Bps, 4).Fill(Avg3(I, J, K));
-                new Span<byte>(d + 2 * Bps, 4).Fill(Avg3(J, K, L));
-                new Span<byte>(d + 3 * Bps, 4).Fill(Avg3(K, L, L));
+                *(uint*)d = Avg3(X, I, J) * 0x01010101u;
+                *(uint*)(d + Bps) = Avg3(I, J, K) * 0x01010101u;
+                *(uint*)(d + 2 * Bps) = Avg3(J, K, L) * 0x01010101u;
+                *(uint*)(d + 3 * Bps) = Avg3(K, L, L) * 0x01010101u;
                 break;
             case RD:
                 P(0, 3, Avg3(J, K, L));
@@ -186,13 +202,13 @@ internal static unsafe class Vp8 {
     /// <summary>Adds the inverse transform of 16 dequantized coefficients to a 4x4 block.</summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void AddResidual(short* c, byte* dst) {
-        bool ac = false;
-        for (int i = 1; i < 16; i++) ac |= c[i] != 0;
-        if (!ac) {
+        var any = Vector128.Load(c) & Vector128.Create(0, -1, -1, -1, -1, -1, -1, -1) | Vector128.Load(c + 8);
+        if (any == Vector128<short>.Zero) {
             if (c[0] == 0) return;
-            int dc = (c[0] + 4) >> 3;
-            for (int y = 0; y < 4; y++)
-                for (int x = 0; x < 4; x++) dst[y * Bps + x] = Clip(dst[y * Bps + x] + dc);
+            var px = Vector128.Create(*(uint*)dst, *(uint*)(dst + Bps), *(uint*)(dst + 2 * Bps), *(uint*)(dst + 3 * Bps)).AsByte();
+            var dc = Vector128.Create((short)((c[0] + 4) >> 3));
+            var sum = Vector128.Narrow(Pixel(Vector128.WidenLower(px).AsInt16() + dc), Pixel(Vector128.WidenUpper(px).AsInt16() + dc)).AsUInt32();
+            *(uint*)dst = sum[0]; *(uint*)(dst + Bps) = sum[1]; *(uint*)(dst + 2 * Bps) = sum[2]; *(uint*)(dst + 3 * Bps) = sum[3];
             return;
         }
         int* t = stackalloc int[16];
@@ -286,72 +302,144 @@ internal static unsafe class Vp8 {
         return new(2 * level + inner, inner, level >= 40 ? 2 : level >= 15 ? 1 : 0);
     }
 
-    static int Sclip1(int v) => v < -128 ? -128 : v > 127 ? 127 : v;
-    static int Sclip2(int v) => v < -16 ? -16 : v > 15 ? 15 : v;
+    const int SimpleEdge = 0, InnerEdge = 1, MacroblockEdge = 2;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static void Filter2(byte* p, int s) {
-        int p1 = p[-2 * s], p0 = p[-s], q0 = p[0], q1 = p[s];
-        int a = 3 * (q0 - p0) + Sclip1(p1 - q1);
-        int a1 = Sclip2((a + 4) >> 3), a2 = Sclip2((a + 3) >> 3);
-        p[-s] = Clip(p0 + a2);
-        p[0] = Clip(q0 - a1);
-    }
+    static Vector128<short> Clamp(Vector128<short> v, short min, short max) => Vector128.Min(Vector128.Max(v, Vector128.Create(min)), Vector128.Create(max));
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static Vector128<short> Pixel(Vector128<short> v) => Clamp(v, 0, 255);
+
+    // a line's positions as 16-bit lanes: sixteen, eight from each half, where Vector<short> has sixteen lanes, else eight
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static Vector<short> Widen(ulong a, ulong b) => Vector<short>.Count == 16
+        ? Vector256.WidenLower(Vector128.Create(a, b).AsByte().ToVector256Unsafe()).AsInt16().AsVector()
+        : Vector128.WidenLower(Vector128.CreateScalarUnsafe(a).AsByte()).AsInt16().AsVector();
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static void Filter4(byte* p, int s) {
-        int p1 = p[-2 * s], p0 = p[-s], q0 = p[0], q1 = p[s];
-        int a = 3 * (q0 - p0);
-        int a1 = Sclip2((a + 4) >> 3), a2 = Sclip2((a + 3) >> 3), a3 = (a1 + 1) >> 1;
-        p[-2 * s] = Clip(p1 + a3);
-        p[-s] = Clip(p0 + a2);
-        p[0] = Clip(q0 - a1);
-        p[s] = Clip(q1 - a3);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static void Filter6(byte* p, int s) {
-        int p2 = p[-3 * s], p1 = p[-2 * s], p0 = p[-s], q0 = p[0], q1 = p[s], q2 = p[2 * s];
-        int a = Sclip1(3 * (q0 - p0) + Sclip1(p1 - q1));
-        int a1 = (27 * a + 63) >> 7, a2 = (18 * a + 63) >> 7, a3 = (9 * a + 63) >> 7;
-        p[-3 * s] = Clip(p2 + a3);
-        p[-2 * s] = Clip(p1 + a2);
-        p[-s] = Clip(p0 + a1);
-        p[0] = Clip(q0 - a1);
-        p[s] = Clip(q1 - a2);
-        p[2 * s] = Clip(q2 - a3);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static bool Needs(byte* p, int s, int t) => 4 * Math.Abs(p[-s] - p[0]) + Math.Abs(p[-2 * s] - p[s]) <= t;
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static bool Needs2(byte* p, int s, int t, int it) {
-        int p3 = p[-4 * s], p2 = p[-3 * s], p1 = p[-2 * s], p0 = p[-s], q0 = p[0], q1 = p[s], q2 = p[2 * s], q3 = p[3 * s];
-        return 4 * Math.Abs(p0 - q0) + Math.Abs(p1 - q1) <= t && Math.Abs(p3 - p2) <= it && Math.Abs(p2 - p1) <= it
-            && Math.Abs(p1 - p0) <= it && Math.Abs(q3 - q2) <= it && Math.Abs(q2 - q1) <= it && Math.Abs(q1 - q0) <= it;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static bool Hev(byte* p, int s, int t) => Math.Abs(p[-2 * s] - p[-s]) > t || Math.Abs(p[s] - p[0]) > t;
-
-    // across `size` positions of one edge: hstride steps across the edge, vstride along it
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    static void Loop(byte* p, int hstride, int vstride, int size, int thresh, int inner, int hev, bool macroblockEdge) {
-        int t = 2 * thresh + 1;
-        for (int i = 0; i < size; i++, p += vstride) {
-            if (!Needs2(p, hstride, t, inner)) continue;
-            if (Hev(p, hstride, hev)) Filter2(p, hstride);
-            else if (macroblockEdge) Filter6(p, hstride);
-            else Filter4(p, hstride);
+    static void Narrow(Vector<short> v, ulong* a, ulong* b) {
+        if (Vector<short>.Count == 16) {
+            var n = Vector256.Narrow(v.AsVector256().AsUInt16(), v.AsVector256().AsUInt16()).AsUInt64();
+            *a = n.GetElement(0);
+            *b = n.GetElement(1);
+        } else {
+            *a = Vector128.Narrow(v.AsVector128().AsUInt16(), v.AsVector128().AsUInt16()).AsUInt64().ToScalar();
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static Vector<short> Clamp(Vector<short> v, short min, short max) => Vector.Min(Vector.Max(v, new Vector<short>(min)), new Vector<short>(max));
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static Vector<short> Pixel(Vector<short> v) => Clamp(v, 0, 255);
+
+    /// <summary>
+    /// Eight lines across an edge (p3 p2 p1 p0 | q0 q1 q2 q3), each holding the same positions along it in two
+    /// halves of eight, filtered as libwebp's scalar filters would one position at a time. False when nothing changed.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    static void Simple(byte* p, int hstride, int vstride, int thresh) {
-        int t = 2 * thresh + 1;
-        for (int i = 0; i < 16; i++, p += vstride)
-            if (Needs(p, hstride, t)) Filter2(p, hstride);
+    static bool FilterLines(ulong* a, ulong* b, int thresh, int inner, int hevThreshold, int kind) {
+        if (Vector<short>.Count == 16) return Filter(a, b, thresh, inner, hevThreshold, kind);
+        return Filter(a, a, thresh, inner, hevThreshold, kind) | Filter(b, b, thresh, inner, hevThreshold, kind);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static bool Filter(ulong* a, ulong* b, int thresh, int inner, int hevThreshold, int kind) {
+        Vector<short> p3 = Widen(a[0], b[0]), p2 = Widen(a[1], b[1]), p1 = Widen(a[2], b[2]), p0 = Widen(a[3], b[3]);
+        Vector<short> q0 = Widen(a[4], b[4]), q1 = Widen(a[5], b[5]), q2 = Widen(a[6], b[6]), q3 = Widen(a[7], b[7]);
+        var mask = Vector.LessThanOrEqual(Vector.Abs(p0 - q0) * 4 + Vector.Abs(p1 - q1), new Vector<short>((short)(2 * thresh + 1)));
+        if (kind != SimpleEdge) {
+            var it = new Vector<short>((short)inner);
+            mask &= Vector.LessThanOrEqual(Vector.Abs(p3 - p2), it) & Vector.LessThanOrEqual(Vector.Abs(p2 - p1), it)
+                & Vector.LessThanOrEqual(Vector.Abs(p1 - p0), it) & Vector.LessThanOrEqual(Vector.Abs(q3 - q2), it)
+                & Vector.LessThanOrEqual(Vector.Abs(q2 - q1), it) & Vector.LessThanOrEqual(Vector.Abs(q1 - q0), it);
+        }
+        if (mask == Vector<short>.Zero) return false;
+        var hev = kind == SimpleEdge ? Vector<short>.AllBitsSet
+            : Vector.GreaterThan(Vector.Abs(p1 - p0), new Vector<short>((short)hevThreshold)) | Vector.GreaterThan(Vector.Abs(q1 - q0), new Vector<short>((short)hevThreshold));
+        // high edge variance: only p0 and q0 move, with the outer taps
+        var d = q0 - p0;
+        var outer = Clamp(d * 3 + Clamp(p1 - q1, -128, 127), -128, 127);
+        var m = mask & hev;
+        var np0 = Vector.ConditionalSelect(m, Pixel(p0 + Clamp(Vector.ShiftRightArithmetic(outer + new Vector<short>(3), 3), -16, 15)), p0);
+        var nq0 = Vector.ConditionalSelect(m, Pixel(q0 - Clamp(Vector.ShiftRightArithmetic(outer + new Vector<short>(4), 3), -16, 15)), q0);
+        m = mask & ~hev;
+        if (kind == InnerEdge) {
+            var a1 = Clamp(Vector.ShiftRightArithmetic(d * 3 + new Vector<short>(4), 3), -16, 15);
+            var a2 = Clamp(Vector.ShiftRightArithmetic(d * 3 + new Vector<short>(3), 3), -16, 15);
+            var a3 = Vector.ShiftRightArithmetic(a1 + Vector<short>.One, 1);
+            Narrow(Vector.ConditionalSelect(m, Pixel(p1 + a3), p1), a + 2, b + 2);
+            np0 = Vector.ConditionalSelect(m, Pixel(p0 + a2), np0);
+            nq0 = Vector.ConditionalSelect(m, Pixel(q0 - a1), nq0);
+            Narrow(Vector.ConditionalSelect(m, Pixel(q1 - a3), q1), a + 5, b + 5);
+        } else if (kind == MacroblockEdge) {
+            var a1 = Vector.ShiftRightArithmetic(outer * 27 + new Vector<short>(63), 7);
+            var a2 = Vector.ShiftRightArithmetic(outer * 18 + new Vector<short>(63), 7);
+            var a3 = Vector.ShiftRightArithmetic(outer * 9 + new Vector<short>(63), 7);
+            Narrow(Vector.ConditionalSelect(m, Pixel(p2 + a3), p2), a + 1, b + 1);
+            Narrow(Vector.ConditionalSelect(m, Pixel(p1 + a2), p1), a + 2, b + 2);
+            np0 = Vector.ConditionalSelect(m, Pixel(p0 + a1), np0);
+            nq0 = Vector.ConditionalSelect(m, Pixel(q0 - a1), nq0);
+            Narrow(Vector.ConditionalSelect(m, Pixel(q1 - a2), q1), a + 5, b + 5);
+            Narrow(Vector.ConditionalSelect(m, Pixel(q2 - a3), q2), a + 6, b + 6);
+        }
+        Narrow(np0, a + 3, b + 3);
+        Narrow(nq0, a + 4, b + 4);
+        return true;
+    }
+
+    // an 8x8 block of bytes held as eight rows, turned into eight columns (and back again)
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    static void Transpose(ulong* r) {
+        for (int i = 0; i < 8; i += 2) {
+            ulong t = ((r[i] >> 8) ^ r[i + 1]) & 0x00FF00FF00FF00FFUL;
+            r[i] ^= t << 8;
+            r[i + 1] ^= t;
+        }
+        for (int i = 0; i < 8; i += i % 4 == 1 ? 3 : 1) {
+            ulong t = ((r[i] >> 16) ^ r[i + 2]) & 0x0000FFFF0000FFFFUL;
+            r[i] ^= t << 16;
+            r[i + 2] ^= t;
+        }
+        for (int i = 0; i < 4; i++) {
+            ulong t = ((r[i] >> 32) ^ r[i + 4]) & 0x00000000FFFFFFFFUL;
+            r[i] ^= t << 32;
+            r[i + 4] ^= t;
+        }
+    }
+
+    // a horizontal edge in two halves of eight pixels, whose first q0 pixels are a and b: the lines are rows
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    static void RowEdge(byte* a, byte* b, int stride, int thresh, int inner, int hev, int kind) {
+        ulong* la = stackalloc ulong[16];
+        ulong* lb = la + 8;
+        for (int k = 0; k < 8; k++) {
+            la[k] = *(ulong*)(a + (k - 4) * stride);
+            lb[k] = *(ulong*)(b + (k - 4) * stride);
+        }
+        if (!FilterLines(la, lb, thresh, inner, hev, kind)) return;
+        for (int k = 1; k < 7; k++) {
+            *(ulong*)(a + (k - 4) * stride) = la[k];
+            *(ulong*)(b + (k - 4) * stride) = lb[k];
+        }
+    }
+
+    // a vertical edge in two halves of eight rows, whose first q0 pixels are a and b: the lines are columns
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    static void ColumnEdge(byte* a, byte* b, int stride, int thresh, int inner, int hev, int kind) {
+        ulong* la = stackalloc ulong[16];
+        ulong* lb = la + 8;
+        for (int k = 0; k < 8; k++) {
+            la[k] = *(ulong*)(a - 4 + k * stride);
+            lb[k] = *(ulong*)(b - 4 + k * stride);
+        }
+        Transpose(la);
+        Transpose(lb);
+        if (!FilterLines(la, lb, thresh, inner, hev, kind)) return;
+        Transpose(la);
+        Transpose(lb);
+        for (int k = 0; k < 8; k++) {
+            *(ulong*)(a - 4 + k * stride) = la[k];
+            *(ulong*)(b - 4 + k * stride) = lb[k];
+        }
     }
 
     /// <summary>Filters one macroblock's left and top edges and, when inner, its inner block edges.</summary>
@@ -359,36 +447,32 @@ internal static unsafe class Vp8 {
     public static void FilterMacroblock(byte* y, byte* u, byte* v, int ys, int uvs, int mbx, int mby, FilterStrength f, bool inner, bool simple) {
         if (f.Limit == 0) return;
         y += (long)mby * 16 * ys + mbx * 16;
-        int edge = f.Limit + 4;
+        byte* y8 = y + 8 * ys; // the lower half of the luma rows
+        int edge = f.Limit + 4, il = f.InnerLevel, hev = f.HevThreshold;
         if (simple) {
-            if (mbx > 0) Simple(y, 1, ys, edge);
-            if (inner) for (int i = 4; i < 16; i += 4) Simple(y + i, 1, ys, f.Limit);
-            if (mby > 0) Simple(y, ys, 1, edge);
-            if (inner) for (int i = 4; i < 16; i += 4) Simple(y + i * ys, ys, 1, f.Limit);
+            if (mbx > 0) ColumnEdge(y, y8, ys, edge, 0, 0, SimpleEdge);
+            if (inner) for (int i = 4; i < 16; i += 4) ColumnEdge(y + i, y8 + i, ys, f.Limit, 0, 0, SimpleEdge);
+            if (mby > 0) RowEdge(y, y + 8, ys, edge, 0, 0, SimpleEdge);
+            if (inner) for (int i = 4; i < 16; i += 4) RowEdge(y + i * ys, y + i * ys + 8, ys, f.Limit, 0, 0, SimpleEdge);
             return;
         }
         u += (long)mby * 8 * uvs + mbx * 8;
         v += (long)mby * 8 * uvs + mbx * 8;
-        int il = f.InnerLevel, hev = f.HevThreshold;
         if (mbx > 0) {
-            Loop(y, 1, ys, 16, edge, il, hev, true);
-            Loop(u, 1, uvs, 8, edge, il, hev, true);
-            Loop(v, 1, uvs, 8, edge, il, hev, true);
+            ColumnEdge(y, y8, ys, edge, il, hev, MacroblockEdge);
+            ColumnEdge(u, v, uvs, edge, il, hev, MacroblockEdge);
         }
         if (inner) {
-            for (int i = 4; i < 16; i += 4) Loop(y + i, 1, ys, 16, f.Limit, il, hev, false);
-            Loop(u + 4, 1, uvs, 8, f.Limit, il, hev, false);
-            Loop(v + 4, 1, uvs, 8, f.Limit, il, hev, false);
+            for (int i = 4; i < 16; i += 4) ColumnEdge(y + i, y8 + i, ys, f.Limit, il, hev, InnerEdge);
+            ColumnEdge(u + 4, v + 4, uvs, f.Limit, il, hev, InnerEdge);
         }
         if (mby > 0) {
-            Loop(y, ys, 1, 16, edge, il, hev, true);
-            Loop(u, uvs, 1, 8, edge, il, hev, true);
-            Loop(v, uvs, 1, 8, edge, il, hev, true);
+            RowEdge(y, y + 8, ys, edge, il, hev, MacroblockEdge);
+            RowEdge(u, v, uvs, edge, il, hev, MacroblockEdge);
         }
         if (inner) {
-            for (int i = 4; i < 16; i += 4) Loop(y + i * ys, ys, 1, 16, f.Limit, il, hev, false);
-            Loop(u + 4 * uvs, uvs, 1, 8, f.Limit, il, hev, false);
-            Loop(v + 4 * uvs, uvs, 1, 8, f.Limit, il, hev, false);
+            for (int i = 4; i < 16; i += 4) RowEdge(y + i * ys, y + i * ys + 8, ys, f.Limit, il, hev, InnerEdge);
+            RowEdge(u + 4 * uvs, v + 4 * uvs, uvs, f.Limit, il, hev, InnerEdge);
         }
     }
 }

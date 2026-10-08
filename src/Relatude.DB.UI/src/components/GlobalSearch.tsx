@@ -272,7 +272,7 @@ function build(
       group: "Pages",
       icon: <Icon size={16} stroke={1.8} />,
       label: section.label,
-      hint: section.scope === "server" ? "Server" : (activeDb?.name ?? "Database"),
+      hint: section.scope === "server" ? "Server" : section.scope === "services" ? "Relatude Services" : (activeDb?.name ?? "Database"),
       open: () => onSelectSection(section.id),
     });
   }
