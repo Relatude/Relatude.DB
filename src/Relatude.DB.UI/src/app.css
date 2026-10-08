@@ -2198,12 +2198,6 @@ a {
   overflow: hidden;
 }
 
-/* open and done moving: nothing is left to clip, and a list that drops out of a field (a model
-   picker) or a focus ring may reach past the panel's edge */
-.fold.open.settled > .fold-inner {
-  overflow: visible;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .fold,
   .panel-fold,
@@ -11904,36 +11898,925 @@ body.pg-resizing {
 }
 
 /* ---- the Services page (LicenseSection) ----
-   One column of full-width panels under Storage's group heading: the status and the API key in
-   the first, what the license carries in three columns below it, and "do I need one?" last. */
+   A switch at the top between the account and a test of each service, then the view it picks: one
+   column of full-width panels under Storage's group heading. The account has the status and the API
+   key in the first, what the license carries in three columns below it, and "do I need one?" last;
+   a test has one panel, opened by what its calls are charged to. */
 
 .license-page {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
+  gap: 14px;
   max-width: 1500px;
   align-items: start;
 }
 
+/* the tests are a workbench: they take the whole width, however wide, where the account page keeps
+   to a width its panels read well at */
+.license-page.service-tests {
+  max-width: none;
+}
+
+/* the switch keeps its own width, and on a narrow screen scrolls rather than widen the page */
+.license-page > .module-switch {
+  justify-self: start;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* a service the license cannot pay for: still there to look at and try, only quieter */
+.module-switch button.unpaid:not(.active):not(:hover) {
+  color: var(--text-faint);
+}
+
+/* One view of the page. The ones opened before stay mounted, hidden, so what was typed into a test
+   and an answer that was paid for are still there on coming back to it. */
+.license-view {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  /* the tests lay out for the width they are given, not the window's: the rail takes a share of it,
+     more or less as it is open or not (the @container service-test rules below) */
+  container: service-test / inline-size;
+}
+
+.license-view[hidden] {
+  display: none;
+}
+
 /* the heading sits closer to the panel it names than the panels sit to each other, as in Storage */
-.license-page > .storage-group-head {
+.license-view > .storage-group-head {
   margin-bottom: -2px;
 }
 
-.license-intro h3 {
+/* ---- the account page (LicenseSection) ----
+   A hero for the account - the wordmark, the state as a pill, the license's name large, and the few
+   settings as a small table; the license's monthly credits as cards under it. */
+
+.account-page {
+  container: account / inline-size;
+}
+
+.account-hero {
+  --account-tone: var(--text-muted);
+  position: relative;
+  overflow: hidden;
+  padding: 22px 26px 8px;
+}
+
+.account-tone-ok {
+  --account-tone: var(--ok);
+}
+
+.account-tone-bad {
+  --account-tone: var(--danger);
+}
+
+/* the node glyph, large and faint, beside the title - clear of the rows and their buttons */
+.account-watermark {
+  position: absolute;
+  top: 0;
+  right: 40px;
+  color: var(--account-tone);
+  opacity: 0.08;
+  pointer-events: none;
+}
+
+.account-hero > :not(.account-watermark) {
+  position: relative;
+}
+
+.account-brand {
   display: flex;
   align-items: center;
+  gap: 14px;
+  color: var(--text);
+}
+
+.account-brand-name {
+  padding-left: 14px;
+  border-left: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.account-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border: 1px solid color-mix(in srgb, var(--account-tone) 35%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--account-tone) 14%, transparent);
+  color: var(--account-tone);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.account-pill-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 25%, transparent);
+}
+
+/* a licensed installation's dot breathes, slowly */
+.account-tone-ok .account-pill-dot {
+  animation: account-pulse 2.6s ease-in-out infinite;
+}
+
+@keyframes account-pulse {
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, currentColor 8%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .account-tone-ok .account-pill-dot {
+    animation: none;
+  }
+}
+
+.account-title {
+  margin: 22px 0 16px;
+}
+
+.account-title h2 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.account-title p {
+  max-width: 72ch;
+  margin: 6px 0 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* the settings that decide the account, a label, a value and its actions to a row */
+.account-rows {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) auto;
+  margin-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.account-rows > * {
+  display: flex;
+  align-items: center;
+  min-height: 46px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.account-rows > :nth-last-child(-n + 3) {
+  border-bottom: none;
+}
+
+.account-label {
+  padding-right: 32px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.account-value {
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-width: 0;
+  padding-right: 16px;
+  font-size: 13px;
+}
+
+.account-row-actions {
+  justify-content: flex-end;
   gap: 6px;
 }
 
-.license-intro ul {
+.account-row-actions .action-button {
+  min-width: 0;
+}
+
+.account-hero .license-error,
+.account-hero .license-waiting {
+  margin-bottom: 12px;
+}
+
+/* the API key dialog */
+.dialog.account-key-dialog {
+  width: 480px;
+}
+
+.account-key-dialog .dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.account-key-dialog .text-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.account-key-lead {
   margin: 0;
-  padding-left: 16px;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.account-key-lead a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.account-key-hint {
+  font-size: 12px;
+}
+
+/* what the license carries: its credits a card each, then its features, limits and senders */
+.account-credits {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.account-credit {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.account-credit-name {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.account-credit-left {
+  font-size: 13px;
+}
+
+.account-credit-left strong {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.account-credit-rates {
+  font-size: 12px;
+}
+
+.account-extras {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px 28px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.account-extras p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.account-limits {
+  display: grid;
+  grid-template-columns: auto auto;
+  justify-content: start;
+  gap: 4px 18px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.account-limits dt {
+  color: var(--text-soft);
+}
+
+.account-limits dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* narrow: the actions of a row under its value */
+@container account (max-width: 640px) {
+  .account-hero {
+    padding: 18px 16px 6px;
+  }
+  .account-brand-name {
+    display: none;
+  }
+  .account-rows {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .account-rows > * {
+    min-height: 0;
+    border-bottom: none;
+  }
+  .account-label {
+    padding-top: 12px;
+  }
+  .account-value {
+    padding: 4px 0;
+  }
+  .account-row-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    padding-bottom: 10px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent) !important;
+  }
+  .account-row-actions:empty {
+    display: none;
+  }
+}
+
+/* ---- Test services (ServiceTestsSection) ----
+   Every test opens with the same panel, the service bar: what its calls are charged to and, where it
+   can be changed, the service's address - a label column and a value column, so it reads as a small
+   table. The test's own panels follow; a test the license cannot pay for is faded and closed. */
+
+.license-service-bar {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 20px;
+}
+
+.license-service-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* no license, or one that pays for nothing: one notice across both columns */
+.license-service-wide {
+  grid-column: 1 / -1;
+}
+
+/* the accounts on one line, each its name, what is left of the month as a bar and in numbers, and
+   its rate limits - the account page's Account card laid on its side */
+.license-credit-accounts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 28px;
+}
+
+.license-service-bar .license-account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: 13px;
+}
+
+.license-service-bar .license-account-head {
+  display: contents;
+}
+
+.license-service-bar .license-bar {
+  order: 1;
+  width: 120px;
+}
+
+.license-service-bar .license-account-head .license-muted {
+  order: 2;
+}
+
+.license-service-bar .license-rates {
+  order: 3;
+  margin: 0;
+}
+
+.license-credit-missing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  font-size: 13px;
+}
+
+.license-credit-missing > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.license-credit-missing > span:first-child svg {
+  color: var(--text-muted);
+}
+
+.license-credit-missing a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+/* what the service offers: its price, and what it takes */
+.license-service-offer .license-offer {
+  margin: 0;
+}
+
+/* a test's own panels, one under the other */
+.license-test-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+}
+
+/* shown, but closed: the license cannot pay for these calls, and the service bar above says why */
+.license-test-body.off {
+  opacity: 0.45;
+  filter: grayscale(0.5);
+  user-select: none;
+}
+
+/* the two AI tests side by side, each a panel of its own fields, and stacked on a narrow screen */
+.license-ai-tests {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
+
+.license-ai-test {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.license-ai-test > h3 {
+  margin: 0;
+}
+
+.license-ai-test .license-save {
+  align-self: flex-start;
+}
+
+/* The operations, a group to a column: the group's name over its buttons, which wrap within the
+   column, so the panel is no taller than the buttons make it; beside them, the chosen one's name and
+   what it does. Kept low on purpose - the stage under it wants the height. */
+.license-ops-panel {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.license-ops-body {
+  display: grid;
+  grid-template-columns: minmax(0, 660px) minmax(240px, 1fr);
+  align-items: start;
+  gap: 12px 24px;
+}
+
+/* each group a share of the width by how many buttons it has, so they wrap to two rows alike rather
+   than the largest group to four; and no wider than that wants, so they do not spread on a wide screen */
+.license-ops {
+  display: grid;
+  grid-template-columns: auto minmax(min-content, 2.2fr) minmax(min-content, 1.4fr) minmax(min-content, 1.2fr);
+  align-items: start;
+  gap: 8px 22px;
+}
+
+.license-op-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.license-op-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.license-op-group-name {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.license-op-about {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-left: 24px;
+  border-left: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.license-op-about strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.license-op-about p {
+  margin: 0;
+}
+
+@container service-test (max-width: 960px) {
+  .license-ops-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .license-op-about {
+    padding: 10px 0 0;
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+}
+
+/* The bench: what is sent in a column on the left, and beside it the panel of what there is to look
+   at. Both columns start with a heading row of one height and then a row of one-line labels, so the
+   first field's box and the stage begin on the same line; the last panel on the left stretches, so
+   the two columns end on the same line too. */
+.license-bench {
+  /* The stage - or File to text's box of text - takes the screen's height less what stands above and
+     around it, so the whole test fits on one screen where it can: the top bar, the switch, the
+     heading, the service bar, and the panel's own padding and two heading rows. Never shorter than
+     can be worked with, nor taller than can be taken in at once. */
+  --iv-stage-height: clamp(280px, calc(100svh - 345px), 900px);
+  /* the fields' column grows a little with the test's width, and the stage takes the rest */
+  --bench-side: clamp(310px, 28%, 420px);
+  display: grid;
+  grid-template-columns: var(--bench-side) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 12px;
+}
+
+.license-test-body.license-bench {
+  grid-template-columns: var(--bench-side) minmax(0, 1fr);
+}
+
+/* Imaging has its operations above the bench as well, so its stage leaves room for them too */
+.license-imaging .license-bench {
+  --iv-stage-height: clamp(260px, calc(100svh - 460px), 820px);
+}
+
+.license-bench-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.license-bench-side > .panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.license-bench-side > .panel:last-child {
+  flex: 1;
+}
+
+.panel h3.license-bench-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  margin: 0 0 4px;
+}
+
+.license-bench-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* one line for every label on the bench, the stage's caption included, so the rows line up */
+.license-bench .license-field-label,
+.license-stage-caption {
+  min-height: 16px;
+  line-height: 16px;
+}
+
+/* the call, ruled off from the fields it is made with */
+.license-bench .license-bench-run {
+  align-self: stretch;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+/* the mask is painted on the stage: here it says whether there is one, and goes there */
+.license-mask-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.license-mask-summary > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.license-mask-summary .action-button {
+  flex: none;
+}
+
+/* four margins in a row, each a small number field under its side's name */
+.license-margins {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.license-margin {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+}
+
+/* what came back, under what was sent: its size or its words, and what to do with it */
+.license-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.license-answer-big {
+  font-size: 18px;
+}
+
+/* one row: open and download as icons, taking this answer on to the next call with the rest */
+.license-answer-actions {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.license-answer-actions .action-button {
+  justify-content: center;
+  min-width: 0;
+}
+
+.license-answer-busy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.license-answer-busy .progress-bar {
+  width: min(240px, 80%);
+}
+
+.license-answer-panel .license-error {
+  margin-top: 0;
+}
+
+/* The stage: one view at a time - the image, the mask, the answer, the text - under one bar whose
+   switch goes between them, filling the panel to its foot. The views stay mounted while hidden, a
+   painted mask included. */
+.license-bench-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.license-stage-pane {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.license-stage-pane[hidden] {
+  display: none;
+}
+
+.license-bench-main .iv,
+.license-bench-main .license-mask,
+.license-text-view {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.license-bench-main .iv-view {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: var(--iv-stage-height);
+}
+
+.license-bench-main .iv-stage,
+.license-bench-main .license-imaging-empty {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 0;
+}
+
+.license-bench-main .license-mask-view {
+  flex: 1 1 0;
+  height: auto;
+  min-height: var(--iv-stage-height);
+}
+
+/* the name of the one view there is, where the switch stands when there are several: set as a panel
+   heading is, since it is this panel's */
+.license-stage-name {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.license-stage-switch {
+  margin-right: 6px;
+}
+
+/* what the stage shows, in a line over it, where the first field's label is on the left */
+.license-stage-caption {
+  display: block;
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+}
+
+.license-stage-caption.license-offer-bad {
+  color: var(--danger);
+}
+
+/* the stage before there is anything on it, the size it will be */
+.license-imaging-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: var(--iv-stage-height);
+  padding: 0 24px;
+  box-sizing: border-box;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  text-align: center;
+}
+
+.license-imaging-empty .progress-bar {
+  width: min(240px, 60%);
+}
+
+/* the text as the service gave it, page by page, in a box of its own that scrolls: as tall as the
+   stage of the Imaging test, and filling its panel */
+.license-text-result {
+  flex: 1 1 0;
+  min-height: var(--iv-stage-height, 420px);
+  overflow: auto;
+  padding: 10px 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.license-text-result.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-style: dashed;
+  font-size: 13px;
+  text-align: center;
+}
+
+/* ---- the tests at other widths ----
+   Steps on the test's own width (the service-test container): a size up when there is room to spare,
+   a size down as it narrows, one column below that, and on a phone labels over what they label. */
+
+/* wide: the operations and what they do a size up */
+@container service-test (min-width: 1400px) {
+  .license-op {
+    padding: 5px 14px;
+    font-size: 13px;
+  }
+  .license-op-about {
+    font-size: 14px;
+  }
+  .license-op-about strong {
+    font-size: 16px;
+  }
+}
+
+/* medium: the operations a size down, closer together */
+@container service-test (max-width: 1060px) {
+  .license-op {
+    padding: 3px 10px;
+    font-size: 12px;
+  }
+  .license-ops {
+    gap: 6px 16px;
+  }
+  .license-op-buttons {
+    gap: 5px;
+  }
+}
+
+/* Narrow: the bench in one column - what is sent, what came back, then the stage - with the fields
+   side by side while two fit, and the stage as tall as its width suits rather than the screen. On
+   one column nothing has to line up across, so the stage's bar may wrap. */
+@container service-test (max-width: 820px) {
+  .license-bench,
+  .license-test-body.license-bench,
+  .license-imaging .license-bench {
+    grid-template-columns: minmax(0, 1fr);
+    --iv-stage-height: clamp(240px, 60cqi, 520px);
+  }
+  .license-ops {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  /* what is sent and what came back side by side while both fit, the stage under them */
+  .license-bench-side {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    align-items: stretch;
+  }
+  .license-bench-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    align-items: start;
+    gap: 14px 18px;
+  }
+  .license-bench-main .iv-bar,
+  .license-mask-tools {
+    flex-wrap: wrap;
+    row-gap: 4px;
+    height: auto;
+    min-height: 30px;
+  }
+}
+
+/* phone: one column throughout, every label over its value, the margins two by two, and panels with
+   less padding */
+@container service-test (max-width: 520px) {
+  .license-view .panel {
+    padding: 12px;
+  }
+  .license-service-bar {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .license-service-bar > .license-service-label:not(:first-child) {
+    margin-top: 8px;
+  }
+  .license-ops {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .license-margins {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .license-sms-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .license-sms-fields > :nth-child(3) {
+    grid-column: auto;
+  }
 }
 
 .license-muted {
@@ -11947,13 +12830,6 @@ body.pg-resizing {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-muted);
-}
-
-.license-entitlements h3 {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
 }
 
 /* the one line that says where this installation stands, in the colour of that answer, with the
@@ -12012,55 +12888,6 @@ body.pg-resizing {
 
 .license-actions .action-button {
   min-width: 0;
-}
-
-/* Under the status line: one line saying what to copy, the API key - the only key entered - on the
-   left, the sign-in switch on the right, and one Save under both. */
-.license-keys-lead {
-  margin: 14px 0;
-  max-width: 820px;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--text-soft);
-}
-
-.license-keys-lead a {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-
-.license-keys-body {
-  display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  gap: 16px 0;
-  align-items: stretch;
-}
-
-.license-keys-column {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-width: 0;
-  max-width: 560px;
-}
-
-.license-keys-column + .license-keys-column {
-  padding-left: 24px;
-  margin-left: 24px;
-  border-left: 1px solid var(--border);
-}
-
-@media (max-width: 900px) {
-  .license-keys-body {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .license-keys-column + .license-keys-column {
-    padding: 14px 0 0;
-    margin: 0;
-    border-left: none;
-    border-top: 1px solid var(--border);
-  }
 }
 
 /* the first five characters of the saved API key, beside its name: enough to tell which key is saved
@@ -12148,21 +12975,6 @@ body.pg-resizing {
   line-height: 1.5;
 }
 
-.license-keys-footer {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-  font-size: 12px;
-}
-
-.license-keys-footer .action-button {
-  min-width: 100px;
-}
-
 .license-field {
   display: flex;
   flex-direction: column;
@@ -12197,7 +13009,7 @@ body.pg-resizing {
   align-items: start;
 }
 
-@media (max-width: 900px) {
+@container service-test (max-width: 820px) {
   .license-sms-fields {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
@@ -12219,36 +13031,6 @@ body.pg-resizing {
 
 .license-sms-receipt {
   margin-top: 10px;
-}
-
-.license-ai-url {
-  max-width: 460px;
-  margin-bottom: 14px;
-}
-
-/* the two tests side by side, each a column of its own fields, and stacked on a narrow screen */
-.license-ai-tests {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px 24px;
-  align-items: start;
-}
-
-.license-ai-test {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-}
-
-.license-ai-test h4 {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.license-ai-test .license-save {
-  align-self: flex-start;
 }
 
 .license-ai-result .license-status-text {
@@ -12299,14 +13081,6 @@ body.pg-resizing {
   font-size: 11px;
 }
 
-/* the operations, one button each; the chosen one in the accent, one the service does not offer struck through */
-.license-ops {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 14px;
-}
-
 .license-op {
   padding: 4px 12px;
   border: 1px solid var(--border);
@@ -12338,32 +13112,6 @@ body.pg-resizing {
   outline-offset: 2px;
 }
 
-/* the fields in a column on the left and the answer, given the rest of the width to be looked at, on the right;
-   stacked on a narrow screen */
-.license-imaging-body {
-  display: grid;
-  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
-  gap: 16px 24px;
-  align-items: start;
-}
-
-@media (max-width: 900px) {
-  .license-imaging-body {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.license-imaging-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-width: 0;
-}
-
-.license-imaging-fields .license-save {
-  align-self: flex-start;
-}
-
 .license-imaging-row {
   display: flex;
   flex-wrap: wrap;
@@ -12377,28 +13125,6 @@ body.pg-resizing {
 
 .license-imaging-check {
   padding-bottom: 7px;
-}
-
-.license-imaging-narrow {
-  max-width: 160px;
-}
-
-.license-imaging-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: var(--iv-stage-height);
-  margin-top: 36px;
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-  font-size: 13px;
-}
-
-.license-imaging-result {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
 }
 
 /* a picture on a checkerboard, so a transparent background reads as one in either theme */
@@ -12461,10 +13187,6 @@ body.pg-resizing {
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
 }
 
-.license-imaging-keywords {
-  margin: 4px 0;
-}
-
 /* an answer in words may run to a few sentences on lines of their own */
 .license-imaging-answer-text {
   white-space: pre-wrap;
@@ -12472,10 +13194,6 @@ body.pg-resizing {
 
 /* ImageViewer: a bar of zoom buttons over a stage the picture is fitted to, zoomed in and moved about in, with a
    split to drag left and right between the before and the after */
-.license-imaging {
-  --iv-stage-height: clamp(300px, 62vh, 720px);
-}
-
 .iv {
   display: flex;
   flex-direction: column;
@@ -12531,6 +13249,12 @@ body.pg-resizing {
   overscroll-behavior: contain;
   touch-action: none;
   user-select: none;
+  /* it still scrolls, as dragging and zooming move it, but never shows a scrollbar */
+  scrollbar-width: none;
+}
+
+.iv-stage::-webkit-scrollbar {
+  display: none;
 }
 
 .iv-stage.overflows {
@@ -12692,12 +13416,41 @@ body.pg-resizing {
   right: 10px;
 }
 
-/* the mask editor: the tools on a line above, the image with the paint laid over it below */
+/* the mask editor, on the stage: the tools on its bar, the image with the paint laid over it fitted
+   to the stage below, and what is sent under that */
+.license-mask {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
 .license-mask-tools {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
+  min-height: 30px;
+}
+
+.license-mask-view {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--iv-stage-height, 480px);
+  padding: 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.license-mask-view .license-imaging-picture {
+  align-self: center;
+}
+
+.license-mask-view .license-imaging-picture img {
+  max-height: calc(var(--iv-stage-height, 480px) - 26px);
 }
 
 .license-mask-size {
@@ -12821,42 +13574,6 @@ body.pg-resizing {
   white-space: nowrap;
 }
 
-/* the file to text test: the file, the languages and Read on one line */
-.license-filetotext-fields {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(140px, 1fr) auto;
-  gap: 12px 16px;
-  align-items: start;
-}
-
-@media (max-width: 900px) {
-  .license-filetotext-fields {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.license-filetotext-fields .license-save {
-  align-self: start;
-  padding-top: 20px;
-}
-
-.license-filetotext-result {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 12px;
-}
-
-/* the text as the service gave it, page by page, in a box of its own that scrolls */
-.license-text-result {
-  max-height: 420px;
-  overflow: auto;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
-}
-
 .license-text-page + .license-text-page {
   margin-top: 10px;
   padding-top: 10px;
@@ -12881,17 +13598,6 @@ body.pg-resizing {
   font-size: 12px;
   line-height: 1.5;
   color: var(--text);
-}
-
-.license-columns {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px 24px;
-}
-
-.license-columns p {
-  margin: 0;
-  font-size: 13px;
 }
 
 .license-field-label {
@@ -12957,32 +13663,6 @@ body.pg-resizing {
   gap: 3px;
   margin-top: 8px;
   font-size: 12px;
-}
-
-.license-table {
-  border-collapse: collapse;
-  font-size: 13px;
-  min-width: 280px;
-}
-
-.license-table td {
-  padding: 4px 12px 4px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.license-table tr:last-child td {
-  border-bottom: none;
-}
-
-.license-table td.num {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.license-accounts {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 
 .license-account-head {

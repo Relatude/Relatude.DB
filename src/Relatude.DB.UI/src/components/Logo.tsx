@@ -10,6 +10,20 @@ export function LogoMark({ height = 13 }: { height?: number | string }) {
   );
 }
 
+// The node glyph as an icon, taking the size and stroke a Tabler icon takes, so it can stand where
+// one does: the Relatude Services entry in the menu, and the account view on that page. The square
+// box is as wide as the glyph, centred on it; the stroke is scaled so it reads as heavy as a Tabler
+// stroke of the same number, whose box is 24 wide rather than 30.
+export function LogoMarkIcon({ size = 24, stroke = 2, className }: { size?: number | string; stroke?: number | string; className?: string }) {
+  const width = (Number(stroke) * 30) / 24;
+  return (
+    <svg viewBox="35 48.6 30 30" width={size} height={size} className={className} aria-hidden="true">
+      <circle cx="42.5" cy="63.5" r="5.8" fill="none" stroke="currentColor" strokeWidth={width} />
+      <line x1="48.7" y1="63.7" x2="64.2" y2="63.7" stroke="currentColor" strokeWidth={width} />
+    </svg>
+  );
+}
+
 // The Relatude wordmark, copied from Relatude.DB.ServerUI (sections/main/logoBig.tsx).
 // Renders in currentColor so it follows the theme. The blinking cursor is driven by the
 // .logo-cursor CSS animation (app.css) with the same rhythm as the original SMIL chain.

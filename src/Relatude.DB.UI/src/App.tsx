@@ -13,6 +13,7 @@ import { LogsSection } from "./components/LogsSection";
 import { CustomLogsSection } from "./components/CustomLogsSection";
 import { Overview } from "./components/Overview";
 import { QuerySection } from "./components/QuerySection";
+import { isServiceTestView, ServiceTestsSection } from "./components/ServiceTestsSection";
 import { SettingsSection } from "./components/SettingsSection";
 import { Sidebar } from "./components/Sidebar";
 import { TasksSection } from "./components/TasksSection";
@@ -33,18 +34,24 @@ type AuthState = "checking" | "login" | "ready";
 /** The section ids the files page owns: it is one page in three views (FilesStorageSection). */
 const isFilesStorage = (id: string): id is FilesStorageView => id === "files" || id === "storage" || id === "conversions";
 
-// The view of the Storage module that was open last. The rail's Storage entry opens the module on it,
-// so someone who works in the file browser comes back to the file browser; the switch on the page and
-// the global search still open the view they name.
-const storageViewKey = "storageView";
-function rememberedStorageView(): FilesStorageView {
+// The view of a module that was open last, for the modules with views (Section.parentId). The rail's
+// entry opens the module on it, so someone who works in the file browser comes back to the file
+// browser, and someone trying out a service to that service's test; the switch on the page and the
+// global search still open the view they name.
+const rememberedViewKeys: Record<string, string> = { storage: "storageView", "services-tests": "servicesTestView" };
+// A module that is not a view itself opens on one of its views: Test services is its four tests, so
+// its entry - in the rail or the global search - lands on the one open last, or else on this one.
+const landingViews: Record<string, string> = { "services-tests": "services-sms" };
+const moduleOf = (id: string) => sections.find((s) => s.id === id)?.parentId ?? id;
+function rememberedView(moduleId: string): string {
+  const key = rememberedViewKeys[moduleId];
   try {
-    const view = localStorage.getItem(storageViewKey);
-    if (view && isFilesStorage(view)) return view;
+    const view = key ? localStorage.getItem(key) : null;
+    if (view && moduleOf(view) === moduleId) return view;
   } catch {
     // storage blocked: the module's own landing view
   }
-  return "storage";
+  return landingViews[moduleId] ?? moduleId;
 }
 
 export function App() {
@@ -62,15 +69,19 @@ export function App() {
   const [license, setLicense] = useState<LicenseStatus | null>(null);
   useEffect(() => applyTheme(theme), [theme]);
   useEffect(() => {
-    if (!isFilesStorage(activeSectionId)) return;
+    const key = rememberedViewKeys[moduleOf(activeSectionId)];
+    if (!key) return;
     try {
-      localStorage.setItem(storageViewKey, activeSectionId);
+      localStorage.setItem(key, activeSectionId);
     } catch {
       // storage blocked: the module opens on its landing view next time
     }
   }, [activeSectionId]);
-  // a click on the rail's Storage entry opens the module where it was left
-  const selectFromRail = (id: string) => setActiveSectionId(id === "storage" ? rememberedStorageView() : id);
+  // a click on the rail's entry for a module with views opens the module where it was left
+  const selectFromRail = (id: string) => setActiveSectionId(rememberedView(id));
+  // anything else that names a section (the global search) opens the view it names, or - for a
+  // module that is not a view itself - where the module was left
+  const openSection = (id: string) => setActiveSectionId(landingViews[id] ? rememberedView(id) : id);
   useEffect(() => {
     if (forceLogin) {
       setAuth("login");
@@ -184,7 +195,7 @@ export function App() {
         activeDb={activeDb}
         onSelectDb={setActiveDbId}
         activeSectionId={activeSectionId}
-        onSelectSection={setActiveSectionId}
+        onSelectSection={openSection}
         theme={theme}
         onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
         navCollapsed={!navOpen}
@@ -221,6 +232,15 @@ export function App() {
           ) : activeSectionId === "server-license" ? (
             // the page hands its answer back, so the mark in the rail follows a key being fixed here
             <LicenseSection onChanged={setLicense} />
+          ) : isServiceTestView(activeSectionId) ? (
+            // the tests of each service, as views of one page whose switch picks the section, exactly
+            // as the rail does; a test the license cannot pay for points to the account page
+            <ServiceTestsSection
+              view={activeSectionId}
+              onSelectView={setActiveSectionId}
+              onAccount={() => setActiveSectionId("server-license")}
+              onChanged={setLicense}
+            />
           ) : section.scope === "server" && (activeSectionId === "server-settings" || section.settingsSection) ? (
             // an entry that names part of the settings renders the settings page opened there
             <SettingsSection key={activeSectionId} focusSection={section.settingsSection} />

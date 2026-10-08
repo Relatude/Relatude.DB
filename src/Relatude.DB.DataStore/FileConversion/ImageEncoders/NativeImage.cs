@@ -2,16 +2,35 @@
 
 namespace Relatude.DB.FileConversion.ImageEncoders;
 
-/// <summary>Pure C# implementation. </summary>
+/// <summary>Pure C# implementation. An animated gif or webp keeps its frames, every change made to each of them.</summary>
 public sealed class NativeImage : IImage {
-    readonly InternalImage _image;
+    readonly InternalImage[] _frames;
+    readonly int[] _durations; // milliseconds
+    readonly int _loops; // 0: forever
+    InternalImage _image => _frames[0];
 
     public int Width => _image.Width;
     public int Height => _image.Height;
+    public int FrameCount => _frames.Length;
 
-    internal NativeImage(InternalImage image) => _image = image;
-    
-    public static NativeImage Load(Stream stream) => new(InternalImage.Load(stream));
+    internal NativeImage(InternalImage image) : this([image], [0], 1) { }
+    internal NativeImage(Animation animation) : this(animation.Frames, animation.Durations, animation.Loops) { }
+    NativeImage(InternalImage[] frames, int[] durations, int loops) => (_frames, _durations, _loops) = (frames, durations, loops);
+
+    public static NativeImage Load(Stream stream) => Load(InternalImage.ReadAll(stream));
+
+    static NativeImage Load(byte[] data) => ImageCodecs.ReadAnimation(data) is { } animation ? new(animation) : new(InternalImage.Load(data));
+
+    /// <summary>True for a gif or webp with more than one frame.</summary>
+    public static bool IsAnimated(byte[] data) => ImageCodecs.IsAnimated(data);
+
+    // the same change to every frame
+    NativeImage Map(Func<InternalImage, InternalImage> change) {
+        if (_frames.Length == 1) return new(change(_image));
+        var frames = new InternalImage[_frames.Length];
+        Parallel.For(0, frames.Length, i => frames[i] = change(_frames[i]));
+        return new(frames, _durations, _loops);
+    }
 
     /// <summary>
     /// The picture to apply the adjustment to, decoded no larger than the result needs: a jpeg asked for at a
@@ -20,10 +39,10 @@ public sealed class NativeImage : IImage {
     /// </summary>
     public static NativeImage LoadFor(Stream stream, ref FileAdjustmentImage adj, out int width, out int height) {
         var data = InternalImage.ReadAll(stream);
-        if (!InternalImage.TryReadSize(data, out width, out height)) {
-            var full = InternalImage.Load(data);
+        if (!InternalImage.TryReadSize(data, out width, out height) || ImageCodecs.IsAnimated(data)) {
+            var full = Load(data);
             (width, height) = (full.Width, full.Height);
-            return new(full);
+            return full;
         }
         var image = InternalImage.Load(data, Downscale(width, height, adj));
         if (image.Width != width && (adj.FocusX.HasValue || adj.FocusY.HasValue)) {
@@ -73,12 +92,13 @@ public sealed class NativeImage : IImage {
 
     // ── Geometry ────────────────────────────────────────────────────────────
 
-    public IImage Rotate(double degrees) => new NativeImage(_image.Rotate(degrees));
+    public IImage Rotate(double degrees) => Map(f => f.Rotate(degrees));
 
     public IImage Crop(int x, int y, int width, int height) {
         var w = Math.Clamp(width, 1, Width);
         var h = Math.Clamp(height, 1, Height);
-        return new NativeImage(_image.Crop(new RectangleI(Math.Clamp(x, 0, Width - w), Math.Clamp(y, 0, Height - h), w, h)));
+        var rect = new RectangleI(Math.Clamp(x, 0, Width - w), Math.Clamp(y, 0, Height - h), w, h);
+        return Map(f => f.Crop(rect));
     }
 
     public IImage Resize(int? width, int? height, ImageCropMode cropMode = ImageCropMode.Fill, CropHints hints = default) {
@@ -99,15 +119,15 @@ public sealed class NativeImage : IImage {
             targetH = height ?? srcH;
         }
 
-        if (targetW == srcW && targetH == srcH) return new NativeImage(_image);
+        if (targetW == srcW && targetH == srcH) return Map(f => f);
 
         var bg = ParseBackground(hints.BackgroundColor);
 
         return cropMode switch {
-            ImageCropMode.Stretch => new NativeImage(_image.Resize(targetW, targetH)),
-            ImageCropMode.Fill => new NativeImage(ResizeAndCrop(_image, targetW, targetH, hints.FocusX, hints.FocusY, hints.OffsetX, hints.OffsetY)),
-            ImageCropMode.Fit => new NativeImage(ResizeToFit(_image, targetW, targetH, bg)),
-            _ => new NativeImage(ResizeAuto(_image, targetW, targetH, hints.FocusX, hints.FocusY, hints.OffsetX, hints.OffsetY, bg)),
+            ImageCropMode.Stretch => Map(f => f.Resize(targetW, targetH)),
+            ImageCropMode.Fill => Map(f => ResizeAndCrop(f, targetW, targetH, hints.FocusX, hints.FocusY, hints.OffsetX, hints.OffsetY)),
+            ImageCropMode.Fit => Map(f => ResizeToFit(f, targetW, targetH, bg)),
+            _ => Map(f => ResizeAuto(f, targetW, targetH, hints.FocusX, hints.FocusY, hints.OffsetX, hints.OffsetY, bg)),
         };
     }
 
@@ -115,23 +135,23 @@ public sealed class NativeImage : IImage {
     // PureImage ranges: brightness amount → offset = amount*255; contrast factor = Max(0, 1+amount);
     // IImage ranges: -100..100.  Divide by 100 to bridge them.
 
-    public IImage AdjustBrightness(double brightness) => new NativeImage(_image.AdjustBrightness(brightness / 100.0));
-    public IImage AdjustContrast(double contrast) => new NativeImage(_image.AdjustContrast(contrast / 100.0));
-    public IImage AdjustSaturation(double saturation) => new NativeImage(_image.AdjustSaturation(saturation / 100.0));
+    public IImage AdjustBrightness(double brightness) => Map(f => f.AdjustBrightness(brightness / 100.0));
+    public IImage AdjustContrast(double contrast) => Map(f => f.AdjustContrast(contrast / 100.0));
+    public IImage AdjustSaturation(double saturation) => Map(f => f.AdjustSaturation(saturation / 100.0));
     public IImage AdjustSharpness(double sharpness) {
         if (sharpness < 0) {
             double radius = -sharpness / 100.0 * 19.5 + 0.5;
-            return new NativeImage(_image.Blur(radius));
+            return Map(f => f.Blur(radius));
         }
-        return new NativeImage(_image.AdjustSharpness(sharpness / 100.0));
+        return Map(f => f.AdjustSharpness(sharpness / 100.0));
     }
 
-    public IImage AdjustHue(double hueShift) => new NativeImage(_image.AdjustHue(hueShift));
+    public IImage AdjustHue(double hueShift) => Map(f => f.AdjustHue(hueShift));
 
     // Invert first, then rotate the hue back: inverting red gives cyan, and rotating cyan by 180
     // returns it to red — at the inverted lightness, which is the whole point. The other order would
     // simply undo itself.
-    public IImage InvertLuminance() => new NativeImage(_image.Invert().AdjustHue(180));
+    public IImage InvertLuminance() => Map(f => f.Invert().AdjustHue(180));
 
     public ImageToneAnalysis AnalyzeTone() {
         var image = _image;
@@ -144,21 +164,23 @@ public sealed class NativeImage : IImage {
     // ── Drawing ─────────────────────────────────────────────────────────────
 
     public IImage DrawLine(int x1, int y1, int x2, int y2, int width, string color) =>
-        new NativeImage(_image.DrawLine(x1, y1, x2, y2, width, ParseBackground(color)));
+        Map(f => f.DrawLine(x1, y1, x2, y2, width, ParseBackground(color)));
 
     public IImage DrawText(int x, int y, string text, int fontSizeInPixels, string color, bool sansSerif) =>
-        new NativeImage(_image.DrawText(x, y, text, fontSizeInPixels, ParseBackground(color), sansSerif));
+        Map(f => f.DrawText(x, y, text, fontSizeInPixels, ParseBackground(color), sansSerif));
 
     public IImage DrawBox(int x1, int y1, int x2, int y2, int borderWidth, string borderColor, bool filled, string fillColor) =>
-        new NativeImage(_image.DrawBox(x1, y1, x2, y2, borderWidth, ParseBackground(borderColor), filled, ParseBackground(fillColor)));
+        Map(f => f.DrawBox(x1, y1, x2, y2, borderWidth, ParseBackground(borderColor), filled, ParseBackground(fillColor)));
 
     // ── Encode
 
+    // an animation stays one as gif or webp, any other format gets its first frame
     public byte[] Encode(FileFormat format, int? quality = null) {
-        var nativeFormat = ToNativeFormat(format);
         var opts = new ImageSaveOptions { Quality = quality ?? 90 };
         using var ms = new MemoryStream();
-        _image.Save(ms, nativeFormat, opts);
+        if (_frames.Length > 1 && format == FileFormat.Gif) GifCodec.Write(new Animation(_frames, _durations, _loops), ms);
+        else if (_frames.Length > 1 && format == FileFormat.Webp) WebpCodec.WriteAnimation(new Animation(_frames, _durations, _loops), ms, opts);
+        else _image.Save(ms, ToNativeFormat(format), opts);
         return ms.ToArray();
     }
 
@@ -214,6 +236,7 @@ public sealed class NativeImage : IImage {
         FileFormat.Png => ImageFormat.Png,
         FileFormat.Webp => ImageFormat.Webp,
         FileFormat.Bmp => ImageFormat.Bmp,
+        FileFormat.Gif => ImageFormat.Gif,
         _ => ImageFormat.Png,
     };
 }

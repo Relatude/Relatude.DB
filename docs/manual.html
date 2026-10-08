@@ -2371,7 +2371,8 @@ to install: <code>AzureAIProvider</code> (Azure OpenAI, the default) with
 <code>EmbeddingServiceUrl</code>/<code>EmbeddingApiKey</code>/<code>EmbeddingModel</code> since Anthropic has no embeddings API.
 There is also <code>RelatudeServices</code>, which needs no account with an AI vendor at all: it calls the
 hosted Relatude AI service, which holds the vendor credentials and meters every call against your
-Relatude license. <code>ApiKey</code> is then the API key issued with that license, and <code>EmbeddingModel</code> /
+Relatude license (<a href="#35-relatude-services">§35</a>). On a server it pays with the installation's own API
+key, so <code>ApiKey</code> is only needed in a store built from code, and <code>EmbeddingModel</code> /
 <code>CompletionModel</code> are model keys the service publishes rather than vendor model names. The license
 has to carry the credit account each kind of call is charged to, with a balance: <code>ai_embeddings</code> for
 embeddings and <code>ai_completion</code> for completions (no feature is needed). A refusal (no such account, no
@@ -2505,6 +2506,50 @@ own users.</p>
 </tr>
 </tbody>
 </table>
+<p><strong>Relatude Services.</strong> The account an installation may use for hosted AI, imaging, files to text and
+text messages, and for signing in to the admin UI (<a href="#35-relatude-services">§35</a>). None of it is
+needed: with no <code>ApiKey</code>, nothing is charged and nothing is reported.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ApiKey</code></td>
+<td>null</td>
+<td>An API key from the license's page at services.relatude.com: all an installation needs to use the hosted services, which charge every call to that license. A secret: keep it in the <code>RelatudeDB</code> configuration section, not in this file.</td>
+</tr>
+<tr>
+<td><code>LicenseKey</code></td>
+<td>null</td>
+<td>The license's id. Not needed: it is looked up from <code>ApiKey</code>, and the Relatude Services page saves it beside the key. When the two disagree, the API key's license is the one used.</td>
+</tr>
+<tr>
+<td><code>AllowLicenseeAdminLogin</code></td>
+<td><code>false</code></td>
+<td>Adds <em>Sign in with Relatude Services</em> to the login page. Anyone with access to the license in the portal gets in; the master login is unaffected. Turning it off ends those sessions at once.</td>
+</tr>
+<tr>
+<td><code>PublicUrl</code></td>
+<td>null</td>
+<td>The addresses the server is reached on, separated by commas: where a sign-in may send the browser back to. It fills itself in with every https address a signed-in admin uses the admin UI on. Localhost, and addresses approved for the installation in the portal, are accepted as well.</td>
+</tr>
+<tr>
+<td><code>DisableHeartbeat</code></td>
+<td><code>false</code></td>
+<td>Stops the installation reporting in (<a href="#reporting-in">§35.4</a>). Read at each report, so it takes effect without a restart. Not offered on the settings pages.</td>
+</tr>
+<tr>
+<td><code>ServicesServerUrl</code></td>
+<td><code>https://services.relatude.com</code></td>
+<td>Where the license server is. Only a self-hosted or test server changes it.</td>
+</tr>
+</tbody>
+</table>
 <h4 id="container-level">Container level<a class="anchor" href="#container-level" aria-label="Link to this section">#</a></h4>
 <div class="codehilite"><pre><span></span><code>{
   &quot;Id&quot;: &quot;8f6b…&quot;,
@@ -2593,6 +2638,16 @@ own users.</p>
 <td><code>AISettings</code></td>
 <td>null</td>
 <td>The container's AI provider and semantic index. Required for semantic/vector search. See below.</td>
+</tr>
+<tr>
+<td><code>ImagingSettings</code>, <code>FileToTextSettings</code></td>
+<td>null</td>
+<td>The image AI and the file reader behind <code>db.Imaging</code> and <code>db.FileToText</code>. Null on a server is the hosted Relatude service, charged to the license. See <a href="#34-ai-services">§34</a>.</td>
+</tr>
+<tr>
+<td><code>SMSSettings</code></td>
+<td>null</td>
+<td>The text messages behind <code>db.SMS</code>: <code>TypeName</code> (empty or <code>RelatudeServices</code> for the hosted service, charged to the license; otherwise your own <code>ISMSProvider</code>), <code>ServiceUrl</code>, <code>ApiKey</code>, and <code>From</code>, the sender shown on the phone when a call names none. Null means no SMS, and <code>db.SMS</code> throws. See <a href="#35-relatude-services">§35</a>.</td>
 </tr>
 <tr>
 <td><code>DatamodelSources</code></td>
@@ -2790,7 +2845,7 @@ another regardless of where its property uploads. <code>Guid.Empty</code> names 
 <tr>
 <td><code>TypeName</code></td>
 <td><code>AzureAIProvider</code></td>
-<td><code>AzureAIProvider</code> (Azure OpenAI), <code>OpenAIProvider</code> / <code>OpenAI</code>, <code>AnthropicAIProvider</code> / <code>Anthropic</code>, <code>RelatudeServices</code> (the hosted Relatude AI service, billed to your Relatude license instead of a vendor account), <code>DummyAIProvider</code> (placeholder vectors — useful in tests, and for opening a database whose real provider is unavailable), or the full name of your own <code>IAIProvider</code>. All the built-ins ship inside <code>Relatude.DB.Server</code>.</td>
+<td><code>AzureAIProvider</code> (Azure OpenAI), <code>OpenAIProvider</code> / <code>OpenAI</code>, <code>AnthropicAIProvider</code> / <code>Anthropic</code>, <code>RelatudeServices</code> (the hosted Relatude AI service, billed to your Relatude license instead of a vendor account), <code>DummyAIProvider</code> (placeholder vectors — useful in tests, and for opening a database whose real provider is unavailable), or the assembly-qualified name of your own <code>IAIProvider</code> (<a href="#352-a-provider-of-your-own">§35.2</a>). All the built-ins ship inside <code>Relatude.DB.Server</code>.</td>
 </tr>
 <tr>
 <td><code>Name</code></td>
@@ -2805,7 +2860,7 @@ another regardless of where its property uploads. <code>Guid.Empty</code> names 
 <tr>
 <td><code>ApiKey</code></td>
 <td>null</td>
-<td>Belongs in the <code>RelatudeDB</code> configuration section, not in this file. For <code>RelatudeServices</code> it is the API key issued with your Relatude license.</td>
+<td>Belongs in the <code>RelatudeDB</code> configuration section, not in this file. <code>RelatudeServices</code> on a server pays with the installation's own API key (<a href="#35-relatude-services">§35</a>) and needs none here.</td>
 </tr>
 <tr>
 <td><code>ApiVersion</code></td>
@@ -4008,7 +4063,8 @@ deliberately, over HTTPS, and only after setting credentials. Set <code>MasterUs
 secrets, environment variables); until they are set, logging in throws "No master user configured on
 the server." The admin UI's login page asks the server first, and leaves the user name and
 password fields out wherever the master account cannot be used - no master user set, or a remote
-address while this setting is off - showing only <em>Sign in with Relatude.License</em> when that is set up,
+address while this setting is off - showing only <em>Sign in with Relatude Services</em>
+(<a href="#354-connecting-an-installation">§35.4</a>) when that is set up,
 or a line saying that logging in is not possible from there.</p>
 <p>Three more details cost people time: the stored user name must be <strong>lowercase</strong> (the check
 lowercases the input before comparing), the password is compared verbatim and stored in plain text,
@@ -4063,7 +4119,11 @@ indistinguishable by timing.</p>
 </tr>
 <tr>
 <td><strong>API</strong></td>
-<td>GraphQL endpoints over the database: each one a url, the types and properties it exposes and under which names, views, mutations, an API key, generated client code, and an explorer to try queries. See <a href="#33-graphql-endpoints">§33</a>.</td>
+<td>GraphQL endpoints over the database: each one a url, the types and properties it exposes and under which names, views, mutations, API keys with expiry dates, generated client code, and an explorer to try queries. See <a href="#33-graphql-endpoints">§33</a>.</td>
+</tr>
+<tr>
+<td><strong>Relatude Services</strong> (server menu)</td>
+<td>The installation's Relatude Services account: connecting it to a license, what the license carries, the sign-in switch, and a test view for each hosted service. Not needed to run anything. See <a href="#35-relatude-services">§35</a>.</td>
 </tr>
 <tr>
 <td><strong>Memory</strong> (on the dashboard)</td>
@@ -4531,8 +4591,8 @@ conversion key — so two requests that differ in nothing produce one conversion
 status and extracted metadata as JSON instead of a converted file.</p>
 <p>Naming <code>RequestedFormat</code> is optional for images: it defaults to the adaptive <code>FileFormat.Image</code>,
 which resolves per file against the store defaults — the original untouched when nothing is
-adjusted, a GIF left as a GIF at its own size, everything else the configured default format and
-quality. See <a href="#181-asset-urls-files-variants-and-deeplinks">§18.1</a>.</p>
+adjusted, a GIF kept as a GIF so its animation survives (the original itself at its own size), everything
+else the configured default format and quality. See <a href="#181-asset-urls-files-variants-and-deeplinks">§18.1</a>.</p>
 <p>Three things follow from conversion being asynchronous. <strong>A URL you just built is usually not
 servable yet</strong> — the conversion is queued, and <code>IsFileReady</code> is how you find out. <strong>A variant that
 is not ready does not fail</strong>: the store serves a generated status placeholder in the requested
@@ -4906,8 +4966,10 @@ URL built on top of a page URL does <strong>not</strong> fall back to serving th
 file when the request is served:</p>
 <ul>
 <li>No adjustments at all → the original file is served untouched, no conversion.</li>
-<li>A GIF asked for at its own dimensions with no other edits → stays a GIF, so animation and palette
+<li>A GIF asked for at its own dimensions with no other edits → the original GIF, so animation and palette
   survive.</li>
+<li>A resized or edited GIF → an animated WebP when the default format is <code>WebP</code>, else still a GIF:
+  every frame is adjusted, so the animation survives either way.</li>
 <li>Everything else → <code>SettingsLocal.ImageDefaultFormat</code> (<code>Jpeg</code>, <code>WebP</code> or <code>Png</code>; default <code>Jpeg</code>) at
   <code>SettingsLocal.ImageDefaultQuality</code> (default 85) unless the request names its own quality.</li>
 </ul>
@@ -6853,7 +6915,7 @@ endpoint changes.</p>
 <tbody>
 <tr>
 <td><strong>Defined in the admin UI</strong></td>
-<td>The database's <strong>API</strong> page. Each database can have any number of endpoints, each on its own url. An endpoint chooses the types and properties it shows and what to call them, and can have views, an API key, mutations, a public explorer page and a facet search. Each endpoint is a JSON file in the database's <code>graphql</code> folder, served by a middleware that <code>UseRelatudeDB</code> installs, so there is no code to write. See <a href="#331-an-endpoint-in-the-admin-ui">§33.1</a>.</td>
+<td>The database's <strong>API</strong> page. Each database can have any number of endpoints, each on its own url. An endpoint chooses the types and properties it shows and what to call them, and can have views, API keys, mutations, a public explorer page and a facet search. Each endpoint is a JSON file in the database's <code>graphql</code> folder, served by a middleware that <code>UseRelatudeDB</code> installs, so there is no code to write. See <a href="#331-an-endpoint-in-the-admin-ui">§33.1</a>.</td>
 </tr>
 <tr>
 <td><strong>Code-first</strong></td>
@@ -6883,7 +6945,7 @@ views:</p>
 <tbody>
 <tr>
 <td><strong>Settings</strong></td>
-<td>The name, url, description, mode, switches and limits of <a href="#332-the-definition-file">§33.2</a>, and the API key (the wand button generates one).</td>
+<td>The name, url, description, mode, switches and limits of <a href="#332-the-definition-file">§33.2</a>, and the API keys: <strong>Add key</strong> adds one with a generated key that expires in a year. Give it a name, such as the client that uses it, and change or clear the expiry date. Each key shows how long it has left.</td>
 </tr>
 <tr>
 <td><strong>Types</strong></td>
@@ -6923,13 +6985,13 @@ mutations, and its file. Buttons on each row open the endpoint's public pages:</
 <ul>
 <li><strong>Explore</strong> opens the explorer and <strong>Pivot</strong> opens the facet page, when they are switched on
   (<a href="#338-the-explorer-and-the-facet-page">§33.8</a>).</li>
-<li><strong>SDL</strong> shows the schema as text, when introspection is on and the endpoint has no API key.</li>
+<li><strong>SDL</strong> shows the schema as text, when introspection is on and the endpoint has no API keys.</li>
 </ul>
 <p>The endpoints are served by a middleware that <code>UseRelatudeDB</code> installs after its own authorization
 middleware. An endpoint's url can be any path the admin UI does not use. No two endpoints may share
 a url, even across databases. While the endpoint's database is not open, its url answers <code>503</code>.</p>
 <blockquote>
-<p><strong>The url is public.</strong> The admin UI's login does not cover an endpoint. Protect it with an API key
+<p><strong>The url is public.</strong> The admin UI's login does not cover an endpoint. Protect it with API keys
 or a reverse proxy, or expose only what anyone may see (<a href="#3310-who-reads-and-the-limits">§33.10</a>).</p>
 </blockquote>
 <h3 id="332-the-definition-file">33.2 The definition file<a class="anchor" href="#332-the-definition-file" aria-label="Link to this section">#</a></h3>
@@ -6955,7 +7017,10 @@ and enum values are written by name.</p>
 <span class="w">  </span><span class="nt">&quot;allowMutations&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;enableExplorer&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;enableFacetSearch&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;apiKey&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;apiKeys&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Web site&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;key&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;6f1c…&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;expires&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2027-10-07T00:00:00Z&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Mobile app&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;key&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;a93e…&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
 <span class="w">  </span><span class="nt">&quot;defaultPageSize&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">25</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;maxPageSize&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">200</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;types&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
@@ -7067,9 +7132,9 @@ in the ids, so a file is usually easiest to start there.</p>
 <td>In whole-datamodel mode only: also expose the built-in users, groups, collections and cultures.</td>
 </tr>
 <tr>
-<td><code>apiKey</code></td>
+<td><code>apiKeys[]</code></td>
 <td>none</td>
-<td>When set, every request must carry this key (<a href="#337-over-http">§33.7</a>).</td>
+<td>With any keys, every request must carry one that has not expired (<a href="#337-over-http">§33.7</a>). Each key has a <code>name</code>, the <code>key</code> itself and <code>expires</code>, the moment it stops working in UTC. Leave out <code>expires</code> for a key that never expires. A date without a time, such as <code>"2027-10-07"</code>, means 00:00 UTC on that day. A file from an earlier version with a single <code>apiKey</code> is read as one key named <em>API key</em> that never expires, and is written back as <code>apiKeys</code>.</td>
 </tr>
 <tr>
 <td><code>maxQueryDepth</code></td>
@@ -7535,7 +7600,7 @@ run through the <code>NodeStore</code>, so the transaction plugins of <a href="#
 datamodel's validation rules (<a href="#3-scalar-properties-and-their-attributes">§3</a>) apply. A change that
 is rejected becomes an error on its field. There are no file uploads through GraphQL: upload files
 as described in <a href="#17-uploading-files">§17</a> and keep the id.</p>
-<p>An endpoint that allows mutations without an API key lets anyone who can reach its url change
+<p>An endpoint that allows mutations without API keys lets anyone who can reach its url change
 data. The editor warns about this, and so should you.</p>
 <h3 id="337-over-http">33.7 Over HTTP<a class="anchor" href="#337-over-http" aria-label="Link to this section">#</a></h3>
 <table>
@@ -7576,13 +7641,18 @@ data. The editor warns about this, and so should you.</p>
 <ul>
 <li><code>200</code> when there is <code>data</code>, even if some fields failed;</li>
 <li><code>400</code> when the request produced no data at all (syntax, validation, variables) or the body is not valid JSON;</li>
-<li><code>401</code> when the API key is missing or wrong;</li>
+<li><code>401</code> when the API key is missing, wrong or expired;</li>
 <li><code>503</code> while the database is not open.</li>
 </ul>
 <p>Every answer carries <code>extensions.durationMs</code>, the time the request took on the server.</p>
-<p>With an <code>apiKey</code> set, every request must carry it, either in an <code>X-Api-Key</code> header or as
-<code>Authorization: Bearer &lt;key&gt;</code>. The key is compared in constant time. The explorer and facet pages are themselves served without the key, because the page is
-where the key is typed in; everything the page then reads requires it.</p>
+<p>With <code>apiKeys</code>, every request must carry one of them, either in an <code>X-Api-Key</code> header or as
+<code>Authorization: Bearer &lt;key&gt;</code>. Any key that has not expired is accepted. A key that has expired is
+turned away with a <code>401</code> that says so. Expiry never opens an endpoint: when every key has expired,
+every request is turned away until a new key is added or the keys are removed. Give each client a
+key of its own, so that one can be replaced or retired without the others. To replace a key, add the
+new one, move the client over, then remove the old one or let it expire. The key is compared in
+constant time. The explorer and facet pages are themselves served without a key, because the page
+is where the key is typed in; everything the page then reads requires one.</p>
 <div class="codehilite"><pre><span></span><code>curl<span class="w"> </span>-s<span class="w"> </span>https://example.com/api/graphql<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;X-Api-Key: </span><span class="nv">$KEY</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;query&quot;:&quot;query($n:Int){ events(pageSize:$n){ totalCount items { title } } }&quot;,&quot;variables&quot;:{&quot;n&quot;:5}}&#39;</span>
 </code></pre></div>
@@ -7618,7 +7688,7 @@ similar to GraphiQL. It has:</p>
   several root fields, the views and the mutations.</li>
 </ul>
 <p>The explorer reads the schema through introspection, so it stays empty when introspection is off.
-If the endpoint has an API key, the page asks for it and keeps it for the browser session. The same
+If the endpoint has API keys, the page asks for one and keeps it for the browser session. The same
 explorer is the <strong>Explorer</strong> view in the admin UI's editor, where it runs against the draft.</p>
 <p><strong>The facet page</strong> (<code>enableFacetSearch</code>) is the admin UI's faceted search
 (<a href="#28-faceted-search">§28</a>) as a public page: a facet rail on one side and a visual pivot of the
@@ -7722,7 +7792,7 @@ shows a subset of the datamodel, never more than its context can read, and the f
 the same context.</p>
 <p><strong>Keeping it closed.</strong> The switches that matter:</p>
 <ul>
-<li><code>apiKey</code> keeps out every request without the key, including the facet page's data.</li>
+<li><code>apiKeys</code> keeps out every request without a key that has not expired, including the facet page's data.</li>
 <li>With <code>enableIntrospection</code> off, the schema is not served: <code>__schema</code> and <code>__type</code> fail, <code>?sdl</code>
   answers <code>403</code>, and the explorer stays empty. Clients that already know the queries are unaffected.</li>
 <li>With <code>enableGetRequests</code> off, queries are only accepted as POST requests, so a query cannot be put
@@ -7740,6 +7810,452 @@ the same context.</p>
 the maximum is cut down to it. A "many" relation field without <code>top</code> returns all its related nodes, so a model
 where one node has thousands of partners is better served by querying from the other side, or by a
 view.</p>
+<hr />
+<h2 id="34-ai-services">34. AI services<a class="anchor" href="#34-ai-services" aria-label="Link to this section">#</a></h2>
+<p>The store reaches three kinds of AI, each through a provider configured for the database, so
+application code calls the account the installation already has rather than holding a vendor
+account of its own:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Reached through</th>
+<th>What it does</th>
+<th>Configured by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Text</strong></td>
+<td><code>db.AI</code></td>
+<td>Embeddings - which semantic search (<a href="#21-text-and-semantic-search">§21</a>) uses by itself - and completions</td>
+<td><code>AISettings</code> (<a href="#aisettings-embeddings-completions-and-the-vector-index">§12.1</a>)</td>
+</tr>
+<tr>
+<td><strong>Images</strong></td>
+<td><code>db.Imaging</code></td>
+<td>Create images, change them, describe them, turn them upright, answer questions about them</td>
+<td><code>ImagingSettings</code></td>
+</tr>
+<tr>
+<td><strong>Files to text</strong></td>
+<td><code>db.FileToText</code></td>
+<td>The text of documents, spreadsheets, PDFs, e-mails and pictures, the last read by OCR</td>
+<td><code>FileToTextSettings</code></td>
+</tr>
+</tbody>
+</table>
+<p>On a server, images and files to text are always there: with no settings they call the hosted
+Relatude Imaging and FileToText services, and each call is charged to the installation's own license,
+to its <code>ai_image</code> and <code>filetotext</code> credit accounts. Text needs <code>AISettings</code>; with <code>TypeName</code>
+<code>RelatudeServices</code> it calls the hosted Relatude AI service the same way, charged to <code>ai_embeddings</code> and
+<code>ai_completion</code>, and with another type it calls your own OpenAI, Azure or Anthropic account. A license
+without the credit account a call is charged to is refused before anything is charged.</p>
+<p>None of the three needs Relatude Services. Each is an interface you can implement against a vendor of
+your own; <a href="#35-relatude-services">§35</a> has the account, what it is for, and how to replace it.</p>
+<p><code>ImagingSettings</code> and <code>FileToTextSettings</code> take three keys: <code>TypeName</code> (empty or <code>RelatudeServices</code> for
+the hosted service, otherwise the assembly-qualified name of your own <code>IImagingProvider</code> or
+<code>IFileToTextProvider</code>), <code>ServiceUrl</code> (empty for the hosted service; set it for a self-hosted one) and
+<code>ApiKey</code> (only where there is no license key: a store built from code, or your own provider).</p>
+<p>The <strong>Relatude Services</strong> page of the admin UI has a test panel for each, which makes real calls with the
+installation's key - so they are charged - and shows the answers: every imaging operation with the
+image before and after, a file's text, a completion and an embedding. A store built from code, without
+a server, is given its providers in the constructor:
+<code>new NodeStore(datastore, imaging: new RelatudeServicesImagingProvider(settings))</code>.
+<code>db.HasImagingProvider</code> and <code>db.HasFileToTextProvider</code> say whether there is one; <code>db.Imaging</code> and
+<code>db.FileToText</code> throw when there is not.</p>
+<h3 id="341-text-embeddings-and-completions">34.1 Text: embeddings and completions<a class="anchor" href="#341-text-embeddings-and-completions" aria-label="Link to this section">#</a></h3>
+<div class="codehilite"><pre><span></span><code><span class="c1">// a completion with the configured model, or with one of CompletionModelsByKey</span>
+<span class="kt">string</span><span class="w"> </span><span class="n">summary</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">AI</span><span class="p">.</span><span class="n">GetCompletionAsync</span><span class="p">(</span><span class="s">&quot;Summarise in one sentence: &quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">article</span><span class="p">.</span><span class="n">Body</span><span class="p">);</span>
+<span class="kt">string</span><span class="w"> </span><span class="n">careful</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">AI</span><span class="p">.</span><span class="n">GetCompletionAsync</span><span class="p">(</span><span class="n">prompt</span><span class="p">,</span><span class="w"> </span><span class="n">modelKey</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;strong&quot;</span><span class="p">);</span>
+
+<span class="c1">// vectors, one per paragraph, in order; ones computed before come from the embedding cache</span>
+<span class="n">List</span><span class="o">&lt;</span><span class="kt">float</span><span class="p">[]</span><span class="o">&gt;</span><span class="w"> </span><span class="n">vectors</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">AI</span><span class="p">.</span><span class="n">GetEmbeddingsAsync</span><span class="p">([</span><span class="s">&quot;first paragraph&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;second paragraph&quot;</span><span class="p">]);</span>
+</code></pre></div>
+
+<p>Semantic search calls the embeddings itself as nodes are indexed and as queries are run, so most
+applications never call <code>GetEmbeddingsAsync</code>. With <code>RelatudeServices</code> the model names are the service's
+own keys, not vendor deployments: <code>embedding-small</code> and <code>embedding-large</code> for embeddings, <code>fast</code> and
+<code>balanced</code> for completions, and <code>CompletionModelsByKey</code> maps your keys onto them, such as
+<code>{ "strong": "balanced" }</code>. Left empty, the service picks its default. The service charges by the
+characters sent and received, so a caller can work out a price before calling.</p>
+<h3 id="342-images">34.2 Images<a class="anchor" href="#342-images" aria-label="Link to this section">#</a></h3>
+<p>Every image operation takes the image as its bytes - PNG, JPEG or WebP - and gives back a PNG, or
+what the image shows. A stored file goes in and comes back like this:</p>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">photo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">FileDownloadAsync</span><span class="p">(</span><span class="n">venue</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">Photo</span><span class="p">);</span>
+
+<span class="kt">var</span><span class="w"> </span><span class="n">cutout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Imaging</span><span class="p">.</span><span class="n">RemoveBackgroundAsync</span><span class="p">(</span><span class="n">photo</span><span class="p">);</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">larger</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Imaging</span><span class="p">.</span><span class="n">UpscaleAsync</span><span class="p">(</span><span class="n">cutout</span><span class="p">.</span><span class="n">Png</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">);</span><span class="w">   </span><span class="c1">// the cutout is named, not sent again</span>
+<span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">FileUploadAsync</span><span class="p">(</span><span class="n">venue</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">Photo</span><span class="p">,</span><span class="w"> </span><span class="n">larger</span><span class="p">.</span><span class="n">Png</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;venue.png&quot;</span><span class="p">);</span>
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>What it gives</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CreateImageAsync(description, inspiration?, width?, height?, transparent?)</code></td>
+<td>A new image from a description, perhaps in the look of some images. Both sizes or neither; <code>transparent</code> asks for the subject on transparency, as for a logo</td>
+</tr>
+<tr>
+<td><code>ManipulateImageAsync(image, instruction, references?, mask?)</code></td>
+<td>The image changed as the instruction says - "make it winter" - at its own size; with a mask, only where the mask is white</td>
+</tr>
+<tr>
+<td><code>RemoveBackgroundAsync(image)</code></td>
+<td>The subject on transparency</td>
+</tr>
+<tr>
+<td><code>UpscaleAsync(image, factor)</code></td>
+<td>The image 2 or 4 times larger each way, with detail rather than blur</td>
+</tr>
+<tr>
+<td><code>RemoveObjectAsync(image, mask)</code></td>
+<td>The image without what the mask covers, filled in as if it had never been there</td>
+</tr>
+<tr>
+<td><code>ExpandImageAsync(image, margins, hint?)</code></td>
+<td>The image on a larger canvas, the new space filled to match; <code>hint</code> says what it should show</td>
+</tr>
+<tr>
+<td><code>ShrinkImageAsync(image, margins)</code></td>
+<td>The image on a smaller canvas, with the people and the subject kept whole</td>
+</tr>
+<tr>
+<td><code>RotateIfNeededAsync(image)</code></td>
+<td>The image turned the right way up when it is upside down or on its side (<a href="#turning-an-image-the-right-way-up">below</a>)</td>
+</tr>
+<tr>
+<td><code>ImageToMetaAsync(image, language?)</code></td>
+<td>What it shows: a title, a description and keywords in the language asked for, the point it is about, and the things in it with a box round each</td>
+</tr>
+<tr>
+<td><code>AskAboutImageAsync(image, question)</code></td>
+<td>The answer to a question about it, in words (<a href="#asking-about-an-image">below</a>)</td>
+</tr>
+<tr>
+<td><code>AskAboutImageBoolAsync(image, question)</code></td>
+<td>Yes or no to a question about it, and how sure, 0 to 100</td>
+</tr>
+<tr>
+<td><code>GetOperationsAsync()</code></td>
+<td>Which operations the service offers, what a call costs and how large a file may be. Free, and needs no license</td>
+</tr>
+</tbody>
+</table>
+<p>An image answer is an <code>ImagingImage</code>: the <code>Png</code>, its <code>Width</code> and <code>Height</code>, its <code>Sha256</code>, and what the
+call cost (<code>Credits</code>), what is left (<code>CreditsLeft</code>) and whether it was given from before (<code>Cached</code>).</p>
+<ul>
+<li><strong>Sizes</strong> are the image as it is shown: a JPEG whose Exif orientation turns it is taken turned, and
+  so is its answer.</li>
+<li><strong>A mask</strong> is an image the size of the image it goes with: white, or opaque, where the change is to
+  be made, and black, or transparent, where the image is to stay as it is.</li>
+<li><strong>Margins</strong> are pixels on each side: <code>new ImageMargins(Top: 100, Left: 50)</code>, or <code>ImageMargins.All(64)</code>.</li>
+<li><strong>Passing an answer on is free of uploads.</strong> The service keeps every image it is sent and every image
+  it makes, named by its SHA-256, so the cutout above is upscaled without being sent back. An image is
+  sent once, however many calls use it.</li>
+<li><strong>Text in an image</strong> is read by <code>db.FileToText</code>, not by <code>ImageToMetaAsync</code>, which describes what
+  the image shows and leaves the words out.</li>
+</ul>
+<h4 id="describing-an-image">Describing an image<a class="anchor" href="#describing-an-image" aria-label="Link to this section">#</a></h4>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">meta</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Imaging</span><span class="p">.</span><span class="n">ImageToMetaAsync</span><span class="p">(</span><span class="n">photo</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;nb&quot;</span><span class="p">);</span>
+<span class="kt">string</span><span class="w"> </span><span class="n">title</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">meta</span><span class="p">.</span><span class="n">Title</span><span class="p">;</span><span class="w">                </span><span class="c1">// &quot;Fullsatt konsertsal&quot;</span>
+<span class="kt">string</span><span class="p">[]</span><span class="w"> </span><span class="n">keywords</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">meta</span><span class="p">.</span><span class="n">Keywords</span><span class="p">;</span><span class="w">        </span><span class="c1">// [&quot;konsert&quot;, &quot;publikum&quot;, &quot;scene&quot;, ...]</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">meta</span><span class="p">.</span><span class="n">Focus</span><span class="w"> </span><span class="k">is</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="n">focus</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="cm">/* the point to crop around, in pixels of the image */</span><span class="w"> </span><span class="p">}</span>
+<span class="k">foreach</span><span class="w"> </span><span class="p">(</span><span class="kt">var</span><span class="w"> </span><span class="n">thing</span><span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="n">meta</span><span class="p">.</span><span class="n">Objects</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="cm">/* thing.ObjectType, thing.Name, thing.Confidence, thing.X ... */</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+
+<p><code>Focus</code> is the centre of the most prominent face or head when there is a person or an animal in the
+image, which is the point to keep when an image is cropped to another shape. <code>Focus</code> and <code>Objects</code>
+are optional: not every provider finds them.</p>
+<h4 id="turning-an-image-the-right-way-up">Turning an image the right way up<a class="anchor" href="#turning-an-image-the-right-way-up" aria-label="Link to this section">#</a></h4>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">turn</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Imaging</span><span class="p">.</span><span class="n">RotateIfNeededAsync</span><span class="p">(</span><span class="n">photo</span><span class="p">);</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">turn</span><span class="p">.</span><span class="n">Rotated</span><span class="p">)</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">FileUploadAsync</span><span class="p">(</span><span class="n">venue</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">Photo</span><span class="p">,</span><span class="w"> </span><span class="n">turn</span><span class="p">.</span><span class="n">Image</span><span class="o">!</span><span class="p">.</span><span class="n">Png</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;photo.png&quot;</span><span class="p">);</span>
+<span class="c1">// turn.Rotation: how far it was turned clockwise - 0, 90, 180 or 270</span>
+</code></pre></div>
+
+<p>What the image shows is looked at - people standing up, the sky at the top, text the right way - so a
+photo taken with the camera turned, or scanned upside down, stands upright again. When it is upright
+already, or which way is up cannot be told - a pattern, a view from straight above - it is left as it
+is: <code>Rotation</code> is 0 and <code>Image</code> null, and nothing comes back but the answer. Either way the call costs
+the same, since the image was looked at. A quarter turn swaps the width and the height. This is not
+the same as Exif orientation, which the service already applies: it is for images whose pixels are
+the wrong way round.</p>
+<h4 id="asking-about-an-image">Asking about an image<a class="anchor" href="#asking-about-an-image" aria-label="Link to this section">#</a></h4>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">answer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Imaging</span><span class="p">.</span><span class="n">AskAboutImageAsync</span><span class="p">(</span><span class="n">photo</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;Hva står det på skiltet over døra?&quot;</span><span class="p">);</span>
+<span class="n">Console</span><span class="p">.</span><span class="n">WriteLine</span><span class="p">(</span><span class="n">answer</span><span class="p">.</span><span class="n">Answer</span><span class="p">);</span><span class="w">   </span><span class="c1">// in the language the question was asked in</span>
+
+<span class="kt">var</span><span class="w"> </span><span class="n">dog</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Imaging</span><span class="p">.</span><span class="n">AskAboutImageBoolAsync</span><span class="p">(</span><span class="n">photo</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;Is there a dog in the picture?&quot;</span><span class="p">);</span>
+<span class="kt">bool</span><span class="w"> </span><span class="n">surelyADog</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">dog</span><span class="p">.</span><span class="n">Answer</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">dog</span><span class="p">.</span><span class="n">Certainty</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">80</span><span class="p">;</span>
+</code></pre></div>
+
+<p><code>AskAboutImageAsync</code> answers in words, briefly, and says so when the image does not show what was
+asked rather than guess. <code>AskAboutImageBoolAsync</code> answers <code>true</code> for yes and <code>false</code> for no, with
+<code>Certainty</code> from 0 - a guess, the image saying nothing either way - to 100, the image plainly showing
+it. So a <code>false</code> at 20 says little, while a <code>false</code> at 95 says the image shows it is not so: decide on
+both. A question is words someone wrote, so its answer is kept for your license alone, never given to
+another that asks the same.</p>
+<h3 id="343-files-to-text">34.3 Files to text<a class="anchor" href="#343-files-to-text" aria-label="Link to this section">#</a></h3>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">bytes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">FileDownloadAsync</span><span class="p">(</span><span class="n">contract</span><span class="p">,</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">c</span><span class="p">.</span><span class="n">Document</span><span class="p">);</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">FileToText</span><span class="p">.</span><span class="n">ExtractTextAsync</span><span class="p">(</span><span class="n">bytes</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;contract.pdf&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">[</span><span class="s">&quot;nb&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;en&quot;</span><span class="p">]);</span>
+<span class="kt">string</span><span class="w"> </span><span class="n">text</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">result</span><span class="p">.</span><span class="n">Text</span><span class="p">;</span>
+</code></pre></div>
+
+<p>A file is judged by what it holds, not by its name: a PDF called <code>notes.txt</code> is read as a PDF. The
+languages, most likely first, help OCR. The answer, a <code>FileToTextResult</code>, has the <code>Text</code> - lines ending
+in <code>\n</code>, pages separated by a form feed, and <code>PageTexts</code> split at them - the <code>Format</code> it was taken to
+be, <code>Pages</code>, <code>Characters</code>, whether it was <code>Truncated</code> at a limit and whether any of it was read from
+pictures (<code>Ocr</code>), and the <code>Title</code>, <code>Author</code> and <code>Language</code> the file gives itself. A kind of file
+nothing reads is refused with a 415 before anything is charged; <code>GetFormatsAsync()</code> lists the kinds
+the service knows, and which it reads. A stream works as well as bytes.</p>
+<h3 id="344-prices-answers-kept-and-errors">34.4 Prices, answers kept, and errors<a class="anchor" href="#344-prices-answers-kept-and-errors" aria-label="Link to this section">#</a></h3>
+<p>These hold for images and files to text alike.</p>
+<ul>
+<li><strong>What a call costs</strong> is the same for every operation, whoever does the work behind the service, and
+  is in every answer: <code>Credits</code> for the call and <code>CreditsLeft</code> on the account. <code>GetOperationsAsync</code> and
+  <code>GetFormatsAsync</code> say the price before you call.</li>
+<li><strong>The same call made again</strong> is answered from what the service kept, at a lower price, and the answer
+  says <code>Cached</code>. Pass <code>fresh: true</code> for a new one - another take on a description, say - which is made
+  and paid for again.</li>
+<li><strong>A refusal</strong> is a <code>RelatudeServiceException</code> repeating the service's own reason, written to be shown
+  to whoever configured the installation, with its <code>StatusCode</code>: 400 the call is wrong, 402 out of
+  credits or no credit account for the service, 403 the key or the license may not be used, 415 a file
+  nothing reads, 422 the image or the text was turned down, 501 not offered there, 502 it could not be
+  done right now. <code>MayHaveBeenCharged</code> says whether the call may have cost credits: false for the
+  refusals given before anything is charged, true otherwise, since credits taken are never given back.</li>
+<li><strong>Retries</strong> are made for you only where nothing can have been charged - the service too busy, or the
+  license server out of reach - so no call is paid for twice. A call that may have been charged is
+  never repeated behind your back.</li>
+<li><strong>Your own provider</strong> implements <code>IImagingProvider</code> or <code>IFileToTextProvider</code>, and is named by its
+  assembly-qualified name in <code>TypeName</code> (<a href="#352-a-provider-of-your-own">§35.2</a>); no calling code changes.</li>
+</ul>
+<h2 id="35-relatude-services">35. Relatude Services<a class="anchor" href="#35-relatude-services" aria-label="Link to this section">#</a></h2>
+<p>Relatude Services is a hosted service run by Relatude at <a href="https://services.relatude.com">https://services.relatude.com</a>. It gathers
+the third-party services an application tends to need into one account: language models for
+embeddings and completions, image AI, reading the text of documents and pictures, and sending text
+messages. Relatude holds the agreements with the vendors behind them, their API keys and their
+bills. You hold one account, one license and one API key, and every call is paid for with credits on
+that license.</p>
+<p>That is all it is for: convenience. Without it, an application that wants semantic search, image
+descriptions, OCR and text messages signs up with a model vendor, an image service, an OCR service
+and an SMS gateway, accepts four sets of terms, keeps four keys secret on every server and follows
+four invoices. With it, an installation is given one API key and has all of them, and the admin UI
+has a page to test each one.</p>
+<h3 id="351-a-license-is-not-needed">35.1 A license is not needed<a class="anchor" href="#351-a-license-is-not-needed" aria-label="Link to this section">#</a></h3>
+<p><strong>Relatude.DB runs fully without a license.</strong> The engine, the admin UI and everything else in this
+manual work the same with or without one: nothing expires, nothing is held back, and no part of the
+database waits for a key. A license only connects an installation to Relatude Services. The license
+itself is free; what costs money is the credits the hosted services are paid with.</p>
+<p>Every service Relatude Services offers stands behind an interface in Relatude.DB. Implement the
+interface yourself - against a vendor account of your own, a model on your own hardware, or any code
+you like - name your class in the database's settings, and application code calls it exactly as it
+would call the hosted service. <code>db.SMS.SendAsync(...)</code> does not change when the gateway does.</p>
+<table>
+<thead>
+<tr>
+<th>Service</th>
+<th>Reached through</th>
+<th>Interface</th>
+<th>Settings</th>
+<th>Paid from, with Relatude Services</th>
+<th>Built-in alternatives</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Embeddings and completions</td>
+<td><code>db.AI</code></td>
+<td><code>IAIProvider</code></td>
+<td><code>AISettings</code></td>
+<td><code>ai_embeddings</code>, <code>ai_completion</code></td>
+<td><code>AzureAIProvider</code>, <code>OpenAIProvider</code> (any OpenAI-compatible endpoint, a local Ollama included), <code>AnthropicAIProvider</code> - see <a href="#aisettings-embeddings-completions-and-the-vector-index">§12.1</a></td>
+</tr>
+<tr>
+<td>Image AI</td>
+<td><code>db.Imaging</code></td>
+<td><code>IImagingProvider</code></td>
+<td><code>ImagingSettings</code></td>
+<td><code>ai_image</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td>Files to text, OCR included</td>
+<td><code>db.FileToText</code></td>
+<td><code>IFileToTextProvider</code></td>
+<td><code>FileToTextSettings</code></td>
+<td><code>filetotext</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td>Text messages</td>
+<td><code>db.SMS</code></td>
+<td><code>ISMSProvider</code></td>
+<td><code>SMSSettings</code></td>
+<td><code>sms</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td>Signing in to the admin UI with a Relatude account</td>
+<td>the login page</td>
+<td>none</td>
+<td><code>AllowLicenseeAdminLogin</code></td>
+<td>nothing, it is free</td>
+<td>the master login, <code>MasterUserName</code> and <code>MasterPassword</code> (<a href="#the-admin-ui">§12</a>)</td>
+</tr>
+</tbody>
+</table>
+<p>The interfaces are in the namespaces <code>Relatude.DB.AI</code>, <code>Relatude.DB.Imaging</code>, <code>Relatude.DB.FileToText</code>
+and <code>Relatude.DB.SMS</code>, and what each method does is in <a href="#34-ai-services">§34</a> and in their own
+comments.</p>
+<p>Without an API key nothing is charged and the server does not report in. A database on a server has
+<code>db.Imaging</code> and <code>db.FileToText</code> pointed at the hosted services from the start, since they need no
+settings, but a call that would be charged throws without a key, saying so, before anything leaves
+the server. <code>db.AI</code> and <code>db.SMS</code> are only there when <code>AISettings</code> and <code>SMSSettings</code>
+are set.</p>
+<h3 id="352-a-provider-of-your-own">35.2 A provider of your own<a class="anchor" href="#352-a-provider-of-your-own" aria-label="Link to this section">#</a></h3>
+<p>A text message gateway of your own, as an example:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">System.Net.Http.Json</span><span class="p">;</span>
+<span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.SMS</span><span class="p">;</span>
+
+<span class="k">namespace</span><span class="w"> </span><span class="nn">MyApp.Messaging</span><span class="p">;</span>
+
+<span class="k">public</span><span class="w"> </span><span class="k">sealed</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nf">MyGatewaySmsProvider</span><span class="p">(</span><span class="n">SMSProviderSettings</span><span class="w"> </span><span class="n">settings</span><span class="p">)</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">ISMSProvider</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">readonly</span><span class="w"> </span><span class="n">HttpClient</span><span class="w"> </span><span class="n">_http</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="p">();</span>
+
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="s">&quot;My gateway&quot;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="n">Task</span><span class="o">&lt;</span><span class="n">SmsReceipt</span><span class="o">&gt;</span><span class="w"> </span><span class="n">SendAsync</span><span class="p">(</span><span class="kt">string</span><span class="w"> </span><span class="n">to</span><span class="p">,</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">message</span><span class="p">,</span><span class="w"> </span><span class="kt">string?</span><span class="w"> </span><span class="k">from</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">,</span>
+<span class="w">        </span><span class="kt">string?</span><span class="w"> </span><span class="n">reference</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">null</span><span class="p">,</span><span class="w"> </span><span class="n">CancellationToken</span><span class="w"> </span><span class="n">cancellationToken</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">default</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">using</span><span class="w"> </span><span class="nn">var</span><span class="w"> </span><span class="n">request</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">HttpRequestMessage</span><span class="p">(</span><span class="n">HttpMethod</span><span class="p">.</span><span class="n">Post</span><span class="p">,</span><span class="w"> </span><span class="n">settings</span><span class="p">.</span><span class="n">ServiceUrl</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="n">Content</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">JsonContent</span><span class="p">.</span><span class="n">Create</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">to</span><span class="p">,</span><span class="w"> </span><span class="n">text</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">message</span><span class="p">,</span><span class="w"> </span><span class="k">from</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">from</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="n">settings</span><span class="p">.</span><span class="n">From</span><span class="w"> </span><span class="p">}),</span>
+<span class="w">        </span><span class="p">};</span>
+<span class="w">        </span><span class="n">request</span><span class="p">.</span><span class="n">Headers</span><span class="p">.</span><span class="n">Add</span><span class="p">(</span><span class="s">&quot;Authorization&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;Bearer &quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">settings</span><span class="p">.</span><span class="n">ApiKey</span><span class="p">);</span>
+<span class="w">        </span><span class="k">using</span><span class="w"> </span><span class="nn">var</span><span class="w"> </span><span class="n">response</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">_http</span><span class="p">.</span><span class="n">SendAsync</span><span class="p">(</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">cancellationToken</span><span class="p">);</span>
+<span class="w">        </span><span class="n">response</span><span class="p">.</span><span class="n">EnsureSuccessStatusCode</span><span class="p">();</span>
+<span class="w">        </span><span class="kt">var</span><span class="w"> </span><span class="n">messageId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">response</span><span class="p">.</span><span class="n">Content</span><span class="p">.</span><span class="n">ReadAsStringAsync</span><span class="p">(</span><span class="n">cancellationToken</span><span class="p">);</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="nf">SmsReceipt</span><span class="p">(</span><span class="n">messageId</span><span class="p">,</span><span class="w"> </span><span class="n">to</span><span class="p">,</span><span class="w"> </span><span class="n">Parts</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">Credits</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="n">CreditsLeft</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="n">reference</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="n">Task</span><span class="o">&lt;</span><span class="n">SmsQuote</span><span class="o">&gt;</span><span class="w"> </span><span class="n">QuoteAsync</span><span class="p">(</span><span class="kt">string</span><span class="w"> </span><span class="n">to</span><span class="p">,</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">message</span><span class="p">,</span><span class="w"> </span><span class="n">CancellationToken</span><span class="w"> </span><span class="n">cancellationToken</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">default</span><span class="p">)</span>
+<span class="w">        </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">Task</span><span class="p">.</span><span class="n">FromResult</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">SmsQuote</span><span class="p">(</span><span class="n">to</span><span class="p">,</span><span class="w"> </span><span class="n">Parts</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">Credits</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="n">Unicode</span><span class="p">:</span><span class="w"> </span><span class="k">false</span><span class="p">,</span><span class="w"> </span><span class="n">Characters</span><span class="p">:</span><span class="w"> </span><span class="n">message</span><span class="p">.</span><span class="n">Length</span><span class="p">));</span>
+
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="k">void</span><span class="w"> </span><span class="nf">Dispose</span><span class="p">()</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">_http</span><span class="p">.</span><span class="n">Dispose</span><span class="p">();</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code>{
+<span class="w">  </span><span class="o">//</span><span class="w"> </span><span class="nv">one</span><span class="w"> </span><span class="nv">database</span><span class="w"> </span><span class="nv">in</span><span class="w"> </span><span class="nv">ContainerSettings</span>,<span class="w"> </span><span class="nv">in</span><span class="w"> </span><span class="nv">relatude</span>.<span class="nv">db</span>.<span class="nv">json</span>
+<span class="w">  </span><span class="s2">&quot;SMSSettings&quot;</span>:<span class="w"> </span>{
+<span class="w">    </span><span class="s2">&quot;TypeName&quot;</span>:<span class="w"> </span><span class="s2">&quot;MyApp.Messaging.MyGatewaySmsProvider, MyApp&quot;</span>,
+<span class="w">    </span><span class="s2">&quot;ServiceUrl&quot;</span>:<span class="w"> </span><span class="s2">&quot;https://sms.example.com/send&quot;</span>,
+<span class="w">    </span><span class="s2">&quot;From&quot;</span>:<span class="w"> </span><span class="s2">&quot;MyShop&quot;</span>
+<span class="w">    </span><span class="o">//</span><span class="w"> </span><span class="nv">ApiKey</span>:<span class="w"> </span><span class="nv">in</span><span class="w"> </span><span class="nv">the</span><span class="w"> </span><span class="nv">RelatudeDB</span><span class="w"> </span><span class="nv">configuration</span><span class="w"> </span><span class="nv">section</span>,<span class="w"> </span><span class="nv">not</span><span class="w"> </span><span class="nv">in</span><span class="w"> </span><span class="nv">this</span><span class="w"> </span><span class="nv">file</span>
+<span class="w">  </span>}
+}
+</code></pre></div>
+
+<p>The same holds for all four kinds:</p>
+<ul>
+<li><strong><code>TypeName</code> is the assembly-qualified name</strong>, <code>Namespace.Type, Assembly</code>, since the type lives in
+  your application and is looked up by name when the database opens. In <code>ImagingSettings</code>,
+  <code>FileToTextSettings</code> and <code>SMSSettings</code> an empty <code>TypeName</code>, or <code>RelatudeServices</code>, is the hosted
+  service; in <code>AISettings</code> an empty one is Azure OpenAI, and <code>RelatudeServices</code> the hosted service.</li>
+<li><strong>A public constructor takes the settings of its kind</strong>: <code>AIProviderSettings</code>,
+  <code>ImagingProviderSettings</code>, <code>FileToTextProviderSettings</code> or <code>SMSProviderSettings</code>. So <code>ServiceUrl</code>,
+  <code>ApiKey</code> and the rest reach your class from the same place, and the same settings page, as they
+  reach the built-in ones. Keep the key in the <code>RelatudeDB</code> configuration section
+  (<a href="#appsettings-environment-variables-and-secrets">§12.2</a>), as for any secret.</li>
+<li><strong>One instance serves the whole database.</strong> It is built when the database opens, so a type that
+  cannot be built stops the open with the reason rather than failing at the first call. It is called
+  from many threads at once, and disposed when the database closes.</li>
+<li><strong>Offer only what you have.</strong> <code>ISMSProvider</code>'s batch methods have defaults that throw
+  <code>NotSupportedException</code>. An <code>IImagingProvider</code> of your own throws it from the operations it does
+  not do, and leaves them out of what <code>GetOperationsAsync</code> lists. The price fields of the answers,
+  <code>Credits</code> and <code>CreditsLeft</code>, belong to the hosted services; leave them at 0.</li>
+<li><strong>A store built from code</strong>, without a server, is given its SMS, imaging and file-to-text providers
+  in the constructor: <code>new NodeStore(datastore, sms: new MyGatewaySmsProvider(settings))</code>, with
+  <code>imaging:</code> and <code>fileToText:</code> beside it.</li>
+</ul>
+<h3 id="353-the-account-at-servicesrelatudecom">35.3 The account at services.relatude.com<a class="anchor" href="#353-the-account-at-servicesrelatudecom" aria-label="Link to this section">#</a></h3>
+<p>The account is made by signing in at <a href="https://services.relatude.com">https://services.relatude.com</a> with a Google or Microsoft
+account, a passkey or a code sent by text message. It holds:</p>
+<table>
+<thead>
+<tr>
+<th>Page</th>
+<th>What it holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Licenses</strong></td>
+<td>Issued by you, free, as many as you need: one per customer or project, say.</td>
+</tr>
+<tr>
+<td><strong>API keys</strong></td>
+<td>Each license has its own, which you create, name and delete. An installation needs one, and nothing else: the license key is looked up from it. Give each server its own, so one can be deleted without stopping the rest.</td>
+</tr>
+<tr>
+<td><strong>Credits</strong></td>
+<td>One credit account per service, named as in the table above, each showing what has been used this month, how much there is, and whether it renews each month or is held once. A call to a service the license has no credit account for, or no credits left on, is refused before anything is charged.</td>
+</tr>
+<tr>
+<td><strong>Access</strong></td>
+<td>Who may see and use a license: its owners, managers who come from an organization, and developers. Everyone with access can sign in to the installations running under the license once they are approved.</td>
+</tr>
+<tr>
+<td><strong>Installations</strong></td>
+<td>Every installation that has reported in under the license, and the addresses each may be signed in from.</td>
+</tr>
+<tr>
+<td><strong>SMS senders</strong></td>
+<td>The names text messages may go out as, asked for and approved one at a time. A message that names its own sender is only sent when that sender is approved; one that names none goes out as the service's own.</td>
+</tr>
+<tr>
+<td><strong>Uptime</strong></td>
+<td>For a license that has it: its installations are watched, and the people you choose are sent a text message when one changes state.</td>
+</tr>
+</tbody>
+</table>
+<p>What a call costs, what is kept and given again at a lower price, and which errors may have been
+charged are the same for every hosted service; <a href="#344-prices-answers-kept-and-errors">§34.4</a> has them.</p>
+<h3 id="354-connecting-an-installation">35.4 Connecting an installation<a class="anchor" href="#354-connecting-an-installation" aria-label="Link to this section">#</a></h3>
+<p>The admin UI's <strong>Relatude Services</strong> page, in the server menu, does it:</p>
+<ol>
+<li><strong>Create a license</strong> opens the portal on a pairing: sign in, pick a license or make one, and its
+   API key comes back to the installation by itself. Or copy an API key from the license's page in
+   the portal and paste it; the page checks it with the license server before saving it.</li>
+<li>The page then shows whether the license is valid and what it carries, and has a test view for each
+   service: SMS, AI, imaging and file to text. The tests make real calls, so they are charged.</li>
+<li>The switch <strong>Allow sign-in with Relatude Services</strong> adds <em>Sign in with Relatude Services</em> to the
+   login page. Who gets in is decided in the portal: anyone with access to the license. The master
+   login is not affected, and turning the switch off ends those sessions at once.</li>
+</ol>
+<p><strong>Remove license</strong> takes the installation out from under the license again: it clears the keys and
+turns the sign-in off.</p>
+<p>The API key lets whoever holds it spend the license's credits, so on a server keep it out of
+<code>relatude.db.json</code>, like the other secrets (<a href="#122-what-goes-where-source-control-deployment-and-appsettings">§12.2</a>):</p>
+<div class="codehilite"><pre><span></span><code>dotnet<span class="w"> </span>user-secrets<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="s2">&quot;RelatudeDB:ApiKey&quot;</span><span class="w"> </span><span class="s2">&quot;…&quot;</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code># a server: an environment variable, or an application setting on Azure App Service
+RelatudeDB__ApiKey=…
+</code></pre></div>
+
+<p>A key that configuration sets is locked on the page, and is changed or removed where it is set. The
+settings involved are listed under <a href="#server-level">Server level</a> in §12.1.</p>
+<h4 id="reporting-in">Reporting in<a class="anchor" href="#reporting-in" aria-label="Link to this section">#</a></h4>
+<p>With an API key, the installation reports in to the license server shortly after it starts and every
+ten minutes after that. A report carries the API key, the installation key, the server and machine
+name, the build version and the total number of nodes in the open databases. It carries no stored
+content, no queries and nothing about the people using the database. The answer says whether the
+license is valid; the server records it and acts on none of it, so a license that lapses, or a
+license server out of reach, never stops a database. <code>"DisableHeartbeat": true</code> in <code>relatude.db.json</code>
+stops the reports. It is left off the settings pages on purpose.</p>
 <hr />
 <h2 id="where-to-look-when-this-manual-runs-out">Where to look when this manual runs out<a class="anchor" href="#where-to-look-when-this-manual-runs-out" aria-label="Link to this section">#</a></h2>
 <p>The public documentation is still thin and the API is pre-1.0. When something here does not match
@@ -7816,6 +8332,14 @@ your build, read the source — it is small and well commented:</p>
 <td>GraphQL endpoints</td>
 <td><code>src/Relatude.DB.GraphQL/</code> — <code>Definitions/GraphQLEndpointDefinition.cs</code>, <code>GraphQLOptions.cs</code>, <code>Schema/SchemaBuilder.cs</code>, <code>Endpoints/GraphQLHttpHandler.cs</code>; the server side in <code>src/Relatude.DB.NodeServer/NodeServer/GraphQL/</code></td>
 </tr>
+<tr>
+<td>AI services</td>
+<td><code>src/Relatude.DB.DataStore/AI/IAIProvider.cs</code>, <code>Imaging/IImagingProvider.cs</code>, <code>FileToText/IFileToTextProvider.cs</code>; the hosted services' clients in <code>src/Relatude.DB.Providers/</code></td>
+</tr>
+<tr>
+<td>Relatude Services</td>
+<td><code>src/Relatude.DB.DataStore/SMS/ISMSProvider.cs</code> and the three above; the keys, the sign-in and reporting in in <code>src/Relatude.DB.NodeServer/NodeServer/LicenseLogin.cs</code></td>
+</tr>
 </tbody>
 </table>
 <p>For measured numbers rather than API surface, see the
@@ -7830,7 +8354,7 @@ corpus size and cache budget, with throughput, recall, restart cost and memory f
 (function () {
   "use strict";
 
-  var NAV = [{"level": 1, "text": "Data Modelling & Querying with Relatude.DB", "id": "data-modelling-querying-with-relatudedb", "children": []}, {"level": 1, "text": "Part I — Data modelling", "id": "part-i-data-modelling", "children": [{"level": 2, "text": "1. The mental model", "id": "1-the-mental-model", "children": [{"level": 3, "text": "Interfaces are the model", "id": "interfaces-are-the-model", "children": []}]}, {"level": 2, "text": "2. Your first node type", "id": "2-your-first-node-type", "children": [{"level": 3, "text": "Why interfaces are the better default", "id": "why-interfaces-are-the-better-default", "children": []}, {"level": 3, "text": "Multiple inheritance with interfaces", "id": "multiple-inheritance-with-interfaces", "children": []}, {"level": 3, "text": "Querying across the hierarchy", "id": "querying-across-the-hierarchy", "children": []}, {"level": 3, "text": "Two constraints to design around", "id": "two-constraints-to-design-around", "children": []}, {"level": 3, "text": "When you do want a class", "id": "when-you-do-want-a-class", "children": []}, {"level": 3, "text": "Optional: stable type ids", "id": "optional-stable-type-ids", "children": []}]}, {"level": 2, "text": "3. Scalar properties and their attributes", "id": "3-scalar-properties-and-their-attributes", "children": [{"level": 3, "text": "The attribute catalogue", "id": "the-attribute-catalogue", "children": []}, {"level": 3, "text": "Strings", "id": "strings", "children": []}, {"level": 3, "text": "Numbers", "id": "numbers", "children": []}, {"level": 3, "text": "Enums", "id": "enums", "children": []}, {"level": 3, "text": "Validation happens on write", "id": "validation-happens-on-write", "children": []}, {"level": 3, "text": "3.1 Overriding attributes", "id": "31-overriding-attributes", "children": []}]}, {"level": 2, "text": "4. Marker properties", "id": "4-marker-properties", "children": [{"level": 3, "text": "What lives in NodeMeta", "id": "what-lives-in-nodemeta", "children": []}, {"level": 3, "text": "Querying by the node's own dates", "id": "querying-by-the-nodes-own-dates", "children": []}]}, {"level": 2, "text": "5. Geo coordinates", "id": "5-geo-coordinates", "children": [{"level": 3, "text": "Constructing and reading", "id": "constructing-and-reading", "children": []}, {"level": 3, "text": "The empty value", "id": "the-empty-value", "children": []}, {"level": 3, "text": "Distance and radius tests", "id": "distance-and-radius-tests", "children": []}, {"level": 3, "text": "How it is stored (and what that implies)", "id": "how-it-is-stored-and-what-that-implies", "children": []}, {"level": 3, "text": "JSON shape", "id": "json-shape", "children": []}, {"level": 3, "text": "Seeing them", "id": "seeing-them", "children": []}]}, {"level": 2, "text": "6. Files", "id": "6-files", "children": []}, {"level": 2, "text": "7. Embedded data", "id": "7-embedded-data", "children": [{"level": 3, "text": "Embedded<T> — a collection keyed by the embedded object's own Guid Id", "id": "embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id", "children": []}, {"level": 3, "text": "EmbeddedMap<TKey, TValue> — a collection keyed by a property of the value", "id": "embeddedmap-a-collection-keyed-by-a-property-of-the-value", "children": []}, {"level": 3, "text": "Working with an embedded map", "id": "working-with-an-embedded-map", "children": []}]}, {"level": 2, "text": "8. References — lightweight pointers", "id": "8-references-lightweight-pointers", "children": [{"level": 3, "text": "Reading and writing a Reference<T>", "id": "reading-and-writing-a-reference", "children": []}, {"level": 3, "text": "Reading and writing a References<T>", "id": "reading-and-writing-a-references", "children": []}]}, {"level": 2, "text": "9. Relations — the graph edges", "id": "9-relations-the-graph-edges", "children": [{"level": 3, "text": "The five shapes", "id": "the-five-shapes", "children": []}, {"level": 3, "text": "Using them on node types", "id": "using-them-on-node-types", "children": []}, {"level": 3, "text": "The \"one\" side API", "id": "the-one-side-api", "children": []}, {"level": 3, "text": "The \"many\" side API", "id": "the-many-side-api", "children": []}, {"level": 3, "text": "9.1 Relation lists are ordered", "id": "91-relation-lists-are-ordered", "children": []}, {"level": 3, "text": "Relation options", "id": "relation-options", "children": []}]}, {"level": 2, "text": "10. Choosing between relation, reference and embedded", "id": "10-choosing-between-relation-reference-and-embedded", "children": []}, {"level": 2, "text": "11. The complete example model", "id": "11-the-complete-example-model", "children": [{"level": 3, "text": "11.1 The same model with facet interfaces", "id": "111-the-same-model-with-facet-interfaces", "children": []}]}, {"level": 2, "text": "12. Registering the model & the admin UI", "id": "12-registering-the-model-the-admin-ui", "children": [{"level": 3, "text": "Server-hosted (the usual case)", "id": "server-hosted-the-usual-case", "children": []}, {"level": 3, "text": "relatude.db.json", "id": "relatudedbjson", "children": []}, {"level": 3, "text": "12.1 Every setting in relatude.db.json", "id": "121-every-setting-in-relatudedbjson", "children": []}, {"level": 3, "text": "Overriding settings from configuration", "id": "overriding-settings-from-configuration", "children": []}, {"level": 3, "text": "Changes made in the admin UI: relatude.db.overrides.json", "id": "changes-made-in-the-admin-ui-relatudedboverridesjson", "children": []}, {"level": 3, "text": "12.2 What goes where: source control, deployment and appsettings", "id": "122-what-goes-where-source-control-deployment-and-appsettings", "children": []}, {"level": 3, "text": "Options and events in Program.cs", "id": "options-and-events-in-programcs", "children": []}, {"level": 3, "text": "Two ways to register a datamodel", "id": "two-ways-to-register-a-datamodel", "children": []}, {"level": 3, "text": "The admin UI", "id": "the-admin-ui", "children": []}, {"level": 3, "text": "Programmatic / embedded", "id": "programmatic-embedded", "children": []}, {"level": 3, "text": "What the model builder validates", "id": "what-the-model-builder-validates", "children": []}, {"level": 3, "text": "Do not redefine the native types", "id": "do-not-redefine-the-native-types", "children": []}]}]}, {"level": 1, "text": "Part II — Writing data", "id": "part-ii-writing-data", "children": [{"level": 2, "text": "13. Create, insert, update, delete", "id": "13-create-insert-update-delete", "children": [{"level": 3, "text": "Read", "id": "read", "children": []}, {"level": 3, "text": "Update, upsert, delete", "id": "update-upsert-delete", "children": []}]}, {"level": 2, "text": "14. Relating nodes", "id": "14-relating-nodes", "children": [{"level": 3, "text": "Which verb", "id": "which-verb", "children": []}]}, {"level": 2, "text": "15. Transactions", "id": "15-transactions", "children": [{"level": 3, "text": "Transaction plugins", "id": "transaction-plugins", "children": []}]}, {"level": 2, "text": "16. Older versions of a node", "id": "16-older-versions-of-a-node", "children": [{"level": 3, "text": "16.1 Reverting the database to an earlier point", "id": "161-reverting-the-database-to-an-earlier-point", "children": []}]}, {"level": 2, "text": "17. Uploading files", "id": "17-uploading-files", "children": [{"level": 3, "text": "Very large files", "id": "very-large-files", "children": []}, {"level": 3, "text": "Serving and converting", "id": "serving-and-converting", "children": []}, {"level": 3, "text": "Light and dark mode", "id": "light-and-dark-mode", "children": []}, {"level": 3, "text": "Serving it", "id": "serving-it", "children": []}]}, {"level": 2, "text": "18. URLs and the URL manager", "id": "18-urls-and-the-url-manager", "children": [{"level": 3, "text": "Configuring it", "id": "configuring-it", "children": []}, {"level": 3, "text": "Where the path comes from", "id": "where-the-path-comes-from", "children": []}, {"level": 3, "text": "Address uniqueness", "id": "address-uniqueness", "children": []}, {"level": 3, "text": "Page URL formats", "id": "page-url-formats", "children": []}, {"level": 3, "text": "Prefixes", "id": "prefixes", "children": []}, {"level": 3, "text": "18.1 Asset URLs: files, variants and deeplinks", "id": "181-asset-urls-files-variants-and-deeplinks", "children": []}, {"level": 3, "text": "18.2 Links inside HTML and Markdown", "id": "182-links-inside-html-and-markdown", "children": []}, {"level": 3, "text": "Writing your own manager", "id": "writing-your-own-manager", "children": []}, {"level": 3, "text": "The middleware that serves it", "id": "the-middleware-that-serves-it", "children": []}]}]}, {"level": 1, "text": "Part III — Querying", "id": "part-iii-querying", "children": [{"level": 2, "text": "19. Query anatomy", "id": "19-query-anatomy", "children": [{"level": 3, "text": "Queries are immutable", "id": "queries-are-immutable", "children": []}, {"level": 3, "text": "Entry points", "id": "entry-points", "children": []}, {"level": 3, "text": "Executing", "id": "executing", "children": []}]}, {"level": 2, "text": "20. Filtering with Where", "id": "20-filtering-with-where", "children": []}, {"level": 2, "text": "21. Text and semantic search", "id": "21-text-and-semantic-search", "children": [{"level": 3, "text": "WhereSearch — search as a filter", "id": "wheresearch-search-as-a-filter", "children": []}, {"level": 3, "text": "Search — search as ranking", "id": "search-search-as-ranking", "children": []}, {"level": 3, "text": "What actually gets searched", "id": "what-actually-gets-searched", "children": []}]}, {"level": 2, "text": "22. Geo queries", "id": "22-geo-queries", "children": [{"level": 3, "text": "Sorting by distance", "id": "sorting-by-distance", "children": []}, {"level": 3, "text": "A widening search", "id": "a-widening-search", "children": []}, {"level": 3, "text": "Things to remember about geo filters", "id": "things-to-remember-about-geo-filters", "children": []}]}, {"level": 2, "text": "23. Relation filters", "id": "23-relation-filters", "children": []}, {"level": 2, "text": "24. Eager loading: Include and Preload", "id": "24-eager-loading-include-and-preload", "children": [{"level": 3, "text": "Going deeper: ThenInclude / ThenPreload", "id": "going-deeper-theninclude-thenpreload", "children": []}, {"level": 3, "text": "Filtering what gets included", "id": "filtering-what-gets-included", "children": []}, {"level": 3, "text": "When you only need ids", "id": "when-you-only-need-ids", "children": []}]}, {"level": 2, "text": "25. Graph traversal and shortest path", "id": "25-graph-traversal-and-shortest-path", "children": [{"level": 3, "text": "Traverse", "id": "traverse", "children": []}, {"level": 3, "text": "ShortestPath", "id": "shortestpath", "children": []}]}, {"level": 2, "text": "26. Sorting, paging and result sets", "id": "26-sorting-paging-and-result-sets", "children": [{"level": 3, "text": "Paging", "id": "paging", "children": []}, {"level": 3, "text": "ResultSet<T>", "id": "resultset", "children": []}]}, {"level": 2, "text": "27. Aggregates", "id": "27-aggregates", "children": []}, {"level": 2, "text": "28. Faceted search", "id": "28-faceted-search", "children": [{"level": 3, "text": "Applying the user's selection", "id": "applying-the-users-selection", "children": []}, {"level": 3, "text": "Facet declaration methods", "id": "facet-declaration-methods", "children": []}, {"level": 3, "text": "Where the un-named facets come from", "id": "where-the-un-named-facets-come-from", "children": []}, {"level": 3, "text": "28.1 Pivot tables", "id": "281-pivot-tables", "children": []}, {"level": 3, "text": "28.2 GroupBy", "id": "282-groupby", "children": []}]}, {"level": 2, "text": "29. Cultures, visibility and scoped stores", "id": "29-cultures-visibility-and-scoped-stores", "children": []}, {"level": 2, "text": "30. Pitfalls and gotchas", "id": "30-pitfalls-and-gotchas", "children": []}]}, {"level": 1, "text": "Part IV — Tooling", "id": "part-iv-tooling", "children": [{"level": 2, "text": "31. The command line tool", "id": "31-the-command-line-tool", "children": [{"level": 3, "text": "Two things every command needs to know", "id": "two-things-every-command-needs-to-know", "children": []}, {"level": 3, "text": "The commands", "id": "the-commands", "children": []}, {"level": 3, "text": "What it does not do", "id": "what-it-does-not-do", "children": []}, {"level": 3, "text": "Things worth knowing", "id": "things-worth-knowing", "children": []}]}, {"level": 2, "text": "32. Logs — recording what the application does", "id": "32-logs-recording-what-the-application-does", "children": [{"level": 3, "text": "32.1 Defining a log", "id": "321-defining-a-log", "children": []}, {"level": 3, "text": "32.2 Recording from the application", "id": "322-recording-from-the-application", "children": []}, {"level": 3, "text": "32.3 Statistics", "id": "323-statistics", "children": []}, {"level": 3, "text": "32.4 Estimated unique counts: HyperLogLog", "id": "324-estimated-unique-counts-hyperloglog", "children": []}, {"level": 3, "text": "32.5 Reading a log", "id": "325-reading-a-log", "children": []}, {"level": 3, "text": "32.6 Changing a definition", "id": "326-changing-a-definition", "children": []}, {"level": 3, "text": "32.7 Files, limits and cleaning up", "id": "327-files-limits-and-cleaning-up", "children": []}, {"level": 3, "text": "32.8 Positions", "id": "328-positions", "children": []}]}]}, {"level": 1, "text": "Part V — APIs", "id": "part-v-apis", "children": [{"level": 2, "text": "33. GraphQL endpoints", "id": "33-graphql-endpoints", "children": [{"level": 3, "text": "33.1 An endpoint in the admin UI", "id": "331-an-endpoint-in-the-admin-ui", "children": []}, {"level": 3, "text": "33.2 The definition file", "id": "332-the-definition-file", "children": []}, {"level": 3, "text": "33.3 The schema", "id": "333-the-schema", "children": []}, {"level": 3, "text": "33.4 Querying", "id": "334-querying", "children": []}, {"level": 3, "text": "33.5 Views", "id": "335-views", "children": []}, {"level": 3, "text": "33.6 Mutations", "id": "336-mutations", "children": []}, {"level": 3, "text": "33.7 Over HTTP", "id": "337-over-http", "children": []}, {"level": 3, "text": "33.8 The explorer and the facet page", "id": "338-the-explorer-and-the-facet-page", "children": []}, {"level": 3, "text": "33.9 Code-first: mapping an endpoint in Program.cs", "id": "339-code-first-mapping-an-endpoint-in-programcs", "children": []}, {"level": 3, "text": "33.10 Who reads, and the limits", "id": "3310-who-reads-and-the-limits", "children": []}]}, {"level": 2, "text": "Where to look when this manual runs out", "id": "where-to-look-when-this-manual-runs-out", "children": []}]}];
+  var NAV = [{"level": 1, "text": "Data Modelling & Querying with Relatude.DB", "id": "data-modelling-querying-with-relatudedb", "children": []}, {"level": 1, "text": "Part I — Data modelling", "id": "part-i-data-modelling", "children": [{"level": 2, "text": "1. The mental model", "id": "1-the-mental-model", "children": [{"level": 3, "text": "Interfaces are the model", "id": "interfaces-are-the-model", "children": []}]}, {"level": 2, "text": "2. Your first node type", "id": "2-your-first-node-type", "children": [{"level": 3, "text": "Why interfaces are the better default", "id": "why-interfaces-are-the-better-default", "children": []}, {"level": 3, "text": "Multiple inheritance with interfaces", "id": "multiple-inheritance-with-interfaces", "children": []}, {"level": 3, "text": "Querying across the hierarchy", "id": "querying-across-the-hierarchy", "children": []}, {"level": 3, "text": "Two constraints to design around", "id": "two-constraints-to-design-around", "children": []}, {"level": 3, "text": "When you do want a class", "id": "when-you-do-want-a-class", "children": []}, {"level": 3, "text": "Optional: stable type ids", "id": "optional-stable-type-ids", "children": []}]}, {"level": 2, "text": "3. Scalar properties and their attributes", "id": "3-scalar-properties-and-their-attributes", "children": [{"level": 3, "text": "The attribute catalogue", "id": "the-attribute-catalogue", "children": []}, {"level": 3, "text": "Strings", "id": "strings", "children": []}, {"level": 3, "text": "Numbers", "id": "numbers", "children": []}, {"level": 3, "text": "Enums", "id": "enums", "children": []}, {"level": 3, "text": "Validation happens on write", "id": "validation-happens-on-write", "children": []}, {"level": 3, "text": "3.1 Overriding attributes", "id": "31-overriding-attributes", "children": []}]}, {"level": 2, "text": "4. Marker properties", "id": "4-marker-properties", "children": [{"level": 3, "text": "What lives in NodeMeta", "id": "what-lives-in-nodemeta", "children": []}, {"level": 3, "text": "Querying by the node's own dates", "id": "querying-by-the-nodes-own-dates", "children": []}]}, {"level": 2, "text": "5. Geo coordinates", "id": "5-geo-coordinates", "children": [{"level": 3, "text": "Constructing and reading", "id": "constructing-and-reading", "children": []}, {"level": 3, "text": "The empty value", "id": "the-empty-value", "children": []}, {"level": 3, "text": "Distance and radius tests", "id": "distance-and-radius-tests", "children": []}, {"level": 3, "text": "How it is stored (and what that implies)", "id": "how-it-is-stored-and-what-that-implies", "children": []}, {"level": 3, "text": "JSON shape", "id": "json-shape", "children": []}, {"level": 3, "text": "Seeing them", "id": "seeing-them", "children": []}]}, {"level": 2, "text": "6. Files", "id": "6-files", "children": []}, {"level": 2, "text": "7. Embedded data", "id": "7-embedded-data", "children": [{"level": 3, "text": "Embedded<T> — a collection keyed by the embedded object's own Guid Id", "id": "embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id", "children": []}, {"level": 3, "text": "EmbeddedMap<TKey, TValue> — a collection keyed by a property of the value", "id": "embeddedmap-a-collection-keyed-by-a-property-of-the-value", "children": []}, {"level": 3, "text": "Working with an embedded map", "id": "working-with-an-embedded-map", "children": []}]}, {"level": 2, "text": "8. References — lightweight pointers", "id": "8-references-lightweight-pointers", "children": [{"level": 3, "text": "Reading and writing a Reference<T>", "id": "reading-and-writing-a-reference", "children": []}, {"level": 3, "text": "Reading and writing a References<T>", "id": "reading-and-writing-a-references", "children": []}]}, {"level": 2, "text": "9. Relations — the graph edges", "id": "9-relations-the-graph-edges", "children": [{"level": 3, "text": "The five shapes", "id": "the-five-shapes", "children": []}, {"level": 3, "text": "Using them on node types", "id": "using-them-on-node-types", "children": []}, {"level": 3, "text": "The \"one\" side API", "id": "the-one-side-api", "children": []}, {"level": 3, "text": "The \"many\" side API", "id": "the-many-side-api", "children": []}, {"level": 3, "text": "9.1 Relation lists are ordered", "id": "91-relation-lists-are-ordered", "children": []}, {"level": 3, "text": "Relation options", "id": "relation-options", "children": []}]}, {"level": 2, "text": "10. Choosing between relation, reference and embedded", "id": "10-choosing-between-relation-reference-and-embedded", "children": []}, {"level": 2, "text": "11. The complete example model", "id": "11-the-complete-example-model", "children": [{"level": 3, "text": "11.1 The same model with facet interfaces", "id": "111-the-same-model-with-facet-interfaces", "children": []}]}, {"level": 2, "text": "12. Registering the model & the admin UI", "id": "12-registering-the-model-the-admin-ui", "children": [{"level": 3, "text": "Server-hosted (the usual case)", "id": "server-hosted-the-usual-case", "children": []}, {"level": 3, "text": "relatude.db.json", "id": "relatudedbjson", "children": []}, {"level": 3, "text": "12.1 Every setting in relatude.db.json", "id": "121-every-setting-in-relatudedbjson", "children": []}, {"level": 3, "text": "Overriding settings from configuration", "id": "overriding-settings-from-configuration", "children": []}, {"level": 3, "text": "Changes made in the admin UI: relatude.db.overrides.json", "id": "changes-made-in-the-admin-ui-relatudedboverridesjson", "children": []}, {"level": 3, "text": "12.2 What goes where: source control, deployment and appsettings", "id": "122-what-goes-where-source-control-deployment-and-appsettings", "children": []}, {"level": 3, "text": "Options and events in Program.cs", "id": "options-and-events-in-programcs", "children": []}, {"level": 3, "text": "Two ways to register a datamodel", "id": "two-ways-to-register-a-datamodel", "children": []}, {"level": 3, "text": "The admin UI", "id": "the-admin-ui", "children": []}, {"level": 3, "text": "Programmatic / embedded", "id": "programmatic-embedded", "children": []}, {"level": 3, "text": "What the model builder validates", "id": "what-the-model-builder-validates", "children": []}, {"level": 3, "text": "Do not redefine the native types", "id": "do-not-redefine-the-native-types", "children": []}]}]}, {"level": 1, "text": "Part II — Writing data", "id": "part-ii-writing-data", "children": [{"level": 2, "text": "13. Create, insert, update, delete", "id": "13-create-insert-update-delete", "children": [{"level": 3, "text": "Read", "id": "read", "children": []}, {"level": 3, "text": "Update, upsert, delete", "id": "update-upsert-delete", "children": []}]}, {"level": 2, "text": "14. Relating nodes", "id": "14-relating-nodes", "children": [{"level": 3, "text": "Which verb", "id": "which-verb", "children": []}]}, {"level": 2, "text": "15. Transactions", "id": "15-transactions", "children": [{"level": 3, "text": "Transaction plugins", "id": "transaction-plugins", "children": []}]}, {"level": 2, "text": "16. Older versions of a node", "id": "16-older-versions-of-a-node", "children": [{"level": 3, "text": "16.1 Reverting the database to an earlier point", "id": "161-reverting-the-database-to-an-earlier-point", "children": []}]}, {"level": 2, "text": "17. Uploading files", "id": "17-uploading-files", "children": [{"level": 3, "text": "Very large files", "id": "very-large-files", "children": []}, {"level": 3, "text": "Serving and converting", "id": "serving-and-converting", "children": []}, {"level": 3, "text": "Light and dark mode", "id": "light-and-dark-mode", "children": []}, {"level": 3, "text": "Serving it", "id": "serving-it", "children": []}]}, {"level": 2, "text": "18. URLs and the URL manager", "id": "18-urls-and-the-url-manager", "children": [{"level": 3, "text": "Configuring it", "id": "configuring-it", "children": []}, {"level": 3, "text": "Where the path comes from", "id": "where-the-path-comes-from", "children": []}, {"level": 3, "text": "Address uniqueness", "id": "address-uniqueness", "children": []}, {"level": 3, "text": "Page URL formats", "id": "page-url-formats", "children": []}, {"level": 3, "text": "Prefixes", "id": "prefixes", "children": []}, {"level": 3, "text": "18.1 Asset URLs: files, variants and deeplinks", "id": "181-asset-urls-files-variants-and-deeplinks", "children": []}, {"level": 3, "text": "18.2 Links inside HTML and Markdown", "id": "182-links-inside-html-and-markdown", "children": []}, {"level": 3, "text": "Writing your own manager", "id": "writing-your-own-manager", "children": []}, {"level": 3, "text": "The middleware that serves it", "id": "the-middleware-that-serves-it", "children": []}]}]}, {"level": 1, "text": "Part III — Querying", "id": "part-iii-querying", "children": [{"level": 2, "text": "19. Query anatomy", "id": "19-query-anatomy", "children": [{"level": 3, "text": "Queries are immutable", "id": "queries-are-immutable", "children": []}, {"level": 3, "text": "Entry points", "id": "entry-points", "children": []}, {"level": 3, "text": "Executing", "id": "executing", "children": []}]}, {"level": 2, "text": "20. Filtering with Where", "id": "20-filtering-with-where", "children": []}, {"level": 2, "text": "21. Text and semantic search", "id": "21-text-and-semantic-search", "children": [{"level": 3, "text": "WhereSearch — search as a filter", "id": "wheresearch-search-as-a-filter", "children": []}, {"level": 3, "text": "Search — search as ranking", "id": "search-search-as-ranking", "children": []}, {"level": 3, "text": "What actually gets searched", "id": "what-actually-gets-searched", "children": []}]}, {"level": 2, "text": "22. Geo queries", "id": "22-geo-queries", "children": [{"level": 3, "text": "Sorting by distance", "id": "sorting-by-distance", "children": []}, {"level": 3, "text": "A widening search", "id": "a-widening-search", "children": []}, {"level": 3, "text": "Things to remember about geo filters", "id": "things-to-remember-about-geo-filters", "children": []}]}, {"level": 2, "text": "23. Relation filters", "id": "23-relation-filters", "children": []}, {"level": 2, "text": "24. Eager loading: Include and Preload", "id": "24-eager-loading-include-and-preload", "children": [{"level": 3, "text": "Going deeper: ThenInclude / ThenPreload", "id": "going-deeper-theninclude-thenpreload", "children": []}, {"level": 3, "text": "Filtering what gets included", "id": "filtering-what-gets-included", "children": []}, {"level": 3, "text": "When you only need ids", "id": "when-you-only-need-ids", "children": []}]}, {"level": 2, "text": "25. Graph traversal and shortest path", "id": "25-graph-traversal-and-shortest-path", "children": [{"level": 3, "text": "Traverse", "id": "traverse", "children": []}, {"level": 3, "text": "ShortestPath", "id": "shortestpath", "children": []}]}, {"level": 2, "text": "26. Sorting, paging and result sets", "id": "26-sorting-paging-and-result-sets", "children": [{"level": 3, "text": "Paging", "id": "paging", "children": []}, {"level": 3, "text": "ResultSet<T>", "id": "resultset", "children": []}]}, {"level": 2, "text": "27. Aggregates", "id": "27-aggregates", "children": []}, {"level": 2, "text": "28. Faceted search", "id": "28-faceted-search", "children": [{"level": 3, "text": "Applying the user's selection", "id": "applying-the-users-selection", "children": []}, {"level": 3, "text": "Facet declaration methods", "id": "facet-declaration-methods", "children": []}, {"level": 3, "text": "Where the un-named facets come from", "id": "where-the-un-named-facets-come-from", "children": []}, {"level": 3, "text": "28.1 Pivot tables", "id": "281-pivot-tables", "children": []}, {"level": 3, "text": "28.2 GroupBy", "id": "282-groupby", "children": []}]}, {"level": 2, "text": "29. Cultures, visibility and scoped stores", "id": "29-cultures-visibility-and-scoped-stores", "children": []}, {"level": 2, "text": "30. Pitfalls and gotchas", "id": "30-pitfalls-and-gotchas", "children": []}]}, {"level": 1, "text": "Part IV — Tooling", "id": "part-iv-tooling", "children": [{"level": 2, "text": "31. The command line tool", "id": "31-the-command-line-tool", "children": [{"level": 3, "text": "Two things every command needs to know", "id": "two-things-every-command-needs-to-know", "children": []}, {"level": 3, "text": "The commands", "id": "the-commands", "children": []}, {"level": 3, "text": "What it does not do", "id": "what-it-does-not-do", "children": []}, {"level": 3, "text": "Things worth knowing", "id": "things-worth-knowing", "children": []}]}, {"level": 2, "text": "32. Logs — recording what the application does", "id": "32-logs-recording-what-the-application-does", "children": [{"level": 3, "text": "32.1 Defining a log", "id": "321-defining-a-log", "children": []}, {"level": 3, "text": "32.2 Recording from the application", "id": "322-recording-from-the-application", "children": []}, {"level": 3, "text": "32.3 Statistics", "id": "323-statistics", "children": []}, {"level": 3, "text": "32.4 Estimated unique counts: HyperLogLog", "id": "324-estimated-unique-counts-hyperloglog", "children": []}, {"level": 3, "text": "32.5 Reading a log", "id": "325-reading-a-log", "children": []}, {"level": 3, "text": "32.6 Changing a definition", "id": "326-changing-a-definition", "children": []}, {"level": 3, "text": "32.7 Files, limits and cleaning up", "id": "327-files-limits-and-cleaning-up", "children": []}, {"level": 3, "text": "32.8 Positions", "id": "328-positions", "children": []}]}]}, {"level": 1, "text": "Part V — APIs", "id": "part-v-apis", "children": [{"level": 2, "text": "33. GraphQL endpoints", "id": "33-graphql-endpoints", "children": [{"level": 3, "text": "33.1 An endpoint in the admin UI", "id": "331-an-endpoint-in-the-admin-ui", "children": []}, {"level": 3, "text": "33.2 The definition file", "id": "332-the-definition-file", "children": []}, {"level": 3, "text": "33.3 The schema", "id": "333-the-schema", "children": []}, {"level": 3, "text": "33.4 Querying", "id": "334-querying", "children": []}, {"level": 3, "text": "33.5 Views", "id": "335-views", "children": []}, {"level": 3, "text": "33.6 Mutations", "id": "336-mutations", "children": []}, {"level": 3, "text": "33.7 Over HTTP", "id": "337-over-http", "children": []}, {"level": 3, "text": "33.8 The explorer and the facet page", "id": "338-the-explorer-and-the-facet-page", "children": []}, {"level": 3, "text": "33.9 Code-first: mapping an endpoint in Program.cs", "id": "339-code-first-mapping-an-endpoint-in-programcs", "children": []}, {"level": 3, "text": "33.10 Who reads, and the limits", "id": "3310-who-reads-and-the-limits", "children": []}]}, {"level": 2, "text": "34. AI services", "id": "34-ai-services", "children": [{"level": 3, "text": "34.1 Text: embeddings and completions", "id": "341-text-embeddings-and-completions", "children": []}, {"level": 3, "text": "34.2 Images", "id": "342-images", "children": []}, {"level": 3, "text": "34.3 Files to text", "id": "343-files-to-text", "children": []}, {"level": 3, "text": "34.4 Prices, answers kept, and errors", "id": "344-prices-answers-kept-and-errors", "children": []}]}, {"level": 2, "text": "35. Relatude Services", "id": "35-relatude-services", "children": [{"level": 3, "text": "35.1 A license is not needed", "id": "351-a-license-is-not-needed", "children": []}, {"level": 3, "text": "35.2 A provider of your own", "id": "352-a-provider-of-your-own", "children": []}, {"level": 3, "text": "35.3 The account at services.relatude.com", "id": "353-the-account-at-servicesrelatudecom", "children": []}, {"level": 3, "text": "35.4 Connecting an installation", "id": "354-connecting-an-installation", "children": []}]}, {"level": 2, "text": "Where to look when this manual runs out", "id": "where-to-look-when-this-manual-runs-out", "children": []}]}];
   // v2: the default collapse state changed, and the key is versioned so readers
   // carrying a v1 payload get the new default rather than their old tree.
   var KEY = "relatude-manual-state-v2";

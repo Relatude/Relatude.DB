@@ -6,11 +6,11 @@ using System.Runtime.InteropServices;
 namespace Relatude.DB.FileConversion.ImageEncoders;
 
 /// <summary>
-/// WebP: reads lossy and lossless images, alpha, the extended format and the first frame of an animation;
-/// writes lossy, with any alpha kept losslessly.
+/// WebP: reads lossy and lossless images, alpha, the extended format and animations; writes lossy stills and
+/// animations, with any alpha kept losslessly.
 /// </summary>
 internal sealed class WebpCodec : IImageCodec {
-    const uint Lossy = 0x20385056, Lossless = 0x4c385056, Extended = 0x58385056, Alpha = 0x48504c41, Frame = 0x464d4e41;
+    const uint Lossy = 0x20385056, Lossless = 0x4c385056, Extended = 0x58385056, Alpha = 0x48504c41, Frame = 0x464d4e41, Anim = 0x4d494e41;
 
     public ImageFormat Format => ImageFormat.Webp;
 
@@ -62,6 +62,64 @@ internal sealed class WebpCodec : IImageCodec {
             return frame.Pad(canvasWidth, canvasHeight, x, y, default);
         }
         return Image(data, chunks);
+    }
+
+    // ── Animation ────────────────────────────────────────────────────────────
+
+    /// <summary>True for the extended format with its animation flag set.</summary>
+    public static bool IsAnimated(byte[] d) =>
+        d.Length >= 21 && d.AsSpan(0, 4).SequenceEqual("RIFF"u8) && d.AsSpan(8, 4).SequenceEqual("WEBP"u8)
+        && BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(12)) == Extended && (d[20] & 2) != 0;
+
+    /// <summary>
+    /// The frames of an animated WebP, each composed onto the canvas as libwebp's animation decoder shows it:
+    /// blended or not, then cleared or not. Null when the file is not an animation.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public static Animation? ReadAnimation(byte[] data) {
+        if (!IsAnimated(data)) return null;
+        int end = (int)Math.Min(data.Length, 8L + BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(4)));
+        var chunks = Chunks(data, 12, end);
+        int width = 0, height = 0, loops = 0;
+        uint[]? canvas = null;
+        var frames = new List<InternalImage>();
+        var durations = new List<int>();
+        foreach (var (kind, offset, length) in chunks) {
+            if (kind == Extended && length >= 10) {
+                (width, height) = (U24(data, offset + 4) + 1, U24(data, offset + 7) + 1);
+                if ((long)width * height > Animation.MaxPixels) throw new ImageFormatException("WEBP canvas is too large.");
+                canvas = new uint[width * height];
+            }
+            if (kind == Anim && length >= 6) loops = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(offset + 4));
+            if (kind != Frame || length < 16 || canvas == null) continue;
+            int x = 2 * U24(data, offset), y = 2 * U24(data, offset + 3), flags = data[offset + 15];
+            var frame = Image(data, Chunks(data, offset + 16, offset + length));
+            if (x + frame.Width > width || y + frame.Height > height) throw new ImageFormatException("WEBP frame lies outside its canvas.");
+            var pixels = MemoryMarshal.Cast<byte, uint>(frame.Pixels);
+            for (int row = 0; row < frame.Height; row++) {
+                var source = pixels.Slice(row * frame.Width, frame.Width);
+                var target = canvas.AsSpan((y + row) * width + x, frame.Width);
+                if ((flags & 2) != 0) source.CopyTo(target);
+                else for (int i = 0; i < source.Length; i++) target[i] = Blend(source[i], target[i]);
+            }
+            frames.Add(new InternalImage(width, height, MemoryMarshal.AsBytes(canvas.AsSpan()).ToArray()));
+            durations.Add(U24(data, offset + 12));
+            if ((flags & 1) != 0)
+                for (int row = 0; row < frame.Height; row++) canvas.AsSpan((y + row) * width + x, frame.Width).Clear();
+            if ((frames.Count + 1L) * width * height > Animation.MaxPixels) break;
+        }
+        if (frames.Count == 0) throw new ImageFormatException("WEBP animation has no frames.");
+        return new Animation([.. frames], [.. durations], loops);
+    }
+
+    // libwebp's BlendPixelNonPremult: src over dst, without premultiplied alpha (an opaque src is left alone, as there)
+    static uint Blend(uint src, uint dst) {
+        uint sa = src >> 24;
+        if (sa == 255) return src;
+        if (sa == 0) return dst;
+        uint da = (dst >> 24) * (256 - sa) >> 8, a = sa + da, scale = (1u << 24) / a;
+        uint Channel(int shift) => ((src >> shift & 255) * sa + (dst >> shift & 255) * da) * scale >> 24;
+        return Channel(0) | Channel(8) << 8 | Channel(16) << 16 | a << 24;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
@@ -287,24 +345,83 @@ internal sealed class WebpCodec : IImageCodec {
     // ── Writing ──────────────────────────────────────────────────────────────
 
     public void Encode(InternalImage image, Stream stream, ImageSaveOptions options) {
-        if (image.Width > 16383 || image.Height > 16383) throw new ArgumentOutOfRangeException(nameof(image), "WEBP images are limited to 16383 x 16383 pixels.");
-        var (y, u, v) = ToYuv(image);
-        byte[] frame = Vp8Encoder.Encode(y, u, v, image.Width, image.Height, options.Quality);
-        bool translucent = false;
-        ReadOnlySpan<byte> pixels = image.Pixels;
-        for (int i = 3; i < pixels.Length && !translucent; i += 4) translucent = pixels[i] != 255;
-        byte[]? alpha = translucent ? EncodeAlpha(image) : null;
-        static int Size(int length) => 8 + length + (length & 1);
+        var (frame, alpha) = Compress(image, options.Quality);
         int riff = 4 + Size(frame.Length) + (alpha == null ? 0 : Size(10) + Size(alpha.Length));
         stream.Write("RIFF"u8);
         stream.Write(BitConverter.GetBytes(riff));
         stream.Write("WEBP"u8);
         if (alpha != null) {
-            int w = image.Width - 1, h = image.Height - 1;
-            Chunk(stream, "VP8X"u8, [0x10, 0, 0, 0, (byte)w, (byte)(w >> 8), (byte)(w >> 16), (byte)h, (byte)(h >> 8), (byte)(h >> 16)]);
+            Extension(stream, 0x10, image.Width, image.Height);
             Chunk(stream, "ALPH"u8, alpha);
         }
         Chunk(stream, "VP8 "u8, frame);
+    }
+
+    /// <summary>
+    /// An animation: after the first, each frame is only the rectangle that changed (from even coordinates),
+    /// replacing what was there; frames identical to the one before are merged into it.
+    /// </summary>
+    public static void WriteAnimation(Animation animation, Stream stream, ImageSaveOptions options) {
+        var frames = animation.Frames;
+        int w = frames[0].Width, h = frames[0].Height;
+        if (w > 16383 || h > 16383) throw new ArgumentOutOfRangeException(nameof(animation), "WEBP images are limited to 16383 x 16383 pixels.");
+        var shown = animation.Distinct();
+        var body = new MemoryStream();
+        bool translucent = false;
+        for (int s = 0; s < shown.Count; s++) {
+            var image = frames[shown[s].Frame];
+            var rect = new RectangleI(0, 0, w, h);
+            if (s > 0) {
+                Animation.Changed(MemoryMarshal.Cast<byte, uint>(image.Pixels), MemoryMarshal.Cast<byte, uint>(frames[shown[s - 1].Frame].Pixels), w, h, out rect);
+                rect = new RectangleI(rect.X & ~1, rect.Y & ~1, rect.Right - (rect.X & ~1), rect.Bottom - (rect.Y & ~1));
+                if (rect.Width != w || rect.Height != h) image = image.Crop(rect);
+            }
+            var (frame, alpha) = Compress(image, options.Quality);
+            translucent |= alpha != null;
+            int duration = Math.Min(shown[s].Duration, 0xFFFFFF);
+            var header = new byte[16];
+            Put24(header, 0, rect.X / 2);
+            Put24(header, 3, rect.Y / 2);
+            Put24(header, 6, rect.Width - 1);
+            Put24(header, 9, rect.Height - 1);
+            Put24(header, 12, duration);
+            header[15] = 2; // replace, do not blend; keep after showing
+            body.Write("ANMF"u8);
+            body.Write(BitConverter.GetBytes(16 + (alpha == null ? 0 : Size(alpha.Length)) + Size(frame.Length)));
+            body.Write(header);
+            if (alpha != null) Chunk(body, "ALPH"u8, alpha);
+            Chunk(body, "VP8 "u8, frame);
+        }
+        stream.Write("RIFF"u8);
+        stream.Write(BitConverter.GetBytes(4 + Size(10) + Size(6) + (int)body.Length));
+        stream.Write("WEBP"u8);
+        Extension(stream, (byte)(translucent ? 0x12 : 0x02), w, h);
+        Chunk(stream, "ANIM"u8, [0, 0, 0, 0, (byte)animation.Loops, (byte)(animation.Loops >> 8)]);
+        body.Position = 0;
+        body.CopyTo(stream);
+    }
+
+    // a lossy frame, and its alpha when any pixel is not opaque
+    static (byte[] Frame, byte[]? Alpha) Compress(InternalImage image, int quality) {
+        if (image.Width > 16383 || image.Height > 16383) throw new ArgumentOutOfRangeException(nameof(image), "WEBP images are limited to 16383 x 16383 pixels.");
+        var (y, u, v) = ToYuv(image);
+        byte[] frame = Vp8Encoder.Encode(y, u, v, image.Width, image.Height, quality);
+        bool translucent = false;
+        ReadOnlySpan<byte> pixels = image.Pixels;
+        for (int i = 3; i < pixels.Length && !translucent; i += 4) translucent = pixels[i] != 255;
+        return (frame, translucent ? EncodeAlpha(image) : null);
+    }
+
+    static int Size(int length) => 8 + length + (length & 1);
+
+    static void Put24(byte[] b, int at, int v) => (b[at], b[at + 1], b[at + 2]) = ((byte)v, (byte)(v >> 8), (byte)(v >> 16));
+
+    static void Extension(Stream stream, byte flags, int width, int height) {
+        var payload = new byte[10];
+        payload[0] = flags;
+        Put24(payload, 4, width - 1);
+        Put24(payload, 7, height - 1);
+        Chunk(stream, "VP8X"u8, payload);
     }
 
     static void Chunk(Stream stream, ReadOnlySpan<byte> kind, ReadOnlySpan<byte> payload) {

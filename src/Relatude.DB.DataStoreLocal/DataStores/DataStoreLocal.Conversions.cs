@@ -24,12 +24,12 @@ public sealed partial class DataStoreLocal : IDataStore {
     /// Resolves the adaptive FileFormat.Image against the original file and the store defaults
     /// (SettingsLocal.ImageDefaultFormat / ImageDefaultQuality), so cache keys, converter selection
     /// and content types always see a concrete format. serveOriginal is true for a plain adaptive
-    /// request with no adjustments at all: the original file is served untouched.
+    /// request with no adjustments at all, or for a gif at its own size: the original file is served untouched.
     /// </summary>
     FileAdjustmentBase resolveAdaptiveFormat(FileValue fileValue, FileAdjustmentBase adj, out bool serveOriginal) {
         serveOriginal = false;
         if (adj is not FileAdjustmentImage image || image.RequestedFormat != FileFormat.Image) return adj;
-        if (image.IsPlainRequest()) {
+        if (image.IsPlainRequest() || image.KeepsOriginalGif(fileValue.Format, fileValue.Width, fileValue.Height)) {
             serveOriginal = true;
             return adj;
         }

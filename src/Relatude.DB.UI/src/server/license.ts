@@ -220,9 +220,31 @@ function isKey(key: string | null | undefined, expected: string): boolean {
   return (key ?? "").trim().toLowerCase() === expected;
 }
 
+/**
+ * The credit accounts the Relatude services charge their calls to. The account is what licenses a
+ * service's calls - no feature is needed - and each key is the one the service is set up with.
+ */
+export const serviceAccounts = {
+  sms: "sms",
+  aiEmbeddings: "ai_embeddings",
+  aiCompletion: "ai_completion",
+  imaging: "ai_image",
+  fileToText: "filetotext",
+} as const;
+
+/** The license's credit account with this key, active or not. Null when the license has no such account, or there is no license. */
+export function licenseAccount(status: LicenseStatus, key: string): LicenseAccount | null {
+  return status.license?.accounts.find((a) => isKey(a.key, key)) ?? null;
+}
+
+/** Whether a call charged to this credit account can be paid for: the license is valid and active, and has the account. */
+export function licenseCarriesAccount(status: LicenseStatus, key: string): boolean {
+  return status.state === "valid" && !!status.license?.active && licenseAccount(status, key) !== null;
+}
+
 /** Whether the license has the "sms" credit account, which the Relatude SMS service charges every message to; no feature is needed. */
 export function licenseCarriesSms(status: LicenseStatus): boolean {
-  return status.state === "valid" && !!status.license?.active && status.license.accounts.some((a) => isKey(a.key, "sms"));
+  return licenseCarriesAccount(status, serviceAccounts.sms);
 }
 
 /**
@@ -258,8 +280,7 @@ export function sendTestSms(values: { from: string; to: string; message: string 
  * call; no feature is needed, as with SMS.
  */
 export function licenseCarriesAi(status: LicenseStatus, kind: "embeddings" | "completions"): boolean {
-  const account = kind === "embeddings" ? "ai_embeddings" : "ai_completion";
-  return status.state === "valid" && !!status.license?.active && status.license.accounts.some((a) => isKey(a.key, account));
+  return licenseCarriesAccount(status, kind === "embeddings" ? serviceAccounts.aiEmbeddings : serviceAccounts.aiCompletion);
 }
 
 /** One text embedded by the AI service: the model, the vector's length, its first values and length (norm), and what it cost. */
@@ -295,12 +316,12 @@ export function testAiCompletion(values: { serviceUrl: string; model: string; te
 
 /** Whether the license has the "ai_image" credit account the Relatude Imaging service charges every operation to; no feature is needed. */
 export function licenseCarriesImaging(status: LicenseStatus): boolean {
-  return status.state === "valid" && !!status.license?.active && status.license.accounts.some((a) => isKey(a.key, "ai_image"));
+  return licenseCarriesAccount(status, serviceAccounts.imaging);
 }
 
 /** Whether the license has the "filetotext" credit account the Relatude FileToText service charges every file to; no feature is needed. */
 export function licenseCarriesFileToText(status: LicenseStatus): boolean {
-  return status.state === "valid" && !!status.license?.active && status.license.accounts.some((a) => isKey(a.key, "filetotext"));
+  return licenseCarriesAccount(status, serviceAccounts.fileToText);
 }
 
 /** One operation of the Imaging service: its key, which is also its route, a name for people, and whether it can be called there. */

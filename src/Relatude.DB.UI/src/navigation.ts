@@ -16,10 +16,15 @@ import {
   IconAdjustments,
   IconLock,
   IconTransform,
-  IconCertificate,
+  IconMessage,
+  IconSparkles,
+  IconPhoto,
+  IconFlask,
 } from "@tabler/icons-react";
+import { LogoMarkIcon } from "./components/Logo";
 
-export type SectionScope = "database" | "server";
+/** Which group of the rail an entry is in: the database's pages, the server's, or Relatude Services'. */
+export type SectionScope = "database" | "server" | "services";
 
 /**
  * The colour a rail entry's icon is drawn in. A name rather than a value: the two themes need
@@ -85,9 +90,18 @@ export const sections: Section[] = [
   { id: "server-overview", label: "Overview", scope: "server", icon: IconGauge, tone: "plain" },
   { id: "server-databases", label: "Databases", scope: "server", icon: IconDatabase, tone: "blue" },
   { id: "server-events", label: "Events & exceptions", scope: "server", icon: IconAlertTriangle, hidden: true },
-  // its own page rather than part of the settings: the keys are a small part of it, and most of the
-  // page is explaining what a license is for to someone who has just found out it exists
-  { id: "server-license", label: "Relatude Services", scope: "server", icon: IconCertificate, tone: "green" },
   { id: "server-settings", label: "Server settings", scope: "server", icon: IconAdjustments, tone: "brown" },
   { id: "server-access", label: "Access", scope: "server", icon: IconLock, settingsSection: "security", hidden: true },
+  // Relatude Services, a group of its own: the account this installation runs under (LicenseSection,
+  // its own page rather than part of the settings - most of it explains what a license is for to
+  // someone who has just found out it exists), and a test of each service. The id is older than the
+  // group, from when the account page was a server page called License.
+  { id: "server-license", label: "Account", scope: "services", icon: LogoMarkIcon, tone: "plain" },
+  // one page in four views (ServiceTestsSection), one per service. The entry is not a view itself: it
+  // opens the test that was open last, or the first (App's landing views)
+  { id: "services-tests", label: "Test services", scope: "services", icon: IconFlask, tone: "plain" },
+  { id: "services-sms", label: "SMS test", scope: "services", icon: IconMessage, parentId: "services-tests", tone: "plain" },
+  { id: "services-ai", label: "AI test", scope: "services", icon: IconSparkles, parentId: "services-tests", tone: "plain" },
+  { id: "services-imaging", label: "Imaging test", scope: "services", icon: IconPhoto, parentId: "services-tests", tone: "plain" },
+  { id: "services-filetotext", label: "File to text test", scope: "services", icon: IconFileText, parentId: "services-tests", tone: "plain" },
 ];

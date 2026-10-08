@@ -156,6 +156,114 @@ public class NativeImageCodecTests {
         var converter = new NativeImageConverter();
         Assert.IsTrue(converter.SupportsConversion(FileType.Image, FileFormat.Jpeg, FileType.Image, FileFormat.Png));
         Assert.IsTrue(converter.SupportsConversion(FileType.Image, FileFormat.Webp, FileType.Image, FileFormat.Webp));
-        Assert.IsFalse(converter.SupportsConversion(FileType.Image, FileFormat.Gif, FileType.Image, FileFormat.Png));
+        Assert.IsTrue(converter.SupportsConversion(FileType.Image, FileFormat.Gif, FileType.Image, FileFormat.Gif));
+        Assert.IsFalse(converter.SupportsConversion(FileType.Image, FileFormat.Avif, FileType.Image, FileFormat.Png));
+    }
+
+    static string Hash(InternalImage image) => Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(image.Pixels));
+
+    // made by Pillow: three interlaced frames over transparency, disposed to the background, then to the frame before, then kept
+    const string PillowGif = "R0lGODlhGAAQAIEAAAAAANwoHhRa5gAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQJBQAAACwAAAAAGAAQAAAIPAABCBxIsKDBgwgTKlyIMIDDhw4ZEoQIUeJAig8tCsQYUSPHABoBfAw50iPHkChTqly5UoDLlzBjynwZEAAh+QQNDAAAACwAAAMAGAAMAIEAAADcZB4UWuYAAAAIOQABCBwYoKDBggMTKkx48ODChwQbIoT4UOJEigotBsC4UCPHjBY/MgwpsqTJkygXCljJsqXLlywDAgAh+QQFCAAAACwAAAMAGAAMAIEAAADcoB4UWuYAAAAIOgABCBxIMIDBgwYJKlwIACFChhAbOkwYceFEihULXsyo8GIAjhonghzocaTJkxEFqFzJsqXLlSgZBgQAOw==";
+    // its frames as Pillow composes them, transparent pixels as zero
+    static readonly string[] PillowGifFrames = [
+        "1cd4c6dd942be78f065a3bf528198203fde37a1ec4dfff0efeee146f220dfe0e",
+        "49bc7a81e5b5bc76916beb8b2582978cc37931e50ad9927e369cc778253c7215",
+        "5e4052adfb33b8ac7c5abf4e4bca6dc94e0c692a78939db327f0ac8a8792e0e3",
+    ];
+
+    [TestMethod]
+    public void Gif_ReadsEveryFrameAsItIsShown() {
+        var data = Convert.FromBase64String(PillowGif);
+        Assert.IsTrue(InternalImage.TryReadSize(data, out var width, out var height));
+        Assert.AreEqual((24, 16), (width, height));
+        var animation = ImageCodecs.ReadAnimation(data)!;
+        CollectionAssert.AreEqual(PillowGifFrames, animation.Frames.Select(Hash).ToArray());
+        CollectionAssert.AreEqual(new[] { 50, 120, 80 }, animation.Durations);
+        Assert.AreEqual(0, animation.Loops);
+        Assert.AreEqual(PillowGifFrames[0], Hash(InternalImage.Load(data)), "a still is the first frame");
+        Assert.IsTrue(NativeImage.IsAnimated(data));
+    }
+
+    // a ball crossing a background of few colours, the fourth frame a repeat of the third
+    static Animation Bouncing(bool transparent) {
+        var frames = new InternalImage[5];
+        for (int i = 0; i < 5; i++) {
+            int k = i == 3 ? 2 : i;
+            frames[i] = InternalImage.Create(40, 30, (x, y) =>
+                Math.Abs(x - 8 - 6 * k) < 5 && Math.Abs(y - 15) < 5 ? new ColorRgba(230, 60, (byte)(40 * k), 255)
+                : transparent && x < 10 ? new ColorRgba(0, 0, 0, 0)
+                : new ColorRgba(20, 90, (byte)(5 * y), 255));
+        }
+        return new Animation(frames, [40, 60, 80, 100, 120], 3);
+    }
+
+    static readonly int[] Shown = [0, 1, 2, 4]; // the frames left once the repeat is merged
+
+    [TestMethod]
+    public void Gif_AnimationRoundTripIsExact() {
+        foreach (bool transparent in new[] { false, true }) {
+            var source = Bouncing(transparent);
+            var ms = new MemoryStream();
+            GifCodec.Write(source, ms);
+            var back = GifCodec.Read(ms.ToArray(), int.MaxValue);
+            CollectionAssert.AreEqual(new[] { 40, 60, 180, 120 }, back.Durations, "a repeated frame is merged into the one before");
+            Assert.AreEqual(3, back.Loops);
+            for (int i = 0; i < Shown.Length; i++) Assert.AreEqual(Hash(source.Frames[Shown[i]]), Hash(back.Frames[i]), $"frame {Shown[i]}");
+        }
+    }
+
+    [TestMethod]
+    public void Gif_ManyColoursBecomeAPaletteCloseToThem() {
+        var source = Picture(160, 120);
+        var back = InternalImage.Load(Save(source, ImageFormat.Gif));
+        Assert.IsTrue(Psnr(source, back) > 30, $"{Psnr(source, back):F1} dB");
+
+        // a frame differing from the one before by less than the palette tells apart is merged into it
+        var nudged = source.Clone();
+        nudged.MutablePixels[2] ^= 1;
+        var ms = new MemoryStream();
+        GifCodec.Write(new Animation([source, nudged], [100, 50], 0), ms);
+        Assert.AreEqual(1, GifCodec.Read(ms.ToArray(), int.MaxValue).Frames.Length);
+    }
+
+    [TestMethod]
+    public void Webp_AnimationIsReadAsLibwebpShowsItAndWritten() {
+        var animated = Convert.FromBase64String(LibwebpFiles[2].Base64);
+        var frames = WebpCodec.ReadAnimation(animated)!;
+        CollectionAssert.AreEqual(new[] { LibwebpFiles[2].Sha256, "161a63602d198c3cb409467ef81a6b13c424e8e8bb53010dde829328a366fad4" }, frames.Frames.Select(Hash).ToArray());
+        CollectionAssert.AreEqual(new[] { 100, 100 }, frames.Durations);
+        Assert.IsNull(WebpCodec.ReadAnimation(Convert.FromBase64String(LibwebpFiles[0].Base64)), "a still is no animation");
+
+        foreach (bool transparent in new[] { false, true }) {
+            var source = Bouncing(transparent);
+            var ms = new MemoryStream();
+            WebpCodec.WriteAnimation(source, ms, new ImageSaveOptions { Quality = 90 });
+            var back = WebpCodec.ReadAnimation(ms.ToArray())!;
+            CollectionAssert.AreEqual(new[] { 40, 60, 180, 120 }, back.Durations);
+            Assert.AreEqual(3, back.Loops);
+            for (int i = 0; i < Shown.Length; i++) {
+                var a = source.Frames[Shown[i]];
+                var b = back.Frames[i];
+                for (int p = 3; p < a.Pixels.Length; p += 4) Assert.AreEqual(a.Pixels[p], b.Pixels[p], "alpha is kept exactly");
+                if (!transparent) Assert.IsTrue(Psnr(a, b) > 26, $"frame {Shown[i]}: {Psnr(a, b):F1} dB"); // hard edges at 40x30: libwebp gets 28-30 too
+            }
+        }
+    }
+
+    [TestMethod]
+    public void NativeImage_KeepsAnimationsThroughAdjustments() {
+        var ms = new MemoryStream();
+        GifCodec.Write(Bouncing(false), ms);
+        using var image = NativeImage.Load(new MemoryStream(ms.ToArray()));
+        Assert.AreEqual(4, image.FrameCount);
+        using var adjusted = image.Adjust(new FileAdjustmentImage { Width = 20, Saturation = -50 });
+        var gif = GifCodec.Read(adjusted.Encode(FileFormat.Gif), int.MaxValue);
+        Assert.AreEqual((4, 20, 15), (gif.Frames.Length, gif.Frames[0].Width, gif.Frames[0].Height));
+        var webp = WebpCodec.ReadAnimation(adjusted.Encode(FileFormat.Webp))!;
+        Assert.AreEqual((4, 20, 15), (webp.Frames.Length, webp.Frames[0].Width, webp.Frames[0].Height));
+        var png = adjusted.Encode(FileFormat.Png);
+        Assert.IsFalse(NativeImage.IsAnimated(png));
+        Assert.AreEqual(20, InternalImage.Load(png).Width, "a format without animation gets the first frame");
     }
 }
+

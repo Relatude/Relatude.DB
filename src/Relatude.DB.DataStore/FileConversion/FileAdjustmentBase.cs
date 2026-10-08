@@ -146,22 +146,25 @@ public class FileAdjustmentImage : FileAdjustmentBase {
     /// <summary>
     /// Resolves the adaptive <see cref="FileFormat.Image"/> against the original file and the store
     /// defaults, returning a resolved copy (this instance is never changed - its conversion cache
-    /// key may already be handed out). A gif that keeps its original dimensions and has no other
-    /// adjustments stays a gif, preserving animations and palette; everything else becomes the
-    /// default format, with the default quality when none is given. Returns this instance unchanged
-    /// when the requested format is already concrete.
+    /// key may already be handed out). A gif stays a gif, preserving animations, when it keeps its
+    /// original dimensions and has no other adjustments, or when the default format cannot animate
+    /// (anything but webp); everything else becomes the default format, with the default quality
+    /// when none is given. Returns this instance unchanged when the requested format is already concrete.
     /// </summary>
     public FileAdjustmentImage ResolveAdaptiveFormat(FileFormat originalFormat, int originalWidth, int originalHeight, FileFormat defaultFormat, int defaultQuality) {
         if (RequestedFormat != FileFormat.Image) return this;
         var resolved = FromBytes(ToBytes());
-        if (originalFormat == FileFormat.Gif && !hasAdjustmentsBesideDimensions() && dimensionsSameOrAbsent(originalWidth, originalHeight)) {
-            resolved.RequestedFormat = FileFormat.Gif; // preserve animations and palette
+        if (originalFormat == FileFormat.Gif && (defaultFormat != FileFormat.Webp || KeepsOriginalGif(originalFormat, originalWidth, originalHeight))) {
+            resolved.RequestedFormat = FileFormat.Gif;
         } else {
             resolved.RequestedFormat = defaultFormat;
             resolved.Quality ??= defaultQuality;
         }
         return resolved;
     }
+    /// <summary>An adaptive request for a gif at its own size with nothing else changed: the original file is the answer.</summary>
+    public bool KeepsOriginalGif(FileFormat originalFormat, int originalWidth, int originalHeight) =>
+        RequestedFormat == FileFormat.Image && originalFormat == FileFormat.Gif && !hasAdjustmentsBesideDimensions() && dimensionsSameOrAbsent(originalWidth, originalHeight);
     bool hasAdjustmentsBesideDimensions() =>
         Zoom != null || FocusX != null || FocusY != null || OffsetX != null || OffsetY != null
         || Rotation != null || Brightness != null || Contrast != null || Saturation != null

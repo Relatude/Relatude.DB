@@ -66,6 +66,7 @@ concept builds on the last.
 
 33. [GraphQL endpoints](#33-graphql-endpoints) · [33.2 the definition file](#332-the-definition-file) · [33.4 querying](#334-querying) · [33.6 mutations](#336-mutations) · [33.9 code-first](#339-code-first-mapping-an-endpoint-in-programcs)
 34. [AI services](#34-ai-services) · [34.1 text](#341-text-embeddings-and-completions) · [34.2 images](#342-images) · [34.3 files to text](#343-files-to-text) · [34.4 prices and errors](#344-prices-answers-kept-and-errors)
+35. [Relatude Services](#35-relatude-services) · [35.1 a license is not needed](#351-a-license-is-not-needed) · [35.2 a provider of your own](#352-a-provider-of-your-own) · [35.3 the account](#353-the-account-at-servicesrelatudecom) · [35.4 connecting an installation](#354-connecting-an-installation)
 
 ---
 ---
@@ -1881,7 +1882,8 @@ to install: `AzureAIProvider` (Azure OpenAI, the default) with
 `EmbeddingServiceUrl`/`EmbeddingApiKey`/`EmbeddingModel` since Anthropic has no embeddings API.
 There is also `RelatudeServices`, which needs no account with an AI vendor at all: it calls the
 hosted Relatude AI service, which holds the vendor credentials and meters every call against your
-Relatude license. `ApiKey` is then the API key issued with that license, and `EmbeddingModel` /
+Relatude license ([§35](#35-relatude-services)). On a server it pays with the installation's own API
+key, so `ApiKey` is only needed in a store built from code, and `EmbeddingModel` /
 `CompletionModel` are model keys the service publishes rather than vendor model names. The license
 has to carry the credit account each kind of call is charged to, with a balance: `ai_embeddings` for
 embeddings and `ai_completion` for completions (no feature is needed). A refusal (no such account, no
@@ -1942,6 +1944,19 @@ own users.
 | `DBAdminUIUrlPath` | null → `/relatude.db` | Overrides the path passed to `UseRelatudeDB()`. The routes are mapped once at startup, so changing it later only takes effect after a full process restart — the startup log says so when that happens. |
 | `DBSettingsFilePath` | null | Present in the settings object but not read by the current build; the settings file path comes from `ServerOptions`. |
 
+**Relatude Services.** The account an installation may use for hosted AI, imaging, files to text and
+text messages, and for signing in to the admin UI ([§35](#35-relatude-services)). None of it is
+needed: with no `ApiKey`, nothing is charged and nothing is reported.
+
+| Key | Default | What it does |
+|---|---|---|
+| `ApiKey` | null | An API key from the license's page at services.relatude.com: all an installation needs to use the hosted services, which charge every call to that license. A secret: keep it in the `RelatudeDB` configuration section, not in this file. |
+| `LicenseKey` | null | The license's id. Not needed: it is looked up from `ApiKey`, and the Relatude Services page saves it beside the key. When the two disagree, the API key's license is the one used. |
+| `AllowLicenseeAdminLogin` | `false` | Adds *Sign in with Relatude Services* to the login page. Anyone with access to the license in the portal gets in; the master login is unaffected. Turning it off ends those sessions at once. |
+| `PublicUrl` | null | The addresses the server is reached on, separated by commas: where a sign-in may send the browser back to. It fills itself in with every https address a signed-in admin uses the admin UI on. Localhost, and addresses approved for the installation in the portal, are accepted as well. |
+| `DisableHeartbeat` | `false` | Stops the installation reporting in ([§35.4](#reporting-in)). Read at each report, so it takes effect without a restart. Not offered on the settings pages. |
+| `ServicesServerUrl` | `https://services.relatude.com` | Where the license server is. Only a self-hosted or test server changes it. |
+
 #### Container level
 
 ```jsonc
@@ -1975,6 +1990,7 @@ own users.
 | `FileStoreSettings` | `[]` | The file stores holding `FileValue` bytes. See below. |
 | `AISettings` | null | The container's AI provider and semantic index. Required for semantic/vector search. See below. |
 | `ImagingSettings`, `FileToTextSettings` | null | The image AI and the file reader behind `db.Imaging` and `db.FileToText`. Null on a server is the hosted Relatude service, charged to the license. See [§34](#34-ai-services). |
+| `SMSSettings` | null | The text messages behind `db.SMS`: `TypeName` (empty or `RelatudeServices` for the hosted service, charged to the license; otherwise your own `ISMSProvider`), `ServiceUrl`, `ApiKey`, and `From`, the sender shown on the phone when a call names none. Null means no SMS, and `db.SMS` throws. See [§35](#35-relatude-services). |
 | `DatamodelSources` | the bundled demo model | Where the model comes from — the previous section. |
 | `LocalSettings` | all defaults | The engine knobs. See below. |
 
@@ -2097,10 +2113,10 @@ another regardless of where its property uploads. `Guid.Empty` names the implici
 
 | Key | Default | What it does |
 |---|---|---|
-| `TypeName` | `AzureAIProvider` | `AzureAIProvider` (Azure OpenAI), `OpenAIProvider` / `OpenAI`, `AnthropicAIProvider` / `Anthropic`, `RelatudeServices` (the hosted Relatude AI service, billed to your Relatude license instead of a vendor account), `DummyAIProvider` (placeholder vectors — useful in tests, and for opening a database whose real provider is unavailable), or the full name of your own `IAIProvider`. All the built-ins ship inside `Relatude.DB.Server`. |
+| `TypeName` | `AzureAIProvider` | `AzureAIProvider` (Azure OpenAI), `OpenAIProvider` / `OpenAI`, `AnthropicAIProvider` / `Anthropic`, `RelatudeServices` (the hosted Relatude AI service, billed to your Relatude license instead of a vendor account), `DummyAIProvider` (placeholder vectors — useful in tests, and for opening a database whose real provider is unavailable), or the assembly-qualified name of your own `IAIProvider` ([§35.2](#352-a-provider-of-your-own)). All the built-ins ship inside `Relatude.DB.Server`. |
 | `Name` | null | Label. |
 | `ServiceUrl` | provider default | Azure: the resource endpoint. OpenAI: defaults to `https://api.openai.com/v1`, so point it at Mistral, Groq, Ollama or any other OpenAI-compatible endpoint. |
-| `ApiKey` | null | Belongs in the `RelatudeDB` configuration section, not in this file. For `RelatudeServices` it is the API key issued with your Relatude license. |
+| `ApiKey` | null | Belongs in the `RelatudeDB` configuration section, not in this file. `RelatudeServices` on a server pays with the installation's own API key ([§35](#35-relatude-services)) and needs none here. |
 | `ApiVersion` | provider default | Overrides the `api-version` query parameter, for Azure OpenAI. |
 | `EmbeddingModel` | provider default | Model (Azure: deployment) name used for embeddings. |
 | `EmbeddingServiceUrl`, `EmbeddingApiKey` | fall back to `ServiceUrl` / `ApiKey` | A separate embeddings endpoint. **Required for Anthropic**, which has no embeddings API — point them at an OpenAI-compatible endpoint. |
@@ -2812,7 +2828,8 @@ deliberately, over HTTPS, and only after setting credentials. Set `MasterUserNam
 secrets, environment variables); until they are set, logging in throws "No master user configured on
 the server." The admin UI's login page asks the server first, and leaves the user name and
 password fields out wherever the master account cannot be used - no master user set, or a remote
-address while this setting is off - showing only *Sign in with Relatude.License* when that is set up,
+address while this setting is off - showing only *Sign in with Relatude Services*
+([§35.4](#354-connecting-an-installation)) when that is set up,
 or a line saying that logging in is not possible from there.
 
 Three more details cost people time: the stored user name must be **lowercase** (the check
@@ -2836,6 +2853,7 @@ What you do in it:
 | **Activity** | What the database records about itself — queries, transactions, actions, tasks, metrics, the system trace — each log switched on or off, with its entries, search and graphs. |
 | **Logs** | Logs of your own: define one, and read what the application recorded into it as graphs, entries and the spread of a column's values. The **Built-in logs** switch shows the Activity logs here too, read only. See [§32](#32-logs--recording-what-the-application-does). |
 | **API** | GraphQL endpoints over the database: each one a url, the types and properties it exposes and under which names, views, mutations, API keys with expiry dates, generated client code, and an explorer to try queries. See [§33](#33-graphql-endpoints). |
+| **Relatude Services** (server menu) | The installation's Relatude Services account: connecting it to a license, what the license carries, the sign-in switch, and a test view for each hosted service. Not needed to run anything. See [§35](#35-relatude-services). |
 | **Memory** (on the dashboard) | Every memory budget of one database on one line - the node and result set caches, each index engine, the state store - each showing what it is actually holding against what it is allowed. Dragging a budget takes effect at once where the part can be re-sized while it runs; saving keeps them for the next start, in `relatude.db.overrides.json` like every change made on the settings pages. |
 
 Two habits worth forming:
@@ -3285,8 +3303,8 @@ status and extracted metadata as JSON instead of a converted file.
 
 Naming `RequestedFormat` is optional for images: it defaults to the adaptive `FileFormat.Image`,
 which resolves per file against the store defaults — the original untouched when nothing is
-adjusted, a GIF left as a GIF at its own size, everything else the configured default format and
-quality. See [§18.1](#181-asset-urls-files-variants-and-deeplinks).
+adjusted, a GIF kept as a GIF so its animation survives (the original itself at its own size), everything
+else the configured default format and quality. See [§18.1](#181-asset-urls-files-variants-and-deeplinks).
 
 Three things follow from conversion being asynchronous. **A URL you just built is usually not
 servable yet** — the conversion is queued, and `IsFileReady` is how you find out. **A variant that
@@ -3570,8 +3588,10 @@ longer tweak `w=1200` in the browser, which was half the appeal of the readable 
 file when the request is served:
 
 - No adjustments at all → the original file is served untouched, no conversion.
-- A GIF asked for at its own dimensions with no other edits → stays a GIF, so animation and palette
+- A GIF asked for at its own dimensions with no other edits → the original GIF, so animation and palette
   survive.
+- A resized or edited GIF → an animated WebP when the default format is `WebP`, else still a GIF:
+  every frame is adjusted, so the animation survives either way.
 - Everything else → `SettingsLocal.ImageDefaultFormat` (`Jpeg`, `WebP` or `Png`; default `Jpeg`) at
   `SettingsLocal.ImageDefaultQuality` (default 85) unless the request names its own quality.
 
@@ -6022,8 +6042,11 @@ to its `ai_image` and `filetotext` credit accounts. Text needs `AISettings`; wit
 `ai_completion`, and with another type it calls your own OpenAI, Azure or Anthropic account. A license
 without the credit account a call is charged to is refused before anything is charged.
 
+None of the three needs Relatude Services. Each is an interface you can implement against a vendor of
+your own; [§35](#35-relatude-services) has the account, what it is for, and how to replace it.
+
 `ImagingSettings` and `FileToTextSettings` take three keys: `TypeName` (empty or `RelatudeServices` for
-the hosted service, otherwise the full type name of your own `IImagingProvider` or
+the hosted service, otherwise the assembly-qualified name of your own `IImagingProvider` or
 `IFileToTextProvider`), `ServiceUrl` (empty for the hosted service; set it for a self-hosted one) and
 `ApiKey` (only where there is no license key: a store built from code, or your own provider).
 
@@ -6177,8 +6200,180 @@ These hold for images and files to text alike.
 - **Retries** are made for you only where nothing can have been charged - the service too busy, or the
   license server out of reach - so no call is paid for twice. A call that may have been charged is
   never repeated behind your back.
-- **Your own provider** implements `IImagingProvider` or `IFileToTextProvider`, and is named by its full
-  type name in `TypeName`; no calling code changes.
+- **Your own provider** implements `IImagingProvider` or `IFileToTextProvider`, and is named by its
+  assembly-qualified name in `TypeName` ([§35.2](#352-a-provider-of-your-own)); no calling code changes.
+
+## 35. Relatude Services
+
+Relatude Services is a hosted service run by Relatude at <https://services.relatude.com>. It gathers
+the third-party services an application tends to need into one account: language models for
+embeddings and completions, image AI, reading the text of documents and pictures, and sending text
+messages. Relatude holds the agreements with the vendors behind them, their API keys and their
+bills. You hold one account, one license and one API key, and every call is paid for with credits on
+that license.
+
+That is all it is for: convenience. Without it, an application that wants semantic search, image
+descriptions, OCR and text messages signs up with a model vendor, an image service, an OCR service
+and an SMS gateway, accepts four sets of terms, keeps four keys secret on every server and follows
+four invoices. With it, an installation is given one API key and has all of them, and the admin UI
+has a page to test each one.
+
+### 35.1 A license is not needed
+
+**Relatude.DB runs fully without a license.** The engine, the admin UI and everything else in this
+manual work the same with or without one: nothing expires, nothing is held back, and no part of the
+database waits for a key. A license only connects an installation to Relatude Services. The license
+itself is free; what costs money is the credits the hosted services are paid with.
+
+Every service Relatude Services offers stands behind an interface in Relatude.DB. Implement the
+interface yourself - against a vendor account of your own, a model on your own hardware, or any code
+you like - name your class in the database's settings, and application code calls it exactly as it
+would call the hosted service. `db.SMS.SendAsync(...)` does not change when the gateway does.
+
+| Service | Reached through | Interface | Settings | Paid from, with Relatude Services | Built-in alternatives |
+|---|---|---|---|---|---|
+| Embeddings and completions | `db.AI` | `IAIProvider` | `AISettings` | `ai_embeddings`, `ai_completion` | `AzureAIProvider`, `OpenAIProvider` (any OpenAI-compatible endpoint, a local Ollama included), `AnthropicAIProvider` - see [§12.1](#aisettings--embeddings-completions-and-the-vector-index) |
+| Image AI | `db.Imaging` | `IImagingProvider` | `ImagingSettings` | `ai_image` | none |
+| Files to text, OCR included | `db.FileToText` | `IFileToTextProvider` | `FileToTextSettings` | `filetotext` | none |
+| Text messages | `db.SMS` | `ISMSProvider` | `SMSSettings` | `sms` | none |
+| Signing in to the admin UI with a Relatude account | the login page | none | `AllowLicenseeAdminLogin` | nothing, it is free | the master login, `MasterUserName` and `MasterPassword` ([§12](#the-admin-ui)) |
+
+The interfaces are in the namespaces `Relatude.DB.AI`, `Relatude.DB.Imaging`, `Relatude.DB.FileToText`
+and `Relatude.DB.SMS`, and what each method does is in [§34](#34-ai-services) and in their own
+comments.
+
+Without an API key nothing is charged and the server does not report in. A database on a server has
+`db.Imaging` and `db.FileToText` pointed at the hosted services from the start, since they need no
+settings, but a call that would be charged throws without a key, saying so, before anything leaves
+the server. `db.AI` and `db.SMS` are only there when `AISettings` and `SMSSettings`
+are set.
+
+### 35.2 A provider of your own
+
+A text message gateway of your own, as an example:
+
+```csharp
+using System.Net.Http.Json;
+using Relatude.DB.SMS;
+
+namespace MyApp.Messaging;
+
+public sealed class MyGatewaySmsProvider(SMSProviderSettings settings) : ISMSProvider {
+    readonly HttpClient _http = new();
+
+    public string Name => "My gateway";
+
+    public async Task<SmsReceipt> SendAsync(string to, string message, string? from = null,
+        string? reference = null, CancellationToken cancellationToken = default) {
+        using var request = new HttpRequestMessage(HttpMethod.Post, settings.ServiceUrl) {
+            Content = JsonContent.Create(new { to, text = message, from = from ?? settings.From }),
+        };
+        request.Headers.Add("Authorization", "Bearer " + settings.ApiKey);
+        using var response = await _http.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var messageId = await response.Content.ReadAsStringAsync(cancellationToken);
+        return new SmsReceipt(messageId, to, Parts: 1, Credits: 0, CreditsLeft: 0, reference);
+    }
+
+    public Task<SmsQuote> QuoteAsync(string to, string message, CancellationToken cancellationToken = default)
+        => Task.FromResult(new SmsQuote(to, Parts: 1, Credits: 0, Unicode: false, Characters: message.Length));
+
+    public void Dispose() => _http.Dispose();
+}
+```
+
+```jsonc
+{
+  // one database in ContainerSettings, in relatude.db.json
+  "SMSSettings": {
+    "TypeName": "MyApp.Messaging.MyGatewaySmsProvider, MyApp",
+    "ServiceUrl": "https://sms.example.com/send",
+    "From": "MyShop"
+    // ApiKey: in the RelatudeDB configuration section, not in this file
+  }
+}
+```
+
+The same holds for all four kinds:
+
+- **`TypeName` is the assembly-qualified name**, `Namespace.Type, Assembly`, since the type lives in
+  your application and is looked up by name when the database opens. In `ImagingSettings`,
+  `FileToTextSettings` and `SMSSettings` an empty `TypeName`, or `RelatudeServices`, is the hosted
+  service; in `AISettings` an empty one is Azure OpenAI, and `RelatudeServices` the hosted service.
+- **A public constructor takes the settings of its kind**: `AIProviderSettings`,
+  `ImagingProviderSettings`, `FileToTextProviderSettings` or `SMSProviderSettings`. So `ServiceUrl`,
+  `ApiKey` and the rest reach your class from the same place, and the same settings page, as they
+  reach the built-in ones. Keep the key in the `RelatudeDB` configuration section
+  ([§12.2](#appsettings-environment-variables-and-secrets)), as for any secret.
+- **One instance serves the whole database.** It is built when the database opens, so a type that
+  cannot be built stops the open with the reason rather than failing at the first call. It is called
+  from many threads at once, and disposed when the database closes.
+- **Offer only what you have.** `ISMSProvider`'s batch methods have defaults that throw
+  `NotSupportedException`. An `IImagingProvider` of your own throws it from the operations it does
+  not do, and leaves them out of what `GetOperationsAsync` lists. The price fields of the answers,
+  `Credits` and `CreditsLeft`, belong to the hosted services; leave them at 0.
+- **A store built from code**, without a server, is given its SMS, imaging and file-to-text providers
+  in the constructor: `new NodeStore(datastore, sms: new MyGatewaySmsProvider(settings))`, with
+  `imaging:` and `fileToText:` beside it.
+
+### 35.3 The account at services.relatude.com
+
+The account is made by signing in at <https://services.relatude.com> with a Google or Microsoft
+account, a passkey or a code sent by text message. It holds:
+
+| Page | What it holds |
+|---|---|
+| **Licenses** | Issued by you, free, as many as you need: one per customer or project, say. |
+| **API keys** | Each license has its own, which you create, name and delete. An installation needs one, and nothing else: the license key is looked up from it. Give each server its own, so one can be deleted without stopping the rest. |
+| **Credits** | One credit account per service, named as in the table above, each showing what has been used this month, how much there is, and whether it renews each month or is held once. A call to a service the license has no credit account for, or no credits left on, is refused before anything is charged. |
+| **Access** | Who may see and use a license: its owners, managers who come from an organization, and developers. Everyone with access can sign in to the installations running under the license once they are approved. |
+| **Installations** | Every installation that has reported in under the license, and the addresses each may be signed in from. |
+| **SMS senders** | The names text messages may go out as, asked for and approved one at a time. A message that names its own sender is only sent when that sender is approved; one that names none goes out as the service's own. |
+| **Uptime** | For a license that has it: its installations are watched, and the people you choose are sent a text message when one changes state. |
+
+What a call costs, what is kept and given again at a lower price, and which errors may have been
+charged are the same for every hosted service; [§34.4](#344-prices-answers-kept-and-errors) has them.
+
+### 35.4 Connecting an installation
+
+The admin UI's **Relatude Services** page, in the server menu, does it:
+
+1. **Create a license** opens the portal on a pairing: sign in, pick a license or make one, and its
+   API key comes back to the installation by itself. Or copy an API key from the license's page in
+   the portal and paste it; the page checks it with the license server before saving it.
+2. The page then shows whether the license is valid and what it carries, and has a test view for each
+   service: SMS, AI, imaging and file to text. The tests make real calls, so they are charged.
+3. The switch **Allow sign-in with Relatude Services** adds *Sign in with Relatude Services* to the
+   login page. Who gets in is decided in the portal: anyone with access to the license. The master
+   login is not affected, and turning the switch off ends those sessions at once.
+
+**Remove license** takes the installation out from under the license again: it clears the keys and
+turns the sign-in off.
+
+The API key lets whoever holds it spend the license's credits, so on a server keep it out of
+`relatude.db.json`, like the other secrets ([§12.2](#122-what-goes-where-source-control-deployment-and-appsettings)):
+
+```bash
+dotnet user-secrets set "RelatudeDB:ApiKey" "…"
+```
+
+```text
+# a server: an environment variable, or an application setting on Azure App Service
+RelatudeDB__ApiKey=…
+```
+
+A key that configuration sets is locked on the page, and is changed or removed where it is set. The
+settings involved are listed under [Server level](#server-level) in §12.1.
+
+#### Reporting in
+
+With an API key, the installation reports in to the license server shortly after it starts and every
+ten minutes after that. A report carries the API key, the installation key, the server and machine
+name, the build version and the total number of nodes in the open databases. It carries no stored
+content, no queries and nothing about the people using the database. The answer says whether the
+license is valid; the server records it and acts on none of it, so a license that lapses, or a
+license server out of reach, never stops a database. `"DisableHeartbeat": true` in `relatude.db.json`
+stops the reports. It is left off the settings pages on purpose.
 
 ---
 
@@ -6206,6 +6401,7 @@ your build, read the source — it is small and well commented:
 | Logs, statistics and HyperLogLog | `src/Relatude.DB.Logger/Logging/` — `ICustomLogs.cs`, `LogSettings.cs`, `LogValues.cs`, `Statistics/HyperLogLog.cs` |
 | GraphQL endpoints | `src/Relatude.DB.GraphQL/` — `Definitions/GraphQLEndpointDefinition.cs`, `GraphQLOptions.cs`, `Schema/SchemaBuilder.cs`, `Endpoints/GraphQLHttpHandler.cs`; the server side in `src/Relatude.DB.NodeServer/NodeServer/GraphQL/` |
 | AI services | `src/Relatude.DB.DataStore/AI/IAIProvider.cs`, `Imaging/IImagingProvider.cs`, `FileToText/IFileToTextProvider.cs`; the hosted services' clients in `src/Relatude.DB.Providers/` |
+| Relatude Services | `src/Relatude.DB.DataStore/SMS/ISMSProvider.cs` and the three above; the keys, the sign-in and reporting in in `src/Relatude.DB.NodeServer/NodeServer/LicenseLogin.cs` |
 
 For measured numbers rather than API surface, see the
 [vector index benchmarks](vector-matrix.html) — a matrix sweep of the three vector engines over
