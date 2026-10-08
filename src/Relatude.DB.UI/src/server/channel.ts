@@ -46,7 +46,9 @@ export async function send<T = unknown>(type: string, payload?: unknown, signal?
     }
     throw new CommandError(message, response.status);
   }
-  return (await response.json()) as T;
+  // a command that answers null sends no body at all, which response.json() refuses
+  const text = await response.text();
+  return (text ? JSON.parse(text) : null) as T;
 }
 
 /**

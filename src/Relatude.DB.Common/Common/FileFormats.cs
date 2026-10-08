@@ -13,43 +13,47 @@ public enum FileType {
     Meta,
 }
 
+// The numbers are written into conversion cache keys and into the adjustment inside encoded asset
+// URLs, so they are fixed: renumbering one gives every conversion of it a new key (all of them are
+// converted again) and makes URLs already handed out decode to another format. Add new formats at
+// the end with the next free number, wherever they read best in the list.
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum FileFormat {
     // Image formats
-    Jpeg,
-    Png,
-    Gif,
-    Bmp,
-    Svg,
-    Webp,
-    Avif,
-    Image, // adaptive format for images, can be any of the above
+    Jpeg = 0,
+    Png = 1,
+    Gif = 2,
+    Bmp = 3,
+    Svg = 4,
+    Webp = 5,
+    Avif = 6,
+    Image = 7, // adaptive format for images, can be any of the above
     // Video formats
-    Mp4,
-    Avi,
-    Mov,
-    Wmv,
-    Mkv,
-    Flv,
+    Mp4 = 8,
+    Avi = 9,
+    Mov = 10,
+    Wmv = 11,
+    Mkv = 12,
+    Flv = 13,
     // Audio formats
-    Mp3,
-    Wav,
-    Aac,
-    Flac,
+    Mp3 = 14,
+    Wav = 15,
+    Aac = 16,
+    Flac = 17,
     // Document formats
-    Pdf,
-    Doc,
-    Docx,
-    Xls,
-    Xlsx,
-    Ppt,
-    Pptx,
-    Txt,
+    Pdf = 18,
+    Doc = 19,
+    Docx = 20,
+    Xls = 21,
+    Xlsx = 22,
+    Ppt = 23,
+    Pptx = 24,
+    Txt = 25,
     // Meta formats
-    FileMetaJson,
+    FileMetaJson = 26,
     //AiMeta,    
     // Other formats can be added here
-    Unknown,
+    Unknown = 27,
 }
 public static class FileFormatUtil {
     public static FileType GetFileType(string fileNameWithExtension) {

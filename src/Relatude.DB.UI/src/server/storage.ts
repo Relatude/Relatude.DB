@@ -62,10 +62,12 @@ export function fetchDbFileInfo(storeId: string): Promise<DbFileInfo> {
   return send<DbFileInfo>("db-file-info", { storeId });
 }
 
-// the existing (authenticated) database download endpoints; the truncated variant rewrites
-// the store to a temp file first, so the download starts once the rewrite is done
-export function databaseDownloadUrl(storeId: string, truncated: boolean): string {
-  return `${adminBase}/maintenance/${truncated ? "download-truncated-db" : "download-full-db"}?storeId=${storeId}&namePrefix=`;
+// the existing (authenticated) database download endpoints; the truncated variant rewrites the
+// store to a temp file and sends it while it is being written. Given a task id, it attaches the
+// rewrite and the transfer to that task on the board, for a progress dialog to follow.
+export function databaseDownloadUrl(storeId: string, truncated: boolean, taskId: string | null = null): string {
+  const url = `${adminBase}/maintenance/${truncated ? "download-truncated-db" : "download-full-db"}?storeId=${storeId}&namePrefix=`;
+  return taskId ? `${url}&taskId=${taskId}` : url;
 }
 
 export function fetchMaintenanceInfo(storeId: string): Promise<MaintenanceInfo> {

@@ -113,6 +113,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const convertedKey = `converted:${db.id}`;
   const storageDownloadKey = `storage-download:${db.id}`;
   const uploadKey = `db-upload:${db.id}`;
+  const dbDownloadKey = `db-download:${db.id}`;
   const demoTask = useProgressTask(demoKey);
   const truncateTask = useProgressTask(truncateKey);
   const wikiTask = useProgressTask(wikiKey);
@@ -125,6 +126,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const convertedTask = useProgressTask(convertedKey);
   const storageDownloadTask = useProgressTask(storageDownloadKey);
   const uploadTask = useProgressTask(uploadKey);
+  const dbDownloadTask = useProgressTask(dbDownloadKey);
   const demoRunning = demoTask?.status === "running";
   const truncateRunning = truncateTask?.status === "running";
   const wikiRunning = wikiTask?.status === "running";
@@ -137,6 +139,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const convertedRunning = convertedTask?.status === "running";
   const storageDownloadRunning = storageDownloadTask?.status === "running";
   const uploadRunning = uploadTask?.status === "running";
+  const dbDownloadRunning = dbDownloadTask?.status === "running";
 
   const load = useCallback(() => {
     fetchBackupList(db.id)
@@ -653,13 +656,26 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       { confirmLabel: "Download", option: { label: "Truncated version (current state only)", checked: false } },
     );
     if (!choice.ok) return;
-    const link = document.createElement("a");
-    link.href = databaseDownloadUrl(db.id, choice.option);
-    link.download = "";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    if (choice.option) setDbFileMessage("Preparing the truncated copy — the download starts when the rewrite is done.");
+    if (!choice.option) {
+      startDownload(databaseDownloadUrl(db.id, false));
+      return;
+    }
+    // The truncated copy is a rewrite on the server, sent while it is being written: the browser's
+    // own download starts with the first bytes, and this dialog follows the rewrite and then the
+    // transfer on the task board until the last byte has gone out. Nothing stops the rewrite once it
+    // has started; the download itself can be stopped in the browser, which the dialog then says.
+    const done = await runWithProgress(
+      `Download ${db.name} (truncated)`,
+      async (ctl) => {
+        ctl.set({ label: "Starting the rewrite…" });
+        startDownload(databaseDownloadUrl(db.id, true, ctl.taskId));
+        // the request may not have reached the server by the first look: give it a while to
+        const job = await waitForSharedJob(ctl, 1000, 30_000);
+        return job?.message ?? "Downloaded.";
+      },
+      { minimizable: true, key: dbDownloadKey, cancellable: false },
+    );
+    if (done) setDbFileMessage(done);
   }
 
   async function onUploadDatabase(list: FileList | null) {
@@ -789,10 +805,14 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
               </div>
             </div>
             <div className="process-action">
-              <button className="action-button" onClick={onDownloadDatabase}>
+              <button className="action-button" onClick={onDownloadDatabase} disabled={dbDownloadRunning}>
                 <IconDatabaseExport size={14} stroke={1.8} /> Download database
               </button>
-              <span className="muted">a complete copy with history, or a truncated version</span>
+              <span className="muted">
+                {dbDownloadRunning
+                  ? `${dbDownloadTask?.label || "downloading"}${dbDownloadTask?.meta ? " · " + dbDownloadTask.meta : ""}`
+                  : "a complete copy with history, or a truncated version"}
+              </span>
             </div>
             <div className="process-action">
               <button className="action-button" onClick={() => uploadInput.current?.click()} disabled={uploadRunning}>
@@ -1158,6 +1178,16 @@ const maxListedMissing = 200;
 const maxListedDuplicates = 50;
 
 // what a file storage holds, in one line: the folder it is, or the file it appends to
+/** Hands a url to the browser to download, the way a click on a download link does. */
+function startDownload(url: string) {
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
 function storageHint(storage: FileStorageInfo): string {
   const where = storage.folder ?? storage.files.map((f) => f.key).join(", ");
   return storage.type + (where ? " · " + where : "");

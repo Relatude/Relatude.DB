@@ -9,11 +9,32 @@ using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
-    Guid _startUpGuid = Guid.NewGuid();
-    string getFileVersionId(FileValue fileValue) {
-        // return (fileValue.Hash + _startUpGuid).GenerateHashUInt().ToString();
-        return fileValue.Hash.GetShortHashForUrl(_startUpGuid);
+    /// <summary>
+    /// The version in a file URL, there to change the URL when what it serves changes, as the response
+    /// may be cached for 30 days. It is made from the file's content and the conversion cache generation
+    /// (<see cref="FileConversionEngine.CacheGeneration"/>, kept with the converted files and replaced when
+    /// they are deleted), plus, for an adaptive image, the default format and quality it resolves with.
+    /// It used to be seeded by an id made at every start, which gave every file a new URL after each
+    /// restart, so every browser and CDN fetched every picture again.
+    /// </summary>
+    string getFileVersionId(FileValue fileValue, FileAdjustmentBase? adj = null) {
+        var content = string.IsNullOrEmpty(fileValue.Hash) ? fileValue.FileId.ToString("N") : fileValue.Hash;
+        return content.GetShortHashForUrl(versionSeed(adj));
     }
+    Guid versionSeed(FileAdjustmentBase? adj) {
+        var generation = _fileConversionEngine.CacheGeneration;
+        if (adj is not FileAdjustmentImage { RequestedFormat: FileFormat.Image or FileFormat.Unknown }) return generation;
+        // the defaults are live settings, so the same URL would otherwise go on serving the old format and quality
+        var format = _settings.ImageDefaultFormat;
+        var quality = _settings.ImageDefaultQuality;
+        var last = _adaptiveVersionSeed;
+        if (last != null && last.Generation == generation && last.Format == format && last.Quality == quality) return last.Seed;
+        var seed = generation.CombineHashGuid(("adaptive image " + format + " " + quality).GenerateHashGuid());
+        _adaptiveVersionSeed = new(generation, format, quality, seed);
+        return seed;
+    }
+    sealed record adaptiveVersionSeed(Guid Generation, ImageDefaultFormat Format, int Quality, Guid Seed);
+    adaptiveVersionSeed? _adaptiveVersionSeed;
 
     public bool TryParseUrl(string url, [MaybeNullWhen(false)] out UrlKeys result, QueryContext? ctx = null) {
         return _urls.TryParseUrl(url, out result, ctx ?? _defaultQueryCtx);
@@ -79,7 +100,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (fileValue.IsEmpty || fileValue.PropertyPath == null) {
             throw new Exception($"Property at path {propertyPath} does not contain a file.");
         }
-        return _urls.GetUrl(fileValue.PropertyPath, adj, getFileVersionId(fileValue), absolute, fileValue.Name);
+        return _urls.GetUrl(fileValue.PropertyPath, adj, getFileVersionId(fileValue, adj), absolute, fileValue.Name);
     }
 
     public async Task<Stream> GetFileStream(string url, int maxWait = -1, QueryContext? ctx = null) {

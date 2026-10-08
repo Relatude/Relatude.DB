@@ -92,12 +92,21 @@ export function cancelSharedTask(id: string): Promise<unknown> {
  * Waits for the job a command attached to this task - a truncation, a backup - showing what it says
  * as it goes. Resolves with its last word when it is done, throws when it failed. No job at all (a
  * command that ran its work there and then, or a server that does not attach) counts as done.
+ * `attachWithinMs` is for a job started by something other than a command that has returned - a
+ * download the browser fetches - which may not have reached the server yet: no job is then waited
+ * for that long, and only still none after it is a failure.
  */
-export async function waitForSharedJob(ctl: ProgressController, everyMs = 1000): Promise<SharedJob | null> {
+export async function waitForSharedJob(ctl: ProgressController, everyMs = 1000, attachWithinMs = 0): Promise<SharedJob | null> {
   if (!ctl.taskId) return null;
+  const started = Date.now();
   for (;;) {
     if (ctl.signal.aborted) throw new DOMException("Aborted", "AbortError");
     const job = await send<SharedJob | null>("shared-task-job", { id: ctl.taskId });
+    if (!job && attachWithinMs > 0) {
+      if (Date.now() - started > attachWithinMs) throw new Error("The server did not start on it.");
+      await new Promise((r) => setTimeout(r, Math.min(everyMs, 250)));
+      continue;
+    }
     if (!job) return null;
     if (job.status === "running") {
       ctl.set({ label: job.label ?? "", ...(job.total != null ? { done: job.done, total: job.total } : {}), meta: job.meta });

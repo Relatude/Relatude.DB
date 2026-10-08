@@ -29,24 +29,46 @@ public class FileConversionEngine : IDisposable {
         _scheduler = new FileConversionScheduler(pulse, ex => Store.LogError("File conversion scheduler error: ", ex));
         _scheduler.Start();
     }
+    /// <summary>Files in the temp folder not written to for this long are left over from conversions
+    /// that never completed. A conversion writing its output keeps its file younger than this.</summary>
+    static readonly TimeSpan _staleTempFileAge = TimeSpan.FromHours(1);
+    /// <summary>
+    /// Removes what conversions that never completed left in the temp folder. Only stale files: the
+    /// store calls this on every open, reopens included, while the engine - which lives as long as the
+    /// store - may be converting, and another process sharing the cache (an overlapping recycle, a
+    /// scaled out instance) may be writing there too. Emptying the whole folder failed their conversions.
+    /// </summary>
     public void ClearTempFolder() {
-        if(_localTempFolderPath == null) return;
-        if (Directory.Exists(_localTempFolderPath)) {
-            var fileCount = Directory.GetFiles(_localTempFolderPath).Length;
-            Store.Log(SystemLogEntryType.Info, "Clearing temp folder for file conversions. " + fileCount + " files to delete. ");
+        int deleted = 0, kept = 0;
+        if (_localTempFolderPath == null) {
             try {
-                Directory.Delete(_localTempFolderPath, true);
+                (deleted, kept) = _fileCache.DeleteStaleTempFiles(_staleTempFileAge);
             } catch (Exception ex) {
                 Store.LogError("Failed to clear temp folder for file conversions. ", ex);
+                return;
+            }
+        } else if (Directory.Exists(_localTempFolderPath)) {
+            var cutoff = DateTime.UtcNow - _staleTempFileAge;
+            foreach (var file in Directory.EnumerateFiles(_localTempFolderPath, "*", SearchOption.AllDirectories)) {
+                try {
+                    if (File.GetLastWriteTimeUtc(file) > cutoff) {
+                        kept++;
+                        continue;
+                    }
+                    File.Delete(file);
+                    deleted++;
+                } catch {
+                    kept++; // held open: still being written
+                }
             }
         } else {
-            Store.Log(SystemLogEntryType.Info, "Clearing temp folder for file conversions. 0 files to delete. ");
+            try {
+                Directory.CreateDirectory(_localTempFolderPath);
+            } catch (Exception ex) {
+                Store.LogError("Failed to create temp folder for file conversions. ", ex);
+            }
         }
-        try {
-            Directory.CreateDirectory(_localTempFolderPath);
-        } catch (Exception ex) {
-            Store.LogError("Failed to recreate temp folder for file conversions. ", ex);
-        }
+        if (deleted + kept > 0) Store.Log(SystemLogEntryType.Info, "Cleared temp folder for file conversions. " + deleted + " stale files deleted, " + kept + " recent files kept. ");
     }
     bool tryReserveWork(ProgressEntry entry) {
         try {
@@ -65,7 +87,12 @@ public class FileConversionEngine : IDisposable {
                         entry.Started = DateTime.UtcNow;
                         entry.Stopwatch = Stopwatch.StartNew();
                     }
-                    var progress = await doConvertWork(entry);
+                    // A request can miss the cache just before a run of the same conversion completes and
+                    // queue it again, and another process sharing the cache may have converted it: either
+                    // way it is done, and running it again would only redo the work.
+                    var progress = _fileCache.TryGetStatusNoStream(entry.FileInfo.IdWithAdjustment, out var cached) && cached.Status == FileConversionStatus.Ready
+                        ? cached
+                        : await doConvertWork(entry);
                     switch (progress.Status) {
                         case FileConversionStatus.Ready:
                             entry.Stopwatch?.Stop();
@@ -87,7 +114,7 @@ public class FileConversionEngine : IDisposable {
                                 if (cancelationRequested) {
                                     if (cancelationRequestedPermanently) {
                                         _conversions.Remove(entry, ConversionStatus.Canceled, "Conversion permanently canceled by user. ");
-                                        _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment, progress.Message ?? "Canceled permanently. ");
+                                        _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment, progress.Message ?? "Canceled permanently. ", permanent: true);
                                     } else {
                                         _conversions.Remove(entry, ConversionStatus.Canceled, "Conversion canceled by user. ");
                                     }
@@ -114,7 +141,7 @@ public class FileConversionEngine : IDisposable {
                         string msg;
                         if (cancelationRequestedPermanently) {
                             msg = ex is OperationCanceledException excan ? "Conversion permanently canceled: " + excan.Message : "Conversion permanently canceled by user. ";
-                            _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment, "Canceled permanently. ");
+                            _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment, "Canceled permanently. ", permanent: true);
                         } else {
                             msg = ex is OperationCanceledException excan ? "Conversion canceled: " + excan.Message : "Conversion canceled by user. ";
                         }
@@ -226,6 +253,24 @@ public class FileConversionEngine : IDisposable {
         _statusCache.ClearAll_NotSize0();
     }
     Cache<Guid, byte[]> _statusCache = new(1024 * 1024 * 10); // 10mb for status responses, which are usually small and can be expensive to generate
+    /// <summary>
+    /// The status picture under the key, rendered when it is not cached. Stored with its real size:
+    /// Cache.GetOrCreate stores size 0, which the cache reserves for entries it must never evict, so
+    /// the 10mb budget never applied and every status ever rendered (each progress step, remaining
+    /// time and canvas size) stayed for the life of the process.
+    /// </summary>
+    Stream statusResponse(string uniqueStatusKey, Func<byte[]> render) {
+        var key = uniqueStatusKey.GenerateHashGuid();
+        if (!_statusCache.TryGet(key, out var bytes)) {
+            bytes = render();
+            _statusCache.Set(key, bytes, Math.Max(1, bytes.Length));
+        }
+        return new MemoryStream(bytes, writable: false); // the cached array, shared by every request
+    }
+    /// <summary>A status picture stands in for the result at its size, but is never rendered larger than
+    /// this on either side (keeping the aspect): the browser scales it, and a canvas of the largest
+    /// size an adjustment allows takes hundreds of megabytes to render.</summary>
+    const int _maxStatusSide = 1920;
 
     // status response colors, image or video
     const string errorBgColor = "#FFBBBB";
@@ -246,15 +291,13 @@ public class FileConversionEngine : IDisposable {
             var text = new List<string> { "UNSUPPORTED CONVERSION", string.Empty, err.Message };
             var uniqueStatusKey = string.Join("|", text);
             if (baseRequestedFormat == FileType.Image && _fileConverters.TryGetConverter(new(FileFormat.Png), out var imgConv)) {
-                var bytes = _statusCache.GetOrCreate(uniqueStatusKey.GenerateHashGuid(),
+                return statusResponse(uniqueStatusKey,
                     () => imgConv.CreateStatusResponse(FileFormat.Png, 320, 240, text, errorTextColor, errorBgColor)
                 );
-                return new MemoryStream(bytes);
             } else if (baseRequestedFormat == FileType.Video && _fileConverters.TryGetConverter(new(FileFormat.Mp4), out var vidConv)) {
-                var bytes = _statusCache.GetOrCreate(uniqueStatusKey.GenerateHashGuid(),
+                return statusResponse(uniqueStatusKey,
                     () => vidConv.CreateStatusResponse(FileFormat.Mp4, 320, 240, text, errorTextColor, errorBgColor)
                 );
-                return new MemoryStream(bytes);
             } else {
                 // no converter to represent base format requested
                 throw;
@@ -270,6 +313,11 @@ public class FileConversionEngine : IDisposable {
         }
         int width = (adj as FileAdjustmentVideo)?.Width ?? (adj as FileAdjustmentImage)?.Width ?? 320;
         int height = (adj as FileAdjustmentVideo)?.Height ?? (adj as FileAdjustmentImage)?.Height ?? 240;
+        if (width > _maxStatusSide || height > _maxStatusSide) {
+            var scale = Math.Min((double)_maxStatusSide / width, (double)_maxStatusSide / height);
+            width = Math.Max(1, (int)(width * scale));
+            height = Math.Max(1, (int)(height * scale));
+        }
 
         // avoid looking for better status if generating status is CPU costly, cache key will be more coarse, thus less costly generations
         var lookForBetterStatus = baseRequestedFormat switch {
@@ -321,10 +369,9 @@ public class FileConversionEngine : IDisposable {
         }
 
         var uniqueStatusKey = string.Join("|", text) + "|" + adj.RequestedFormat.ToString().ToUpper() + "|" + width + "x" + height;
-        var bytes = _statusCache.GetOrCreate(uniqueStatusKey.GenerateHashGuid(),
+        return statusResponse(uniqueStatusKey,
             () => converter.CreateStatusResponse(adj.RequestedFormat, width, height, text, textColor, fillColor)
         );
-        return new MemoryStream(bytes);
     }
     public void Start() {
         if (_disposed) return; // never resurrect the heartbeat of a disposed engine
@@ -337,6 +384,9 @@ public class FileConversionEngine : IDisposable {
     public void ClearQueue() {
         _conversions.ClearAll();
     }
+    /// <summary>The id file URLs derive their version from, kept with the converted files and replaced
+    /// when they are all deleted. See <see cref="FileConversionCache.Generation"/>.</summary>
+    public Guid CacheGeneration => _fileCache.Generation;
     public FileConverterLibrary ConverterLibrary => _fileConverters;
     public string LocalTempFolderPath => _localTempFolderPath ?? throw new Exception("Local temp folder path is not available. ");
 
@@ -382,7 +432,7 @@ public class FileConversionEngine : IDisposable {
                 } else {
                     _conversions.Remove(entry, ConversionStatus.Canceled, "Conversion canceled by user. ");
                     if (permanently) {
-                        _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment, "Canceled permanently. ");
+                        _fileCache.SaveErrorStatus(entry.FileInfo.IdWithAdjustment, "Canceled permanently. ", permanent: true);
                     }
                 }
             }

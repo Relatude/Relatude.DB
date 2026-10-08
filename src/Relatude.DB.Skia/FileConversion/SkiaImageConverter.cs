@@ -12,7 +12,7 @@ public class SkiaImageConverter : ImageConverterBase {
     bool _isNotLinuxOs;
     public override bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed) {
         if (_isNotLinuxOs && (outDetailed == FileFormat.Avif)) {
-            return false;  // SkiaSharp on Linux does not support AVIF encoding as of now, so we return false for AVIF output on Linux.
+            return false;  // only SkiaSharp's Linux build is relied on to encode AVIF: on Windows (SkiaSharp 3.119) Encode returns null for it
         }
         return base.SupportsConversion(inBase, inDetailed, outBase, outDetailed);
     }

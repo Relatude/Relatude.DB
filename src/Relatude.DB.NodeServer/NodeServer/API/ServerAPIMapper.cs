@@ -222,19 +222,18 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             var stream = ReadStreamWrapper.Wrap(ioStream);
             return Results.File(stream, contentType, fileKey.FileName(), null, null, true);
         });
-        app.MapGet(path("download-truncated-db"), (Guid storeId, string namePrefix) => {
+        // sent while the rewrite is still writing it (see TruncatedDownload); taskId is the admin UI's
+        // progress dialog, which follows the rewrite and the transfer on the task board
+        app.MapGet(path("download-truncated-db"), (HttpContext ctx, Guid storeId, string namePrefix, Guid? taskId) => {
             namePrefix = string.Concat(namePrefix.Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == ' ' || c == '.'));
             if (namePrefix.Length > 100) namePrefix = namePrefix.Substring(0, 100);
             if (namePrefix.Length > 0 && !namePrefix.EndsWith(" ")) namePrefix += " ";
-            string[] fileKey = [Guid.NewGuid().ToString()];
-            db(storeId).Datastore.RewriteStore(false, fileKey, server.TempIO);
-            var ioStream = server.TempIO.OpenRead(fileKey, 0);
-            var stream = ReadStreamWrapper.Wrap(ioStream);
+            var datastore = db(storeId).Datastore;
             var name = container(storeId).Settings.Name;
             if (string.IsNullOrEmpty(name)) name = "Database";
             var fileName = name + " " + DateTime.UtcNow.ToString("yyyy-MM-dd HH-mm-ss") + ".bin";
-            //var fileName = FileKeyUtility.Log_NextFileKey(datastore.IO);
-            return Results.File(stream, MediaTypeHeaderValue.Parse("application/octet-stream").ToString(), namePrefix + fileName);
+            var task = server.UI?.Shared.RefOf(ctx, taskId, storeId, "Download " + name + " (truncated)");
+            return TruncatedDownload.SendAsync(ctx, server, datastore, namePrefix + fileName, task);
         });
         app.MapGet(path("download-full-db"), (Guid storeId, string namePrefix) => {
             namePrefix = string.Concat(namePrefix.Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == ' ' || c == '.'));
