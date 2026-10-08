@@ -50,8 +50,9 @@
 })();
 </script>
 <style>
-/* Black and white throughout, on the same grounds as intro.html / manual.html:
-   #ffffff in light, #111111 in dark. Light is the base palette; dark is applied
+/* Black and white throughout: #ffffff in light, as intro.html / manual.html,
+   and in dark #1e1e1e, a step lighter than their #111111 so the terrain and
+   the text carry more contrast here. Light is the base palette; dark is applied
    twice — under the system preference (unless the reader explicitly chose light)
    and under an explicit data-theme="dark". The two dark blocks are identical.
    The dark greys are neutral — no blue tint in any ground, scrim or glass.
@@ -122,64 +123,65 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #111111;
-    --surface: #171717;
-    --fg: #e6e6e6;
-    --fg-dim: #a2a2a2;
-    --fg-faint: #777777;
-    --border: #303030;
-    --border-soft: #252525;
-    --border-btn: #4d4d4d;
-    --bg-code: #1a1a1a;
-    --hover: #222222;
+    --bg: #1e1e1e;
+    --surface: #242424;
+    --fg: #f0f0f0;
+    --fg-dim: #bdbdbd;
+    --fg-faint: #8f8f8f;
+    --border: #3d3d3d;
+    --border-soft: #333333;
+    --border-btn: #5e5e5e;
+    --bg-code: #272727;
+    --hover: #2f2f2f;
     --logo-filter: invert(1);
-    --scrim-a: rgba(17,17,17,.88);
-    --scrim-b: rgba(17,17,17,.68);
-    --scrim-c: rgba(17,17,17,.22);
-    --glass: rgba(23,23,23,.66);
-    --glass-hover: rgba(34,34,34,.86);
-    --glass-code: rgba(26,26,26,.62);
-    --halo: 0 1px 16px rgba(17,17,17,.95), 0 0 3px rgba(17,17,17,.80);
+    --scrim-a: rgba(30,30,30,.88);
+    --scrim-b: rgba(30,30,30,.68);
+    --scrim-c: rgba(30,30,30,.22);
+    --glass: rgba(38,38,38,.66);
+    --glass-hover: rgba(52,52,52,.86);
+    --glass-code: rgba(40,40,40,.62);
+    --halo: 0 1px 16px rgba(30,30,30,.95), 0 0 3px rgba(30,30,30,.80);
     --logo-glow: rgba(6,6,6,.85);
     --logo-edge: rgba(6,6,6,.60);
     --vig-dark: 1;
     --vig-light: 0;
     --fallback:
       radial-gradient(20% 28% at 84% 28%, rgba(255,255,255,.16) 0%, rgba(255,255,255,0) 100%),
-      linear-gradient(to bottom, #050505 0%, #0f0f0f 40%, #202020 50%, #0c0c0c 58%, #111111 100%);
+      linear-gradient(to bottom, #141414 0%, #1c1c1c 40%, #303030 50%, #1a1a1a 58%, #1e1e1e 100%);
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #111111;
-  --surface: #171717;
-  --fg: #e6e6e6;
-  --fg-dim: #a2a2a2;
-  --fg-faint: #777777;
-  --border: #303030;
-  --border-soft: #252525;
-  --border-btn: #4d4d4d;
-  --bg-code: #1a1a1a;
-  --hover: #222222;
+  --bg: #1e1e1e;
+  --surface: #242424;
+  --fg: #f0f0f0;
+  --fg-dim: #bdbdbd;
+  --fg-faint: #8f8f8f;
+  --border: #3d3d3d;
+  --border-soft: #333333;
+  --border-btn: #5e5e5e;
+  --bg-code: #272727;
+  --hover: #2f2f2f;
   --logo-filter: invert(1);
-  --scrim-a: rgba(17,17,17,.88);
-  --scrim-b: rgba(17,17,17,.68);
-  --scrim-c: rgba(17,17,17,.22);
-  --glass: rgba(23,23,23,.66);
-  --glass-hover: rgba(34,34,34,.86);
-  --glass-code: rgba(26,26,26,.62);
-  --halo: 0 1px 16px rgba(17,17,17,.95), 0 0 3px rgba(17,17,17,.80);
+  --scrim-a: rgba(30,30,30,.88);
+  --scrim-b: rgba(30,30,30,.68);
+  --scrim-c: rgba(30,30,30,.22);
+  --glass: rgba(38,38,38,.66);
+  --glass-hover: rgba(52,52,52,.86);
+  --glass-code: rgba(40,40,40,.62);
+  --halo: 0 1px 16px rgba(30,30,30,.95), 0 0 3px rgba(30,30,30,.80);
   --logo-glow: rgba(6,6,6,.85);
   --logo-edge: rgba(6,6,6,.60);
   --vig-dark: 1;
   --vig-light: 0;
   --fallback:
     radial-gradient(20% 28% at 84% 28%, rgba(255,255,255,.16) 0%, rgba(255,255,255,0) 100%),
-    linear-gradient(to bottom, #050505 0%, #0f0f0f 40%, #202020 50%, #0c0c0c 58%, #111111 100%);
+    linear-gradient(to bottom, #141414 0%, #1c1c1c 40%, #303030 50%, #1a1a1a 58%, #1e1e1e 100%);
 }
 /* Full colour recolours only what belongs to the scene: the still shown in
    place of WebGL, and in the dark the scrim, which takes the night-blue of the
-   dawn sky instead of laying a neutral grey patch over it. Same selector
+   dawn sky instead of laying a neutral grey patch over it, and the deeper
+   #111111 grounds under the glass and the text. Same selector
    pattern as the dark blocks above; one extra attribute on each wins over them. */
 :root[data-colour="on"] {
   --fallback:
@@ -188,18 +190,28 @@
 }
 @media (prefers-color-scheme: dark) {
   :root[data-colour="on"]:not([data-theme="light"]) {
+    --bg: #111111;
     --scrim-a: rgba(9,12,26,.88);
     --scrim-b: rgba(9,12,26,.68);
     --scrim-c: rgba(9,12,26,.22);
+    --glass: rgba(23,23,23,.66);
+    --glass-hover: rgba(34,34,34,.86);
+    --glass-code: rgba(26,26,26,.62);
+    --halo: 0 1px 16px rgba(17,17,17,.95), 0 0 3px rgba(17,17,17,.80);
     --fallback:
       radial-gradient(20% 28% at 84% 28%, rgba(255,200,130,.30) 0%, rgba(255,200,130,0) 100%),
       linear-gradient(to bottom, #03060f 0%, #0b1026 40%, #3a2a3c 50%, #0c0f24 58%, #080b18 100%);
   }
 }
 :root[data-colour="on"][data-theme="dark"] {
+  --bg: #111111;
   --scrim-a: rgba(9,12,26,.88);
   --scrim-b: rgba(9,12,26,.68);
   --scrim-c: rgba(9,12,26,.22);
+  --glass: rgba(23,23,23,.66);
+  --glass-hover: rgba(34,34,34,.86);
+  --glass-code: rgba(26,26,26,.62);
+  --halo: 0 1px 16px rgba(17,17,17,.95), 0 0 3px rgba(17,17,17,.80);
   --fallback:
     radial-gradient(20% 28% at 84% 28%, rgba(255,200,130,.30) 0%, rgba(255,200,130,0) 100%),
     linear-gradient(to bottom, #03060f 0%, #0b1026 40%, #3a2a3c 50%, #0c0f24 58%, #080b18 100%);
@@ -242,8 +254,8 @@ body {
 .vig-dark {
   opacity: var(--vig-dark);
   background:
-    radial-gradient(125% 95% at 50% 42%, transparent 32%, rgba(13,13,13,.42) 72%, rgba(10,10,10,.72) 100%),
-    linear-gradient(to bottom, rgba(13,13,13,.45) 0%, transparent 22%, transparent 76%, rgba(10,10,10,.55) 100%);
+    radial-gradient(125% 95% at 50% 42%, transparent 36%, rgba(12,12,12,.22) 74%, rgba(10,10,10,.42) 100%),
+    linear-gradient(to bottom, rgba(12,12,12,.24) 0%, transparent 20%, transparent 78%, rgba(10,10,10,.30) 100%);
 }
 :root[data-colour="on"] .vig-dark {
   background:
@@ -1015,8 +1027,10 @@ footer a:hover { color: var(--fg); }
    channel of every entry is equal — so nothing in it ever picks up
    a tint; the light one keeps the faint cool cast the animation
    always had. `fog`, the horizon, is the flat ground the plain look
-   shows in place of a sky, so it sits on the docs grounds (#111111,
-   and near #ffffff).
+   shows in place of a sky, so it sits on the page grounds (#1e1e1e,
+   and near #ffffff). The dark ground is kept a step off black and the
+   ridges' ramp runs well above it, so the land reads with contrast
+   and the frame stays dark without going to black.
 
    The colour pair is the same scene with the colour left in: a dawn over night-blue ranges with gold light and
    rose-lit cloud, and a clear morning with blue distance and warm
@@ -1058,13 +1072,13 @@ footer a:hover { color: var(--fg); }
    ============================================================ */
 const THEMES = {
   dark: {
-    deep :[0.030,0.030,0.030], mid :[0.150,0.150,0.150], lit :[0.600,0.600,0.600],
-    hot  :[0.940,0.940,0.940], fog :[0.067,0.067,0.067], top :[0.016,0.016,0.016],
+    deep :[0.070,0.070,0.070], mid :[0.320,0.320,0.320], lit :[0.900,0.900,0.900],
+    hot  :[1.000,1.000,1.000], fog :[0.118,0.118,0.118], top :[0.030,0.030,0.030],
     sun  :[0.000,0.000,0.000], sunC:[1.000,1.000,1.000],
     cloLo:[0.022,0.022,0.022], cloHi:[0.080,0.080,0.080],
-    dust :[0.850,0.850,0.850], edge:[0.500,0.500,0.500], node:[0.960,0.960,0.960],
+    dust :[0.850,0.850,0.850], edge:[0.660,0.660,0.660], node:[0.980,0.980,0.980],
     pulse:[1.000,1.000,1.000], starC:[0.940,0.940,0.940], grid:[0.940,0.940,0.940],
-    bird :[0.012,0.012,0.012], snowC:[0.720,0.720,0.720], rainC:[0.600,0.600,0.600],
+    bird :[0.012,0.012,0.012], snowC:[0.780,0.780,0.780], rainC:[0.660,0.660,0.660],
     flakeC:[0.920,0.920,0.920], flashC:[1.000,1.000,1.000],
     noseC:[1.000,1.000,1.000], trailC:[0.950,0.950,0.950],
     // the plain look: no sky (sunI and cloud only matter while a change
@@ -1151,9 +1165,9 @@ const WEATHERS = Object.keys(WEATHER), WK = Object.keys(WEATHER.sunny);
 // `cloLo` / `cloHi` the dark and light of the deck.
 const WEATHER_SKY = {
   dark: {
-    storm: { top:[0.050,0.050,0.050], fog:[0.110,0.110,0.110], sun:[0.000,0.000,0.000],
+    storm: { top:[0.080,0.080,0.080], fog:[0.165,0.165,0.165], sun:[0.000,0.000,0.000],
              cloLo:[0.035,0.035,0.035], cloHi:[0.200,0.200,0.200] },
-    snow:  { top:[0.120,0.120,0.120], fog:[0.240,0.240,0.240], sun:[0.000,0.000,0.000],
+    snow:  { top:[0.150,0.150,0.150], fog:[0.270,0.270,0.270], sun:[0.000,0.000,0.000],
              cloLo:[0.075,0.075,0.075], cloHi:[0.160,0.160,0.160] }
   },
   light: {

@@ -56,7 +56,7 @@ internal sealed class WebpCodec : IImageCodec {
             if (kind != Frame || length < 16) continue;
             // the first frame of an animation, on its canvas
             int x = 2 * U24(data, offset), y = 2 * U24(data, offset + 3);
-            ImageLimits.ThrowIfTooLarge(canvasWidth, canvasHeight);
+            if ((long)canvasWidth * canvasHeight > Animation.MaxPixels) throw new ImageFormatException("WEBP canvas is too large.");
             var frame = Image(data, Chunks(data, offset + 16, offset + length), canvasWidth - x, canvasHeight - y);
             if (x == 0 && y == 0 && frame.Width == canvasWidth && frame.Height == canvasHeight) return frame;
             if (x + frame.Width > canvasWidth || y + frame.Height > canvasHeight) throw new ImageFormatException("WEBP frame lies outside its canvas.");
