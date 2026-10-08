@@ -180,7 +180,7 @@ function KeyPrompt({ rejected, current, onKey, cancel }: { rejected: boolean; cu
       <p className="muted">
         {rejected ? "That key was not accepted. " : ""}The key is sent with every request in the X-Api-Key header, and kept in this browser tab until it is closed.
       </p>
-      <input className="text-input" type="password" autoFocus autoComplete="off" placeholder="API key" value={value} onChange={(e) => setValue(e.target.value)} />
+      <input className="text-input secret-input" autoFocus autoComplete="off" spellCheck={false} data-1p-ignore data-lpignore="true" data-bwignore placeholder="API key" value={value} onChange={(e) => setValue(e.target.value)} />
       <div className="gxp-key-actions">
         <button type="submit" className="action-button primary" disabled={!value.trim()}>
           Use the key

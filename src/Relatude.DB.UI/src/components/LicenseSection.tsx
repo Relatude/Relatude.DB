@@ -356,11 +356,13 @@ function ApiKeyDialog({ status, onClose, onSaved }: { status: LicenseStatus; onC
             and paste it here.
           </p>
           <input
-            className="text-input"
-            type="password"
+            className="text-input secret-input"
             autoFocus
-            autoComplete="new-password"
+            autoComplete="off"
             spellCheck={false}
+            data-1p-ignore
+            data-lpignore="true"
+            data-bwignore
             value={apiKey}
             placeholder={status.hasApiKey ? "Paste the new API key" : "Paste the API key"}
             disabled={saving}

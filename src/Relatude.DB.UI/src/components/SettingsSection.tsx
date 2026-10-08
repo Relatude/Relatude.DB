@@ -1037,9 +1037,12 @@ function Editor({
   if (setting.secret) {
     return (
       <input
-        className="text-input"
-        type="password"
-        autoComplete="new-password"
+        className="text-input secret-input"
+        autoComplete="off"
+        spellCheck={false}
+        data-1p-ignore
+        data-lpignore="true"
+        data-bwignore
         value={asText(value)}
         placeholder={setting.hasValue ? "•••••••• (unchanged)" : (setting.placeholder ?? "not set")}
         disabled={disabled}

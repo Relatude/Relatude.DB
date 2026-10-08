@@ -2562,6 +2562,16 @@ a {
   outline: none;
 }
 
+/* API keys and other secrets: a plain text field drawn as dots. type="password" would make Chrome
+   offer to save it as a login password, whatever autocomplete says */
+.secret-input {
+  -webkit-text-security: disc;
+}
+
+.secret-input::placeholder {
+  -webkit-text-security: none;
+}
+
 .files-message {
   font-size: 12px;
 }
@@ -12919,7 +12929,6 @@ body.pg-resizing {
 
 /* what opens it: a quiet text link, muted until pointed at */
 .license-reveal-link {
-  align-self: flex-start;
   font-size: 12px;
   color: var(--text-muted);
   text-decoration: underline;
