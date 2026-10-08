@@ -55,8 +55,9 @@ internal sealed class WebpCodec : IImageCodec {
             if (kind == Extended && length >= 10) (canvasWidth, canvasHeight) = (U24(data, offset + 4) + 1, U24(data, offset + 7) + 1);
             if (kind != Frame || length < 16) continue;
             // the first frame of an animation, on its canvas
-            var frame = Image(data, Chunks(data, offset + 16, offset + length));
             int x = 2 * U24(data, offset), y = 2 * U24(data, offset + 3);
+            ImageLimits.ThrowIfTooLarge(canvasWidth, canvasHeight);
+            var frame = Image(data, Chunks(data, offset + 16, offset + length), canvasWidth - x, canvasHeight - y);
             if (x == 0 && y == 0 && frame.Width == canvasWidth && frame.Height == canvasHeight) return frame;
             if (x + frame.Width > canvasWidth || y + frame.Height > canvasHeight) throw new ImageFormatException("WEBP frame lies outside its canvas.");
             return frame.Pad(canvasWidth, canvasHeight, x, y, default);
@@ -93,7 +94,7 @@ internal sealed class WebpCodec : IImageCodec {
             if (kind == Anim && length >= 6) loops = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(offset + 4));
             if (kind != Frame || length < 16 || canvas == null) continue;
             int x = 2 * U24(data, offset), y = 2 * U24(data, offset + 3), flags = data[offset + 15];
-            var frame = Image(data, Chunks(data, offset + 16, offset + length));
+            var frame = Image(data, Chunks(data, offset + 16, offset + length), width - x, height - y);
             if (x + frame.Width > width || y + frame.Height > height) throw new ImageFormatException("WEBP frame lies outside its canvas.");
             var pixels = MemoryMarshal.Cast<byte, uint>(frame.Pixels);
             for (int row = 0; row < frame.Height; row++) {
@@ -122,11 +123,23 @@ internal sealed class WebpCodec : IImageCodec {
         return Channel(0) | Channel(8) << 8 | Channel(16) << 16 | a << 24;
     }
 
+    // the size a VP8 or VP8L bitstream declares, read before it is decoded
+    static (int Width, int Height) FrameSize(byte[] d, uint kind, int offset, int length) {
+        if (kind == Lossy && length >= 10)
+            return (BinaryPrimitives.ReadUInt16LittleEndian(d.AsSpan(offset + 6)) & 0x3fff, BinaryPrimitives.ReadUInt16LittleEndian(d.AsSpan(offset + 8)) & 0x3fff);
+        if (kind != Lossless || length < 5) return (0, 0);
+        uint bits = BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(offset + 1));
+        return ((int)(bits & 0x3fff) + 1, (int)((bits >> 14) & 0x3fff) + 1);
+    }
+
+    // the picture in the chunks; a frame larger than the room left for it on its canvas is refused undecoded
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    static InternalImage Image(byte[] d, List<(uint Kind, int Offset, int Length)> chunks) {
+    static InternalImage Image(byte[] d, List<(uint Kind, int Offset, int Length)> chunks, int maxWidth = int.MaxValue, int maxHeight = int.MaxValue) {
         (int Offset, int Length)? alpha = null;
         foreach (var (kind, offset, length) in chunks) {
             if (kind == Alpha) alpha = (offset, length);
+            var (frameWidth, frameHeight) = FrameSize(d, kind, offset, length);
+            if (frameWidth > maxWidth || frameHeight > maxHeight) throw new ImageFormatException("WEBP frame lies outside its canvas.");
             if (kind == Lossless) {
                 var argb = Vp8L.Decode(d, offset, length, out int w, out int h);
                 var rgba = GC.AllocateUninitializedArray<byte>(argb.Length * 4);

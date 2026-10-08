@@ -131,6 +131,7 @@ internal static class Vp8L {
         var br = new BitReader(d, start + 1, start + length);
         width = br.Read(14) + 1;
         height = br.Read(14) + 1;
+        ImageLimits.ThrowIfTooLarge(width, height);
         br.Read(1);
         if (br.Read(3) != 0) throw new ImageFormatException("Unsupported WEBP lossless version.");
         return Finish(br, Stream(br, width, height, true));
@@ -142,7 +143,11 @@ internal static class Vp8L {
         return Finish(br, Stream(br, width, height, true));
     }
 
-    static uint[] Finish(BitReader br, uint[] pixels) => br.Overrun ? throw new ImageFormatException("WEBP lossless data is truncated.") : pixels;
+    static uint[] Finish(BitReader br, uint[] pixels) => br.Overrun ? throw Truncated() : pixels;
+
+    // checked as rows and codes are read, not only at the end: missing data reads as zeros, which can fill a
+    // picture of any size
+    static ImageFormatException Truncated() => new("WEBP lossless data is truncated.");
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     static uint[] Stream(BitReader br, int width, int height, bool main) {
@@ -180,6 +185,7 @@ internal static class Vp8L {
         var codes = new Prefix[groups * 5];
         int green = 256 + 24 + (cacheBits > 0 ? 1 << cacheBits : 0);
         for (int g = 0; g < codes.Length; g += 5) {
+            if (br.Overrun) throw Truncated();
             codes[g] = ReadCode(br, green);
             codes[g + 1] = ReadCode(br, 256);
             codes[g + 2] = ReadCode(br, 256);
@@ -262,7 +268,11 @@ internal static class Vp8L {
                 }
                 data[pos++] = argb;
                 if (cache != null) cache[(0x1e35a7bd * argb) >> shift] = argb;
-                if (++x == width) { x = 0; y++; }
+                if (++x == width) {
+                    x = 0;
+                    y++;
+                    if (br.Overrun) throw Truncated();
+                }
                 continue;
             }
             int length = Value(br, code - 256);
@@ -275,6 +285,7 @@ internal static class Vp8L {
             }
             x += length;
             while (x >= width) { x -= width; y++; }
+            if (br.Overrun) throw Truncated();
             if (meta != null && (x & mask) != 0 && pos < total) g = (int)((meta[(y >> metaBits) * metaWidth + (x >> metaBits)] >> 8) & 0xffff) * 5;
         }
         return data;

@@ -265,5 +265,127 @@ public class NativeImageCodecTests {
         Assert.IsFalse(NativeImage.IsAnimated(png));
         Assert.AreEqual(20, InternalImage.Load(png).Width, "a format without animation gets the first frame");
     }
+
+    // ── Crafted files ────────────────────────────────────────────────────────
+
+    static byte[] Riff(params (string Kind, byte[] Payload)[] chunks) {
+        var ms = new MemoryStream();
+        ms.Write("RIFF\0\0\0\0WEBP"u8);
+        foreach (var (kind, payload) in chunks) {
+            ms.Write(System.Text.Encoding.ASCII.GetBytes(kind));
+            ms.Write(BitConverter.GetBytes(payload.Length));
+            ms.Write(payload);
+            if ((payload.Length & 1) != 0) ms.WriteByte(0);
+        }
+        var d = ms.ToArray();
+        BitConverter.TryWriteBytes(d.AsSpan(4), d.Length - 8);
+        return d;
+    }
+
+    static byte[] PngChunk(string kind, byte[] payload) {
+        var body = System.Text.Encoding.ASCII.GetBytes(kind).Concat(payload).ToArray();
+        uint crc = 0xFFFFFFFF;
+        foreach (byte b in body) {
+            crc ^= b;
+            for (int k = 0; k < 8; k++) crc = (crc & 1) != 0 ? 0xEDB88320 ^ (crc >> 1) : crc >> 1;
+        }
+        var d = new byte[body.Length + 8];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(d, payload.Length);
+        body.CopyTo(d, 4);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(d.AsSpan(d.Length - 4), ~crc);
+        return d;
+    }
+
+    // a jpeg whose frame header is made to claim another size
+    static byte[] JpegClaiming(int width, int height) {
+        var d = Save(Picture(16, 16), ImageFormat.Jpeg, 95);
+        int at = d.AsSpan().IndexOf([(byte)0xFF, (byte)0xC0]);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(d.AsSpan(at + 5), (ushort)height);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(d.AsSpan(at + 7), (ushort)width);
+        return d;
+    }
+
+    // files of a few bytes that declare pictures of gigabytes: refused before the pixels are allocated
+    [TestMethod]
+    public void CraftedFiles_AreRefusedBeforeTheirPixelsAreAllocated() {
+        var ihdr = new byte[13];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(ihdr, 12000);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(ihdr.AsSpan(4), 12000);
+        ihdr[8] = 8;
+        var bmp = new byte[58];
+        "BM"u8.CopyTo(bmp);
+        BitConverter.TryWriteBytes(bmp.AsSpan(10), 54);
+        BitConverter.TryWriteBytes(bmp.AsSpan(14), 40);
+        BitConverter.TryWriteBytes(bmp.AsSpan(18), 10000);
+        BitConverter.TryWriteBytes(bmp.AsSpan(22), 10000);
+        BitConverter.TryWriteBytes(bmp.AsSpan(26), (short)1);
+        BitConverter.TryWriteBytes(bmp.AsSpan(28), (short)0x7fff);
+        var crafted = new (string Name, byte[] Data)[] {
+            ("webp lossy 16383 x 16383", Riff(("VP8 ", [0x10, 0x02, 0x00, 0x9d, 0x01, 0x2a, 0xff, 0x3f, 0xff, 0x3f, .. new byte[32]]))),
+            ("webp lossy 12000 x 12000, under the limit, from 32 bytes", Riff(("VP8 ", [0x10, 0x02, 0x00, 0x9d, 0x01, 0x2a, 0xe0, 0x2e, 0xe0, 0x2e, .. new byte[32]]))),
+            ("webp lossless 16384 x 16384", Riff(("VP8L", [0x2f, 0xff, 0xff, 0xff, 0x0f, .. new byte[8]]))),
+            ("webp canvas 16777216 x 16", Riff(("VP8X", [0, 0, 0, 0, 0xff, 0xff, 0xff, 15, 0, 0]), ("ANMF", new byte[16]))),
+            ("jpeg 20000 x 20000", JpegClaiming(20000, 20000)),
+            ("png 12000 x 12000 from 30 bytes of data", [137, 80, 78, 71, 13, 10, 26, 10, .. PngChunk("IHDR", ihdr), .. PngChunk("IDAT", new byte[30]), .. PngChunk("IEND", [])]),
+            ("bmp of bit depth 32767", bmp),
+        };
+        foreach (var (name, data) in crafted) {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            Assert.ThrowsExactly<ImageFormatException>(() => InternalImage.Load(data), name);
+            Assert.IsTrue(GC.GetAllocatedBytesForCurrentThread() - before < 1 << 20, $"{name}: {GC.GetAllocatedBytesForCurrentThread() - before:N0} bytes");
+        }
+
+        // a gif frame claiming 40000 x 40000 gets only the room its two bytes of data can fill
+        byte[] gif = [.. "GIF89a"u8, 1, 0, 1, 0, 0x80, 0, 0, 0, 0, 0, 255, 255, 255,
+            0x2C, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 0x44, 0x01, 0,
+            0x2C, 0, 0, 0, 0, 0x40, 0x9c, 0x40, 0x9c, 0, 2, 2, 0x44, 0x01, 0, 0x3B];
+        long start = GC.GetAllocatedBytesForCurrentThread();
+        Assert.AreEqual(2, ImageCodecs.ReadAnimation(gif)!.Frames.Length);
+        Assert.IsTrue(GC.GetAllocatedBytesForCurrentThread() - start < 1 << 20);
+    }
+
+    [TestMethod]
+    public void Jpeg_ASecondFrameHeaderIsRefused() {
+        var d = Save(Picture(16, 16), ImageFormat.Jpeg, 95);
+        byte[] crafted = [.. d.AsSpan(0, d.Length - 2),
+            0xFF, 0xC0, 0x00, 0x11, 0x08, 0x00, 0x08, 0xFF, 0xFF, 0x03, 1, 0x31, 0, 2, 0x11, 0, 3, 0x11, 0,
+            0xFF, 0xDA, 0x00, 0x0C, 0x03, 1, 0x00, 2, 0x00, 3, 0x00, 0x00, 0x3F, 0x00, .. new byte[64], 0xFF, 0xD9];
+        Assert.ThrowsExactly<ImageFormatException>(() => InternalImage.Load(crafted));
+    }
+
+    [TestMethod]
+    public void Jpeg_WhatTheDataDoesNotReachIsGrey() {
+        var d = Save(Picture(64, 64), ImageFormat.Jpeg, 95);
+        var cut = InternalImage.Load(d[..(d.Length * 6 / 10)]);
+        Assert.AreEqual((64, 64), (cut.Width, cut.Height));
+        for (int x = 0; x < 64; x++) Assert.AreEqual(new ColorRgba(128, 128, 128), cut[x, 63], $"({x},63)");
+    }
+
+    [TestMethod]
+    public void Webp_TruncatedDataIsRefused() {
+        // the second is large enough to be decoded by the three-thread pipeline
+        foreach (var (w, h) in new[] { (256, 256), (700, 500) }) {
+            var d = Save(Picture(w, h), ImageFormat.Webp, 85);
+            Assert.AreEqual("VP8 ", System.Text.Encoding.ASCII.GetString(d, 12, 4));
+            int length = BitConverter.ToInt32(d, 16) * 3 / 4;
+            var cut = Riff(("VP8 ", d.AsSpan(20, length).ToArray()));
+            Assert.ThrowsExactly<ImageFormatException>(() => InternalImage.Load(cut), $"{w} x {h}");
+            Assert.AreEqual((w, h), (InternalImage.Load(d).Width, InternalImage.Load(d).Height), "the whole file still decodes");
+        }
+    }
+
+    [TestMethod]
+    public void Adjust_RefusesAResultLargerThanTheLimit() {
+        using var image = NativeImage.Create(100, 100);
+        Assert.ThrowsExactly<ImageFormatException>(() => image.Adjust(new FileAdjustmentImage { Width = 30000, Height = 30000 }));
+        using var tall = NativeImage.Create(1, 100);
+        Assert.ThrowsExactly<ImageFormatException>(() => tall.Adjust(new FileAdjustmentImage { Width = 20000 }), "the height follows the width");
+        using var fits = image.Adjust(new FileAdjustmentImage { Width = 3000 });
+        Assert.AreEqual((3000, 3000), (fits.Width, fits.Height));
+        Assert.ThrowsExactly<ImageFormatException>(() => image.Adjust(new FileAdjustmentImage { Width = 5000 }), "enlarged beyond MaxEnlargedPixels");
+        using var large = NativeImage.Create(5000, 4000);
+        using var smaller = large.Adjust(new FileAdjustmentImage { Width = 4800 });
+        Assert.AreEqual((4800, 3840), (smaller.Width, smaller.Height), "past MaxEnlargedPixels but no larger than its source: allowed");
+    }
 }
 

@@ -270,6 +270,10 @@ public class FileConversionEngine : IDisposable {
         }
         int width = (adj as FileAdjustmentVideo)?.Width ?? (adj as FileAdjustmentImage)?.Width ?? 320;
         int height = (adj as FileAdjustmentVideo)?.Height ?? (adj as FileAdjustmentImage)?.Height ?? 240;
+        // the size can come from a URL, and a status picture is only text: no more than 2048 pixels a side
+        double fit = Math.Min(1, 2048.0 / Math.Max(1, Math.Max(width, height)));
+        width = Math.Max(1, (int)(width * fit));
+        height = Math.Max(1, (int)(height * fit));
 
         // avoid looking for better status if generating status is CPU costly, cache key will be more coarse, thus less costly generations
         var lookForBetterStatus = baseRequestedFormat switch {

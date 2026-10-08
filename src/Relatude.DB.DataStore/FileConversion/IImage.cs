@@ -47,6 +47,12 @@ public static class IImageExt {
 
         // 3. Resize — proportions are preserved unless CropMode is Stretch
         if (adj.Width.HasValue || adj.Height.HasValue) {
+            // the size can come from a URL: refused before a picture of it is allocated. The most a resize
+            // makes is the two sizes asked for, or the one asked for with the other side kept or scaled with it
+            ImageLimits.ThrowIfResultTooLarge(
+                adj.Width ?? Math.Max(img.Width, (long)Math.Ceiling((double)adj.Height!.Value * img.Width / img.Height)),
+                adj.Height ?? Math.Max(img.Height, (long)Math.Ceiling((double)adj.Width!.Value * img.Height / img.Width)),
+                img.Width, img.Height);
             var cropMode = adj.CropMode ?? ImageCropMode.Fit;
             img = Step(img.Resize(adj.Width, adj.Height, cropMode, cropped ? CropHints.Background(adj) : CropHints.From(adj)));
         }

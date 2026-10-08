@@ -110,10 +110,10 @@ internal sealed class GifCodec : IImageCodec {
             }
             if (at >= d.Length) break;
             int minCode = d[at++];
-            var indices = Lzw(d, ref at, minCode, fw * fh, out int decoded);
+            var indices = Lzw(d, ref at, minCode, (long)fw * fh, out int decoded);
             uint[]? previous = disposal == 3 ? (uint[])canvas.Clone() : null;
             bool interlaced = (flags & 0x40) != 0;
-            for (int r = 0; r < fh; r++) {
+            for (int r = 0; r < fh && (long)r * fw < decoded; r++) {
                 int y = fy + (interlaced ? InterlacedRow(r, fh) : r);
                 if (y >= height) continue;
                 int from = r * fw, to = Math.Min(decoded, from + Math.Max(0, Math.Min(fw, width - fx)));
@@ -148,7 +148,7 @@ internal sealed class GifCodec : IImageCodec {
 
     /// <summary>A frame's colour indices from the LZW data in the sub-blocks at at, which is left after them.</summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    static byte[] Lzw(byte[] d, ref int at, int minCode, int count, out int decoded) {
+    static byte[] Lzw(byte[] d, ref int at, int minCode, long count, out int decoded) {
         int length = 0;
         for (int p = at; p < d.Length;) {
             int size = d[p++];
@@ -166,9 +166,12 @@ internal sealed class GifCodec : IImageCodec {
             at += size;
         }
         at = Math.Min(at, d.Length);
-        var output = new byte[count];
         decoded = 0;
-        if (minCode < 1 || minCode > 11) return output;
+        if (minCode < 1 || minCode > 11) return [];
+        // the k-th code after a clear stands for at most k pixels, so the data bounds what a frame can hold: one that
+        // claims more than its data could fill gets room only for what it could
+        long codes = Math.Min((long)length * 8 / (minCode + 1), 1L << 27);
+        var output = new byte[Math.Min(Math.Min(count, codes * (codes + 1) / 2), Animation.MaxPixels)];
         int clear = 1 << minCode, codeSize = minCode + 1, next = clear + 2, prev = -1, written = 0, pos = 0, bits = 0;
         uint buffer = 0;
         var prefix = new short[4096];
@@ -179,7 +182,7 @@ internal sealed class GifCodec : IImageCodec {
             suffix[i] = first[i] = (byte)i;
             lengths[i] = 1;
         }
-        while (written < count) {
+        while (written < output.Length) {
             while (bits < codeSize && pos < data.Length) {
                 buffer |= (uint)data[pos++] << bits;
                 bits += 8;
@@ -209,8 +212,8 @@ internal sealed class GifCodec : IImageCodec {
             }
             int end = written + lengths[code];
             for (int c = code, p = end - 1; p >= written; p--, c = prefix[c])
-                if (p < count) output[p] = suffix[c];
-            written = Math.Min(end, count);
+                if (p < output.Length) output[p] = suffix[c];
+            written = Math.Min(end, output.Length);
             prev = code;
         }
         decoded = written;

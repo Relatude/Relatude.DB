@@ -72,6 +72,7 @@ internal sealed unsafe class PngCodec : IImageCodec
 
         if (width == 0) throw new ImageFormatException("PNG image is missing IHDR.");
         if (idat.Count == 0) throw new ImageFormatException("PNG image has no IDAT data.");
+        ImageLimits.ThrowIfTooLarge(width, height);
         var compressed = new byte[total];
         int copied = 0;
         foreach (var (offset, length) in idat)
@@ -82,6 +83,12 @@ internal sealed unsafe class PngCodec : IImageCodec
 
         int channels = ChannelsForColorType(type), bits = channels * depth;
         int rowBytes = checked((width * bits + 7) / 8), stride = rowBytes + 1, bpp = Math.Max(1, bits / 8);
+        // deflate expands at most 1032 times: data too small to hold the picture is refused before its buffer exists
+        if ((long)stride * height > total * 1032L + 4096)
+        {
+            throw new ImageFormatException("PNG image data is truncated.");
+        }
+
         var raw = GC.AllocateUninitializedArray<byte>(checked(stride * height + 4));
         using (var zlib = new ZLibStream(new MemoryStream(compressed), CompressionMode.Decompress))
         {

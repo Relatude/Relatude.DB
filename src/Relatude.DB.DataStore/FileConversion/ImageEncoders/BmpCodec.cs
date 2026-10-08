@@ -40,7 +40,7 @@ internal sealed class BmpCodec : IImageCodec
 
         int width = ReadInt32(data, 18);
         int rawHeight = ReadInt32(data, 22);
-        if (width <= 0 || rawHeight == 0)
+        if (width <= 0 || rawHeight == 0 || rawHeight == int.MinValue)
         {
             throw new ImageFormatException("Invalid BMP dimensions.");
         }
@@ -59,6 +59,14 @@ internal sealed class BmpCodec : IImageCodec
         {
             throw new ImageFormatException("Only uncompressed BMP files are supported.");
         }
+
+        // checked before any size is worked out from it
+        if (bitsPerPixel is not (1 or 4 or 8 or 16 or 24 or 32))
+        {
+            throw new ImageFormatException($"Unsupported BMP bit depth: {bitsPerPixel}.");
+        }
+
+        ImageLimits.ThrowIfTooLarge(width, height);
 
         uint redMask = 0x7c00;
         uint greenMask = 0x03e0;
@@ -94,11 +102,13 @@ internal sealed class BmpCodec : IImageCodec
             blueMask = 0x001f;
         }
 
-        int rowStride = ((width * bitsPerPixel + 31) / 32) * 4;
-        if (pixelOffset < 0 || pixelOffset + rowStride * height > data.Length)
+        long stride = ((long)width * bitsPerPixel + 31) / 32 * 4;
+        if (pixelOffset < 0 || pixelOffset + stride * height > data.Length)
         {
             throw new ImageFormatException("BMP pixel data is truncated.");
         }
+
+        int rowStride = (int)stride;
 
         ColorRgba[] palette = ReadPalette(data, dibSize, pixelOffset, bitsPerPixel);
         byte[] rgba = new byte[checked(width * height * 4)];
@@ -203,8 +213,10 @@ internal sealed class BmpCodec : IImageCodec
             throw new ImageFormatException("Indexed BMP palette is missing.");
         }
 
-        ColorRgba[] palette = new ColorRgba[paletteEntries];
-        for (int i = 0; i < palette.Length; i++)
+        // indices beyond a short palette are black, as browsers show them
+        ColorRgba[] palette = new ColorRgba[1 << bitsPerPixel];
+        Array.Fill(palette, new ColorRgba(0, 0, 0));
+        for (int i = 0; i < paletteEntries; i++)
         {
             int offset = paletteOffset + i * 4;
             palette[i] = new ColorRgba(data[offset + 2], data[offset + 1], data[offset], 255);

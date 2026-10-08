@@ -15,7 +15,12 @@ internal sealed class SkiaImage : IImage {
 
     public SkiaImage(SKBitmap bitmap) => _bitmap = bitmap;
 
-    public static SkiaImage Load(Stream stream) => new(SKBitmap.Decode(stream) ?? throw new InvalidOperationException("Failed to decode image."));
+    // the size is read from the header first: a file declaring a huge picture is refused before it is allocated
+    public static SkiaImage Load(Stream stream) {
+        using var codec = SKCodec.Create(stream) ?? throw new InvalidOperationException("Failed to decode image.");
+        ImageLimits.ThrowIfTooLarge(codec.Info.Width, codec.Info.Height);
+        return new(SKBitmap.Decode(codec) ?? throw new InvalidOperationException("Failed to decode image."));
+    }
 
     // ── Metadata  ──────────────────────────────────────────────────────────
     public string? GetJsonDetails() {

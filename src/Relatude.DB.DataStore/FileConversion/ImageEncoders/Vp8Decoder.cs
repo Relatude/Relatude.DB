@@ -34,7 +34,7 @@ internal sealed unsafe class Vp8Decoder {
 
     sealed class BoolReader {
         readonly byte[] _d; // the partition, then zeros
-        int _pos;
+        int _pos, _overrun;
         readonly int _end;
         public BoolState S = new() { Range = 254, Bits = -8 };
 
@@ -47,9 +47,13 @@ internal sealed unsafe class Vp8Decoder {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         ulong Next() {
             ulong v = BinaryPrimitives.ReverseEndianness(Unsafe.ReadUnaligned<ulong>(ref _d[_pos])) >> 8;
+            if (_pos == _end) _overrun++;
             _pos = Math.Min(_pos + 7, _end);
             return v;
         }
+
+        // read well past the partition: libwebp refuses a stream as soon as it needs a byte beyond it
+        public bool Overrun => _overrun > 1;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool Bit(ref BoolState s, int prob) {
@@ -119,8 +123,12 @@ internal sealed unsafe class Vp8Decoder {
         Width = (d[start + 6] | d[start + 7] << 8) & 0x3fff;
         Height = (d[start + 8] | d[start + 9] << 8) & 0x3fff;
         if (Width == 0 || Height == 0 || 10 + part0 > length) throw new ImageFormatException("Invalid WEBP VP8 frame header.");
+        ImageLimits.ThrowIfTooLarge(Width, Height);
         MbW = (Width + 15) >> 4;
         MbH = (Height + 15) >> 4;
+        // the modes of a macroblock take over three bits of the first partition, at probabilities the format fixes:
+        // one too short for the size it declares is refused before the planes are allocated
+        if (part0 * 4L < (long)MbW * MbH) throw Truncated();
         var br = new BoolReader(d, start + 10, part0);
         br.Bit(128); // colour space
         br.Bit(128); // clamping type
@@ -152,6 +160,9 @@ internal sealed unsafe class Vp8Decoder {
     int _level, _sharpness;
     readonly int[] _refDelta = new int[4], _modeDelta = new int[4];
     bool _useLfDelta;
+    volatile bool _stop; // a stage of the pipeline failed: the others leave the rows still to come
+
+    static ImageFormatException Truncated() => new("WEBP VP8 data is truncated.");
 
     void ReadSegmentsAndFilter(BoolReader br, out int[] quant, out int[] filter, out bool useSegment, out bool absolute) {
         quant = new int[4];
@@ -186,6 +197,7 @@ internal sealed unsafe class Vp8Decoder {
                 if (_useLfDelta) level += _refDelta[0] + (i4 == 1 ? _modeDelta[0] : 0);
                 _strength[s, i4] = Vp8.StrengthFor(level, _sharpness);
             }
+        if (br.Overrun) throw Truncated();
         Y = GC.AllocateUninitializedArray<byte>(MbW * 16 * MbH * 16); // every macroblock is stored whole
         U = GC.AllocateUninitializedArray<byte>(MbW * 8 * MbH * 8);
         V = GC.AllocateUninitializedArray<byte>(MbW * 8 * MbH * 8);
@@ -216,29 +228,36 @@ internal sealed unsafe class Vp8Decoder {
             try {
                 for (int mby = 0; mby < MbH; mby++) {
                     parsed.Wait();
+                    if (_stop) break;
                     ReconstructRow(mby, records, mby % slots * MbW * Record, info);
                     free.Release();
                     built.Release();
                 }
             } catch {
-                free.Release(MbH);
-                built.Release(MbH);
+                _stop = true;
                 throw;
+            } finally {
+                if (_stop) {
+                    free.Release(MbH);
+                    built.Release(MbH);
+                }
             }
         });
         var filtering = _filterType == 0 ? Task.CompletedTask : Start(() => {
-            for (int mby = 0, ready = 0; mby < MbH; mby++) {
+            for (int mby = 0, ready = 0; mby < MbH && !_stop; mby++) {
                 for (; ready < Math.Min(mby + 2, MbH); ready++) built.Wait();
-                FilterRow(mby, info);
+                if (!_stop) FilterRow(mby, info);
             }
         });
         try {
             for (int mby = 0; mby < MbH; mby++) {
                 free.Wait();
+                if (_stop) break;
                 Parse(mby);
                 parsed.Release();
             }
         } catch {
+            _stop = true;
             parsed.Release(MbH);
             throw;
         } finally {
@@ -294,6 +313,7 @@ internal sealed unsafe class Vp8Decoder {
             }
         }
         br.S = s;
+        if (br.Overrun || tokens.Overrun) throw Truncated();
     }
 
     // predictions plus residuals for a row of macroblocks; their records are cleared for the next row

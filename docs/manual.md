@@ -3314,6 +3314,19 @@ format, which is why you must not cache a response the store reports as uncachea
 SkiaImageConverter(1))` for images, `new FFMpegVideoConverter()` for video — or every conversion
 comes back as "No converter available".
 
+**Size limits.** A file of a few bytes can declare a picture of gigabytes, and readable asset URLs let
+anyone ask for any size. So the image converters read the size a file declares and refuse a picture
+larger than `ImageLimits.MaxPixels` — 200 megapixels by default, room for the largest phone photos —
+before anything is allocated, and an adjustment may enlarge a picture to at most
+`ImageLimits.MaxEnlargedPixels` (4096 × 4096); making it smaller is bounded by `MaxPixels` alone. A
+refused file comes back as a conversion error. Both are static, set once at startup; lower them on a
+small server, where a 200-megapixel picture takes 800 MB once decoded:
+
+```csharp
+ImageLimits.MaxPixels = 50_000_000;            // namespace Relatude.DB.FileConversion
+ImageLimits.MaxEnlargedPixels = 2048 * 2048;
+```
+
 ### Light and dark mode
 
 Artwork drawn for one background rarely survives on the other: a diagram on white turns into a

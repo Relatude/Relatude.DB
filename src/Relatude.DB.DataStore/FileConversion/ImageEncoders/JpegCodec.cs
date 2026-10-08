@@ -112,7 +112,7 @@ internal sealed unsafe class JpegCodec : IImageCodec {
         int _pos = 2, _restart, _w, _h, _maxH = 1, _maxV = 1, _scale = 1, _n = 8, _orientation = 1;
         bool _frame, _ready, _scanned;
         ulong _bits;
-        int _nbits;
+        int _nbits, _padding; // zero bytes fed in place of data the scan does not have
         bool _marker;
 
         public bool ReadSize(out int width, out int height) {
@@ -146,6 +146,8 @@ internal sealed unsafe class JpegCodec : IImageCodec {
                         break;
                     case >= 0xC0 and <= 0xCF and not 0xC8 and not 0xCC:
                         if (s.Length < 6) throw Truncated();
+                        // a second frame would replace the components the planes were allocated for
+                        if (_frame) throw new ImageFormatException("JPEG has more than one frame header.");
                         _h = BinaryPrimitives.ReadUInt16BigEndian(s[1..]);
                         _w = BinaryPrimitives.ReadUInt16BigEndian(s[3..]);
                         if (sizeOnly) return true;
@@ -253,6 +255,7 @@ internal sealed unsafe class JpegCodec : IImageCodec {
         }
 
         void Allocate() {
+            ImageLimits.ThrowIfTooLarge(Ceil(_w, _scale), Ceil(_h, _scale));
             _n = 8 / _scale;
             int cols = Ceil(_w, 8 * _maxH), rows = Ceil(_h, 8 * _maxV);
             foreach (var c in _comps) {
@@ -267,7 +270,7 @@ internal sealed unsafe class JpegCodec : IImageCodec {
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         void DecodeScan(Component[] scan) {
             _bits = 0;
-            _nbits = 0;
+            _nbits = _padding = 0;
             _marker = false;
             foreach (var c in scan) c.Pred = 0;
             int* blk = stackalloc int[64];
@@ -297,7 +300,7 @@ internal sealed unsafe class JpegCodec : IImageCodec {
         void Restart(Component[] scan) {
             int at = _pos;
             _bits = 0;
-            _nbits = 0;
+            _nbits = _padding = 0;
             _marker = false;
             if (NextMarker() is < 0xD0 or > 0xD7) _pos = at;
             foreach (var c in scan) c.Pred = 0;
@@ -311,7 +314,9 @@ internal sealed unsafe class JpegCodec : IImageCodec {
                     b = d[_pos];
                     if (b != 0xFF) _pos++;
                     else if (_pos + 1 < d.Length && d[_pos + 1] == 0) _pos += 2;
-                    else { _marker = true; b = 0; }
+                    else { _marker = true; b = 0; _padding++; }
+                } else {
+                    _padding++;
                 }
                 _bits |= (ulong)b << (56 - _nbits);
                 _nbits += 8;
@@ -348,32 +353,36 @@ internal sealed unsafe class JpegCodec : IImageCodec {
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         void Block(Component c, int* blk, float* ws, int bx, int by) {
-            var ac = _ac[c.Ta]!;
-            if (_nbits < 32) Fill();
-            int t = Symbol(_dc[c.Td]!) & 15;
-            if (t != 0) c.Pred += Extend(Bits(t), t);
-            blk[0] = c.Pred;
             bool any = false;
-            for (int k = 1; k < 64;) {
+            // once a block has read past the data, the rest of the scan (or of its restart interval) stays grey, as
+            // libjpeg leaves it: a few bytes cannot make it decode a whole picture of padding
+            if (_padding * 8 <= _nbits) {
+                var ac = _ac[c.Ta]!;
                 if (_nbits < 32) Fill();
-                int f = ac.FastAc[(int)(_bits >> 55)];
-                if (f != 0) {
-                    k += (f >> 4) & 15;
-                    _bits <<= f & 15;
-                    _nbits -= f & 15;
-                    blk[ZigZag[k++]] = f >> 8;
+                int t = Symbol(_dc[c.Td]!) & 15;
+                if (t != 0) c.Pred += Extend(Bits(t), t);
+                blk[0] = c.Pred;
+                for (int k = 1; k < 64;) {
+                    if (_nbits < 32) Fill();
+                    int f = ac.FastAc[(int)(_bits >> 55)];
+                    if (f != 0) {
+                        k += (f >> 4) & 15;
+                        _bits <<= f & 15;
+                        _nbits -= f & 15;
+                        blk[ZigZag[k++]] = f >> 8;
+                        any = true;
+                        continue;
+                    }
+                    int rs = Symbol(ac), s = rs & 15;
+                    if (s == 0) {
+                        if (rs != 0xF0) break;
+                        k += 16;
+                        continue;
+                    }
+                    k += rs >> 4;
+                    blk[ZigZag[k++]] = Extend(Bits(s), s);
                     any = true;
-                    continue;
                 }
-                int rs = Symbol(ac), s = rs & 15;
-                if (s == 0) {
-                    if (rs != 0xF0) break;
-                    k += 16;
-                    continue;
-                }
-                k += rs >> 4;
-                blk[ZigZag[k++]] = Extend(Bits(s), s);
-                any = true;
             }
             int n = _n;
             fixed (byte* plane = c.Plane)

@@ -4600,6 +4600,17 @@ format, which is why you must not cache a response the store reports as uncachea
 <strong>converters have to be registered at startup</strong> — <code>options.FileConverters.Add(new
 SkiaImageConverter(1))</code> for images, <code>new FFMpegVideoConverter()</code> for video — or every conversion
 comes back as "No converter available".</p>
+<p><strong>Size limits.</strong> A file of a few bytes can declare a picture of gigabytes, and readable asset URLs let
+anyone ask for any size. So the image converters read the size a file declares and refuse a picture
+larger than <code>ImageLimits.MaxPixels</code> — 200 megapixels by default, room for the largest phone photos —
+before anything is allocated, and an adjustment may enlarge a picture to at most
+<code>ImageLimits.MaxEnlargedPixels</code> (4096 × 4096); making it smaller is bounded by <code>MaxPixels</code> alone. A
+refused file comes back as a conversion error. Both are static, set once at startup; lower them on a
+small server, where a 200-megapixel picture takes 800 MB once decoded:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">ImageLimits</span><span class="p">.</span><span class="n">MaxPixels</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">50</span><span class="n">_000_000</span><span class="p">;</span><span class="w">            </span><span class="c1">// namespace Relatude.DB.FileConversion</span>
+<span class="n">ImageLimits</span><span class="p">.</span><span class="n">MaxEnlargedPixels</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2048</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">2048</span><span class="p">;</span>
+</code></pre></div>
+
 <h3 id="light-and-dark-mode">Light and dark mode<a class="anchor" href="#light-and-dark-mode" aria-label="Link to this section">#</a></h3>
 <p>Artwork drawn for one background rarely survives on the other: a diagram on white turns into a
 bright slab in a dark theme. Two options on <code>FileAdjustmentImage</code> deal with that.</p>

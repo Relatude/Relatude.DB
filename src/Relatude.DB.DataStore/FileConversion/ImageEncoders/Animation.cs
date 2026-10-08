@@ -5,8 +5,9 @@ namespace Relatude.DB.FileConversion.ImageEncoders;
 /// times it plays (0: forever).
 /// </summary>
 internal sealed class Animation(InternalImage[] frames, int[] durations, int loops) {
-    // the most pixels the frames of a decoded animation hold together (256 MB): the frames beyond are dropped
-    public const long MaxPixels = 1L << 26;
+    // the most pixels the frames of a decoded animation hold together (256 MB, less if ImageLimits says so): the
+    // frames beyond are dropped
+    public static long MaxPixels => Math.Min(1L << 26, ImageLimits.MaxPixels);
 
     public InternalImage[] Frames { get; } = frames;
     public int[] Durations { get; } = durations;
