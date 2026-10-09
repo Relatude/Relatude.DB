@@ -199,7 +199,7 @@ do both; in a project of your own, add this to the `.csproj`:
 </PropertyGroup>
 ```
 
-Here is a [typical `.gitignore`](.gitignore) for a project on Relatude.DB, and the manual sets out
+Here is a [typical `.gitignore`](https://github.com/Relatude/Relatude.DB/blob/main/docs/.gitignore) for a project on Relatude.DB, and the manual sets out
 [what goes where](manual.html#122-what-goes-where-source-control-deployment-and-appsettings).
 
 ---

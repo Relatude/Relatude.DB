@@ -1807,7 +1807,7 @@ project. The same folder holds the other files every installation shares: the de
 logs ([§32.1](#321-defining-a-log)) and the shared datamodel overrides
 ([§3.1](#31-overriding-attributes)). The folder is part of the application, kept in source control and
 deployed with it. `relatude.data/` and `relatude.data.temp/` are the opposite: they belong to the
-installation, so they are never committed — a [typical `.gitignore`](.gitignore) leaves them out — and
+installation, so they are never committed — a [typical `.gitignore`](https://github.com/Relatude/Relatude.DB/blob/main/docs/.gitignore) leaves them out — and
 the project file excludes them, so that a publish does not deploy them either.
 [§12.2](#122-what-goes-where-source-control-deployment-and-appsettings) sets out what goes where, and
 what stays with an installation.
@@ -2426,7 +2426,7 @@ that was changed on that one installation. The layout follows three rules:
 
 **In short:** commit `relatude.settings/`. Never commit `relatude.data/` or `relatude.data.temp/`,
 and exclude both from the project file so that a publish does not deploy them either
-([Publishing](#publishing)). [`.gitignore`](.gitignore) is a typical one for a project on Relatude.DB.
+([Publishing](#publishing)). [`.gitignore`](https://github.com/Relatude/Relatude.DB/blob/main/docs/.gitignore) is a typical one for a project on Relatude.DB.
 
 **The folders.** With the default `ServerOptions` a project looks like this. The content root is the
 project folder while you develop, and the folder the application was deployed to on a server:
@@ -2527,7 +2527,7 @@ relatude.data/
 relatude.data.temp/
 ```
 
-[`.gitignore`](.gitignore) here in the documentation is a complete one for a typical project, with
+[`.gitignore`](https://github.com/Relatude/Relatude.DB/blob/main/docs/.gitignore) here in the documentation is a complete one for a typical project, with
 build output, client builds, secret files and editor files as well; put it in the root of the
 repository. Its patterns match at any depth, so a project in a subfolder — `Backend/` in the React
 project type — is covered too. The project types of `relatude new` come with one of their own.

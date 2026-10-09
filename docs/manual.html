@@ -2312,7 +2312,7 @@ project. The same folder holds the other files every installation shares: the de
 logs (<a href="#321-defining-a-log">§32.1</a>) and the shared datamodel overrides
 (<a href="#31-overriding-attributes">§3.1</a>). The folder is part of the application, kept in source control and
 deployed with it. <code>relatude.data/</code> and <code>relatude.data.temp/</code> are the opposite: they belong to the
-installation, so they are never committed — a <a href=".gitignore">typical <code>.gitignore</code></a> leaves them out — and
+installation, so they are never committed — a <a href="https://github.com/Relatude/Relatude.DB/blob/main/docs/.gitignore">typical <code>.gitignore</code></a> leaves them out — and
 the project file excludes them, so that a publish does not deploy them either.
 <a href="#122-what-goes-where-source-control-deployment-and-appsettings">§12.2</a> sets out what goes where, and
 what stays with an installation.</p>
@@ -3545,7 +3545,7 @@ that was changed on that one installation. The layout follows three rules:</p>
 </ul>
 <p><strong>In short:</strong> commit <code>relatude.settings/</code>. Never commit <code>relatude.data/</code> or <code>relatude.data.temp/</code>,
 and exclude both from the project file so that a publish does not deploy them either
-(<a href="#publishing">Publishing</a>). <a href=".gitignore"><code>.gitignore</code></a> is a typical one for a project on Relatude.DB.</p>
+(<a href="#publishing">Publishing</a>). <a href="https://github.com/Relatude/Relatude.DB/blob/main/docs/.gitignore"><code>.gitignore</code></a> is a typical one for a project on Relatude.DB.</p>
 <p><strong>The folders.</strong> With the default <code>ServerOptions</code> a project looks like this. The content root is the
 project folder while you develop, and the folder the application was deployed to on a server:</p>
 <div class="codehilite"><pre><span></span><code>MyApp/                                 the content root, and the root data folder
@@ -3710,7 +3710,7 @@ admin UI writes into it is ready to commit:</p>
 relatude.data.temp/
 </code></pre></div>
 
-<p><a href=".gitignore"><code>.gitignore</code></a> here in the documentation is a complete one for a typical project, with
+<p><a href="https://github.com/Relatude/Relatude.DB/blob/main/docs/.gitignore"><code>.gitignore</code></a> here in the documentation is a complete one for a typical project, with
 build output, client builds, secret files and editor files as well; put it in the root of the
 repository. Its patterns match at any depth, so a project in a subfolder — <code>Backend/</code> in the React
 project type — is covered too. The project types of <code>relatude new</code> come with one of their own.
