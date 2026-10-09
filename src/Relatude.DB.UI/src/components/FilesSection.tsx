@@ -21,6 +21,7 @@ import {
   IconHistory,
   IconLayoutGrid,
   IconList,
+  IconLoader2,
   IconLockOpen,
   IconPencil,
   IconRefresh,
@@ -1731,10 +1732,10 @@ function FolderNode(p: FolderNodeProps) {
           <button
             className="tree-size"
             onClick={() => p.onComputeSize(p.path)}
-            title="Compute the size of this folder and everything in it"
+            title={size === "pending" ? "Adding up the size of this folder and everything in it…" : "Compute the size of this folder and everything in it"}
             disabled={size === "pending"}
           >
-            {size === "pending" ? "…" : <IconSum size={12} stroke={1.8} />}
+            {size === "pending" ? <IconLoader2 size={12} stroke={2} className="spinning" /> : <IconSum size={12} stroke={1.8} />}
           </button>
         ) : (
           <button

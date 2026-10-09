@@ -52,7 +52,13 @@ public sealed partial class DataStoreLocal : IDataStore {
         _lock.EnterWriteLock();
         try {
             if (LogRewriter.LogRewriterAlreadyInprogress(destinationIO)) {
-                throw new Exception("Log rewriter already in progress. ");
+                // Only one rewrite or copy runs at a time (see RewriteStore), so in a backup storage of its
+                // own the flag is one a failed backup could not remove - the storage was failing at the
+                // time. It goes, with the half written file it names, rather than refusing every backup
+                // until the next start. In the database's own storage the flag stays a refusal.
+                if (hotSwapToNewFile || destinationIO == _io) throw new Exception("Log rewriter already in progress. ");
+                LogInfo("Removing what a failed backup left in the backup storage. ");
+                LogRewriter.CleanupOldPartiallyCompletedLogRewriteIfAny(destinationIO, deleteStateFiles: false);
             }
         } catch {
             _lock.ExitWriteLock();
@@ -68,14 +74,29 @@ public sealed partial class DataStoreLocal : IDataStore {
             LogInfo($"Rewrite second flush completed in {sw.ElapsedMilliseconds} ms");
 
             // starting rewrite of log file, requires all writes and reads to be blocked, making sure snaphot is consistent
-            LogRewriter.CreateFlagFileToIndicateLogRewriterInprogress(destinationIO, newLogFileKey);
             UpdateActivity(activityId, "Starting rewrite of log file", 5);
             var snapshot = _nodes.Snapshot();
             var streamLen = _wal.FileSize;
             var whereOutSide = snapshot.Where(n => n.segment.AbsolutePosition + n.segment.Length > streamLen);
             if (whereOutSide.Any()) throw new Exception("Some node segments point outside log file. ");
-            _rewriter = new LogRewriter(newLogFileKey, _definition, destinationIO, snapshot, _relations.Snapshot(), threadSafeReadSegments);
+            var relations = _relations.Snapshot();
+            try {
+                LogRewriter.CreateFlagFileToIndicateLogRewriterInprogress(destinationIO, newLogFileKey);
+                _rewriter = new LogRewriter(newLogFileKey, _definition, destinationIO, snapshot, relations, threadSafeReadSegments);
+            } catch (Exception err) when (!hotSwapToNewFile) {
+                // nothing of the store has been touched yet: only the storage the copy goes to failed, and
+                // what it managed to write there goes (or is cleaned up by the next backup or start)
+                try {
+                    destinationIO.DeleteFileIfItExists(newLogFileKey);
+                    if (LogRewriter.LogRewriterAlreadyInprogress(destinationIO)) LogRewriter.DeleteFlagFileToIndicateLogRewriterStart(destinationIO, newLogFileKey);
+                } catch { }
+                throw new LogCopyException("Error starting the copy of the log file. ", err);
+            }
             UpdateActivity(activityId, "Starting rewrite of log file", 10);
+        } catch (LogCopyException err) {
+            // a backup whose storage failed fails the backup, not the database
+            logError("Error starting log rewrite. ", err, null, false);
+            throw;
         } catch (Exception err) {
             throw createCriticalErrorAndSetDbToErrorState("Error starting log rewrite. " , err);
         } finally {
@@ -86,6 +107,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _rewriter.Step1_RewriteLog_NoLockRequired((string desc, int prg) => UpdateActivity(activityId, desc, prg)); // (10%-80%)
         } catch (Exception err) {
             logError("Error during log rewrite. ", err, null, false);
+            abandonFailedRewrite();
             throw new Exception("Error during log rewrite. ", err);
         }
         FileKeyUtility.State_DeleteAll(IOIndex);
@@ -121,6 +143,24 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
         } catch (Exception err) {
             throw createCriticalErrorAndSetDbToErrorState("Error finalizing log rewrite. ", err);
+        }
+    }
+    // A rewrite or backup that failed while writing (a storage that went away, a full disk) must not
+    // stay registered: every later one would be refused as "already initialized", and every
+    // transaction would keep being collected for it. Its half written file and flag go with it.
+    void abandonFailedRewrite() {
+        _lock.EnterWriteLock();
+        try {
+            var rewriter = _rewriter;
+            if (rewriter == null) return; // cancelled, which cleaned up already
+            _rewriter = null;
+            try {
+                rewriter.Cancel();
+            } catch (Exception err) {
+                logError("Could not remove the files of the failed log rewrite. ", err, null, false);
+            }
+        } finally {
+            _lock.ExitWriteLock();
         }
     }
     public string? CancelRunningRewriteIfAny() {

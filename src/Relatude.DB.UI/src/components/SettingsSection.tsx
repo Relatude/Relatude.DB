@@ -315,6 +315,23 @@ export function SettingsSection({
     });
   }
 
+  /**
+   * An edit made in a field. A setting whose catalog entry asks first (`confirm`) does so when the
+   * field is changed to that value from a saved value that is anything else - changing it back and
+   * forth before saving asks again, putting the saved value back does not. Cancelling leaves the
+   * field as it was.
+   */
+  async function changeValue(path: string, value: unknown): Promise<void> {
+    const setting = byPath.get(path);
+    const ask = setting?.confirm;
+    if (ask && sameText(value, ask.value) && !sameText(setting.value, ask.value)) {
+      const steps = ask.steps && ask.steps.length > 0 ? { intro: ask.stepsIntro, items: ask.steps, note: ask.note } : undefined;
+      const { ok } = await showConfirm(ask.title, ask.text, { confirmLabel: ask.confirmLabel, steps });
+      if (!ok) return;
+    }
+    setValue(path, value);
+  }
+
   function setValue(path: string, value: unknown): void {
     setMessage(null);
     setEdits((prev) => {
@@ -536,7 +553,7 @@ export function SettingsSection({
                         list={group.list}
                         pickers={pickers}
                         edits={edits}
-                        onChange={setValue}
+                        onChange={changeValue}
                         onRevert={revert}
                         showComments={showComments}
                         onAdd={() => changeList(() => addListItem(storeId, group.list!.path))}
@@ -553,7 +570,7 @@ export function SettingsSection({
                           edited={edits[setting.path] !== undefined}
                           showComment={showComments}
                           marked={setting.path === marked}
-                          onChange={(value) => setValue(setting.path, value)}
+                          onChange={(value) => changeValue(setting.path, value)}
                           onRevert={() => revert(setting.path)}
                         />
                       ))}
@@ -769,8 +786,11 @@ function visible(setting: SettingView, valueOf: (path: string) => unknown): bool
 }
 function holds(rule: SettingVisibility | null | undefined, valueOf: (path: string) => unknown): boolean {
   if (!rule) return true;
-  const current = String(valueOf(rule.path) ?? "").trim().toLowerCase();
-  return rule.values.some((v) => current === v.trim().toLowerCase()) && holds(rule.and, valueOf);
+  return rule.values.some((v) => sameText(valueOf(rule.path), v)) && holds(rule.and, valueOf);
+}
+// a value against one the catalog names: without regard to case or surrounding spaces, "" for no value
+function sameText(value: unknown, named: string): boolean {
+  return String(value ?? "").trim().toLowerCase() === named.trim().toLowerCase();
 }
 
 // the card header follows the field the catalog nominated, live, so renaming a provider renames its

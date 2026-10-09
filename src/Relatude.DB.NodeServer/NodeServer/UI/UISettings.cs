@@ -241,6 +241,7 @@ sealed partial class UISettings {
             definition.Picker,
             definition.Generate,
             definition.Link,
+            definition.Confirm,
             // the sibling is named relative to the element, so it needs the same prefix to be found
             VisibleWhen = VisibilityView.From(definition.VisibleWhen, prefix),
             HiddenWhen = VisibilityView.From(definition.HiddenWhen, prefix),

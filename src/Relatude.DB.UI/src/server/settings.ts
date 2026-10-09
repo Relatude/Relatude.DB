@@ -30,6 +30,20 @@ export interface SettingLink {
   text: string;
 }
 
+/**
+ * Asked in a dialog when the field is changed to `value` from a saved value that is anything else:
+ * what will happen, and optionally the steps of another way to do it.
+ */
+export interface SettingConfirmation {
+  value: string;
+  title: string;
+  text: string;
+  stepsIntro?: string | null;
+  steps?: string[] | null;
+  note?: string | null;
+  confirmLabel: string;
+}
+
 export interface SettingView {
   path: string;
   label: string;
@@ -37,6 +51,8 @@ export interface SettingView {
   help: string;
   /** A page worth reading before choosing, shown under the help text. */
   link?: SettingLink | null;
+  /** Asked before the field takes a value whose cost the field does not show. */
+  confirm?: SettingConfirmation | null;
   unit?: string | null;
   placeholder?: string | null;
   /** Names a runtime list in `pickers` to choose from instead of typing a value. */

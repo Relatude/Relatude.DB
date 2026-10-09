@@ -11,6 +11,9 @@ namespace Relatude.DB.DataStores.Stores;
 
 /// <summary>Confirms the log positions of node records just written, a batch at a time so the node store is locked once per batch and not once per node.</summary>
 internal delegate void RegisterNodeSegmentsCallbackFunc(ReadOnlySpan<(int id, NodeSegment segment)> segments);
+/// <summary>A copy of the log file - a backup - failed on the storage it was going to, and the store is
+/// unharmed: the log file is open as before. Failures of the store itself are never this.</summary>
+internal sealed class LogCopyException(string message, Exception inner) : Exception(message, inner);
 /// <summary>
 // WAL (Write Ahead Log) store, used to store all changes to the database
 // Threadsafe read operations to support multiple read queries at the same time
@@ -365,16 +368,19 @@ internal class WALFile : IDisposable {
             s.SecondaryLogFileSize = _secondaryAppendStream?.Length ?? 0;
         } catch { } // file may be closed....
     }
+    /// <summary>Copies the log file. A copy that fails - a destination storage gone away, say - throws
+    /// <see cref="LogCopyException"/> and leaves the log file open again as it was; any other exception
+    /// means the log file could not be opened again.</summary>
     internal void Copy(string[] newLogFileKey, IIOProvider? destinationIO = null) {
         DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
+        if (destinationIO == null) destinationIO = _io;
+        if (newLogFileKey.IsSameKey(FileKey) && _io == destinationIO) throw new Exception("Cannot copy to same file. ");
+        Close();
         try {
-            if (destinationIO == null) destinationIO = _io;
-            if (newLogFileKey.IsSameKey(FileKey) && _io == destinationIO) throw new Exception("Cannot copy to same file. ");
-            destinationIO.DeleteFileIfItExists(newLogFileKey);
-            Close();
-            using IReadStream readStream = _io.OpenRead(FileKey, 0);
-            using IAppendStream writeStream = destinationIO.OpenAppend(newLogFileKey);
             try {
+                destinationIO.DeleteFileIfItExists(newLogFileKey);
+                using IReadStream readStream = _io.OpenRead(FileKey, 0);
+                using IAppendStream writeStream = destinationIO.OpenAppend(newLogFileKey);
                 var totalLength = readStream.Length;
                 var pos = 0L;
                 while (pos < totalLength) {
@@ -384,14 +390,12 @@ internal class WALFile : IDisposable {
                     pos += bytes.Length;
                 }
             } catch (Exception ex) {
-                writeStream.Dispose();
-                readStream.Dispose();
-                throw new Exception("Error copying log file. ", ex);
+                // the streams are disposed by now; a half written copy must not pass for a whole one
+                try { destinationIO.DeleteFileIfItExists(newLogFileKey); } catch { }
+                throw new LogCopyException("Error copying log file. ", ex);
             }
-            writeStream.Dispose();
-            readStream.Dispose();
         } finally {
-            OpenForAppending();
+            OpenForAppending(); // when this throws, it replaces the copy's exception: the store is broken
         }
     }
     internal void EnsureSecondaryLogFile(long activityId, DataStoreLocal store, bool resetSecondaryFile) {

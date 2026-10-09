@@ -119,6 +119,22 @@ function ActiveDialog() {
               ))}
             </div>
           )}
+          {dialog.steps && (
+            <div className="dialog-steps">
+              {dialog.steps.intro && <div className="dialog-steps-intro">{dialog.steps.intro}</div>}
+              <ol>
+                {dialog.steps.items.map((step, i) => (
+                  <li key={i}>{step}</li>
+                ))}
+              </ol>
+              {dialog.steps.note && (
+                <div className="dialog-steps-note">
+                  <IconAlertTriangle size={14} stroke={2} />
+                  <span>{dialog.steps.note}</span>
+                </div>
+              )}
+            </div>
+          )}
           {dialog.option && (
             <label className="login-remember dialog-option">
               <input type="checkbox" checked={dialog.option.checked} onChange={toggleConfirmOption} />

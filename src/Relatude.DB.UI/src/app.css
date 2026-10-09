@@ -3479,6 +3479,48 @@ a.action-button {
   border-radius: 7px;
 }
 
+/* another way to do it by hand: a numbered list under the body, a caution under that. Steps are
+   sentences rather than names, so the dialog gets the width to keep them from running long */
+.dialog:has(.dialog-steps) {
+  width: 520px;
+}
+
+.dialog-steps {
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.dialog-steps-intro {
+  margin-bottom: 4px;
+}
+
+.dialog-steps ol {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.dialog-steps li {
+  margin: 4px 0;
+}
+
+.dialog-steps-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 8px;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--text-soft);
+  background: var(--data-soft);
+  border-radius: 7px;
+}
+
+.dialog-steps-note svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--data);
+}
+
 /* who started a task this tab only follows, under the title */
 .dialog-origin {
   margin: -6px 0 10px;

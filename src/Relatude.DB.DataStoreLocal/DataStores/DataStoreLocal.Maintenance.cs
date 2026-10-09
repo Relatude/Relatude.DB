@@ -1,4 +1,5 @@
 using Relatude.DB.Common;
+using Relatude.DB.DataStores.Stores;
 using Relatude.DB.IO;
 using Relatude.DB.Tasks;
 using System.Diagnostics;
@@ -68,6 +69,10 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.EnterWriteLock();
             try {
                 _wal.Copy(newLogFileKey, destinationIO);
+            } catch (LogCopyException err) {
+                // a backup storage that failed fails the backup, not the database: its log file is open again
+                logError("Failed to copy log file. ", err);
+                throw;
             } catch (Exception err) {
                 throw createCriticalErrorAndSetDbToErrorState("Failed to copy log file. ", err);
             } finally {

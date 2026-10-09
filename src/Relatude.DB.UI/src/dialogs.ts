@@ -70,6 +70,8 @@ export interface ConfirmState {
   danger: boolean;
   // the things it is about, one per line under the body, as a message's details are shown
   details: string[];
+  // another way to do it, as a numbered list under the body: what to do by hand instead
+  steps: ConfirmSteps | null;
   // required = the confirm button stays disabled until it is ticked; used by the extra dialog in
   // front of deleting primary data, where the point is that the choice cannot be made absently
   option: { label: string; checked: boolean; required: boolean } | null;
@@ -78,6 +80,13 @@ export interface ConfirmState {
 export interface ConfirmResult {
   ok: boolean;
   option: boolean;
+}
+
+export interface ConfirmSteps {
+  intro: string | null;
+  items: string[];
+  // a caution under the list
+  note: string | null;
 }
 
 export interface ChoiceState {
@@ -528,7 +537,13 @@ function show(message: MessageState): Promise<void> {
 export function showConfirm(
   title: string,
   body: string,
-  options?: { confirmLabel?: string; danger?: boolean; details?: string[]; option?: { label: string; checked?: boolean; required?: boolean } },
+  options?: {
+    confirmLabel?: string;
+    danger?: boolean;
+    details?: string[];
+    steps?: { intro?: string | null; items: string[]; note?: string | null };
+    option?: { label: string; checked?: boolean; required?: boolean };
+  },
 ): Promise<ConfirmResult> {
   return new Promise((resolve) => {
     whenIdle(() => {
@@ -539,6 +554,7 @@ export function showConfirm(
         confirmLabel: options?.confirmLabel ?? "OK",
         danger: options?.danger ?? false,
         details: options?.details ?? [],
+        steps: options?.steps ? { intro: options.steps.intro ?? null, items: options.steps.items, note: options.steps.note ?? null } : null,
         option: options?.option
           ? { label: options.option.label, checked: options.option.checked ?? false, required: options.option.required ?? false }
           : null,

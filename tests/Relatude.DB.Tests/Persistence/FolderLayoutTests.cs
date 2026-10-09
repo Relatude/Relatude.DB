@@ -20,7 +20,7 @@ public class FolderLayoutTests {
     [TestMethod]
     public void FileKeys_UseTheFolderLayout() {
         Assert.AreEqual("data/db.00000001.bin", FileKeyUtility.WAL_GetFileKey(1).AsKeyString());
-        Assert.AreEqual("data/db.log", FileKeyUtility.WAL_GetSecondaryFileKey().AsKeyString());
+        Assert.AreEqual("data/secondary.bin", FileKeyUtility.WAL_GetSecondaryFileKey().AsKeyString());
         Assert.AreEqual("state/state.bin", FileKeyUtility.State_LegacyFileKey.AsKeyString());
         Assert.AreEqual("state/state.00000007.bin", FileKeyUtility.State_GetFileKey(7).AsKeyString());
         Assert.AreEqual("state/index.abc.bin", FileKeyUtility.Index_GetLegacyFileKey("abc").AsKeyString());
@@ -93,12 +93,34 @@ public class FolderLayoutTests {
     }
 
     [TestMethod]
-    public void LegacySecondaryLogFile_IsMovedToTheDataFolder() {
+    [DataRow("db.log", DisplayName = "From the root (before the folder layout)")]
+    [DataRow("data/db.log", DisplayName = "From its old name in the data folder")]
+    public void OldSecondaryLogFile_IsMovedToItsCurrentName(string oldKey) {
         var io = new IOProviderMemory();
-        io.WriteAllBytes(["db.log"], [1, 2, 3]);
+        io.WriteAllBytes(oldKey.SplitKey(), [1, 2, 3]);
         using (var storeData = DataStoreLocal.Open(Helper.GetDatamodel(), null, io)) { }
-        Assert.IsFalse(io.Exists(["db.log"]));
-        Assert.AreEqual(3, io.GetFileSizeOrZeroIfUnknown(["data", "db.log"]));
+        Assert.IsFalse(io.Exists(oldKey.SplitKey()));
+        Assert.AreEqual(3, io.GetFileSizeOrZeroIfUnknown(["data", "secondary.bin"]));
+    }
+
+    [TestMethod]
+    public void SecondaryLogUnderItsOldName_IsCarriedOnWith() {
+        // a store running with a secondary log on its own provider that still has data/db.log there
+        // carries on with the same file, now as data/secondary.bin
+        var dbIo = new IOProviderMemory();
+        var secondaryIo = new IOProviderMemory();
+        var settings = new SettingsLocal { SecondaryBackupLog = true };
+        var articles = Helper.GenerateArticles(20);
+        using (var store = new NodeStore(DataStoreLocal.Open(Helper.GetDatamodel(), settings, dbIo))) store.Insert(articles.Take(10));
+        // the secondary as an older version left it, then moved to a provider of its own
+        dbIo.CopyFile(secondaryIo, ["data", "secondary.bin"], ["data", "db.log"]);
+        dbIo.DeleteFileIfItExists(["data", "secondary.bin"]);
+        var withOwnProvider = new DataStoreLocal(Helper.GetDatamodel(), settings, dbIo, secondaryLogIO: secondaryIo);
+        withOwnProvider.Open();
+        using (var store = new NodeStore(withOwnProvider)) store.Insert(articles.Skip(10));
+        Assert.IsFalse(secondaryIo.Exists(["data", "db.log"]));
+        Assert.AreEqual(dbIo.GetFileSizeOrZeroIfUnknown(FileKeyUtility.WAL_GetFileKey(1)), secondaryIo.GetFileSizeOrZeroIfUnknown(["data", "secondary.bin"]),
+            "the moved secondary is appended to, a byte for byte copy of the primary");
     }
 
     [TestMethod]

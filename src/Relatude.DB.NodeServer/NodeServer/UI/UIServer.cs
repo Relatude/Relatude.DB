@@ -684,6 +684,8 @@ public sealed class UIServer {
         if (c.Settings.LocalSettings?.SecondaryBackupLog == true) {
             var secondaryIo = _server.GetOrNullIO(c.Settings.IoDatabaseSecondary) ?? dbIo;
             secondaryIo.DeleteFileIfItExists(FileKeyUtility.WAL_GetSecondaryFileKey());
+            // one under its old name, from a version before the rename, would be moved into place at the next open
+            foreach (var oldKey in FileKeyUtility.WAL_GetOldSecondaryFileKeys()) secondaryIo.DeleteFileIfItExists(oldKey);
         }
     }
 

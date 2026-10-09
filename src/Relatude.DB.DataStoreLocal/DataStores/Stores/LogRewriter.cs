@@ -10,7 +10,7 @@ using Relatude.DB.Transactions;
 namespace Relatude.DB.DataStores.Stores;
 internal class LogRewriter {
     static readonly string[] _logRewriterStartFile = ["rewrite.flag"];
-    public static void CleanupOldPartiallyCompletedLogRewriteIfAny(IIOProvider io) {
+    public static void CleanupOldPartiallyCompletedLogRewriteIfAny(IIOProvider io, bool deleteStateFiles = true) {
         if (io.DoesNotExistOrIsEmpty(_logRewriterStartFile)) return;
         string flaggedKey; // the flag file stores the key in its joined form
         using (var stream = io.OpenRead(_logRewriterStartFile, 0)) {
@@ -32,7 +32,7 @@ internal class LogRewriter {
         var allLogFiles = FileKeyUtility.WAL_GetAllFileKeys(io);
         var flaggedFileIsOnlyLogFile = allLogFiles.Length == 1 && allLogFiles[0].IsSameKey(fileKey);
         if (!flaggedFileIsOnlyLogFile) io.DeleteFileIfItExists(fileKey);
-        FileKeyUtility.State_DeleteAll(io); // delete state files as well, they may contain references to an old log file
+        if (deleteStateFiles) FileKeyUtility.State_DeleteAll(io); // delete state files as well, they may contain references to an old log file
         io.DeleteFileIfItExists(_logRewriterStartFile);
     }
     public static bool LogRewriterAlreadyInprogress(IIOProvider io) {
@@ -86,7 +86,13 @@ internal class LogRewriter {
     }
     public void Cancel() {
         _cancelled = true;
-        _newWAL.Dispose();
+        try {
+            _newWAL.Dispose();
+        } catch {
+            // a storage that failed the writes fails the last flush as well; the streams are closed
+            // without it so the half written file can still be deleted
+            try { _newWAL.Close(); } catch { }
+        }
         _destIO.DeleteFileIfItExists(FileKey);
         if (LogRewriterAlreadyInprogress(_destIO)) DeleteFlagFileToIndicateLogRewriterStart(_destIO, FileKey); // flag file is already deleted if the hot swap completed
         CleanupOldPartiallyCompletedLogRewriteIfAny(_destIO);

@@ -59,6 +59,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     public TaskQueue TaskQueue { get; }
     public TaskQueue TaskQueuePersisted { get; }
     public int TaskQueueThrottle { get => _scheduler.GetTaskQueuesThrottle(); set => _scheduler.ThrottleTaskQueue(value); }
+    internal void RunAutoBackupPass() => _scheduler.RunAutoBackupPass();
     internal readonly AIEngine? _ai;
     LogRewriter? _rewriter = null;
     NodeWriteLocks _nodeWriteLocks = default!;
@@ -180,6 +181,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         _implicitFileStore = new MultiFileStore(Guid.Empty, _io, 2);
         _defaultFileStore ??= _implicitFileStore;
         LogRewriter.CleanupOldPartiallyCompletedLogRewriteIfAny(_io);
+        // a backup cut short in a provider of its own leaves its flag and half written file there,
+        // and the flag would refuse every backup after it. A backup says nothing about the state files
+        if (_ioAutoBackup != _io) LogRewriter.CleanupOldPartiallyCompletedLogRewriteIfAny(_ioAutoBackup, deleteStateFiles: false);
         _scheduler = new(this);
         _uploads = new(this);
         try {
@@ -198,8 +202,10 @@ public sealed partial class DataStoreLocal : IDataStore {
     List<string> moveLegacyFilesIntoFolders() {
         var log = new List<string>();
         foreach (var key in FileKeyUtility.WAL_GetLegacyRootFileKeys(_io)) moveLegacyFileIntoFolder(_io, key, [FileKeyUtility.DataFolderName], LegacyConflict.Throw, log);
-        var legacySecondary = FileKeyUtility.WAL_GetLegacyRootSecondaryFileKey();
-        if (_ioLog2.Exists(legacySecondary)) moveLegacyFileIntoFolder(_ioLog2, legacySecondary, [FileKeyUtility.DataFolderName], LegacyConflict.Throw, log);
+        // the secondary log was data/db.log (db.log in the root before that) and is data/secondary.bin
+        foreach (var oldKey in FileKeyUtility.WAL_GetOldSecondaryFileKeys()) {
+            if (_ioLog2.Exists(oldKey)) moveLegacyFile(_ioLog2, oldKey, FileKeyUtility.WAL_GetSecondaryFileKey(), LegacyConflict.Throw, log);
+        }
         foreach (var key in FileKeyUtility.Legacy_GetRootBackupFileKeys(_ioAutoBackup)) moveLegacyFileIntoFolder(_ioAutoBackup, key, [FileKeyUtility.BackupFolderName], LegacyConflict.LeaveLegacy, log);
         foreach (var key in FileKeyUtility.Legacy_GetRootStateFileKeys(_ioIndex)) moveLegacyFileIntoFolder(_ioIndex, key, [FileKeyUtility.StateFolderName], LegacyConflict.DeleteLegacy, log);
         // a logger file goes into the folder of its log, which its name says
@@ -212,8 +218,9 @@ public sealed partial class DataStoreLocal : IDataStore {
     // using, the root file is stale), LeaveLegacy for backups and logger history (never delete,
     // never block the startup over them).
     enum LegacyConflict { Throw, DeleteLegacy, LeaveLegacy }
-    static void moveLegacyFileIntoFolder(IIOProvider io, string[] legacyKey, string[] folder, LegacyConflict onConflict, List<string> log) {
-        string[] newKey = [.. folder, .. legacyKey];
+    static void moveLegacyFileIntoFolder(IIOProvider io, string[] legacyKey, string[] folder, LegacyConflict onConflict, List<string> log)
+        => moveLegacyFile(io, legacyKey, [.. folder, .. legacyKey], onConflict, log);
+    static void moveLegacyFile(IIOProvider io, string[] legacyKey, string[] newKey, LegacyConflict onConflict, List<string> log) {
         if (io.Exists(newKey)) {
             if (io.GetFileSizeOrZeroIfUnknown(newKey) == io.GetFileSizeOrZeroIfUnknown(legacyKey)) {
                 // an earlier migration crashed between copy and delete; finish it
@@ -233,7 +240,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     throw new Exception($"Cannot move legacy file {legacyKey.AsKeyString()} to {newKey.AsKeyString()} as both exist with different sizes. Remove one of them manually. ");
             }
         }
-        io.EnsureFolder(folder);
+        io.EnsureFolder(newKey[..^1]);
         if (io.CanRenameFile) {
             io.RenameFile(legacyKey, newKey);
         } else {

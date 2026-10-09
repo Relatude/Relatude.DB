@@ -431,9 +431,16 @@ internal class Scheduler {
         }
         _lastAutoBackup = DateTime.UtcNow;
     }
+    /// <summary>One pass of the automatic backup, without waiting for the minute between checks. For the tests.</summary>
+    internal void RunAutoBackupPass() {
+        backupIfDue();
+        deleteOlderBackupsIfDue();
+    }
+    // the backups are looked for, written and pruned in the backup provider (IoBackup), which falls
+    // back to the database's own provider when none is configured
     void backupIfDue() {
         var now = DateTime.UtcNow;
-        var files = FileKeyUtility.WAL_GetAllBackUpFileKeys(_db.IO).Select(f => new { FileKey = f, Timestamp = FileKeyUtility.WAL_GetBackUpDateTimeFromFileKey(f) });
+        var files = FileKeyUtility.WAL_GetAllBackUpFileKeys(_db.IOBackup).Select(f => new { FileKey = f, Timestamp = FileKeyUtility.WAL_GetBackUpDateTimeFromFileKey(f) });
         var filesInCurrentHour = files.Where(f => f.Timestamp.Date == now.Date && f.Timestamp.Hour == now.Hour).Select(f => f.FileKey);
         if (filesInCurrentHour.Count() == 0) {
             var sw = Stopwatch.StartNew();
@@ -453,7 +460,7 @@ internal class Scheduler {
     void deleteOlderBackupsIfDue() {
         var now = DateTime.UtcNow;
         // keys are handled in their joined form here, so they can live in hash sets and set operations
-        var files = FileKeyUtility.WAL_GetAllBackUpFileKeys(_db.IO).Select(f => new { FileKey = f.AsKeyString(), Timestamp = FileKeyUtility.WAL_GetBackUpDateTimeFromFileKey(f) });
+        var files = FileKeyUtility.WAL_GetAllBackUpFileKeys(_db.IOBackup).Select(f => new { FileKey = f.AsKeyString(), Timestamp = FileKeyUtility.WAL_GetBackUpDateTimeFromFileKey(f) });
         files = files.Where(f => FileKeyUtility.WAL_KeepForever(f.FileKey.SplitKey()) == false); // do not delete files that are marked to keep forever
         HashSet<string> filesToKeep = new();
 
@@ -514,7 +521,7 @@ internal class Scheduler {
         var filesToDelete = files.Select(f => f.FileKey).Except(filesToKeep); // the opoosite of keep
         foreach (var f in filesToDelete) {
             _db.LogInfo("Deleting: " + f);
-            _db.IO.DeleteFileIfItExists(f.SplitKey());
+            _db.IOBackup.DeleteFileIfItExists(f.SplitKey());
         }
     }
 

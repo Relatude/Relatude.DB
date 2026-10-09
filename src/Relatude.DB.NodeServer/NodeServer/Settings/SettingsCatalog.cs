@@ -86,6 +86,26 @@ public sealed class SettingDefinition {
     /// <summary>A page worth reading before choosing, shown as a link under the help text. For a
     /// setting whose choice deserves more than the sentence there is room for here.</summary>
     public SettingLink? Link { get; init; }
+    /// <summary>Asked in a dialog when the field is changed to <see cref="SettingConfirmation.Value"/>
+    /// from a saved value that is anything else, for a choice whose cost is not visible from the field -
+    /// turning on the secondary log copies the whole log at the next open. Cancelling leaves the field
+    /// as it was.</summary>
+    public SettingConfirmation? Confirm { get; init; }
+}
+
+/// <summary>What <see cref="SettingDefinition.Confirm"/> asks: a title, what will happen, and optionally
+/// the steps of another way to do it, shown as a numbered list with a caution under it.</summary>
+public sealed class SettingConfirmation {
+    /// <summary>The value that asks, compared as <see cref="SettingVisibility.Values"/> are: "true" for a boolean.</summary>
+    public required string Value { get; init; }
+    public required string Title { get; init; }
+    public required string Text { get; init; }
+    /// <summary>Said above <see cref="Steps"/>.</summary>
+    public string? StepsIntro { get; init; }
+    public string[]? Steps { get; init; }
+    /// <summary>Said under the steps: what goes wrong when one is done differently.</summary>
+    public string? Note { get; init; }
+    public required string ConfirmLabel { get; init; }
 }
 
 /// <summary>Somewhere to read more about a setting, opened in a new tab from under its help text.</summary>
@@ -1193,6 +1213,20 @@ public static class SettingsCatalog {
                         new() {
                             Path = "LocalSettings.SecondaryBackupLog", Label = "Enable secondary db log",
                             Help = "This log is never truncated and provides a passive and complete record of all transactions since it was enabled.",
+                            Confirm = new() {
+                                Value = "true",
+                                Title = "Turn on the secondary log?",
+                                Text = "The secondary log starts as a copy of the database's log file. The next time the database opens, it copies the whole log file to data/secondary.bin on the secondary log's storage before it starts - on a large database that can take a long time, and the database is not available until the copy is done.",
+                                StepsIntro = "To make the copy yourself instead, at a time that suits you:",
+                                Steps = [
+                                    "Turn the setting on and save it without reopening the database.",
+                                    "Stop the database, from the Databases page or the dashboard.",
+                                    "Copy the newest log file in the data folder of the database's storage - data/db.NNNNNNNN.bin, the one with the highest number - to data/secondary.bin on the storage set as \"Secondary log copy\" under IO assignments (the database's own storage when none is set). The Files page can copy between storages, or use any file tool.",
+                                    "Start the database. It finds data/secondary.bin and appends to it rather than copying the log again.",
+                                ],
+                                Note = "Copy only while the database is stopped, and only the newest log file: a copy that differs from the log in use is not detected, and the secondary log would miss transactions.",
+                                ConfirmLabel = "Turn on",
+                            },
                         },
                     ],
                 },

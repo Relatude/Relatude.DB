@@ -77,7 +77,7 @@ public static class FileKeyUtility {
 
     static readonly HashSet<string> storeNames = ["db", "files", "index", "ai", "log", "mapper", "queue"]; // starting with these are reserved
     // patterns are file keys with wildcards in their segments, matched segment by segment
-    static readonly string[] walSecondaryFilePattern = [DataFolderName, "db.log"];
+    static readonly string[] walSecondaryFilePattern = [DataFolderName, "secondary.bin"];
     static readonly string[] walFilePattern = [DataFolderName, "db.*.bin"];
     static readonly string[] walFileBackupPattern = [BackupFolderName, "db.*.bkup"];
     static readonly string[] walFileBackupPatternKeepForever = [BackupFolderName, "db.bkup.keep.*.bkup"];
@@ -366,7 +366,9 @@ public static class FileKeyUtility {
     // Before the folder layout every file lived in the storage root. The startup migration moves
     // those files into their folders using the helpers below.
     public static string[][] WAL_GetLegacyRootFileKeys(IIOProvider io) => [.. io.Search(["db.*.bin"])];
-    public static string[] WAL_GetLegacyRootSecondaryFileKey() => ["db.log"];
+    /// <summary>Where the secondary log was kept before it was data/secondary.bin: data/db.log, and db.log
+    /// in the storage root before the folder layout. Moved to <see cref="WAL_GetSecondaryFileKey"/> at open.</summary>
+    public static string[][] WAL_GetOldSecondaryFileKeys() => [[DataFolderName, "db.log"], ["db.log"]];
     public static string[] MapLegacyRootFileKeyToDataFolder(string[] legacyRootFileKey) => [DataFolderName, .. legacyRootFileKey];
     /// <summary>Database and file store backups in the storage root; they now live in the bkup folder.</summary>
     public static string[][] Legacy_GetRootBackupFileKeys(IIOProvider io)

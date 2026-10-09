@@ -295,7 +295,7 @@ sealed class UIDashboard {
 
     /// <summary>What the files take while the database is closed, read straight off the providers.</summary>
     object closedFileSizes(Settings.NodeStoreContainerSettings settings) {
-        long database = 0, state = 0, backups = 0;
+        long database = 0, state = 0, backups = 0, secondary = 0;
         try {
             if (settings.IoDatabase is Guid dbIoId && dbIoId != Guid.Empty) {
                 var io = _server.GetIO(dbIoId);
@@ -311,8 +311,12 @@ sealed class UIDashboard {
                 var io = _server.GetIO(id);
                 foreach (var key in FileKeyUtility.WAL_GetAllBackUpFileKeys(io)) backups += io.GetFileSizeOrZeroIfUnknown(key);
             }
+            var secondaryIoId = settings.IoDatabaseSecondary is Guid second && second != Guid.Empty ? second : settings.IoDatabase;
+            if (settings.LocalSettings?.SecondaryBackupLog == true && secondaryIoId is Guid secondId && secondId != Guid.Empty) {
+                secondary = _server.GetIO(secondId).GetFileSizeOrZeroIfUnknown(FileKeyUtility.WAL_GetSecondaryFileKey());
+            }
         } catch { } // a provider that cannot be reached must not stop the page from rendering
-        return new { Database = database, State = state, Logs = 0L, Backups = backups, Secondary = 0L };
+        return new { Database = database, State = state, Logs = 0L, Backups = backups, Secondary = secondary };
     }
 
     // the full name carries the namespace, which is the same for every type of one datamodel and
