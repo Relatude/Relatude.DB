@@ -187,6 +187,21 @@ written back to the file. Credentials belong there, not in the file. What you ch
 is kept apart as well, in `overrides/relatude.db.overrides.json` beside the default database's own files, so
 `relatude.db.json` stays as you deployed it until you move those changes into it from the settings page.
 
+**Source control and deployment.** `relatude.settings/` is part of the application: commit it, and it
+is deployed with the code. `relatude.data/` (and its scratch folder `relatude.data.temp/`) is the
+database of the machine it runs on: never commit it, and exclude it in the project file as well, so
+that a publish does not carry your development data to a server. The project types of `relatude new`
+do both; in a project of your own, add this to the `.csproj`:
+
+```xml
+<PropertyGroup>
+  <DefaultItemExcludes>$(DefaultItemExcludes);relatude.data\**;relatude.data.temp\**</DefaultItemExcludes>
+</PropertyGroup>
+```
+
+Here is a [typical `.gitignore`](.gitignore) for a project on Relatude.DB, and the manual sets out
+[what goes where](manual.html#122-what-goes-where-source-control-deployment-and-appsettings).
+
 ---
 
 ## 4. Querying

@@ -5,7 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Relatude.DB — the all-in-one datastore for web applications</title>
 <meta name="description" content="Relatude.DB is an open-source, object-oriented graph datastore for .NET in one NuGet with zero dependencies. Your C# classes are the schema, with built-in full-text and vector search, facets, files, media, image AI and an admin UI.">
+<link rel="canonical" href="https://db.relatude.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Relatude.DB">
+<meta property="og:url" content="https://db.relatude.com/">
+<meta property="og:title" content="Relatude.DB — the all-in-one datastore for web applications">
+<meta property="og:description" content="An open-source, object-oriented graph datastore for .NET in one NuGet with zero dependencies. Your C# classes are the schema.">
 <link rel="icon" href="logo-relatude.svg" type="image/svg+xml">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "WebSite", "name": "Relatude.DB", "url": "https://db.relatude.com/"}
+</script>
 <script>
 // Applied before first paint so a chosen theme does not flash the other one.
 // Same storage key as the manual, so the choice carries across the docs.
@@ -28,8 +37,13 @@
   document.documentElement.setAttribute("data-weather", weather);
   // The page opens with its text hidden, the wordmark alone in the middle of
   // the frame (logo only, below); a click brings the text in. Set here so the
-  // text never shows for a frame first.
-  document.documentElement.classList.add("logo-only");
+  // text never shows for a frame first. Not for search engines and link
+  // previews: they read the page as it renders, and a logo alone tells them
+  // nothing, so they get the text and the links to the introduction and the
+  // manual from the start. (Headless Chrome is not matched: the scene's
+  // screenshot scripts expect the opening as readers see it.)
+  if (!/bot|crawl|spider|slurp|facebookexternalhit|embedly/i.test(navigator.userAgent || ""))
+    document.documentElement.classList.add("logo-only");
   // The effective light/dark, whether it came from the stored choice or from the
   // OS, and the palette the background scene should wear: that answer, in full
   // colour when the colour switch is on. The scene asks for it at boot and the
@@ -363,6 +377,12 @@ header { margin-top: auto; text-align: center; }
   transition: color .8s ease, filter .8s ease;   /* crosses over with the scene when the theme changes */
 }
 .wordmark svg { display: block; width: auto; height: clamp(50px, 9.5vw, 78px); }
+/* The heading's words for screen readers and search engines; the drawn
+   wordmark stands in for them on screen. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
+}
 @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 
 /* Blinking caret at the end of the wordmark, as in the animation. */
@@ -547,7 +567,8 @@ footer a:hover { color: var(--fg); }
 
   <header>
     <h1 class="wordmark">
-      <svg viewBox="33 24 346 90" fill="currentColor" role="img" aria-label="Relatude">
+      <span class="sr-only">Relatude.DB</span>
+      <svg viewBox="33 24 346 90" fill="currentColor" aria-hidden="true">
         <path d="M99.3,56.2c0,4.5-2.8,7.9-6.9,8.7l9.9,19.4h-3.3l-9.8-19.2H76.2v19.2h-3V42.5h17.1c5.1,0,8.9,4.1,8.9,9.3V56.2z M96.3,51.6
           c0-3.9-2.5-6.3-6.4-6.3H76.2v17h13.6c3.9,0,6.4-2.4,6.4-6.3V51.6z" />
         <polygon points="110.8,84.3 110.8,42.5 134.3,42.5 134.3,45.3 113.7,45.3 113.7,62 131.4,62 131.4,64.8 113.7,64.8 113.7,81.4

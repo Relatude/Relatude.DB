@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The pages of db.relatude.com for search engines, named by their canonical URLs (the
+     <link rel="canonical"> in each page). Add a page here when one is added to the site. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://db.relatude.com/</loc></url>
+  <url><loc>https://db.relatude.com/intro.html</loc></url>
+  <url><loc>https://db.relatude.com/manual.html</loc></url>
+</urlset>

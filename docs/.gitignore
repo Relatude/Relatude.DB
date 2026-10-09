@@ -1,0 +1,50 @@
+# A typical .gitignore for an ASP.NET Core project on Relatude.DB.
+# Put it in the root of the repository. The patterns have no leading slash, so they match at any
+# depth: a project in a subfolder (Backend/relatude.data/ in the React project type) is covered too.
+#
+# Commit relatude.settings/ - relatude.db.json, datamodel.json, logs/ and graphql/ describe the
+# application and are deployed with it. Nothing below ignores it, so keep it that way.
+#
+# Ignoring the data folder only keeps it out of source control. Leave it out of the project file as
+# well, or a publish copies it to the server (the project types of "relatude new" already do this):
+#
+#   <PropertyGroup>
+#     <DefaultItemExcludes>$(DefaultItemExcludes);relatude.data\**;relatude.data.temp\**</DefaultItemExcludes>
+#   </PropertyGroup>
+#
+# More: https://db.relatude.com/manual.html#122-what-goes-where-source-control-deployment-and-appsettings
+
+# Relatude.DB: the database of this machine - transaction log, state, indexes, backups, uploaded
+# files, log entries, and the changes made in the admin UI here (overrides/). Never committed or
+# deployed. Delete the folder to start over with an empty database. (Older versions called it
+# relatude.db/; the server renames it at start.)
+relatude.data/
+# Scratch, emptied at every start.
+relatude.data.temp/
+
+# Build and publish output
+bin/
+obj/
+[Pp]ublish/
+*.nupkg
+
+# Client builds (React / Vite)
+node_modules/
+dist/
+*.local
+# The React project type builds its client into the backend's wwwroot ("npm run build"):
+# Backend/wwwroot/
+
+# Secrets stay out of source control: use user secrets or environment variables, see the manual.
+.env
+.env.*
+!.env.example
+
+# Editors and OS
+.vs/
+.idea/
+*.user
+*.suo
+*.swp
+.DS_Store
+Thumbs.db

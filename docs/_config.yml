@@ -1,0 +1,4 @@
+# GitHub Pages builds this folder with Jekyll, which leaves out files whose names start with a dot.
+# The manual and the introduction link to the typical .gitignore here, so it is published as well.
+include:
+  - .gitignore

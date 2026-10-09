@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Getting started with Relatude.DB</title>
+<meta name="description" content="A short introduction to Relatude.DB, the open-source object-oriented graph database for .NET: install one NuGet, model your data as C# classes and relations, and query it with full-text, vector and faceted search.">
+<link rel="canonical" href="https://db.relatude.com/intro.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Relatude.DB">
+<meta property="og:url" content="https://db.relatude.com/intro.html">
+<meta property="og:title" content="Getting started with Relatude.DB">
+<meta property="og:description" content="A short introduction to Relatude.DB, the open-source object-oriented graph database for .NET.">
+<link rel="icon" href="logo-relatude.svg" type="image/svg+xml">
 <script>
 // Applied before first paint so an explicitly chosen theme does not flash the
 // other one. localStorage access itself can throw on file:// origins, so guard.
@@ -610,6 +618,18 @@ environment variables or user secrets — wins over <code>relatude.db.json</code
 written back to the file. Credentials belong there, not in the file. What you change in the admin UI
 is kept apart as well, in <code>overrides/relatude.db.overrides.json</code> beside the default database's own files, so
 <code>relatude.db.json</code> stays as you deployed it until you move those changes into it from the settings page.</p>
+<p><strong>Source control and deployment.</strong> <code>relatude.settings/</code> is part of the application: commit it, and it
+is deployed with the code. <code>relatude.data/</code> (and its scratch folder <code>relatude.data.temp/</code>) is the
+database of the machine it runs on: never commit it, and exclude it in the project file as well, so
+that a publish does not carry your development data to a server. The project types of <code>relatude new</code>
+do both; in a project of your own, add this to the <code>.csproj</code>:</p>
+<div class="codehilite"><pre><span></span><code><span class="nt">&lt;PropertyGroup&gt;</span>
+<span class="w">  </span><span class="nt">&lt;DefaultItemExcludes&gt;</span>$(DefaultItemExcludes);relatude.data\**;relatude.data.temp\**<span class="nt">&lt;/DefaultItemExcludes&gt;</span>
+<span class="nt">&lt;/PropertyGroup&gt;</span>
+</code></pre></div>
+
+<p>Here is a <a href=".gitignore">typical <code>.gitignore</code></a> for a project on Relatude.DB, and the manual sets out
+<a href="manual.html#122-what-goes-where-source-control-deployment-and-appsettings">what goes where</a>.</p>
 <hr />
 <h2 id="4-querying">4. Querying<a class="anchor" href="#4-querying" aria-label="Link to this section">#</a></h2>
 <p>One fluent builder, LINQ-style expressions, <code>Execute()</code> at the end.</p>

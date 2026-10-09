@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Data Modelling &amp; Querying with Relatude.DB</title>
+<meta name="description" content="The Relatude.DB manual: data modelling with C# classes, interfaces and relations, and querying with filters, includes, full-text and vector search, facets, files, revisions, logs and GraphQL endpoints.">
+<link rel="canonical" href="https://db.relatude.com/manual.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Relatude.DB">
+<meta property="og:url" content="https://db.relatude.com/manual.html">
+<meta property="og:title" content="Data Modelling &amp; Querying with Relatude.DB">
+<meta property="og:description" content="The practical manual for Relatude.DB, the open-source object-oriented graph database for .NET.">
+<link rel="icon" href="logo-relatude.svg" type="image/svg+xml">
 <script>
 // Applied before first paint so an explicitly chosen theme does not flash the
 // other one. localStorage access itself can throw on file:// origins, so guard.
@@ -385,6 +393,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
   <div id="brand">
     <h1>Data Modelling &amp; Querying</h1>
     <p>Relatude.DB &middot; a practical manual</p>
+    <p style="margin-top:6px"><a href="index.html" style="font-size:11.5px;color:var(--accent);text-decoration:none">&larr; Relatude.DB home</a></p>
     <button id="theme" type="button" title="Theme" aria-label="Theme"></button>
   </div>
   <div id="searchwrap">
@@ -2302,8 +2311,11 @@ against the folder the file is in. The Web SDK publishes the file like any other
 project. The same folder holds the other files every installation shares: the definitions of custom
 logs (<a href="#321-defining-a-log">§32.1</a>) and the shared datamodel overrides
 (<a href="#31-overriding-attributes">§3.1</a>). The folder is part of the application, kept in source control and
-deployed with it; <a href="#122-what-goes-where-source-control-deployment-and-appsettings">§12.2</a> sets out
-what goes where, and what stays with an installation.</p>
+deployed with it. <code>relatude.data/</code> and <code>relatude.data.temp/</code> are the opposite: they belong to the
+installation, so they are never committed — a <a href=".gitignore">typical <code>.gitignore</code></a> leaves them out — and
+the project file excludes them, so that a publish does not deploy them either.
+<a href="#122-what-goes-where-source-control-deployment-and-appsettings">§12.2</a> sets out what goes where, and
+what stays with an installation.</p>
 <p><strong>Older versions kept the file in the root data folder itself, and for a while in
 <code>relatude.settings/db/</code>.</strong> At its first start the server moves such a file into <code>relatude.settings/</code>
 — the text as it is, comments and all — and says so in the start-up log. A move that fails (a
@@ -3053,7 +3065,7 @@ them.</p>
 <tr>
 <td><code>ImageDefaultQuality</code></td>
 <td>85</td>
-<td>Quality used when the request does not name one.</td>
+<td>Quality used when the request does not name one. Changing this or <code>ImageDefaultFormat</code> converts the adaptive variants again as they are next requested, under new URLs (<a href="#181-asset-urls-files-variants-and-deeplinks">§18.1</a>).</td>
 </tr>
 <tr>
 <td><code>UrlOptions</code></td>
@@ -3531,6 +3543,9 @@ that was changed on that one installation. The layout follows three rules:</p>
   a deployment neither carries it nor overwrites it.</li>
 <li>What differs between environments comes from configuration, and so does every secret.</li>
 </ul>
+<p><strong>In short:</strong> commit <code>relatude.settings/</code>. Never commit <code>relatude.data/</code> or <code>relatude.data.temp/</code>,
+and exclude both from the project file so that a publish does not deploy them either
+(<a href="#publishing">Publishing</a>). <a href=".gitignore"><code>.gitignore</code></a> is a typical one for a project on Relatude.DB.</p>
 <p><strong>The folders.</strong> With the default <code>ServerOptions</code> a project looks like this. The content root is the
 project folder while you develop, and the folder the application was deployed to on a server:</p>
 <div class="codehilite"><pre><span></span><code>MyApp/                                 the content root, and the root data folder
@@ -3566,7 +3581,7 @@ folder, beside <code>relatude.data/</code>: moving the root data folder with <co
 takes the settings folder along, out of the project. A database's SHARED files are found by its
 short name, so give each database its <code>ShortName</code> in <code>relatude.db.json</code>, where every installation
 reads it (<a href="#121-every-setting-in-relatudedbjson">§12.1</a>).</p>
-<p>Older versions called the data folder <code>relatude.data/</code> and the scratch folder <code>relatude.data.temp/</code>. At
+<p>Older versions called the data folder <code>relatude.db/</code> and the scratch folder <code>relatude.db.temp/</code>. At
 start the server renames an old data folder to <code>relatude.data/</code> and changes the paths in
 <code>relatude.db.json</code> and <code>relatude.db.overrides.json</code> that point into it — as text, so their comments
 stay — and deletes the old scratch folder.</p>
@@ -3695,6 +3710,12 @@ admin UI writes into it is ready to commit:</p>
 relatude.data.temp/
 </code></pre></div>
 
+<p><a href=".gitignore"><code>.gitignore</code></a> here in the documentation is a complete one for a typical project, with
+build output, client builds, secret files and editor files as well; put it in the root of the
+repository. Its patterns match at any depth, so a project in a subfolder — <code>Backend/</code> in the React
+project type — is covered too. The project types of <code>relatude new</code> come with one of their own.
+Ignoring the data folder keeps it out of source control only; the project file has to leave it out
+as well (<a href="#publishing">below</a>).</p>
 <p><strong>Secrets do not go into <code>relatude.db.json</code>.</strong> <code>relatude new</code> and <code>relatude init</code> write a random
 <code>TokenEncryptionSecret</code> into the file, and the admin password when given <code>--password</code>, so that a new
 project can be logged into at once. Before the repository is shared, move both into user secrets
@@ -4986,6 +5007,19 @@ file when the request is served:</p>
 </ul>
 <p>So <code>?w=1200</code> alone is a complete request, and a site-wide switch to WebP is one setting rather than a
 sweep through every <code>GetUrl</code> call. Naming a format explicitly always wins.</p>
+<h4 id="converted-variants-are-cached-and-their-urls-are-stable">Converted variants are cached, and their URLs are stable<a class="anchor" href="#converted-variants-are-cached-and-their-urls-are-stable" aria-label="Link to this section">#</a></h4>
+<p>A variant is converted once and kept in the <code>converted</code> folder of the index storage (<code>IoIndexes</code>, else
+the database storage), keyed by the file and the adjustment. The adjustment is normalized first — out
+of range values clamped, <code>#AABBCC</code> and <code>aabbcc</code> the same color — so one picture is converted once
+whether it is asked for by an encoded URL, a readable one, the admin UI or code. A variant is written
+next to its key and moved into place whole, so a crash never leaves half a picture behind.</p>
+<p>File URLs carry a version, and a ready response may be cached for 30 days, so the version changes
+exactly when what the URL serves may: another file content, <em>Delete converted files</em> in the admin UI,
+or — for adaptive variants — a change of <code>ImageDefaultFormat</code> or <code>ImageDefaultQuality</code>. A restart does
+not change it, so browsers and CDNs keep their copies.</p>
+<p>A failed conversion is reported as failed for an hour and then tried again on the next request, as a
+failure can be passing (the source briefly unreachable, a converter still being installed). A
+conversion canceled permanently stays canceled until the errors are cleared.</p>
 <h3 id="182-links-inside-html-and-markdown">18.2 Links inside HTML and Markdown<a class="anchor" href="#182-links-inside-html-and-markdown" aria-label="Link to this section">#</a></h3>
 <p>A link in a rich-text field must survive the rename of the page it points at. Properties marked
 <code>StringValueType.HTML</code> or <code>Markdown</code> — <code>[HtmlProperty]</code> is the short form — therefore store links in

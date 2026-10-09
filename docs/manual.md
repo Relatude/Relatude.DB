@@ -1806,8 +1806,11 @@ against the folder the file is in. The Web SDK publishes the file like any other
 project. The same folder holds the other files every installation shares: the definitions of custom
 logs ([§32.1](#321-defining-a-log)) and the shared datamodel overrides
 ([§3.1](#31-overriding-attributes)). The folder is part of the application, kept in source control and
-deployed with it; [§12.2](#122-what-goes-where-source-control-deployment-and-appsettings) sets out
-what goes where, and what stays with an installation.
+deployed with it. `relatude.data/` and `relatude.data.temp/` are the opposite: they belong to the
+installation, so they are never committed — a [typical `.gitignore`](.gitignore) leaves them out — and
+the project file excludes them, so that a publish does not deploy them either.
+[§12.2](#122-what-goes-where-source-control-deployment-and-appsettings) sets out what goes where, and
+what stays with an installation.
 
 **Older versions kept the file in the root data folder itself, and for a while in
 `relatude.settings/db/`.** At its first start the server moves such a file into `relatude.settings/`
@@ -2421,6 +2424,10 @@ that was changed on that one installation. The layout follows three rules:
   a deployment neither carries it nor overwrites it.
 - What differs between environments comes from configuration, and so does every secret.
 
+**In short:** commit `relatude.settings/`. Never commit `relatude.data/` or `relatude.data.temp/`,
+and exclude both from the project file so that a publish does not deploy them either
+([Publishing](#publishing)). [`.gitignore`](.gitignore) is a typical one for a project on Relatude.DB.
+
 **The folders.** With the default `ServerOptions` a project looks like this. The content root is the
 project folder while you develop, and the folder the application was deployed to on a server:
 
@@ -2459,7 +2466,7 @@ takes the settings folder along, out of the project. A database's SHARED files a
 short name, so give each database its `ShortName` in `relatude.db.json`, where every installation
 reads it ([§12.1](#121-every-setting-in-relatudedbjson)).
 
-Older versions called the data folder `relatude.data/` and the scratch folder `relatude.data.temp/`. At
+Older versions called the data folder `relatude.db/` and the scratch folder `relatude.db.temp/`. At
 start the server renames an old data folder to `relatude.data/` and changes the paths in
 `relatude.db.json` and `relatude.db.overrides.json` that point into it — as text, so their comments
 stay — and deletes the old scratch folder.
@@ -2519,6 +2526,13 @@ The `.gitignore` leaves out the data folder and the scratch folder, and nothing 
 relatude.data/
 relatude.data.temp/
 ```
+
+[`.gitignore`](.gitignore) here in the documentation is a complete one for a typical project, with
+build output, client builds, secret files and editor files as well; put it in the root of the
+repository. Its patterns match at any depth, so a project in a subfolder — `Backend/` in the React
+project type — is covered too. The project types of `relatude new` come with one of their own.
+Ignoring the data folder keeps it out of source control only; the project file has to leave it out
+as well ([below](#publishing)).
 
 **Secrets do not go into `relatude.db.json`.** `relatude new` and `relatude init` write a random
 `TokenEncryptionSecret` into the file, and the admin password when given `--password`, so that a new
