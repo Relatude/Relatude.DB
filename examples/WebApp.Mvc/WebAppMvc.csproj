@@ -16,9 +16,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Relatude.DB.Server" Version="0.3.0.187-alpha" />
-    <PackageReference Include="Relatude.DB.Plugins.Skia" Version="0.3.0.187-alpha" />
-    <PackageReference Include="Relatude.DB.Plugins.FFMpeg" Version="0.3.0.187-alpha" />
+    <PackageReference Include="Relatude.DB.Server" Version="0.4.4.220-alpha" />
   </ItemGroup>
 
 </Project>

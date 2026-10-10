@@ -17,8 +17,6 @@
 
   <ItemGroup>
     <PackageReference Include="Relatude.DB.Server" Version="__PACKAGE_VERSION__" />
-    <PackageReference Include="Relatude.DB.Plugins.Skia" Version="__PACKAGE_VERSION__" />
-    <PackageReference Include="Relatude.DB.Plugins.FFMpeg" Version="__PACKAGE_VERSION__" />
   </ItemGroup>
 
   <!-- On publish, build the React client into wwwroot so one deployment holds both. -->
