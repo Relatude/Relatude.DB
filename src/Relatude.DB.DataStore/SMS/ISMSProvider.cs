@@ -2,7 +2,7 @@ namespace Relatude.DB.SMS;
 
 /// <summary>
 /// Sends a text message on behalf of the database, so application code does not hold a gateway
-/// account of its own. Reached through <c>NodeStore.SMS</c>.
+/// account of its own. Reached through <c>NodeStore.Services.SMS</c>.
 ///
 /// <para>Only one implementation exists: <c>RelatudeServicesSMSProvider</c>, which calls the hosted
 /// Relatude SMS service and charges each message to the license. The interface is here so that a

@@ -423,6 +423,47 @@ public class FileConversionEngine : IDisposable {
     public bool CanConvert(FileFormat format, FileFormat requestedFormat) {
         return _fileConverters.TryGetConverter(new FormatPair(format, requestedFormat), out _);
     }
+    /// <summary>
+    /// Converts a file that is not one of the database's own - one code holds, such as a video whose
+    /// sound the FileToText provider sends - now, by the converter that does the conversion: not queued
+    /// behind the database's own conversions, not cached, and not listed among them. The result is a
+    /// file in <see cref="LocalTempFolderPath"/>, which the caller reads and deletes. Throws
+    /// <see cref="NotSupportedException"/> when no converter does the conversion, and
+    /// <see cref="InvalidOperationException"/> with the converter's reason when it fails. Cancelling
+    /// asks the converter to stop.
+    /// </summary>
+    public async Task<string> ConvertFileAsync(string inputPath, FileFormat from, FileAdjustmentBase adjustment, CancellationToken cancellationToken = default) {
+        var adj = adjustment.Normalized();
+        if (!_fileConverters.TryGetConverter(new FormatPair(from, adj.RequestedFormat), out var converter)) {
+            throw new NotSupportedException($"No file converter here converts {from.ToString().ToUpper()} to {adj.RequestedFormat.ToString().ToUpper()}. ");
+        }
+        // an id of its own, for no file and no property, under which the converter runs this once
+        var id = new FileIdWithAdjustment(Guid.NewGuid(), adj, new PropertyPath(Guid.Empty, Guid.Empty));
+        var info = new FileConversionInfo(id, Path.GetFileName(inputPath), string.Empty, from);
+        var source = new InputFileSource(() => Task.FromResult<Stream>(File.OpenRead(inputPath)), inputPath);
+        ConversionProgress result;
+        using (cancellationToken.Register(() => _ = converter.CancelAsync(id.GetKey()))) {
+            result = await converter.DoConvertWork(source, info);
+        }
+        if (cancellationToken.IsCancellationRequested || result.ProgressInfo.Status != FileConversionStatus.Ready) {
+            if (result.LocalFilePathOutput is { } left) tryDelete(left);
+            cancellationToken.ThrowIfCancellationRequested();
+            throw new InvalidOperationException(result.ProgressInfo.Message ?? $"The conversion from {from.ToString().ToUpper()} to {adj.RequestedFormat.ToString().ToUpper()} failed. ");
+        }
+        if (result.LocalFilePathOutput is { } path) return path;
+        if (result.Output is not { } output) throw new InvalidOperationException("The converter gave no result. ");
+        Directory.CreateDirectory(LocalTempFolderPath);
+        var file = Path.Combine(LocalTempFolderPath, Guid.NewGuid() + (FileFormatUtil.GetExtensionWithDot(adj.RequestedFormat) ?? ".bin"));
+        await using (output)
+        await using (var target = File.Create(file)) {
+            await output.CopyToAsync(target, cancellationToken);
+        }
+        return file;
+
+        static void tryDelete(string file) {
+            try { File.Delete(file); } catch { }
+        }
+    }
     public void ClearAllErrors() {
         _fileCache.ClearAllErrors();
     }

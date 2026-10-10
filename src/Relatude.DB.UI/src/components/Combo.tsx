@@ -15,7 +15,7 @@ function asText(value: unknown): string {
  * setting genuinely is free text - the list is a shortcut and a spelling reference, so nothing here
  * ever refuses a value or rewrites one.
  *
- * Typing narrows the list to what matches, and a value that matches nothing simply leaves it empty
+ * Typing narrows the list to what matches, by value or label, and a value that matches nothing simply leaves it empty
  * rather than closing the list on a keystroke; the arrow always shows everything.
  *
  * With `load` the list is not known up front: it is fetched each time the list opens, and what was
@@ -52,8 +52,10 @@ export function Combo({
   const input = useRef<HTMLInputElement>(null);
   const current = asText(value);
   const all = load ? (fetched ?? []) : options;
+  // what is typed is matched against the label too, so a language can be found by its name as well as its code
+  const typed = current.toLowerCase();
   const matches =
-    filtering && current ? all.filter((o) => o.value.toLowerCase().includes(current.toLowerCase())) : all;
+    filtering && current ? all.filter((o) => o.value.toLowerCase().includes(typed) || o.label.toLowerCase().includes(typed)) : all;
 
   // a list with nothing in it is not shown at all, so "open" on its own is not the state anything
   // else should key off: a typed value matching no suggestion must still open the whole list. A

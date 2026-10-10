@@ -193,9 +193,10 @@ sealed class UILicense(RelatudeDBServer server) {
             status.Installation,
             // where the AI test panel sends its calls, when a database here names an address of its own
             AiServiceUrl = configuredAiServiceUrl(),
-            // and the Imaging and FileToText test panels, likewise
+            // and the Imaging, FileToText and Translation test panels, likewise
             ImagingServiceUrl = UIServiceTests.ConfiguredImagingUrl(server),
             FileToTextServiceUrl = UIServiceTests.ConfiguredFileToTextUrl(server),
+            TranslationServiceUrl = UIServiceTests.ConfiguredTranslationUrl(server),
             // which of the fields the page offers are decided by configuration, and so cannot be
             // edited here: the same rule the settings page shows, on the same paths
             Locked = _paths.Where(isOverridden).ToArray(),

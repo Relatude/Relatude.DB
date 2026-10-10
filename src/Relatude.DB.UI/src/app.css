@@ -12753,6 +12753,79 @@ body.pg-resizing {
   text-align: center;
 }
 
+/* Translation: the texts in a box a few lines tall, the two languages side by side and the two
+   switches on one line under them */
+.license-translation-input {
+  min-height: 150px;
+  resize: vertical;
+}
+
+.license-translation-languages {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.license-translation-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+
+/* each text beside what came back for it, ruled off from the next */
+.license-translations {
+  display: flex;
+  flex-direction: column;
+}
+
+.license-translation {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.license-translation:first-child {
+  padding-top: 2px;
+}
+
+.license-translation:last-child {
+  border-bottom: none;
+}
+
+.license-translation-side {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.license-translation-langs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.license-translation-text {
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.license-translation-alternatives {
+  font-size: 12px;
+}
+
+@container service-test (max-width: 520px) {
+  .license-translation {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+}
+
 /* ---- the tests at other widths ----
    Steps on the test's own width (the service-test container): a size up when there is room to spare,
    a size down as it narrows, one column below that, and on a phone labels over what they label. */
@@ -13758,4 +13831,426 @@ body.pg-resizing {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ---- node sizes: the storage page's dialog of how big every node is ----
+   Facts, a row of controls, then two rows of panels: the size distribution beside the type table,
+   the log file strip across the whole width, and the largest nodes beside whatever is being taken
+   apart. The dialog takes the screen it is given and its body scrolls, so a small window loses
+   nothing but the room. The pictures draw in real pixels (they are re-laid out on resize), which is
+   what keeps their text the size the rest of the dialog is. */
+.dialog.node-sizes-dialog {
+  --ns-other: #8a8781; /* the folded types: a grey no type has, the same in both themes */
+  display: flex;
+  flex-direction: column;
+  width: min(1500px, calc(100vw - 32px));
+  height: min(1000px, calc(100vh - 32px));
+  max-width: calc(100vw - 32px);
+  outline: none;
+}
+
+.node-sizes-dialog .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ns-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+/* the body scrolls: nothing in it is squeezed to make room, or a panel shrinks to its heading */
+.ns-body > * {
+  flex: none;
+}
+
+.ns-facts {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+.ns-facts .fact-v {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.ns-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  font-size: 12px;
+}
+
+.ns-control-label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.ns-type-select {
+  max-width: 300px;
+}
+
+.ns-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 2px 1px 9px;
+  border-radius: 99px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.ns-chip .icon-button {
+  width: 20px;
+  height: 20px;
+  color: inherit;
+}
+
+.ns-elapsed {
+  white-space: nowrap;
+}
+
+.ns-row {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 12px;
+}
+
+.ns-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.ns-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-height: 26px;
+  font-size: 12px;
+}
+
+.ns-panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ns-empty {
+  padding: 16px 4px;
+  font-size: 13px;
+}
+
+/* ---- the two pictures ---- */
+
+.ns-chart {
+  position: relative;
+  width: 100%;
+}
+
+.ns-chart svg {
+  display: block;
+}
+
+.ns-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  opacity: 0.55;
+}
+
+.ns-baseline {
+  stroke: var(--text-faint);
+  stroke-width: 1;
+}
+
+.ns-axis {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  fill: var(--text-muted);
+}
+
+.ns-hit {
+  fill: transparent;
+}
+
+.ns-dim {
+  opacity: 0.32;
+}
+
+.ns-selected-band {
+  fill: var(--accent-soft);
+}
+
+.ns-hover-band {
+  fill: var(--hover);
+  pointer-events: none;
+}
+
+.ns-tip {
+  position: absolute;
+  z-index: 2;
+  min-width: 170px;
+  max-width: 300px;
+  padding: 7px 9px;
+  font-size: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+
+.ns-tip-title {
+  margin-bottom: 3px;
+  font-weight: 600;
+}
+
+.ns-tip-line {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-soft);
+}
+
+.ns-tip-foot {
+  margin-top: 3px;
+  color: var(--text-muted);
+}
+
+.ns-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.ns-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.ns-legend-item:not(:disabled):hover {
+  color: var(--text);
+}
+
+.ns-legend-item:disabled {
+  cursor: default;
+}
+
+.ns-swatch {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+/* ---- the tables ---- */
+
+.ns-table {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+.ns-table > * {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  text-align: left;
+}
+
+.ns-table-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  background: var(--panel);
+}
+
+.ns-sort {
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+}
+
+.ns-sort:hover,
+.ns-sort.active {
+  color: var(--text);
+}
+
+.ns-row-button {
+  width: 100%;
+  border-radius: 6px;
+  color: var(--text);
+}
+
+.ns-row-button:hover {
+  background: var(--hover);
+}
+
+.ns-row-button.selected {
+  background: var(--accent-soft);
+}
+
+.ns-ellipsis {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ns-type-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ns-guid {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+}
+
+.ns-examine-meta .ns-guid {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* the type table is the histogram's neighbour and scrolls in the height the histogram takes */
+.ns-types .ns-table {
+  max-height: 292px;
+}
+
+.ns-type-row {
+  grid-template-columns: minmax(110px, 1.6fr) 66px 66px minmax(36px, 1fr) 62px 62px 66px;
+}
+
+.ns-row-bottom {
+  min-height: 360px;
+}
+
+.ns-largest .ns-table {
+  flex: 1;
+  max-height: 440px;
+}
+
+.ns-node-row {
+  grid-template-columns: 30px minmax(0, 2fr) minmax(70px, 1fr) 62px minmax(30px, 0.7fr) 62px;
+}
+
+.ns-more {
+  display: flex;
+  justify-content: center;
+  padding-top: 4px;
+}
+
+/* ---- one node, or one type, taken apart ---- */
+
+.ns-examine {
+  min-height: 0;
+}
+
+.ns-examine-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+.ns-examine-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 14px;
+  font-size: 12px;
+}
+
+.ns-examine-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100%;
+  min-height: 200px;
+  padding: 0 20%;
+  font-size: 13px;
+  text-align: center;
+}
+
+.ns-part-table {
+  max-height: 440px;
+}
+
+.ns-part-row {
+  grid-template-columns: minmax(120px, 1.5fr) 62px 46px minmax(30px, 0.8fr) minmax(0, 2fr);
+}
+
+.ns-part-system .ns-part-name {
+  color: var(--text-muted);
+}
+
+.ns-part-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ns-part-link {
+  color: var(--text);
+  text-align: left;
+}
+
+.ns-part-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.ns-orphan {
+  color: var(--data);
+  background: var(--data-soft);
+}
+
+@media (max-width: 1100px) {
+  .ns-facts {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .ns-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.node-sizes-dialog .scan-bar {
+  display: block;
 }

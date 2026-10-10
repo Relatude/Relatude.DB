@@ -8,6 +8,12 @@ using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
+    /// <summary>
+    /// The engine that converts this store's files, with the file converters the server was given.
+    /// Also what converts files code holds that are not the store's own (<see cref="FileConversionEngine.ConvertFileAsync"/>),
+    /// as the FileToText provider converts a video to the sound it sends.
+    /// </summary>
+    public FileConversionEngine FileConversion => _fileConversionEngine;
     public bool CanConvert(FileFormat from, FileFormat to) {
         return _fileConversionEngine.CanConvert(from, to);
     }

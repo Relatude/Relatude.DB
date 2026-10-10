@@ -19,9 +19,9 @@ internal sealed record ServiceFile(byte[] Bytes, string Sha256) {
 }
 
 /// <summary>
-/// The HTTP side every Relatude service that works on files shares - Imaging and FileToText today -
-/// over plain HttpClient: the license API key as the bearer token, files named by their SHA-256 and
-/// sent before the call that names them, and refusals turned into <see cref="RelatudeServiceException"/>.
+/// The HTTP side the Relatude services share - Imaging, FileToText and Translation today - over plain
+/// HttpClient: the license API key as the bearer token, files named by their SHA-256 and sent before the
+/// call that names them (Translation sends none), and refusals turned into <see cref="RelatudeServiceException"/>.
 /// <para><b>Files.</b> The service keeps every file it is sent under its SHA-256, for the license that
 /// sent it, so a file is sent once and named from then on. One no larger than the service's part size
 /// (10 MB on the hosted services) goes whole, to <c>PUT files/{sha256}</c> with

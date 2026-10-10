@@ -53,7 +53,7 @@ sealed class RelatudeServiceStub : IAsyncDisposable {
         _prefix = prefix;
     }
 
-    /// <param name="service">The service's prefix: "imaging" or "filetotext".</param>
+    /// <param name="service">The service's prefix: "imaging", "filetotext" or "translation".</param>
     public static async Task<RelatudeServiceStub> StartAsync(string service) {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();

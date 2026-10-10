@@ -8,9 +8,11 @@ import {
   IconExternalLink,
   IconFileText,
   IconInfoCircle,
+  IconLanguage,
   IconMessage,
   IconPhoto,
   IconRefresh,
+  IconSearch,
   IconSend,
   IconSparkles,
   IconTrash,
@@ -23,23 +25,31 @@ import { Combo, type PickerLoader } from "./Combo";
 import {
   fetchFileToTextFormats,
   fetchImagingOperations,
+  fetchTranslationLanguages,
   licenseAccount,
   licenseCarriesAccount,
   licenseCarriesAi,
   licenseCarriesFileToText,
   licenseCarriesImaging,
   licenseCarriesSms,
+  licenseCarriesTranslation,
   licenseMayUseAnySmsSender,
   licenseSmsSenders,
+  runDetectionTest,
   runFileToTextTest,
   runImagingTest,
+  runTranslationTest,
   sendTestSms,
   serviceAccounts,
   testAiCompletion,
   testAiEmbedding,
   type AiCompletionResult,
   type AiEmbeddingResult,
+  type DetectionTestResult,
   type FileToTextResult,
+  type TranslationLanguage,
+  type TranslationTestResult,
+  type TranslationTestText,
   type ImagingAnswerResult,
   type ImagingBoolResult,
   type ImagingImageResult,
@@ -61,7 +71,7 @@ import { Account, Field, headline, portalLinks, useLicenseStatus } from "./Licen
  * page on it, and the switch at the top is nothing more than those ids - picking one there is the
  * same operation as picking it in the rail, as in Storage.
  */
-export type ServiceTestView = "services-sms" | "services-ai" | "services-imaging" | "services-filetotext";
+export type ServiceTestView = "services-sms" | "services-ai" | "services-imaging" | "services-filetotext" | "services-translation";
 
 interface ServiceTest {
   id: ServiceTestView;
@@ -112,6 +122,14 @@ const serviceTests: ServiceTest[] = [
     icon: IconFileText,
     accounts: [{ key: serviceAccounts.fileToText, pays: "files" }],
   },
+  {
+    id: "services-translation",
+    label: "Translation",
+    title: "Test translation",
+    sub: "real texts translated by the Relatude Translation service, charged to the license",
+    icon: IconLanguage,
+    accounts: [{ key: serviceAccounts.translation, pays: "translations" }],
+  },
 ];
 
 export const isServiceTestView = (id: string): id is ServiceTestView => serviceTests.some((t) => t.id === id);
@@ -160,6 +178,8 @@ export function ServiceTestsSection({
         return <ImagingTest credit={credit} configuredUrl={status.imagingServiceUrl ?? ""} allowed={licenseCarriesImaging(status)} />;
       case "services-filetotext":
         return <FileToTextTest credit={credit} configuredUrl={status.fileToTextServiceUrl ?? ""} allowed={licenseCarriesFileToText(status)} />;
+      case "services-translation":
+        return <TranslationTest credit={credit} configuredUrl={status.translationServiceUrl ?? ""} allowed={licenseCarriesTranslation(status)} />;
     }
   }
 
@@ -1715,8 +1735,14 @@ function FileToTextTest({ credit, configuredUrl, allowed }: { credit: ReactNode;
           <section className="panel">
             <h3 className="license-bench-head">Input</h3>
             <div className="license-bench-fields">
-              <FilePick label="File" hint="Judged by what it holds, not by its name." files={file} disabled={busy} onChange={setFile} />
-              <Field label="Languages" hint="Codes such as nb, en, most likely first. They help OCR." locked={false}>
+              <FilePick
+                label="File"
+                hint="Judged by what it holds, not by its name. A video's sound is sent, taken by the FFmpeg plugin here."
+                files={file}
+                disabled={busy}
+                onChange={setFile}
+              />
+              <Field label="Languages" hint="Codes such as nb, en, most likely first. They help OCR and speech to text." locked={false}>
                 <input className="text-input" value={languages} placeholder="nb, en" spellCheck={false} disabled={busy} onChange={(e) => setLanguages(e.target.value)} />
               </Field>
             </div>
@@ -1740,18 +1766,31 @@ function FileToTextTest({ credit, configuredUrl, allowed }: { credit: ReactNode;
   );
 }
 
+/** A recording's length as m:ss, or h:mm:ss from an hour. */
+function playTime(seconds: number) {
+  const s = Math.round(seconds);
+  const mmss = `${Math.floor((s % 3600) / 60)}:${String(s % 60).padStart(2, "0")}`;
+  return s >= 3600 ? `${Math.floor(s / 3600)}:${mmss.padStart(5, "0")}` : mmss;
+}
+
 /**
  * The text the service read, in the panel beside the file: a heading row with copy and download, one
  * line of what it read the file as and what it cost, and the text page by page in a box that scrolls.
  * Before the first read, the box says what will show there; while reading, that it is under way.
+ * A transcript can be shown without its timestamps, as an index takes it, and downloaded as WebVTT subtitles.
  */
 function FileTextView({ result, busy, error }: { result: FileToTextResult | null; busy: boolean; error: string | null }) {
-  const pages = useMemo(() => (result ? result.text.slice(0, shownTextChars).split("\f") : []), [result]);
-  const download = useObjectUrl(useMemo(() => (result ? new Blob([result.text], { type: "text/plain;charset=utf-8" }) : null), [result]));
+  const [timestamps, setTimestamps] = useState(true);
+  const text = result ? (result.timed && !timestamps ? (result.textWithoutTimestamps ?? result.text) : result.text) : "";
+  const pages = useMemo(() => (result ? text.slice(0, shownTextChars).split("\f") : []), [result, text]);
+  const download = useObjectUrl(useMemo(() => (result ? new Blob([text], { type: "text/plain;charset=utf-8" }) : null), [result, text]));
+  const subtitles = useObjectUrl(useMemo(() => (result?.webVtt ? new Blob([result.webVtt], { type: "text/vtt;charset=utf-8" }) : null), [result]));
   const name = (result?.fileName || "file").replace(/\.[^.]*$/, "");
   const caption = result
     ? [
         "Read as " + result.format + (result.fileName ? " · " + result.fileName : ""),
+        result.duration != null ? `plays ${playTime(result.duration)}` : null,
+        result.timed ? "a line for each stretch of speech" : null,
         result.pages != null ? `${result.pages} ${result.pages === 1 ? "page" : "pages"}` : null,
         `${result.characters.toLocaleString()} characters`,
         result.ocr ? "partly read by OCR" : null,
@@ -1770,11 +1809,23 @@ function FileTextView({ result, busy, error }: { result: FileToTextResult | null
       <div className="iv-bar">
         <span className="license-stage-name">Text</span>
         <span className="iv-spacer" />
-        {result && <CopyText text={result.text} title="Copy the text" small />}
+        {result?.timed && (
+          <label className="license-toggle" title="The time each line is spoken; an index takes the text without it">
+            <input type="checkbox" checked={timestamps} onChange={(e) => setTimestamps(e.target.checked)} />
+            <span>Timestamps</span>
+          </label>
+        )}
+        {result && <CopyText text={text} title="Copy the text" small />}
         {download && (
           <a className="icon-button labelled" href={download} download={name + ".txt"} title="Download the whole text">
             <IconDownload size={14} stroke={1.8} />
             Download
+          </a>
+        )}
+        {subtitles && (
+          <a className="icon-button labelled" href={subtitles} download={name + ".vtt"} title="Download the transcript as WebVTT subtitles, for a video player">
+            <IconDownload size={14} stroke={1.8} />
+            Subtitles
           </a>
         )}
       </div>
@@ -1795,19 +1846,302 @@ function FileTextView({ result, busy, error }: { result: FileToTextResult | null
           <span className="license-muted">Choose a file and read it: its text shows here, page by page.</span>
         ) : (
           <>
-            {result.text.length === 0 && <p className="license-muted">The file holds no text.</p>}
+            {result.text.length === 0 && <p className="license-muted">{result.timed ? "Nothing is said in it." : "The file holds no text."}</p>}
             {pages.map((page, i) => (
               <div key={i} className="license-text-page">
                 {pages.length > 1 && <span className="license-text-page-no">Page {i + 1}</span>}
                 <pre>{page}</pre>
               </div>
             ))}
-            {result.text.length > shownTextChars && (
+            {text.length > shownTextChars && (
               <p className="license-muted">
-                The first {shownTextChars.toLocaleString()} characters of {result.text.length.toLocaleString()} are shown; the download has them all.
+                The first {shownTextChars.toLocaleString()} characters of {text.length.toLocaleString()} are shown; the download has them all.
               </p>
             )}
           </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A line's own languages, written before its text the way the service's own test page has them:
+ * "[sv] Hej" is in Swedish, "[>de] Hello" goes to German, "[sv>de] Hej" both. The codes are BCP 47
+ * tags as the service takes them: nb, en-GB, zh-Hans.
+ */
+const ownLanguages = /^\s*\[\s*([A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)?\s*(?:>\s*([A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*))?\s*\]\s?/;
+
+/** The texts to send, one a line, each with the languages it names of its own. Empty lines are left out. */
+function translationTexts(input: string): TranslationTestText[] {
+  return input
+    .split(/\r?\n/)
+    .filter((line) => line.trim())
+    .map((line) => {
+      const own = ownLanguages.exec(line);
+      if (!own || (!own[1] && !own[2])) return { text: line };
+      return { text: line.slice(own[0].length), from: own[1] ?? null, to: own[2] ?? null };
+    })
+    .filter((t) => t.text.trim());
+}
+
+const sampleTexts = ["Good morning, and welcome.", "[sv] Hej och välkommen till oss.", "[>de] Free delivery on every order."].join("\n");
+
+/** What came back, with the texts it came back for: the panel shows each text beside its answer. */
+type TranslationRun =
+  | { kind: "translate"; texts: TranslationTestText[]; result: TranslationTestResult }
+  | { kind: "detect"; texts: TranslationTestText[]; result: DetectionTestResult };
+
+/**
+ * Real texts translated through the Relatude Translation service, so whoever set up the license can see
+ * what it makes of them before code depends on it. Only sent when the license has the "translation"
+ * credit account every call is charged to. The languages it translates, and what a call costs, are in
+ * the service bar, license or not; they are also what the two language fields offer.
+ *
+ * Laid out as the File to text test is: the texts and their languages in a column on the left, and
+ * what came back - each text beside its translation, or its language - in the panel beside it.
+ */
+function TranslationTest({ credit, configuredUrl, allowed }: { credit: ReactNode; configuredUrl: string; allowed: boolean }) {
+  const url = configuredUrl.trim();
+  const offer = useServiceInfo(url, fetchTranslationLanguages);
+  const [input, setInput] = useState(sampleTexts);
+  const [to, setTo] = useState("nb");
+  const [from, setFrom] = useState("");
+  const [html, setHtml] = useState(false);
+  const [fresh, setFresh] = useState(false);
+  const [busy, setBusy] = useState<"translate" | "detect" | null>(null);
+  const [run, setRun] = useState<TranslationRun | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const texts = useMemo(() => translationTexts(input), [input]);
+  const languages = offer?.info?.languages ?? [];
+  const names = useMemo(() => new Map(languages.map((l) => [l.code.toLowerCase(), l])), [languages]);
+  const choices = useMemo(() => languages.map((l) => ({ value: l.code, label: `${l.code} · ${l.name}`, hint: l.nativeName !== l.name ? l.nativeName : null })), [languages]);
+  // every text needs a language to go to: the call's, or one of its own
+  const toMissing = !to.trim() && texts.some((t) => !t.to);
+  const characters = texts.reduce((n, t) => n + t.text.trim().length, 0);
+
+  async function go(kind: "translate" | "detect") {
+    setBusy(kind);
+    setError(null);
+    setRun(null);
+    const sent = texts;
+    try {
+      if (kind === "translate") {
+        const result = await runTranslationTest({ serviceUrl: url, texts: sent, to: to.trim(), from: from.trim(), format: html ? "html" : "text", fresh });
+        setRun({ kind, texts: sent, result });
+      } else {
+        const result = await runDetectionTest({ serviceUrl: url, texts: sent.map((t) => t.text), fresh });
+        setRun({ kind, texts: sent, result });
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <>
+      <ServiceBar credit={credit}>
+        <ServiceOfferRow>
+          <ServiceOffer answer={offer}>
+            {offer?.info && (
+              <>
+                <span>
+                  {offer.info.charsPerCredit.toLocaleString()} characters a credit,{" "}
+                  {offer.info.cachedCharsPerCredit > 0 ? offer.info.cachedCharsPerCredit.toLocaleString() + " translated before" : "those translated before free"} · up to{" "}
+                  {offer.info.maxTexts.toLocaleString()} texts and {offer.info.maxTotalChars.toLocaleString()} characters a call · translates {languages.length}{" "}
+                  languages:
+                </span>
+                <span className="license-formats">
+                  {languages.map((l) => (
+                    <span key={l.code} className="license-format" title={l.name + (l.nativeName !== l.name ? " · " + l.nativeName : "")}>
+                      {l.code}
+                    </span>
+                  ))}
+                </span>
+              </>
+            )}
+          </ServiceOffer>
+        </ServiceOfferRow>
+      </ServiceBar>
+      <TestBody allowed={allowed} className="license-bench">
+        <div className="license-bench-side">
+          <section className="panel">
+            <h3 className="license-bench-head">Input</h3>
+            <div className="license-bench-fields">
+              <Field
+                label="Texts"
+                hint={`One text a line, ${texts.length} ${texts.length === 1 ? "text" : "texts"} of ${characters.toLocaleString()} characters. A line may name its own languages first: [sv] Hej, [>de] Hello, [sv>de] Hej.`}
+                locked={false}
+              >
+                <textarea className="text-input license-translation-input" rows={8} value={input} spellCheck={false} disabled={busy !== null} onChange={(e) => setInput(e.target.value)} />
+              </Field>
+              <div className="license-translation-languages">
+                <Field label="To" locked={false}>
+                  <Combo label="To" placeholder="each line's own" options={choices} value={to} disabled={busy !== null} onChange={(v) => setTo(String(v ?? ""))} />
+                </Field>
+                <Field label="From" locked={false}>
+                  <Combo label="From" placeholder="found for each text" options={choices} value={from} disabled={busy !== null} onChange={(v) => setFrom(String(v ?? ""))} />
+                </Field>
+              </div>
+              <div className="license-translation-toggles">
+                <label className="license-toggle" title="Keep the markup, and translate only its text">
+                  <input type="checkbox" checked={html} disabled={busy !== null} onChange={(e) => setHtml(e.target.checked)} />
+                  <span>HTML</span>
+                </label>
+                <label className="license-toggle" title="Translate every text again, and pay for it again, rather than take what was translated before">
+                  <input type="checkbox" checked={fresh} disabled={busy !== null} onChange={(e) => setFresh(e.target.checked)} />
+                  <span>Translate anew</span>
+                </label>
+              </div>
+            </div>
+            <div className="license-save license-bench-run">
+              <button
+                className="action-button primary"
+                onClick={() => void go("translate")}
+                disabled={busy !== null || !allowed || texts.length === 0 || toMissing}
+                title={toMissing ? "Choose a language to translate to, or name one on every line" : undefined}
+              >
+                <IconLanguage size={15} stroke={1.8} />
+                {busy === "translate" ? "Translating…" : "Translate"}
+              </button>
+              <button className="action-button" onClick={() => void go("detect")} disabled={busy !== null || !allowed || texts.length === 0} title="Find the language of each text; priced as a translation">
+                <IconSearch size={15} stroke={1.8} />
+                {busy === "detect" ? "Finding…" : "Find languages"}
+              </button>
+            </div>
+          </section>
+        </div>
+        <section className="panel license-bench-main">
+          <TranslationView run={run} busy={busy} error={error} names={names} />
+        </section>
+      </TestBody>
+    </>
+  );
+}
+
+/** A language code as a chip, its name in English and in itself on hover; a dash for none. */
+function LanguageChip({ code, names }: { code: string | null | undefined; names: Map<string, TranslationLanguage> }) {
+  const language = code ? names.get(code.toLowerCase()) : undefined;
+  return (
+    <span className="license-format license-lang" title={language ? language.name + (language.nativeName !== language.name ? " · " + language.nativeName : "") : code ? undefined : "no language"}>
+      {code || "–"}
+    </span>
+  );
+}
+
+function percent(score: number | null | undefined) {
+  return score == null ? "" : Math.round(score * 100) + "%";
+}
+
+/**
+ * What came back, in the panel beside the texts: a heading row with copy, one line of what the call
+ * cost, and each text beside its translation - or its language - in a box that scrolls. A language
+ * found rather than named says how sure the service is; a translation made before says so.
+ */
+function TranslationView({
+  run,
+  busy,
+  error,
+  names,
+}: {
+  run: TranslationRun | null;
+  busy: "translate" | "detect" | null;
+  error: string | null;
+  names: Map<string, TranslationLanguage>;
+}) {
+  const result = run?.result;
+  const count = run?.texts.length ?? 0;
+  const caption = result
+    ? [
+        `${count} ${count === 1 ? "text" : "texts"}`,
+        `${result.characters.toLocaleString()} characters sent`,
+        result.cachedCharacters > 0 ? `${result.cachedCharacters.toLocaleString()} from before` : null,
+        `${credits(result.credits)} · ${result.creditsLeft.toLocaleString()} left`,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : busy
+      ? "Waiting for the service"
+      : "Nothing sent yet";
+  const copy = run?.kind === "translate" ? run.result.translations.map((t) => t.text).join("\n") : "";
+  return (
+    <div className="license-text-view">
+      <div className="iv-bar">
+        <span className="license-stage-name">{run?.kind === "detect" ? "Languages" : "Translations"}</span>
+        <span className="iv-spacer" />
+        {copy && <CopyText text={copy} title="Copy the translations, one a line" small />}
+      </div>
+      <span className="license-stage-caption" title={caption}>
+        {caption}
+      </span>
+      <div className={"license-text-result" + (run && !error && !busy ? "" : " empty")}>
+        {busy ? (
+          <div className="license-answer-busy" role="status">
+            <div className="progress-bar indeterminate">
+              <div className="progress-fill" />
+            </div>
+            <span className="license-muted">{busy === "translate" ? "The service is translating them…" : "The service is finding their languages…"}</span>
+          </div>
+        ) : error ? (
+          <div className="license-error">{error}</div>
+        ) : !run ? (
+          <span className="license-muted">Write a few texts and translate them: each shows here beside its translation.</span>
+        ) : run.kind === "translate" ? (
+          <div className="license-translations">
+            {run.result.translations.map((t, i) => (
+              <div key={i} className="license-translation">
+                <div className="license-translation-side">
+                  <span className="license-translation-langs">
+                    <LanguageChip code={t.from} names={names} />
+                    {t.detected && <span className="license-muted">found{t.score != null ? ", " + percent(t.score) : ""}</span>}
+                  </span>
+                  <span className="license-translation-text license-muted">{run.texts[i]?.text}</span>
+                </div>
+                <div className="license-translation-side">
+                  <span className="license-translation-langs">
+                    <LanguageChip code={t.to} names={names} />
+                    {t.cached && <span className="license-muted">translated before</span>}
+                  </span>
+                  <span className="license-translation-text" dir={names.get(t.to.toLowerCase())?.direction === "rtl" ? "rtl" : undefined}>
+                    {t.text}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="license-translations">
+            {run.result.detections.map((d, i) => (
+              <div key={i} className="license-translation">
+                <div className="license-translation-side">
+                  <span className="license-translation-text license-muted">{run.texts[i]?.text}</span>
+                </div>
+                <div className="license-translation-side">
+                  <span className="license-translation-langs">
+                    <LanguageChip code={d.language} names={names} />
+                    <span className="license-muted">
+                      {d.language ? percent(d.score) + " sure" : "no language to place"}
+                      {d.language && !d.translatable ? " · not translated from" : ""}
+                      {d.cached ? " · found before" : ""}
+                    </span>
+                  </span>
+                  {d.alternatives.length > 0 && (
+                    <span className="license-translation-alternatives license-muted">
+                      or{" "}
+                      {d.alternatives.map((a, j) => (
+                        <span key={a.language}>
+                          {j > 0 && ", "}
+                          <LanguageChip code={a.language} names={names} /> {percent(a.score)}
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>

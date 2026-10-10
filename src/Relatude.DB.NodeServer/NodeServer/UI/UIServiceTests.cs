@@ -2,22 +2,24 @@ using Microsoft.AspNetCore.Http.Features;
 using Relatude.DB.FileToText;
 using Relatude.DB.Imaging;
 using Relatude.DB.NodeServer.Json;
+using Relatude.DB.Translation;
 using System.Globalization;
+using System.Text.Json;
 
 namespace Relatude.DB.NodeServer.UI;
 
 /// <summary>
-/// The Imaging and FileToText test panels of the Relatude Services page: real calls to the two hosted
-/// services with this installation's own API key, so whoever set up the license can see them work
+/// The Imaging, FileToText and Translation test panels of the Relatude Services page: real calls to the
+/// hosted services with this installation's own API key, so whoever set up the license can see them work
 /// before any code depends on them. Like the SMS and AI tests they are the services, not a database:
 /// no database's settings are read beyond the address the page sends, and every call is charged to the
 /// license like any other. The license server is asked first, so a license without the credit account
 /// a call is charged to is told so here rather than by a refusal from the service.
 ///
 /// <para>What the services offer and what they cost are commands, since they are small JSON and cost
-/// nothing. The calls themselves carry images and files both ways, so they are two routes of their
-/// own taking a multipart form - the files as files, the rest as fields - rather than base64 in a
-/// command. An image comes back as the PNG itself with what it cost in headers, as the service sends
+/// nothing, and so are the Translation calls, which carry nothing but text. The Imaging and FileToText
+/// calls carry images and files both ways, so they are two routes of their own taking a multipart form -
+/// the files as files, the rest as fields - rather than base64 in a command. An image comes back as the PNG itself with what it cost in headers, as the service sends
 /// it; everything else as JSON. A refusal is <c>{ error }</c>, worded by the service.</para>
 /// </summary>
 sealed class UIServiceTests(RelatudeDBServer server) {
@@ -26,6 +28,9 @@ sealed class UIServiceTests(RelatudeDBServer server) {
 
     /// <summary>The key of the credit account the Relatude FileToText service charges every file to.</summary>
     internal const string FileToTextAccountKey = "filetotext";
+
+    /// <summary>The key of the credit account the Relatude Translation service charges every call to.</summary>
+    internal const string TranslationAccountKey = "translation";
 
     /// <summary>The most a test may send in one request: a few images, or one file, well past what the services take of either.</summary>
     const long _maxRequestBytes = 256L * 1024 * 1024;
@@ -39,6 +44,11 @@ sealed class UIServiceTests(RelatudeDBServer server) {
             using var provider = fileToTextProvider(ctx.Payload<ServicePayload>().ServiceUrl);
             return await provider.GetFormatsAsync(ctx.Http.RequestAborted);
         });
+        commands.Register("license-translation-languages", async ctx => {
+            using var provider = translationProvider(ctx.Payload<ServicePayload>().ServiceUrl);
+            return await provider.GetLanguagesAsync(ctx.Http.RequestAborted);
+        });
+        commands.Register("license-translation-test", async ctx => await translationTestAsync(ctx.Payload<TranslationTestPayload>(), ctx.Http.RequestAborted));
     }
 
     internal void Map(WebApplication app, string path) {
@@ -48,11 +58,23 @@ sealed class UIServiceTests(RelatudeDBServer server) {
 
     sealed record ServicePayload(string? ServiceUrl);
 
+    /// <summary>
+    /// A Translation test: translate, or detect the languages of, the texts. Each text may name its own
+    /// languages, as the service lets it; the call's To and From are for the texts that name none.
+    /// </summary>
+    sealed record TranslationTestPayload(string? ServiceUrl, string? Operation, TranslationTestText[]? Texts, string? To, string? From, string? Format, bool Fresh);
+    sealed record TranslationTestText(string? Text, string? From, string? To);
+
     RelatudeServicesImagingProvider imagingProvider(string? serviceUrl) =>
         new(new ImagingProviderSettings { ServiceUrl = string.IsNullOrWhiteSpace(serviceUrl) ? null : serviceUrl.Trim() }, () => server.Settings.ApiKey);
 
+    // a video's sound is taken by the default database's file converters, as its own provider takes it
     RelatudeServicesFileToTextProvider fileToTextProvider(string? serviceUrl) =>
-        new(new FileToTextProviderSettings { ServiceUrl = string.IsNullOrWhiteSpace(serviceUrl) ? null : serviceUrl.Trim() }, () => server.Settings.ApiKey);
+        new(new FileToTextProviderSettings { ServiceUrl = string.IsNullOrWhiteSpace(serviceUrl) ? null : serviceUrl.Trim() }, () => server.Settings.ApiKey,
+            () => (server.DefaultContainer?.Store?.Datastore as Relatude.DB.DataStores.DataStoreLocal)?.FileConversion);
+
+    RelatudeServicesTranslationProvider translationProvider(string? serviceUrl) =>
+        new(new TranslationProviderSettings { ServiceUrl = string.IsNullOrWhiteSpace(serviceUrl) ? null : serviceUrl.Trim() }, () => server.Settings.ApiKey);
 
     /// <summary>
     /// The service URL a database here is set up with, for the Relatude service rather than a custom
@@ -69,6 +91,13 @@ sealed class UIServiceTests(RelatudeDBServer server) {
     internal static string? ConfiguredFileToTextUrl(RelatudeDBServer server) => server.GetContainers()
         .Select(c => c.Settings.FileToTextSettings)
         .Where(s => s != null && (string.IsNullOrWhiteSpace(s.TypeName) || RelatudeServicesFileToTextProvider.IsProviderName(s.TypeName)))
+        .Select(s => s!.ServiceUrl)
+        .FirstOrDefault(url => !string.IsNullOrWhiteSpace(url));
+
+    /// <summary>The Translation address a database here is set up with; see <see cref="ConfiguredImagingUrl"/>.</summary>
+    internal static string? ConfiguredTranslationUrl(RelatudeDBServer server) => server.GetContainers()
+        .Select(c => c.Settings.TranslationSettings)
+        .Where(s => s != null && (string.IsNullOrWhiteSpace(s.TypeName) || RelatudeServicesTranslationProvider.IsProviderName(s.TypeName)))
         .Select(s => s!.ServiceUrl)
         .FirstOrDefault(url => !string.IsNullOrWhiteSpace(url));
 
@@ -158,7 +187,9 @@ sealed class UIServiceTests(RelatudeDBServer server) {
     /// <summary>
     /// One file read by the FileToText service: the file under file, the languages as one field of
     /// codes separated by commas or spaces, and fresh as "true". The answer is the service's own, the
-    /// whole text included.
+    /// whole text included; for a recording or a video also the text without its timestamps and the
+    /// transcript as WebVTT subtitles, as Transcript makes them. The file is read as a stream, so a
+    /// video goes to a temp file for its sound to be taken, not into memory.
     /// </summary>
     async Task<IResult> fileToTextTestAsync(HttpContext ctx) {
         try {
@@ -168,10 +199,36 @@ sealed class UIServiceTests(RelatudeDBServer server) {
             var languages = (text(form, "languages") ?? "").Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             await requireAccountAsync(FileToTextAccountKey, "Relatude FileToText service", cancellationToken);
             using var provider = fileToTextProvider(text(form, "serviceUrl"));
-            var result = await provider.ExtractTextAsync(await readAsync(file, cancellationToken), file.FileName, languages, flag(form, "fresh"), cancellationToken);
-            return Results.Json(result, RelatudeDBJsonOptions.Default);
+            await using var stream = file.OpenReadStream();
+            var result = await provider.ExtractTextAsync(stream, file.FileName, languages, flag(form, "fresh"), cancellationToken);
+            var answer = JsonSerializer.SerializeToNode(result, RelatudeDBJsonOptions.Default)!.AsObject();
+            if (result.Timed) {
+                answer["textWithoutTimestamps"] = result.TextWithoutTimestamps;
+                answer["webVtt"] = result.ToWebVtt();
+            }
+            return Results.Json(answer, RelatudeDBJsonOptions.Default);
         } catch (Exception error) when (!ctx.RequestAborted.IsCancellationRequested) {
             return refused(error);
+        }
+    }
+
+    /// <summary>
+    /// The texts translated, or their languages found, by the Translation service: the answer is the
+    /// service's own, one translation or one language for each text in the order sent.
+    /// </summary>
+    async Task<object> translationTestAsync(TranslationTestPayload payload, CancellationToken cancellationToken) {
+        var texts = (payload.Texts ?? []).Where(t => !string.IsNullOrWhiteSpace(t.Text)).ToArray();
+        if (texts.Length == 0) throw new ArgumentException("Write a text to translate. ");
+        await requireAccountAsync(TranslationAccountKey, "Relatude Translation service", cancellationToken);
+        using var provider = translationProvider(payload.ServiceUrl);
+        switch (payload.Operation) {
+            case "translate":
+                var format = string.Equals(payload.Format, "html", StringComparison.OrdinalIgnoreCase) ? TranslationFormat.Html : TranslationFormat.Text;
+                return await provider.TranslateAsync(texts.Select(t => new TranslationText(t.Text!, t.From, t.To)).ToArray(), payload.To, payload.From, format, payload.Fresh, cancellationToken);
+            case "detect":
+                return await provider.DetectLanguagesAsync(texts.Select(t => t.Text!).ToArray(), payload.Fresh, cancellationToken);
+            default:
+                throw new ArgumentException("There is no translation operation called '" + payload.Operation + "'. ");
         }
     }
 

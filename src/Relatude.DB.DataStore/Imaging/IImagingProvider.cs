@@ -6,7 +6,7 @@ namespace Relatude.DB.Imaging;
 /// <summary>
 /// Image AI on behalf of the database: creating images, changing them, saying what they show and
 /// answering questions about them, so
-/// application code does not hold a vendor account of its own. Reached through <c>NodeStore.Imaging</c>.
+/// application code does not hold a vendor account of its own. Reached through <c>NodeStore.Services.Imaging</c>.
 ///
 /// <para>One implementation ships: <c>RelatudeServicesImagingProvider</c>, which calls the hosted
 /// Relatude Imaging service and charges each call to the license. The interface is here so that an
@@ -199,4 +199,9 @@ public class ImagingProviderSettings {
     /// installation's license and uses the license's API key, falling back to this one only where the
     /// server has none - or where the provider is built from code, without a server.</summary>
     public string? ApiKey { get; set; }
+
+    /// <summary>Where the answers are kept on this machine, so the same call is not made, nor paid for, twice:
+    /// Native (the default) in a file beside the AI embedding cache, Memory while the process runs, None never.
+    /// Kept: what an image shows, answers to questions about it, and that it stands upright; never an image.</summary>
+    public Relatude.DB.Common.ServiceCacheType CacheType { get; set; } = Relatude.DB.Common.ServiceCacheType.Native;
 }

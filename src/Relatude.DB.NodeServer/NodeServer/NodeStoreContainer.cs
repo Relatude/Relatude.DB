@@ -12,6 +12,7 @@ using Relatude.DB.NodeServer.Settings;
 using Relatude.DB.FileToText;
 using Relatude.DB.Imaging;
 using Relatude.DB.SMS;
+using Relatude.DB.Translation;
 using Relatude.DB.Tasks;
 using Relatude.DB.Web;
 using System.Diagnostics;
@@ -348,6 +349,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         ISMSProvider? sms = null;
         IImagingProvider? imaging = null;
         IFileToTextProvider? fileToText = null;
+        ITranslationProvider? translation = null;
         IDataStore? datastore = null;
         try {
             // before anything reads the log files: the store opens its own logger on them
@@ -393,17 +395,18 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             }
             var ioBackup = server.GetOrNullIO(settings.IoBackup);
             var ioLog = server.GetOrNullIO(settings.IoLog);
+            // the AI embedding cache's folder, which the services' answer caches share (ServiceCaches)
+            var aiFolder = settings.AISettings?.FilePath;
+            if (string.IsNullOrEmpty(aiFolder)) aiFolder = localDiskFolder;
+            if (!string.IsNullOrEmpty(aiFolder) && !Path.IsPathRooted(aiFolder)) aiFolder = server.RootDataFolderPath.SuperPathCombine(aiFolder);
             if (settings.AISettings != null) {
-                var aiFolder = settings.AISettings.FilePath;
-                if (string.IsNullOrEmpty(aiFolder)) aiFolder = localDiskFolder;
-                if (!Path.IsPathRooted(aiFolder)) aiFolder = server.RootDataFolderPath.SuperPathCombine(aiFolder);
-                if (!Directory.Exists(aiFolder)) Directory.CreateDirectory(aiFolder);
+                if (!Directory.Exists(aiFolder)) Directory.CreateDirectory(aiFolder!);
                 // the Relatude service charges this installation's license, read at every call like
                 // the SMS provider's below
                 ai = AIProviderFactory.Create(settings.AISettings, aiFolder, () => server.Settings.ApiKey);
             }
             // Nothing in the database sends a message, so this is built for application code alone
-            // (NodeStore.SMS) and has no folder, cache or engine around it. It is resolved here all
+            // (NodeStore.Services.SMS) and has no folder, cache or engine around it. It is resolved here all
             // the same, so a provider that cannot be built says so when the database opens rather
             // than the first time someone tries to send something. The Relatude service charges this
             // installation's license, read at every send so a new license key applies at once, and a
@@ -414,14 +417,25 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 sms = LateBindings.CreateSmsProvider(settings.SMSSettings, () => server.Settings.ApiKey,
                     (sender, cancellationToken) => server.LicenseLogin.CheckSmsSenderAsync(sender, cancellationToken));
             }
-            // Image AI and the text of files, for application code alone as well (NodeStore.Imaging,
-            // NodeStore.FileToText). Unlike SMS they are there without settings: there is no sender to
+            // Image AI, the text of files and translation, for application code alone as well
+            // (NodeStore.Services.Imaging, .FileToText, .Translation). Unlike SMS they are there without settings: there is no sender to
             // choose, the hosted Relatude services need nothing but this installation's license, read
             // at every call like the SMS provider's, and nothing is charged until code calls them.
             // The settings are for a self-hosted service or a custom provider, which is resolved here
             // so a type that cannot be built says so when the database opens.
             imaging = LateBindings.CreateImagingProvider(settings.ImagingSettings, () => server.Settings.ApiKey);
-            fileToText = LateBindings.CreateFileToTextProvider(settings.FileToTextSettings, () => server.Settings.ApiKey);
+            // The file-to-text provider takes the sound of a video with this database's file converters
+            // (the FFmpeg plugin), whose engine the store below creates: asked for when a video is read,
+            // by which time the store is open.
+            fileToText = LateBindings.CreateFileToTextProvider(settings.FileToTextSettings, () => server.Settings.ApiKey,
+                () => (datastore as DataStoreLocal)?.FileConversion);
+            translation = LateBindings.CreateTranslationProvider(settings.TranslationSettings, () => server.Settings.ApiKey);
+            // what the three services answered is kept on this machine, beside the AI embedding cache, so
+            // the same question is not sent, nor paid for, twice. Custom providers get the cache as well.
+            List<string> cacheWarnings = [];
+            imaging = ServiceCaches.Wrap(imaging, settings.ImagingSettings?.CacheType ?? ServiceCacheType.Native, aiFolder, cacheWarnings);
+            fileToText = ServiceCaches.Wrap(fileToText, settings.FileToTextSettings?.CacheType ?? ServiceCacheType.Native, aiFolder, cacheWarnings);
+            translation = ServiceCaches.Wrap(translation, settings.TranslationSettings?.CacheType ?? ServiceCacheType.Native, aiFolder, cacheWarnings);
 
             List<string> toLog = new();
             var indexFolderPath = resolveIndexFolderPath(local, localDiskFolder);
@@ -488,10 +502,11 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             // an override that no longer fits the model is skipped rather than fatal, and two base types
             // that disagree fall back to the declaration - both silent unless they are logged
             foreach (var notice in Datamodel.OverrideNotices) datastore.LogWarning(notice);
+            foreach (var warning in cacheWarnings) datastore.LogWarning(warning);
             // read from the index folder, or generated and compiled when the model changed - which
             // is most of an open when there is little to replay
             _openingStep = "Preparing the object mappers";
-            Store = new NodeStore(datastore, sms, imaging, fileToText);
+            Store = new NodeStore(datastore, sms, imaging, fileToText, translation);
             _datastoreBeingBuilt = null;
             server?.RaiseEventStoreInit(this, Store);
         } catch {
@@ -510,6 +525,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 try { sms?.Dispose(); } catch { }
                 try { imaging?.Dispose(); } catch { }
                 try { fileToText?.Dispose(); } catch { }
+                try { translation?.Dispose(); } catch { }
             }
             Interlocked.Increment(ref _hasFailedCounter);
             throw;

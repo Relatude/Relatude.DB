@@ -632,6 +632,23 @@ public class UrlManagerTests {
     }
 
     [TestMethod]
+    public void AdjustmentCodec_AudioRoundTripsInBothFramings() {
+        var speech = new FileAdjustmentAudio() { RequestedFormat = FileFormat.Ogg, Channels = 1, SampleRate = 16000, BitRateKbps = 24, StartMs = 60000, DurationMs = 55000, Speech = true };
+        Assert.IsTrue(FileAdjustmentUrlCodec.TryToQueryString(speech, out var query));
+        Assert.AreEqual("k=a&f=ogg&ch=1&sr=16000&kb=24&ss=60000&du=55000&spc=1", query);
+        assertEqualAdjustments(speech, FileAdjustmentUrlCodec.TryParseQuery("/x?" + query));
+        Assert.IsTrue(FileAdjustmentUrlCodec.TryToShortString(speech, out var shortString));
+        Assert.AreEqual("kafoggch1sr16000kb24ss60000du55000spc1", shortString);
+        assertEqualAdjustments(speech, FileAdjustmentUrlCodec.TryParseShortString(shortString));
+
+        // the default, MP3 of the whole sound, is only its kind
+        Assert.IsTrue(FileAdjustmentUrlCodec.TryToShortString(new FileAdjustmentAudio(), out var plain));
+        Assert.AreEqual("ka", plain);
+        assertEqualAdjustments(new FileAdjustmentAudio(), FileAdjustmentUrlCodec.TryParseShortString(plain));
+        Assert.IsNull(FileAdjustmentUrlCodec.TryParseQuery("/x?k=a&w=100"), "a key the audio adjustment does not have");
+    }
+
+    [TestMethod]
     public void AdjustmentCodec_OmitsValuesEqualToTheDefaults() {
         // Jpeg is the default format of an image adjustment, so it is not part of the URL:
         Assert.IsTrue(FileAdjustmentUrlCodec.TryToQueryString(new FileAdjustmentImage() { Width = 100 }, out var query));

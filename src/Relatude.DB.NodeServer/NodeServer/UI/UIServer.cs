@@ -53,6 +53,7 @@ public sealed class UIServer {
         new UIFileMove(server, Shared).Register(Commands);
         new UIDashboard(server).Register(Commands);
         new UIMemory(server).Register(Commands);
+        new UINodeSizes(server).Register(Commands);
         new UITasks(server).Register(Commands);
         new UIDemo(server, Shared).Register(Commands);
         new UIRevert(server).Register(Commands);

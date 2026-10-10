@@ -132,6 +132,8 @@ export interface LicenseStatus {
   imagingServiceUrl?: string | null;
   /** The Relatude FileToText service address a database here is set up to use, which the file-to-text test starts from; null for the hosted service. */
   fileToTextServiceUrl?: string | null;
+  /** The Relatude Translation service address a database here is set up to use, which the translation test starts from; null for the hosted service. */
+  translationServiceUrl?: string | null;
   /** settings paths decided by configuration, which cannot be edited from this page */
   locked: string[];
 }
@@ -230,6 +232,7 @@ export const serviceAccounts = {
   aiCompletion: "ai_completion",
   imaging: "ai_image",
   fileToText: "filetotext",
+  translation: "translation",
 } as const;
 
 /** The license's credit account with this key, active or not. Null when the license has no such account, or there is no license. */
@@ -322,6 +325,11 @@ export function licenseCarriesImaging(status: LicenseStatus): boolean {
 /** Whether the license has the "filetotext" credit account the Relatude FileToText service charges every file to; no feature is needed. */
 export function licenseCarriesFileToText(status: LicenseStatus): boolean {
   return licenseCarriesAccount(status, serviceAccounts.fileToText);
+}
+
+/** Whether the license has the "translation" credit account the Relatude Translation service charges every call to; no feature is needed. */
+export function licenseCarriesTranslation(status: LicenseStatus): boolean {
+  return licenseCarriesAccount(status, serviceAccounts.translation);
 }
 
 /** One operation of the Imaging service: its key, which is also its route, a name for people, and whether it can be called there. */
@@ -482,6 +490,8 @@ export interface FileToTextFormats {
   creditsPerCachedOperation: number;
   partBytes: number;
   maxFileBytes: number;
+  /** the longest recording read in one call, in minutes; a longer one is sent in parts. 0 or missing: no limit said */
+  maxAudioMinutes?: number;
 }
 
 /** The FileToText service's formats, asked of the address given; empty is the hosted service. */
@@ -489,7 +499,11 @@ export function fetchFileToTextFormats(serviceUrl: string): Promise<FileToTextFo
   return send<FileToTextFormats>("license-filetotext-formats", { serviceUrl });
 }
 
-/** The text of a file as the FileToText service read it: pages separated by form feeds, and what the file says of itself. */
+/**
+ * The text of a file as the FileToText service read it: pages separated by form feeds, and what the file says of itself.
+ * A recording or a video's sound is a transcript (timed): a line for each stretch of speech, beginning with
+ * "[hh:mm:ss.fff --> hh:mm:ss.fff] ", which the test answer also gives without them and as WebVTT subtitles.
+ */
 export interface FileToTextResult {
   text: string;
   format: string;
@@ -504,6 +518,11 @@ export interface FileToTextResult {
   credits: number;
   creditsLeft: number;
   cached: boolean;
+  timed?: boolean;
+  /** how long the recording plays, in seconds */
+  duration?: number | null;
+  textWithoutTimestamps?: string;
+  webVtt?: string;
 }
 
 /** Reads one file through the FileToText service with this installation's API key, charged to the license. */
@@ -521,4 +540,94 @@ export function licenseAttention(status: LicenseStatus | null): { text: string; 
     return { text: status.license.expired ? "expired" : "disabled", danger: true };
   }
   return null;
+}
+
+/** One language the Translation service translates: its BCP 47 code, its name in English and in itself, and which way it is written. */
+export interface TranslationLanguage {
+  code: string;
+  name: string;
+  nativeName: string;
+  direction: "ltr" | "rtl" | string;
+}
+
+/** The languages the Translation service translates, what a call costs, and how much one call may carry. Asking costs nothing and needs no license. */
+export interface TranslationLanguages {
+  languages: TranslationLanguage[];
+  /** other codes taken for some of the languages, such as no for nb */
+  aliases: Record<string, string>;
+  /** characters sent to be translated for a credit */
+  charsPerCredit: number;
+  /** characters given from what was translated before, for a credit; 0 is free */
+  cachedCharsPerCredit: number;
+  maxTexts: number;
+  maxTextChars: number;
+  maxTotalChars: number;
+}
+
+/** The Translation service's languages, asked of the address given; empty is the hosted service. */
+export function fetchTranslationLanguages(serviceUrl: string): Promise<TranslationLanguages> {
+  return send<TranslationLanguages>("license-translation-languages", { serviceUrl });
+}
+
+/** One text to translate, with languages of its own where it names them; the call's are for the rest. */
+export interface TranslationTestText {
+  text: string;
+  from?: string | null;
+  to?: string | null;
+}
+
+/** One text translated: the language it was taken to be in (found, when detected), the language it went to, and whether it was translated before. */
+export interface TranslatedText {
+  text: string;
+  from: string | null;
+  to: string;
+  detected: boolean;
+  score: number | null;
+  cached: boolean;
+}
+
+/** The translations, one for each text in the order sent, and what the call cost. */
+export interface TranslationTestResult {
+  translations: TranslatedText[];
+  /** characters sent to be translated now */
+  characters: number;
+  /** characters given from what was translated before */
+  cachedCharacters: number;
+  credits: number;
+  creditsLeft: number;
+}
+
+/** The language of one text, how sure that is (0 to 1), whether it can be translated from, and the other languages it might be in. */
+export interface DetectedLanguage {
+  language: string | null;
+  score: number;
+  translatable: boolean;
+  cached: boolean;
+  alternatives: { language: string; score: number }[];
+}
+
+/** The languages found, one for each text in the order sent, priced as translations are. */
+export interface DetectionTestResult {
+  detections: DetectedLanguage[];
+  characters: number;
+  cachedCharacters: number;
+  credits: number;
+  creditsLeft: number;
+}
+
+/** Translates the texts through the Relatude Translation service with this installation's API key, charged to the license. */
+export function runTranslationTest(values: {
+  serviceUrl: string;
+  texts: TranslationTestText[];
+  to: string;
+  from: string;
+  format: "text" | "html";
+  fresh: boolean;
+}): Promise<TranslationTestResult> {
+  return send<TranslationTestResult>("license-translation-test", { ...values, operation: "translate" });
+}
+
+/** Finds the language of each text through the Relatude Translation service, charged to the license like a translation. */
+export function runDetectionTest(values: { serviceUrl: string; texts: string[]; fresh: boolean }): Promise<DetectionTestResult> {
+  return send<DetectionTestResult>("license-translation-test", { serviceUrl: values.serviceUrl, texts: values.texts.map((text) => ({ text })), fresh: values.fresh, operation: "detect" });
 }

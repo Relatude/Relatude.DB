@@ -5,12 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
 	  <RootNamespace>Relatude.DB</RootNamespace>
 	  <Nullable>enable</Nullable>
-	  <Version>0.4.4.218</Version>
+	  <Version>0.4.4.220</Version>
   </PropertyGroup>
-
-	<ItemGroup>
-		<PackageReference Include="FFMpegCore" Version="5.4.0" />
-	</ItemGroup>
 
 	<ItemGroup>
 		<ProjectReference Include="..\Relatude.DB.DataStore\Relatude.DB.DataStore.csproj" />

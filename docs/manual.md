@@ -65,7 +65,7 @@ concept builds on the last.
 **Part V — APIs**
 
 33. [GraphQL endpoints](#33-graphql-endpoints) · [33.2 the definition file](#332-the-definition-file) · [33.4 querying](#334-querying) · [33.6 mutations](#336-mutations) · [33.9 code-first](#339-code-first-mapping-an-endpoint-in-programcs)
-34. [AI services](#34-ai-services) · [34.1 text](#341-text-embeddings-and-completions) · [34.2 images](#342-images) · [34.3 files to text](#343-files-to-text) · [34.4 prices and errors](#344-prices-answers-kept-and-errors)
+34. [AI services](#34-ai-services) · [34.1 text](#341-text-embeddings-and-completions) · [34.2 images](#342-images) · [34.3 files to text](#343-files-to-text) · [34.4 translation](#344-translation) · [34.5 prices and errors](#345-prices-answers-kept-and-errors)
 35. [Relatude Services](#35-relatude-services) · [35.1 a license is not needed](#351-a-license-is-not-needed) · [35.2 a provider of your own](#352-a-provider-of-your-own) · [35.3 the account](#353-the-account-at-servicesrelatudecom) · [35.4 connecting an installation](#354-connecting-an-installation)
 
 ---
@@ -1992,8 +1992,8 @@ needed: with no `ApiKey`, nothing is charged and nothing is reported.
 | `IoLog` | falls back to `IoDatabase` | Where the activity logs, and the logs defined for the database ([§32](#32-logs--recording-what-the-application-does)), are written. |
 | `FileStoreSettings` | `[]` | The file stores holding `FileValue` bytes. See below. |
 | `AISettings` | null | The container's AI provider and semantic index. Required for semantic/vector search. See below. |
-| `ImagingSettings`, `FileToTextSettings` | null | The image AI and the file reader behind `db.Imaging` and `db.FileToText`. Null on a server is the hosted Relatude service, charged to the license. See [§34](#34-ai-services). |
-| `SMSSettings` | null | The text messages behind `db.SMS`: `TypeName` (empty or `RelatudeServices` for the hosted service, charged to the license; otherwise your own `ISMSProvider`), `ServiceUrl`, `ApiKey`, and `From`, the sender shown on the phone when a call names none. Null means no SMS, and `db.SMS` throws. See [§35](#35-relatude-services). |
+| `ImagingSettings`, `FileToTextSettings`, `TranslationSettings` | null | The image AI, the file reader and the translator behind `db.Services.Imaging`, `db.Services.FileToText` and `db.Services.Translation`. Null on a server is the hosted Relatude service, charged to the license. See [§34](#34-ai-services). |
+| `SMSSettings` | null | The text messages behind `db.Services.SMS`: `TypeName` (empty or `RelatudeServices` for the hosted service, charged to the license; otherwise your own `ISMSProvider`), `ServiceUrl`, `ApiKey`, and `From`, the sender shown on the phone when a call names none. Null means no SMS, and `db.Services.SMS` throws. See [§35](#35-relatude-services). |
 | `DatamodelSources` | the bundled demo model | Where the model comes from — the previous section. |
 | `LocalSettings` | all defaults | The engine knobs. See below. |
 
@@ -2132,7 +2132,7 @@ another regardless of where its property uploads. `Guid.Empty` names the implici
 | `MaxCharsInBatch` | 50 000 | Batching limits for the embeddings API: characters per request, |
 | `MaxCountInBatch` | 500 | paragraphs per request, and |
 | `MaxCharsOfEach` | 20 000 | the point at which a single paragraph is truncated. |
-| `CacheType` | `Native` | Where computed embeddings are cached so a reindex does not pay for them twice: `Native` (a local KV file), `Sqlite`, `Memory`, or `None`. |
+| `CacheType` | `Native` | Where computed embeddings are cached so a reindex does not pay for them twice: `Native` (a local KV file), `Sqlite`, `Memory`, or `None`. An embedding is kept by its text and the embedding model (`EmbeddingModel`, `ModelDimensions`), so changing the model never hands out the old model's vectors. |
 | `FilePath` | the index folder | Folder for the provider's own files (the embedding cache). Relative paths resolve against the root data folder. |
 
 #### `LocalSettings` — the engine
@@ -6069,48 +6069,51 @@ view.
 
 ## 34. AI services
 
-The store reaches three kinds of AI, each through a provider configured for the database, so
-application code calls the account the installation already has rather than holding a vendor
-account of its own:
+The store reaches four kinds of AI through `db.Services`, each through a provider configured for the
+database, so application code calls the account the installation already has rather than holding a
+vendor account of its own:
 
 | | Reached through | What it does | Configured by |
 |---|---|---|---|
-| **Text** | `db.AI` | Embeddings - which semantic search ([§21](#21-text-and-semantic-search)) uses by itself - and completions | `AISettings` ([§12.1](#aisettings--embeddings-completions-and-the-vector-index)) |
-| **Images** | `db.Imaging` | Create images, change them, describe them, turn them upright, answer questions about them | `ImagingSettings` |
-| **Files to text** | `db.FileToText` | The text of documents, spreadsheets, PDFs, e-mails and pictures, the last read by OCR | `FileToTextSettings` |
+| **Text** | `db.Services.AI` | Embeddings - which semantic search ([§21](#21-text-and-semantic-search)) uses by itself - and completions | `AISettings` ([§12.1](#aisettings--embeddings-completions-and-the-vector-index)) |
+| **Images** | `db.Services.Imaging` | Create images, change them, describe them, turn them upright, answer questions about them | `ImagingSettings` |
+| **Files to text** | `db.Services.FileToText` | The text of documents, spreadsheets, PDFs, e-mails and pictures, the last read by OCR | `FileToTextSettings` |
+| **Translation** | `db.Services.Translation` | Texts translated, and the languages they are in found, many in one call | `TranslationSettings` |
 
-On a server, images and files to text are always there: with no settings they call the hosted
-Relatude Imaging and FileToText services, and each call is charged to the installation's own license,
-to its `ai_image` and `filetotext` credit accounts. Text needs `AISettings`; with `TypeName`
+On a server, images, files to text and translation are always there: with no settings they call the
+hosted Relatude Imaging, FileToText and Translation services, and each call is charged to the
+installation's own license, to its `ai_image`, `filetotext` and `translation` credit accounts. Text needs `AISettings`; with `TypeName`
 `RelatudeServices` it calls the hosted Relatude AI service the same way, charged to `ai_embeddings` and
 `ai_completion`, and with another type it calls your own OpenAI, Azure or Anthropic account. A license
 without the credit account a call is charged to is refused before anything is charged.
 
-None of the three needs Relatude Services. Each is an interface you can implement against a vendor of
+None of the four needs Relatude Services. Each is an interface you can implement against a vendor of
 your own; [§35](#35-relatude-services) has the account, what it is for, and how to replace it.
 
-`ImagingSettings` and `FileToTextSettings` take three keys: `TypeName` (empty or `RelatudeServices` for
-the hosted service, otherwise the assembly-qualified name of your own `IImagingProvider` or
-`IFileToTextProvider`), `ServiceUrl` (empty for the hosted service; set it for a self-hosted one) and
-`ApiKey` (only where there is no license key: a store built from code, or your own provider).
+`ImagingSettings`, `FileToTextSettings` and `TranslationSettings` take four keys: `TypeName` (empty or
+`RelatudeServices` for the hosted service, otherwise the assembly-qualified name of your own
+`IImagingProvider`, `IFileToTextProvider` or `ITranslationProvider`), `ServiceUrl` (empty for the hosted
+service; set it for a self-hosted one), `ApiKey` (only where there is no license key: a store built from
+code, or your own provider) and `CacheType`, where the answers are kept on the server
+([§34.5](#345-prices-answers-kept-and-errors)): `Native` (the default), `Memory` or `None`.
 
-The **Relatude Services** page of the admin UI has a test panel for each, which makes real calls with the
-installation's key - so they are charged - and shows the answers: every imaging operation with the
+The **Relatude Services** page of the admin UI has a test panel for text, images and files to text, which
+makes real calls with the installation's key - so they are charged - and shows the answers: every imaging operation with the
 image before and after, a file's text, a completion and an embedding. A store built from code, without
 a server, is given its providers in the constructor:
 `new NodeStore(datastore, imaging: new RelatudeServicesImagingProvider(settings))`.
-`db.HasImagingProvider` and `db.HasFileToTextProvider` say whether there is one; `db.Imaging` and
-`db.FileToText` throw when there is not.
+`db.Services.HasImaging`, `HasFileToText`, `HasTranslation`, `HasAI` and `HasSMS` say whether there is
+one; `db.Services.Imaging` and the others throw when there is not.
 
 ### 34.1 Text: embeddings and completions
 
 ```csharp
 // a completion with the configured model, or with one of CompletionModelsByKey
-string summary = await db.AI.GetCompletionAsync("Summarise in one sentence: " + article.Body);
-string careful = await db.AI.GetCompletionAsync(prompt, modelKey: "strong");
+string summary = await db.Services.AI.GetCompletionAsync("Summarise in one sentence: " + article.Body);
+string careful = await db.Services.AI.GetCompletionAsync(prompt, modelKey: "strong");
 
 // vectors, one per paragraph, in order; ones computed before come from the embedding cache
-List<float[]> vectors = await db.AI.GetEmbeddingsAsync(["first paragraph", "second paragraph"]);
+List<float[]> vectors = await db.Services.AI.GetEmbeddingsAsync(["first paragraph", "second paragraph"]);
 ```
 
 Semantic search calls the embeddings itself as nodes are indexed and as queries are run, so most
@@ -6128,8 +6131,8 @@ what the image shows. A stored file goes in and comes back like this:
 ```csharp
 var photo = await db.FileDownloadAsync(venue, v => v.Photo);
 
-var cutout = await db.Imaging.RemoveBackgroundAsync(photo);
-var larger = await db.Imaging.UpscaleAsync(cutout.Png, 2);   // the cutout is named, not sent again
+var cutout = await db.Services.Imaging.RemoveBackgroundAsync(photo);
+var larger = await db.Services.Imaging.UpscaleAsync(cutout.Png, 2);   // the cutout is named, not sent again
 await db.FileUploadAsync(venue, v => v.Photo, larger.Png, "venue.png");
 ```
 
@@ -6159,13 +6162,13 @@ call cost (`Credits`), what is left (`CreditsLeft`) and whether it was given fro
 - **Passing an answer on is free of uploads.** The service keeps every image it is sent and every image
   it makes, named by its SHA-256, so the cutout above is upscaled without being sent back. An image is
   sent once, however many calls use it.
-- **Text in an image** is read by `db.FileToText`, not by `ImageToMetaAsync`, which describes what
+- **Text in an image** is read by `db.Services.FileToText`, not by `ImageToMetaAsync`, which describes what
   the image shows and leaves the words out.
 
 #### Describing an image
 
 ```csharp
-var meta = await db.Imaging.ImageToMetaAsync(photo, "nb");
+var meta = await db.Services.Imaging.ImageToMetaAsync(photo, "nb");
 string title = meta.Title;                // "Fullsatt konsertsal"
 string[] keywords = meta.Keywords;        // ["konsert", "publikum", "scene", ...]
 if (meta.Focus is { } focus) { /* the point to crop around, in pixels of the image */ }
@@ -6179,7 +6182,7 @@ are optional: not every provider finds them.
 #### Turning an image the right way up
 
 ```csharp
-var turn = await db.Imaging.RotateIfNeededAsync(photo);
+var turn = await db.Services.Imaging.RotateIfNeededAsync(photo);
 if (turn.Rotated) await db.FileUploadAsync(venue, v => v.Photo, turn.Image!.Png, "photo.png");
 // turn.Rotation: how far it was turned clockwise - 0, 90, 180 or 270
 ```
@@ -6195,10 +6198,10 @@ the wrong way round.
 #### Asking about an image
 
 ```csharp
-var answer = await db.Imaging.AskAboutImageAsync(photo, "Hva står det på skiltet over døra?");
+var answer = await db.Services.Imaging.AskAboutImageAsync(photo, "Hva står det på skiltet over døra?");
 Console.WriteLine(answer.Answer);   // in the language the question was asked in
 
-var dog = await db.Imaging.AskAboutImageBoolAsync(photo, "Is there a dog in the picture?");
+var dog = await db.Services.Imaging.AskAboutImageBoolAsync(photo, "Is there a dog in the picture?");
 bool surelyADog = dog.Answer && dog.Certainty >= 80;
 ```
 
@@ -6213,7 +6216,7 @@ another that asks the same.
 
 ```csharp
 var bytes = await db.FileDownloadAsync(contract, c => c.Document);
-var result = await db.FileToText.ExtractTextAsync(bytes, "contract.pdf", ["nb", "en"]);
+var result = await db.Services.FileToText.ExtractTextAsync(bytes, "contract.pdf", ["nb", "en"]);
 string text = result.Text;
 ```
 
@@ -6225,41 +6228,121 @@ pictures (`Ocr`), and the `Title`, `Author` and `Language` the file gives itself
 nothing reads is refused with a 415 before anything is charged; `GetFormatsAsync()` lists the kinds
 the service knows, and which it reads. A stream works as well as bytes.
 
-### 34.4 Prices, answers kept, and errors
+**Recordings and videos** are transcribed. Their `Text` has a line for each stretch of speech, which
+begins with when it is spoken, and `Timed` is true. `Duration` is how long the recording plays, in
+seconds:
 
-These hold for images and files to text alike.
+```text
+[00:01:02.500 --> 00:01:05.250] And that is how it began.
+```
 
-- **What a call costs** is the same for every operation, whoever does the work behind the service, and
-  is in every answer: `Credits` for the call and `CreditsLeft` on the account. `GetOperationsAsync` and
-  `GetFormatsAsync` say the price before you call.
+- **For an index**, take `TextWithoutTimestamps`, which is the same lines without the times.
+- **For a video player**, take `ToWebVtt()` (or `ToSrt()`), and `Cues` for the lines one by one.
+- **The `Transcript` class** does the same for any text in this form.
+- **What is sent.** The service reads sound only, so the provider sends a video's sound. The FFmpeg
+  file converter takes it out on your server, as Ogg Opus, mono, at 24 kbps. Add the plugin
+  (`Relatude.DB.Plugins.FFMpeg`) with `options.FileConverters.Add(new FFMpegVideoConverter())`.
+- **Without the plugin**, a video is refused with a 415, and a recording is sent as it is.
+- **Long recordings.** One longer than the service takes in one call (an hour on the hosted service)
+  is sent in parts. Each part is charged as a file, and the transcript is timed from the start of
+  the whole.
+- **The same file twice** gives the same sound, byte for byte, so asking again is answered from what
+  the service kept.
+
+The FFmpeg plugin converts any video or recording to sound for your own use too: ask for a
+`FileAdjustmentAudio` (MP3, Ogg, AAC, M4A, FLAC or WAV). You can set the channels, the sample rate,
+the bit rate, and a stretch from `StartMs` lasting `DurationMs`.
+
+### 34.4 Translation
+
+```csharp
+// one text: its translation
+string norwegian = await db.Services.Translation.TranslateAsync("Good morning", "nb");
+
+// many in one call, each in a language of its own, found when it is not given
+var result = await db.Services.Translation.TranslateAsync(
+    ["Good morning", new TranslationText("Hej och välkommen", From: "sv"), new TranslationText("Free delivery", To: "de")],
+    to: "nb");
+string[] texts = result.Texts;                // in the order they were sent
+string? from = result.Translations[0].From;   // "en", found, so Translations[0].Detected is true
+
+// the language of a text
+var found = await db.Services.Translation.DetectLanguageAsync("Hei på deg");   // found.Language is "nb"
+```
+
+Languages are BCP 47 codes - `en`, `nb`, `de`, `zh-Hans`, `pt-PT` - and an answer names them the way
+`GetLanguagesAsync()` lists them: `nb-NO` and `no` are answered as `nb`. A language the service does
+not translate is refused with a 400 before anything is charged.
+
+- **Many texts go in one call**, cheaper and faster than one at a time: a call costs at least one
+  credit, and a text sent twice in a call is translated and paid for once. A plain string takes the
+  call's `to` and `from`; a `TranslationText` can name languages of its own, and a list may mix the two.
+  Without a `from`, the language of each text is found.
+- **HTML** keeps its markup and has its text translated: pass `format: TranslationFormat.Html`.
+- **The answer** is a `TranslationResult` with a `TranslatedText` for each text: its `Text`, the `From`
+  it was taken to be in, whether that was found (`Detected`, with a `Score` from 0 to 1), the `To`, and
+  whether it was given from before (`Cached`). Then `Characters` sent to be translated now,
+  `CachedCharacters` given from before, `Credits` and `CreditsLeft`.
+- **The price** is by the characters sent, not counting the white space at the ends of a text, which
+  is kept as it was sent. `GetLanguagesAsync()` gives the languages, the price (`CharsPerCredit`,
+  `CachedCharsPerCredit`) and how much one call may carry (`MaxTexts`, `MaxTextChars`,
+  `MaxTotalChars`). It is free and needs no license.
+- **Finding languages** with `DetectLanguagesAsync` gives each text's `Language` and `Score`, whether it
+  can be translated from (`Translatable`), and the other languages it might be in (`Alternatives`). It
+  is priced as a translation is.
+
+### 34.5 Prices, answers kept, and errors
+
+These hold for images, files to text and translation alike.
+
+- **What a call costs** is in every answer: `Credits` for the call and `CreditsLeft` on the account. An
+  image operation or a file costs the same whoever does the work behind the service, and a translation
+  costs by the characters it sends. `GetOperationsAsync`, `GetFormatsAsync` and `GetLanguagesAsync` say
+  the price before you call.
 - **The same call made again** is answered from what the service kept, at a lower price, and the answer
   says `Cached`. Pass `fresh: true` for a new one - another take on a description, say - which is made
   and paid for again.
+- **Answers are kept on your server too**, so the same call is not even made: every text translated
+  and every language found, text by text; the text of every file read, by what the file holds and the
+  languages asked for; and what an image shows, the answers to questions about it, and that it stands
+  upright. Only what is not kept is sent - a call of a hundred texts with one new sends one. An answer
+  from your server says `Cached`, costs nothing, and its `CreditsLeft` is what the last answer from the
+  service said. The images the service makes are not kept: your application stores those itself.
+  - **Where:** with `CacheType` `Native` (the default) in a file per service beside the AI embedding
+    cache, `indexes/native.translation.cache.bin`, `native.filetotext.cache.bin` and
+    `native.imaging.cache.bin`; with `Memory` until the database closes; with `None` nowhere.
+  - **For how long:** 90 days, as long as the hosted services keep theirs, so a translation corrected
+    at the service reaches you in time. `fresh: true` asks again and keeps the new answer.
+  - **Clearing:** `db.MaintenanceAsync(MaintenanceAction.ClearAiCache)` empties these caches with the
+    embedding cache. Losing the files only costs the calls to fill them again.
+  - **Your own provider** is cached the same way. A store built from code wraps its provider itself:
+    `new CachingTranslationProvider(provider, new NativeKvServiceAnswerCache(path))`.
 - **A refusal** is a `RelatudeServiceException` repeating the service's own reason, written to be shown
   to whoever configured the installation, with its `StatusCode`: 400 the call is wrong, 402 out of
   credits or no credit account for the service, 403 the key or the license may not be used, 415 a file
-  nothing reads, 422 the image or the text was turned down, 501 not offered there, 502 it could not be
-  done right now. `MayHaveBeenCharged` says whether the call may have cost credits: false for the
+  nothing reads, 422 the image or the text was turned down, 424 the license server did not confirm the
+  charge (it may have been charged all the same, so asking again could pay twice), 501 not offered
+  there, 502 it could not be done right now. `MayHaveBeenCharged` says whether the call may have cost credits: false for the
   refusals given before anything is charged, true otherwise, since credits taken are never given back.
 - **Retries** are made for you only where nothing can have been charged - the service too busy, or the
   license server out of reach - so no call is paid for twice. A call that may have been charged is
   never repeated behind your back.
-- **Your own provider** implements `IImagingProvider` or `IFileToTextProvider`, and is named by its
+- **Your own provider** implements `IImagingProvider`, `IFileToTextProvider` or `ITranslationProvider`, and is named by its
   assembly-qualified name in `TypeName` ([§35.2](#352-a-provider-of-your-own)); no calling code changes.
 
 ## 35. Relatude Services
 
 Relatude Services is a hosted service run by Relatude at <https://services.relatude.com>. It gathers
 the third-party services an application tends to need into one account: language models for
-embeddings and completions, image AI, reading the text of documents and pictures, and sending text
-messages. Relatude holds the agreements with the vendors behind them, their API keys and their
+embeddings and completions, image AI, reading the text of documents and pictures, translating texts,
+and sending text messages. Relatude holds the agreements with the vendors behind them, their API keys and their
 bills. You hold one account, one license and one API key, and every call is paid for with credits on
 that license.
 
 That is all it is for: convenience. Without it, an application that wants semantic search, image
-descriptions, OCR and text messages signs up with a model vendor, an image service, an OCR service
-and an SMS gateway, accepts four sets of terms, keeps four keys secret on every server and follows
-four invoices. With it, an installation is given one API key and has all of them, and the admin UI
+descriptions, OCR, translation and text messages signs up with a model vendor, an image service, an
+OCR service, a translation service and an SMS gateway, accepts five sets of terms, keeps five keys
+secret on every server and follows five invoices. With it, an installation is given one API key and has all of them, and the admin UI
 has a page to test each one.
 
 ### 35.1 A license is not needed
@@ -6272,24 +6355,25 @@ itself is free; what costs money is the credits the hosted services are paid wit
 Every service Relatude Services offers stands behind an interface in Relatude.DB. Implement the
 interface yourself - against a vendor account of your own, a model on your own hardware, or any code
 you like - name your class in the database's settings, and application code calls it exactly as it
-would call the hosted service. `db.SMS.SendAsync(...)` does not change when the gateway does.
+would call the hosted service. `db.Services.SMS.SendAsync(...)` does not change when the gateway does.
 
 | Service | Reached through | Interface | Settings | Paid from, with Relatude Services | Built-in alternatives |
 |---|---|---|---|---|---|
-| Embeddings and completions | `db.AI` | `IAIProvider` | `AISettings` | `ai_embeddings`, `ai_completion` | `AzureAIProvider`, `OpenAIProvider` (any OpenAI-compatible endpoint, a local Ollama included), `AnthropicAIProvider` - see [§12.1](#aisettings--embeddings-completions-and-the-vector-index) |
-| Image AI | `db.Imaging` | `IImagingProvider` | `ImagingSettings` | `ai_image` | none |
-| Files to text, OCR included | `db.FileToText` | `IFileToTextProvider` | `FileToTextSettings` | `filetotext` | none |
-| Text messages | `db.SMS` | `ISMSProvider` | `SMSSettings` | `sms` | none |
+| Embeddings and completions | `db.Services.AI` | `IAIProvider` | `AISettings` | `ai_embeddings`, `ai_completion` | `AzureAIProvider`, `OpenAIProvider` (any OpenAI-compatible endpoint, a local Ollama included), `AnthropicAIProvider` - see [§12.1](#aisettings--embeddings-completions-and-the-vector-index) |
+| Image AI | `db.Services.Imaging` | `IImagingProvider` | `ImagingSettings` | `ai_image` | none |
+| Files to text, OCR included | `db.Services.FileToText` | `IFileToTextProvider` | `FileToTextSettings` | `filetotext` | none |
+| Translation | `db.Services.Translation` | `ITranslationProvider` | `TranslationSettings` | `translation` | none |
+| Text messages | `db.Services.SMS` | `ISMSProvider` | `SMSSettings` | `sms` | none |
 | Signing in to the admin UI with a Relatude account | the login page | none | `AllowLicenseeAdminLogin` | nothing, it is free | the master login, `MasterUserName` and `MasterPassword` ([§12](#the-admin-ui)) |
 
-The interfaces are in the namespaces `Relatude.DB.AI`, `Relatude.DB.Imaging`, `Relatude.DB.FileToText`
-and `Relatude.DB.SMS`, and what each method does is in [§34](#34-ai-services) and in their own
+The interfaces are in the namespaces `Relatude.DB.AI`, `Relatude.DB.Imaging`, `Relatude.DB.FileToText`,
+`Relatude.DB.Translation` and `Relatude.DB.SMS`, and what each method does is in [§34](#34-ai-services) and in their own
 comments.
 
 Without an API key nothing is charged and the server does not report in. A database on a server has
-`db.Imaging` and `db.FileToText` pointed at the hosted services from the start, since they need no
-settings, but a call that would be charged throws without a key, saying so, before anything leaves
-the server. `db.AI` and `db.SMS` are only there when `AISettings` and `SMSSettings`
+`db.Services.Imaging`, `db.Services.FileToText` and `db.Services.Translation` pointed at the hosted
+services from the start, since they need no settings, but a call that would be charged throws without a key, saying so, before anything leaves
+the server. `db.Services.AI` and `db.Services.SMS` are only there when `AISettings` and `SMSSettings`
 are set.
 
 ### 35.2 A provider of your own
@@ -6376,7 +6460,7 @@ account, a passkey or a code sent by text message. It holds:
 | **Uptime** | For a license that has it: its installations are watched, and the people you choose are sent a text message when one changes state. |
 
 What a call costs, what is kept and given again at a lower price, and which errors may have been
-charged are the same for every hosted service; [§34.4](#344-prices-answers-kept-and-errors) has them.
+charged are the same for every hosted service; [§34.5](#345-prices-answers-kept-and-errors) has them.
 
 ### 35.4 Connecting an installation
 

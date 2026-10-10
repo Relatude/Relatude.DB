@@ -1,11 +1,9 @@
-﻿using FFMpegCore;
-using FFMpegCore.Enums;
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 using Relatude.DB.FileConversion.ImageEncoders;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Text.Json;
+using System.Globalization;
 
 namespace Relatude.DB.FileConversion;
 
@@ -17,8 +15,10 @@ public class FFMpegVideoConverter : IFileConverter {
     public int ThreadCount { get; set; }
     public int CallDelayMs { get; set; } = 0;
 
-    static readonly FileFormat[] _videoIns = [FileFormat.Mp4, FileFormat.Avi, FileFormat.Mov, FileFormat.Wmv, FileFormat.Flv, FileFormat.Mkv];
+    static readonly FileFormat[] _videoIns = [FileFormat.Mp4, FileFormat.Avi, FileFormat.Mov, FileFormat.Wmv, FileFormat.Flv, FileFormat.Mkv, FileFormat.Webm];
     static readonly FileFormat[] _videoOuts = [FileFormat.Mp4, FileFormat.Avi, FileFormat.Mov, FileFormat.Wmv, FileFormat.Mkv];
+    static readonly FileFormat[] _audioIns = [FileFormat.Mp3, FileFormat.Wav, FileFormat.Aac, FileFormat.Flac, FileFormat.Ogg, FileFormat.M4a];
+    static readonly FileFormat[] _audioOuts = [FileFormat.Mp3, FileFormat.Wav, FileFormat.Aac, FileFormat.Flac, FileFormat.Ogg, FileFormat.M4a];
     static readonly FileFormat[] _imageIns = [FileFormat.Jpeg, FileFormat.Png, FileFormat.Webp, FileFormat.Avif];
     static readonly FileFormat[] _imageOuts = [FileFormat.Jpeg, FileFormat.Png, FileFormat.Webp, FileFormat.Avif];
     static readonly FileFormat[] _metaOuts = [FileFormat.FileMetaJson];
@@ -29,6 +29,12 @@ public class FFMpegVideoConverter : IFileConverter {
             if (outBase == FileType.Video) return _videoOuts.Contains(outDetailed); // supported video to video
             if (outBase == FileType.Meta) return _metaOuts.Contains(outDetailed); // supported video to meta 
             if (outBase == FileType.Image) return _imageOuts.Contains(outDetailed); // supported video to image (thumbnail)
+            if (outBase == FileType.Audio) return _audioOuts.Contains(outDetailed); // supported video to audio (its sound)
+        }
+        if (inBase == FileType.Audio) {
+            if (!_audioIns.Contains(inDetailed)) return false; // unsupported input audio format
+            if (outBase == FileType.Audio) return _audioOuts.Contains(outDetailed); // supported audio to audio
+            if (outBase == FileType.Meta) return _metaOuts.Contains(outDetailed); // supported audio to meta (its length)
         }
         if (inBase == FileType.Image) {
             if (!_imageIns.Contains(inDetailed)) return false; // unsupported input image format
@@ -60,13 +66,13 @@ public class FFMpegVideoConverter : IFileConverter {
         await _downloadLock.WaitAsync();
         try {
             if (_ffmpegBinReady) return;
+            FFmpegProcess.BinaryFolder = _ffmpegBinDir; // its binaries when there, else the ones on the PATH
             Directory.CreateDirectory(_ffmpegBinDir);
             _ffmpegBinProgressInfo = "Downloading FFmpeg...";
             await FFmpegBinaryDownloader.EnsureAsync(_ffmpegBinDir,
                 (name, downloadedBytes, totalBytes) => _ffmpegBinProgressInfo = totalBytes > 0
                     ? $"Downloading {name}: {downloadedBytes / 1024} KB / {totalBytes / 1024} KB"
                     : $"Downloading {name}: {downloadedBytes / 1024} KB");
-            GlobalFFOptions.Configure(opts => opts.BinaryFolder = _ffmpegBinDir);
             _ffmpegBinReady = true;
         } catch (Exception ex) {
             _ffmpegBinProgressInfo = "Error downloading FFmpeg: " + ex.Message;
@@ -115,6 +121,16 @@ public class FFMpegVideoConverter : IFileConverter {
                     await convertVideoAsync(inputFilePath, outputFilePath, info, key, _conversionProgress, cts.Token);
                 } else if (typeTo == FileType.Meta) { // video to video conversion
                     await extractMetaAsync(inputFilePath, outputFilePath, cts.Token);
+                } else if (typeTo == FileType.Audio) { // video to audio: its sound
+                    await extractAudioAsync(inputFilePath, outputFilePath, info, key, _conversionProgress, cts.Token);
+                } else {
+                    throw new NotSupportedException("Unsupported output file type: " + typeTo);
+                }
+            } else if (typeFrom == FileType.Audio) {
+                if (typeTo == FileType.Audio) { // audio to audio
+                    await extractAudioAsync(inputFilePath, outputFilePath, info, key, _conversionProgress, cts.Token);
+                } else if (typeTo == FileType.Meta) { // audio to meta: its length
+                    await extractMetaAsync(inputFilePath, outputFilePath, cts.Token);
                 } else {
                     throw new NotSupportedException("Unsupported output file type: " + typeTo);
                 }
@@ -139,20 +155,74 @@ public class FFMpegVideoConverter : IFileConverter {
             if (deleteInputFile) tryDelete(inputFilePath);
         }
     }
+    /// <summary>
+    /// The sound of a video or a recording, in the requested audio format, as the audio adjustment asks
+    /// (<see cref="FileAdjustmentAudio"/>): its first sound stream only - no pictures, subtitles,
+    /// chapters or metadata - from <see cref="FileAdjustmentAudio.StartMs"/> for
+    /// <see cref="FileAdjustmentAudio.DurationMs"/> when they are set. Written bit-exact, so the same
+    /// file and adjustment give the same bytes on every run: a service that keeps files by their hash,
+    /// such as the Relatude FileToText service, then knows the sound of a video it has read before.
+    /// A file without sound is an error that says so.
+    /// </summary>
+    async Task extractAudioAsync(string inputTmp, string outputTmp, FileConversionInfo info, Guid key,
+        ConcurrentDictionary<Guid, FileConversionProgressInfo> progress, CancellationToken ct) {
+        var adj = info.IdWithAdjustment.Adjustment as FileAdjustmentAudio ?? new FileAdjustmentAudio { RequestedFormat = info.Formats.To };
+        progress[key] = new(FileConversionStatus.InProgress, 5, message: "Analyzing input...");
+        var probe = await FFmpegProcess.ProbeAsync(inputTmp, ct);
+        if (!probe.HasAudio) throw new InvalidOperationException("The file has no sound. ");
+        var (codec, muxer, lossy) = audioEncoder(info.Formats.To);
+        var start = adj.StartMs is { } startMs ? TimeSpan.FromMilliseconds(startMs) : TimeSpan.Zero;
+        var length = probe.Duration - start;
+        if (adj.DurationMs is { } durationMs && TimeSpan.FromMilliseconds(durationMs) < length) length = TimeSpan.FromMilliseconds(durationMs);
+        // Opus encodes at 8, 12, 16, 24 or 48 kHz only
+        var sampleRate = adj.SampleRate is { } rate && info.Formats.To == FileFormat.Ogg ? _opusRates.MinBy(r => Math.Abs(r - rate)) : adj.SampleRate;
+        var sw = Stopwatch.StartNew();
+        progress[key] = new(FileConversionStatus.InProgress, 10, message: "Converting...");
+        List<string> args = [];
+        if (start > TimeSpan.Zero) args.AddRange(["-ss", seconds(start)]);
+        args.AddRange(["-i", inputTmp, "-map", "0:a:0", "-vn", "-sn", "-dn", "-map_metadata", "-1", "-map_chapters", "-1"]);
+        if (adj.DurationMs is { } duration) args.AddRange(["-t", seconds(TimeSpan.FromMilliseconds(duration))]);
+        if (adj.Channels is { } channels) args.AddRange(["-ac", channels.ToString(CultureInfo.InvariantCulture)]);
+        if (sampleRate is { } samples) args.AddRange(["-ar", samples.ToString(CultureInfo.InvariantCulture)]);
+        args.AddRange(["-c:a", codec]);
+        if (lossy && adj.BitRateKbps is { } kbps) args.AddRange(["-b:a", kbps.ToString(CultureInfo.InvariantCulture) + "k"]);
+        if (adj.Speech && info.Formats.To == FileFormat.Ogg) args.AddRange(["-application", "voip"]);
+        // no encoder version, creation time or random stream serial: the same bytes every run
+        args.AddRange(["-fflags", "+bitexact", "-flags:a", "+bitexact"]);
+        args.AddRange(["-f", muxer, outputTmp]);
+        await FFmpegProcess.RunAsync(args, ct, length > TimeSpan.Zero ? length : probe.Duration, percent => {
+            var remaining = percent > 2 ? (int)Math.Round((100 - percent) / (percent / sw.Elapsed.TotalSeconds)) : 0;
+            progress[key] = new(FileConversionStatus.InProgress, (int)Math.Round(percent), remaining, message: "Converting...");
+        });
+        progress[key] = new(FileConversionStatus.InProgress, 95, message: "Finalizing...");
+    }
+    static readonly int[] _opusRates = [8_000, 12_000, 16_000, 24_000, 48_000];
+    /// <summary>The encoder and the container ffmpeg writes an audio format with, and whether a bit rate applies.</summary>
+    static (string Codec, string Muxer, bool Lossy) audioEncoder(FileFormat format) => format switch {
+        FileFormat.Mp3 => ("libmp3lame", "mp3", true),
+        FileFormat.Ogg => ("libopus", "ogg", true),
+        FileFormat.Aac => ("aac", "adts", true),
+        FileFormat.M4a => ("aac", "ipod", true),
+        FileFormat.Flac => ("flac", "flac", false),
+        FileFormat.Wav => ("pcm_s16le", "wav", false),
+        _ => throw new NotSupportedException("Unsupported audio format: " + format),
+    };
+    static string seconds(TimeSpan time) => time.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture);
+    static string scale(int width, int height) => string.Create(CultureInfo.InvariantCulture, $"scale={width}:{height}");
     async Task extractMetaAsync(string inputTmp, string outputTmp, CancellationToken ct) {
-        var probe = await FFProbe.AnalyseAsync(inputTmp, cancellationToken: ct);
+        var probe = await FFmpegProcess.ProbeAsync(inputTmp, ct);
         var meta = metaFromProbe(probe);
         var folder = Path.GetDirectoryName(outputTmp);
         if (!Directory.Exists(folder)) Directory.CreateDirectory(folder!);
         File.WriteAllBytes(outputTmp, meta.ToBytes());
     }
-    static BasicFileMeta metaFromProbe(IMediaAnalysis probe) {
+    static BasicFileMeta metaFromProbe(MediaProbe probe) {
         return new BasicFileMeta {
-            Width = probe.PrimaryVideoStream?.Width ?? 0,
-            Height = probe.PrimaryVideoStream?.Height ?? 0,
+            Width = probe.Width,
+            Height = probe.Height,
             Duration = probe.Duration,
-            FormatDetails = probe.Format.FormatLongName,
-            AllMetaJson = JsonSerializer.Serialize(probe)
+            FormatDetails = probe.FormatLongName,
+            AllMetaJson = probe.Json
         };
     }
     async Task processImageAsync(string inputTmp, string outputTmp, FileAdjustmentImage adj,
@@ -279,13 +349,12 @@ public class FFMpegVideoConverter : IFileConverter {
         progress[key] = new(FileConversionStatus.InProgress, 50, message: "Extracting frame...");
         var folder = Path.GetDirectoryName(outputTmp);
         if (!Directory.Exists(folder)) Directory.CreateDirectory(folder!);
-        var processor = FFMpegArguments
-            .FromFileInput(inputTmp, true, opts => { if (seekTo.HasValue) opts.Seek(seekTo.Value); })
-            .OutputToFile(outputTmp, true, opts => {
-                opts.WithCustomArgument("-vframes 1");
-                if (w.HasValue || h.HasValue) opts.WithVideoFilters(vf => vf.Scale(w ?? -1, h ?? -1));
-            });
-        await processor.CancellableThrough(ct).ProcessAsynchronously();
+        List<string> args = [];
+        if (seekTo.HasValue) args.AddRange(["-ss", seconds(seekTo.Value)]);
+        args.AddRange(["-i", inputTmp, "-frames:v", "1"]);
+        if (w.HasValue || h.HasValue) args.AddRange(["-vf", scale(w ?? -1, h ?? -1)]);
+        args.Add(outputTmp);
+        await FFmpegProcess.RunAsync(args, ct);
         progress[key] = new(FileConversionStatus.InProgress, 95, message: "Finalizing...");
     }
 
@@ -313,8 +382,8 @@ public class FFMpegVideoConverter : IFileConverter {
         }
         return position;
     }
-    async Task<IMediaAnalysis> probeAndUpdateMeta(string inputTmp, FileConversionInfo info, CancellationToken ct) {
-        var probe = await FFProbe.AnalyseAsync(inputTmp, cancellationToken: ct);
+    async Task<MediaProbe> probeAndUpdateMeta(string inputTmp, FileConversionInfo info, CancellationToken ct) {
+        var probe = await FFmpegProcess.ProbeAsync(inputTmp, ct);
         if (_engine != null) {
             _engine!.Store.UpdateFileMetaIfNotSet(info.IdWithAdjustment.PropertyPath, info.IdWithAdjustment.FileId, metaFromProbe(probe));
         }
@@ -328,22 +397,20 @@ public class FFMpegVideoConverter : IFileConverter {
         var videoDuration = probe.Duration;
         var sw = Stopwatch.StartNew();
         progress[key] = new(FileConversionStatus.InProgress, 10, message: "Converting...");
-        var processor = FFMpegArguments
-            .FromFileInput(inputTmp)
-            .OutputToFile(outputTmp, true, opts => {
-                if (adj?.Width.HasValue == true || adj?.Height.HasValue == true)
-                    opts.WithVideoFilters(vf => vf.Scale(adj.Width ?? -1, adj.Height ?? -1));
-                if (adj?.TargetBitRateInMbps > 0)
-                    opts.WithVideoBitrate((int)(adj.TargetBitRateInMbps * 1024));
-            })
-            .NotifyOnProgress(progressInPercentage => {
-                double progressPerSec = progressInPercentage / sw.Elapsed.TotalSeconds;
-                double remainingSecs = (100 - progressInPercentage) / progressPerSec;
-                int progressToReport = (int)Math.Round(progressInPercentage);
-                int remainingSecsToReport = progressToReport > 2 ? (int)Math.Round(remainingSecs) : 0;
-                progress[key] = new(FileConversionStatus.InProgress, progressToReport, remainingSecsToReport, message: "Converting...");
-            }, videoDuration);
-        await processor.CancellableThrough(ct).ProcessAsynchronously();
+        List<string> args = ["-i", inputTmp];
+        // most video encoders take even sizes only: a size asked for is rounded up, and -2 keeps the other side even
+        if (adj?.Width.HasValue == true || adj?.Height.HasValue == true)
+            args.AddRange(["-vf", scale(adj.Width is { } width ? width + width % 2 : -2, adj.Height is { } height ? height + height % 2 : -2)]);
+        if (adj?.TargetBitRateInMbps > 0)
+            args.AddRange(["-b:v", ((int)(adj.TargetBitRateInMbps * 1024)).ToString(CultureInfo.InvariantCulture) + "k"]);
+        args.Add(outputTmp);
+        await FFmpegProcess.RunAsync(args, ct, videoDuration, progressInPercentage => {
+            double progressPerSec = progressInPercentage / sw.Elapsed.TotalSeconds;
+            double remainingSecs = (100 - progressInPercentage) / progressPerSec;
+            int progressToReport = (int)Math.Round(progressInPercentage);
+            int remainingSecsToReport = progressToReport > 2 ? (int)Math.Round(remainingSecs) : 0;
+            progress[key] = new(FileConversionStatus.InProgress, progressToReport, remainingSecsToReport, message: "Converting...");
+        });
         progress[key] = new(FileConversionStatus.InProgress, 95, message: "Finalizing...");
     }
 
@@ -379,13 +446,7 @@ public class FFMpegVideoConverter : IFileConverter {
                 var folder = Path.GetDirectoryName(imgTmp);
                 if (!Directory.Exists(folder)) Directory.CreateDirectory(folder!);
                 File.WriteAllBytes(imgTmp, imgBytes);
-                FFMpegArguments
-                    .FromFileInput(imgTmp, true, opts => opts.WithCustomArgument("-loop 1"))
-                    .OutputToFile(vidTmp, true, opts => opts
-                        .WithCustomArgument("-t 2")
-                        .WithVideoCodec("libx264")
-                        .WithCustomArgument("-pix_fmt yuv420p"))
-                    .ProcessSynchronously();
+                FFmpegProcess.Run(["-loop", "1", "-i", imgTmp, "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p", vidTmp]);
                 return File.ReadAllBytes(vidTmp);
             } finally {
                 tryDelete(imgTmp);
@@ -405,6 +466,17 @@ public class FFMpegVideoConverter : IFileConverter {
             } else {
                 // final fallback is ffmpeg, slow but at least it will work for almost any format
                 return encodeImageFormat(img.Encode(FileFormat.Png), FileFormat.Png, requestedFormat);
+            }
+        } else if (baseRequestFormat == FileType.Audio) {
+            // a second of silence, for there is no text to show: a player has something to play, and asks again
+            ensureFFMpegBinAsync().Wait();
+            var audioTmp = getTempPath(requestedFormat);
+            try {
+                var (codec, muxer, _) = audioEncoder(requestedFormat);
+                FFmpegProcess.Run(["-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono", "-t", "1", "-c:a", codec, "-fflags", "+bitexact", "-f", muxer, audioTmp]);
+                return File.ReadAllBytes(audioTmp);
+            } finally {
+                tryDelete(audioTmp);
             }
         } else if (baseRequestFormat == FileType.Meta) {
             return new BasicFileMeta().ToBytes();
@@ -437,12 +509,10 @@ public class FFMpegVideoConverter : IFileConverter {
     void encodeImageFormat(string inputTmp, string outputTmp) {
         ensureFFMpegBinAsync().Wait();
         try {
-            FFMpegArguments
-                .FromFileInput(inputTmp)
-                .OutputToFile(outputTmp, true)
-                .ProcessSynchronously();
+            FFmpegProcess.Run(["-i", inputTmp, outputTmp]);
         } catch {
             tryDelete(outputTmp);
+            throw;
         }
     }
 

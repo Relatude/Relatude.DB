@@ -8,6 +8,7 @@ using Relatude.DB.FileToText;
 using Relatude.DB.Imaging;
 using Relatude.DB.SMS;
 using Relatude.DB.Tasks;
+using Relatude.DB.Translation;
 using System.Reflection;
 
 namespace Relatude.DB.NodeServer;
@@ -154,14 +155,29 @@ public static class LateBindings {
     /// <summary>
     /// The provider a database reads the text of files with. One implementation so far, the hosted
     /// Relatude service, which is also what no settings and an empty type name mean, for the same
-    /// reasons as <see cref="CreateImagingProvider"/>.
+    /// reasons as <see cref="CreateImagingProvider"/>. <paramref name="fileConversion"/> gives it the
+    /// database's file converters, which take the sound of a video before it is sent.
     /// </summary>
-    public static IFileToTextProvider CreateFileToTextProvider(FileToTextProviderSettings? fileToTextSettings, Func<string?>? licenseApiKey = null) {
+    public static IFileToTextProvider CreateFileToTextProvider(FileToTextProviderSettings? fileToTextSettings, Func<string?>? licenseApiKey = null,
+        Func<FileConversion.FileConversionEngine?>? fileConversion = null) {
         fileToTextSettings ??= new();
         if (string.IsNullOrWhiteSpace(fileToTextSettings.TypeName) || RelatudeServicesFileToTextProvider.IsProviderName(fileToTextSettings.TypeName)) {
-            return new RelatudeServicesFileToTextProvider(fileToTextSettings, licenseApiKey);
+            return new RelatudeServicesFileToTextProvider(fileToTextSettings, licenseApiKey, fileConversion);
         }
         return create<IFileToTextProvider>(fileToTextSettings.TypeName, null, null, [fileToTextSettings]);
+    }
+    /// <summary>
+    /// The provider a database translates texts with. One implementation so far, the hosted Relatude
+    /// service, which is also what no settings and an empty type name mean, for the same reasons as
+    /// <see cref="CreateImagingProvider"/>. Anything else is taken as the full type name of a custom
+    /// provider, constructed with the settings.
+    /// </summary>
+    public static ITranslationProvider CreateTranslationProvider(TranslationProviderSettings? translationSettings, Func<string?>? licenseApiKey = null) {
+        translationSettings ??= new();
+        if (string.IsNullOrWhiteSpace(translationSettings.TypeName) || RelatudeServicesTranslationProvider.IsProviderName(translationSettings.TypeName)) {
+            return new RelatudeServicesTranslationProvider(translationSettings, licenseApiKey);
+        }
+        return create<ITranslationProvider>(translationSettings.TypeName, null, null, [translationSettings]);
     }
     internal static IIOProvider CreateAzureBlobIOProvider(IOSettings ioSettings) {
         if (ioSettings.BlobContainerName == null) throw new Exception("BlobContainerName is required for AzureBlobIOProvider.");

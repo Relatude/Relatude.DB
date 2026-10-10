@@ -39,6 +39,7 @@ public enum FileAdjustmentType { // the first byte of ToBytes: fixed numbers, li
     Image = 0,
     Video = 1,
     Meta = 2,
+    Audio = 3,
 }
 public abstract class FileAdjustmentBase {
     public FileFormat RequestedFormat { get; set; }
@@ -74,6 +75,7 @@ public abstract class FileAdjustmentBase {
             FileAdjustmentType.Image => FileAdjustmentImage.FromBytes(bytes),
             FileAdjustmentType.Video => FileAdjustmentVideo.FromBytes(bytes),
             FileAdjustmentType.Meta => FileAdjustmentMeta.FromBytes(bytes),
+            FileAdjustmentType.Audio => FileAdjustmentAudio.FromBytes(bytes),
             _ => throw new NotSupportedException($"Unsupported adjustment type: {adjustmentType}")
         };
     }
@@ -380,4 +382,80 @@ public class FileAdjustmentVideo : FileAdjustmentBase {
         return obj;
     }
 
+}
+/// <summary>
+/// The sound of a video or a recording, in an audio format (<see cref="FileAdjustmentBase.RequestedFormat"/>:
+/// Mp3, the default, Ogg, Aac, M4a, Flac or Wav). What is not set is left as the source has it, or to
+/// the encoder. <see cref="StartMs"/> and <see cref="DurationMs"/> take a stretch of it rather than the
+/// whole. <see cref="Speech"/> tunes the encoder for speech rather than music, where it can be tuned:
+/// what a recording for speech to text is made with, as the FileToText provider makes it (mono, 16 kHz,
+/// Ogg Opus at 24 kbps). The same adjustment of the same file gives the same bytes every time.
+/// </summary>
+public class FileAdjustmentAudio : FileAdjustmentBase {
+    public FileAdjustmentAudio() {
+        RequestedFormat = FileFormat.Mp3;
+    }
+    /// <summary>1 for mono, 2 for stereo; null keeps the source's.</summary>
+    public int? Channels { get; set; }
+    /// <summary>Samples per second, such as 16000; null keeps the source's. Opus takes 8, 12, 16, 24 and 48 kHz, and the nearest is used.</summary>
+    public int? SampleRate { get; set; }
+    /// <summary>The bit rate of a lossy format, in kbps; null leaves it to the encoder. Flac and Wav ignore it.</summary>
+    public int? BitRateKbps { get; set; }
+    /// <summary>Where the stretch taken starts, in milliseconds from the start; null is the start.</summary>
+    public int? StartMs { get; set; }
+    /// <summary>How long the stretch taken lasts, in milliseconds; null is to the end.</summary>
+    public int? DurationMs { get; set; }
+    /// <summary>Encodes for speech rather than music, where the encoder can be told: Opus (Ogg) can.</summary>
+    public bool Speech { get; set; }
+    public override void BasicSanitization() {
+        if (FileFormatUtil.GetFileType(RequestedFormat) != FileType.Audio) RequestedFormat = FileFormat.Mp3;
+        base.BasicSanitization();
+        if (Channels.HasValue) Channels = Channels <= 0 ? null : Math.Clamp(Channels.Value, 1, 8);
+        if (SampleRate.HasValue) SampleRate = SampleRate <= 0 ? null : Math.Clamp(SampleRate.Value, 8_000, 192_000);
+        if (BitRateKbps.HasValue) BitRateKbps = BitRateKbps <= 0 ? null : Math.Clamp(BitRateKbps.Value, 6, 512);
+        if (StartMs.HasValue) StartMs = StartMs <= 0 ? null : StartMs;
+        if (DurationMs.HasValue) DurationMs = DurationMs <= 0 ? null : DurationMs;
+    }
+    public override FileAdjustmentType GetAdjustmentType() => FileAdjustmentType.Audio;
+    const int CURRENT_VERSION = 1;
+    protected override string GenerateStringKey() {
+        var key = "Audio" + (int)RequestedFormat + "|" + Channels + "|" + SampleRate + "|" + BitRateKbps + "|" + StartMs + "|" + DurationMs;
+        if (Speech) key += "Speech";
+        if (Temporary) key += "Tmp";
+        return key;
+    }
+    public override byte[] ToBytes() {
+        var buf = new byte[31]; // 1+4+4+4*5+1+1
+        var s = buf.AsSpan();
+        int p = 0;
+        s[p++] = (byte)FileAdjustmentType.Audio;
+        BinaryPrimitives.WriteInt32LittleEndian(s[p..], CURRENT_VERSION); p += 4;
+        BinaryPrimitives.WriteInt32LittleEndian(s[p..], (int)RequestedFormat); p += 4;
+        foreach (var value in new[] { Channels, SampleRate, BitRateKbps, StartMs, DurationMs }) {
+            BinaryPrimitives.WriteInt32LittleEndian(s[p..], value ?? int.MinValue); p += 4;
+        }
+        s[p++] = Speech ? (byte)1 : (byte)0;
+        s[p] = Temporary ? (byte)1 : (byte)0;
+        return buf;
+    }
+    static public new FileAdjustmentAudio FromBytes(byte[] bytes) {
+        if (bytes.Length < 31) throw new ArgumentException("Invalid byte array length for FileAdjustmentAudio");
+        var s = bytes.AsSpan();
+        int p = 1; // skip type byte
+        var version = BinaryPrimitives.ReadInt32LittleEndian(s[p..]); p += 4;
+        if (version < 1 || version > CURRENT_VERSION) throw new NotSupportedException($"Unsupported FileAdjustmentAudio version: {version}");
+        var obj = new FileAdjustmentAudio { RequestedFormat = (FileFormat)BinaryPrimitives.ReadInt32LittleEndian(s[p..]) }; p += 4;
+        int? next(Span<byte> span) {
+            var value = BinaryPrimitives.ReadInt32LittleEndian(span[p..]); p += 4;
+            return value == int.MinValue ? null : value;
+        }
+        obj.Channels = next(s);
+        obj.SampleRate = next(s);
+        obj.BitRateKbps = next(s);
+        obj.StartMs = next(s);
+        obj.DurationMs = next(s);
+        obj.Speech = s[p++] != 0;
+        obj.Temporary = s[p] != 0;
+        return obj;
+    }
 }

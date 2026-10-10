@@ -10,7 +10,7 @@ namespace Relatude.DB.Web;
 /// carrying the adjustment inside the opaque asset token (see <see cref="AssetUrlFormat"/>).
 /// Two framings share one key set: query parameters ("w=100&amp;h=200&amp;f=jpeg") and a compact
 /// path segment ("w100h200fjpeg"). Keys not set on the adjustment are omitted, unknown keys fail
-/// the parse, and every property of the image, video and meta adjustments has a key, so encode
+/// the parse, and every property of the image, video, audio and meta adjustments has a key, so encode
 /// followed by parse reproduces an equivalent adjustment.
 /// </summary>
 public static class FileAdjustmentUrlCodec {
@@ -21,7 +21,7 @@ public static class FileAdjustmentUrlCodec {
     enum Kind { Int, Double, Flag, Name }
     sealed record keyDef(string Key, Kind kind);
     static readonly keyDef[] _keys = [
-        new("k", Kind.Name),      // adjustment type: i (image, default), v (video), m (meta)
+        new("k", Kind.Name),      // adjustment type: i (image, default), v (video), a (audio), m (meta)
         new("f", Kind.Name),      // RequestedFormat, enum name
         new("w", Kind.Int),       // Width
         new("h", Kind.Int),       // Height
@@ -50,6 +50,12 @@ public static class FileAdjustmentUrlCodec {
         new("tpc", Kind.Double),  // TimeOffsetPercentage
         new("br", Kind.Double),   // TargetBitRateInMbps (video)
         new("cnz", Kind.Flag),    // CropNotZoom (video)
+        new("ch", Kind.Int),      // Channels (audio)
+        new("sr", Kind.Int),      // SampleRate (audio)
+        new("kb", Kind.Int),      // BitRateKbps (audio)
+        new("ss", Kind.Int),      // StartMs (audio)
+        new("du", Kind.Int),      // DurationMs (audio)
+        new("spc", Kind.Flag),    // Speech (audio)
         new("tmp", Kind.Flag),    // Temporary
     ];
     static readonly keyDef[] _keysLongestFirst = [.. _keys.OrderByDescending(k => k.Key.Length)];
@@ -72,6 +78,7 @@ public static class FileAdjustmentUrlCodec {
     static readonly FileFormat _defaultImageFormat = new FileAdjustmentImage().RequestedFormat;
     static readonly FileFormat _defaultVideoFormat = new FileAdjustmentVideo().RequestedFormat;
     static readonly FileFormat _defaultMetaFormat = new FileAdjustmentMeta().RequestedFormat;
+    static readonly FileFormat _defaultAudioFormat = new FileAdjustmentAudio().RequestedFormat;
 
     static bool tryEncode(FileAdjustmentBase adjustment, Action<StringBuilder, string, string> pair, out string result) {
         result = string.Empty;
@@ -103,6 +110,14 @@ public static class FileAdjustmentUrlCodec {
                 if (vid.TargetBitRateInMbps != 0) pair(sb, "br", dblString(vid.TargetBitRateInMbps));
                 if (vid.CropNotZoom) pair(sb, "cnz", "1");
                 if (vid.Temporary) pair(sb, "tmp", "1");
+                break;
+            case FileAdjustmentAudio aud:
+                pair(sb, "k", "a");
+                if (aud.RequestedFormat != _defaultAudioFormat) pair(sb, "f", name(aud.RequestedFormat));
+                num(sb, "ch", aud.Channels); num(sb, "sr", aud.SampleRate); num(sb, "kb", aud.BitRateKbps);
+                num(sb, "ss", aud.StartMs); num(sb, "du", aud.DurationMs);
+                if (aud.Speech) pair(sb, "spc", "1");
+                if (aud.Temporary) pair(sb, "tmp", "1");
                 break;
             case FileAdjustmentMeta meta:
                 pair(sb, "k", "m");
@@ -173,7 +188,7 @@ public static class FileAdjustmentUrlCodec {
         "f" => tryEnumName<FileFormat>(value, out _),
         "crop" => tryEnumName<ImageCropMode>(value, out _),
         "ald" => tryEnumName<AutoLightDarkSwitch>(value, out _),
-        "k" => value is "i" or "v" or "m",
+        "k" => value is "i" or "v" or "a" or "m",
         "bg" => value.All(char.IsAsciiHexDigit),
         _ => true,
     };
@@ -209,6 +224,24 @@ public static class FileAdjustmentUrlCodec {
                         if (found.TryGetValue("cnz", out var cnz)) vid.CropNotZoom = cnz == "1";
                         if (found.TryGetValue("tmp", out var tmp)) vid.Temporary = tmp == "1";
                         return vid;
+                    }
+                case "a": {
+                        var aud = new FileAdjustmentAudio();
+                        foreach (var (key, value) in found) {
+                            switch (key) {
+                                case "k": break;
+                                case "f": if (!fmt(value, aud)) return null; break;
+                                case "ch": aud.Channels = int.Parse(value, CultureInfo.InvariantCulture); break;
+                                case "sr": aud.SampleRate = int.Parse(value, CultureInfo.InvariantCulture); break;
+                                case "kb": aud.BitRateKbps = int.Parse(value, CultureInfo.InvariantCulture); break;
+                                case "ss": aud.StartMs = int.Parse(value, CultureInfo.InvariantCulture); break;
+                                case "du": aud.DurationMs = int.Parse(value, CultureInfo.InvariantCulture); break;
+                                case "spc": aud.Speech = value == "1"; break;
+                                case "tmp": aud.Temporary = value == "1"; break;
+                                default: return null; // a key the audio adjustment does not have
+                            }
+                        }
+                        return aud;
                     }
                 case "m": {
                         var meta = new FileAdjustmentMeta();

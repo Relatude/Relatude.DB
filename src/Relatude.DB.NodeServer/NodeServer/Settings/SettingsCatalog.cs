@@ -4,6 +4,7 @@ using Relatude.DB.Datamodels;
 using Relatude.DB.FileToText;
 using Relatude.DB.Imaging;
 using Relatude.DB.SMS;
+using Relatude.DB.Translation;
 
 namespace Relatude.DB.NodeServer.Settings;
 
@@ -261,9 +262,9 @@ public static class SettingsCatalog {
     };
 
     /// <summary>
-    /// What the imaging and file-to-text provider types hold when they mean the hosted Relatude
-    /// service: nothing, or one of the service's two names - the ones <c>LateBindings.CreateImagingProvider</c>
-    /// and <c>CreateFileToTextProvider</c> build the service for. The API key only a custom provider
+    /// What the imaging, file-to-text and translation provider types hold when they mean the hosted
+    /// Relatude service: nothing, or one of the service's two names - the ones <c>LateBindings.CreateImagingProvider</c>,
+    /// <c>CreateFileToTextProvider</c> and <c>CreateTranslationProvider</c> build the service for. The API key only a custom provider
     /// uses is hidden for exactly these; SettingsCatalogTests checks the two stay in step.
     /// </summary>
     static SettingVisibility relatudeImagingService() => new() {
@@ -273,6 +274,10 @@ public static class SettingsCatalog {
     static SettingVisibility relatudeFileToTextService() => new() {
         Path = "FileToTextSettings.TypeName",
         Values = ["", RelatudeServicesFileToTextProvider.ShortName, nameof(RelatudeServicesFileToTextProvider)],
+    };
+    static SettingVisibility relatudeTranslationService() => new() {
+        Path = "TranslationSettings.TypeName",
+        Values = ["", RelatudeServicesTranslationProvider.ShortName, nameof(RelatudeServicesTranslationProvider)],
     };
 
     /// <summary>
@@ -1112,7 +1117,7 @@ public static class SettingsCatalog {
                 new() {
                     Id = "sms",
                     Title = "SMS provider",
-                    Help = "How this database sends text messages. Nothing in the database sends one by itself: this is for your own code, which reaches it as NodeStore.SMS. Leave it empty on a database that sends none.",
+                    Help = "How this database sends text messages. Nothing in the database sends one by itself: this is for your own code, which reaches it as NodeStore.Services.SMS. Leave it empty on a database that sends none.",
                     Settings = [
                         new() {
                             Path = "SMSSettings.TypeName", Label = "Provider type", Placeholder = RelatudeServicesSMSProvider.ShortName,
@@ -1144,7 +1149,7 @@ public static class SettingsCatalog {
                 new() {
                     Id = "imaging",
                     Title = "Image AI",
-                    Help = "Creating images, changing them and saying what they show. Nothing in the database calls it by itself: this is for your own code, which reaches it as NodeStore.Imaging. It is there without any settings, calling the hosted Relatude Imaging service with this installation's license, and nothing is charged until code calls it.",
+                    Help = "Creating images, changing them and saying what they show. Nothing in the database calls it by itself: this is for your own code, which reaches it as NodeStore.Services.Imaging. It is there without any settings, calling the hosted Relatude Imaging service with this installation's license, and nothing is charged until code calls it.",
                     Settings = [
                         new() {
                             Path = "ImagingSettings.TypeName", Label = "Provider type", Placeholder = RelatudeServicesImagingProvider.ShortName,
@@ -1162,12 +1167,16 @@ public static class SettingsCatalog {
                             Path = "ImagingSettings.ApiKey", Label = "API key", Secret = true, HiddenWhen = relatudeImagingService(),
                             Help = "The key the custom provider sends with. Keep it in appsettings, an environment variable or user secrets rather than the settings file - configuration values are never written back to disk.",
                         },
+                        new() {
+                            Path = "ImagingSettings.CacheType", Label = "Answer cache",
+                            Help = "Keeps what the service answered on this server - what an image shows, the answers to questions about it, that it stands the right way up - so the same question is not sent, nor paid for, twice. Native keeps them in a file beside the AI embedding cache for 90 days; Memory only until the database is closed; None asks the service every time. The images the service makes are never kept: the application stores those itself.",
+                        },
                     ],
                 },
                 new() {
                     Id = "filetotext",
                     Title = "File to text",
-                    Help = "The plain text of files - documents, spreadsheets, presentations, e-mails, e-books, PDFs, and pictures read by OCR - for your own code to index or show, which reaches it as NodeStore.FileToText. It is there without any settings, calling the hosted Relatude FileToText service with this installation's license, and nothing is charged until code calls it.",
+                    Help = "The plain text of files - documents, spreadsheets, presentations, e-mails, e-books, PDFs, pictures read by OCR, and recordings and videos transcribed with when each line is spoken - for your own code to index or show, which reaches it as NodeStore.Services.FileToText. It is there without any settings, calling the hosted Relatude FileToText service with this installation's license, and nothing is charged until code calls it. A video's sound is taken out on this server by the FFmpeg file converter (Relatude.DB.Plugins.FFMpeg), which the server must have.",
                     Settings = [
                         new() {
                             Path = "FileToTextSettings.TypeName", Label = "Provider type", Placeholder = RelatudeServicesFileToTextProvider.ShortName,
@@ -1184,6 +1193,37 @@ public static class SettingsCatalog {
                         new() {
                             Path = "FileToTextSettings.ApiKey", Label = "API key", Secret = true, HiddenWhen = relatudeFileToTextService(),
                             Help = "The key the custom provider sends with. Keep it in appsettings, an environment variable or user secrets rather than the settings file - configuration values are never written back to disk.",
+                        },
+                        new() {
+                            Path = "FileToTextSettings.CacheType", Label = "Answer cache",
+                            Help = "Keeps the text of every file read on this server, by what the file holds and the languages asked for, so a file indexed again is not sent, nor paid for, twice. Native keeps them in a file beside the AI embedding cache for 90 days; Memory only until the database is closed; None asks the service every time.",
+                        },
+                    ],
+                },
+                new() {
+                    Id = "translation",
+                    Title = "Translation",
+                    Help = "Texts translated, and the languages they are in found, many in one call - for your own code, which reaches it as NodeStore.Services.Translation. It is there without any settings, calling the hosted Relatude Translation service with this installation's license, and nothing is charged until code calls it.",
+                    Settings = [
+                        new() {
+                            Path = "TranslationSettings.TypeName", Label = "Provider type", Placeholder = RelatudeServicesTranslationProvider.ShortName,
+                            // the names LateBindings.CreateTranslationProvider knows; SettingsCatalogTests checks they stay in step
+                            Help = "Selects the provider implementation. The Relatude service is the only one built in, and what an empty value means: it calls the hosted Relatude Translation service and charges each call to this installation's license, from its \"translation\" credit account, so it needs no API key here. Anything else is taken as the full type name of a custom provider and resolved when the database opens, so a typo shows up as a start-up error.",
+                            Suggestions = [
+                                new() { Value = RelatudeServicesTranslationProvider.ShortName, Hint = "billed to your Relatude license, no vendor account" },
+                            ],
+                        },
+                        new() {
+                            Path = "TranslationSettings.ServiceUrl", Label = "Service URL", Placeholder = RelatudeServicesTranslationProvider.DefaultServiceUrl,
+                            Help = "Where the service is. Empty is the hosted Relatude Translation service; set it to call a self-hosted or test deployment of the service, or the endpoint a custom provider calls.",
+                        },
+                        new() {
+                            Path = "TranslationSettings.ApiKey", Label = "API key", Secret = true, HiddenWhen = relatudeTranslationService(),
+                            Help = "The key the custom provider sends with. Keep it in appsettings, an environment variable or user secrets rather than the settings file - configuration values are never written back to disk.",
+                        },
+                        new() {
+                            Path = "TranslationSettings.CacheType", Label = "Answer cache",
+                            Help = "Keeps every text translated, and every language found, on this server, text by text, so a label or a product name is translated, and paid for, once. Native keeps them in a file beside the AI embedding cache for 90 days; Memory only until the database is closed; None asks the service every time.",
                         },
                     ],
                 },

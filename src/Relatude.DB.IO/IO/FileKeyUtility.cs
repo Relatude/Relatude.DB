@@ -225,6 +225,11 @@ public static class FileKeyUtility {
             _ => throw new NotImplementedException(),
         };
     }
+    /// <summary>
+    /// The Native KV file a service's answers are kept in on this machine (imaging, filetotext,
+    /// translation), beside the AI embedding cache in the indexes folder.
+    /// </summary>
+    public static string[] GetServiceCacheFileKey(string service) => [indexStoreFolderPattern, "native." + service + ".cache.bin"];
     public static string IndexStoreFolderKey => indexStoreFolderPattern;
 
     public static string[] CriticalErrorLogFileKey => criticalErrorLogFilePattern;

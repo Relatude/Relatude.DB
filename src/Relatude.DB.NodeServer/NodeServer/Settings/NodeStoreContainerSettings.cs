@@ -5,6 +5,7 @@ using Relatude.DB.DataStores.Files;
 using Relatude.DB.FileToText;
 using Relatude.DB.Imaging;
 using Relatude.DB.SMS;
+using Relatude.DB.Translation;
 using System.Text.Json.Serialization;
 
 namespace Relatude.DB.NodeServer.Settings;
@@ -79,12 +80,14 @@ public class NodeStoreContainerSettings : NodeStoreContainerSettingsBase {
     public Guid? IoBackup { get; set; }
     public Guid? IoLog { get; set; }
     public AIProviderSettings? AISettings { get; set; }
-    /// <summary>How this database sends text messages, reached from code as <c>NodeStore.SMS</c>. Null on a database that sends none.</summary>
+    /// <summary>How this database sends text messages, reached from code as <c>NodeStore.Services.SMS</c>. Null on a database that sends none.</summary>
     public SMSProviderSettings? SMSSettings { get; set; }
-    /// <summary>How this database reaches image AI, reached from code as <c>NodeStore.Imaging</c>. Null is the hosted Relatude Imaging service, called with the installation's license.</summary>
+    /// <summary>How this database reaches image AI, reached from code as <c>NodeStore.Services.Imaging</c>. Null is the hosted Relatude Imaging service, called with the installation's license.</summary>
     public ImagingProviderSettings? ImagingSettings { get; set; }
-    /// <summary>How this database reads the text of files, reached from code as <c>NodeStore.FileToText</c>. Null is the hosted Relatude FileToText service, called with the installation's license.</summary>
+    /// <summary>How this database reads the text of files, reached from code as <c>NodeStore.Services.FileToText</c>. Null is the hosted Relatude FileToText service, called with the installation's license.</summary>
     public FileToTextProviderSettings? FileToTextSettings { get; set; }
+    /// <summary>How this database translates texts, reached from code as <c>NodeStore.Services.Translation</c>. Null is the hosted Relatude Translation service, called with the installation's license.</summary>
+    public TranslationProviderSettings? TranslationSettings { get; set; }
     public DatamodelSource[]? DatamodelSources { get; set; }
     public SettingsLocal? LocalSettings { get; set; }
 }

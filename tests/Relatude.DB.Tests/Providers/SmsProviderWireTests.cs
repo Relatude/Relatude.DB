@@ -229,7 +229,7 @@ public class SmsProviderWireTests {
         using var provider = new RelatudeServicesSMSProvider(new SMSProviderSettings { ServiceUrl = stub.BaseUrl, ApiKey = "key", From = "MyShop" });
         stub.Enqueue(202, _accepted);
 
-        // through the interface, as NodeStore.SMS hands it out: the provider's own method, not the default
+        // through the interface, as NodeStore.Services.SMS hands it out: the provider's own method, not the default
         ISMSProvider sms = provider;
         var receipt = await sms.SendBatchAsync([
             new SmsBatchMessage("912 34 567", "Hello", "a"),

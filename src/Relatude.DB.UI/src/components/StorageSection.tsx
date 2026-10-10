@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  IconChartHistogram,
   IconCopy,
   IconDatabase,
   IconDatabaseExport,
@@ -56,6 +57,7 @@ import {
 } from "../server/storage";
 import type { DatabaseInfo } from "../server/serverInfo";
 import { TimeTravelDialog } from "./TimeTravelDialog";
+import { NodeSizesDialog } from "./NodeSizesDialog";
 import { describeFileStore, RewriteFilesDialog, type RewriteChoice } from "./RewriteFilesDialog";
 import { useLive } from "../live";
 import { formatBytes, formatCount, formatTime } from "../format";
@@ -73,6 +75,8 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const [keepForever, setKeepForever] = useState(false);
   // whether the go-back-in-time dialog is up; it finds the files and moments it offers itself
   const [timeTravel, setTimeTravel] = useState(false);
+  // whether the node size dialog is up; it measures the database itself when it opens
+  const [nodeSizes, setNodeSizes] = useState(false);
   // the file stores the rewrite dialog offers, while it is up
   const [rewriteStores, setRewriteStores] = useState<FileStoreChoice[] | null>(null);
   const [message, setMessage] = useState<string | null>(null); // the backups panel
@@ -741,6 +745,17 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
               </button>
               <span className="muted">copies a database file up to a moment you pick and opens it on the copy; the current file is kept</span>
             </div>
+            {/* what the file is made of: every node's size, from where its bytes are in the log */}
+            <div className="process-action">
+              <button className="action-button" onClick={() => setNodeSizes(true)} disabled={db.state !== "Open"}>
+                <IconChartHistogram size={14} stroke={1.8} /> Node sizes…
+              </button>
+              <span className="muted">
+                {db.state !== "Open"
+                  ? "the database must be open"
+                  : "how big every node is in the file, by type, and which are the largest - measured from each node's segment in the log"}
+              </span>
+            </div>
             {dbFileMessage && (
               <div className="process-action">
                 <span className="muted">{dbFileMessage}</span>
@@ -940,6 +955,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       </div>
       </div>
       {timeTravel && <TimeTravelDialog db={db} onCancel={() => setTimeTravel(false)} onDone={onWentBackInTime} />}
+      {nodeSizes && <NodeSizesDialog db={db} onClose={() => setNodeSizes(false)} />}
       {rewriteStores && (
         <RewriteFilesDialog stores={rewriteStores} onCancel={() => setRewriteStores(null)} onRewrite={(choice) => rewriteFiles(choice, rewriteStores)} />
       )}

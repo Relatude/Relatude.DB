@@ -54,6 +54,10 @@ public enum FileFormat {
     //AiMeta,    
     // Other formats can be added here
     Unknown = 27,
+    // Added later, numbered on: Ogg is Opus or Vorbis sound in an Ogg file, M4a sound in an MPEG-4 file
+    Ogg = 28,
+    Webm = 29,
+    M4a = 30,
 }
 public static class FileFormatUtil {
     public static FileType GetFileType(string fileNameWithExtension) {
@@ -76,10 +80,13 @@ public static class FileFormatUtil {
             ".mov" => FileFormat.Mov,
             ".wmv" => FileFormat.Wmv,
             ".flv" => FileFormat.Flv,
+            ".webm" => FileFormat.Webm,
             ".mp3" => FileFormat.Mp3,
             ".wav" => FileFormat.Wav,
             ".aac" => FileFormat.Aac,
             ".flac" => FileFormat.Flac,
+            ".ogg" or ".oga" or ".opus" => FileFormat.Ogg,
+            ".m4a" => FileFormat.M4a,
             ".pdf" => FileFormat.Pdf,
             ".doc" => FileFormat.Doc,
             ".docx" => FileFormat.Docx,
@@ -95,8 +102,8 @@ public static class FileFormatUtil {
     public static FileType GetFileType(FileFormat format) {
         return format switch {
             FileFormat.Jpeg or FileFormat.Png or FileFormat.Gif or FileFormat.Bmp or FileFormat.Svg or FileFormat.Webp or FileFormat.Avif or FileFormat.Image => FileType.Image,
-            FileFormat.Mp4 or FileFormat.Avi or FileFormat.Mov or FileFormat.Wmv or FileFormat.Flv or FileFormat.Mkv => FileType.Video,
-            FileFormat.Mp3 or FileFormat.Wav or FileFormat.Aac or FileFormat.Flac => FileType.Audio,
+            FileFormat.Mp4 or FileFormat.Avi or FileFormat.Mov or FileFormat.Wmv or FileFormat.Flv or FileFormat.Mkv or FileFormat.Webm => FileType.Video,
+            FileFormat.Mp3 or FileFormat.Wav or FileFormat.Aac or FileFormat.Flac or FileFormat.Ogg or FileFormat.M4a => FileType.Audio,
             FileFormat.Pdf or FileFormat.Doc or FileFormat.Docx or FileFormat.Xls or FileFormat.Xlsx or FileFormat.Ppt or FileFormat.Pptx or FileFormat.Txt => FileType.Document,
             FileFormat.FileMetaJson => FileType.Meta,
             FileFormat.Unknown => FileType.Unknown,
@@ -118,10 +125,13 @@ public static class FileFormatUtil {
         FileFormat.Mov => "video/quicktime",
         FileFormat.Wmv => "video/x-ms-wmv",
         FileFormat.Flv => "video/x-flv",
+        FileFormat.Webm => "video/webm",
         FileFormat.Mp3 => "audio/mpeg",
         FileFormat.Wav => "audio/wav",
         FileFormat.Aac => "audio/aac",
         FileFormat.Flac => "audio/flac",
+        FileFormat.Ogg => "audio/ogg",
+        FileFormat.M4a => "audio/mp4",
         FileFormat.Pdf => "application/pdf",
         FileFormat.Doc => "application/msword",
         FileFormat.Docx => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -149,10 +159,13 @@ public static class FileFormatUtil {
             FileFormat.Mov => ".mov",
             FileFormat.Wmv => ".wmv",
             FileFormat.Flv => ".flv",
+            FileFormat.Webm => ".webm",
             FileFormat.Mp3 => ".mp3",
             FileFormat.Wav => ".wav",
             FileFormat.Aac => ".aac",
             FileFormat.Flac => ".flac",
+            FileFormat.Ogg => ".ogg",
+            FileFormat.M4a => ".m4a",
             FileFormat.Pdf => ".pdf",
             FileFormat.Doc => ".doc",
             FileFormat.Docx => ".docx",

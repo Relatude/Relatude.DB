@@ -49,6 +49,7 @@ public class FileAdjustmentKeyTests {
             FileFormat.Mp3, FileFormat.Wav, FileFormat.Aac, FileFormat.Flac,
             FileFormat.Pdf, FileFormat.Doc, FileFormat.Docx, FileFormat.Xls, FileFormat.Xlsx, FileFormat.Ppt, FileFormat.Pptx, FileFormat.Txt,
             FileFormat.FileMetaJson, FileFormat.Unknown,
+            FileFormat.Ogg, FileFormat.Webm, FileFormat.M4a,
         ];
         for (var i = 0; i < formats.Length; i++) Assert.AreEqual(i, (int)formats[i], formats[i].ToString());
         Assert.AreEqual(formats.Length, Enum.GetValues<FileFormat>().Length, "a new format needs the next free number, and a line above");
@@ -62,6 +63,39 @@ public class FileAdjustmentKeyTests {
         Assert.AreEqual(0, (int)FileAdjustmentType.Image);
         Assert.AreEqual(1, (int)FileAdjustmentType.Video);
         Assert.AreEqual(2, (int)FileAdjustmentType.Meta);
+        Assert.AreEqual(3, (int)FileAdjustmentType.Audio);
+    }
+
+    /// <summary>
+    /// The sound of a file: kept through bytes and normalized, keyed by every setting, and a format that
+    /// is not a sound, or values out of range, made sensible - so one recording is converted and cached once.
+    /// </summary>
+    [TestMethod]
+    public void AnAudioAdjustmentKeepsItsSettingsAndIsKeyedByThem() {
+        var speech = new FileAdjustmentAudio { RequestedFormat = FileFormat.Ogg, Channels = 1, SampleRate = 16000, BitRateKbps = 24, StartMs = 60000, DurationMs = 55000, Speech = true };
+        var copy = (FileAdjustmentAudio)FileAdjustmentBase.FromBytes(speech.ToBytes());
+        Assert.AreEqual(FileFormat.Ogg, copy.RequestedFormat);
+        Assert.AreEqual(1, copy.Channels);
+        Assert.AreEqual(16000, copy.SampleRate);
+        Assert.AreEqual(24, copy.BitRateKbps);
+        Assert.AreEqual(60000, copy.StartMs);
+        Assert.AreEqual(55000, copy.DurationMs);
+        Assert.IsTrue(copy.Speech);
+        Assert.AreEqual(speech.GetKey(), copy.GetKey());
+        Assert.AreEqual(speech.GetKey(), speech.Normalized().GetKey(), "already in range");
+
+        var later = (FileAdjustmentAudio)FileAdjustmentBase.FromBytes(speech.ToBytes());
+        later.StartMs = 115000;
+        Assert.AreNotEqual(speech.GetKey(), later.GetKey(), "another stretch of the recording is another conversion");
+        Assert.AreNotEqual(new FileAdjustmentAudio().GetKey(), new FileAdjustmentAudio { Speech = true }.GetKey());
+
+        var odd = (FileAdjustmentAudio)new FileAdjustmentAudio { RequestedFormat = FileFormat.Png, Channels = 0, SampleRate = 1, BitRateKbps = 9999, StartMs = -5 }.Normalized();
+        Assert.AreEqual(FileFormat.Mp3, odd.RequestedFormat, "a format that is not a sound is the default");
+        Assert.IsNull(odd.Channels);
+        Assert.AreEqual(8000, odd.SampleRate);
+        Assert.AreEqual(512, odd.BitRateKbps);
+        Assert.IsNull(odd.StartMs);
+        Assert.AreEqual(FileFormat.Mp3, new FileAdjustmentAudio().RequestedFormat);
     }
 
     [TestMethod]
