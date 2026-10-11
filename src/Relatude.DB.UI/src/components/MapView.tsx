@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { PivotBase } from "./PivotView";
 import { GeoMap, colouredMarks, emptyMap } from "./GeoMap";
 import { fetchCards, fetchPivotModel, runMap, type MapRequest, type PivotModel, type PivotProperty } from "../server/query";
 import type { MarqueeMode, SelectMode } from "../selection";
-import { useLiveResult } from "../server/hooks";
+import { RunGroupContext, useLiveResult } from "../server/hooks";
 import { formatQuery } from "../format";
 import type { MapDefinition } from "../queryTabs";
 import { decodeMap } from "../map/points";
@@ -117,7 +117,7 @@ export function MapView({
     // the token is not part of the request; a new object is how the runner is told to run again
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model, definition === null, base, property, coloured, colorProperty, def.colorMode, refreshToken]);
-  const { result, loading, error } = useLiveResult(request, runMap);
+  const { result, loading, error } = useLiveResult(request, runMap, useContext(RunGroupContext)); // stopped with the Query tab it is in
   const points = useMemo(() => (result ? decodeMap(result) : null), [result]);
   const colorData = colorProperty === null ? null : (points?.byProperty.get(colorProperty) ?? null);
 

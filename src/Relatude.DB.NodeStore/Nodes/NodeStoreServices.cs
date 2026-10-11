@@ -104,11 +104,16 @@ public sealed class NodeStoreServices {
         (_translation as ICachingServiceProvider)?.ClearCache();
     }
 
-    // the AI engine is the data store's, and goes with it
+    // the AI engine is the data store's, and goes with it. Each is disposed even when one before it
+    // throws: the caching providers hold their cache files, and a database opened again on this
+    // machine - by a soft restart, say - would wait for files nothing is ever going to release
     internal void DisposeProviders() {
-        _sms?.Dispose();
-        _imaging?.Dispose();
-        _fileToText?.Dispose();
-        _translation?.Dispose();
+        try { _sms?.Dispose(); } finally {
+            try { _imaging?.Dispose(); } finally {
+                try { _fileToText?.Dispose(); } finally {
+                    _translation?.Dispose();
+                }
+            }
+        }
     }
 }

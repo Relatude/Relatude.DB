@@ -62,7 +62,7 @@ sealed class UIQuery {
 
     internal void Register(UICommands commands) {
         commands.Register("query-model", ctx => model(ctx.Payload<StorePayload>().StoreId));
-        commands.Register("query-search", async ctx => await search(ctx.Payload<SearchPayload>()));
+        commands.Register("query-search", async ctx => await search(ctx.Payload<SearchPayload>(), ctx.Cancellation));
         commands.Register("query-node", ctx => node(ctx.Payload<NodePayload>()));
         commands.Register("query-nodes", ctx => nodes(ctx.Payload<NodesPayload>()));
         commands.Register("query-save", async ctx => await save(ctx.Payload<SavePayload>()));
@@ -76,15 +76,15 @@ sealed class UIQuery {
         commands.Register("query-node-versions", ctx => nodeVersions(ctx.Payload<VersionsPayload>()));
         commands.Register("query-lookup", ctx => lookup(ctx.Payload<LookupPayload>()));
         commands.Register("query-pivot-model", ctx => pivotModel(ctx.Payload<PivotModelPayload>()));
-        commands.Register("query-pivot", async ctx => await pivot(ctx.Payload<PivotPayload>()));
-        commands.Register("query-groupby", async ctx => await groupBy(ctx.Payload<GroupByPayload>()));
-        commands.Register("query-visual", async ctx => await visual(ctx.Payload<VisualPayload>()));
-        commands.Register("query-map", async ctx => await map(ctx.Payload<MapPayload>()));
-        commands.Register("query-cloud", async ctx => await cloud(ctx.Payload<CloudPayload>()));
+        commands.Register("query-pivot", async ctx => await pivot(ctx.Payload<PivotPayload>(), ctx.Cancellation));
+        commands.Register("query-groupby", async ctx => await groupBy(ctx.Payload<GroupByPayload>(), ctx.Cancellation));
+        commands.Register("query-visual", async ctx => await visual(ctx.Payload<VisualPayload>(), ctx.Cancellation));
+        commands.Register("query-map", async ctx => await map(ctx.Payload<MapPayload>(), ctx.Cancellation));
+        commands.Register("query-cloud", async ctx => await cloud(ctx.Payload<CloudPayload>(), ctx.Cancellation));
         commands.Register("query-node-id", ctx => nodeGuid(ctx.Payload<NodeIntPayload>()));
         commands.Register("query-node-ids", ctx => nodeGuids(ctx.Payload<NodeIntsPayload>()));
-        commands.Register("query-select-all", async ctx => await selectAll(ctx.Payload<SearchPayload>()));
-        commands.Register("query-common", async ctx => await common(ctx.Payload<CommonPayload>()));
+        commands.Register("query-select-all", async ctx => await selectAll(ctx.Payload<SearchPayload>(), ctx.Cancellation));
+        commands.Register("query-common", async ctx => await common(ctx.Payload<CommonPayload>(), ctx.Cancellation));
         commands.Register("query-save-all", async ctx => await saveAll(ctx.Payload<SaveAllPayload>()));
         commands.Register("query-delete-all", async ctx => await deleteAll(ctx.Payload<SearchPayload>()));
         commands.Register("query-cards", ctx => cards(ctx.Payload<CardsPayload>()));
@@ -98,6 +98,9 @@ sealed class UIQuery {
     // Reading and writing as an administrator: hidden and unpublished nodes are part of what this
     // page is for. Deleted ones are not - they are not editable and would only be confusing here.
     static readonly QueryContext adminContext = QueryContext.Default.Admin().Hidden().Unpublished().CultureFallbacks();
+    // the same, for a query the page can stop: its Stop button, a newer query taking over, or the request
+    // given up on all cancel the token (see UICommandContext.Cancellation), and the store stops at its next check
+    static QueryContext readContext(CancellationToken cancel) => cancel.CanBeCanceled ? adminContext.WithCancellation(cancel) : adminContext;
 
     NodeStore store(Guid storeId) {
         if (!_server.Containers.TryGetValue(storeId, out var c)) throw new Exception("Database not found. ");
@@ -169,7 +172,7 @@ sealed class UIQuery {
 
     // ---- the search itself ----
 
-    async Task<object> search(SearchPayload p) {
+    async Task<object> search(SearchPayload p, CancellationToken cancel = default) {
         var s = store(p.StoreId);
         var dm = s.Datastore.Datamodel;
         var typeId = queriedType(dm, p.TypeId);
@@ -185,7 +188,7 @@ sealed class UIQuery {
         var sw = Stopwatch.StartNew();
         // executed on the datastore rather than through the facet query object, so hits and buckets
         // stay as node data instead of being mapped to model classes that may not exist
-        var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
+        var data = await s.Datastore.QueryAsync(queryString, [], readContext(cancel));
         sw.Stop();
         // a query with no facet clause answers as a plain collection: same hits, no buckets
         var result = data as FacetQueryResultData;
@@ -498,7 +501,7 @@ sealed class UIQuery {
         var rows = p.CsvRows <= 0 ? maxCsvRows : Math.Min(p.CsvRows, maxCsvRows);
         // whatever the page is showing, an export reads no buckets: ask for none
         var queryString = queryFor(s, dm, p with { Facets = false }, typeId, Math.Max(0, p.Page), rows);
-        var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
+        var data = await s.Datastore.QueryAsync(queryString, [], readContext(http.RequestAborted)); // a download given up on stops the query too
         // with a facet selection to apply the answer is a facet result and the rows are inside it;
         // with nothing to filter by there is no facet clause at all and the rows are the answer
         var nodes = (data as FacetQueryResultData)?.Result ?? data as IStoreNodeDataCollection
@@ -2045,7 +2048,7 @@ sealed class UIQuery {
     /// a query string against the datastore, like the search, so relation groups arrive as node data
     /// and are named by the engine.
     /// </summary>
-    async Task<object> pivot(PivotPayload p) {
+    async Task<object> pivot(PivotPayload p, CancellationToken cancel = default) {
         var s = store(p.StoreId);
         var dm = s.Datastore.Datamodel;
         var typeId = queriedType(dm, p.TypeId);
@@ -2087,7 +2090,7 @@ sealed class UIQuery {
         var queryString = pq.ToString();
 
         var sw = Stopwatch.StartNew();
-        var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
+        var data = await s.Datastore.QueryAsync(queryString, [], readContext(cancel));
         sw.Stop();
         if (data is not PivotQueryResultData pivotData) throw new Exception("The query did not return a pivot. ");
         var r = pivotData.Result;
@@ -2164,7 +2167,7 @@ sealed class UIQuery {
     /// GroupBy API - GroupKey and Aggregate - so it is the very code path a dynamic report takes, and
     /// the query string shown is the one such a report would send.
     /// </summary>
-    async Task<object> groupBy(GroupByPayload p) {
+    async Task<object> groupBy(GroupByPayload p, CancellationToken cancel = default) {
         var s = store(p.StoreId);
         var dm = s.Datastore.Datamodel;
         var typeId = queriedType(dm, p.TypeId);
@@ -2186,7 +2189,7 @@ sealed class UIQuery {
         if (keys.Length == 0) // nothing chosen yet: an empty table, not an error
             return new { TypeId = typeId, TypeName = nodeType.CodeName, Query = "", DurationMs = 0.0, SourceCount = 0, Keys = keyViews, Measures = measureViews, Rows = Array.Empty<object>(), TotalRows = 0, Page = 0, PageSize = pageSize };
 
-        var q = s.QueryType(typeId, adminContext);
+        var q = s.QueryType(typeId, readContext(cancel));
         if (!string.IsNullOrWhiteSpace(p.Text)) q = q.WhereSearch(applyMatch(p.Text, p.Match), p.SemanticRatio, (float?)p.MinimumSimilarity, p.AnyWord);
         var selections = (p.Selections ?? []).Where(sel => dm.Properties.ContainsKey(sel.PropertyId) && sel.Values?.Length > 0).ToArray();
         QueryOfGroups<object, object, object?[]> groups;
@@ -2305,7 +2308,7 @@ sealed class UIQuery {
     /// Buckets() clause on the search, answered from the indexes inside the store's read lock - so no
     /// node is read whatever the size of the result.
     /// </summary>
-    Task<object> visual(VisualPayload p) => VisualOf(store(p.StoreId), p, adminContext, maxVisualCards);
+    Task<object> visual(VisualPayload p, CancellationToken cancel = default) => VisualOf(store(p.StoreId), p, readContext(cancel), maxVisualCards);
 
     /// <summary>
     /// The picture's answer for a search, read in the given context and holding at most `maxCards` cards: what the
@@ -2483,7 +2486,7 @@ sealed class UIQuery {
     /// counted, since nothing here is going to draw them. Buckets() with no property is how a query
     /// is asked for its ids and nothing else (see the visual pivot, which reads the same shape).
     /// </summary>
-    async Task<object> selectAll(SearchPayload p) {
+    async Task<object> selectAll(SearchPayload p, CancellationToken cancel = default) {
         var s = store(p.StoreId);
         var dm = s.Datastore.Datamodel;
         var typeId = queriedType(dm, p.TypeId);
@@ -2492,7 +2495,7 @@ sealed class UIQuery {
         var search = p with { Page = 0, PageSize = take, Facets = false };
         var queryString = queryFor(s, dm, search, typeId, 0, take) + ".Buckets()";
         var sw = Stopwatch.StartNew();
-        var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
+        var data = await s.Datastore.QueryAsync(queryString, [], readContext(cancel));
         if (data is not BucketsQueryResultData buckets) throw new Exception("The query did not return the ids of a collection of nodes. ");
         var ids = buckets.Ids;
         var guids = new byte[ids.Length * 16];
@@ -2525,14 +2528,14 @@ sealed class UIQuery {
     /// The same, bounded: the first `take` of them, and beside it how many the search found
     /// altogether - which is how a reader of part of a selection can say what part it read.
     /// </summary>
-    async Task<(int[] Ids, int Total)> idsOf(SearchPayload p, int take) {
+    async Task<(int[] Ids, int Total)> idsOf(SearchPayload p, int take, CancellationToken cancel = default) {
         var s = store(p.StoreId);
         var dm = s.Datastore.Datamodel;
         var typeId = queriedType(dm, p.TypeId);
         take = take > 0 ? Math.Min(take, maxSelectAll) : maxSelectAll;
         var search = p with { Page = 0, PageSize = take, Facets = false };
         var queryString = queryFor(s, dm, search, typeId, 0, take) + ".Buckets()";
-        var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
+        var data = await s.Datastore.QueryAsync(queryString, [], readContext(cancel));
         if (data is not BucketsQueryResultData buckets) throw new Exception("The query did not return the ids of a collection of nodes. ");
         return (buckets.Ids, buckets.TotalCount);
     }
@@ -2571,7 +2574,7 @@ sealed class UIQuery {
     /// costs in the bad case is one node read each, and for a relation property still agreeing, one
     /// relation lookup each.
     /// </summary>
-    async Task<object> common(CommonPayload p) {
+    async Task<object> common(CommonPayload p, CancellationToken cancel = default) {
         var s = store(p.StoreId);
         var dm = s.Datastore.Datamodel;
         var take = p.Take > 0 ? Math.Min(p.Take, maxCommonRead) : maxCommonRead;
@@ -2579,7 +2582,7 @@ sealed class UIQuery {
         int[] ints;
         int total;
         if (p.Search != null) {
-            (ints, total) = await idsOf(p.Search with { StoreId = p.StoreId }, take);
+            (ints, total) = await idsOf(p.Search with { StoreId = p.StoreId }, take, cancel);
         } else if (p.IntIds != null && p.IntIds.Length > 0) {
             var all = intIdsOf(p.IntIds);
             total = all.Length;
@@ -2792,7 +2795,7 @@ sealed class UIQuery {
     /// map and is not counted as one: what comes back says how many were found, how many of those
     /// were looked at, and how many of THOSE had somewhere to be.
     /// </summary>
-    async Task<object> map(MapPayload p) {
+    async Task<object> map(MapPayload p, CancellationToken cancel = default) {
         var s = store(p.StoreId);
         var dm = s.Datastore.Datamodel;
         var typeId = queriedType(dm, p.TypeId);
@@ -2808,7 +2811,7 @@ sealed class UIQuery {
         var queryString = queryFor(s, dm, search, typeId, 0, wanted) + ".Coordinates(" + propertyRef(geoProperty) + ")" + bucketClauses(dm, p.Properties);
 
         var sw = Stopwatch.StartNew();
-        var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
+        var data = await s.Datastore.QueryAsync(queryString, [], readContext(cancel));
         if (data is not CoordinatesQueryResultData located) throw new Exception("The query did not return the positions of a collection of nodes. ");
         var ids = located.Ids;
         var position = positionsOf(ids);
@@ -2858,7 +2861,7 @@ sealed class UIQuery {
     /// not), so the page asks pivotModel which properties can before offering the view at all. The
     /// check is repeated here because a payload can name any property.
     /// </summary>
-    async Task<object> cloud(CloudPayload p) {
+    async Task<object> cloud(CloudPayload p, CancellationToken cancel = default) {
         var s = store(p.StoreId);
         var dm = s.Datastore.Datamodel;
         var typeId = queriedType(dm, p.TypeId);
@@ -2900,7 +2903,7 @@ sealed class UIQuery {
         if (p.ExcludeNumbers) queryString += ".ExcludeNumbers()";
 
         var sw = Stopwatch.StartNew();
-        var data = await s.Datastore.QueryAsync(queryString, [], adminContext);
+        var data = await s.Datastore.QueryAsync(queryString, [], readContext(cancel));
         if (data is not WordsQueryResultData words) throw new Exception("The query did not return the words of a collection of nodes. ");
         var counted = words.Words;
         sw.Stop();

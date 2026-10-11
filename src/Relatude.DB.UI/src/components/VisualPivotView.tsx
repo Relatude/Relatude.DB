@@ -1,9 +1,9 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { IconArrowNarrowDown, IconArrowNarrowUp, IconCube3dSphere, IconFocusCentered, IconListDetails, IconMinus, IconPhoto, IconPhotoOff, IconPlus, IconRestore, IconRotate360 } from "@tabler/icons-react";
 import { BareButton, FullscreenButton, MaximizeButton } from "./DatamodelGraph";
 import type { PivotBase } from "./PivotView";
 import { bytesOf, type PivotModel, type PivotProperty, type VisualGroup, type VisualRequest, type VisualResult } from "../server/query";
-import { useLiveResult } from "../server/hooks";
+import { RunGroupContext, useLiveResult } from "../server/hooks";
 import { formatCount, formatQuery } from "../format";
 import { showConfirm } from "../dialogs";
 import type { VisualDefinition } from "../queryTabs";
@@ -389,7 +389,7 @@ export function VisualPivotView({
     tokenSeen.current = refreshToken;
     keepCamera.current = true;
   }, [refreshToken]);
-  const { result, loading, error } = useLiveResult(request, src.visual);
+  const { result, loading, error } = useLiveResult(request, src.visual, useContext(RunGroupContext)); // stopped with the Query tab it is in
   const decoded = useMemo(() => (result ? decode(result) : null), [result]);
 
   // ---- the canvas and the field ----

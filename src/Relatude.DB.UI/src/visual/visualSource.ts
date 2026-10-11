@@ -23,7 +23,8 @@ export interface CardSource {
 /** Where the visual pivot gets everything it draws: the properties it can group by, the cards, and their names and pictures. */
 export interface VisualSource extends CardSource {
   pivotModel(typeId: string | null, propertyScope?: PropertyScope): Promise<PivotModel>;
-  visual(request: VisualRequest): Promise<VisualResult>;
+  /** The signal, where the source supports it, stops the query on the server as well. */
+  visual(request: VisualRequest, signal?: AbortSignal): Promise<VisualResult>;
 }
 
 const adminSources = new Map<string, VisualSource>();
@@ -35,7 +36,7 @@ export function adminVisualSource(storeId: string): VisualSource {
     source = {
       key: "admin:" + storeId,
       pivotModel: (typeId, propertyScope) => fetchPivotModel(storeId, typeId, propertyScope),
-      visual: (request) => runVisual(request),
+      visual: (request, signal) => runVisual(request, signal),
       cards: (ids) => fetchCards(storeId, ids),
       cardImages: (level, items, onRecord, signal) => streamCardImages(storeId, level, items, onRecord, signal),
     };

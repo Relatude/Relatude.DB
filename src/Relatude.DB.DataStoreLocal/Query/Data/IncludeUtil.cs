@@ -7,6 +7,44 @@ using Relatude.DB.DataStores.Sets;
 
 namespace Relatude.DB.Query.Data;
 
+/// <summary>
+/// A query result whose node data is read after the store's read lock is let go. The query evaluates and
+/// begins the retrieval under the lock, lets it go, and then completes it - so a result that has to read a
+/// lot of nodes from the log does not keep writers, and every reader queued behind them, waiting for the disk.
+/// </summary>
+internal interface IDeferredNodeRetrieval {
+    /// <summary>Under the read lock: everything but reading the node bytes. Null when there is nothing left to read.</summary>
+    PendingRetrieval? BeginRetrievalUnderReadLock(Metrics metrics);
+}
+/// <summary>A retrieval begun under the read lock. Complete it after the lock is let go; dispose it in any case.</summary>
+internal sealed class PendingRetrieval(PendingNodeData nodes, Action<INodeDataExternal[]> onRead) : IDisposable {
+    public void Complete(CancellationToken cancel) => onRead(nodes.Complete(cancel));
+    public void Dispose() => nodes.Dispose();
+}
+/// <summary>
+/// Node data begun under the store's read lock (see <see cref="IncludeUtil.BeginNodesWithIncludes"/>):
+/// the read of the nodes and, with includes, the relation tree they are put into.
+/// </summary>
+internal sealed class PendingNodeData(DataStores.Stores.NodeStore.NodeRead read, OuterConverter outer, NodeDataWithRelations[]? tree, Metrics metrics) : IDisposable {
+    /// <summary>Reads what the cache did not hold. Takes no store lock, and must not.</summary>
+    public INodeDataExternal[] Complete(CancellationToken cancel) {
+        INodeDataInternal?[] inner;
+        try {
+            inner = read.Complete(cancel, ref metrics.DiskReads, ref metrics.NodesReadFromDisk);
+        } finally {
+            read.Dispose();
+        }
+        var nOuter = new INodeDataExternal[inner.Length];
+        for (var i = 0; i < inner.Length; i++) nOuter[i] = outer.ToOuter(inner[i]!); // read with throwIfMissing, so none is null
+        if (tree == null) return nOuter;
+        var dic = nOuter.ToDictionary(n => n.__Id); // get all nodes in one go
+        metrics.UniqueNodeCount += dic.Count;
+        foreach (var node in tree) node.SwapNodeData(dic); // recursive for entire relation tree
+        return tree;
+    }
+    public void Dispose() => read.Dispose();
+}
+
 internal static class IncludeUtil {
     // per query execution state of one include expansion: the store, context and
     // lazily created filter evaluators (one per filtered branch)
@@ -41,12 +79,23 @@ internal static class IncludeUtil {
             return visible.Has(nodeId);
         }
     }
+    /// <summary>The node data of a result, with its includes, read while the caller holds the store's read lock.</summary>
     public static INodeDataExternal[] GetNodesWithIncludes(Metrics metrics, IdSet _ids, DataStoreLocal _db, List<IncludeBranch>? _includeBranches, QueryContext ctx) {
+        using var pending = BeginNodesWithIncludes(metrics, _ids, _db, _includeBranches, ctx);
+        return pending.Complete(ctx.CancellationToken);
+    }
+    /// <summary>
+    /// The first step of reading the node data of a result, taken under the store's read lock: the include
+    /// tree is walked, the nodes it needs are looked up (cached ones taken, the positions of the rest noted)
+    /// and the context resolved. <see cref="PendingNodeData.Complete"/> reads the rest after the lock is let
+    /// go, and must not take it again.
+    /// </summary>
+    public static PendingNodeData BeginNodesWithIncludes(Metrics metrics, IdSet _ids, DataStoreLocal _db, List<IncludeBranch>? _includeBranches, QueryContext ctx) {
         metrics.NodeCount += _ids.Count;
+        var outer = _db.GetOuterConverter(ctx);
         if (_includeBranches == null) {
             metrics.UniqueNodeCount += _ids.Count;
-            var nodes = _db._nodes.Get(_ids.Enumerate().ToArray(), ref metrics.DiskReads, ref metrics.NodesReadFromDisk);
-            return _db.ToOuter(nodes, ctx);
+            return new PendingNodeData(_db._nodes.BeginRead(_ids.Enumerate().ToArray(), throwIfMissing: true), outer, null, metrics);
         } else {
             var idsToGet = new HashSet<int>(_ids.Enumerate());
             var nodes = new NodeDataWithRelations[_ids.Count];
@@ -56,13 +105,12 @@ internal static class IncludeUtil {
             }
             var walk = new IncludeWalk { Db = _db, Ctx = ctx, Metrics = metrics };
             foreach (var branch in _includeBranches) branch.Reset();
-            foreach (var node in nodes) ensureIncludes(node, _includeBranches, idsToGet, 0, walk, ref metrics.NodeCount);
-            var nInner = _db._nodes.Get(idsToGet.ToArray(), ref metrics.DiskReads, ref metrics.NodesReadFromDisk);
-            var nOuter = _db.ToOuter(nInner, ctx);
-            var dic = nOuter.ToDictionary(n => n.__Id); // get all nodes in one go
-            metrics.UniqueNodeCount += dic.Count;
-            foreach (var node in nodes) node.SwapNodeData(dic); // recursive for entire relation tree
-            return nodes;
+            var cancel = ctx.CancellationToken;
+            for (var n = 0; n < nodes.Length; n++) {
+                if ((n & 255) == 0) cancel.ThrowIfCancellationRequested(); // the walk reads the values it follows
+                ensureIncludes(nodes[n], _includeBranches, idsToGet, 0, walk, ref metrics.NodeCount);
+            }
+            return new PendingNodeData(_db._nodes.BeginRead(idsToGet.ToArray(), throwIfMissing: true), outer, nodes, metrics);
         }
     }
     public static List<IncludeBranch>? JoinPathsToUniqueBranches(List<IncludeBranch>? branches) {

@@ -5,9 +5,9 @@ using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.Query.Data;
 /// <summary>
 /// Result of a ShortestPath query: the node ids of one shortest path in order, from -> to inclusive.
-/// Node data is hydrated in one batch before the store read lock is released.
+/// Node data is hydrated in one batch: looked up under the store read lock, read once it is released.
 /// </summary>
-internal class GraphPathResultData : IGraphPathResultData {
+internal class GraphPathResultData : IGraphPathResultData, IDeferredNodeRetrieval {
     readonly DataStoreLocal _db;
     readonly QueryContext _ctx;
     readonly int[] _pathIds; // empty when no path was found
@@ -45,10 +45,18 @@ internal class GraphPathResultData : IGraphPathResultData {
     }
     public void EnsureRetrivalOfRelationNodesDataBeforeExitingReadLock(Metrics metrics) {
         if (_nodes != null) return;
+        using var pending = beginNodes(metrics);
+        _nodes = [.. pending.Complete(_ctx.CancellationToken)];
+    }
+    // the node data is read after the read lock is let go
+    public PendingRetrieval? BeginRetrievalUnderReadLock(Metrics metrics) {
+        if (_nodes != null) return null;
+        return new PendingRetrieval(beginNodes(metrics), nodes => _nodes = [.. nodes]);
+    }
+    PendingNodeData beginNodes(Metrics metrics) {
         _ = NodeIds; // resolve guids while inside the read lock
         if (_includeBranches != null) _includeBranches = IncludeUtil.JoinPathsToUniqueBranches(_includeBranches);
         var ids = IdSet.UncachableSet(new FixedOrderedSet(_pathIds, _pathIds.Length)); // preserve path order
-        var nodes = IncludeUtil.GetNodesWithIncludes(metrics, ids, _db, _includeBranches, _ctx);
-        _nodes = [.. nodes];
+        return IncludeUtil.BeginNodesWithIncludes(metrics, ids, _db, _includeBranches, _ctx);
     }
 }

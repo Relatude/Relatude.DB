@@ -2249,6 +2249,8 @@ from the beginning; without one, opening is a full replay.
 | `WriteSystemLogConsole` | `true` | Echo the engine's system log to the console. |
 | `LogRecording` | null | Which activity logs record entries and statistics after a restart — written by *Save and remember changes* on the Activity page. A log not listed starts off. The logs you define keep their own switches in their settings files ([§32](#32-logs--recording-what-the-application-does)). |
 | `MinQueryDurationMsBeforeLogging` | 0 | Leave queries faster than this out of the query log. 0 records every one. |
+| `MaxQueryDurationInSeconds` | 0 | Stop a query still running after this long, with a `TimeoutException`. 0 sets no limit. See [Heavy queries, and stopping one](#heavy-queries-and-stopping-one). |
+| `WarnWhenQueryReadsNodesFromDisk` | 100 000 | Note a query that reads more nodes than this from the log file in the system log, at most once a minute. 0 turns it off. |
 | `DoNotCacheMapperFile` | `false` | Present in the settings object; not read by the current build. |
 
 ### Overriding settings from configuration
@@ -3794,6 +3796,29 @@ line does nothing — write `q = q.Where(...)`. The operators are marked `[Pure]
 result is flagged by .NET code analysis (rule CA1806; raise it to a warning with
 `dotnet_diagnostic.CA1806.severity = warning` in `.editorconfig`). This applies to the facet and
 search builders too: `fq = fq.SetFacetValue(...)`.
+
+### Heavy queries, and stopping one
+
+Queries run side by side. A query works out its answer from the indexes under the store's read lock,
+and reads the nodes it returns from the log after it has let go of it, so a query that reads a lot from
+disk does not hold up writes, nor the queries queued behind a write. Its answer is still the database
+as it was when it ran: a node written or deleted while it reads is not in it, or is in it as it was.
+
+A query can be stopped. Give it a cancellation token through its context, and it throws an
+`OperationCanceledException` at its next check - between batches of nodes read and rows evaluated:
+
+```csharp
+using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+var ctx = QueryContext.Default.WithCancellation(cts.Token);   // or HttpContext.RequestAborted
+var result = db.Query<IEvent>(ctx).Where(e => e.Description.Contains("jazz")).Execute();
+```
+
+The token is not part of what the context means - two contexts that differ only in it are equal -
+and the fluent methods keep it, so set it last. For a limit on every query, set
+`MaxQueryDurationInSeconds` ([§12.1](#121-every-setting-in-relatudedbjson)): a query past it is stopped with a
+`TimeoutException`. A query reading more nodes than `WarnWhenQueryReadsNodesFromDisk` from the log
+is noted in the system log, at most once a minute - page it, or filter on indexed properties. The
+admin UI's Query page has a Stop button for the query it is running.
 
 ### Entry points
 
@@ -6311,7 +6336,10 @@ These hold for images, files to text and translation alike.
   service said. The images the service makes are not kept: your application stores those itself.
   - **Where:** with `CacheType` `Native` (the default) in a file per service beside the AI embedding
     cache, `indexes/native.translation.cache.bin`, `native.filetotext.cache.bin` and
-    `native.imaging.cache.bin`; with `Memory` until the database closes; with `None` nowhere.
+    `native.imaging.cache.bin`; with `Memory` until the database closes; with `None` nowhere. A
+    database without disk storage of its own (memory, blobs) keeps these files in the server's data
+    folder, which it shares with every other such database, so there the names carry its id -
+    `native.translation.{database id}.cache.bin`, and the AI embedding cache's likewise.
   - **For how long:** 90 days, as long as the hosted services keep theirs, so a translation corrected
     at the service reaches you in time. `fresh: true` asks again and keeps the new answer.
   - **Clearing:** `db.MaintenanceAsync(MaintenanceAction.ClearAiCache)` empties these caches with the

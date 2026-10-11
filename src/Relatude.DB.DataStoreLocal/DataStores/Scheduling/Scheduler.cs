@@ -254,7 +254,7 @@ internal class Scheduler {
         try {
             if (_db.State != DataStoreState.Open) return;
             var now = DateTime.UtcNow;
-            var lastTransaction = new DateTime(_db.Timestamp, DateTimeKind.Utc);
+            var lastTransaction = new DateTime(_db.LastTimestampWithoutLock, DateTimeKind.Utc); // no lock: the read lock would queue behind any writer waiting
             var secondsSinceLastTransaction = (now - lastTransaction).TotalSeconds;
             var busy = secondsSinceLastTransaction < 0.5; // consider busy if there was a transaction in the last 500ms
             var secondsSinceLastAutoFlush = (now - _lastAutoFlush).TotalSeconds;
@@ -272,7 +272,7 @@ internal class Scheduler {
             var sw = Stopwatch.StartNew();
             var activityId = _db.RegisterActvity(DataStoreActivityCategory.Flushing, "Auto disk flush", 0);
             try {
-                _db.FlushToDisk(true, activityId, out var t, out var a, out var w);
+                _db.FlushToDisk(true, activityId, background: true, out var t, out var a, out var w); // never queues for the write lock behind a long query
                 if (t > 0) _db.LogInfo("Background disk flush. "
                     + sw.ElapsedMilliseconds.To1000N() + "ms, "
                     + t + " transaction" + (t != 1 ? "s" : "") + ", "
@@ -349,9 +349,11 @@ internal class Scheduler {
                     _db.LogInfo("Auto save index states due, time interval and lower unsaved action count limit exceeded. ");
                 }
             }
+            // put off while a query holds the read lock, and tried again on the next pulse - unless the
+            // snapshot is far behind, when it waits for the lock like any writer
+            var mustRun = aboveUpperLimit || (now - _lastSaveIndexStates).TotalMinutes >= 2 * _s.AutoSaveIndexStatesIntervalInMinutes;
             var sw = Stopwatch.StartNew();
-            _db.LogInfo("Auto save index states started");
-            _db.Maintenance(MaintenanceAction.SaveIndexStates);
+            if (!_db.TrySaveIndexStatesInBackground(mustRun)) return; // busy: _lastSaveIndexStates stays, so the next pulse tries again
             _db.LogInfo("Auto save index states finished in " + sw.ElapsedMilliseconds.To1000N() + "ms. ");
         } catch (Exception err) {
             _db.LogError("Auto save index states failed: ", err);
@@ -403,8 +405,10 @@ internal class Scheduler {
             if (intialSize < lowerSizeLimit) return;
             var sw = Stopwatch.StartNew();
             //_db.Maintenance(MaintenanceAction.PurgeCache | MaintenanceAction.CompressMemory | MaintenanceAction.GarbageCollect);
-            _db.Maintenance(MaintenanceAction.PurgeCache);
-            _db.SaveIndexCaches(false);
+            // only when the write lock is free: a purge is never urgent, so a busy store is left alone and the
+            // next pulse, a minute on, tries again
+            if (!_db.TryPurgeCachesInBackground()) return;
+            _db.TrySaveIndexCachesInBackground();
             sw.Stop();
             long finalSize = _db._nodes.CacheSize + _db._definition.Sets.CacheSize;
             _db.LogInfo("Auto cache purge " + sw.ElapsedMilliseconds.To1000N() + "ms. "

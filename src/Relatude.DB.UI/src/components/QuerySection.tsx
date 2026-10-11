@@ -17,6 +17,7 @@ import {
   IconMarquee2,
   IconSelectAll,
   IconPlus,
+  IconPlayerStop,
   IconRefresh,
   IconSearch,
   IconSparkles,
@@ -56,7 +57,7 @@ import {
   type SelectColumn,
   type TextSample,
 } from "../server/query";
-import { useLiveResult } from "../server/hooks";
+import { RunGroup, RunGroupContext, useLiveResult, useRunGroup } from "../server/hooks";
 import { hitOfMatch, useIdMatches } from "../server/idLookup";
 import { subscribeResync } from "../server/channel";
 import type { DatabaseInfo } from "../server/serverInfo";
@@ -559,7 +560,21 @@ function QueryTab({
     [db.id, typeId, text, match, anyWord, semanticRatio, minSimilarity, selectionList, expanded, page, pageRows, table, editCells, q.columns, showFacets, propertyScope, sort, summary],
   );
 
-  const { result, loading, error, refresh } = useLiveResult(query, runSearch);
+  // The queries of this tab - the search, and the summary view's beside it - in one run group, so one
+  // Stop stops them all: in the browser, and on the server, where the store gives up at its next check.
+  // The button only shows once a run has gone on for a moment, so a quick query does not flash it.
+  const [runs] = useState(() => new RunGroup());
+  const runState = useRunGroup(runs);
+  const [showStop, setShowStop] = useState(false);
+  useEffect(() => {
+    if (!runState.busy) {
+      setShowStop(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setShowStop(true), 600);
+    return () => window.clearTimeout(timer);
+  }, [runState.busy]);
+  const { result, loading, error, stopped, refresh } = useLiveResult(query, runSearch, runs);
 
   // Direct hits (idLookup.ts): a search text that is nothing but node ids or guids looks those nodes
   // up as well, and they head the first page of the list - whatever the type and the facets say, since
@@ -1006,6 +1021,8 @@ function QueryTab({
             {formatCount(result.total)} {result.total === 1 ? "node" : "nodes"}
             {result.total !== result.sourceCount ? ` of ${formatCount(result.sourceCount)}` : ""} · {result.durationMs.toFixed(1)} ms
           </>
+        ) : stopped ? (
+          "Stopped"
         ) : (
           "Searching…"
         )}
@@ -1039,7 +1056,8 @@ function QueryTab({
   const semanticSet = semanticRatio !== null || minSimilarity !== null;
   const lastPage = result ? Math.max(0, Math.ceil(result.total / pageRows) - 1) : 0;
   return (
-    <>
+    // the summary views run their queries in this tab's run group: the Stop button stops them with the search
+    <RunGroupContext.Provider value={runs}>
       <div className="query-toolbar">
         {/* the type and the refresh belong together: both are about which nodes are on the page,
             and the refresh is framed like the picker so the two read as one control */}
@@ -1067,6 +1085,15 @@ function QueryTab({
           <button className="icon-button query-refresh" title="Run the query again" onClick={refreshAll}>
             <IconRefresh size={15} stroke={1.8} className={loading ? "spinning" : ""} />
           </button>
+          {showStop ? (
+            <button className="icon-button query-stop" title="Stop the running query" onClick={() => runs.stopAll()}>
+              <IconPlayerStop size={15} stroke={1.8} />
+            </button>
+          ) : runState.stopped ? (
+            <span className="query-stopped" title="The query was stopped before it finished. The button beside this runs it again.">
+              Stopped
+            </span>
+          ) : null}
         </div>
         <div className="query-search">
           <IconSearch size={15} stroke={1.8} />
@@ -1269,7 +1296,7 @@ function QueryTab({
                   )}
                 </>
               ) : (
-                <span className="muted">Searching…</span>
+                <span className="muted">{stopped ? "Stopped" : "Searching…"}</span>
               )}
               {!showFacets && selectedCount > 0 && (
                 // the rail is where a selection is normally seen and undone; with it closed, saying so
@@ -1612,7 +1639,7 @@ function QueryTab({
           }}
         />
       )}
-    </>
+    </RunGroupContext.Provider>
   );
 }
 

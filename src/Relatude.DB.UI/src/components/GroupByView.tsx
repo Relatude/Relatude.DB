@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import { IconArrowNarrowDown, IconArrowNarrowUp, IconChartBar, IconChevronLeft, IconChevronRight, IconDownload, IconTable, IconX } from "@tabler/icons-react";
 import { ChipGrip, moveChip, useChipDrag } from "./ChipDrag";
 import {
@@ -14,7 +14,7 @@ import {
   type PivotModel,
   type PivotProperty,
 } from "../server/query";
-import { useLiveResult } from "../server/hooks";
+import { RunGroupContext, useLiveResult } from "../server/hooks";
 import { formatCount, formatQuery } from "../format";
 import { dateModes, functions, propertiesFor, type PivotBase } from "./PivotView";
 import type { GroupByDefinition, SummaryView } from "../queryTabs";
@@ -120,7 +120,7 @@ export function GroupByView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [model, base, keys, measures, includeMissing, sort, page, refreshToken],
   );
-  const { result, loading, error } = useLiveResult(request, runGroupBy);
+  const { result, loading, error } = useLiveResult(request, runGroupBy, useContext(RunGroupContext)); // stopped with the Query tab it is in
 
   // any change to the definition starts over at the first page
   function edit(apply: () => void) {

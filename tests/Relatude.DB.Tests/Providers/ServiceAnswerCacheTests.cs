@@ -76,7 +76,7 @@ public class ServiceAnswerCacheTests {
     [TestMethod]
     public void TheCacheFileIsBesideTheAiEmbeddingCache() {
         List<string> warnings = [];
-        using (var cache = ServiceCaches.Create(ServiceCacheType.Native, _folder, "translation", warnings)) {
+        using (var cache = ServiceCaches.Create(ServiceCacheType.Native, _folder, "translation", null, warnings)) {
             Assert.IsInstanceOfType<NativeKvServiceAnswerCache>(cache);
             cache!.Set("k", "v");
         }
@@ -84,9 +84,27 @@ public class ServiceAnswerCacheTests {
         Assert.AreEqual(Path.GetDirectoryName(ai), Path.GetDirectoryName(file));
         Assert.AreEqual("native.translation.cache.bin", Path.GetFileName(file));
         Assert.IsTrue(File.Exists(file));
-        Assert.IsNull(ServiceCaches.Create(ServiceCacheType.None, _folder, "translation", warnings));
-        Assert.IsInstanceOfType<MemoryServiceAnswerCache>(ServiceCaches.Create(ServiceCacheType.Memory, _folder, "translation", warnings));
+        Assert.IsNull(ServiceCaches.Create(ServiceCacheType.None, _folder, "translation", null, warnings));
+        Assert.IsInstanceOfType<MemoryServiceAnswerCache>(ServiceCaches.Create(ServiceCacheType.Memory, _folder, "translation", null, warnings));
         Assert.AreEqual(0, warnings.Count);
+    }
+
+    /// <summary>A folder several databases share holds a file for each, so they open side by side.</summary>
+    [TestMethod]
+    public void OwnersInOneFolderEachHaveAFileOfTheirOwn() {
+        List<string> warnings = [];
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        using var first = ServiceCaches.Create(ServiceCacheType.Native, _folder, "translation", "first", warnings);
+        using var second = ServiceCaches.Create(ServiceCacheType.Native, _folder, "translation", "second", warnings);
+        Assert.IsTrue(sw.Elapsed < TimeSpan.FromSeconds(10), "the second waited for the first: " + sw.Elapsed);
+        Assert.AreEqual(0, warnings.Count, string.Join(" ", warnings));
+        first!.Set("k", "from the first");
+        second!.Set("k", "from the second");
+        Assert.IsTrue(first.TryGet("k", out var a));
+        Assert.AreEqual("from the first", a);
+        Assert.AreEqual("native.translation.first.cache.bin", Path.GetFileName(ServiceCaches.FilePath(_folder, "translation", "first")));
+        Assert.IsTrue(File.Exists(ServiceCaches.FilePath(_folder, "translation", "second")));
+        Assert.IsFalse(File.Exists(file), "no owner takes the plain name");
     }
 
     [TestMethod]
@@ -95,7 +113,7 @@ public class ServiceAnswerCacheTests {
         Directory.CreateDirectory(_folder);
         File.WriteAllText(Path.Combine(_folder, FileKeyUtility.IndexStoreFolderKey), "not a folder");
         List<string> warnings = [];
-        Assert.IsNull(ServiceCaches.Create(ServiceCacheType.Native, _folder, "translation", warnings));
+        Assert.IsNull(ServiceCaches.Create(ServiceCacheType.Native, _folder, "translation", null, warnings));
         StringAssert.Contains(warnings.Single(), "translation answer cache");
     }
 

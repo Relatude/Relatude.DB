@@ -15,17 +15,24 @@ namespace Relatude.DB.DataStores.Stores;
 // if a get is issued for node not in cache, then it is loaded from log ( using segment info )
 
 // threadsafe, excect when loading and using method "_NotThreadsafe"
+//
+// Reading in two steps (see NodeRead): what a read needs is looked up while the caller holds the store's
+// read lock - cached nodes, and log positions for the rest - and the bytes are read once that lock is let
+// go, under a read lease on the log file. Positions in the log never change while the lease is held, so
+// the result is exactly what reading under the lock would have given, while writers no longer wait for
+// the disk. Every insert into and removal from the cache happens under _lock, which is what lets a
+// reader check, before caching what it read, that the node has not changed since it was looked up.
 internal sealed class NodeStore {
     readonly System.Threading.Lock _lock = new();
     readonly static Guid _marker = new Guid("993d32a7-f608-43d7-a800-0be4208f723a");
-    readonly ReadSegmentsFunc _read;
+    readonly WALFile _log;
     readonly Cache<int, INodeDataInternal> _cache; // threadsafe
     readonly ISegmentMap _segments; // main store of all valid nodes; an engine backed map is written from the transaction thread only
     readonly Dictionary<int, NodeSegment> _pending = []; // log positions confirmed by the log writer, waiting for DrainPendingSegments when the map is engine backed
     readonly HashSet<int> _dropWhenWritten = []; // nodes from bulk transactions, evicted the moment the log write makes them readable from disk
     Definition _definition;
-    public NodeStore(Definition definition, SettingsLocal config, ReadSegmentsFunc read, ISegmentMap segments) {
-        _read = read;
+    public NodeStore(Definition definition, SettingsLocal config, WALFile log, ISegmentMap segments) {
+        _log = log;
         _segments = segments;
         _definition = definition;
         _cache = new((long)(config.NodeCacheSizeGb * Math.Pow(1024, 3)));
@@ -71,63 +78,146 @@ internal sealed class NodeStore {
         int nodesFromDisk = 0;
         return Get(ids, ref diskReads, ref nodesFromDisk);
     }
+    /// <summary>Reads the nodes in one go, while the caller still holds the store lock. Throws when one does not exist.</summary>
     public INodeDataInternal[] Get(int[] ids, ref int diskReads, ref int nodesFromDisk) {
-        // first check cache to estimate missing
-        var missing = _cache.GetMissing(ids);
-        if (missing.Any()) { // load to cache
-            // load all missing from cache from log in one batch
-            nodesFromDisk += missing.Count;
-            var segments = new NodeSegment[missing.Count];
-            lock (_lock) { // _segments is not threadsafe
-                for (var n = 0; n < segments.Length; n++) {
-                    if (!tryGetSegment(missing[n], out segments[n])) throw new KeyNotFoundException("Node not found: " + missing[n]);
-                }
-            }
-            var bytes = _read(segments, out var diskReadsInBatch);  // takes time...
-            diskReads += diskReadsInBatch; // accumulate, callers pass a running counter
-            // there is no read lock, so we need to check again if the item is in cache
-            // there is a change both threads will read same item from log, but that is ok
-            // better than locking the whole cache and block other threads
-            var i = 0;
-            foreach (var id in missing) {
-                var b = bytes[i++];
-                if (!_cache.Contains(id)) { // additional check in case other thread have added it to cache
-                    var ms = new MemoryStream(b, false);
-                    var node = FromBytes.NodeData(_definition.Datamodel, ms, null);
-                    if (node.__Id != id) throw new Exception("Internal error");
-                    node.EnsureReadOnly();
-                    _cache.Set(node.__Id, node, b.Length);
-                }
-            }
-        }
-        var nodes = new INodeDataInternal[ids.Length];
-        for (var i = 0; i < ids.Length; i++) {
-            nodes[i] = Get(ids[i], out var didReadDisk); // will read from log if not in cache
-            if (didReadDisk) {
-                nodesFromDisk++;
-                diskReads++;
-            }
-        }
-        return nodes;
+        using var read = BeginRead(ids, throwIfMissing: true);
+        return read.Complete(CancellationToken.None, ref diskReads, ref nodesFromDisk)!;
     }
     public bool TryGet(int id, [MaybeNullWhen(false)] out INodeDataInternal node, out bool diskRead) {
         diskRead = false;
         if (_cache.TryGet(id, out node)) return true;
-        // if not in cache, it must be in log as items are kept in cache until written to log ( size ==0 )
-        NodeSegment segment;
-        lock (_lock) {
-            if (!tryGetSegment(id, out segment)) {
-                node = null;
-                return false;
+        using var read = BeginRead([id], throwIfMissing: false);
+        if (read.NodesToRead == 0) { // gone, or cached in the meantime
+            node = read.Complete(CancellationToken.None)[0];
+            return node != null;
+        }
+        diskRead = true;
+        node = read.Complete(CancellationToken.None)[0]!;
+        return true;
+    }
+    /// <summary>
+    /// The first step of a read, taken while the caller holds the store's read (or write) lock: the cached
+    /// nodes, and the log positions of the rest under a read lease on the log file. Complete the read after
+    /// letting the store lock go - or still holding it - and dispose it either way. A node that does not
+    /// exist throws here, or with <paramref name="throwIfMissing"/> off comes back as null.
+    /// </summary>
+    public NodeRead BeginRead(int[] ids, bool throwIfMissing) {
+        var nodes = new INodeDataInternal?[ids.Length];
+        var missing = _cache.TryGetMany(ids, nodes);
+        if (missing.Count == 0) return new NodeRead(this, ids, nodes, [], [], null);
+        var toRead = new List<int>(missing.Count);
+        var segments = new List<NodeSegment>(missing.Count);
+        lock (_lock) { // _segments is not threadsafe
+            foreach (var pos in missing) {
+                var id = ids[pos];
+                if (!tryGetSegment(id, out var segment)) {
+                    if (throwIfMissing) throw new KeyNotFoundException("Node not found: " + id);
+                    continue;
+                }
+                if (segment.Length == 0) {
+                    // not written to the log yet, so it is held in the cache: a writer on this thread may have
+                    // replaced it since the lookup above (no other thread writes while the store lock is held)
+                    if (_cache.TryGet(id, out var cached)) {
+                        nodes[pos] = cached;
+                        continue;
+                    }
+                    throw new Exception("Internal error: node " + id + " is neither cached nor written to the log. ");
+                }
+                toRead.Add(pos);
+                segments.Add(segment);
             }
         }
-        var ms = new MemoryStream(_read([segment], out _).First(), false);
-        diskRead = true;
-        node = FromBytes.NodeData(_definition.Datamodel, ms, null);
-        if (node.__Id != id) throw new Exception("Internal error");
-        node.EnsureReadOnly(); // Making it immutable, as it is shared through the cache for other queries
-        _cache.Set(node.__Id, node, estimateSize(segment.Length));
-        return true;
+        // the lease is taken while the caller still holds the store lock, so no swap of the log file can
+        // come between looking the positions up and reading them
+        var lease = toRead.Count > 0 ? _log.AcquireReadLease() : null;
+        return new NodeRead(this, ids, nodes, [.. toRead], [.. segments], lease);
+    }
+    /// <summary>
+    /// A read begun under the store lock (see <see cref="BeginRead"/>): the cached nodes, and the log
+    /// positions of the rest under a read lease. <see cref="Complete(CancellationToken, ref int, ref int)"/>
+    /// reads them and needs no store lock; it must not take one either, as a writer swapping the log file
+    /// holds the store's write lock while it waits for this lease. Dispose releases the lease; disposing
+    /// without completing is how a read is abandoned.
+    /// </summary>
+    internal sealed class NodeRead : IDisposable {
+        readonly NodeStore _store;
+        readonly int[] _ids;
+        readonly INodeDataInternal?[] _nodes;
+        readonly int[] _toRead; // positions in _ids still to be read from the log
+        readonly NodeSegment[] _segments; // their log positions
+        LogReadGate.Lease? _lease;
+        internal NodeRead(NodeStore store, int[] ids, INodeDataInternal?[] nodes, int[] toRead, NodeSegment[] segments, LogReadGate.Lease? lease) {
+            _store = store;
+            _ids = ids;
+            _nodes = nodes;
+            _toRead = toRead;
+            _segments = segments;
+            _lease = lease;
+        }
+        public int NodesToRead => _toRead.Length;
+        public INodeDataInternal?[] Complete(CancellationToken cancel) {
+            int diskReads = 0, nodesFromDisk = 0;
+            return Complete(cancel, ref diskReads, ref nodesFromDisk);
+        }
+        /// <summary>The nodes, in the order of the ids the read was begun with; null for one that did not exist.</summary>
+        public INodeDataInternal?[] Complete(CancellationToken cancel, ref int diskReads, ref int nodesFromDisk) {
+            if (_toRead.Length == 0) {
+                Dispose();
+                return _nodes;
+            }
+            if (_lease == null) throw new ObjectDisposedException(nameof(NodeRead), "The read was abandoned. ");
+            INodeDataInternal[] read;
+            try {
+                read = _store.readFromLog(_ids, _toRead, _segments, cancel, out var reads);
+                diskReads += reads;
+                nodesFromDisk += _toRead.Length;
+            } finally {
+                Dispose(); // the bytes are in; caching what was read needs no lease
+            }
+            for (var i = 0; i < _toRead.Length; i++) _nodes[_toRead[i]] = read[i];
+            _store.cacheIfCurrent(read, _segments);
+            return _nodes;
+        }
+        public void Dispose() {
+            var lease = _lease;
+            _lease = null;
+            lease?.Dispose();
+        }
+    }
+    INodeDataInternal[] readFromLog(int[] ids, int[] toRead, NodeSegment[] segments, CancellationToken cancel, out int diskReads) {
+        var datamodel = _definition.Datamodel;
+        var read = new INodeDataInternal[segments.Length];
+        // may run on several threads at once, each for its own index
+        _log.ReadNodeSegments(segments, (index, buffer, offset, length) => {
+            // checked per node as well as per batch: the batches of one read may all be in flight at once,
+            // and a stop arriving while they are should not wait for every node to be deserialized too
+            cancel.ThrowIfCancellationRequested();
+            var node = FromBytes.NodeData(datamodel, new MemoryStream(buffer, offset, length, false), null);
+            if (node.__Id != ids[toRead[index]]) throw new Exception("Internal error: the log holds node " + node.__Id + " where node " + ids[toRead[index]] + " was expected. ");
+            node.EnsureReadOnly(); // Making it immutable, as it is shared through the cache for other queries
+            read[index] = node;
+        }, cancel, out diskReads);
+        return read;
+    }
+    // Caches what a read got from the log, unless the node changed after its position was looked up - the
+    // read may have run outside the store lock, beside writers. A node whose position is still the one it
+    // was read from is the same version. A read big enough to push out a good part of the cache goes in
+    // cold, as the first to be evicted, so a large scan does not flush what other readers use.
+    void cacheIfCurrent(INodeDataInternal[] nodes, NodeSegment[] segments) {
+        long bytes = 0;
+        foreach (var s in segments) bytes += estimateSize(s.Length);
+        var cold = bytes > _cache.MaxSize / 4;
+        const int chunk = 1024; // the node store lock is taken per chunk, not held for the whole read
+        for (var start = 0; start < nodes.Length; start += chunk) {
+            var end = Math.Min(start + chunk, nodes.Length);
+            lock (_lock) {
+                for (var i = start; i < end; i++) {
+                    var node = nodes[i];
+                    if (!tryGetSegment(node.__Id, out var current) || current.AbsolutePosition != segments[i].AbsolutePosition || current.Length != segments[i].Length) continue;
+                    _cache.TryAdd(node.__Id, node, estimateSize(segments[i].Length), cold); // another reader may have cached it already
+                }
+            }
+        }
     }
 
     public void ClearCache() {

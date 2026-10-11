@@ -705,8 +705,8 @@ export interface GroupByResult {
   pageSize: number;
 }
 
-export function runGroupBy(request: GroupByRequest): Promise<GroupByResult> {
-  return send<GroupByResult>("query-groupby", request);
+export function runGroupBy(request: GroupByRequest, signal?: AbortSignal): Promise<GroupByResult> {
+  return send<GroupByResult>("query-groupby", request, signal);
 }
 
 // ---- the visual pivot: every node of the result as a card, grouped by its values ----
@@ -763,8 +763,8 @@ export interface VisualResult {
   properties: VisualProperty[];
 }
 
-export function runVisual(request: VisualRequest): Promise<VisualResult> {
-  return send<VisualResult>("query-visual", request);
+export function runVisual(request: VisualRequest, signal?: AbortSignal): Promise<VisualResult> {
+  return send<VisualResult>("query-visual", request, signal);
 }
 
 // ---- the map view: the nodes of the result as points on the world ----
@@ -801,8 +801,8 @@ export interface MapResult {
   properties: VisualProperty[];
 }
 
-export function runMap(request: MapRequest): Promise<MapResult> {
-  return send<MapResult>("query-map", request);
+export function runMap(request: MapRequest, signal?: AbortSignal): Promise<MapResult> {
+  return send<MapResult>("query-map", request, signal);
 }
 
 // ---- the word cloud: the words the result set is written with ----
@@ -855,8 +855,8 @@ export interface CloudResult {
   words: CloudWord[];
 }
 
-export function runCloud(request: CloudRequest): Promise<CloudResult> {
-  return send<CloudResult>("query-cloud", request);
+export function runCloud(request: CloudRequest, signal?: AbortSignal): Promise<CloudResult> {
+  return send<CloudResult>("query-cloud", request, signal);
 }
 
 /* Nothing here turns an id into a guid to make a selection any more: the page selects by the id the
@@ -1108,16 +1108,17 @@ export function fetchPivotModel(storeId: string, typeId: string | null, property
   return send<PivotModel>("query-pivot-model", { storeId, typeId, propertyScope });
 }
 
-export function runPivot(request: PivotRequest): Promise<PivotResult> {
-  return send<PivotResult>("query-pivot", request);
+export function runPivot(request: PivotRequest, signal?: AbortSignal): Promise<PivotResult> {
+  return send<PivotResult>("query-pivot", request, signal);
 }
 
 export function fetchQueryModel(storeId: string): Promise<QueryModel> {
   return send<QueryModel>("query-model", { storeId });
 }
 
-export function runSearch(request: SearchRequest): Promise<SearchResult> {
-  return send<SearchResult>("query-search", request);
+// the signal stops the query on the server too (see send): what the Query page's Stop button uses
+export function runSearch(request: SearchRequest, signal?: AbortSignal): Promise<SearchResult> {
+  return send<SearchResult>("query-search", request, signal);
 }
 
 export function fetchNode(storeId: string, id: string): Promise<NodeView> {

@@ -134,6 +134,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     SaveIndexStates(true, true); // needed to refresh state file with new log file
                     _index.WriteNewTimestampDueToRewriteHotswapJustAfterSaveState(_wal.LastTimestamp, _wal.FileId);
                     Engines.SetWalFileIdAndTimestamp(_wal.LastTimestamp, _wal.FileId); // will update all sub indexes with new timestamp
+                    markEnginesChanged(); // made durable by the next flush, as it always was
                 }
                 // must be cleared while still holding the write lock: after the swap _rewriter.FileKey is the LIVE
                 // log file, and a concurrent CancelRunningRewriteIfAny seeing a non-null _rewriter would delete it

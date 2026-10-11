@@ -28,6 +28,19 @@ public class QueryContext {
         private set { _collectionIds = value?.OrderBy(id => id).ToArray(); } // ordered for equality comparison
     }
     public NodeIdAndRevisionId[]? SelectedRevisions { get; set; }
+    /// <summary>
+    /// Stops a query that runs with this context once it is cancelled: the query throws an
+    /// <see cref="OperationCanceledException"/> at its next check, between batches of nodes read and rows
+    /// evaluated. Not part of what the context means - it is left out of equality - and kept by the fluent
+    /// methods, so set it last with <see cref="WithCancellation"/>.
+    /// </summary>
+    public CancellationToken CancellationToken { get; private set; }
+    /// <summary>A copy of this context that stops a query running with it when <paramref name="token"/> is cancelled.</summary>
+    public QueryContext WithCancellation(CancellationToken token) {
+        var c = copy();
+        c.CancellationToken = token;
+        return c;
+    }
     public static readonly QueryContext Anonymous = new(
         ) {
         UserId = Guid.Empty,
@@ -180,7 +193,8 @@ public class QueryContext {
             ExcludeDescendants = this.ExcludeDescendants,
             CollectionIds = this.CollectionIds,
             NowUtc = this.NowUtc,
-            SelectedRevisions = this.SelectedRevisions
+            SelectedRevisions = this.SelectedRevisions,
+            CancellationToken = this.CancellationToken
         };
     }
     public QueryContext User(string userName) {

@@ -886,6 +886,21 @@ public static class SettingsCatalog {
                     ],
                 },
                 new() {
+                    Id = "queries",
+                    Title = "Heavy queries",
+                    Help = "What keeps one expensive query from costing everyone else. A query reads the nodes it returns from the log after it has let go of the store's lock, so writes and other queries go on beside it; these limit and report the ones that are heavy anyway.",
+                    Settings = [
+                        new() {
+                            Path = "LocalSettings.MaxQueryDurationInSeconds", Label = "Query time limit", Unit = "seconds", Applies = SettingApplies.Live,
+                            Help = "A query still running after this long is stopped with an error, at its next check - between batches of nodes read and rows evaluated. 0 sets no limit. A query can also be stopped by hand, from the Query page or with a cancellation token on its query context.",
+                        },
+                        new() {
+                            Path = "LocalSettings.WarnWhenQueryReadsNodesFromDisk", Label = "Warn when a query reads more nodes than", Unit = "nodes", Applies = SettingApplies.Live,
+                            Help = "A query reading more nodes than this from the log file is noted in the system log, at most once a minute: it is slow, and it pushes what other queries use out of the node cache. Page the result or filter on indexed properties to bring it down. 0 turns the warning off.",
+                        },
+                    ],
+                },
+                new() {
                     Id = "durability",
                     Title = "Durability",
                     Help = "How eagerly writes are pushed from memory to disk. This is the trade-off between write latency and how much of the most recent work a power loss could cost.",

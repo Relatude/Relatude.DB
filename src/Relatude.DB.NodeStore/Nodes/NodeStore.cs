@@ -1516,9 +1516,13 @@ public class NodeStore : IDisposable {
 
     /// <summary>Closes the underlying data store. Only dispose the store when the application is shutting down.</summary>
     public virtual void Dispose() {
-        Datastore.Dispose();
-        // only the database's own store disposes the providers; a store from Context shares them
-        if (_ownsProviders) Services.DisposeProviders();
+        try {
+            Datastore.Dispose();
+        } finally {
+            // only the database's own store disposes the providers; a store from Context shares them.
+            // In a finally, as their cache files would otherwise stay held after a failed close
+            if (_ownsProviders) Services.DisposeProviders();
+        }
     }
 
     /// <summary>

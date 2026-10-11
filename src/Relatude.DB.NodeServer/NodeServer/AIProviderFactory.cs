@@ -6,16 +6,19 @@ namespace Relatude.DB.NodeServer;
 public static class AIProviderFactory {
     /// <param name="licenseApiKey">The installation's license API key, read at every call, for the
     /// hosted Relatude service to charge, before any key in the settings.</param>
-    public static AIEngine Create(AIProviderSettings settings, string? dataFolder, Func<string?>? licenseApiKey = null) {
+    /// <param name="owner">Names the database in the cache file name when <paramref name="dataFolder"/>
+    /// is shared with other databases (see <see cref="ServiceCaches"/>); null in a database's own folder.</param>
+    public static AIEngine Create(AIProviderSettings settings, string? dataFolder, Func<string?>? licenseApiKey = null, string? owner = null) {
         string? filePath = null;
         if (!string.IsNullOrEmpty(dataFolder)) {
-            var fileKey = FileKeyUtility.GetAiCacheFileKey(settings.CacheType);
+            var fileKey = FileKeyUtility.GetAiCacheFileKey(settings.CacheType, owner);
             if (fileKey != null) {
                 filePath = Path.Combine([dataFolder, .. fileKey]);
                 // the cache file lives in the indexes folder; the cache stores do not create it themselves
                 var dir = Path.GetDirectoryName(filePath);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
-                moveLegacyCacheFileIfAny(dataFolder, FileKeyUtility.GetLegacyRootAiCacheFileName(settings.CacheType), filePath);
+                // a legacy file in a shared folder is not this database's to take
+                if (owner == null) moveLegacyCacheFileIfAny(dataFolder, FileKeyUtility.GetLegacyRootAiCacheFileName(settings.CacheType), filePath);
             }
         }
         IEmbeddingCache? cache = settings.CacheType switch {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import { IconArrowNarrowDown, IconArrowNarrowUp, IconChartBar, IconChevronLeft, IconChevronRight, IconDownload, IconTable, IconX } from "@tabler/icons-react";
 import { ChipGrip, moveChip, useChipDrag, type ChipDrag } from "./ChipDrag";
 import { CopyButton } from "./CopyButton";
@@ -21,7 +21,7 @@ import {
   type PivotResult,
   type SearchTerms,
 } from "../server/query";
-import { useLiveResult } from "../server/hooks";
+import { RunGroupContext, useLiveResult } from "../server/hooks";
 import { formatCount, formatQuery } from "../format";
 import type { PivotDefinition, SummaryView } from "../queryTabs";
 import { BarChart, maxSeries, type BarSeries } from "./BarChart";
@@ -191,7 +191,7 @@ export function PivotView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [model, base, rows, columns, measures, rowOptions, columnOptions, subTotals, rowPage, refreshToken],
   );
-  const { result, loading, error } = useLiveResult(request, runPivot);
+  const { result, loading, error } = useLiveResult(request, runPivot, useContext(RunGroupContext)); // stopped with the Query tab it is in
 
   // any change to the definition starts the row axis over at its first page
   function edit(apply: () => void) {

@@ -49,7 +49,7 @@ public class StoreStreamDiscWriteTester : IAppendStream {
             _checkSum.EvaluateChecksumIfRecording(data);
             _stream.Write(data, 0, data.Length);
             _bytesWritten += data.Length;
-            if (!_unflushed) _unflushed = true;
+            _notInOs = _notDurable = true;
 #if DEBUG
         } finally {
             _flagAccessing.Reset();
@@ -64,28 +64,35 @@ public class StoreStreamDiscWriteTester : IAppendStream {
             _checkSum.EvaluateChecksumIfRecording(data, count);
             _stream.Write(data, 0, count);
             _bytesWritten += count;
-            if (!_unflushed) _unflushed = true;
+            _notInOs = _notDurable = true;
 #if DEBUG
         } finally {
             _flagAccessing.Reset();
         }
 #endif
     }
-    bool _unflushed = true;
+    // Two states, as in StoreStreamDiscWrite: bytes not handed to the OS yet, and bytes not on the disk yet.
+    // A flush without deepFlush clears the first only, so a deep flush after it still reaches the disk.
+    // Both start set: what was in the file at open may be in the OS cache only.
+    bool _notInOs = true;
+    bool _notDurable = true;
     public void Flush(bool deepFlush) {
 #if DEBUG
         _flagAccessing.FlagToRun_ThrowIfAlreadyRunning();
         try {
 #endif
-            if (!_unflushed) return;
+            if (!(deepFlush ? _notDurable : _notInOs)) return;
             if (_hasDisposed) return;
             if (_stream.CanRead == false) return; // stream is closed
             try {
                 _stream.Flush(deepFlush);
-            } catch {
-                // ignore, stream is closed
+            } catch (ObjectDisposedException) {
+                return; // stream was closed concurrently, nothing is cleared so failure is not acknowledged as durable
             }
-            _unflushed = false;
+            // IO errors (disk full etc.) must propagate and leave both states set,
+            // so a failed flush is never acknowledged as durable
+            _notInOs = false;
+            if (deepFlush) _notDurable = false;
 #if DEBUG
         } finally {
             _flagAccessing.Reset();
@@ -140,7 +147,6 @@ public class StoreStreamDiscWriteTester : IAppendStream {
             _hasDisposed = true;
             _stream.Dispose();
             _disposeCallback();
-            _unflushed = false;
 #if DEBUG
         } finally {
             _flagAccessing.Reset();
@@ -150,6 +156,7 @@ public class StoreStreamDiscWriteTester : IAppendStream {
 
     public async Task AppendAsyncNoChecksumOrLock(byte[] buffer, int count) {
         await _stream.WriteAsync(buffer, 0, count);
+        _notInOs = _notDurable = true;
     }
 }
 

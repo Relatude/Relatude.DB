@@ -5,7 +5,7 @@ using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.Query.Data;
-internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSource, IIncludeBranches {
+internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSource, IIncludeBranches, IDeferredNodeRetrieval {
     List<IncludeBranch>? _includeBranches;
     public void IncludeBranch(IncludeBranch relationPropertyIdBranch) {
         if (_includeBranches == null) _includeBranches = new();
@@ -23,6 +23,14 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
             if (_includeBranches != null) _includeBranches = IncludeUtil.JoinPathsToUniqueBranches(_includeBranches);
             _nodes = IncludeUtil.GetNodesWithIncludes(metrics, _ids, _db, _includeBranches, _ctx);
         }
+    }
+    // the same, with the bytes read after the read lock is let go: which nodes, in what tree, and where
+    // in the log is settled under the lock, so the result is the same
+    public PendingRetrieval? BeginRetrievalUnderReadLock(Metrics metrics) {
+        if (_nodes != null) return null;
+        if (_includeBranches != null) _includeBranches = IncludeUtil.JoinPathsToUniqueBranches(_includeBranches);
+        var pending = IncludeUtil.BeginNodesWithIncludes(metrics, _ids, _db, _includeBranches, _ctx);
+        return new PendingRetrieval(pending, nodes => _nodes = nodes);
     }
 }
 

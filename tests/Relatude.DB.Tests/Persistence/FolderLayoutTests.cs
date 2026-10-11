@@ -40,6 +40,14 @@ public class FolderLayoutTests {
         Assert.AreEqual("logs/critical.error.txt", FileKeyUtility.CriticalErrorLogFileKey.AsKeyString());
         Assert.AreEqual("indexes/ai.cache.bin", FileKeyUtility.GetAiCacheFileKey(AIProviderCacheType.Sqlite)!.AsKeyString());
         Assert.AreEqual("indexes/native.ai.cache.bin", FileKeyUtility.GetAiCacheFileKey(AIProviderCacheType.Native)!.AsKeyString());
+        // in a folder several databases share, the caches are named by the database they are kept for
+        Assert.AreEqual("indexes/native.ai.abc.cache.bin", FileKeyUtility.GetAiCacheFileKey(AIProviderCacheType.Native, "abc")!.AsKeyString());
+        Assert.AreEqual("indexes/ai.abc.cache.bin", FileKeyUtility.GetAiCacheFileKey(AIProviderCacheType.Sqlite, "abc")!.AsKeyString());
+        Assert.AreEqual("indexes/native.imaging.cache.bin", FileKeyUtility.GetServiceCacheFileKey("imaging").AsKeyString());
+        Assert.AreEqual("indexes/native.imaging.abc.cache.bin", FileKeyUtility.GetServiceCacheFileKey("imaging", "abc").AsKeyString());
+        Assert.AreEqual("AI Cache", FileKeyUtility.FileTypeDescription("indexes/native.ai.abc.cache.bin"));
+        Assert.AreEqual("Service answer cache", FileKeyUtility.FileTypeDescription("indexes/native.translation.cache.bin"));
+        Assert.AreEqual("Service answer cache", FileKeyUtility.FileTypeDescription("indexes/native.translation.abc.cache.bin"));
         // unchanged: the multi file store and the log rewrite date parsing conventions
         Assert.AreEqual("files", FileKeyUtility.MultiFileStoreFolderKey);
         Assert.AreEqual(dt, FileKeyUtility.WAL_GetBackUpDateTimeFromFileKey(FileKeyUtility.WAL_GetFileKeyForBackup(dt, false)));

@@ -57,11 +57,67 @@ public class CacheEvictionTests {
         for (var i = 0; i < 9; i++) cache.Set(i, "v" + i, 100);
         for (var i = 0; i < 5; i++) cache.TryGet(i, out _); // 0-4 are now the most recently used, 5-8 the least
 
-        cache.Set(9, "v9", 100); // reaches max, so the cache is reduced to below half of max
+        cache.Set(9, "v9", 100); // reaches max, so the cache sheds the least recently used until below 90% of max
 
-        Assert.IsTrue(cache.Size <= 500);
-        for (var i = 5; i < 9; i++) Assert.IsFalse(cache.Contains(i), "least recently used " + i + " survived");
-        foreach (var i in new[] { 3, 4, 9 }) Assert.IsTrue(cache.Contains(i), "recently used " + i + " was evicted");
+        Assert.AreEqual(800, cache.Size);
+        foreach (var i in new[] { 5, 6 }) Assert.IsFalse(cache.Contains(i), "least recently used " + i + " survived");
+        foreach (var i in new[] { 0, 3, 4, 7, 8, 9 }) Assert.IsTrue(cache.Contains(i), "recently used " + i + " was evicted");
+    }
+
+    [TestMethod]
+    public void Cache_ColdEntriesAreEvictedBeforeTheWorkingSet() {
+        var cache = new Cache<int, string>(1000);
+        for (var i = 0; i < 5; i++) cache.Set(i, "hot" + i, 100); // the working set
+        for (var i = 100; i < 120; i++) cache.Set(i, "scan" + i, 100, cold: true); // a large scan, inserted cold
+
+        for (var i = 0; i < 5; i++) Assert.IsTrue(cache.Contains(i), "working set entry " + i + " was evicted by the scan");
+        Assert.IsTrue(cache.Size < 1000);
+    }
+
+    [TestMethod]
+    public void Cache_ColdEntryReadAgainMovesUp() {
+        var cache = new Cache<int, string>(1000);
+        cache.Set(1, "cold", 100, cold: true);
+        for (var i = 10; i < 18; i++) cache.Set(i, "v" + i, 100);
+        cache.TryGet(1, out _); // read again: now the most recently used
+
+        cache.Set(18, "v18", 100); // reaches max
+
+        Assert.IsTrue(cache.Contains(1));
+        Assert.IsFalse(cache.Contains(10));
+    }
+
+    [TestMethod]
+    public void Cache_ReservedEntryJoinsEvictionOnceSized() {
+        var cache = new Cache<int, string>(1000);
+        cache.Set(1, "pinned", 0);
+        for (var i = 10; i < 19; i++) cache.Set(i, "v" + i, 100); // 900, the reserved entry is not counted
+        Assert.IsTrue(cache.Contains(1));
+
+        cache.TryUpdateSize(1, 100); // written: now an ordinary, most recently used entry, and the cache is full
+
+        Assert.IsTrue(cache.Contains(1));
+        Assert.IsFalse(cache.Contains(10));
+        Assert.IsTrue(cache.Size < 1000);
+
+        cache.TryUpdateSize(1, 0); // reserved again: out of reach of eviction
+        for (var i = 20; i < 40; i++) cache.Set(i, "v" + i, 100);
+        Assert.IsTrue(cache.Contains(1));
+    }
+
+    [TestMethod]
+    public void Cache_TryGetManyReturnsHitsAndMissingPositions() {
+        var cache = new Cache<int, string>(1_000_000);
+        for (var i = 0; i < 3000; i += 2) cache.Set(i, "v" + i, 10);
+        var keys = Enumerable.Range(0, 3000).ToArray();
+        var found = new string?[keys.Length];
+
+        var missing = cache.TryGetMany(keys, found);
+
+        Assert.AreEqual(1500, missing.Count);
+        foreach (var pos in missing) Assert.IsTrue(keys[pos] % 2 == 1);
+        Assert.AreEqual("v2998", found[2998]);
+        Assert.IsNull(found[2999]);
     }
 
     [TestMethod]

@@ -88,8 +88,7 @@ public sealed class CachingImagingProvider(IImagingProvider inner, IServiceAnswe
     public void ClearCache() => _cache.ClearAll();
 
     public void Dispose() {
-        Inner.Dispose();
-        _cache.Dispose();
+        try { Inner.Dispose(); } finally { _cache.Dispose(); } // the cache file is released whatever the provider does
     }
 
     ImagingImage seen(ImagingImage image) {

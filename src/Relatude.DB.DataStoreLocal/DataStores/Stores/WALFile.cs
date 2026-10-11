@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Common;
+﻿using System.Buffers;
+using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Indexes;
@@ -11,6 +12,8 @@ namespace Relatude.DB.DataStores.Stores;
 
 /// <summary>Confirms the log positions of node records just written, a batch at a time so the node store is locked once per batch and not once per node.</summary>
 internal delegate void RegisterNodeSegmentsCallbackFunc(ReadOnlySpan<(int id, NodeSegment segment)> segments);
+/// <summary>Receives one node segment read from the log: its index in the request and its bytes, <paramref name="buffer"/>[<paramref name="offset"/>..+<paramref name="length"/>]. The buffer is only lent for the call.</summary>
+internal delegate void NodeSegmentBytesHandler(int index, byte[] buffer, int offset, int length);
 /// <summary>A copy of the log file - a backup - failed on the storage it was going to, and the store is
 /// unharmed: the log file is open as before. Failures of the store itself are never this.</summary>
 internal sealed class LogCopyException(string message, Exception inner) : Exception(message, inner);
@@ -61,6 +64,14 @@ internal class WALFile : IDisposable {
     readonly System.Threading.Lock _chainLock = new();
     ValueByIdMap<NodeSegment> _chainHeads = new();
     readonly ValueByIdMap<NodeSegment> _secondaryChainHeads = new();
+    // Node bytes are read outside the store lock, at positions noted under it. Everything that closes,
+    // reopens, swaps, copies or disposes the primary stream takes this gate exclusively, which waits for
+    // those reads to finish first - see LogReadGate for the rules that keep it free of deadlocks.
+    readonly LogReadGate _gate = new();
+    /// <summary>Keeps the log file in place, at the positions the node store hands out, until disposed.
+    /// Take it while holding the store's read lock; read with it after letting that lock go.</summary>
+    internal LogReadGate.Lease AcquireReadLease() => _gate.EnterRead();
+    internal int ReadLeasesOut => _gate.LeasesOut;
     public WALFile(string[] fileKey, Definition definition, IIOProvider io, RegisterNodeSegmentsCallbackFunc confirmWrite, IIOProvider? ioSecondary, string[]? secondaryFileKey) {
         FileKey = fileKey;
         _io = io;
@@ -73,14 +84,24 @@ internal class WALFile : IDisposable {
         _appendStream = getWriteStream(_io, FileKey, false, out _formatVersion); // open primary log file, to lock file, even though it may not be used right away
     }
     public void OpenForAppending() {
-        _appendStream = getWriteStream(_io, FileKey, false, out _formatVersion);
-        if (_ioSecondary != null && _secondaryFileKey != null) {
-            _secondaryAppendStream = getWriteStream(_ioSecondary, _secondaryFileKey, true, out _secondaryFormatVersion);
+        _gate.EnterExclusive();
+        try {
+            _appendStream = getWriteStream(_io, FileKey, false, out _formatVersion);
+            if (_ioSecondary != null && _secondaryFileKey != null) {
+                _secondaryAppendStream = getWriteStream(_ioSecondary, _secondaryFileKey, true, out _secondaryFormatVersion);
+            }
+        } finally {
+            _gate.ExitExclusive();
         }
     }
     public void Close() {
-        _appendStream.Dispose();
-        _secondaryAppendStream?.Dispose();
+        _gate.EnterExclusive(); // reads in flight finish on the open file first
+        try {
+            _appendStream.Dispose();
+            _secondaryAppendStream?.Dispose();
+        } finally {
+            _gate.ExitExclusive();
+        }
     }
     static long getFirstTimestampIfAny(IAppendStream appendStream) {
         if (appendStream.Length >= posOfFirstTransaction + 8) { // full 8 byte timestamp must be present ( a torn write may leave a shorter file )
@@ -255,78 +276,100 @@ internal class WALFile : IDisposable {
     // we get as many as we can that fit in the batch limit, and we group segments that are close into one call,
     // even though we read some unnecessary data, it is still faster than making a lot of calls to the io stream
     // this is particularly important if the io stream is remote or an Azure blob store
-    public byte[] ReadOneNodeSegments(NodeSegment segment) {
-        var buffer = new byte[segment.Length];
-        _appendStream.Get(segment.AbsolutePosition, segment.Length, buffer);
-        return buffer;
-    }
     public byte[][] ReadNodeSegments(NodeSegment[] segments, out int diskReads) {
-        if (segments.Length > 50000) {
-            Console.WriteLine("Warning: Reading " + segments.Length + " node segments in one call. This may take a long time and use a lot of memory. Consider reading in smaller batches. ");
-        }
-        // trying to read segments in batches to reduce number of calls to io stream ( which may have siginificant latency if disk is remote)
-        // 1 order segments by position
-        // 2 read segments in batches that are close (deltaLimit) 
-        // 3 if batch is larger than batchLimit, then read it and start a new batch
-        var count = segments.Length;
-        //Console.WriteLine("Reading nodes " + count);
-        diskReads = 0;
-        if (count == 0) return [];
-        if (count == 1) {
-            var segment = segments.First();
-            var buffer = new byte[segment.Length];
-            _appendStream.Get(segment.AbsolutePosition, segment.Length, buffer);
-            diskReads++;
-            return [buffer];
-        }
-        var result = new byte[count][];
-        var segWithPos = new (int pos, NodeSegment seg)[count];
-        var i = 0;
-        foreach (var segment in segments) segWithPos[i] = new(i++, segment);
-        var batch = new List<(int pos, NodeSegment seg)>();
-        var batchSize = 0L;
-        var batchStart = -1L; // absolute position of first segment in current batch
-        var lastEndPos = -1L;
-        foreach (var p in segWithPos.OrderBy(i => i.seg.AbsolutePosition)) {
-            var deltaNext = lastEndPos > 0 ? p.seg.AbsolutePosition - lastEndPos : 0;
-            // spanWithNext is the total byte span (including gaps) the batch would cover if this segment is added,
-            // it must be limited as the whole span is read into one buffer ( and cast to int )
-            var spanWithNext = batchStart >= 0 ? p.seg.AbsolutePosition + p.seg.Length - batchStart : 0;
-            if (batchSize > batchLimit || deltaNext > deltaLimit || spanWithNext > batchLimit) {
-                readBatchAndAddToResult(batch, result, ref batchSize, ref diskReads); // read batch, and start new batch
-                batchStart = -1;
-            }
-            if (batchStart < 0) batchStart = p.seg.AbsolutePosition;
-            batch.Add(p);
-            batchSize += p.seg.Length;
-            lastEndPos = p.seg.AbsolutePosition + p.seg.Length;
-        }
-        if (batch.Count > 0) readBatchAndAddToResult(batch, result, ref batchSize, ref diskReads); // read last batch
+        var result = new byte[segments.Length][];
+        ReadNodeSegments(segments, (index, buffer, offset, length) => result[index] = buffer.AsSpan(offset, length).ToArray(), CancellationToken.None, out diskReads);
         return result;
     }
-    readonly System.Threading.Lock _bufferLock = new(); // dedicated lock object, _buffer itself cannot be used as it is reassigned when it grows
-    byte[] _buffer = new byte[batchLimit]; // common buffer for reading segments, ( simultaneous reads are not allowed)
-    void readBatchAndAddToResult(List<(int pos, NodeSegment seg)> batch, byte[][] result, ref long batchSize, ref int diskReads) {
-        //Console.WriteLine("Reading batch of " + batch.Count);
-        var start = batch.First().seg.AbsolutePosition;
-        var lastSeg = batch.Last();
-        var end = lastSeg.seg.AbsolutePosition + lastSeg.seg.Length;
-        var length = (int)(end - start);
-        lock (_bufferLock) { // lock to avoid simultaneous reads to common buffer
-            if (_buffer.Length < length) _buffer = new byte[length];  // ensure buffer is large enough
-            _appendStream.Get(start, length, _buffer);
-            diskReads++;
-            foreach (var b in batch) {
-                var from = (int)(b.seg.AbsolutePosition - start);
-                var to = from + b.seg.Length;
-                result[b.pos] = _buffer[from..to];
-            }
-            batch.Clear();
-            batchSize = 0;
+    // how many batches one call reads at the same time; reads of scattered nodes are bound by latency, the
+    // more so on remote storage, and the deserializing in the handler runs alongside
+    static readonly int _parallelBatchReads = Math.Clamp(Environment.ProcessorCount / 2, 1, 4);
+    /// <summary>
+    /// Reads node segments in batches - segments close together in the file are read with one call - and
+    /// hands each one to <paramref name="handler"/>, with its index in <paramref name="segments"/> and its
+    /// bytes. The buffer is lent for the call only: the handler copies or deserializes, it never keeps it.
+    /// The handler may run on several threads at once, each call for a different index. No store lock is
+    /// needed: the caller holds a read lease (see <see cref="AcquireReadLease"/>) or the store's read lock,
+    /// and a lease of its own is taken here as well.
+    /// </summary>
+    internal void ReadNodeSegments(NodeSegment[] segments, NodeSegmentBytesHandler handler, CancellationToken cancel, out int diskReads) {
+        diskReads = 0;
+        var count = segments.Length;
+        if (count == 0) return;
+        using var lease = _gate.EnterRead();
+        var stream = _appendStream; // the same stream for every batch: the lease keeps it from being swapped
+        if (count == 1) {
+            var segment = segments[0];
+            var buffer = new byte[segment.Length];
+            stream.Get(segment.AbsolutePosition, segment.Length, buffer);
+            diskReads = 1;
+            handler(0, buffer, 0, segment.Length);
+            return;
         }
+        // 1 order segments by position
+        // 2 group segments that are close (deltaLimit) into one read, reading the gaps too: fewer calls to the
+        //   stream, which may have a significant latency (remote disk, Azure blob)
+        // 3 a batch spans at most batchLimit bytes, as it is read into one buffer
+        var positions = new long[count];
+        var order = new int[count];
+        for (var i = 0; i < count; i++) {
+            positions[i] = segments[i].AbsolutePosition;
+            order[i] = i;
+        }
+        Array.Sort(positions, order);
+        var batches = new List<(int first, int end, long start, int length)>(); // ranges in order[]
+        var batchFirst = 0;
+        var batchStart = segments[order[0]].AbsolutePosition;
+        var lastEnd = batchStart + segments[order[0]].Length;
+        for (var i = 1; i < count; i++) {
+            var seg = segments[order[i]];
+            var segEnd = seg.AbsolutePosition + seg.Length;
+            var gap = seg.AbsolutePosition - lastEnd;
+            var spanWithNext = Math.Max(lastEnd, segEnd) - batchStart;
+            if (gap > deltaLimit || spanWithNext > batchLimit) {
+                batches.Add((batchFirst, i, batchStart, (int)(lastEnd - batchStart)));
+                batchFirst = i;
+                batchStart = seg.AbsolutePosition;
+                lastEnd = segEnd;
+            } else if (segEnd > lastEnd) {
+                lastEnd = segEnd;
+            }
+        }
+        batches.Add((batchFirst, count, batchStart, (int)(lastEnd - batchStart)));
+        void readBatch(int b) {
+            cancel.ThrowIfCancellationRequested();
+            var (first, end, start, length) = batches[b];
+            var buffer = ArrayPool<byte>.Shared.Rent(length);
+            try {
+                stream.Get(start, length, buffer);
+                for (var i = first; i < end; i++) {
+                    var index = order[i];
+                    var seg = segments[index];
+                    handler(index, buffer, (int)(seg.AbsolutePosition - start), seg.Length);
+                }
+            } finally {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+        if (batches.Count == 1 || _parallelBatchReads == 1) {
+            for (var b = 0; b < batches.Count; b++) readBatch(b);
+        } else {
+            try {
+                // the token is only polled (in readBatch), never handed over: Parallel.For would register with it,
+                // and a lazily read result can carry the token of a query whose token source is disposed
+                Parallel.For(0, batches.Count, new ParallelOptions { MaxDegreeOfParallelism = _parallelBatchReads }, readBatch);
+            } catch (AggregateException err) when (err.InnerExceptions.Count > 0) {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(err.InnerExceptions[0]).Throw();
+                throw; // not reached
+            }
+        }
+        diskReads = batches.Count;
     }
+    // how long a dispose waits for reads still in flight; it holds no store lock, so queries may still be running
+    const int _disposeWaitForReadersMs = 10_000;
     public void Dispose() {
         DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
+        _gate.Close(_disposeWaitForReadersMs); // no new reads; the ones in flight finish first, within reason
         _appendStream.Dispose();
         if (_secondaryAppendStream != null) _secondaryAppendStream.Dispose();
     }
@@ -336,10 +379,16 @@ internal class WALFile : IDisposable {
         // so the timestamp may only move forward, otherwise duplicate timestamps could be issued after the swap:
         EnsureTimestamps(lastTimestamp);
         DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
-        Close();
-        FileKey = newFileKey;
-        FileId = Guid.Empty; // reset file id, so that it is read from new file
-        OpenForAppending();
+        // positions handed out before the swap point into the old file: reads with them finish before it closes
+        _gate.EnterExclusive();
+        try {
+            Close();
+            FileKey = newFileKey;
+            FileId = Guid.Empty; // reset file id, so that it is read from new file
+            OpenForAppending();
+        } finally {
+            _gate.ExitExclusive();
+        }
         // the primary version chains now live in the new file, where every node's head is the segment
         // the store registers for it. The secondary log is untouched by a rewrite, so its chains continue:
         lock (_chainLock) _chainHeads = new();
@@ -375,27 +424,32 @@ internal class WALFile : IDisposable {
         DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
         if (destinationIO == null) destinationIO = _io;
         if (newLogFileKey.IsSameKey(FileKey) && _io == destinationIO) throw new Exception("Cannot copy to same file. ");
-        Close();
+        _gate.EnterExclusive(); // the file is closed while it is copied: no reads in flight, none started
         try {
+            Close();
             try {
-                destinationIO.DeleteFileIfItExists(newLogFileKey);
-                using IReadStream readStream = _io.OpenRead(FileKey, 0);
-                using IAppendStream writeStream = destinationIO.OpenAppend(newLogFileKey);
-                var totalLength = readStream.Length;
-                var pos = 0L;
-                while (pos < totalLength) {
-                    int bytesToRead = (int)Math.Min(1024 * 1024, totalLength - pos);
-                    var bytes = readStream.Read(bytesToRead);
-                    writeStream.Append(bytes);
-                    pos += bytes.Length;
+                try {
+                    destinationIO.DeleteFileIfItExists(newLogFileKey);
+                    using IReadStream readStream = _io.OpenRead(FileKey, 0);
+                    using IAppendStream writeStream = destinationIO.OpenAppend(newLogFileKey);
+                    var totalLength = readStream.Length;
+                    var pos = 0L;
+                    while (pos < totalLength) {
+                        int bytesToRead = (int)Math.Min(1024 * 1024, totalLength - pos);
+                        var bytes = readStream.Read(bytesToRead);
+                        writeStream.Append(bytes);
+                        pos += bytes.Length;
+                    }
+                } catch (Exception ex) {
+                    // the streams are disposed by now; a half written copy must not pass for a whole one
+                    try { destinationIO.DeleteFileIfItExists(newLogFileKey); } catch { }
+                    throw new LogCopyException("Error copying log file. ", ex);
                 }
-            } catch (Exception ex) {
-                // the streams are disposed by now; a half written copy must not pass for a whole one
-                try { destinationIO.DeleteFileIfItExists(newLogFileKey); } catch { }
-                throw new LogCopyException("Error copying log file. ", ex);
+            } finally {
+                OpenForAppending(); // when this throws, it replaces the copy's exception: the store is broken
             }
         } finally {
-            OpenForAppending(); // when this throws, it replaces the copy's exception: the store is broken
+            _gate.ExitExclusive();
         }
     }
     internal void EnsureSecondaryLogFile(long activityId, DataStoreLocal store, bool resetSecondaryFile) {
@@ -417,13 +471,18 @@ internal class WALFile : IDisposable {
         if (!hasSecondary) {
             store.LogInfo("Creating secondary log file from primary. ");
             store.UpdateActivity(activityId, "Creating secondary log file from primary. ", 0);
-            Close();
+            _gate.EnterExclusive(); // the primary is closed while it is copied: no reads in flight, none started
             try {
-                _io.CopyFile(_ioSecondary, FileKey, _secondaryFileKey, progress => {
-                    store.UpdateActivity(activityId, "Creating secondary log file from primary. ", progress);
-                });
+                Close();
+                try {
+                    _io.CopyFile(_ioSecondary, FileKey, _secondaryFileKey, progress => {
+                        store.UpdateActivity(activityId, "Creating secondary log file from primary. ", progress);
+                    });
+                } finally {
+                    OpenForAppending();
+                }
             } finally {
-                OpenForAppending();
+                _gate.ExitExclusive();
             }
             // the OpenForAppending above reopened the secondary stream on the fresh copy, so the
             // format version and file id are current here.

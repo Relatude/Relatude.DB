@@ -21,7 +21,8 @@ namespace Relatude.DB.IO {
         long _maxBufferBeforeFlush = 1024 * 1024 * 20; // 20 mb
         int _readBufferSize = 1024 * 50 * 2; // 100KB
         long _readBufferOffset = 0;
-        byte[]? _readBuffer; // 100KB
+        byte[]? _readBuffer; // up to 100KB
+        int _readBufferLength; // how much of _readBuffer holds blob bytes: less than its size near the end of the blob
         readonly object _lock = new();
         ChecksumUtil _checkSum = new();
         public string FileKey { get; }
@@ -139,55 +140,48 @@ namespace Relatude.DB.IO {
             }
             _writeBuffer = new MemoryStream();
         }
+        // What is in memory - the write buffer, the read buffer - is copied under the lock; a download runs
+        // outside it. Bytes once committed to an append blob never change, so a range below the committed
+        // length can be fetched while appends, flushes and other reads go on: a read no longer holds the
+        // stream for a network round trip.
         public void Get(long position, int count, byte[] result) {
+            int committedCount; // the head of the range that has to come from the blob
+            long committedLength;
             lock (_lock) {
                 if (count > _length - position) throw new Exception("Read beyond end of file");
                 _bytesRead += count;
-                get(position, count, result, 0);
-            }
-        }
-        void get(long position, int count, byte[] result, int resultOffset) {
-            if (count == 0) return;
-
-            // Entirely in write buffer
-            var writeBufferOffset = _length - _writeBuffer.Length;
-            if (position >= writeBufferOffset) {
-                var bufferOffset = position - writeBufferOffset;
-                _writeBuffer.Position = bufferOffset;
-                _writeBuffer.Read(result, resultOffset, count);
-                _writeBuffer.Position = _writeBuffer.Length;
-                return;
-            }
-
-            // Spanning flushed data and the write buffer: split at the boundary
-            if (position + count > writeBufferOffset) {
-                var flushedCount = (int)(writeBufferOffset - position);
-                get(position, flushedCount, result, resultOffset);
-                get(writeBufferOffset, count - flushedCount, result, resultOffset + flushedCount);
-                return;
-            }
-
-            // Try using read buffer
-            if (_readBuffer != null) {
-                var inReadBuffer = position >= _readBufferOffset && position + count <= _readBufferOffset + _readBuffer.Length;
-                if (inReadBuffer) {
-                    Array.Copy(_readBuffer, position - _readBufferOffset, result, resultOffset, count);
+                if (count == 0) return;
+                committedCount = count;
+                // the tail, or all of it, may still be in the write buffer
+                var writeBufferOffset = _length - _writeBuffer.Length;
+                if (position + count > writeBufferOffset) {
+                    var from = Math.Max(position, writeBufferOffset);
+                    var n = (int)(position + count - from);
+                    _writeBuffer.Position = from - writeBufferOffset;
+                    _writeBuffer.ReadExactly(result, (int)(from - position), n);
+                    _writeBuffer.Position = _writeBuffer.Length;
+                    committedCount = (int)(from - position);
+                    if (committedCount == 0) return;
+                }
+                if (_readBuffer != null && position >= _readBufferOffset && position + committedCount <= _readBufferOffset + _readBufferLength) {
+                    Array.Copy(_readBuffer, position - _readBufferOffset, result, 0, committedCount);
                     return;
                 }
+                committedLength = _committedLength;
             }
-
-            // Download from blob:
-            var fitsInReadBuffer = count <= _readBufferSize;
-            if (fitsInReadBuffer) {
-                _readBufferOffset = position;
-                var lengthToRead = (int)Math.Min(_committedLength - position, _readBufferSize);
-                if (_readBuffer == null) _readBuffer = new byte[_readBufferSize];
-                _client.DownloadRange(_blobName, position, lengthToRead, null, _readBuffer); // a lease guards writes, reading needs none
-                Array.Copy(_readBuffer, 0, result, resultOffset, count);
-            } else { // too big, download directly. No point in readbuffer
-                var block = new byte[count];
-                _client.DownloadRange(_blobName, position, count, null, block);
-                Array.Copy(block, 0, result, resultOffset, count);
+            if (committedCount <= _readBufferSize) {
+                // a small read fetches a read buffer's worth, as small reads tend to come in sequence
+                var lengthToRead = (int)Math.Min(committedLength - position, _readBufferSize);
+                var buffer = new byte[lengthToRead];
+                _client.DownloadRange(_blobName, position, lengthToRead, null, buffer); // a lease guards writes, reading needs none
+                Array.Copy(buffer, 0, result, 0, committedCount);
+                lock (_lock) {
+                    _readBuffer = buffer;
+                    _readBufferOffset = position;
+                    _readBufferLength = lengthToRead;
+                }
+            } else { // too big for the read buffer, straight into the result
+                _client.DownloadRange(_blobName, position, committedCount, null, result);
             }
         }
         public void RecordChecksum() => _checkSum.RecordChecksum();

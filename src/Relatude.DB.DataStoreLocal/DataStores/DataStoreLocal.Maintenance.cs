@@ -6,20 +6,42 @@ using System.Diagnostics;
 namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
+    // read without a lock: a background check asking for the write lock just to read a counter would
+    // queue behind a long query and hold up every reader after it
     public long GetNoPrimitiveActionsInLogThatCanBeTruncated() {
         if (_state != DataStoreState.Open) return 0;
-        _lock.EnterWriteLock();
-        try {
-            return _noPrimitiveActionsInLogThatCanBeTruncated;
-        } finally {
-            _lock.ExitWriteLock();
-        }
+        return Interlocked.Read(ref _noPrimitiveActionsInLogThatCanBeTruncated);
     }
     internal int FlushToDisk(bool deepFlush, long parentActivityId) {
         FlushToDisk(deepFlush, parentActivityId, out int transactionCount, out _, out _);
         return transactionCount;
     }
-    internal void FlushToDisk(bool deepFlush, long parentActivityId, out int transactionCount, out int actionCount, out long bytesWritten) {
+    internal void FlushToDisk(bool deepFlush, long parentActivityId, out int transactionCount, out int actionCount, out long bytesWritten)
+        => FlushToDisk(deepFlush, parentActivityId, false, out transactionCount, out actionCount, out bytesWritten);
+    // The log timestamp the engines were last made durable at. long.MinValue when that is not known, or when
+    // something other than a transaction changed what the engines hold (see markEnginesChanged): the next
+    // flush then makes them durable whatever the timestamp says.
+    long _enginesDurableAt = long.MinValue;
+    /// <summary>For changes to the engines that no transaction timestamp records: the next flush makes them durable.</summary>
+    void markEnginesChanged() => Interlocked.Exchange(ref _enginesDurableAt, long.MinValue);
+    // whether the write-locked part of a flush has anything to do: positions to drain into an engine-backed
+    // state store, or engines that are behind the log (and may be made durable: not during a revert window)
+    bool enginesNeedFlush() {
+        if (!Engines.Any) return false;
+        if (_nodes.HasPendingSegments) return true;
+        return !RevertWindowIsActive && Interlocked.Read(ref _enginesDurableAt) != _wal.LastTimestamp;
+    }
+    // When a background flush first found the write lock taken, in Environment.TickCount64; 0 when it has not.
+    // The scheduler's flushes run with background set: the timer's, and the one before a background snapshot.
+    long _backgroundFlushLockMissedSince;
+    /// <summary>
+    /// <paramref name="background"/>: the scheduler's flush. Waiting for the write lock would put it in the
+    /// queue behind whatever query holds the read lock, and every reader arriving after it would wait too,
+    /// so it only takes the lock when it is free and otherwise leaves the engines to the next tick - unless
+    /// they have waited longer than MaxDelayAutoDiskFlushIfBusyInSeconds, when it waits like any writer.
+    /// The log itself is written and flushed either way: that part takes no store lock.
+    /// </summary>
+    internal void FlushToDisk(bool deepFlush, long parentActivityId, bool background, out int transactionCount, out int actionCount, out long bytesWritten) {
         var activityId = RegisterActvity(parentActivityId, DataStoreActivityCategory.Flushing, "Flushing to disk");
         validateDatabaseState();
         try {
@@ -34,8 +56,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 transactionCount += t; actionCount += a; bytesWritten += b;
             }
             TaskQueuePersisted?.FlushDisk();
-            if (Engines.Any) {
-                _lock.EnterWriteLock();
+            if (enginesNeedFlush() && enterWriteLockForFlush(background)) {
                 try {
                     // the engines may only be made durable up to a point the log file has reached, and no
                     // transaction commits while the write lock is held, so the remainder is written first
@@ -46,7 +67,11 @@ public sealed partial class DataStoreLocal : IDataStore {
                         _nodes.DrainPendingSegments();
                         stateEngine.CommitTransaction(_wal.LastTimestamp);
                     }
-                    if (_revertWindow == null) Engines.MakeDurable(_wal.LastTimestamp);
+                    if (_revertWindow == null) {
+                        var durableAt = _wal.LastTimestamp;
+                        Engines.MakeDurable(durableAt);
+                        Interlocked.Exchange(ref _enginesDurableAt, durableAt);
+                    }
                 } finally {
                     _lock.ExitWriteLock();
                 }
@@ -57,6 +82,35 @@ public sealed partial class DataStoreLocal : IDataStore {
         } finally {
             DeRegisterActivity(activityId);
         }
+    }
+    bool enterWriteLockForFlush(bool background) {
+        if (!background) {
+            _lock.EnterWriteLock();
+            return true;
+        }
+        if (_lock.TryEnterWriteLock(0)) {
+            Interlocked.Exchange(ref _backgroundFlushLockMissedSince, 0);
+            return true;
+        }
+        var now = Environment.TickCount64;
+        var since = Interlocked.CompareExchange(ref _backgroundFlushLockMissedSince, now, 0);
+        if (since == 0) return false; // the first miss: noted, tried again on the next tick
+        if (now - since < _settings.MaxDelayAutoDiskFlushIfBusyInSeconds * 1000) return false;
+        _lock.EnterWriteLock(); // overdue: the engines are not left behind the log indefinitely
+        Interlocked.Exchange(ref _backgroundFlushLockMissedSince, 0);
+        return true;
+    }
+    /// <summary>
+    /// For housekeeping the scheduler runs: the write lock if it is free right now, else nothing. A
+    /// background job that queued for the lock behind a long query would hold up every reader arriving after
+    /// it; skipping a round costs nothing. <paramref name="mustRun"/> waits like any other writer, for a job
+    /// that has been put off long enough.
+    /// </summary>
+    bool tryEnterWriteLockForHousekeeping(bool mustRun) {
+        if (_lock.TryEnterWriteLock(0)) return true;
+        if (!mustRun) return false;
+        _lock.EnterWriteLock();
+        return true;
     }
     public void CopyStore(string[] newLogFileKey, IIOProvider? destinationIO = null) {
         lock (_isRewritingOrCopyingLock) {
@@ -92,6 +146,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 FlushToDisk(true, activityId);
                 validateDatabaseState();
                 Engines.OptimizeDisk();
+                markEnginesChanged();
             } catch (Exception err) {
                 throw createCriticalErrorAndSetDbToErrorState("Failed to truncate indexes. ", err);
             } finally {
@@ -123,24 +178,37 @@ public sealed partial class DataStoreLocal : IDataStore {
         return fileDeleted;
     }
     object _saveStateLock = new();
-    public void SaveIndexStates(bool forceRefresh = false, bool nodeSegmentsOnly = false) {
+    public void SaveIndexStates(bool forceRefresh = false, bool nodeSegmentsOnly = false) => saveIndexStates(forceRefresh, nodeSegmentsOnly, false, true);
+    /// <summary>
+    /// The scheduler's snapshot: written when the write lock is free, put off (false) while a query holds the
+    /// read lock - unless <paramref name="mustRun"/>, for a snapshot that has been put off long enough.
+    /// </summary>
+    internal bool TrySaveIndexStatesInBackground(bool mustRun) => saveIndexStates(false, false, true, mustRun);
+    bool saveIndexStates(bool forceRefresh, bool nodeSegmentsOnly, bool background, bool mustRun) {
         if (RevertWindowIsActive) { // cheap early skip; re-checked under the lock below
             LogInfo("Index state save skipped: a revert window is active. ");
-            return;
+            return true;
         }
         var activityId = RegisterActvity(DataStoreActivityCategory.SavingState, "Saving index states");
         try { // outer try so a flush failure before the lock still deregisters the activity
-            FlushToDisk(true, activityId); // ensuring all writes are flushed before locking, to minimize time spent locked
+            FlushToDisk(true, activityId, background, out _, out _, out _); // ensuring all writes are flushed before locking, to minimize time spent locked
         } catch {
             DeRegisterActivity(activityId);
             throw;
         }
         lock (_saveStateLock) { // to avoid multiple simultaneous calls
-            _lock.EnterWriteLock();
+            if (background) {
+                if (!tryEnterWriteLockForHousekeeping(mustRun)) {
+                    DeRegisterActivity(activityId);
+                    return false;
+                }
+            } else {
+                _lock.EnterWriteLock();
+            }
             try {
                 if (_revertWindow != null) { // a state snapshot must never cover transactions past the window start
                     LogInfo("Index state save skipped: a revert window is active. ");
-                    return;
+                    return true;
                 }
                 FlushToDisk(true, activityId); // ensuring all writes are flushed after locking, should be quick since flushed before lock ( inside try so the write lock is released if it throws )
                 validateDatabaseState();
@@ -162,6 +230,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 DeRegisterActivity(activityId);
             }
         }
+        return true;
     }
     void resetStateAndIndexes() {
         var stateFileKeys = FileKeyUtility.State_GetAllFileKeys(IOIndex);
@@ -174,22 +243,35 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         Engines.ResetAll();
         Engines.ResetIndexCaches();
+        markEnginesChanged();
     }
-    public void SaveIndexCaches(bool force) {
-        _lock.EnterWriteLock();
+    public void SaveIndexCaches(bool force) => saveIndexCaches(force, false);
+    /// <summary>The scheduler's save of the index caches: only when the write lock is free (false when put off).</summary>
+    internal bool TrySaveIndexCachesInBackground() => saveIndexCaches(false, true);
+    bool saveIndexCaches(bool force, bool background) {
+        if (background) {
+            if (!tryEnterWriteLockForHousekeeping(false)) return false;
+        } else {
+            _lock.EnterWriteLock();
+        }
         try {
-            if (_revertWindow != null) return; // persisted caches must not cover transactions past the window start
-            if (State == DataStoreState.Open)
+            if (_revertWindow != null) return true; // persisted caches must not cover transactions past the window start
+            if (State == DataStoreState.Open) {
                 Engines.SaveIndexCaches(force);
+                markEnginesChanged();
+            }
         } finally {
             _lock.ExitWriteLock();
         }
+        return true;
     }
     public void ResetIndexCaches() {
         _lock.EnterWriteLock();
         try {
-            if (State == DataStoreState.Open)
+            if (State == DataStoreState.Open) {
                 Engines.ResetIndexCaches();
+                markEnginesChanged();
+            }
         } finally {
             _lock.ExitWriteLock();
         }
@@ -221,7 +303,24 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (a.HasFlag(MaintenanceAction.TruncateIndexes)) TruncateIndexes();
         if (a.HasFlag(MaintenanceAction.DeleteOldLogs) && !a.HasFlag(MaintenanceAction.TruncateLog)) DeleteOldLogs();
         if (a.HasFlag(MaintenanceAction.SaveIndexStates)) SaveIndexStates();
-        _lock.EnterWriteLock();
+        if ((a & _actionsUnderWriteLock) != 0) maintenanceUnderWriteLock(a, false);
+        if (a.HasFlag(MaintenanceAction.FlushDisk)) FlushToDisk(true, 0);
+        if(a.HasFlag(MaintenanceAction.UpdatePersistedCaches)) SaveIndexCaches(true);
+        // caches gone: rebuild the mirror and facet warm state in the background, so the next
+        // filtered facet query does not pay the cold rebuild inline
+        if (a.HasFlag(MaintenanceAction.ClearCache) && State == DataStoreState.Open) warmIndexesInBackground();
+    }
+    // the actions below that run under the write lock; any other action, alone, takes no lock here
+    const MaintenanceAction _actionsUnderWriteLock = MaintenanceAction.ResetSecondaryLogFile | MaintenanceAction.ClearAiCache | MaintenanceAction.ClearCache
+        | MaintenanceAction.PurgeCache | MaintenanceAction.CompressMemory | MaintenanceAction.GarbageCollect | MaintenanceAction.ResetStateAndIndexes;
+    /// <summary>The scheduler's cache purge: only when the write lock is free (false when put off).</summary>
+    internal bool TryPurgeCachesInBackground() => maintenanceUnderWriteLock(MaintenanceAction.PurgeCache, true);
+    bool maintenanceUnderWriteLock(MaintenanceAction a, bool background) {
+        if (background) {
+            if (!tryEnterWriteLockForHousekeeping(false)) return false;
+        } else {
+            _lock.EnterWriteLock();
+        }
         try {
             if (a.HasFlag(MaintenanceAction.ResetSecondaryLogFile)) {
                 var activityId = RegisterActvity(DataStoreActivityCategory.Copying, "Resetting secondary log file");
@@ -240,6 +339,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _noQueriesSinceClearCache = 0;
                 _noNodeGetsSinceClearCache = 0;
                 Engines.ResetIndexCaches();
+                markEnginesChanged();
                 foreach (var i in _definition.GetAllIndexes()) i.CompressMemory();
                 collectAndReleaseMemory();
             }
@@ -263,11 +363,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         } finally {
             _lock.ExitWriteLock();
         }
-        if (a.HasFlag(MaintenanceAction.FlushDisk)) FlushToDisk(true, 0);
-        if(a.HasFlag(MaintenanceAction.UpdatePersistedCaches)) SaveIndexCaches(true);
-        // caches gone: rebuild the mirror and facet warm state in the background, so the next
-        // filtered facet query does not pay the cold rebuild inline
-        if (a.HasFlag(MaintenanceAction.ClearCache) && State == DataStoreState.Open) warmIndexesInBackground();
+        return true;
     }
     // Only a blocking, compacting, aggressive collect actually shrinks the process, and one pass on
     // its own reclaims nothing that has a finalizer - see MemoryReclaim, which measures both. It is a
@@ -281,20 +377,15 @@ public sealed partial class DataStoreLocal : IDataStore {
         return Task.CompletedTask;
     }
     public Task<DataStoreInfo> GetInfoAsync() => Task.FromResult(GetInfo());
-    public long GetLogActionsNotItInStatefile() {
-        _lock.EnterReadLock();
-        try {
-            return _noPrimitiveActionsSinceLastStateSnapshot;
-        } finally {
-            _lock.ExitReadLock();
-        }
-    }
+    public long GetLogActionsNotItInStatefile() => Interlocked.Read(ref _noPrimitiveActionsSinceLastStateSnapshot); // a counter: no lock needed to read it
     DataStoreInfo? _lastStoreStatusWhenOpen;
     CpuMonitor _cpuMonitorInfo = new();
     public DataStoreInfo GetInfo() {
         var info = new DataStoreInfo();
         if (_state != DataStoreState.Open) return info;
-        if (!_lock.TryEnterWriteLock(5)) {
+        // the read lock is enough: everything read here is changed under the write lock or has a lock of its
+        // own. Waiting for the write lock, even for 5 ms, would hold up every reader arriving meanwhile
+        if (!_lock.TryEnterReadLock(5)) {
             if (_lastStoreStatusWhenOpen == null) return info;
             _lastStoreStatusWhenOpen.IsFresh = false;
             return _lastStoreStatusWhenOpen;
@@ -352,7 +443,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _sets.AddInfo(info);
             info.LogStateFileSize = FileKeyUtility.State_GetAllFileKeys(IOIndex).Sum(k => IOIndex.GetFileSizeOrZeroIfUnknown(k));
         } finally {
-            _lock.ExitWriteLock();
+            _lock.ExitReadLock();
         }
         _lastStoreStatusWhenOpen = info;
         return info;

@@ -59,8 +59,7 @@ public sealed class CachingFileToTextProvider(IFileToTextProvider inner, IServic
     public void ClearCache() => _cache.ClearAll();
 
     public void Dispose() {
-        Inner.Dispose();
-        _cache.Dispose();
+        try { Inner.Dispose(); } finally { _cache.Dispose(); } // the cache file is released whatever the provider does
     }
 
     // the languages in the order given - the first is the most likely, which OCR goes by - without case or blanks

@@ -25,57 +25,114 @@ public sealed partial class DataStoreLocal : IDataStore {
     public TimeSpan EstimateWordCountDuration(Guid propertyId, WordCountOptions options, QueryContext? ctx = null)
         => _definition.Properties.TryGetValue(propertyId, out var property) && property is Definitions.PropertyTypes.IWordCountProperty counter
             ? counter.EstimateCountWordsDuration(options, ctx ?? QueryContext.Default) : TimeSpan.Zero;
-    public INodeDataExternal ToOuter(INodeDataInternal nodeDataInner, QueryContext? ctx) {
+    /// <summary>
+    /// What a reader in a context sees of the nodes: the context is resolved here, under the store lock, and
+    /// the converter then reads nothing but the node it is given - so it can run after the lock is let go.
+    /// </summary>
+    internal OuterConverter GetOuterConverter(QueryContext? ctx) {
         ctx ??= _defaultQueryCtx;
         var ctxKey = _nativeModelStore.GetQueryContextKey(ctx, out var now);
-        return _definition.NodeTypeIndex.PickBestOuter(nodeDataInner, ctxKey, now);
+        return new(_definition.NodeTypeIndex, ctxKey, now);
+    }
+    public INodeDataExternal ToOuter(INodeDataInternal nodeDataInner, QueryContext? ctx) {
+        return GetOuterConverter(ctx).ToOuter(nodeDataInner);
     }
     public INodeDataExternal[] ToOuter(INodeDataInternal[] nodeDataInners, QueryContext? ctx) {
-        ctx ??= _defaultQueryCtx;
-        var ctxKey = _nativeModelStore.GetQueryContextKey(ctx, out var now);
-        var index = _definition.NodeTypeIndex;
+        var outer = GetOuterConverter(ctx);
         var result = new INodeDataExternal[nodeDataInners.Length];
         for (var i = 0; i < nodeDataInners.Length; i++) {
-            result[i] = index.PickBestOuter(nodeDataInners[i], ctxKey, now);
+            result[i] = outer.ToOuter(nodeDataInners[i]);
         }
         return result;
     }
     public IEnumerable<INodeDataExternal> ToOuter(IEnumerable<INodeDataInternal> nodeDataInners, QueryContext? ctx) {
-        ctx ??= _defaultQueryCtx;
-        var ctxKey = _nativeModelStore.GetQueryContextKey(ctx, out var now);
-        var index = _definition.NodeTypeIndex;
+        var outer = GetOuterConverter(ctx);
         foreach (var nodeDataInner in nodeDataInners) {
-            yield return index.PickBestOuter(nodeDataInner, ctxKey, now);
+            yield return outer.ToOuter(nodeDataInner);
+        }
+    }
+    enum NodeLookup { ById, ByGuid, ByGuidIfKnown }
+    /// <summary>
+    /// One node, read the way a query reads: looked up under the read lock - a cached node is done right
+    /// there - and otherwise read from the log after the lock is let go, so a writer is not kept waiting
+    /// for the disk. Unknown guids throw for <see cref="NodeLookup.ByGuid"/>, as the guid map always did;
+    /// a missing node throws unless <paramref name="throwIfMissing"/> is off.
+    /// </summary>
+    bool readOne(NodeLookup lookup, int id, Guid guid, bool throwIfMissing, QueryContext? ctx, [MaybeNullWhen(false)] out INodeDataExternal node) {
+        long activityId = 0;
+        Stores.NodeStore.NodeRead? read = null;
+        try {
+            OuterConverter outer;
+            _lock.EnterReadLock();
+            try {
+                activityId = RegisterActvity(DataStoreActivityCategory.Querying);
+                validateDatabaseState();
+                Interlocked.Increment(ref _noNodeGetsSinceClearCache);
+                _queryActivity.Record();
+                if (lookup == NodeLookup.ByGuid) {
+                    id = _guids.GetId(guid);
+                } else if (lookup == NodeLookup.ByGuidIfKnown && !_guids.TryGetId(guid, out id)) {
+                    node = null;
+                    return false;
+                }
+                outer = GetOuterConverter(ctx);
+                read = _nodes.BeginRead([id], throwIfMissing);
+            } finally {
+                _lock.ExitReadLock();
+            }
+            var inner = read.Complete(CancellationToken.None)[0]; // no store lock taken from here on
+            if (inner == null) {
+                node = null;
+                return false;
+            }
+            node = outer.ToOuter(inner);
+            return true;
+        } finally {
+            read?.Dispose();
+            if (activityId != 0) DeRegisterActivity(activityId);
+        }
+    }
+    /// <summary>
+    /// Many nodes, read the way a query reads: <paramref name="lookupUnderLock"/> finds their ids under the
+    /// read lock, and what the cache does not hold is read from the log after the lock is let go.
+    /// </summary>
+    INodeDataExternal[] readMany(QueryContext? ctx, Func<int[]> lookupUnderLock) {
+        long activityId = 0;
+        Stores.NodeStore.NodeRead? read = null;
+        try {
+            OuterConverter outer;
+            _lock.EnterReadLock();
+            try {
+                activityId = RegisterActvity(DataStoreActivityCategory.Querying);
+                validateDatabaseState();
+                _queryActivity.Record();
+                var ids = lookupUnderLock();
+                Interlocked.Add(ref _noNodeGetsSinceClearCache, ids.Length);
+                if (ids.Length == 0) return [];
+                outer = GetOuterConverter(ctx);
+                read = _nodes.BeginRead(ids, throwIfMissing: true);
+            } finally {
+                _lock.ExitReadLock();
+            }
+            var inner = read.Complete(CancellationToken.None); // no store lock taken from here on
+            var result = new INodeDataExternal[inner.Length];
+            for (var i = 0; i < inner.Length; i++) result[i] = outer.ToOuter(inner[i]!);
+            return result;
+        } finally {
+            read?.Dispose();
+            if (activityId != 0) DeRegisterActivity(activityId);
         }
     }
     public int GetId(Guid id) => _guids.GetId(id);
     public Guid GetGuid(int id) => _guids.GetGuid(id);
     public Task<INodeDataExternal> GetAsync(Guid id, QueryContext? ctx = null) {
         if (id == Guid.Empty) throw new Exception("Guid cannot be empty.");
-        _lock.EnterReadLock();
-        var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
-        try {
-            validateDatabaseState();
-            Interlocked.Increment(ref _noNodeGetsSinceClearCache);
-            _queryActivity.Record();
-            return Task.FromResult(ToOuter(_nodes.Get(_guids.GetId(id), out _), ctx));
-        } finally {
-            DeRegisterActivity(activityId);
-            _lock.ExitReadLock();
-        }
+        readOne(NodeLookup.ByGuid, 0, id, true, ctx, out var node);
+        return Task.FromResult(node!);
     }
     public Task<INodeDataExternal> GetAsync(int id, QueryContext? ctx = null) {
-        _lock.EnterReadLock();
-        var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
-        try {
-            validateDatabaseState();
-            _queryActivity.Record();
-            Interlocked.Increment(ref _noNodeGetsSinceClearCache);
-            return Task.FromResult(ToOuter(_nodes.Get(id, out _), ctx));
-        } finally {
-            DeRegisterActivity(activityId);
-            _lock.ExitReadLock();
-        }
+        readOne(NodeLookup.ById, id, Guid.Empty, true, ctx, out var node);
+        return Task.FromResult(node!);
     }
     public Task<IEnumerable<INodeDataExternal>> GetAsync(IEnumerable<int> __ids, QueryContext? ctx = null) {
         return Task.FromResult(Get(__ids, ctx));
@@ -120,29 +177,12 @@ public sealed partial class DataStoreLocal : IDataStore {
 
     public INodeDataExternal Get(Guid id, QueryContext? ctx = null) {
         if (id == Guid.Empty) throw new Exception("Guid cannot be empty.");
-        _lock.EnterReadLock();
-        var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
-        try {
-            validateDatabaseState();
-            _queryActivity.Record();
-            Interlocked.Increment(ref _noNodeGetsSinceClearCache);
-            return ToOuter(_nodes.Get(_guids.GetId(id), out _), ctx);
-        } finally {
-            DeRegisterActivity(activityId);
-            _lock.ExitReadLock();
-        }
+        readOne(NodeLookup.ByGuid, 0, id, true, ctx, out var node);
+        return node!;
     }
     public INodeDataExternal Get(int id, QueryContext? ctx = null) {
-        _lock.EnterReadLock();
-        var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
-        try {
-            validateDatabaseState();
-            Interlocked.Increment(ref _noNodeGetsSinceClearCache);
-            return ToOuter(_nodes.Get(id, out _), ctx);
-        } finally {
-            DeRegisterActivity(activityId);
-            _lock.ExitReadLock();
-        }
+        readOne(NodeLookup.ById, id, Guid.Empty, true, ctx, out var node);
+        return node!;
     }
     public INodeDataExternal Get(NodeKey id, QueryContext? ctx = null) {
         if (id.HasGuid) return Get(id.Guid, ctx);
@@ -228,43 +268,12 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     public bool TryGet(Guid id, [MaybeNullWhen(false)] out INodeDataExternal nodeData, QueryContext? ctx = null) {
-        _lock.EnterReadLock();
-        var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
-        try {
-            validateDatabaseState();
-            Interlocked.Increment(ref _noNodeGetsSinceClearCache);
-            _queryActivity.Record();
-            // the guid map may still resolve a recently deleted node, so the node fetch must also
-            // be a try (matching the int overload below) for TryGet to honor its contract
-            if (_guids.TryGetId(id, out var uid) && _nodes.TryGet(uid, out var nodeDataInner, out _)) {
-                nodeData = ToOuter(nodeDataInner, ctx);
-                return true;
-            }
-            nodeData = null;
-            return false;
-        } finally {
-            DeRegisterActivity(activityId);
-            _lock.ExitReadLock();
-        }
+        // the guid map may still resolve a recently deleted node, so the node fetch must also
+        // be a try (matching the int overload below) for TryGet to honor its contract
+        return readOne(NodeLookup.ByGuidIfKnown, 0, id, false, ctx, out nodeData);
     }
     public bool TryGet(int id, [MaybeNullWhen(false)] out INodeDataExternal nodeData, QueryContext? ctx = null) {
-        _lock.EnterReadLock();
-        var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
-        try {
-            validateDatabaseState();
-            Interlocked.Increment(ref _noNodeGetsSinceClearCache);
-            _queryActivity.Record();
-            if (_nodes.TryGet(id, out var nodeDataInner, out _)) {
-                nodeData = ToOuter(nodeDataInner, ctx);
-                return true;
-            } else {
-                nodeData = null;
-                return false;
-            }
-        } finally {
-            DeRegisterActivity(activityId);
-            _lock.ExitReadLock();
-        }
+        return readOne(NodeLookup.ById, id, Guid.Empty, false, ctx, out nodeData);
     }
     public bool TryGetGuid(int id, out Guid guid, QueryContext? ctx = null) {
         _lock.EnterReadLock();
@@ -280,31 +289,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     public IEnumerable<INodeDataExternal> Get(IEnumerable<int> __ids, QueryContext? ctx = null) {
-        _lock.EnterReadLock();
-        var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
-        try {
-            validateDatabaseState();
-            var result = _nodes.Get(__ids.ToArray()); // must return a copy to avoid problems with locks
-            Interlocked.Add(ref _noNodeGetsSinceClearCache, result.Length);
-            return ToOuter(result, ctx);
-        } finally {
-            DeRegisterActivity(activityId);
-            _lock.ExitReadLock();
-        }
+        return readMany(ctx, () => __ids.ToArray()); // the result is a copy: nothing in it depends on the lock
     }
     public IEnumerable<INodeDataExternal> Get(IEnumerable<Guid> ids, QueryContext? ctx = null) {
-        _lock.EnterReadLock();
-        var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
-        try {
-            validateDatabaseState();
-            var result = _nodes.Get(ids.Select(_guids.GetId).ToArray()); // must return a copy to avoid problems with locks
-            Interlocked.Add(ref _noNodeGetsSinceClearCache, result.Length);
-            _queryActivity.Record();
-            return ToOuter(result, ctx);
-        } finally {
-            DeRegisterActivity(activityId);
-            _lock.ExitReadLock();
-        }
+        return readMany(ctx, () => ids.Select(_guids.GetId).ToArray());
     }
     public bool Exists(int id, QueryContext? ctx = null) {
         _lock.EnterReadLock();
@@ -363,45 +351,24 @@ public sealed partial class DataStoreLocal : IDataStore {
     public INodeDataExternal[] GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null) {
         var propDef = _definition.Datamodel.Properties[propertyId];
         if (propDef is not RelationPropertyModel relProp) throw new ArgumentException("Property is not a relation property");
-        _lock.EnterReadLock();
-        var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
-        try {
-            validateDatabaseState();
-            _queryActivity.Record();
+        return readMany(ctx, () => {
             if (!_guids.TryGetId(from, out var fromId)) return [];
             var relation = _definition.Relations[relProp.RelationId];
-            var relatedIds = relation.GetRelated(fromId, relProp.FromTargetToSource);
-            return ToOuter(_nodes.Get(relatedIds.ToArray()), ctx);
-        } finally {
-            DeRegisterActivity(activityId);
-            _lock.ExitReadLock();
-        }
+            return relation.GetRelated(fromId, relProp.FromTargetToSource).ToArray();
+        });
     }
     public bool TryGetRelatedNodeFromPropertyId(Guid propertyId, Guid from, [MaybeNullWhen(false)] out INodeDataExternal node, QueryContext? ctx = null) {
         var propDef = _definition.Datamodel.Properties[propertyId];
         if (propDef is not RelationPropertyModel relProp) throw new ArgumentException("Property is not a relation property");
-        _lock.EnterReadLock();
-        var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
-        try {
-            validateDatabaseState();
-            _queryActivity.Record();
-            if (!_guids.TryGetId(from, out var fromId)) {
-                node = null;
-                return false;
-            }
+        var nodes = readMany(ctx, () => {
+            if (!_guids.TryGetId(from, out var fromId)) return [];
             var relation = _definition.Relations[relProp.RelationId];
             var relatedIds = relation.GetRelated(fromId, relProp.FromTargetToSource);
-            if (relatedIds.Count == 0) {
-                node = null;
-                return false;
-            }
-            node = ToOuter(_nodes.Get(relatedIds.First(), out _), ctx);
-            return true;
-        } finally {
-            DeRegisterActivity(activityId);
-            _lock.ExitReadLock();
-        }
-    }    
+            return relatedIds.Count == 0 ? [] : [relatedIds.First()];
+        });
+        node = nodes.Length > 0 ? nodes[0] : null;
+        return node != null;
+    }
     public int GetRelatedCountFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null) {
         var propDef = _definition.Datamodel.Properties[propertyId];
         if (propDef is not RelationPropertyModel relProp) throw new ArgumentException("Property is not a relation property");
@@ -431,40 +398,102 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     object? query(IExpression expression, string? query, IEnumerable<Parameter> parameters, QueryContext? ctx) {
+        ctx ??= _defaultQueryCtx;
         object? result;
-        TimeSpan duration;
-        int resultCount;
+        int resultCount = 1;
         Metrics metrics;
-        _lock.EnterReadLock();
-        var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
+        long activityId = 0;
+        PendingRetrieval? pending = null;
+        var sw = Stopwatch.StartNew();
+        // the context the query runs with: cancelled by the caller's token, or by the time limit
+        using var limit = new QueryLimit(ctx, _settings.MaxQueryDurationInSeconds);
+        var runCtx = limit.Context;
         try {
-            ctx ??= _defaultQueryCtx;
-            validateDatabaseState();
-            _queryActivity.Record();
-            var sw = Stopwatch.StartNew();
-            var scope = _variables.CreateQueryBaseScope(parameters, ctx);
-            result = expression.Evaluate(scope);
-            if (result is IIncludeBranches nd) nd.EnsureRetrivalOfRelationNodesDataBeforeExitingReadLock(scope.Metrics);
-            sw.Stop();
-            duration = sw.Elapsed;
-            var durationMs = (double)duration.Ticks / TimeSpan.TicksPerMillisecond;
-            resultCount = 1;
-            if (result is ICollectionBase t) {
-                t.DurationMs = durationMs;
-                resultCount = t.Count;
+            _lock.EnterReadLock();
+            try {
+                activityId = RegisterActvity(DataStoreActivityCategory.Querying);
+                validateDatabaseState();
+                _queryActivity.Record();
+                runCtx.CancellationToken.ThrowIfCancellationRequested();
+                var scope = _variables.CreateQueryBaseScope(parameters, runCtx);
+                result = expression.Evaluate(scope);
+                if (result is IDeferredNodeRetrieval deferred) pending = deferred.BeginRetrievalUnderReadLock(scope.Metrics);
+                else if (result is IIncludeBranches nd) nd.EnsureRetrivalOfRelationNodesDataBeforeExitingReadLock(scope.Metrics);
+                // counted here while the lock is held, unless the count needs the nodes still to be read
+                if (pending == null && result is ICollectionBase c) resultCount = c.Count;
+                metrics = scope.Metrics;
+            } finally {
+                _lock.ExitReadLock();
             }
-            metrics = scope.Metrics;
-            Interlocked.Increment(ref _noQueriesSinceClearCache);
-            Interlocked.Increment(ref _noQueriesSinceLastMetric);
+            // The node bytes are read after the read lock is let go of. A writer waiting for the lock holds
+            // up every reader that comes after it, so a query reading a lot of nodes from the log would keep
+            // them all waiting for the disk. Which nodes, and where in the log, was settled under the lock,
+            // so the result is the same. No store lock may be taken from here on (see LogReadGate).
+            if (pending != null) {
+                pending.Complete(runCtx.CancellationToken);
+                if (result is ICollectionBase c) resultCount = c.Count;
+            }
+        } catch (OperationCanceledException) when (limit.TimedOut) {
+            throw limit.TimeoutError();
         } finally {
-            DeRegisterActivity(activityId);
-            _lock.ExitReadLock();
+            pending?.Dispose();
+            if (activityId != 0) DeRegisterActivity(activityId);
         }
-        // Recorded once the read lock is let go of. A writer waiting for the lock holds up every
-        // reader that comes after it, so whatever keeps a query in the lock keeps them all waiting -
-        // and writing a log entry is no reason to.
+        sw.Stop();
+        var duration = sw.Elapsed;
+        if (result is ICollectionBase t) t.DurationMs = (double)duration.Ticks / TimeSpan.TicksPerMillisecond;
+        Interlocked.Increment(ref _noQueriesSinceClearCache);
+        Interlocked.Increment(ref _noQueriesSinceLastMetric);
+        // Recorded once the read lock is let go of, for the same reason: writing a log entry is no reason
+        // to keep a writer, and every reader behind it, waiting.
         if (_logger.LoggingQueries) _logger.RecordQuery(query ?? expression.ToString()!, duration, resultCount, metrics);
+        warnIfManyNodesReadFromDisk(metrics, query, expression, duration);
         return result;
+    }
+    /// <summary>
+    /// The context a query runs with. Without a time limit or a cancellable token it is the caller's own;
+    /// otherwise a copy whose token is cancelled by the caller's token or when the limit passes. The token
+    /// source is disposed when the query returns, after which the token never fires - a result that reads
+    /// lazily later, with this context, is not cancelled by a timer that outlived its query. For the same
+    /// reason the token is only ever polled, never registered with.
+    /// </summary>
+    sealed class QueryLimit : IDisposable {
+        readonly CancellationTokenSource? _cts;
+        readonly CancellationToken _callerToken;
+        readonly double _seconds;
+        public QueryContext Context { get; }
+        public QueryLimit(QueryContext ctx, double seconds) {
+            _callerToken = ctx.CancellationToken;
+            _seconds = seconds > 0 ? seconds : 0;
+            if (_seconds == 0 && !_callerToken.CanBeCanceled) {
+                Context = ctx;
+                return;
+            }
+            _cts = _callerToken.CanBeCanceled ? CancellationTokenSource.CreateLinkedTokenSource(_callerToken) : new CancellationTokenSource();
+            if (_seconds > 0) _cts.CancelAfter(TimeSpan.FromSeconds(_seconds));
+            Context = ctx.WithCancellation(_cts.Token);
+        }
+        public bool TimedOut => _seconds > 0 && _cts != null && _cts.IsCancellationRequested && !_callerToken.IsCancellationRequested;
+        public TimeoutException TimeoutError() => new("The query was stopped after " + _seconds.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            + " seconds, the limit set by the setting MaxQueryDurationInSeconds. Page the result, filter on indexed properties, or raise the limit. ");
+        public void Dispose() => _cts?.Dispose();
+    }
+    long _lastDiskReadWarningTicks = long.MinValue;
+    // A query that reads this many nodes from the log is slow, holds the disk and pushes what other readers
+    // use out of the node cache - worth a line in the system log, though not one per query.
+    void warnIfManyNodesReadFromDisk(Metrics metrics, string? query, IExpression expression, TimeSpan duration) {
+        var threshold = _settings.WarnWhenQueryReadsNodesFromDisk;
+        if (threshold <= 0 || metrics.NodesReadFromDisk < threshold) return;
+        var now = Environment.TickCount64;
+        var last = Interlocked.Read(ref _lastDiskReadWarningTicks);
+        if (last != long.MinValue && now - last < 60_000) return; // at most one a minute
+        if (Interlocked.CompareExchange(ref _lastDiskReadWarningTicks, now, last) != last) return; // another query got there first
+        var text = query ?? expression.ToString() ?? "";
+        if (text.Length > 1000) text = text[..1000] + "...";
+        LogWarning("A query read " + metrics.NodesReadFromDisk.To1000N() + " nodes from the log file in " + duration.TotalMilliseconds.To1000N() + "ms"
+            + " (the warning threshold, WarnWhenQueryReadsNodesFromDisk, is " + threshold.To1000N() + "). "
+            + "Such a query is slow and pushes what other queries use out of the node cache: page the result, or filter on indexed properties. "
+            + "Further warnings like this are held back for a minute. ", text);
     }
     public object? Query(string query, IEnumerable<Parameter> parameters, QueryContext? ctx = null) {
         var syntaxTree = TokenParser.Parse(query, parameters);
@@ -489,4 +518,13 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
+}
+/// <summary>
+/// Turns stored node data into what a reader in a context sees: the right revision for its culture and
+/// release window. Made under the store lock (<see cref="DataStoreLocal.GetOuterConverter"/>), where the
+/// context is resolved against the users and cultures; converting reads nothing but the node, so it may
+/// run after the lock is let go.
+/// </summary>
+internal readonly struct OuterConverter(Indexes.Meta.NodeTypesByIds index, QueryContextKey key, DateTime nowUtc) {
+    public INodeDataExternal ToOuter(INodeDataInternal node) => index.PickBestOuter(node, key, nowUtc);
 }

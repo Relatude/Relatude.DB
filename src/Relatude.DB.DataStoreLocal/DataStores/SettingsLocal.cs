@@ -24,6 +24,16 @@ public class SettingsLocal {
     public LogRecordingSettings[]? LogRecording { get; set; }
     /// <summary>Queries faster than this are left out of the query log. 0 records every query.</summary>
     public int MinQueryDurationMsBeforeLogging { get; set; } = 0;
+    /// <summary>
+    /// A query still running after this many seconds is stopped with a <see cref="TimeoutException"/>,
+    /// at its next check - between batches of nodes read and rows evaluated. 0 sets no limit.
+    /// </summary>
+    public double MaxQueryDurationInSeconds { get; set; } = 0;
+    /// <summary>
+    /// A query that reads more nodes than this from the log file is noted in the system log as a warning,
+    /// at most once a minute. 0 turns the warning off.
+    /// </summary>
+    public int WarnWhenQueryReadsNodesFromDisk { get; set; } = 100_000;
 
     public bool DoNotCacheMapperFile { get; set; } = false;
     public double NodeCacheSizeGb { get; set; } = 1;

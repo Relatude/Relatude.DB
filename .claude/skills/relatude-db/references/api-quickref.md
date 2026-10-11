@@ -65,6 +65,16 @@ long venues = db.Count<IVenue>();
 `Get` throws when the id is missing or belongs to a node of another type; `TryGet` returns `false` for
 both. A node whose type inherits from `T` counts as a `T`, just as it does for `Exists<T>`.
 
+A long query can be stopped: put a cancellation token on its context, set last, as the fluent methods
+keep it. It throws `OperationCanceledException` at its next check (between batches of nodes read and
+rows evaluated). The setting `MaxQueryDurationInSeconds` stops every query past it with a
+`TimeoutException`.
+
+```csharp
+var ctx = QueryContext.Default.WithCancellation(httpContext.RequestAborted);
+var hits = db.Query<IEvent>(ctx).Where(e => e.Description.Contains("jazz")).Execute();
+```
+
 ## Update, upsert, delete
 
 Every mutating call returns a `TransactionResult` and accepts `flushToDisk: bool = false`. The default is queued/async, which is what you want in hot paths; pass `true` to force a disk sync before returning.

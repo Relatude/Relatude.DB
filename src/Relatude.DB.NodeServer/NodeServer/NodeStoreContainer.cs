@@ -223,6 +223,22 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     }
 
     /// <summary>
+    /// What the AI embedding cache and the services' answer caches (<see cref="ServiceCaches"/>) put in
+    /// their file names, or null to keep the plain names. A database without disk storage - memory,
+    /// blobs - falls back to the server's data folder (<see cref="getLocalDiskFolder"/>), which every
+    /// such database shares and which is usually the default database's own folder too. A Native KV file
+    /// is held by one at a time, so on one name the second database waited FileOpenRetry's 30 s per file
+    /// at every open and then went without; there the files are named by the database's id. In a
+    /// database's own folder, or the one <see cref="AIProviderSettings.FilePath"/> names, the files keep
+    /// the names they always had, and with them what was paid for.
+    /// </summary>
+    string? cacheFileOwner(IIOProvider? ioIndexes, IIOProvider? ioDatabase) {
+        if (!string.IsNullOrEmpty(settings.AISettings?.FilePath)) return null;
+        if (ioIndexes is IOProviderDisk || ioDatabase is IOProviderDisk) return null;
+        return settings.Id.ToString("N");
+    }
+
+    /// <summary>
     /// The folder the persisted index engines write to: <see cref="SettingsLocal.PersistedValueIndexFolderPath"/>
     /// when set, otherwise <paramref name="localDiskFolder"/>; a relative path is rooted against the
     /// server data folder, as for the queue store. Every engine gets its own folder below the
@@ -399,11 +415,12 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             var aiFolder = settings.AISettings?.FilePath;
             if (string.IsNullOrEmpty(aiFolder)) aiFolder = localDiskFolder;
             if (!string.IsNullOrEmpty(aiFolder) && !Path.IsPathRooted(aiFolder)) aiFolder = server.RootDataFolderPath.SuperPathCombine(aiFolder);
+            var cacheOwner = cacheFileOwner(ioIndexes, ioDatabase); // one file per database in a shared folder
             if (settings.AISettings != null) {
                 if (!Directory.Exists(aiFolder)) Directory.CreateDirectory(aiFolder!);
                 // the Relatude service charges this installation's license, read at every call like
                 // the SMS provider's below
-                ai = AIProviderFactory.Create(settings.AISettings, aiFolder, () => server.Settings.ApiKey);
+                ai = AIProviderFactory.Create(settings.AISettings, aiFolder, () => server.Settings.ApiKey, cacheOwner);
             }
             // Nothing in the database sends a message, so this is built for application code alone
             // (NodeStore.Services.SMS) and has no folder, cache or engine around it. It is resolved here all
@@ -433,9 +450,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             // what the three services answered is kept on this machine, beside the AI embedding cache, so
             // the same question is not sent, nor paid for, twice. Custom providers get the cache as well.
             List<string> cacheWarnings = [];
-            imaging = ServiceCaches.Wrap(imaging, settings.ImagingSettings?.CacheType ?? ServiceCacheType.Native, aiFolder, cacheWarnings);
-            fileToText = ServiceCaches.Wrap(fileToText, settings.FileToTextSettings?.CacheType ?? ServiceCacheType.Native, aiFolder, cacheWarnings);
-            translation = ServiceCaches.Wrap(translation, settings.TranslationSettings?.CacheType ?? ServiceCacheType.Native, aiFolder, cacheWarnings);
+            imaging = ServiceCaches.Wrap(imaging, settings.ImagingSettings?.CacheType ?? ServiceCacheType.Native, aiFolder, cacheOwner, cacheWarnings);
+            fileToText = ServiceCaches.Wrap(fileToText, settings.FileToTextSettings?.CacheType ?? ServiceCacheType.Native, aiFolder, cacheOwner, cacheWarnings);
+            translation = ServiceCaches.Wrap(translation, settings.TranslationSettings?.CacheType ?? ServiceCacheType.Native, aiFolder, cacheOwner, cacheWarnings);
 
             List<string> toLog = new();
             var indexFolderPath = resolveIndexFolderPath(local, localDiskFolder);

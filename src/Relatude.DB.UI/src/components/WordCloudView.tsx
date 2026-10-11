@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { IconCalculator, IconCloud, IconDownload, IconTable } from "@tabler/icons-react";
 import { fetchPivotModel, runCloud, type CloudRequest, type CloudResult, type CloudWord, type PivotModel } from "../server/query";
-import { useLiveResult } from "../server/hooks";
+import { RunGroupContext, useLiveResult } from "../server/hooks";
 import { formatCount, formatQuery } from "../format";
 import type { PivotBase } from "./PivotView";
 import type { CloudDefinition } from "../queryTabs";
@@ -190,7 +190,7 @@ export function WordCloudView({
     if (!manual) return; // the effect above has already run again with the token
     setSubmitted((was) => (was === null || latestPending.current === null ? was : { ...latestPending.current }));
   }, [refreshToken, manual]);
-  const { result, loading, error } = useLiveResult(submitted, runCloud);
+  const { result, loading, error } = useLiveResult(submitted, runCloud, useContext(RunGroupContext)); // stopped with the Query tab it is in
   // the controls have moved on from what the words on screen were counted with
   const stale = manual && submitted !== null && pending !== null && JSON.stringify(pending) !== JSON.stringify(submitted);
 

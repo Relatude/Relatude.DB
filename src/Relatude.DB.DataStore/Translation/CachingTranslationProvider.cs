@@ -108,8 +108,7 @@ public sealed class CachingTranslationProvider(ITranslationProvider inner, IServ
     public void ClearCache() => _cache.ClearAll();
 
     public void Dispose() {
-        Inner.Dispose();
-        _cache.Dispose();
+        try { Inner.Dispose(); } finally { _cache.Dispose(); } // the cache file is released whatever the provider does
     }
 
     static string? code(string? language) => string.IsNullOrWhiteSpace(language) ? null : language.Trim();

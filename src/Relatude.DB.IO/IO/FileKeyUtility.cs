@@ -215,21 +215,27 @@ public static class FileKeyUtility {
     public static void State_DeleteAll(IIOProvider io) {
         foreach (var key in State_GetAllFileKeys(io)) io.DeleteFileIfItExists(key);
     }
-    public static string[]? GetAiCacheFileKey(AIProviderCacheType? cacheProvider) {
+    /// <param name="owner">The database the file is kept for when its folder is shared with other
+    /// databases (see <see cref="GetServiceCacheFileKey"/>); null in a database's own folder.</param>
+    public static string[]? GetAiCacheFileKey(AIProviderCacheType? cacheProvider, string? owner = null) {
         if (cacheProvider == null) return null;
         return cacheProvider.Value switch {
             AIProviderCacheType.None => null,
-            AIProviderCacheType.Native => aiCacheNativeFilePattern,
+            AIProviderCacheType.Native => owner == null ? aiCacheNativeFilePattern : [indexStoreFolderPattern, "native.ai." + owner + ".cache.bin"],
             AIProviderCacheType.Memory => null,
-            AIProviderCacheType.Sqlite => aiCacheFilePattern,
+            AIProviderCacheType.Sqlite => owner == null ? aiCacheFilePattern : [indexStoreFolderPattern, "ai." + owner + ".cache.bin"],
             _ => throw new NotImplementedException(),
         };
     }
     /// <summary>
     /// The Native KV file a service's answers are kept in on this machine (imaging, filetotext,
     /// translation), beside the AI embedding cache in the indexes folder.
+    /// <para><paramref name="owner"/> names the database in the file name when the folder is shared by
+    /// several - a database without disk storage keeps its local files in the server's data folder,
+    /// like every other such database - because a Native KV file is held by one at a time.</para>
     /// </summary>
-    public static string[] GetServiceCacheFileKey(string service) => [indexStoreFolderPattern, "native." + service + ".cache.bin"];
+    public static string[] GetServiceCacheFileKey(string service, string? owner = null)
+        => [indexStoreFolderPattern, "native." + service + (owner == null ? "" : "." + owner) + ".cache.bin"];
     public static string IndexStoreFolderKey => indexStoreFolderPattern;
 
     public static string[] CriticalErrorLogFileKey => criticalErrorLogFilePattern;
@@ -462,6 +468,8 @@ public static class FileKeyUtility {
         if (key.MatchesPattern(walFileBackupPattern)) return "Backup";
         if (key.MatchesPattern(aiCacheFilePattern) || key.MatchesPattern(aiCacheNativeFilePattern)) return "AI Cache";
         if (key.MatchesPattern([indexStoreFolderPattern, "ai.cache.bin*"])) return "AI Temp";
+        if (key.MatchesPattern([indexStoreFolderPattern, "native.ai.*.cache.bin"]) || key.MatchesPattern([indexStoreFolderPattern, "ai.*.cache.bin"])) return "AI Cache";
+        if (key.MatchesPattern([indexStoreFolderPattern, "native.*.cache.bin"])) return "Service answer cache";
         if (key.MatchesPattern(criticalErrorLogFilePattern)) return "Critical error log";
         if (key.MatchesPattern(mapperDllFilePattern)) return "Mapper DLL";
         if (key.MatchesPattern(fileStorePattern)) return "Filestore";

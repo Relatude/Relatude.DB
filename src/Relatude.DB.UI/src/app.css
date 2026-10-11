@@ -7141,6 +7141,27 @@ body.pg-resizing {
   border-color: var(--text-faint);
 }
 
+/* the Stop beside it while a query runs: the same frame, in the colour of something to interrupt */
+.query-stop {
+  width: 30px;
+  height: auto;
+  background: var(--button-bg);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+.query-stop:hover {
+  background: var(--danger-soft);
+}
+
+/* in the Stop's place once it has been used, until the next run */
+.query-stopped {
+  align-self: center;
+  font-size: 12px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
 .query-spacer {
   flex: 1;
 }

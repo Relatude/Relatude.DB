@@ -28,11 +28,28 @@ export class CommandError extends Error {
   }
 }
 
+/**
+ * Sends a command and resolves with its answer. With a signal, aborting it abandons the request - and
+ * stops the command on the server as well: the command travels with a run id, and the abort sends
+ * command-cancel with it. The server would also notice the dropped request on its own, but not always
+ * behind a proxy; the cancel is what makes a Stop button reliable. A command that does not watch for
+ * cancellation runs to its end either way.
+ */
 export async function send<T = unknown>(type: string, payload?: unknown, signal?: AbortSignal): Promise<T> {
+  const runId = signal ? newRunId() : undefined;
+  const cancel = runId ? () => cancelRun(runId) : undefined;
+  if (signal && cancel) signal.addEventListener("abort", cancel, { once: true });
+  try {
+    return await sendRequest<T>(type, payload, signal, runId);
+  } finally {
+    if (signal && cancel) signal.removeEventListener("abort", cancel);
+  }
+}
+async function sendRequest<T>(type: string, payload: unknown, signal: AbortSignal | undefined, runId: string | undefined): Promise<T> {
   const response = await fetch(`${base}/command`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ type, payload: payload ?? null }),
+    body: JSON.stringify({ type, payload: payload ?? null, runId }), // runId undefined is left out
     signal, // a long running listing can be abandoned when its progress dialog is cancelled
   });
   if (!response.ok) {
@@ -49,6 +66,30 @@ export async function send<T = unknown>(type: string, payload?: unknown, signal?
   // a command that answers null sends no body at all, which response.json() refuses
   const text = await response.text();
   return (text ? JSON.parse(text) : null) as T;
+}
+
+// a run id the server can be told to stop by: random, as any id the browser makes up for itself
+function newRunId(): string {
+  const c = globalThis.crypto;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID(); // only in a secure context (https, localhost)
+  const bytes = new Uint8Array(16);
+  if (c && typeof c.getRandomValues === "function") c.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// tells the server to stop a command sent with this run id; nothing waits for the answer
+function cancelRun(runId: string): void {
+  try {
+    void fetch(`${base}/command`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "command-cancel", payload: { runId } }),
+      keepalive: true, // a Stop on a page that is closing still reaches the server
+    }).catch(() => {});
+  } catch {
+    // nothing to be done: the server stops on its own when it notices the request is gone
+  }
 }
 
 /**

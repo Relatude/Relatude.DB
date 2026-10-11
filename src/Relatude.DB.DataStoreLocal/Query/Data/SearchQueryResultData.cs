@@ -6,7 +6,7 @@ using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.Query.Data;
 
-internal class SearchQueryResultData : ISearchQueryResultData {
+internal class SearchQueryResultData : ISearchQueryResultData, IDeferredNodeRetrieval {
     DataStoreLocal _db;
     StringProperty _searchProperty;
     IEnumerable<RawSearchHit> _rawHits;
@@ -51,11 +51,23 @@ internal class SearchQueryResultData : ISearchQueryResultData {
     }
     public void EnsureRetrivalOfRelationNodesDataBeforeExitingReadLock(Metrics metrics) {
         if (_hits != null) return;
+        using var pending = beginNodes(metrics);
+        setHits(pending.Complete(_ctx.CancellationToken));
+    }
+    // the node data is read after the read lock is let go; the hits are built from it right after
+    public PendingRetrieval? BeginRetrievalUnderReadLock(Metrics metrics) {
+        if (_hits != null) return null;
+        return new PendingRetrieval(beginNodes(metrics), setHits);
+    }
+    PendingNodeData beginNodes(Metrics metrics) {
+        // the hits are taken while the lock is held: setHits may run after it is let go
+        _rawHits = _rawHits as RawSearchHit[] ?? _rawHits.ToArray();
         if (_includeBranches != null) _includeBranches = IncludeUtil.JoinPathsToUniqueBranches(_includeBranches);
         var ids = IdSet.UncachableSet(new FixedOrderedSet(_rawHits.Select(h => h.NodeId), metrics.NodeCount));
-        var nodes = IncludeUtil.GetNodesWithIncludes(metrics, ids, _db, _includeBranches, _ctx);
-        _hits = new List<SearchResultHitData>(_rawHits.Count());
-        var nodeIdsToGet = _rawHits.Select(h => h.NodeId);
+        return IncludeUtil.BeginNodesWithIncludes(metrics, ids, _db, _includeBranches, _ctx);
+    }
+    void setHits(INodeDataExternal[] nodes) {
+        var hits = new List<SearchResultHitData>(_rawHits.Count());
         var nodeIdsById = nodes.ToDictionary(n => n.__Id, n => n);
         var searchTerms = TermSet.Parse(Search, _searchProperty.MinWordLength, _searchProperty.MaxWordLength, _searchProperty.InfixSearch);
         foreach (var hit in _rawHits) {
@@ -63,8 +75,9 @@ internal class SearchQueryResultData : ISearchQueryResultData {
             if (node.TryGetValue(_searchProperty.Id, out var textO)) {
                 var text = (string)textO;
                 var sample = _searchProperty.GetTextSample(searchTerms, text, 255);
-                _hits.Add(new(node, hit.Score, sample));
+                hits.Add(new(node, hit.Score, sample));
             }
         }
+        _hits = hits;
     }
 }

@@ -13,7 +13,6 @@ using static System.Runtime.InteropServices.JavaScript.JSType;
 namespace Relatude.DB.DataStores;
 
 public sealed partial class DataStoreLocal : IDataStore {
-    byte[][] readSegments(NodeSegment[] segments, out int diskReads) => _wal.ReadNodeSegments(segments, out diskReads);
     void updateNodeDataPositionInLogFile(ReadOnlySpan<(int id, NodeSegment segment)> segments) {
         // this happens when nodes are added or updated, and the new data is written to the log file
         _nodes.UpdateNodeDataPositionsInLogFile(segments);

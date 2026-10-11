@@ -41,6 +41,52 @@ public class AzureBlobProviderTests {
     static byte[] bytes(string s) => Encoding.UTF8.GetBytes(s);
 
     [TestMethod]
+    public void ReadsBesideAppendsAndFlushes_ComeBackRight() {
+        // a read downloads outside the stream's lock: from several threads at once, beside appends and
+        // flushes, every range must come back as written - from the write buffer, the read buffer, or the blob
+        requireAzurite();
+        var io = new AzureBlobIOProvider(newContainerName(), _connectionString, lockBlob: false);
+        using var append = io.OpenAppend(["db.00000001.bin"]);
+        const int recordSize = 100;
+        var written = 0;
+        var stop = false;
+        var errors = new List<string>();
+        var writer = Task.Run(() => {
+            for (var i = 0; i < 3000; i++) {
+                var record = new byte[recordSize];
+                Array.Fill(record, (byte)(i % 251));
+                append.Append(record);
+                Volatile.Write(ref written, i + 1);
+                if (i % 300 == 299) append.Flush(true); // commits, so reads cross between buffer and blob
+            }
+        });
+        var readers = Enumerable.Range(0, 4).Select(r => Task.Run(() => {
+            var random = new Random(r);
+            while (!Volatile.Read(ref stop)) {
+                var n = Volatile.Read(ref written);
+                if (n < 2) continue;
+                var first = random.Next(n - 1);
+                var count = Math.Min(n - first, 1 + random.Next(r == 0 ? 2000 : 3)); // reader 0 reads long ranges, past the read buffer
+                var buffer = new byte[count * recordSize];
+                append.Get((long)first * recordSize, buffer.Length, buffer);
+                for (var k = 0; k < count; k++) {
+                    var expected = (byte)((first + k) % 251);
+                    for (var b = 0; b < recordSize; b++) {
+                        if (buffer[k * recordSize + b] != expected) {
+                            lock (errors) errors.Add("record " + (first + k) + " read wrong");
+                            break;
+                        }
+                    }
+                }
+            }
+        })).ToArray();
+        Assert.IsTrue(writer.Wait(TimeSpan.FromSeconds(120)));
+        Volatile.Write(ref stop, true);
+        Assert.IsTrue(Task.WaitAll(readers, TimeSpan.FromSeconds(60)));
+        Assert.AreEqual(0, errors.Count, string.Join("; ", errors.Take(5)));
+    }
+
+    [TestMethod]
     public void AppendFlushAndReadBackRoundTrip() {
         requireAzurite();
         var io = new AzureBlobIOProvider(newContainerName(), _connectionString, lockBlob: false);

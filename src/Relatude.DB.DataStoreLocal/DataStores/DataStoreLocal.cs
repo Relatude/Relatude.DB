@@ -340,11 +340,12 @@ public sealed partial class DataStoreLocal : IDataStore {
         var io2 = _settings.SecondaryBackupLog ? _ioLog2 : null;
         var fileKey2 = _settings.SecondaryBackupLog ? FileKeyUtility.WAL_GetSecondaryFileKey() : null;
         _wal = new(fileKey, _definition, _io, updateNodeDataPositionInLogFile, io2, fileKey2);
-        _nodes = new(_definition, _settings, readSegments, _stateStore.CreateSegmentMap());
+        _nodes = new(_definition, _settings, _wal, _stateStore.CreateSegmentMap());
         _relations = new(_definition);
         _index = new(_definition);
         _definition.Initialize(this, _settings, _io, _ai);  // this will open all indexes and set up the variables
         Engines.DeleteUnopenedIndexes(); // delete any indexes that were not opened in the current session (e.g. if they were deleted from the datamodel)
+        markEnginesChanged(); // new engine instances: the first flush makes them durable at the head, as it always did
         _variables = getRootVariables();
         _nodeWriteLocks = new();
         logLine___________________________();
@@ -501,6 +502,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return vars;
     }
+    /// <summary>The last timestamp, read without the lock: for background checks, which must not queue for it.</summary>
+    internal long LastTimestampWithoutLock => _wal.LastTimestamp;
     public long GetLastTimestampID() {
         _lock.EnterReadLock();
         try {
