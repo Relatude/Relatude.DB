@@ -110,7 +110,11 @@ public sealed partial class DataStoreLocal : IDataStore {
             abandonFailedRewrite();
             throw new Exception("Error during log rewrite. ", err);
         }
-        FileKeyUtility.State_DeleteAll(IOIndex);
+        // The state snapshot describes the live log file, and only a hot swap replaces that file: it is saved again
+        // for the new file below. A copy (a truncated backup or download) leaves the log and the snapshot as they
+        // are. Deleting it there left the store without a snapshot, every open replaying the whole log, until the
+        // scheduler happened to save a new one.
+        if (hotSwapToNewFile) FileKeyUtility.State_DeleteAll(IOIndex);
         try {
             _lock.EnterWriteLock();
             try {

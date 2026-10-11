@@ -256,6 +256,16 @@ internal class WALFile : IDisposable {
         var nowUtc = DateTime.UtcNow.Ticks;
         return nowUtc > _lastTimestampID ? _lastTimestampID = nowUtc : ++_lastTimestampID;
     }
+    /// <summary>
+    /// Takes back the newest timestamp when the transaction it was handed to writes nothing to the log (it
+    /// changed nothing, or it failed). The clock goes back to <paramref name="previous"/>, so the engines, the
+    /// indexes and the state file are never stamped with a timestamp the log does not contain - at the next
+    /// open that reads as lost writes and rebuilds everything. Only the newest timestamp can go back: one
+    /// handed out after it stays, and the clock with it.
+    /// </summary>
+    internal void ReturnUnusedTimestamp(long timestamp, long previous) {
+        if (_lastTimestampID == timestamp && previous < timestamp) _lastTimestampID = previous;
+    }
     public void QueDiskWrites(ExecutedPrimitiveTransaction transaction) {
         // No locks needed, as _workQueue is threadsafe
         if (FirstTimestamp == 0) FirstTimestamp = transaction.Timestamp;

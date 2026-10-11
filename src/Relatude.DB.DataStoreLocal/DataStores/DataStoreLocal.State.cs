@@ -251,8 +251,20 @@ public sealed partial class DataStoreLocal : IDataStore {
         var oldestPersistedIndexTimestamp = _index.GetOldestPersistedTimestamp();
         if (stateEngine != null) oldestPersistedIndexTimestamp = Math.Min(oldestPersistedIndexTimestamp, stateEngineTimestamp);
         if (stateFileTimestamp > oldestPersistedIndexTimestamp) {
-            readLogFileFrom = 0; // need to read all to build indexes correctly ( this could be optimized later, to search from timestamp in log file )
+            // what an index (or the state engine) behind the snapshot is missing lies before the snapshot's position,
+            // and nothing records where its own position is in the log, so the replay starts at the beginning
+            readLogFileFrom = 0;
+            var behind = stateEngine != null && stateEngineTimestamp == oldestPersistedIndexTimestamp ? "The state store engine"
+                : "Index \"" + _definition.GetAllIndexes().MinBy(i => i.PersistedTimestamp)!.FriendlyName + "\"";
+            LogInfo("   " + behind + (oldestPersistedIndexTimestamp == 0 ? " is new or empty" : " is behind the state file")
+                + ": reading the log from the beginning, passing over what the state and every index already hold. ");
         }
+        // A transaction older than this is held by everything: the state stores take what is newer than the snapshot,
+        // the state engine what is newer than its own position (part of the minimum above), the indexes what is at or
+        // after the oldest index position. The reader passes over older ones without checksums or deserialization,
+        // so starting at the beginning for one index behind costs reading the bytes, not parsing the whole log.
+        var skipTransactionsOlderThan = Math.Min(oldestPersistedIndexTimestamp, stateFileTimestamp + 1);
+        long skippedTransactions = 0;
 
         int transactionCount = 0;
         int actionCount = 0;
@@ -268,14 +280,40 @@ public sealed partial class DataStoreLocal : IDataStore {
         var lastBytesRead = 0D;
         Engines.BeginTransaction();
         var idValidator = new IdValidator(this, throwOnErrors); // validation below only runs for actions newer than the node store's position
-        using (var logReader = new LogReader(_wal.FileKey, _definition, _io, readLogFileFrom, stateFileTimestamp)) {
+        using (var logReader = new LogReader(_wal.FileKey, _definition, _io, readLogFileFrom, stateFileTimestamp, skipTransactionsOlderThan)) {
             LogInfo("   Log file size: " + logReader.FileSize.ToByteString());
             var noActionsNotCommittedInPersistedIndexes = 0;
             double progressBarFactor = 1 - readLogFileFrom / (double)logReader.FileSize;
             sw.Restart();
+            // remainingOfTransaction: the share of the current transaction not yet applied
+            void reportProgress(double remainingOfTransaction, string flags) {
+                var estimatedByteProgressInTransaction = sizeOfCurrentTransaction * remainingOfTransaction;
+                var readBytes = logReader.Position - estimatedByteProgressInTransaction;
+                var totalBytes = logReader.FileSize;
+                var remainingMs = readBytes > 0 ? (totalBytes - readBytes) * (sw.ElapsedMilliseconds / readBytes) : 0;
+                var remaining = (remainingMs > 0 && sw.ElapsedMilliseconds > 10000) ? (" - " + TimeSpan.FromMilliseconds(remainingMs).ToTimeString()) : "";
+                var estimatedTotalProgress = readBytes * 100D / totalBytes;
+                var deltaBytes = readBytes - lastBytesRead;
+                var deltaSeconds = sw.ElapsedMilliseconds - lastProgress;
+                var bytesPerSecond = deltaBytes / (deltaSeconds / 1000D);
+                lastProgress = (int)sw.ElapsedMilliseconds;
+                var desc = "   - " + (int)estimatedTotalProgress + "% - " + readBytes.ToByteString() + " - " + bytesPerSecond.ToByteString() + "/s" + " - " + actionCount.To1000N() + " actions" + remaining;
+                LogInfo(desc + flags, null, true);
+                var progressBar = progressBarFactor > 0 ? Math.Clamp((int)((estimatedTotalProgress - positionInPercentage) / progressBarFactor), 0, 100) : 100;
+                UpdateActivity(activityId, desc.Trim(), progressBar);
+                // the time left is held back for the first ten seconds, as in the line above:
+                // before then it is a guess that swings by a factor of two
+                setStartupProgressEstimate(estimate(indexFileBytes + stateFileBytes + bytesToRead * progressBar / 100d), remaining.Length > 0 ? (int)remainingMs : 0);
+                lastBytesRead = readBytes;
+            }
             while (logReader.ReadNextTransaction(out var transaction, throwOnErrors, logError, out sizeOfCurrentTransaction)) {
                 transactionCount++;
                 actionCountInTransaction = 0;
+                if (transaction.Timestamp < skipTransactionsOlderThan) { // read past with no actions, see above
+                    if (++skippedTransactions % 100 == 0 && sw.ElapsedMilliseconds - lastProgress > 200) reportProgress(0, " - passing over");
+                    _wal.EnsureTimestamps(transaction.Timestamp);
+                    continue;
+                }
                 var isTransactionRelevantForStateStores = transaction.Timestamp > stateFileTimestamp;
                 var isTransactionRelevantForStateEngine = stateEngine == null ? isTransactionRelevantForStateStores : transaction.Timestamp > stateEngineTimestamp;
                 var isTransactionRelevantForIndexes = transaction.Timestamp >= oldestPersistedIndexTimestamp;
@@ -285,25 +323,8 @@ public sealed partial class DataStoreLocal : IDataStore {
                     if (isTransactionRelevantForStateEngine && !idValidator.Validate(a, transaction.Timestamp)) continue;
                     try {
                         if (actionCount % 100 == 0 && (sw.ElapsedMilliseconds - lastProgress > 200)) {
-                            var remainingInTrans = 1D - (double)actionCountInTransaction / transaction.ExecutedActions.Count;
-                            var estimatedByteProgressInTransaction = sizeOfCurrentTransaction * remainingInTrans;
-                            var readBytes = logReader.Position - estimatedByteProgressInTransaction;
-                            var totalBytes = logReader.FileSize;
-                            var remainingMs = readBytes > 0 ? (totalBytes - readBytes) * (sw.ElapsedMilliseconds / readBytes) : 0;
-                            var remaining = (remainingMs > 0 && sw.ElapsedMilliseconds > 10000) ? (" - " + TimeSpan.FromMilliseconds(remainingMs).ToTimeString()) : "";
-                            var estimatedTotalProgress = readBytes * 100D / totalBytes;
-                            var deltaBytes = readBytes - lastBytesRead;
-                            var deltaSeconds = sw.ElapsedMilliseconds - lastProgress;
-                            var bytesPerSecond = deltaBytes / (deltaSeconds / 1000D);
-                            lastProgress = (int)sw.ElapsedMilliseconds;
-                            var desc = "   - " + (int)estimatedTotalProgress + "% - " + readBytes.ToByteString() + " - " + bytesPerSecond.ToByteString() + "/s" + " - " + actionCount.To1000N() + " actions" + remaining;
-                            LogInfo(desc + (isTransactionRelevantForIndexes?" - i":"") + (isTransactionRelevantForStateStores?" - m":""), null, true);
-                            var progressBar = progressBarFactor > 0 ? Math.Clamp((int)((estimatedTotalProgress - positionInPercentage) / progressBarFactor), 0, 100) : 100;
-                            UpdateActivity(activityId, desc.Trim(), progressBar);
-                            // the time left is held back for the first ten seconds, as in the line above:
-                            // before then it is a guess that swings by a factor of two
-                            setStartupProgressEstimate(estimate(indexFileBytes + stateFileBytes + bytesToRead * progressBar / 100d), remaining.Length > 0 ? (int)remainingMs : 0);
-                            lastBytesRead = readBytes;
+                            reportProgress(1D - (double)actionCountInTransaction / transaction.ExecutedActions.Count,
+                                (isTransactionRelevantForIndexes ? " - i" : "") + (isTransactionRelevantForStateStores ? " - m" : ""));
                         }
                         if (isTransactionRelevantForStateEngine) {
                             _guids.RegisterAction(a);
@@ -394,6 +415,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         foreach (var e in idValidator.GetErrors()) logError(e);
         if (actionCount > 0) LogInfo("   Read " + actionCount.To1000N() + " actions from log file in " + sw.ElapsedMilliseconds.To1000N() + "ms. ", null, false);
         else LogInfo("   No actions read from log file.", null, true);
+        if (skippedTransactions > 0) LogInfo("   Passed over " + skippedTransactions.To1000N() + " transactions the state and every index already held. ");
         if (stateFileTimestamp > 0) { // persist indexes that are new and never persisted
             foreach (var indx in _definition.GetAllIndexes()) {
                 if (indx.PersistedTimestamp == 0) { // this indicates a new index, so persist it

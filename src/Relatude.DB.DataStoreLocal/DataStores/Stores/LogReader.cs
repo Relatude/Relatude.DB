@@ -23,11 +23,16 @@ internal class LogReader : IDisposable {
     readonly Definition _definition;
     long _fileSize;
     long _formatVersion = WALFile._logVersionNumberV1000;
-    public LogReader(string[] fileKey, Definition definition, IIOProvider io, long fromTransactionAtPos, long fromTimestamp) {
+    readonly long _skipTransactionsOlderThan;
+    /// <param name="skipTransactionsOlderThan">A transaction with an older timestamp is read past - no checksums, no
+    /// deserialization - and returned with no actions, for a caller that already holds everything it changed.
+    /// Decided per transaction, as timestamps in a log are not in order everywhere (a rewritten log is not).</param>
+    public LogReader(string[] fileKey, Definition definition, IIOProvider io, long fromTransactionAtPos, long fromTimestamp, long skipTransactionsOlderThan = long.MinValue) {
         _fileSize = io.GetFileSizeOrZeroIfUnknown(fileKey);
         if (_fileSize > 0) _readStream = verifyFileAndOpen(fileKey, io, fromTransactionAtPos, out _, out _formatVersion);
         _definition = definition;
         _lastTimestampID = fromTimestamp;
+        _skipTransactionsOlderThan = skipTransactionsOlderThan;
     }
     public static Guid ReadFileId(string[] fileKey, IIOProvider io) {
         Guid fileId;
@@ -60,7 +65,7 @@ internal class LogReader : IDisposable {
             if (!foundMarker) break;
             var from = _readStream.Position;
             try {
-                transaction = tryReadNext(_readStream, _definition, _formatVersion, log, ref _lastTimestampID, out byteSizeOfTransaction);
+                transaction = tryReadNext(_readStream, _definition, _formatVersion, _skipTransactionsOlderThan, log, ref _lastTimestampID, out byteSizeOfTransaction);
                 return true;
             } catch (Exception error) {
                 var to = _readStream.Position;
@@ -78,10 +83,21 @@ internal class LogReader : IDisposable {
         byteSizeOfTransaction = 0;
         return false;
     }
-    static ExecutedPrimitiveTransaction tryReadNext(IReadStream readStream, Definition def, long formatVersion, Action<string, Exception?> log, ref long lastTimestampID, out long byteSizeOfTransaction) {
+    static ExecutedPrimitiveTransaction tryReadNext(IReadStream readStream, Definition def, long formatVersion, long skipTransactionsOlderThan, Action<string, Exception?> log, ref long lastTimestampID, out long byteSizeOfTransaction) {
         var startPosition = readStream.Position;
         var timestamp = readStream.ReadLong();
         var noActions = readStream.ReadVerifiedInt();
+        if (timestamp < skipTransactionsOlderThan) { // the markers are still checked, so a damaged transaction is reported as one
+            for (var i = 0; i < noActions; i++) {
+                readStream.ValidateMarker(WALFile._actionMarker);
+                readStream.SkipByteArray();
+                readStream.Skip(sizeof(uint)); // the checksum of the action
+            }
+            readStream.ValidateMarker(WALFile._transactionEndMarker);
+            if (lastTimestampID < timestamp) lastTimestampID = timestamp;
+            byteSizeOfTransaction = readStream.Position - startPosition;
+            return new ExecutedPrimitiveTransaction([], timestamp);
+        }
         var actions = new List<PrimitiveActionBase>(noActions);
         for (var i = 0; i < noActions; i++) {
             readStream.ValidateMarker(WALFile._actionMarker);

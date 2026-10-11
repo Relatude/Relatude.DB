@@ -75,22 +75,45 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = RegisterActvity(DataStoreActivityCategory.Executing, "Executing transaction", 0);
         if (flushToDisk) FlushToDisk(Settings.DeepFlushDisk, activityId); // outside write lock to reduce time lock is held
         _lock.EnterWriteLock();
+        // the clock before this transaction, for giving its timestamp back if it writes nothing (see giveBackTimestamp)
+        var clockBefore = 0L;
+        var timestampTakenHere = false;
+        var inEngineTransaction = false;
         try {
             validateDatabaseState();
-            if (transaction.Timestamp <= _wal.LastTimestamp) {
+            clockBefore = _wal.LastTimestamp;
+            if (transaction.Timestamp <= clockBefore) {
                 if (transaction.Timestamp > 0) throw new ExceptionWithoutIntegrityLoss("Invalid timestamp value. Transactions can only be executed once. ");
                 transaction.Timestamp = _wal.NewTimestamp();
+                timestampTakenHere = true;
+            } else {
+                // a timestamp given by the caller moves the clock too: otherwise the next one handed out could be
+                // older than it, and the check above would let the same transaction run twice
+                _wal.EnsureTimestamps(transaction.Timestamp);
             }
             var newTasks = new List<KeyValuePair<TaskData, string?>>();
             var resultingOperations = new ResultingOperation[transaction.Actions.Count];
             Engines.BeginTransaction();
+            inEngineTransaction = true;
             execute_inner(transaction, transformValues, out primitiveActionCount, resultingOperations, newTasks, activityId, ctx);
+            if (primitiveActionCount == 0) {
+                // it changed nothing (an unchanged upsert, an insert-if-not-exists of a stored node, a delete-if-exists
+                // of a missing one...), so nothing goes to the log and nothing may carry its timestamp. The engines
+                // end their transaction at the timestamp the clock is back at, which they already had
+                giveBackTimestamp(transaction, clockBefore, timestampTakenHere);
+                Engines.CommitTransaction(_wal.LastTimestamp);
+                inEngineTransaction = false;
+                foreach (var t in newTasks) EnqueueTask(t.Key, t.Value);
+                return new(0, resultingOperations); // like TransactionResult.Empty: no transaction was written
+            }
             Engines.CommitTransaction(transaction.Timestamp);
+            inEngineTransaction = false;
             foreach (var t in newTasks) EnqueueTask(t.Key, t.Value); // only enqueued after transaction is fully executed
             return new(transaction.Timestamp, resultingOperations);
         } catch (ExceptionWithoutIntegrityLoss err) {
             // database state is ok, entire transaction is cancelled and any changes have been rolled back
-            Engines.RollbackTransaction();
+            if (inEngineTransaction) Engines.RollbackTransaction(); // the timestamp check above throws before the engines begin
+            giveBackTimestamp(transaction, clockBefore, timestampTakenHere);
             if (err is NodeLockedException) {
                 // LogWarning(err.Message); // no logging as outer call wil log exception
             } else {
@@ -108,6 +131,14 @@ public sealed partial class DataStoreLocal : IDataStore {
                 DeRegisterActivity(activityId); // ensure activity is always deregistered
             }
         }
+    }
+    // A timestamp is handed out before the transaction runs. When the transaction writes nothing to the log, the
+    // timestamp goes back: the log must contain every timestamp the engines, the indexes and the state file can
+    // be stamped with. An engine stamped past the log looks like lost writes at the next open (a full rebuild),
+    // and a state file stamped past the engines makes the open replay the log from the start for them.
+    void giveBackTimestamp(TransactionData transaction, long clockBefore, bool takenHere) {
+        _wal.ReturnUnusedTimestamp(transaction.Timestamp, clockBefore);
+        if (takenHere) transaction.Timestamp = 0; // never written: the same transaction may run again, as a retry does
     }
     void execute_inner(TransactionData transaction, bool transformValues, out int primitiveActionCount,
         ResultingOperation[] resultingOperations, List<KeyValuePair<TaskData, string?>> newTasks, long activityId, QueryContext ctx) {

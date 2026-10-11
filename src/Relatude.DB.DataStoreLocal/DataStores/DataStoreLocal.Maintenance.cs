@@ -453,7 +453,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         try {
             validateDatabaseState();
             if (timestamp <= _wal.LastTimestamp) throw new Exception("Timestamp must be greater than last timestamp. ");
-            _wal.StoreTimestamp(timestamp);
+            _wal.StoreTimestamp(timestamp); // written to the log as an empty transaction
+            // the engines move with it: left behind, the next state snapshot would be newer than all of them, and
+            // the open after it would replay the log from the start
+            Engines.BeginTransaction();
+            Engines.CommitTransaction(timestamp);
         } finally {
             _lock.ExitWriteLock();
         }
