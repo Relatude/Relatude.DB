@@ -53,7 +53,7 @@ sealed class UILicense(RelatudeDBServer server) {
         // page, which saves them the way it saves any other setting.
         commands.Register("license-pair-start", async ctx => {
             server.LicenseLogin.RememberPublicUrl(ctx.Http);
-            return await server.LicenseLogin.StartPairingAsync(ctx.Http.RequestAborted);
+            return await server.LicenseLogin.StartPairingAsync(ctx.Http.Request.Host.Value, ctx.Http.RequestAborted);
         });
         commands.Register("license-pair-poll", async ctx => await server.LicenseLogin.PollPairingAsync(ctx.Payload<PairingPayload>().PairingId ?? "", ctx.Http.RequestAborted));
         commands.Register("license-pair-cancel", async ctx => {

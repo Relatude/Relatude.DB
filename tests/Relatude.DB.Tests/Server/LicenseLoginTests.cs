@@ -172,6 +172,38 @@ public class LicenseLoginTests {
         }
     }
 
+    [TestMethod]
+    public async Task Installation_GoesByTheDefaultDatabasesName_AndAPairingByTheAddressItWasStartedOn() {
+        var host = TestServerHost.Start(_root, databases: 2, configure: s => {
+            s.ServicesServerUrl = _stub!.Url;
+            s.ApiKey = _apiKey.ToString();
+            s.AllowLicenseeAdminLogin = true;
+            s.DisableHeartbeat = true;
+            s.PublicUrl = "https://db.example.com";
+            s.DefaultStoreId = s.ContainerSettings![1].Id;
+        });
+        try {
+            // the server name is a label most installations leave at its default: the default database is what its people call it
+            var begun = await host.Server.LicenseLogin.BeginAsync(request("db.example.com"), new("https://db.example.com/relatude.db/"));
+            Assert.IsNotNull(begun.LoginUrl, begun.Error);
+            Assert.IsTrue(_stub!.LoginRequests.TryDequeue(out var posted));
+            Assert.AreEqual("Database 1", posted.GetProperty("installationName").GetString());
+
+            await host.Server.LicenseLogin.StartPairingAsync("db.example.com");
+            Assert.IsTrue(_stub.Pairings.TryDequeue(out var pairing));
+            Assert.AreEqual("Database 1", pairing.GetProperty("installationName").GetString());
+            Assert.AreEqual("db.example.com", pairing.GetProperty("host").GetString(), "the portal names the API key it hands out after the address");
+
+            // a database without a name leaves the server's
+            host.Server.Settings.ContainerSettings![1].Name = " ";
+            await host.Server.LicenseLogin.StartPairingAsync(null);
+            Assert.IsTrue(_stub.Pairings.TryDequeue(out pairing));
+            Assert.AreEqual("Relatude.DB Test Server", pairing.GetProperty("installationName").GetString());
+        } finally {
+            await host.DisposeAsync();
+        }
+    }
+
     // ---- where the browser is sent back to with its code ----
 
     [TestMethod]
@@ -587,6 +619,7 @@ public class LicenseLoginTests {
         public ConcurrentQueue<JsonElement> LoginRequests { get; } = new();
         public ConcurrentQueue<JsonElement> TokenRequests { get; } = new();
         public ConcurrentQueue<JsonElement> AddressQuestions { get; } = new();
+        public ConcurrentQueue<JsonElement> Pairings { get; } = new();
         /// <summary>The addresses approved for the installation in the portal; null answers 404, as a license server from before the question does.</summary>
         public string[]? ApprovedAddresses { get; set; } = [];
         string _lastInstallationKey = "";
@@ -628,6 +661,11 @@ public class LicenseLoginTests {
                 var body = await JsonSerializer.DeserializeAsync<JsonElement>(http.Request.Body);
                 stub.AddressQuestions.Enqueue(body);
                 return stub.ApprovedAddresses is { } addresses ? Results.Ok(new { addresses }) : Results.NotFound();
+            });
+            app.MapPost("/api/connect/pairings", async (HttpContext http) => {
+                var body = await JsonSerializer.DeserializeAsync<JsonElement>(http.Request.Body);
+                stub.Pairings.Enqueue(body);
+                return Results.Ok(new { pairingId = "p1", secret = "s1", claimUrl = stub.Url + "/pair/p1", expiresUtc = DateTime.UtcNow.AddMinutes(10), pollSeconds = 2 });
             });
             // takes any code, and leaves checking what came with it to the test
             app.MapPost("/api/connect/token", async (HttpContext http) => {

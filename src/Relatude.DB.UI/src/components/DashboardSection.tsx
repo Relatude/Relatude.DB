@@ -263,7 +263,6 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   // counted from when the database opened rather than taken from the full picture, which is up to a
   // minute old: a clock that only moves once a minute reads as a broken one
   const uptime = open && info.openedUtc ? Math.max(0, Date.now() - new Date(info.openedUtc).getTime()) : null;
-  const totalDisk = info.files.database + info.files.state + info.files.logs + info.files.backups + info.files.secondary;
   const chosen = metrics.find((m) => m.id === metric)!;
   const level = chosen.kind === "level";
   const measured = seriesPoints(samples.current, metric, chosen.kind);
@@ -576,7 +575,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
         ) : (
           <Tile label="Open for" icon={IconClock} value={uptime == null ? "—" : formatDuration(uptime)} />
         )}
-        <Tile label="On disk" icon={IconDatabase} value={formatBytes(totalDisk)} />
+        <Tile label="Database file" icon={IconDatabase} value={formatBytes(info.files.database)} />
         {/* the one tile that is the server process rather than this database: one heap serves every
             database on it */}
         <Tile label="Memory" icon={IconCpu} value={formatBytes(live?.processMemory ?? 0)} />

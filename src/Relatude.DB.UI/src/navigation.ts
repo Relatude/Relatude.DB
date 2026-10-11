@@ -73,7 +73,7 @@ export interface Section {
 
 export const sections: Section[] = [
   { id: "dashboard", label: "Dashboard", scope: "database", icon: IconLayoutDashboard, tone: "plain" },
-  { id: "datamodel", label: "Models", scope: "database", icon: IconSchema, tone: "purple" },
+  { id: "datamodel", label: "Datamodel", scope: "database", icon: IconSchema, tone: "purple" },
   { id: "query", label: "Query", scope: "database", icon: IconDatabaseSearch, tone: "blue-light" },
   // What the database records about itself. It and the logs defined for it (Logs, below) are two
   // shades of one green, so they read as related wherever they stand. The ids stay what they were

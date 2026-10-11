@@ -48,6 +48,7 @@ export function NodeSizesDialog({ db, onClose }: { db: DatabaseInfo; onClose: ()
   const [round, setRound] = useState(0); // "measure again"
   const [groupBy, setGroupBy] = useState<GroupBy>(() => (readStored(groupByKey) === "none" ? "none" : "type"));
   const [measure, setMeasure] = useState<Measure>(() => (readStored(measureKey) === "bytes" ? "bytes" : "nodes"));
+  const [scale, setScale] = useState<Scale>(() => (readStored(scaleKey) === "log" ? "log" : "linear"));
   const [typeId, setTypeId] = useState<string | null>(null);
   // the size bar picked, as the bytes it covers: a measurement taken again may draw other bars
   const [range, setRange] = useState<{ min: number; max: number } | null>(null);
@@ -67,6 +68,7 @@ export function NodeSizesDialog({ db, onClose }: { db: DatabaseInfo; onClose: ()
 
   useEffect(() => writeStored(groupByKey, groupBy), [groupBy]);
   useEffect(() => writeStored(measureKey, measure), [measure]);
+  useEffect(() => writeStored(scaleKey, scale), [scale]);
 
   useEffect(() => {
     let live = true;
@@ -267,6 +269,19 @@ export function NodeSizesDialog({ db, onClose }: { db: DatabaseInfo; onClose: ()
                   Bytes
                 </button>
               </div>
+              <span className="ns-control-label">Scale</span>
+              <div className="module-switch compact">
+                <button className={scale === "linear" ? "active" : ""} onClick={() => setScale("linear")} title="Bar heights in proportion to what they count">
+                  Linear
+                </button>
+                <button
+                  className={scale === "log" ? "active" : ""}
+                  onClick={() => setScale("log")}
+                  title="Bar heights on a logarithmic scale, so a bar of a few nodes still shows beside one of a million"
+                >
+                  Log
+                </button>
+              </div>
               <span className="ns-control-label">Type</span>
               <select className="select compact ns-type-select" value={typeId ?? ""} onChange={(e) => pickType(e.target.value || null)}>
                 <option value="">All types ({formatCount(overview.types.length)})</option>
@@ -302,7 +317,7 @@ export function NodeSizesDialog({ db, onClose }: { db: DatabaseInfo; onClose: ()
                     <div className="ns-panel-head">
                       <span className="ns-panel-title">Size distribution</span>
                       <span className="muted">
-                        {measure === "nodes" ? "nodes" : "bytes"} per size, on a scale of doublings · click a bar to list its nodes
+                        {measure === "nodes" ? "nodes" : "bytes"} per size{scale === "log" ? " on a log scale" : ""}, sizes in doublings · click a bar to list its nodes
                       </span>
                     </div>
                     {series.length > 1 && <Legend series={series} onPick={(key) => key !== "other" && pickType(key)} />}
@@ -310,6 +325,7 @@ export function NodeSizesDialog({ db, onClose }: { db: DatabaseInfo; onClose: ()
                       edges={overview.edges}
                       series={series}
                       measure={measure}
+                      scale={scale}
                       selected={bucket}
                       onSelect={pickBucket}
                     />
@@ -455,6 +471,7 @@ export function NodeSizesDialog({ db, onClose }: { db: DatabaseInfo; onClose: ()
 
 type GroupBy = "none" | "type";
 type Measure = "nodes" | "bytes";
+type Scale = "linear" | "log";
 type TypeSort = "bytes" | "count" | "median" | "p90" | "max";
 
 interface Series {
@@ -475,6 +492,7 @@ const listStep = 100;
 const maxListed = 1000;
 const groupByKey = "nodeSizesGroupBy";
 const measureKey = "nodeSizesMeasure";
+const scaleKey = "nodeSizesScale";
 
 function readStored(key: string): string | null {
   try {
@@ -617,6 +635,44 @@ function byteAxis(top: number, count: number): { ticks: number[]; label: (bytes:
   };
 }
 
+/** A vertical axis: where its gridlines go, what they say, and how high a value stands (0 to 1). */
+interface ValueAxis {
+  ticks: number[];
+  label: (value: number) => string;
+  fraction: (value: number) => number;
+}
+
+function linearAxis(peak: number, measure: Measure): ValueAxis {
+  const { ticks: t, label } = measure === "nodes" ? { ticks: ticks(peak, 4), label: compactCount } : byteAxis(peak, 4);
+  const top = t[t.length - 1] || 1;
+  return { ticks: t, label, fraction: (v) => Math.max(0, v) / top };
+}
+
+/**
+ * A logarithmic axis from just below the smallest bar to the power at or above the tallest: decades
+ * for a count, powers of two for bytes (so the labels are 1 KB, 32 KB, 1 MB rather than 1000 B). The
+ * floor is half the smallest bar, so a bar of one node still stands off the baseline instead of being
+ * drawn at height zero; the ticks are thinned to every second, fifth... power to keep seven at most.
+ */
+function logAxis(smallest: number, peak: number, measure: Measure): ValueAxis {
+  const base = measure === "nodes" ? 10 : 2;
+  const lg = (v: number) => Math.log(v) / Math.log(base);
+  const lo = smallest / 2;
+  const loExp = Math.ceil(lg(lo) - 1e-9);
+  const hiExp = Math.max(Math.ceil(lg(peak) - 1e-9), loExp);
+  const hi = Math.pow(base, hiExp);
+  const steps = measure === "nodes" ? [1, 2, 3, 5] : [1, 2, 5, 10, 20];
+  const step = steps.find((s) => Math.floor(hiExp / s) - Math.ceil(loExp / s) + 1 <= 7) ?? steps[steps.length - 1];
+  const out: number[] = [];
+  for (let e = Math.ceil(loExp / step) * step; e <= hiExp; e += step) out.push(Math.pow(base, e));
+  const span = lg(hi) - lg(lo) || 1;
+  return {
+    ticks: out,
+    label: measure === "nodes" ? compactCount : sizeLabel,
+    fraction: (v) => (v <= lo ? 0 : Math.min(1, (lg(v) - lg(lo)) / span)),
+  };
+}
+
 /** A column with its data-end rounded and its foot square, as a path. */
 function topRounded(x: number, y: number, w: number, h: number, r: number): string {
   const rr = Math.max(0, Math.min(r, w / 2, h));
@@ -657,12 +713,14 @@ function SizeHistogram({
   edges,
   series,
   measure,
+  scale,
   selected,
   onSelect,
 }: {
   edges: number[];
   series: Series[];
   measure: Measure;
+  scale: Scale;
   selected: number | null;
   onSelect: (bucket: number) => void;
 }) {
@@ -675,14 +733,14 @@ function SizeHistogram({
     return out;
   }, [series, buckets]);
   const peak = Math.max(...totals, 1);
-  const { ticks: axis, label: format } = measure === "nodes" ? { ticks: ticks(peak, 4), label: compactCount } : byteAxis(peak, 4);
-  const top = axis[axis.length - 1] || 1;
+  const smallest = Math.min(...totals.filter((t) => t > 0), peak);
+  const valueAxis = scale === "log" ? logAxis(smallest, peak, measure) : linearAxis(peak, measure);
   const pad = { left: 52, right: 8, top: 8, bottom: 26 };
   const plotW = Math.max(10, width - pad.left - pad.right);
   const plotH = histogramHeight - pad.top - pad.bottom;
   const colW = plotW / buckets;
   const gap = Math.min(2, colW * 0.25);
-  const yOf = (v: number) => pad.top + plotH - (v / top) * plotH;
+  const yOf = (v: number) => pad.top + plotH - valueAxis.fraction(v) * plotH;
   // every edge is labelled where there is room, else every second, fourth...: the steps per doubling
   // are a power of two, so a thinned out axis still lands on the doublings
   let every = 1;
@@ -708,11 +766,11 @@ function SizeHistogram({
     <div className="ns-chart" ref={ref} onMouseLeave={() => setHover(null)}>
       {width > 0 && (
         <svg width={width} height={histogramHeight} role="img" aria-label="Node size distribution">
-          {axis.map((t) => (
+          {valueAxis.ticks.map((t) => (
             <g key={t}>
               <line className="ns-grid" x1={pad.left} x2={pad.left + plotW} y1={yOf(t)} y2={yOf(t)} />
               <text className="ns-axis" x={pad.left - 6} y={yOf(t)} dy="0.32em" textAnchor="end">
-                {format(t)}
+                {valueAxis.label(t)}
               </text>
             </g>
           ))}
@@ -724,15 +782,20 @@ function SizeHistogram({
             const x = pad.left + b * colW + gap / 2;
             const w = Math.max(1, colW - gap);
             const dim = selected != null && selected !== b;
-            let base = 0;
+            // The bar is as tall as its total on the axis, and its segments share that height by their
+            // part of the total. On a linear axis that is the same as stacking the values; on a log axis
+            // values do not add up, so the shares are the honest way to show what a bar is made of.
+            const barH = valueAxis.fraction(total) * plotH;
+            const foot = pad.top + plotH;
+            let below = 0;
             const visible = series.filter((s) => (s.sizes[b] ?? 0) > 0);
             return (
               <g key={b} className={dim ? "ns-dim" : undefined}>
                 {visible.map((s, i) => {
                   const v = s.sizes[b] ?? 0;
-                  const y0 = yOf(base);
-                  base += v;
-                  const y1 = yOf(base);
+                  const y0 = foot - (below / total) * barH;
+                  below += v;
+                  const y1 = foot - (below / total) * barH;
                   // the gap between stacked segments is surface, taken off the top of the lower one
                   const h = Math.max(0, y0 - y1 - (i > 0 ? gap : 0));
                   const last = i === visible.length - 1;

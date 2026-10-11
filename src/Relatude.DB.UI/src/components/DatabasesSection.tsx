@@ -223,7 +223,7 @@ function DatabaseCard({
 
 /**
  * Adding a database. What it makes is deliberately empty: its own folder under the data folder, the
- * native engines, and no datamodel sources - the model is the Models section's business, and one
+ * native engines, and no datamodel sources - the model is the Datamodel section's business, and one
  * guessed here would put types in a database nobody asked to have them in. It is created closed,
  * because opening writes the first files into a real folder.
  */
@@ -243,7 +243,7 @@ function NewDatabase({ onCreated }: { onCreated: (list: DatabaseList) => void })
       setName("");
       await showInfo(
         `"${trimmed}" created`,
-        `Its files will live in ${result.folder}. It has no datamodel sources yet - add them under Models, then start it.`,
+        `Its files will live in ${result.folder}. It has no datamodel sources yet - add them under Datamodel, then start it.`,
       );
     } catch (e) {
       await showError("Could not create the database", e instanceof Error ? e.message : String(e));
@@ -279,7 +279,7 @@ function NewDatabase({ onCreated }: { onCreated: (list: DatabaseList) => void })
       </div>
       <div className="muted db-new-note">
         <IconPlus size={13} stroke={1.8} /> The settings file gains an entry with its own storage provider. It starts closed and with no node types: choose
-        its datamodel sources under Models, then press Start.
+        its datamodel sources under Datamodel, then press Start.
       </div>
     </section>
   );
