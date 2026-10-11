@@ -16,7 +16,7 @@ import { QuerySection } from "./components/QuerySection";
 import { isServiceTestView, ServiceTestsSection } from "./components/ServiceTestsSection";
 import { SettingsSection } from "./components/SettingsSection";
 import { Sidebar } from "./components/Sidebar";
-import { TasksSection } from "./components/TasksSection";
+import { TasksModule, type TasksView } from "./components/TasksModule";
 import { sections } from "./navigation";
 import { peekDatamodelTarget, peekQueryTarget, peekSearchTarget, peekSettingsTarget, useNavigationRequest } from "./navigate";
 import { isLoggedIn, logout } from "./server/auth";
@@ -33,12 +33,14 @@ type AuthState = "checking" | "login" | "ready";
 
 /** The section ids the files page owns: it is one page in three views (FilesStorageSection). */
 const isFilesStorage = (id: string): id is FilesStorageView => id === "files" || id === "storage" || id === "conversions";
+/** The section ids the tasks page owns: the queue and the scheduler (TasksModule). */
+const isTasks = (id: string): id is TasksView => id === "tasks" || id === "scheduler";
 
 // The view of a module that was open last, for the modules with views (Section.parentId). The rail's
 // entry opens the module on it, so someone who works in the file browser comes back to the file
 // browser, and someone trying out a service to that service's test; the switch on the page and the
 // global search still open the view they name.
-const rememberedViewKeys: Record<string, string> = { storage: "storageView", "services-tests": "servicesTestView" };
+const rememberedViewKeys: Record<string, string> = { storage: "storageView", tasks: "tasksView", "services-tests": "servicesTestView" };
 // A module that is not a view itself opens on one of its views: Test services is its four tests, so
 // its entry - in the rail or the global search - lands on the one open last, or else on this one.
 const landingViews: Record<string, string> = { "services-tests": "services-sms" };
@@ -257,8 +259,9 @@ export function App() {
           ) : isFilesStorage(activeSectionId) && activeDb ? (
             // three views of one page; the switch on it picks the section, exactly as the rail does
             <FilesStorageSection db={activeDb} view={activeSectionId} onSelectView={setActiveSectionId} />
-          ) : activeSectionId === "tasks" && activeDb ? (
-            <TasksSection key={activeDb.id} db={activeDb} />
+          ) : isTasks(activeSectionId) && activeDb ? (
+            // the queue and the scheduler, as views of one page whose switch picks the section
+            <TasksModule key={activeDb.id} db={activeDb} view={activeSectionId} onSelectView={setActiveSectionId} />
           ) : activeSectionId === "api" && activeDb ? (
             <ApiSection key={activeDb.id} db={activeDb} />
           ) : section.scope === "database" && !activeDb ? (

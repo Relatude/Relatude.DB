@@ -17,7 +17,7 @@ public interface ITaskRunner {
     void LogTask(string id, string title, string category, string details, string error, bool success);
     byte[] TaskToBytesGeneric(TaskData task);
     TaskData TaskFromBytesGeneric(byte[] bytes);
-    IBatch CreateBatchWithOneTask(TaskData task, BatchState state, string? jobId);
+    IBatch CreateBatchWithOneTask(TaskData task, BatchState state, string? groupKey);
     IBatch GetBatchFromMetaAndData(BatchMeta batch, byte[] taskData);
     int MaxTaskCountPerBatch { get; }
     bool RestartTaskBatchesOnStartupThatStartedButNeverFailedOrCompleted { get; }
@@ -47,6 +47,14 @@ public interface ITaskRunner {
     /// any two tasks run together.
     /// </summary>
     string? GetConcurrencyKeyGeneric(TaskData task) => null;
+    /// <summary>
+    /// What identifies a task in the Tasks log of the Activity page - the node it indexes, the file a
+    /// rewrite writes - or null. The queue writes one entry per task for a runner that does not write
+    /// its own through the <see cref="TaskLogger"/> it is handed.
+    /// </summary>
+    string? GetTaskLogIdGeneric(TaskData task) => null;
+    /// <summary>A few words on what a task does, for the Tasks log and the database's activities; null says nothing more than its type.</summary>
+    string? DescribeTaskGeneric(TaskData task) => null;
 }
 public abstract class TaskRunner<TTask> : ITaskRunner where TTask : TaskData {
     public string TaskTypeId { get; } = typeof(TTask).FullName ?? throw new InvalidOperationException("Task type must have a valid FullName.");
@@ -61,6 +69,12 @@ public abstract class TaskRunner<TTask> : ITaskRunner where TTask : TaskData {
     public string? GetConcurrencyKeyGeneric(TaskData task) => GetConcurrencyKey((TTask)task);
     /// <inheritdoc cref="ITaskRunner.GetConcurrencyKeyGeneric"/>
     public virtual string? GetConcurrencyKey(TTask task) => null;
+    public string? GetTaskLogIdGeneric(TaskData task) => GetTaskLogId((TTask)task);
+    /// <inheritdoc cref="ITaskRunner.GetTaskLogIdGeneric"/>
+    public virtual string? GetTaskLogId(TTask task) => null;
+    public string? DescribeTaskGeneric(TaskData task) => DescribeTask((TTask)task);
+    /// <inheritdoc cref="ITaskRunner.DescribeTaskGeneric"/>
+    public virtual string? DescribeTask(TTask task) => null;
     public virtual TimeSpan GetMaximumAgeInQueuePerState(BatchState state) {
         return state switch {
             BatchState.Completed => GetMaximumAgeInQueueAfterExecution(),
@@ -84,9 +98,9 @@ public abstract class TaskRunner<TTask> : ITaskRunner where TTask : TaskData {
     public TaskData TaskFromBytesGeneric(byte[] bytes) => TaskFromBytes(bytes);
     public abstract byte[] TaskToBytes(TTask task);
     public abstract TTask TaskFromBytes(byte[] bytes);
-    public IBatch CreateBatchWithOneTask(TaskData task, BatchState state, string? jobId) {
+    public IBatch CreateBatchWithOneTask(TaskData task, BatchState state, string? groupKey) {
         var batchMeta = new BatchMeta(Guid.NewGuid(), task.TaskTypeId, state, Priority, DateTime.UtcNow);
-        if (jobId != null) batchMeta.JobId = jobId;
+        if (groupKey != null) batchMeta.GroupKey = groupKey;
         var batch = new Batch<TTask>(batchMeta);
         batch.AddTask(task);
         return batch;

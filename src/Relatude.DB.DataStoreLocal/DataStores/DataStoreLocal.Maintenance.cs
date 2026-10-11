@@ -278,11 +278,11 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     /// <summary>
     /// Queues a rewrite of the log down to the current state, unless a revert window is open or the log
-    /// holds nothing to drop. Returns whether one was queued. <paramref name="jobId"/> names its batch in
+    /// holds nothing to drop. Returns whether one was queued. <paramref name="groupKey"/> names its batch in
     /// the task queue, so a caller can follow it there until it is gone (a rewrite deletes its batch
     /// when it succeeds).
     /// </summary>
-    public bool EnqueueLogTruncation(bool deleteOldLogs, string? jobId = null) {
+    public bool EnqueueLogTruncation(bool deleteOldLogs, string? groupKey = null) {
         if (RevertWindowIsActive) {
             LogInfo("Log truncation skipped: a revert window is active. ");
             return false;
@@ -295,7 +295,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             IO = _io,
             Truncate = true,
         };
-        EnqueueTask(task, jobId);
+        EnqueueTask(task, groupKey);
         return true;
     }
     public void Maintenance(MaintenanceAction a) {

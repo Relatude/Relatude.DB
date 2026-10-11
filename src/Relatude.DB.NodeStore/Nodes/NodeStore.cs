@@ -132,8 +132,15 @@ public class NodeStore : IDisposable {
         TransactionPlugins.Add(plugin);
         plugin.Database = this;
     }
-    /// <summary>Registers a runner that executes background jobs of a given kind, see <see cref="EnqueueTask"/>.</summary>
+    /// <summary>Registers a runner that executes background tasks of a given kind, see <see cref="EnqueueTask"/>.</summary>
     public void RegisterRunner(ITaskRunner runner) => Datastore.RegisterRunner(runner);
+    /// <summary>
+    /// The jobs of this database: work it knows by name, which its schedules (<c>LocalSettings.Schedules</c>,
+    /// edited on the admin UI's Tasks › Scheduler page) run at set intervals. Register a job of your own in
+    /// <c>OnStoreInit</c>, and it can be scheduled or started from the admin UI:
+    /// <code>db.Jobs.Add("send-digest", async ctx => ctx.Report(await Digest.SendAsync(db, ctx.CancellationToken) + " sent"), "Mails the daily digest");</code>
+    /// </summary>
+    public Jobs Jobs => Datastore.Jobs;
     /// <summary>
     /// Replaces the default reading context of the whole store. This affects every query that does not pass its own
     /// context. To change the context for one piece of code only, use <see cref="Context"/> instead.
@@ -1496,15 +1503,16 @@ public class NodeStore : IDisposable {
     public FileConversions GetRunningConversions(QueryContext? ctx = null) => Datastore.GetConversions(ctx);
 
     /// <summary>
-    /// Puts a job on the store's background task queue, to be picked up by a registered runner. Pass a jobId to
-    /// group related tasks. Returns as soon as it is queued, it does not wait for the work.
+    /// Puts a task on the store's background task queue, to be picked up by a registered runner. Tasks queued
+    /// with the same groupKey are batched together, and the key is what the Tasks page lists the batch by.
+    /// Returns as soon as it is queued, it does not wait for the work.
     /// </summary>
-    public Task EnqueueTaskAsync(TaskData task, string? jobId = null) {
-        Datastore.EnqueueTask(task, jobId);
+    public Task EnqueueTaskAsync(TaskData task, string? groupKey = null) {
+        Datastore.EnqueueTask(task, groupKey);
         return Task.CompletedTask;
     }
-    /// <summary>Puts a job on the store's background task queue, to be picked up by a registered runner.</summary>
-    public void EnqueueTask(TaskData task, string? jobId = null) => Datastore.EnqueueTask(task, jobId);
+    /// <summary>Puts a task on the store's background task queue, to be picked up by a registered runner. See <see cref="EnqueueTaskAsync"/>.</summary>
+    public void EnqueueTask(TaskData task, string? groupKey = null) => Datastore.EnqueueTask(task, groupKey);
 
     /// <summary>
     /// The state id of the store, which increases with every committed transaction. Comparing it before and after

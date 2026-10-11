@@ -193,7 +193,13 @@ export function TasksSection({ db }: { db: DatabaseInfo }) {
   function commitThrottle(value: number): void {
     dragging.current = false;
     setThrottle(value);
-    setTaskThrottle(db.id, value).catch((e) => showError("Could not change the speed", e instanceof Error ? e.message : String(e)));
+    setTaskThrottle(db.id, value)
+      .then((r) => setThrottle(r.throttle))
+      .catch(async (e) => {
+        await showError("Could not change the speed", e instanceof Error ? e.message : String(e));
+        // refused: back to the speed in force, which the live feed would not send again since it has not changed
+        void load();
+      });
   }
 
   if (error) return <div className="placeholder">{error}</div>;
@@ -309,6 +315,7 @@ export function TasksSection({ db }: { db: DatabaseInfo }) {
       <div className="tasks-toolbar">
         <Throttle
           value={throttle}
+          lockedBy={data.throttleLockedBy ?? null}
           onDrag={(v) => {
             dragging.current = true;
             setThrottle(v);
@@ -490,8 +497,16 @@ function Row({
       <span>
         <input type="checkbox" checked={selected} onChange={(e) => onSelect(e.target.checked)} />
       </span>
-      <span className="tasks-type-cell" title={batch.typeId + (batch.jobId ? "\njob " + batch.jobId : "") + "\n" + (batch.queue === "persisted" ? "persisted queue" : "in-memory queue")}>
-        {batch.type}
+      <span className="tasks-type-cell" title={batch.typeId + (batch.groupKey ? "\ngroup " + batch.groupKey : "") + "\n" + (batch.queue === "persisted" ? "persisted queue" : "in-memory queue")}>
+        {/* a run of a job is known by its job: the name first, the type every run shares after it */}
+        {batch.detail ? (
+          <>
+            {batch.detail}
+            <span className="tasks-detail"> · {batch.type.toLowerCase()}</span>
+          </>
+        ) : (
+          batch.type
+        )}
         {showQueue && <span className="tasks-queue-tag">{batch.queue === "persisted" ? "persisted" : "memory"}</span>}
         {batch.errorMessage && (
           <span className="tasks-error" title={(batch.errorType ?? "") + "\n" + batch.errorMessage}>
@@ -539,14 +554,29 @@ function Row({
 }
 
 /**
- * How much of the machine background work may take. It is one knob over several - how long a pulse
- * runs, how often pulses happen, how busy the database has to be before one steps aside - which is
- * why it is a percentage and not a number of anything.
+ * How eagerly background work is started. It is one knob over several - how long a round of the queue
+ * starts batches, how long it pauses between rounds, how busy the database has to be before a round steps
+ * aside - which is why it is a percentage and not a number of anything. It is a setting of the database
+ * (Maintenance › Background tasks › Speed), saved on THIS SERVER as the slider is let go.
  */
-function Throttle({ value, onDrag, onCommit }: { value: number | null; onDrag: (v: number) => void; onCommit: (v: number) => void }) {
+function Throttle({
+  value,
+  lockedBy,
+  onDrag,
+  onCommit,
+}: {
+  value: number | null;
+  /** appsettings or the application's code decides the speed */
+  lockedBy: string | null;
+  onDrag: (v: number) => void;
+  onCommit: (v: number) => void;
+}) {
   const shown = value ?? 90;
+  const title = lockedBy
+    ? `Set by ${lockedBy}, so it cannot be changed here.`
+    : "How eagerly background work is started: longer rounds, shorter pauses between them, and carrying on while the database is busier. A batch that has started always runs to the end. Saved on THIS SERVER as a setting of the database (Maintenance › Background tasks › Speed).";
   return (
-    <div className="tasks-throttle" title="How much of the machine background tasks may take. Goes back to the server default when the database reopens.">
+    <div className="tasks-throttle" title={title}>
       <span className="tasks-throttle-label">Speed</span>
       <input
         type="range"
@@ -554,7 +584,7 @@ function Throttle({ value, onDrag, onCommit }: { value: number | null; onDrag: (
         max={100}
         step={5}
         value={shown}
-        disabled={value === null}
+        disabled={value === null || lockedBy !== null}
         onChange={(e) => onDrag(Number(e.target.value))}
         onPointerUp={(e) => onCommit(Number((e.target as HTMLInputElement).value))}
         onKeyUp={(e) => onCommit(Number((e.target as HTMLInputElement).value))}

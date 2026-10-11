@@ -58,8 +58,9 @@ public class DataStoreSession : IDataStore {
     public TaskQueue TaskQueue => _datastore.TaskQueue;
     public TaskQueue? TaskQueuePersisted => _datastore.TaskQueuePersisted;
     public int TaskQueueThrottle { get => _datastore.TaskQueueThrottle; set => _datastore.TaskQueueThrottle = value; }
-    public void EnqueueTask(TaskData task, string? jobId = null) => _datastore.EnqueueTask(task, jobId);
+    public void EnqueueTask(TaskData task, string? groupKey = null) => _datastore.EnqueueTask(task, groupKey);
     public void RegisterRunner(ITaskRunner runner) => _datastore.RegisterRunner(runner);
+    public Jobs Jobs => _datastore.Jobs;
 
     // Access controlled changes
     public Task<TransactionResult> ExecuteAsync(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null)

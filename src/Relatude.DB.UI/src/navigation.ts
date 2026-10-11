@@ -9,6 +9,7 @@ import {
   IconLanguage,
   IconFileAnalytics,
   IconChecklist,
+  IconCalendarRepeat,
   IconApi,
   IconSettings,
   IconGauge,
@@ -85,7 +86,9 @@ export const sections: Section[] = [
   { id: "files", label: "Files", scope: "database", icon: IconFolders, parentId: "storage", tone: "orange" },
   { id: "conversions", label: "Conversions", scope: "database", icon: IconTransform, parentId: "storage", tone: "orange" },
   { id: "custom-logs", label: "Logs", scope: "database", icon: IconFileAnalytics, tone: "green-light" },
+  // one page in two views (TasksModule): the queue, which is the entry, and the scheduler that feeds it
   { id: "tasks", label: "Tasks", scope: "database", icon: IconChecklist, tone: "yellow" },
+  { id: "scheduler", label: "Scheduler", scope: "database", icon: IconCalendarRepeat, parentId: "tasks", tone: "yellow" },
   { id: "api", label: "API", scope: "database", icon: IconApi, tone: "pink" },
   { id: "db-settings", label: "Settings", scope: "database", icon: IconSettings, tone: "blue-dark" },
   { id: "server-overview", label: "Overview", scope: "server", icon: IconGauge, tone: "plain" },

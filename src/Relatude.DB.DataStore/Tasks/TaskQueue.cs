@@ -14,29 +14,49 @@ namespace Relatude.DB.Tasks;
 /// allows (<see cref="ConcurrencyOf"/>). A batch is reserved under the lock and run outside it, and
 /// nothing is called on the database while the lock is held: a transaction queues its tasks while it
 /// holds the database's write lock, so the order of the two locks is always database first.
+///
+/// <para>Batches are started in rounds (<see cref="ExecuteTasksAsync"/>), which is where the throttle
+/// and the database's busy check come in, but a batch is not bound to its round: one still running
+/// when the round's time is up carries on, holding only its own slot, and the next round starts others
+/// beside it. So a batch that runs for an hour never stops the rest of the queue from moving.</para>
 /// </summary>
 public class TaskQueue : IDisposable {
     /// <summary>The most batches of one type a queue runs at once, whatever a runner or a setting asks for.</summary>
     public const int MaxSupportedConcurrency = 64;
     /// <param name="configuredConcurrency">What the settings say for a type, see <see cref="ConcurrencyOf"/>; null when they say nothing.</param>
-    public TaskQueue(IDataStore store, IQueueStore queue, Dictionary<string, ITaskRunner> runners, Func<ITaskRunner, int?>? configuredConcurrency = null) {
+    /// <param name="name">What the queue is called among the database's activities, "in memory" say; null leaves it unnamed.</param>
+    public TaskQueue(IDataStore store, IQueueStore queue, Dictionary<string, ITaskRunner> runners, Func<ITaskRunner, int?>? configuredConcurrency = null, string? name = null) {
         _store = store;
         _queue = queue;
         _runners = runners;
         _configuredConcurrency = configuredConcurrency;
+        _activityName = name == null ? "Running tasks" : "Running tasks, " + name;
     }
     readonly IDataStore _store;
     readonly IQueueStore _queue;
     readonly Dictionary<string, ITaskRunner> _runners;
     readonly Func<ITaskRunner, int?>? _configuredConcurrency;
-    readonly Dictionary<string, IBatch> _batchBufferByTypeAndJobId = [];
+    readonly Dictionary<string, IBatch> _batchBufferByTypeAndGroupKey = [];
     readonly object _lock = new();
     // the batches handed to a runner and not finished with yet, and the concurrency keys they hold per
     // type (a count per key: one batch may hold a key twice). Both guarded by _lock
     readonly Dictionary<Guid, RunningBatch> _running = [];
     readonly Dictionary<string, Dictionary<string, int>> _runningKeys = [];
     volatile bool _isShuttingdown = false;
-    int _executing = 0; // calls to ExecuteTasksAsync in progress, which only return once their batches are done
+    int _executing = 0; // calls to ExecuteTasksAsync in progress: the rounds that may still start batches
+    int _inFlight = 0; // batches handed to a runner and not finished with, whichever round started them
+    // the queue's own activity, the one its running batches are listed under: there while any batch
+    // runs, and not tied to a round, since a batch may outlive the round that started it
+    readonly string _activityName;
+    static readonly AsyncLocal<long> _currentBatchActivity = new();
+    /// <summary>
+    /// The activity of the batch a runner is working on, read from inside the runner: a runner can show
+    /// its progress on it with <see cref="IDataStore.UpdateActivity"/>. 0 outside a batch.
+    /// </summary>
+    public static long CurrentBatchActivityId => _currentBatchActivity.Value;
+    readonly object _activitySync = new();
+    long _activityId = -1;
+    int _activityUsers = 0;
     RunningZeroEstimator runningZeroEstimator = new(10, TimeSpan.FromMinutes(10));
 
     /// <summary>A batch a runner is working on.</summary>
@@ -49,11 +69,11 @@ public class TaskQueue : IDisposable {
     }
 
     void emptyBuffer() {
-        if (_batchBufferByTypeAndJobId.Count > 0) { // move all batches to the queues
-            foreach (var kvp in _batchBufferByTypeAndJobId) {
+        if (_batchBufferByTypeAndGroupKey.Count > 0) { // move all batches to the queues
+            foreach (var kvp in _batchBufferByTypeAndGroupKey) {
                 _queue.Enqueue(kvp.Value, _runners[kvp.Value.Meta.TaskTypeId]);
             }
-            _batchBufferByTypeAndJobId.Clear();
+            _batchBufferByTypeAndGroupKey.Clear();
         }
     }
     public string QueueStoreTypeName => _queue.GetType().Name.ToString();
@@ -118,79 +138,108 @@ public class TaskQueue : IDisposable {
             return _queue.TaskCountsPerState();
         }
     }
-    public void Enqueue(TaskData task, string? jobId = null) {
-        Enqueue(task, jobId, BatchState.Pending);
+    public void Enqueue(TaskData task, string? groupKey = null) {
+        Enqueue(task, groupKey, BatchState.Pending);
     }
-    public void Enqueue(TaskData task, string? jobId, BatchState state) {
+    public void Enqueue(TaskData task, string? groupKey, BatchState state) {
         lock (_lock) {
             var typeId = task.TaskTypeId;
             if (!_runners.TryGetValue(typeId, out var runner)) throw new Exception("No runner for " + typeId);
-            var batchKey = typeId + jobId;
-            if (_batchBufferByTypeAndJobId.TryGetValue(batchKey, out var batch)) {
+            var batchKey = typeId + groupKey;
+            if (_batchBufferByTypeAndGroupKey.TryGetValue(batchKey, out var batch)) {
                 if (batch.TaskCount < runner.MaxTaskCountPerBatch) {
                     batch.AddTask(task);
                 } else {
                     _queue.Enqueue(batch, runner);
-                    _batchBufferByTypeAndJobId[batchKey] = runner.CreateBatchWithOneTask(task, state, jobId);
+                    _batchBufferByTypeAndGroupKey[batchKey] = runner.CreateBatchWithOneTask(task, state, groupKey);
                 }
             } else {
-                _batchBufferByTypeAndJobId.Add(batchKey, runner.CreateBatchWithOneTask(task, state, jobId));
+                _batchBufferByTypeAndGroupKey.Add(batchKey, runner.CreateBatchWithOneTask(task, state, groupKey));
             }
         }
     }
     DateTime _lastReportedCount = DateTime.MinValue;
     /// <summary>
-    /// Runs batches until the time is up or nothing more can start, as many side by side as their
-    /// types allow, and returns once every batch it started is done - so a caller that waits for this
-    /// knows nothing it started is still running. Priority still decides: of the batches that can start
-    /// the one with the highest priority goes first, then the oldest. A batch waits while its type
-    /// already runs as many as it may, or while a running batch of its type holds one of its keys.
+    /// One round: starts batches until the time is up or nothing more can start, as many side by side
+    /// as their types allow, refilling a slot as soon as a batch in it is done. Priority still decides:
+    /// of the batches that can start the one with the highest priority goes first, then the oldest. A
+    /// batch waits while its type already runs as many as it may - counting batches of earlier rounds
+    /// still running - or while a running batch of its type holds one of its keys.
+    /// <para>Returns when nothing it started is running and nothing more can start, or when the time is
+    /// up. Batches still running then carry on, and the next round starts batches beside them; each one
+    /// that outlives its round logs its own end. The results are those of the batches that finished
+    /// within the round, so a caller that wants everything done gives the round time enough.</para>
     /// </summary>
-    public async Task<BatchTaskResult[]> ExecuteTasksAsync(int maxDurationMs, Func<bool> abort, long parentActivityId) {
+    public async Task<BatchTaskResult[]> ExecuteTasksAsync(int maxDurationMs, Func<bool> abort) {
         // counted before the shutdown flag is read, and the shutdown sets the flag before it reads the
         // count, so one of the two always sees the other
         Interlocked.Increment(ref _executing);
         try {
             if (_isShuttingdown) return [];
-            return await dispatch(maxDurationMs, abort, parentActivityId);
+            return await dispatch(maxDurationMs, abort);
         } finally {
             Interlocked.Decrement(ref _executing);
         }
     }
-    async Task<BatchTaskResult[]> dispatch(int maxDurationMs, Func<bool> abort, long parentActivityId) {
+    async Task<BatchTaskResult[]> dispatch(int maxDurationMs, Func<bool> abort) {
         var results = new List<BatchTaskResult>();
         var running = new List<Task<BatchTaskResult>>();
-        var totalMs = Stopwatch.StartNew();
+        using var endOfRound = new CancellationTokenSource();
+        var timeUp = Task.Delay(Math.Max(0, maxDurationMs), endOfRound.Token);
         Exception? startError = null;
-        while (true) {
-            reportPendingCountIfDue();
-            // fill every free slot, until the time is up or nothing more can start right now
-            while (startError == null && !_isShuttingdown && !abort() && totalMs.ElapsedMilliseconds < maxDurationMs) {
-                IBatch? next;
-                try {
-                    next = startNext();
-                } catch (Exception err) {
-                    // a store that cannot hand out a batch: nothing more is started, but what already
-                    // runs is waited for before the error goes up
-                    startError = err;
-                    break;
+        try {
+            while (true) {
+                reportPendingCountIfDue();
+                // fill every free slot, until the time is up or nothing more can start right now
+                while (!_isShuttingdown && !abort() && !timeUp.IsCompleted) {
+                    IBatch? next;
+                    try {
+                        next = startNext();
+                    } catch (Exception err) {
+                        // a store that cannot hand out a batch: nothing more is started this round, and
+                        // what already runs carries on as it does at the end of any round
+                        startError = err;
+                        break;
+                    }
+                    if (next == null) break;
+                    // counted while this round is: a shutdown that has seen the rounds end sees every
+                    // batch they started
+                    Interlocked.Increment(ref _inFlight);
+                    // on a thread of its own: a runner may do all its work before its first await, and it
+                    // would otherwise hold up every slot behind it
+                    running.Add(Task.Run(() => executeAsync(next)));
                 }
-                if (next == null) break;
-                // on a thread of its own: a runner may do all its work before its first await, and it
-                // would otherwise hold up every slot behind it
-                running.Add(Task.Run(() => executeAsync(next, parentActivityId)));
+                if (running.Count == 0 || startError != null || timeUp.IsCompleted) break;
+                // a batch done frees its slot for the next one; the time running out ends the round
+                var done = await Task.WhenAny([.. running, timeUp]);
+                if (done == timeUp) break;
+                var finished = (Task<BatchTaskResult>)done;
+                running.Remove(finished);
+                results.Add(await finished);
             }
-            if (running.Count == 0) break;
-            var done = await Task.WhenAny(running);
-            running.Remove(done);
-            results.Add(await done);
+        } finally {
+            endOfRound.Cancel();
+            // what the round leaves running finishes on its own, holding its slot until then
+            foreach (var batch in running) _ = batch.ContinueWith(finishedAfterItsRound, TaskScheduler.Default);
         }
         if (startError != null) throw startError;
         lock (_lock) {
             emptyBuffer(); // what is still in the buffer is pending too
-            if (_queue.CountTasks(BatchState.Pending) == 0) runningZeroEstimator.ReportValue(0);
+            if (_queue.CountTasks(BatchState.Pending) == 0 && _running.Count == 0) runningZeroEstimator.ReportValue(0);
         }
         return [.. results];
+    }
+    // a batch that outlived the round that started it: no round reports it, so it says itself that it
+    // is done (a failure has already been logged where it failed)
+    void finishedAfterItsRound(Task<BatchTaskResult> batch) {
+        try {
+            if (!batch.IsCompletedSuccessfully || batch.Result.Error != null) return;
+            var r = batch.Result;
+            _store.LogInfo("TaskQueue: " + typeName(r.TaskTypeName) + ", " + r.TaskCount + " task" + (r.TaskCount == 1 ? "" : "s")
+                + ", finished in " + r.DurationMs.To1000N() + "ms, after the round that started it. ");
+        } catch {
+            // the log is not the batch
+        }
     }
     void reportPendingCountIfDue() {
         if (_lastReportedCount >= DateTime.UtcNow.AddSeconds(-1)) return;
@@ -257,12 +306,24 @@ public class TaskQueue : IDisposable {
         }
         return keys == null ? [] : [.. keys];
     }
-    async Task<BatchTaskResult> executeAsync(IBatch batch, long parentActivityId) {
+    async Task<BatchTaskResult> executeAsync(IBatch batch) {
+        try {
+            return await executeCoreAsync(batch);
+        } finally {
+            Interlocked.Decrement(ref _inFlight);
+        }
+    }
+    async Task<BatchTaskResult> executeCoreAsync(IBatch batch) {
         var startTime = DateTime.UtcNow;
         var sw = Stopwatch.StartNew();
+        // the Tasks log of the Activity page: a runner may write its own entries through this, and one
+        // that writes none gets one entry per task from the queue once the batch is done
+        var logTasks = _store.Logger.LoggingTask;
+        var entriesWritten = 0;
         TaskLogger? taskLogging = null;
-        if (_store.Logger.LoggingTask) {
+        if (logTasks) {
             taskLogging = (bool success, string id, string details) => {
+                Interlocked.Increment(ref entriesWritten);
                 _store.Logger.RecordTask(batch.Meta.TaskTypeId, success, batch.Meta.BatchId, id, details);
             };
         }
@@ -272,12 +333,14 @@ public class TaskQueue : IDisposable {
         _runners.TryGetValue(batch.Meta.TaskTypeId, out var runner);
         try {
             if (runner == null) throw new Exception("No runner for: " + batch.Meta.TaskTypeId);
-            childActivityId = _store.RegisterChildActvity(parentActivityId, DataStoreActivityCategory.RunningTask, describe(batch));
+            childActivityId = enterActivity(describe(batch, runner));
+            // this batch's own flow: each batch runs on a Task.Run of its own, so no other batch sees it
+            _currentBatchActivity.Value = childActivityId;
             remaining = await runner.ExecuteAsyncGeneric(batch, taskLogging, CancellationToken.None);
         } catch (Exception err) {
             error = err;
         } finally {
-            if (childActivityId > -1) _store.DeRegisterActivity(childActivityId);
+            if (childActivityId > -1) leaveActivity(childActivityId);
         }
         error = finish(batch, runner, error) ?? error;
         // nothing past this point may throw: the dispatcher waits for this task to know the batch is
@@ -289,7 +352,7 @@ public class TaskQueue : IDisposable {
                 // and that these tasks are being re-enqueued as a new batch
                 // also, they should be added to the top of the queue, not the bottom
                 foreach (var task in remaining.Tasks) {
-                    Enqueue(task, batch.Meta.JobId);
+                    Enqueue(task, batch.Meta.GroupKey);
                 }
             }
         } catch (Exception err) {
@@ -298,10 +361,39 @@ public class TaskQueue : IDisposable {
         var result = new BatchTaskResult(batch.Meta.TaskTypeId, sw.Elapsed.TotalMilliseconds, startTime, batch.TaskCount, error);
         try {
             if (_store.Logger.LoggingTaskBatch) _store.Logger.RecordTaskBatch(batch.Meta.BatchId, result);
+            if (logTasks && Volatile.Read(ref entriesWritten) == 0) recordTasks(batch, runner, error);
         } catch {
             // the log is not the batch: a failure to record it changes nothing about how it went
         }
+        try {
+            // logged where it failed rather than by the round, which may have ended long before
+            if (error != null) _store.LogError(batch.Meta.TaskTypeId + " failed", error);
+        } catch {
+        }
         return result;
+    }
+    // one entry per task, each with how the batch as a whole went: a batch succeeds or fails together
+    void recordTasks(IBatch batch, ITaskRunner? runner, Exception? error) {
+        foreach (var task in batch.GenericTasks) {
+            var description = runner?.DescribeTaskGeneric(task);
+            var details = error == null ? description ?? "" : (description == null ? "" : description + ": ") + error.Message;
+            _store.Logger.RecordTask(batch.Meta.TaskTypeId, error == null, batch.Meta.BatchId, runner?.GetTaskLogIdGeneric(task) ?? "", details);
+        }
+    }
+    long enterActivity(string description) {
+        lock (_activitySync) {
+            if (_activityUsers++ == 0) _activityId = _store.RegisterActvity(DataStoreActivityCategory.RunningTask, _activityName);
+            return _store.RegisterChildActvity(_activityId, DataStoreActivityCategory.RunningTask, description);
+        }
+    }
+    void leaveActivity(long childActivityId) {
+        lock (_activitySync) {
+            _store.DeRegisterActivity(childActivityId);
+            if (--_activityUsers == 0) {
+                _store.DeRegisterActivity(_activityId);
+                _activityId = -1;
+            }
+        }
     }
     /// <summary>
     /// Frees the batch's slot and keys, whatever else happens, and records how it went. Returns the
@@ -335,21 +427,29 @@ public class TaskQueue : IDisposable {
             }
         }
     }
-    static string describe(IBatch batch) {
+    static string describe(IBatch batch, ITaskRunner runner) {
+        // one task the runner can say something about is named by it: "Run job: backup"
+        if (batch.TaskCount == 1) {
+            var task = batch.GenericTasks.First();
+            var what = runner.DescribeTaskGeneric(task) ?? runner.GetTaskLogIdGeneric(task);
+            if (what != null) return typeName(task.TaskTypeId) + ": " + what;
+        }
         var stringOfTypes = batch.GenericTasks.GroupBy(task => task.TaskTypeId).Select(g => new { Name = g.Key, Count = g.Count() });
         StringBuilder sb = new();
         foreach (var type in stringOfTypes) {
-            var index = type.Name.LastIndexOf(".");
-            var name = index > -1 ? type.Name.Substring(index + 1).Decamelize() : type.Name;
             if (sb.Length > 0) sb.Append(", ");
-            sb.Append(name + " - " + type.Count + "");
+            sb.Append(typeName(type.Name) + " - " + type.Count + "");
         }
         return sb.ToString();
     }
-    public BatchMetaWithCount[] GetBatchMeta(BatchState[] states, string[] typeIds, string[] jobIds, int page, int pageSize, out int totalCount) {
+    static string typeName(string typeId) {
+        var index = typeId.LastIndexOf(".");
+        return index > -1 ? typeId.Substring(index + 1).Decamelize() : typeId;
+    }
+    public BatchMetaWithCount[] GetBatchMeta(BatchState[] states, string[] typeIds, string[] groupKeys, int page, int pageSize, out int totalCount) {
         lock (_lock) {
             emptyBuffer();
-            return _queue.GetBatchInfo(states, typeIds, jobIds, page, pageSize, out totalCount);
+            return _queue.GetBatchInfo(states, typeIds, groupKeys, page, pageSize, out totalCount);
         }
     }
     public void SetState(Guid[] batchIds, BatchState state) {
@@ -439,12 +539,13 @@ public class TaskQueue : IDisposable {
     }
     /// <summary>
     /// Stops handing out batches and waits, up to the given time, for the ones already running to
-    /// finish. True when nothing is running any more.
+    /// finish - those of rounds that have ended too. True when nothing is running any more.
     /// </summary>
     public bool TryGracefulShutdown(int maxWaitMs) {
         _isShuttingdown = true;
         Stopwatch sw = Stopwatch.StartNew();
-        while (Volatile.Read(ref _executing) > 0) {
+        // a round still under way may start one more batch, which it counts before it ends
+        while (Volatile.Read(ref _executing) > 0 || Volatile.Read(ref _inFlight) > 0) {
             if (sw.ElapsedMilliseconds > maxWaitMs) return false; // give up...
             Thread.Sleep(50);
         }

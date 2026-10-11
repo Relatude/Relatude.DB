@@ -37,6 +37,13 @@ builder.AddRelatudeDB(options => {
     //options.CreateUrlManager = settings => new PageUrlManager();
     options.OnStoreInit = db => {
         db.RegisterTransactionPlugin(new DemoArticlePlugin());
+        // a job of the application's own: Tasks > Scheduler in the admin UI can run it at set intervals
+        db.Jobs.Add("count-products", async ctx => {
+            ctx.Report(db.Query<Product>().Count() + " products");
+            await Task.Delay(2000); // simulate a long running task
+        },
+        "Counts the products - an example of a job the application registers."
+        );
     };
     options.OnStoreOpenBackground = db => {
         Website.Simple.Data.ShopSeeder.SeedIfEmpty(db, 0, 300); // populates the facet search example (see wwwroot/search.html)
@@ -302,18 +309,18 @@ app.MapPost("/shop/search", (RelatudeDBContext ctx, ShopSearchRequest req) => {
     var db = ctx.Database;
     const int pageSize = 10;
     var query = db.Query<Product>();
-    
+
     if (!string.IsNullOrWhiteSpace(req.Query)) query = query.WhereSearch(req.Query);
     var facetQuery = query.Include(p => p.Colors!).Facets() // Include so the page of products lists its colors
-        //                                                    .AddValueFacet(p => p.Category)
-        //                                                    .AddValueFacet(p => p.Brand)
-        //                                                    .AddValueFacet(p => p.Colors!) // relation facet: buckets are the related Color nodes
-        //                                                    .AddValueFacet(p => p.Sizes) // enum array facet: buckets carry the int values, displayed with the enum names
-        //                                                    .AddRangeFacet(p => p.Price) // no bounds given: buckets are generated from the values in the current result set
-        //.SetFacetOptions(p => p.Price, rangeCount: 3) // sort by value for ranges
-        //                                              .AddValueFacet(p => p.InStock)
-        //                                              .AddValueFacet(p => p.Tags)
-        //                                              .SetFacetOptions(p => p.Tags, maxValues: 8, sortByCount: true)
+                                                            //                                                    .AddValueFacet(p => p.Category)
+                                                            //                                                    .AddValueFacet(p => p.Brand)
+                                                            //                                                    .AddValueFacet(p => p.Colors!) // relation facet: buckets are the related Color nodes
+                                                            //                                                    .AddValueFacet(p => p.Sizes) // enum array facet: buckets carry the int values, displayed with the enum names
+                                                            //                                                    .AddRangeFacet(p => p.Price) // no bounds given: buckets are generated from the values in the current result set
+                                                            //.SetFacetOptions(p => p.Price, rangeCount: 3) // sort by value for ranges
+                                                            //                                              .AddValueFacet(p => p.InStock)
+                                                            //                                              .AddValueFacet(p => p.Tags)
+                                                            //                                              .SetFacetOptions(p => p.Tags, maxValues: 8, sortByCount: true)
         .Page(req.Page, pageSize);
     // Queries are immutable: every Set... returns a new query, so the result must be kept.
     foreach (var sel in req.Selections ?? []) {

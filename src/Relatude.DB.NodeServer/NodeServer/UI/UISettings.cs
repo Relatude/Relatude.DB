@@ -127,6 +127,7 @@ sealed partial class UISettings {
                 TextIndexes = indexEnginePicker(settings.LocalSettings?.TextIndexes),
                 VectorIndexes = indexEnginePicker(settings.LocalSettings?.VectorIndexes),
                 TaskTypes = taskTypePicker(container),
+                Jobs = JobPicker(container),
             },
         };
     }
@@ -155,6 +156,17 @@ sealed partial class UISettings {
         }
         Type[] builtIn = container.Settings.AISettings == null ? [typeof(TextIndexTask)] : [typeof(SemanticIndexTask), typeof(TextIndexTask)];
         return [.. builtIn.Select(t => (object)new { Value = t.FullName!, Label = UITasks.TaskTypeName(t.FullName!), Hint = (string?)null })];
+    }
+
+    /// <summary>
+    /// The jobs a schedule can name: the jobs of the open database, its own and the ones the
+    /// application registered. A closed database has none to ask, and the field is plain text until it
+    /// opens - a task registered by the application may not exist anywhere else.
+    /// </summary>
+    internal static object[] JobPicker(NodeStoreContainer container) {
+        var tasks = container.IsOpen() ? container.Store?.Datastore.Jobs.All : null;
+        if (tasks == null) return [];
+        return [.. tasks.Select(t => (object)new { Value = t.Name, Label = t.Name, Hint = (string?)(t.BuiltIn ? "built in" : "registered by the application") })];
     }
 
     // the memory index comes first, under the id that means it, so a default of Guid.Empty is a named
@@ -213,7 +225,9 @@ sealed partial class UISettings {
                     Removable = !locked && usage.Blocking.Length == 0,
                     usage.Blocking,
                     usage.RemoveWarning,
-                    AddedHere = file != null && file.IsAdded(SettingsOverlay.OverridePath(containerId, list.Path + "[" + id + "]")),
+                    // a list relatude.db.json does not have at all is saved whole, not element by element: every
+                    // element of it is then one added here
+                    AddedHere = file != null && (file.IsAdded(SettingsOverlay.OverridePath(containerId, list.Path + "[" + id + "]")) || file.ValueEntryFor(listPath) != null),
                 };
             }),
         };
@@ -487,7 +501,19 @@ sealed partial class UISettings {
     }
 
     object listAdd(ListAddPayload payload) {
+        var (id, rejected) = AddListItem(payload.StoreId, payload.Path, payload.Values);
+        return new { Added = id, Rejected = rejected, Settings = buildDatabase(payload.StoreId) };
+    }
+
+    /// <summary>
+    /// Adds an element to one of the database's list groups and saves, the way the settings page does:
+    /// seeded from the list's <see cref="SettingListDefinition.NewItem"/>, then the values given, each
+    /// checked against the list's fields. For a page that edits one list with an editor of its own - the
+    /// scheduler. Returns the new element's id and the values that were refused.
+    /// </summary>
+    internal (Guid Id, List<RejectedSetting> Rejected) AddListItem(Guid storeId, string path, Dictionary<string, JsonElement>? values) {
         lock (_saveLock) {
+            var payload = new ListAddPayload(storeId, path, values);
             var settings = getContainer(payload.StoreId).Settings;
             var list = findList(payload.Path);
             requireUnlockedList(list, payload.StoreId);
@@ -527,12 +553,20 @@ sealed partial class UISettings {
                 }
             }
             _server.UpdateWAFServerSettingsFile();
-            return new { Added = id, Rejected = rejected, Settings = buildDatabase(payload.StoreId) };
+            return (id, rejected);
         }
     }
 
     object listRemove(ListItemPayload payload) {
+        RemoveListItem(payload.StoreId, payload.Path, payload.Id);
+        return new { Removed = payload.Id, Settings = buildDatabase(payload.StoreId) };
+    }
+
+    /// <summary>Removes an element of one of the database's list groups and saves, with the checks the
+    /// settings page makes. See <see cref="AddListItem"/>.</summary>
+    internal void RemoveListItem(Guid storeId, string path, Guid id) {
         lock (_saveLock) {
+            var payload = new ListItemPayload(storeId, path, id);
             var settings = getContainer(payload.StoreId).Settings;
             var list = findList(payload.Path);
             requireUnlockedList(list, payload.StoreId);
@@ -545,10 +579,13 @@ sealed partial class UISettings {
             var before = owner == null ? [] : existing(owner, property);
             var after = before.Where(item => idOf(item) != payload.Id).ToArray();
             if (after.Length == before.Length) throw new Exception("That " + list.ItemName + " is already gone. ");
-            property.SetValue(owner, toArray(property.PropertyType.GetElementType()!, after));
+            // the last element gone from a list relatude.db.json does not have at all: back to no list,
+            // which is what that file says, rather than an empty one the overrides file would have to keep
+            var file = _server.OverridesFile;
+            var none = after.Length == 0 && file != null && file.FileValue(SettingsOverlay.OverridePath(payload.StoreId, list.Path)) == null;
+            property.SetValue(owner, none ? null : toArray(property.PropertyType.GetElementType()!, after));
             if (string.Equals(list.Path, "IOSettings", StringComparison.OrdinalIgnoreCase)) _server.ForgetIOProvider(payload.Id);
             _server.UpdateWAFServerSettingsFile();
-            return new { Removed = payload.Id, Settings = buildDatabase(payload.StoreId) };
         }
     }
 

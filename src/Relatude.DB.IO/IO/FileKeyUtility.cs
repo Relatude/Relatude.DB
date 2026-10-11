@@ -138,6 +138,11 @@ public static class FileKeyUtility {
     // clearing the state must not forget where somebody marked a point worth returning to.
     static readonly string[] revertMarkFileKey = [StateFolderName, "revert.txt"];
 
+    // What the scheduler remembers between two opens: when each schedule last came due and the recent
+    // runs of the jobs. Not matched by the state patterns either, for the same reason - a cleared
+    // state would otherwise make every daily schedule wait a day, and empty the history.
+    static readonly string[] schedulerStateFileKey = [StateFolderName, "schedules.json"];
+
     // The datamodel editor's files. The draft is the one model being edited (one per database);
     // history files are timestamped copies of every model that has been active, newest last.
     static readonly string[] datamodelDraftFileKey = [DatamodelsFolderName, "datamodel.draft.json"];
@@ -360,6 +365,9 @@ public static class FileKeyUtility {
 
     /// <summary>The note holding the last revert window's start; see RevertMark.</summary>
     public static string[] RevertMarkFileKey => revertMarkFileKey;
+
+    /// <summary>The scheduler's memory of its schedules and runs; see Jobs.</summary>
+    public static string[] Scheduler_GetStateFileKey() => schedulerStateFileKey;
 
     /// <summary>The draft model of the datamodel editor; there is one per database.</summary>
     public static string[] Datamodel_DraftFileKey => datamodelDraftFileKey;

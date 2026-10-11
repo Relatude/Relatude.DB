@@ -64,7 +64,9 @@ export interface TaskBatch {
   taskCount: number;
   createdUtc: string;
   completedUtc: string | null;
-  jobId: string | null;
+  groupKey: string | null;
+  /** what a batch is about beyond its type: for a run of a job, the job (and its schedule) */
+  detail: string | null;
   errorType: string | null;
   errorMessage: string | null;
 }
@@ -73,8 +75,10 @@ export interface TasksInfo {
   /** the queues live in the open store: a closed database has a queue file but nothing reading it */
   open: boolean;
   state: string;
-  /** 0-100, how much of the machine background processing may take. Runtime only. */
+  /** 0-100, how eagerly background work is started: the setting LocalSettings.TaskQueueSpeed, saved on THIS SERVER */
   throttle?: number;
+  /** what decides the speed when it is not the settings files - appsettings or the application's code - so the slider cannot change it */
+  throttleLockedBy?: string | null;
   queues: QueueInfo[];
   types: TaskType[];
   /** the queues the batch page below is from */

@@ -17,6 +17,7 @@ public class TextIndexTaskRunner(IDataStore db) : TaskRunner<TextIndexTask> {
     // the extract is read first and written later, so two batches holding the same node must not
     // overlap: the one that read the older text could finish last and leave it in the index
     public override string? GetConcurrencyKey(TextIndexTask task) => task.NodeId.ToString();
+    public override string? GetTaskLogId(TextIndexTask task) => "node " + task.NodeId;
     public override async Task ExecuteAsync(Batch<TextIndexTask> batch, TaskLogger? taskLogger) {
         var ids = batch.Tasks.Select(t => t.NodeId).ToArray();
         var extracts = db.GetTextExtract(ids, TextIndexType.PlainTextSearch);

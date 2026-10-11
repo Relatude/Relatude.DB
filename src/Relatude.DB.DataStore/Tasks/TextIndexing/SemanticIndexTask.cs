@@ -19,6 +19,7 @@ public class SemanticIndexTaskRunner(IDataStore db, AIEngine ai) : TaskRunner<Se
     // the text is read before the embeddings are fetched and written after, so two batches holding
     // the same node must not overlap: the one that read the older text could finish last
     public override string? GetConcurrencyKey(SemanticIndexTask task) => task.NodeId.ToString();
+    public override string? GetTaskLogId(SemanticIndexTask task) => "node " + task.NodeId;
     public override async Task ExecuteAsync(Batch<SemanticIndexTask> batch, TaskLogger? taskLogger) {
         var ids = batch.Tasks.Select(t => t.NodeId).ToArray();
         var extracts = db.GetTextExtract(ids, TextIndexType.SemanticTextSearch);

@@ -15,11 +15,13 @@ internal class Scheduler {
     Timer? _taskDequeuePersistedTimer; // timer only for dequeuing persisted index tasks
     Timer? _backgroundTaskTimer;  // general background grouping a number of background tasks ( auto state file save, backup, cache purge etc )
     Timer? _metricRecorder;  // timer for recording metrics, separated to be able to run more often and not be delayed by other background tasks
+    Timer? _scheduleTimer; // timer for the schedules of the jobs, see Jobs
 
     OnlyOneThreadRunning _autoFlushTaskRunningFlag = new(); // flag to ensure only one thread is running auto flush at a time
     OnlyOneThreadRunning _dequeIndexTaskRunningFlag = new(); // flag to ensure only one thread is running index task dequeue at a time
     OnlyOneThreadRunning _dequeIndexTaskPersistedRunningFlag = new(); // flag to ensure only one thread is running index task dequeue at a time
     OnlyOneThreadRunning _backgroundTaskRunningFlag = new(); // flag to ensure only one thread is running background tasks at a time
+    OnlyOneThreadRunning _scheduleRunningFlag = new(); // flag to ensure only one thread is looking at the schedules at a time
 
     DateTime _lastSaveIndexStates = DateTime.MinValue; // running at startup if above min action count
     DateTime _lastTruncate = DateTime.UtcNow; // do not run truncate at startup unless due
@@ -32,36 +34,62 @@ internal class Scheduler {
     int taskQueuePulseIntervalMs; // interval for checking for new tasks and the time allowed for building a batch of tasks
     int backgroundTasksPulseIntervalMs = 60000; // backup if due and delete old, cache purge, save log stats, flush logs etc. run every minute, not needed to run too often
     int metricRecorderPulseIntervalMs = 1000; // record metrics every second
+    int schedulePulseIntervalMs = 1000; // the finest a schedule can be is a second, and a look at every schedule costs next to nothing
     TimeSpan _intervalOfDeletingExpiredTasks = TimeSpan.FromMinutes(5); // interval for running delete expired tasks, default is 5 minutes
 
     int taskQueueMaxRuntimeMs;
     int taskQueuePauseLimitDbActionsPerSec;
 
-    const int _throttleDefault = 90; // 0-100
-    int _throttle = -1;
+    int _throttle = -1; // the speed in force, 0-100
+    // the setting (SettingsLocal.TaskQueueSpeed) as last applied: a change to it applies at once, while a
+    // speed set at runtime only (IDataStore.TaskQueueThrottle) stays until the setting changes again
+    int _appliedSpeedSetting = -1;
+    readonly object _throttleLock = new();
     volatile bool _stopped; // set by Stop(), prevents in-flight timer callbacks from rescheduling disposed timers
 
     public Scheduler(DataStoreLocal db) {
         _db = db;
         _s = _db.Settings;
-        ResetTaskQueuesThrottle();
+        applySpeedSettingIfChanged();
     }
 
-    public void ResetTaskQueuesThrottle() => ThrottleTaskQueue(_throttleDefault);
+    /// <summary>The speed in force, 0-100 - after taking up a change to the setting, so a speed just saved
+    /// on the settings page reads back at once.</summary>
     public int GetTaskQueuesThrottle() {
+        applySpeedSettingIfChanged();
         return _throttle;
     }
-    public void ThrottleTaskQueue(int throttlePercentage) { // 0-100;
-        if (throttlePercentage < 0) throttlePercentage = 0;
-        else if (throttlePercentage > 100) throttlePercentage = 100;
-        if (_throttle == throttlePercentage) return;
-        _throttle = throttlePercentage;
-        double factor = _throttle / 100d; // min 0, max 1
-        taskQueueMaxRuntimeMs = (int)(10000d * (0.1d + 0.9d * factor)); // from 10s to 0s, 50% => 5s^
-        taskQueuePauseLimitDbActionsPerSec = 4 * (int)Math.Pow((factor * 100d), 2d); // from 0 to 40,000, 50% => 2,500
-        taskQueuePulseIntervalMs = 100 + (int)(5000 * (1d - factor)); // from 5100ms to 100ms, 50% => 2,550ms
-        safeTimerChange(_taskDequeueTimer, taskQueuePulseIntervalMs);
-        safeTimerChange(_taskDequeuePersistedTimer, taskQueuePulseIntervalMs);
+    // the setting decides at the start, and again whenever it changes; asked before every round
+    void applySpeedSettingIfChanged() {
+        var setting = _s.TaskQueueSpeed;
+        if (setting == _appliedSpeedSetting) return;
+        lock (_throttleLock) {
+            if (setting == _appliedSpeedSetting) return;
+            _appliedSpeedSetting = setting;
+            ThrottleTaskQueue(setting);
+        }
+    }
+    /// <summary>
+    /// Sets the speed, 0-100, for as long as the database is open or until the setting changes. One knob over
+    /// three numbers, each a straight line between its ends:
+    /// how long a round may start batches (1 s at 0 to 10 s at 100: 5.5 s at 50, 9.1 s at 90), how long the
+    /// queue waits between rounds (5.1 s at 0 to 0.1 s at 100: 2.6 s at 50, 0.6 s at 90), and how busy the
+    /// database may be before a round is skipped - 4 × speed² write actions per second (any write at all at 0,
+    /// 10,000/s at 50, 32,400/s at 90, 40,000/s at 100).
+    /// </summary>
+    public void ThrottleTaskQueue(int throttlePercentage) {
+        lock (_throttleLock) {
+            if (throttlePercentage < 0) throttlePercentage = 0;
+            else if (throttlePercentage > 100) throttlePercentage = 100;
+            if (_throttle == throttlePercentage) return;
+            _throttle = throttlePercentage;
+            double factor = _throttle / 100d; // 0 to 1
+            taskQueueMaxRuntimeMs = (int)(10000d * (0.1d + 0.9d * factor)); // 1,000 ms at 0 to 10,000 ms at 100; 5,500 ms at 50
+            taskQueuePauseLimitDbActionsPerSec = 4 * (int)Math.Pow(factor * 100d, 2d); // 0 at 0 to 40,000/s at 100; 10,000/s at 50
+            taskQueuePulseIntervalMs = 100 + (int)(5000 * (1d - factor)); // 5,100 ms at 0 to 100 ms at 100; 2,600 ms at 50
+            safeTimerChange(_taskDequeueTimer, taskQueuePulseIntervalMs);
+            safeTimerChange(_taskDequeuePersistedTimer, taskQueuePulseIntervalMs);
+        }
     }
     void safeTimerChange(Timer? timer, int dueTimeMs) {
         if (_stopped) return;
@@ -116,6 +144,10 @@ internal class Scheduler {
             _metricRecorder = new Timer(recordMetrics, null, startupDelayMs + timerStartupDelta * 4, metricRecorderPulseIntervalMs);
         }
 
+        // the schedules run whether or not any are set: one added in the admin UI applies without a reopen
+        _db.Jobs.Start();
+        if (_db.TickSchedulesInBackground) _scheduleTimer = new Timer(tickSchedules, null, startupDelayMs + timerStartupDelta * 5, schedulePulseIntervalMs);
+
     }
     public void Stop() {
         _stopped = true;
@@ -124,16 +156,25 @@ internal class Scheduler {
         _taskDequeueTimer?.Change(Timeout.Infinite, Timeout.Infinite);
         _taskDequeuePersistedTimer?.Change(Timeout.Infinite, Timeout.Infinite);
         _metricRecorder?.Change(Timeout.Infinite, Timeout.Infinite);
+        _scheduleTimer?.Change(Timeout.Infinite, Timeout.Infinite);
         _autoFlushTimer?.Dispose();
         _backgroundTaskTimer?.Dispose();
         _taskDequeueTimer?.Dispose();
         _taskDequeuePersistedTimer?.Dispose();
         _metricRecorder?.Dispose();
+        _scheduleTimer?.Dispose();
         _autoFlushTimer = null;
         _backgroundTaskTimer = null;
         _taskDequeueTimer = null;
         _taskDequeuePersistedTimer = null;
         _metricRecorder = null;
+        _scheduleTimer = null;
+        // tasks still running are asked to stop, and what the scheduler remembers is written
+        try {
+            _db.Jobs.Stop();
+        } catch (Exception err) {
+            _db.LogError("Stopping the scheduler failed: ", err);
+        }
     }
     DateTime _lastDeleteExpiredTasks = DateTime.MinValue;
     DateTime _lastDeleteExpiredPersistedTasks = DateTime.MinValue;
@@ -145,6 +186,7 @@ internal class Scheduler {
     async void dequeueTaskQueues(object? state) {
         if (_stopped || _db.State != DataStoreState.Open) return;
         try {
+            applySpeedSettingIfChanged();
             _taskDequeueTimer?.Change(Timeout.Infinite, Timeout.Infinite); // stop it...
             var actionsSinceLastDequeue = _db.GetNoPrimitiveActionsSinceStartup() - _actionCountAtCompletionOfTaskDequeue;
             _actionCountAtCompletionOfTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
@@ -169,6 +211,7 @@ internal class Scheduler {
     async void dequeuePersistedTaskQueues(object? state) { // async void for the same reason as dequeueTaskQueues
         if (_stopped || _db.State != DataStoreState.Open) return;
         try {
+            applySpeedSettingIfChanged();
             _taskDequeuePersistedTimer?.Change(Timeout.Infinite, Timeout.Infinite); // stop it...
             var actionsSinceLastDequeue = _db.GetNoPrimitiveActionsSinceStartup() - _actionCountAtCompletionOfPersistedTaskDequeue;
             _actionCountAtCompletionOfPersistedTaskDequeue = _db.GetNoPrimitiveActionsSinceStartup();
@@ -207,30 +250,30 @@ internal class Scheduler {
         if (restartedBatches > 0) db.LogInfo("   -> " + restartedBatches + " batches with " + restaredTasks + " tasks restarted after shutdown");
         if (abortedBatches > 0) db.LogInfo("   -> " + abortedBatches + " batches with " + abortedTasks + " tasks aborted due to shutdown");
     }
+    // One round of a queue. It ends when its time is up even if batches it started are still running:
+    // they carry on, and the next round - after the interval, and only when the database is not too
+    // busy - starts others beside them. The queue lists its running batches under an activity of its
+    // own, and logs each failed batch where it fails, so the round only sums up what finished in it.
     static async Task dequeueOneTaskQueueAsync(TaskQueue queue, OnlyOneThreadRunning oneThread, DataStoreLocal db, int maxRunTime) {
         if (oneThread.IsRunning_IfNotSetFlagToRunning()) return;
-        long activityId = -1;
         try {
             if (db.State != DataStoreState.Open) return;
             if (queue.CountBatch(BatchState.Pending) == 0) return; // no tasks to execute
             Stopwatch sw = Stopwatch.StartNew();
             bool abort() => db.State != DataStoreState.Open;
-            activityId = db.RegisterActvity(DataStoreActivityCategory.RunningTask, "Running tasks", 0);
             // awaited rather than blocked on: the batches run on threads of their own, several at once
-            BatchTaskResult[] result = await queue.ExecuteTasksAsync(maxRunTime, abort, activityId);
+            BatchTaskResult[] result = await queue.ExecuteTasksAsync(maxRunTime, abort);
             var ms = sw.Elapsed.TotalMilliseconds;
-            if (result.Length == 0) return; // no tasks executed
+            if (result.Length == 0) return; // nothing finished within the round
             var failed = result.Count(r => r.Error != null);
             var taskTotalCount = result.Sum(r => r.TaskCount);
             var taskFailedCount = result.Where(r => r.Error != null).Sum(r => r.TaskCount);
             var logType = failed > 0 ? SystemLogEntryType.Error : SystemLogEntryType.Info;
             db.Log(logType, "TaskQueue: " + taskTotalCount + " tasks in " + result.Length + " batches. " + ms.To1000N() + "ms total. " +
                 (failed > 0 ? (taskFailedCount + " tasks in " + failed + " batches failed! ") : ""));
-            foreach (var r in result) if (r.Error != null) db.LogError(r.TaskTypeName + " failed", r.Error!);
         } catch (Exception err) {
             db.LogError("TaskQueue: ", err);
         } finally {
-            if (activityId > -1) db.DeRegisterActivity(activityId);
             oneThread.Reset();
         }
     }
@@ -429,7 +472,7 @@ internal class Scheduler {
             _db.LogError("Backup failed: ", err);
         }
         try {
-            deleteOlderBackupsIfDue();
+            DeleteOlderBackups();
         } catch (Exception err) {
             _db.LogError("Backup delete failed: ", err);
         }
@@ -438,7 +481,7 @@ internal class Scheduler {
     /// <summary>One pass of the automatic backup, without waiting for the minute between checks. For the tests.</summary>
     internal void RunAutoBackupPass() {
         backupIfDue();
-        deleteOlderBackupsIfDue();
+        DeleteOlderBackups();
     }
     // the backups are looked for, written and pruned in the backup provider (IoBackup), which falls
     // back to the database's own provider when none is configured
@@ -461,7 +504,10 @@ internal class Scheduler {
             _db.EnqueueTask(task);
         }
     }
-    void deleteOlderBackupsIfDue() {
+    /// <summary>Deletes the backups the retention settings do not keep (hourly, daily, weekly, monthly and yearly
+    /// copies kept); one marked keep is never deleted. Returns how many it deleted. Also the built-in named
+    /// task "delete-old-backups".</summary>
+    internal int DeleteOlderBackups() {
         var now = DateTime.UtcNow;
         // keys are handled in their joined form here, so they can live in hash sets and set operations
         var files = FileKeyUtility.WAL_GetAllBackUpFileKeys(_db.IOBackup).Select(f => new { FileKey = f.AsKeyString(), Timestamp = FileKeyUtility.WAL_GetBackUpDateTimeFromFileKey(f) });
@@ -522,10 +568,23 @@ internal class Scheduler {
             var bestFileToKeep = filesInHour.OrderBy(f => f).FirstOrDefault();
             if (bestFileToKeep != null) filesToKeep.Add(bestFileToKeep);
         }
-        var filesToDelete = files.Select(f => f.FileKey).Except(filesToKeep); // the opoosite of keep
+        var filesToDelete = files.Select(f => f.FileKey).Except(filesToKeep).ToArray(); // the opoosite of keep
         foreach (var f in filesToDelete) {
             _db.LogInfo("Deleting: " + f);
             _db.IOBackup.DeleteFileIfItExists(f.SplitKey());
+        }
+        return filesToDelete.Length;
+    }
+
+    void tickSchedules(object? state) {
+        if (_stopped || _db.State != DataStoreState.Open) return;
+        if (_scheduleRunningFlag.IsRunning_IfNotSetFlagToRunning()) return;
+        try {
+            _db.Jobs.Tick(DateTime.UtcNow);
+        } catch (Exception err) {
+            _db.LogError("Scheduler failed: ", err);
+        } finally {
+            _scheduleRunningFlag.Reset();
         }
     }
 

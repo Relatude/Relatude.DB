@@ -27,7 +27,7 @@ public class TaskQueueConcurrencyTests {
         var store = open(runner);
         try {
             enqueue(store, probe, 0, 1, 2, 3, 4, 5);
-            var run = store.TaskQueue.ExecuteTasksAsync(60_000, () => false, 0);
+            var run = store.TaskQueue.ExecuteTasksAsync(60_000, () => false);
             waitUntil(() => probe.Current == 3, "three batches running");
             settle();
             Assert.AreEqual(3, probe.Current, "no more than three at once");
@@ -53,7 +53,7 @@ public class TaskQueueConcurrencyTests {
         try {
             Assert.AreEqual(1, store.TaskQueue.ConcurrencyOf(runner));
             enqueue(store, probe, 0, 1, 2);
-            var run = store.TaskQueue.ExecuteTasksAsync(60_000, () => false, 0);
+            var run = store.TaskQueue.ExecuteTasksAsync(60_000, () => false);
             waitUntil(() => probe.Current == 1, "a batch running");
             settle();
             Assert.AreEqual(1, probe.Current);
@@ -77,7 +77,7 @@ public class TaskQueueConcurrencyTests {
             Assert.AreEqual(2, store.TaskQueue.ConcurrencyOf(runner));
             Assert.AreEqual(2, store.TaskQueue.ConfiguredConcurrencyOf(runner));
             enqueue(store, probe, 0, 1, 2, 3, 4, 5);
-            var run = store.TaskQueue.ExecuteTasksAsync(60_000, () => false, 0);
+            var run = store.TaskQueue.ExecuteTasksAsync(60_000, () => false);
             waitUntil(() => probe.Current == 2, "two batches running");
             settle();
             Assert.AreEqual(2, probe.Current, "the setting, not the runner's four");
@@ -158,7 +158,7 @@ public class TaskQueueConcurrencyTests {
         var store = open(runner);
         try {
             enqueue(store, probe, 1, 1, 2);
-            var run = store.TaskQueue.ExecuteTasksAsync(60_000, () => false, 0);
+            var run = store.TaskQueue.ExecuteTasksAsync(60_000, () => false);
             waitUntil(() => probe.Current == 2, "the first batch of key 1 and the batch of key 2");
             settle();
             Assert.AreEqual(2, probe.Current, "the second batch of key 1 waits, although there is room");
@@ -188,7 +188,7 @@ public class TaskQueueConcurrencyTests {
         try {
             enqueue(store, probe, "a", 1);
             enqueue(store, probe, "b", 2);
-            var run = store.TaskQueue.ExecuteTasksAsync(60_000, () => false, 0);
+            var run = store.TaskQueue.ExecuteTasksAsync(60_000, () => false);
             waitUntil(() => probe.Current == 2, "both batches running");
             var a = store.TaskQueue.GetBatchMeta([BatchState.Running], [], ["a"], 0, 10, out _).Single();
             store.TaskQueue.SetState([a.BatchId], BatchState.Pending);
@@ -221,7 +221,7 @@ public class TaskQueueConcurrencyTests {
         try {
             enqueue(store, probe, "x", 1);
             enqueue(store, probe, "y", 2);
-            var run = store.TaskQueue.ExecuteTasksAsync(60_000, () => false, 0);
+            var run = store.TaskQueue.ExecuteTasksAsync(60_000, () => false);
             waitUntil(() => probe.Current == 1, "the first batch running");
             var running = store.TaskQueue.GetBatchMeta([BatchState.Running], [], [], 0, 10, out _).Single();
             store.TaskQueue.DeleteById([running.BatchId]);
@@ -245,7 +245,7 @@ public class TaskQueueConcurrencyTests {
         var store = open(runner);
         try {
             enqueue(store, probe, 1, 2);
-            var run = store.TaskQueue.ExecuteTasksAsync(60_000, () => false, 0);
+            var run = store.TaskQueue.ExecuteTasksAsync(60_000, () => false);
             waitUntil(() => probe.Current == 2, "both batches running");
             probe.Release(1);
             waitUntil(() => probe.Active(1) == 0, "one of them done");
@@ -256,7 +256,66 @@ public class TaskQueueConcurrencyTests {
             Assert.AreEqual(2, (await run).Length);
             // and once shut down, nothing new starts
             store.EnqueueTask(new ConcurrencyProbeTask(9));
-            Assert.AreEqual(0, (await store.TaskQueue.ExecuteTasksAsync(1000, () => false, 0)).Length);
+            Assert.AreEqual(0, (await store.TaskQueue.ExecuteTasksAsync(1000, () => false)).Length);
+        } finally {
+            store.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// A batch still running when its round's time is up carries on and holds only its own slot: a later
+    /// round starts other batches beside it, a batch with its key still waits for it, the database's
+    /// activities list it under the queue's own activity, and a shutdown waits for it.
+    /// </summary>
+    [TestMethod]
+    public async Task ABatchThatOutlivesItsRound_HoldsOnlyItsOwnSlot() {
+        var probe = new Probe();
+        var runner = new ConcurrencyProbeRunner(probe) { Concurrency = 2, Keyed = true };
+        var store = open(runner);
+        try {
+            enqueue(store, probe, 1);
+            var first = await store.TaskQueue.ExecuteTasksAsync(200, () => false);
+            Assert.AreEqual(0, first.Length, "the round ends on time, with its batch still running");
+            Assert.AreEqual(1, probe.Active(1));
+            Assert.AreEqual(1, store.TaskQueue.RunningCount(runner.TaskTypeId));
+            var queueActivity = store.GetStatus().ActivityTree.Single(b => b.Activity.Description == "Running tasks, in memory");
+            Assert.AreEqual(1, queueActivity.Children.Length, "listed under the queue, not under a round that has ended");
+
+            enqueue(store, probe, 2);
+            probe.Release(2);
+            var second = await store.TaskQueue.ExecuteTasksAsync(10_000, () => false);
+            Assert.AreEqual(1, second.Length, "the next round runs another batch beside it");
+            Assert.AreEqual(1, probe.Active(1));
+
+            enqueue(store, probe, 1);
+            Assert.AreEqual(0, (await store.TaskQueue.ExecuteTasksAsync(200, () => false)).Length);
+            Assert.AreEqual(1, probe.Runs(1), "a batch holding the same key waits, whichever round started the one holding it");
+
+            Assert.IsFalse(store.TaskQueue.TryGracefulShutdown(100), "a shutdown waits for the batch its round left running");
+            probe.ReleaseAll();
+            Assert.IsTrue(store.TaskQueue.TryGracefulShutdown(5000));
+            waitUntil(() => store.TaskQueue.RunningCount(runner.TaskTypeId) == 0, "the slot freed");
+            Assert.IsFalse(store.GetStatus().ActivityTree.Any(b => b.Activity.Description == "Running tasks, in memory"), "and the queue's activity gone with its last batch");
+        } finally {
+            store.Dispose();
+        }
+    }
+
+    /// <summary>The speed is a setting: the database starts at it and follows a change to it at once, while
+    /// a speed set at runtime holds until the setting changes again.</summary>
+    [TestMethod]
+    public void TheSpeedIsASetting_ThatAppliesAtOnce() {
+        Assert.AreEqual(90, new SettingsLocal().TaskQueueSpeed);
+        var settings = new SettingsLocal { TaskQueueSpeed = 30 };
+        var store = open(new ConcurrencyProbeRunner(new Probe()), settings);
+        try {
+            Assert.AreEqual(30, store.TaskQueueThrottle, "the database starts at the setting");
+            store.TaskQueueThrottle = 70;
+            Assert.AreEqual(70, store.TaskQueueThrottle, "set at runtime, it holds while the setting stays as it was");
+            settings.TaskQueueSpeed = 20;
+            Assert.AreEqual(20, store.TaskQueueThrottle, "a change to the setting applies at once");
+            settings.TaskQueueSpeed = 150;
+            Assert.AreEqual(100, store.TaskQueueThrottle, "kept within 0-100");
         } finally {
             store.Dispose();
         }
@@ -366,9 +425,9 @@ public class TaskQueueConcurrencyTests {
             store.EnqueueTask(new ConcurrencyProbeTask(key));
         }
     }
-    static void enqueue(DataStoreLocal store, Probe probe, string jobId, int key) {
+    static void enqueue(DataStoreLocal store, Probe probe, string groupKey, int key) {
         probe.Gate(key);
-        store.EnqueueTask(new ConcurrencyProbeTask(key), jobId);
+        store.EnqueueTask(new ConcurrencyProbeTask(key), groupKey);
     }
 
     static IBatch batch(ITaskRunner runner, TaskData task, DateTime created) {

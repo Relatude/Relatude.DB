@@ -110,6 +110,13 @@ public class SettingsLocal {
     public bool EnableInstantTextIndexingByDefault { get; set; } = false;
 
     public bool AutoDequeTasks { get; set; } = true;
+    /// <summary>
+    /// How eagerly the task queues start background work, 0 to 100: the Speed slider on the Tasks page. Higher
+    /// starts batches in longer rounds, with shorter pauses between them, and keeps going while the database
+    /// is busier. It never stops or slows a batch that has started, and 0 does not stop the queues - turn
+    /// <see cref="AutoDequeTasks"/> off for that. A change applies at once.
+    /// </summary>
+    public int TaskQueueSpeed { get; set; } = 90;
     public PersistedQueueStoreEngine PersistedQueueStoreEngine { get; set; } = PersistedQueueStoreEngine.Native;
     public string? PersistedQueueStoreFolderPath { get; set; }
     /// <summary>
@@ -140,6 +147,14 @@ public class SettingsLocal {
         }
         return null;
     }
+    /// <summary>
+    /// The database's timetable: which job runs when (see <see cref="Relatude.DB.Tasks.ScheduleSettings"/>
+    /// and <see cref="Relatude.DB.Tasks.Jobs"/>). Read at every tick of the scheduler, about once a
+    /// second, so a schedule added or changed applies without a reopen. A run goes through the task
+    /// queue, so nothing runs while <see cref="AutoDequeTasks"/> is off.
+    /// </summary>
+    public Relatude.DB.Tasks.ScheduleSettings[]? Schedules { get; set; }
+
     public DefaultUrlManagerOptions? UrlOptions { get; set; } = new();
 
     public ImageDefaultFormat ImageDefaultFormat { get; set; } = ImageDefaultFormat.Jpeg;

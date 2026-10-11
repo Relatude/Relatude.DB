@@ -68,6 +68,10 @@ concept builds on the last.
 34. [AI services](#34-ai-services) · [34.1 text](#341-text-embeddings-and-completions) · [34.2 images](#342-images) · [34.3 files to text](#343-files-to-text) · [34.4 translation](#344-translation) · [34.5 prices and errors](#345-prices-answers-kept-and-errors)
 35. [Relatude Services](#35-relatude-services) · [35.1 a license is not needed](#351-a-license-is-not-needed) · [35.2 a provider of your own](#352-a-provider-of-your-own) · [35.3 the account](#353-the-account-at-servicesrelatudecom) · [35.4 connecting an installation](#354-connecting-an-installation)
 
+**Part VI — Background work**
+
+36. [Background tasks and the scheduler](#36-background-tasks-and-the-scheduler) · [36.1 jobs](#361-jobs) · [36.2 schedules](#362-schedules) · [36.3 the Scheduler page](#363-the-scheduler-page)
+
 ---
 ---
 
@@ -2244,8 +2248,11 @@ from the beginning; without one, opening is a full replay.
 | Key | Default | What it does |
 |---|---|---|
 | `AutoDequeTasks` | `true` | Run the task queue — text indexing, embeddings, file conversion. With it off the work is still queued, but nothing processes it. The CLI turns it off for its own runs. |
+| `TaskQueueSpeed` | 90 | How eagerly the task queues start background work, 0–100 — the *Speed* slider on the Tasks page, which saves it here. Higher means longer rounds of starting batches (1 s at 0, 9.1 s at 90, 10 s at 100), shorter pauses between rounds (5.1 s, 0.6 s, 0.1 s), and carrying on while the database is busier: a round is skipped above 4 × speed² writes a second, so at 0 any write holds the queues back. A started batch always runs to the end, and 0 does not stop the queues — `AutoDequeTasks` does. A change applies at once. |
 | `PersistedQueueStoreEngine` | `Native` | Where the task queue is persisted: `Native`, `Sqlite` or `Memory`. `Memory` loses queued work on restart. |
 | `PersistedQueueStoreFolderPath` | beside the index folder | Where the persisted queue writes. |
+| `TaskConcurrency` | null | How many batches of a task type run at once, for the types that should not run as many as their code asks for: a list of `{ "Id", "TaskType", "MaxConcurrency" }`. Edited under *Settings › Maintenance › Batches at once*. |
+| `Schedules` | null | The timetable of jobs: which one runs when. Edited on *Tasks › Scheduler*. See [§36](#36-background-tasks-and-the-scheduler). |
 | `WriteSystemLogConsole` | `true` | Echo the engine's system log to the console. |
 | `LogRecording` | null | Which activity logs record entries and statistics after a restart — written by *Save and remember changes* on the Activity page. A log not listed starts off. The logs you define keep their own switches in their settings files ([§32](#32-logs--recording-what-the-application-does)). |
 | `MinQueryDurationMsBeforeLogging` | 0 | Leave queries faster than this out of the query log. 0 records every one. |
@@ -2868,6 +2875,7 @@ What you do in it:
 | **Status** | Store state, running file conversions, activity and timings. |
 | **Activity** | What the database records about itself — queries, transactions, actions, tasks, metrics, the system trace — each log switched on or off, with its entries, search and graphs. |
 | **Logs** | Logs of your own: define one, and read what the application recorded into it as graphs, entries and the spread of a column's values. The **Built-in logs** switch shows the Activity logs here too, read only. See [§32](#32-logs--recording-what-the-application-does). |
+| **Tasks** | The task queue — what is waiting and running, failed batches to queue again, how much of the machine background work may take — and the **Scheduler**, which runs jobs such as backups and your own at set intervals. See [§36](#36-background-tasks-and-the-scheduler). |
 | **API** | GraphQL endpoints over the database: each one a url, the types and properties it exposes and under which names, views, mutations, API keys with expiry dates, generated client code, and an explorer to try queries. See [§33](#33-graphql-endpoints). |
 | **Relatude Services** (server menu) | The installation's Relatude Services account: connecting it to a license, what the license carries, the sign-in switch, and a test view for each hosted service. Not needed to run anything. See [§35](#35-relatude-services). |
 | **Memory** (on the dashboard) | Every memory budget of one database on one line - the node and result set caches, each index engine, the state store - each showing what it is actually holding against what it is allowed. Dragging a budget takes effect at once where the part can be re-sized while it runs; saving keeps them for the next start, in `relatude.db.overrides.json` like every change made on the settings pages. |
@@ -6533,6 +6541,152 @@ license server out of reach, never stops a database. `"DisableHeartbeat": true` 
 stops the reports. It is left off the settings pages on purpose.
 
 ---
+---
+
+# Part VI — Background work
+
+## 36. Background tasks and the scheduler
+
+Work that does not belong inside a transaction runs in the database's **task queue**: text
+indexing, embeddings, backups and log rewrites, and anything your own code queues with
+`EnqueueTask`. On top of the queue sits the **scheduler**, which runs *jobs* at set
+intervals — a backup every night, a log truncation every Sunday, a report of your own every
+fifteen minutes on working days.
+
+Two things make it up:
+
+- a **job** is work registered under a name. The database brings its own maintenance, and
+  your code adds more;
+- a **schedule** says which job to run and when. Schedules are settings —
+  `LocalSettings.Schedules` in `relatude.db.json` — so they are deployed with the application, or
+  set on one installation in the admin UI, which saves them in `relatude.db.overrides.json` like any
+  other change made there ([§12](#changes-made-in-the-admin-ui-relatudedboverridesjson)).
+
+Every run, scheduled or started by hand, goes through the task queue as a batch of
+`RunJob`: it waits for its turn, shows on the Tasks page, and never runs beside another run of
+the same job.
+
+### 36.1 Jobs
+
+The database registers these itself:
+
+| Job | What it does | Argument |
+|---|---|---|
+| `backup` | Writes a backup of the database to the backup storage: a copy of the log, or of the current state when *Truncate backups* is on. Leaves older backups alone. | `keep` — never deleted by `delete-old-backups` or the automatic backup. `truncate` or `copy` overrides the setting for this backup. Combine them: `keep,truncate`. |
+| `delete-old-backups` | Deletes the backups the retention settings (hourly, daily, weekly, monthly and yearly copies kept) do not keep. A backup marked keep is never deleted. | none |
+| `truncate-log` | Rewrites the transaction log as the current state, giving up the history before it — including reverting into it. Skipped while a revert window is open, or when there is nothing to drop. | `delete-old` deletes the old log file afterwards. |
+| `delete-old-log-files` | Deletes the log files a truncation left behind. | none |
+| `save-state` | Writes the state snapshot and the index states, so the next open reads them instead of replaying the log. | none |
+| `purge-caches` | Halves the node and set caches and gives the memory back. | none |
+| `reindex-text` | Queues every node of the text-indexed types for text indexing again. | none |
+| `delete-unreferenced-files` | Deletes the files no node refers to any more. Files uploaded in the last 15 minutes are left alone. | `count` only counts them. |
+
+A built-in job given a word it does not take fails its run and names the words it takes, rather
+than quietly ignoring a typo in a schedule.
+
+Register your own in `OnStoreInit`. It runs every time the database is set up, before it opens, so
+a schedule naming the job finds it from the first tick:
+
+```csharp
+builder.AddRelatudeDB(options => {
+    options.OnStoreInit = db => {
+        db.Jobs.Add("send-digest", async ctx => {
+            var sent = await Digest.SendAsync(db, ctx.Argument, ctx.CancellationToken);
+            ctx.Report(sent + " mails sent"); // shown beside the run on the Scheduler page
+        }, "Mails the daily digest to every subscriber", "Who gets it: all, or staff");
+    };
+});
+```
+
+What a job is handed, `JobContext`:
+
+| Member | |
+|---|---|
+| `Argument` | The schedule's `Argument`, or what was typed when the job was started by hand. |
+| `CancellationToken` | Cancelled when the database closes or someone stops the run. A closing database waits only a few seconds for the jobs still running, so pass it on to anything that takes time. |
+| `Report(message)` | One line on how it went: shown on the Scheduler page, and in the system log when the job finishes. |
+| `Progress(percentage, text)` | Shown with the database's other activities while the job runs. |
+| `ScheduleId`, `ScheduleName`, `DueUtc`, `Trigger` | Which schedule started it, for which time, and how: `Schedule`, `Missed` (late, after the database was closed) or `Manual`. |
+
+A job that throws fails its run. The error is shown on the Scheduler page and logged, and the
+failed batch stays on the Tasks page for a day, where *Queue again* runs it again. To start a run
+from code, `db.Jobs.Run("send-digest", "staff")` queues one and returns at once.
+
+### 36.2 Schedules
+
+```jsonc
+"LocalSettings": {
+  "Schedules": [
+    { "Id": "2f6d0c1e-5a7b-4c39-9f0e-0b3c2d1e4f50", "Job": "backup", "Unit": "Days", "At": "02:00" },
+    { "Id": "8b1c4e2a-0d3f-4b6a-a1c2-7e9f0a1b2c3d", "Job": "delete-old-backups", "Unit": "Days", "At": "03:00" },
+    { "Id": "c47e9a10-2b3c-4d5e-8f60-718293a4b5c6", "Name": "Weekly truncation", "Job": "truncate-log",
+      "Argument": "delete-old", "Unit": "Weeks", "Days": "Sun", "At": "04:00", "TimeZone": "Europe/Oslo" },
+    { "Id": "e09a5b6c-7d8e-4f90-a1b2-c3d4e5f60718", "Job": "send-digest", "Every": 15, "Unit": "Minutes",
+      "At": "08:00", "Until": "18:00", "Days": "Mon-Fri" }
+  ]
+}
+```
+
+| Field | Default | What it does |
+|---|---|---|
+| `Id` | — | Identifies the schedule: the overrides file patches the list element by element by it, and the scheduler remembers by it when the schedule last ran. Any new guid. |
+| `Job` | — | The job to run, not case sensitive. A name nobody has registered is not an error: its runs are skipped, with the reason, until one is. |
+| `Name` | the job's | What the schedule is called on the Scheduler page and in the log. |
+| `Argument` | none | Handed to the job. |
+| `Enabled` | `true` | Off keeps the schedule without running it. Turned on again, it waits for its next time. |
+| `Every`, `Unit` | `1`, `Days` | The interval. `Unit` is `Seconds`, `Minutes`, `Hours`, `Days`, `Weeks` or `Months`. |
+| `At` | midnight | `HH:mm`. For days, weeks and months, the time of the run; below a day, the first run of the day, which the rest follow. |
+| `Until` | midnight | Below a day only: the last time of day a run may start. |
+| `Days` | every day | The days of the week, as a list or a range: `Mon,Wed,Fri`, `Mon-Fri`. A weekly schedule without days runs on Mondays. Months do not use it. |
+| `DayOfMonth` | `1` | Months only, 1 to 31. A month without that day runs on its last day, so `31` is the last day of every month. |
+| `TimeZone` | the server's | An IANA id such as `Europe/Oslo`, or `UTC`. The times are laid out on that clock, so 02:00 stays 02:00 across summer time. On a cloud host the server's own zone is usually UTC. |
+| `RunMissed` | `true` | A run that fell due while the database was closed runs once as soon as it is open again, however many were missed. Off, missed runs are skipped. |
+
+How the times are laid out:
+
+- **Below a day** the runs follow the interval through the day from `At` until `Until`, and the next
+  day starts over at `At` — cron's way. An interval that does not divide the day, every 7 hours say,
+  therefore has a shorter gap before midnight.
+- **Every other day, week or month** is counted from a fixed point in the calendar, not from when the
+  server started, so the rhythm survives a restart. Every 7 days always lands on the same weekday, a
+  Monday; combined with `Days` naming another day it never runs, and the Scheduler page says so.
+- **Summer time.** A time the clock skips (02:30 on the night it jumps from 02:00 to 03:00) runs at the
+  first minute after the jump; a time it passes twice runs the first time.
+- **A changed schedule starts from now.** Moving a daily run from 14:00 to 08:00 at half past ten does
+  not count this morning's 08:00 as missed: the next run is tomorrow at 08:00.
+- **No overlap.** A schedule whose previous run is still queued or running skips its time and says so.
+  Skips in a row for the same reason are one entry in the history, counted.
+
+Nothing runs while `AutoDequeTasks` is off: the runs are queued and nothing takes them. The scheduler
+looks at the schedules once a second while the database is open, and reads them from the settings
+every time, so a change applies without a reopen. What it remembers — when each schedule last came
+due, and the latest 200 runs — is `state/schedules.json` in the database's index storage; losing that
+file costs a missed run its catch-up and empties the history, nothing more.
+
+### 36.3 The Scheduler page
+
+*Tasks › Scheduler* in the admin UI lists the schedules with their next and last run, the jobs
+with what each takes as its argument, and the recent runs. Schedules are added, changed, turned off,
+removed and run from there; any job can be started by hand with an argument, and a run that is
+queued or running can be stopped. The editor shows the next five times as the server works them out,
+so a time zone or a list of days is checked as it is typed.
+
+What the page saves goes to `relatude.db.overrides.json`, on THIS SERVER. Each schedule says whether it
+comes from SHARED or THIS SERVER, and *Move to shared* at the top right moves it into
+`relatude.db.json` — so a timetable tried out on one server can become part of the application. A list
+set in appsettings or by `OnStoreSettingsInit` is shown and locked. The same list is also under
+*Settings › Maintenance › Scheduled jobs*.
+
+A run's batch shows on *Tasks › Queue* under the job's name. Up to four different jobs run at
+once — *Batches at once* in the settings can change that for `Run job` — and two runs of the
+same job never do. A run that takes an hour holds its own slot and nothing more: the queue goes on
+starting backups, log rewrites and other runs beside it.
+
+With the **Tasks** log on, on the Activity page, every run is an entry there under the job's name,
+saying how it was started, how long it took and what it reported, or why it failed. The other kinds
+of task are logged there too, one entry per task, beside the **Task batches** log's entry per batch.
+
+---
 
 ## Where to look when this manual runs out
 
@@ -6558,6 +6712,7 @@ your build, read the source — it is small and well commented:
 | Logs, statistics and HyperLogLog | `src/Relatude.DB.Logger/Logging/` — `ICustomLogs.cs`, `LogSettings.cs`, `LogValues.cs`, `Statistics/HyperLogLog.cs` |
 | GraphQL endpoints | `src/Relatude.DB.GraphQL/` — `Definitions/GraphQLEndpointDefinition.cs`, `GraphQLOptions.cs`, `Schema/SchemaBuilder.cs`, `Endpoints/GraphQLHttpHandler.cs`; the server side in `src/Relatude.DB.NodeServer/NodeServer/GraphQL/` |
 | AI services | `src/Relatude.DB.DataStore/AI/IAIProvider.cs`, `Imaging/IImagingProvider.cs`, `FileToText/IFileToTextProvider.cs`; the hosted services' clients in `src/Relatude.DB.Providers/` |
+| Jobs and the scheduler | `src/Relatude.DB.DataStore/Tasks/Scheduling/` — `Jobs.cs`, `ScheduleTimes.cs`, `ScheduleSettings.cs`; the built-in jobs in `src/Relatude.DB.DataStoreLocal/DataStores/DataStoreLocal.Jobs.cs` |
 | Relatude Services | `src/Relatude.DB.DataStore/SMS/ISMSProvider.cs` and the three above; the keys, the sign-in and reporting in in `src/Relatude.DB.NodeServer/NodeServer/LicenseLogin.cs` |
 
 For measured numbers rather than API surface, see the

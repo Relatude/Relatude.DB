@@ -146,12 +146,18 @@ public interface IDataStore : IDisposable {
     TaskQueue? TaskQueuePersisted { get; }
     /// <summary>
     /// 0-100: how much of the machine background task processing is allowed to take. It sets how long
-    /// a dequeue pulse may run, how often pulses happen, and how busy the database has to be before a
-    /// pulse steps aside. Runtime only - it goes back to the server default when the database reopens.
+    /// a round of the queue may start batches, how often rounds happen, and how busy the database has to be
+    /// before a round steps aside. The database starts at <c>LocalSettings.TaskQueueSpeed</c> and follows it
+    /// when it changes; setting this changes the speed until then, without saving anything.
     /// </summary>
     int TaskQueueThrottle { get; set; }
-    void EnqueueTask(TaskData task, string? jobId = null);
+    void EnqueueTask(TaskData task, string? groupKey = null);
     void RegisterRunner(ITaskRunner runner);
+    /// <summary>
+    /// The jobs of this database: work it knows by name - its own, and the ones the application registers -
+    /// and the scheduler that runs them at the times <c>LocalSettings.Schedules</c> sets.
+    /// </summary>
+    Jobs Jobs { get; }
 
     // File handling
     Task<FileValue> FileUploadAsync(PropertyPath target, IIOProvider source, string[] sourceFileKey, string? fileName = null, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null);
@@ -301,8 +307,8 @@ public static class IDataStoreExtensions {
         return false;
     }
     /// <summary>Queues a backup: a copy (or a truncated rewrite) of the log into the backup folder. The
-    /// batch is queued under <paramref name="jobId"/>, which is how a caller can follow it in the task queue.</summary>
-    public static void BackUpNow(this IDataStore store, bool truncate, bool keepForever, IIOProvider? destination = null, string jobId = "Backup") {
+    /// batch is queued under <paramref name="groupKey"/>, which is how a caller can follow it in the task queue.</summary>
+    public static void BackUpNow(this IDataStore store, bool truncate, bool keepForever, IIOProvider? destination = null, string groupKey = "Backup") {
         if (destination == null) destination = store.IOBackup;
         var fileKey = FileKeyUtility.WAL_GetFileKeyForBackup(DateTime.UtcNow, keepForever);
         var task = new RewriteTask() {
@@ -311,8 +317,9 @@ public static class IDataStoreExtensions {
             NewLogFileKey = fileKey,
             IO = destination,
             Truncate = truncate,
+            IsBackup = true,
         };
-        store.EnqueueTask(task, jobId);
+        store.EnqueueTask(task, groupKey);
     }
     public static void UpdateProperty(this IDataStore store, Guid nodeId, Guid propertyId, object value, bool? flushToDisk = null) {
         var transaction = new TransactionData();

@@ -182,7 +182,7 @@ public class UISharedTasksTests {
             Assert.IsFalse(waiting.GetProperty("cancellable").GetBoolean(), "nothing stops a rewrite once it is queued");
             // the test host runs no scheduler: the queue is run here, the way the scheduler would
             var queue = s.Host.Server.Containers[storeId].Store!.Datastore.TaskQueue;
-            await queue.ExecuteTasksAsync(30_000, () => false, 0);
+            await queue.ExecuteTasksAsync(30_000, () => false);
             var task = await waitUntilFinished(s.Host, id);
             Assert.AreEqual("done", task.GetProperty("status").GetString(), task.ToString());
             Assert.AreEqual("Backup written.", task.GetProperty("message").GetString());

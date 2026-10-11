@@ -142,7 +142,7 @@ public class AutoBackupTests {
     }
 
     static async Task runTasks(DataStoreLocal data, bool expectError) {
-        var results = await data.TaskQueue.ExecuteTasksAsync(60_000, () => false, 0);
+        var results = await data.TaskQueue.ExecuteTasksAsync(60_000, () => false);
         Assert.AreEqual(1, results.Length, "one backup batch");
         if (expectError) Assert.IsNotNull(results[0].Error, "the backup was expected to fail");
         else Assert.IsNull(results[0].Error, "the backup failed: " + results[0].Error);

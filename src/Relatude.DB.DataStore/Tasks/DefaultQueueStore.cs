@@ -132,13 +132,13 @@ public class DefaultQueueStore : IQueueStore {
     public int CountBatch(BatchState state) => _batchesById.Values.Count(b => b.Meta.State == state);
     public int CountTasks(BatchState state) => _batchesById.Values.Where(b => b.Meta.State == state).Sum(b => b.TaskCount);
     public bool AnyPendingOrRunning() => _batchesById.Values.Any(b => b.Meta.State == BatchState.Pending || b.Meta.State == BatchState.Running);
-    public BatchMetaWithCount[] GetBatchInfo(BatchState[] states, string[] typeIds, string[] jobIds, int page, int pageSize, out int totalCount) {
+    public BatchMetaWithCount[] GetBatchInfo(BatchState[] states, string[] typeIds, string[] groupKeys, int page, int pageSize, out int totalCount) {
         totalCount = 0;
         var batches = _batchesById.Values
             .Where(b =>
                 (states.Length == 0 || states.Contains(b.Meta.State)) &&
                 (typeIds.Length == 0 || typeIds.Contains(b.Meta.TaskTypeId)) &&
-                (jobIds.Length == 0 || jobIds.Contains(b.Meta.JobId))
+                (groupKeys.Length == 0 || groupKeys.Contains(b.Meta.GroupKey))
                 )
             .ToArray();
         totalCount = batches.Count();
@@ -153,9 +153,9 @@ public class DefaultQueueStore : IQueueStore {
             }
         }
     }
-    public void Set(string jobId, BatchState state) {
+    public void Set(string groupKey, BatchState state) {
         foreach (var batch in _batchesById.Values) {
-            if (batch.Meta.JobId == jobId) {
+            if (batch.Meta.GroupKey == groupKey) {
                 batch.Meta.SetState(state);
                 if (_persistToDisk) writeBatchToDisk(batch, _runners[batch.Meta.TaskTypeId]);
             }

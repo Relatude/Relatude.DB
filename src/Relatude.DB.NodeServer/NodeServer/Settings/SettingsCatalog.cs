@@ -1318,6 +1318,10 @@ public static class SettingsCatalog {
                             Help = "Off, tasks pile up unprocessed - text stops becoming searchable and conversions never run. Worth turning off only on a node that should queue work for another to do.",
                         },
                         new() {
+                            Path = "LocalSettings.TaskQueueSpeed", Label = "Speed", Unit = "%", Applies = SettingApplies.Live,
+                            Help = "How eagerly background work is started, 0 to 100 - the Speed slider on the Tasks page, which saves here. The queues start batches in rounds: higher means longer rounds (1 s at 0, 9.1 s at 90, 10 s at 100), shorter pauses between them (5.1 s at 0, 0.6 s at 90, 0.1 s at 100), and carrying on while the database is busier - a round is skipped above 4 × speed² writes a second, so at 0 any write at all holds the queues back. A batch that has started always runs to the end, and 0 does not stop the queues: turn off Run queued tasks for that.",
+                        },
+                        new() {
                             Path = "LocalSettings.PersistedQueueStoreEngine", Label = "Queue engine",
                             Help = "Where queued tasks live. Native and Sqlite survive a restart, so work in flight is picked up again. Memory loses the queue when the process stops.",
                         },
@@ -1350,6 +1354,87 @@ public static class SettingsCatalog {
                             new() {
                                 Path = "Id", Label = "Entry id", ReadOnly = true,
                                 Help = "Identifies this entry in the settings file so this page can edit and remove it. Generated when the entry is added, and nothing else refers to it.",
+                            },
+                        ],
+                    },
+                },
+                new() {
+                    Id = "schedules",
+                    Title = "Scheduled jobs",
+                    Help = "Jobs run at set intervals: the database's own maintenance - backups, log truncation, snapshots - and any job the application registers. "
+                        + "A run goes through the task queue, so nothing runs while Run queued tasks is off. Changes apply at once, without a reopen. "
+                        + "The Scheduler page under Tasks shows when each runs next and how its last runs went, and can start one by hand.",
+                    List = new() {
+                        Path = "LocalSettings.Schedules",
+                        ItemName = "schedule",
+                        LabelField = "Job",
+                        EmptyHelp = "Nothing is scheduled, so no job runs unless someone starts it.",
+                        Fields = [
+                            new() {
+                                Path = "Job", Label = "Job", Picker = "jobs", AllowCustom = true, Applies = SettingApplies.Live,
+                                Help = "The job to run. The list holds the jobs this database has registered; a job the application registers while the database opens may only be listed once it is open.",
+                            },
+                            new() {
+                                Path = "Name", Label = "Name", Placeholder = "the job's name", Applies = SettingApplies.Live,
+                                Help = "What the schedule is called on the Scheduler page and in the log. Worth setting when one job has two schedules, like a daily and a weekly backup.",
+                            },
+                            new() {
+                                Path = "Argument", Label = "Argument", Placeholder = "none", Applies = SettingApplies.Live,
+                                Help = "Handed to the job when it runs. What it means is the job's own business: the backup job takes keep and truncate, for instance. The Scheduler page shows what each job takes.",
+                            },
+                            new() {
+                                Path = "Enabled", Label = "Enabled", Applies = SettingApplies.Live,
+                                Help = "Off keeps the schedule without running it. Turned on again, it waits for its next time rather than catching up on the runs it skipped.",
+                            },
+                            new() {
+                                Path = "Every", Label = "Every", Applies = SettingApplies.Live,
+                                Help = "How many of the unit below from one run to the next: 15 and Minutes runs every quarter of an hour. Every other day, week or month is counted from a fixed point in the calendar, not from when the server started.",
+                            },
+                            new() {
+                                Path = "Unit", Label = "Unit", Applies = SettingApplies.Live,
+                                Help = "Seconds, minutes and hours repeat through the day; days, weeks and months run once, at the time of day below.",
+                            },
+                            new() {
+                                Path = "At", Label = "Time of day", Placeholder = "00:00", Applies = SettingApplies.Live,
+                                Help = "As HH:mm. For days, weeks and months, when the run starts. For seconds, minutes and hours, the first run of the day, which the rest follow: every 2 hours from 01:00 runs at 01:00, 03:00, 05:00 and so on.",
+                            },
+                            new() {
+                                Path = "Until", Label = "Until", Placeholder = "midnight", Applies = SettingApplies.Live,
+                                VisibleWhen = new() { Path = "Unit", Values = ["Seconds", "Minutes", "Hours"] },
+                                Help = "The latest time of day a run may start, as HH:mm. Every 15 minutes from 08:00 until 18:00 keeps the runs to the working day.",
+                            },
+                            new() {
+                                Path = "Days", Label = "Days", Placeholder = "every day", Applies = SettingApplies.Live,
+                                VisibleWhen = new() { Path = "Unit", Values = ["Seconds", "Minutes", "Hours", "Days", "Weeks"] },
+                                Suggestions = [
+                                    new() { Value = "Mon-Fri", Hint = "working days" },
+                                    new() { Value = "Sat,Sun", Hint = "weekends" },
+                                    new() { Value = "Mon", Hint = "a weekly run" },
+                                ],
+                                Help = "The days of the week it runs on, separated by commas or as a range: Mon,Wed,Fri or Mon-Fri. Empty is every day; a weekly schedule without days runs on Mondays.",
+                            },
+                            new() {
+                                Path = "DayOfMonth", Label = "Day of the month", Placeholder = "1", Applies = SettingApplies.Live,
+                                VisibleWhen = new() { Path = "Unit", Values = ["Months"] },
+                                Help = "1 to 31. A month without that day runs on its last day, so 31 runs on the last day of every month.",
+                            },
+                            new() {
+                                Path = "TimeZone", Label = "Time zone", Placeholder = "the server's own", Applies = SettingApplies.Live,
+                                Suggestions = [
+                                    new() { Value = "UTC", Hint = "no summer time" },
+                                    new() { Value = "Europe/Oslo" },
+                                    new() { Value = "Europe/London" },
+                                    new() { Value = "America/New_York" },
+                                ],
+                                Help = "The clock the times are on, as an IANA id like Europe/Oslo. A run at 02:00 stays at 02:00 across summer time. Empty uses the server's own time zone - which on a cloud host is usually UTC.",
+                            },
+                            new() {
+                                Path = "RunMissed", Label = "Run missed runs", Applies = SettingApplies.Live,
+                                Help = "A run that fell due while the database was closed runs once as soon as it is open again, however many were missed. Off, they are skipped and the schedule waits for its next time.",
+                            },
+                            new() {
+                                Path = "Id", Label = "Schedule id", ReadOnly = true,
+                                Help = "Identifies the schedule in the settings file, so this page can edit and remove it, and keys what the scheduler remembers about it - when it last ran.",
                             },
                         ],
                     },

@@ -23,9 +23,9 @@ public interface IQueueStore : IDisposable {
     bool AnyPendingOrRunning();
     int CountBatch(BatchState state);
     int CountTasks(BatchState state);
-    BatchMetaWithCount[] GetBatchInfo(BatchState[] states, string[] typeIds, string[] jobIds, int page, int pageSize, out int totalCount);
+    BatchMetaWithCount[] GetBatchInfo(BatchState[] states, string[] typeIds, string[] groupKeys, int page, int pageSize, out int totalCount);
     void Set(Guid[] batchIds, BatchState state);
-    void Set(string jobId, BatchState state);
+    void Set(string groupKey, BatchState state);
     void Set(Guid batchId, Exception error);
     void Delete(Guid[] batchIds);
     void Delete(BatchState[] states, string[] typeIds);

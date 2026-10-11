@@ -5346,6 +5346,11 @@ svg.tone-override {
   white-space: nowrap;
 }
 
+/* the type every run of a job shares, after the job's name */
+.tasks-detail {
+  color: var(--text-muted);
+}
+
 /* the reason a failed batch failed, under its name: it is what the row is here for */
 .tasks-error {
   display: block;
@@ -5445,6 +5450,515 @@ svg.tone-override {
   .tasks-type {
     grid-template-columns: 1fr;
     gap: 2px;
+  }
+}
+
+/* ---- the tasks module: the queue and the scheduler, under one switch (TasksModule) ---- */
+
+.tasks-module {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* the switch, and on the scheduler the Move to shared button at the right end of the same line */
+.tasks-module-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ---- the scheduler (SchedulerView) ---- */
+
+.scheduler {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* why the schedules will not run as they stand: a closed database, a queue nothing works through */
+.scheduler-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  color: var(--text-soft);
+  background: var(--data-soft);
+  border-radius: 8px;
+}
+
+.scheduler-notice > svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--data);
+}
+
+.scheduler-notice.locked {
+  align-items: center;
+  background: var(--hover);
+}
+
+.scheduler .panel h3 .action-button {
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.sched-table {
+  font-size: 13px;
+}
+
+.sched-row {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 2.2fr) minmax(0, 1fr) minmax(0, 1.5fr) 96px;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 4px;
+  border-top: 1px solid var(--border);
+}
+
+.sched-row.sched-head-row {
+  padding-top: 0;
+  border-top: none;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* turned off: still listed, read as resting */
+.sched-row.off .sched-what,
+.sched-row.off .sched-last {
+  opacity: 0.6;
+}
+
+/* the on/off switch of a schedule is a choice made on this page: the page's tone */
+.sched-toggle,
+.sched-check input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--section-tone);
+  cursor: pointer;
+}
+
+.sched-toggle:disabled {
+  cursor: not-allowed;
+}
+
+.sched-what {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* the name comes first: on a narrow page the tags beside it go to the next line rather than cut it short */
+.sched-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  min-width: 0;
+  font-weight: 500;
+}
+
+.sched-name-text {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sched-job-tag {
+  flex: none;
+  padding: 1px 6px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+  background: var(--badge-bg);
+  border-radius: 5px;
+}
+
+.sched-summary {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.sched-argument {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 11.5px;
+}
+
+.sched-problem {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.sched-problem svg {
+  flex: none;
+}
+
+.sched-next {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 12.5px;
+}
+
+.sched-next-at {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.sched-last {
+  min-width: 0;
+}
+
+/* a run in a line: how it went, when, how long, and what it said under that */
+.sched-run-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.sched-run-summary.compact {
+  display: inline-flex;
+  margin-left: 6px;
+}
+
+.sched-run-text {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.sched-run-text.error {
+  color: var(--danger);
+}
+
+.sched-status {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.sched-status.succeeded {
+  color: var(--ok);
+}
+
+.sched-status.running,
+.sched-status.queued {
+  color: var(--accent);
+}
+
+.sched-status.failed,
+.sched-status.interrupted {
+  color: var(--danger);
+}
+
+.sched-jobs,
+.sched-runs {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+}
+
+.sched-job {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2.4fr) minmax(0, 1.3fr) 70px;
+  gap: 10px;
+  align-items: start;
+  padding: 8px 4px;
+  border-top: 1px solid var(--border);
+}
+
+.sched-job:first-child,
+.sched-run:first-child {
+  border-top: none;
+}
+
+.sched-job-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+}
+
+.sched-job-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.sched-origin {
+  padding: 1px 7px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  background: var(--badge-bg);
+  border-radius: 99px;
+}
+
+/* the application's own jobs, told apart from the database's in the page's tone */
+.sched-origin.app {
+  color: var(--section-tone);
+  background: var(--section-tone-soft);
+}
+
+.sched-job-desc {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12.5px;
+  color: var(--text-soft);
+}
+
+.sched-job-arg {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.sched-job-usage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.sched-run {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1.3fr) 150px 84px minmax(0, 2fr) 34px;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 4px;
+  border-top: 1px solid var(--border);
+}
+
+.sched-run-what {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sched-run-what > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sched-run-job {
+  font-weight: 500;
+}
+
+.sched-run-what .muted {
+  font-size: 12px;
+}
+
+.sched-run-message {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.sched-run-message.error {
+  color: var(--danger);
+}
+
+/* ---- the schedule editor ---- */
+
+.dialog.sched-editor {
+  width: 580px;
+}
+
+.sched-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: calc(100vh - 300px);
+  margin-bottom: 12px;
+  padding-right: 4px;
+  overflow-y: auto;
+}
+
+/* a label on the left, the control and its help on the right */
+.sched-field {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 4px 12px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.sched-field-label {
+  grid-row: 1 / span 2;
+  grid-column: 1;
+  align-self: start;
+  padding-top: 7px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.sched-field > :not(.sched-field-label) {
+  grid-column: 2;
+}
+
+.sched-field .text-input {
+  width: 100%;
+}
+
+.sched-field .text-input.sched-every {
+  width: 76px;
+}
+
+.sched-field .text-input.sched-time {
+  width: 120px;
+}
+
+.sched-field-help {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.sched-inline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.sched-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.sched-day {
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--button-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.sched-day:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.sched-day.on {
+  color: var(--section-tone);
+  background: var(--section-tone-soft);
+  border-color: var(--section-tone);
+}
+
+.sched-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sched-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+/* when it would run, as the server works it out from what is typed */
+.sched-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.sched-preview.problem {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  color: var(--danger);
+}
+
+.sched-preview-summary {
+  font-weight: 500;
+}
+
+.sched-preview-times {
+  font-variant-numeric: tabular-nums;
+}
+
+/* takes the room the buttons leave, so the row never pushes them out of the dialog */
+.sched-saves-to {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+}
+
+@media (max-width: 900px) {
+  .sched-row {
+    grid-template-columns: 26px minmax(0, 1fr) auto;
+  }
+  .sched-row.sched-head-row {
+    display: none;
+  }
+  .sched-row > .sched-next,
+  .sched-row > .sched-last {
+    grid-column: 2;
+  }
+  .sched-row > .tasks-actions {
+    grid-row: 1;
+    grid-column: 3;
+  }
+  .sched-job {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .sched-job > .sched-job-desc,
+  .sched-job > .sched-job-usage {
+    grid-column: 1;
+  }
+  .sched-job > .tasks-actions {
+    grid-row: 1;
+    grid-column: 2;
+  }
+  .sched-run {
+    grid-template-columns: 90px minmax(0, 1fr) 34px;
+  }
+  .sched-run > :nth-child(3),
+  .sched-run > :nth-child(4) {
+    display: none;
+  }
+  .sched-run > .sched-run-message {
+    grid-column: 2;
   }
 }
 

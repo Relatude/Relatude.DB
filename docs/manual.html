@@ -3312,6 +3312,11 @@ from the beginning; without one, opening is a full replay.</p>
 <td>Run the task queue — text indexing, embeddings, file conversion. With it off the work is still queued, but nothing processes it. The CLI turns it off for its own runs.</td>
 </tr>
 <tr>
+<td><code>TaskQueueSpeed</code></td>
+<td>90</td>
+<td>How eagerly the task queues start background work, 0–100 — the <em>Speed</em> slider on the Tasks page, which saves it here. Higher means longer rounds of starting batches (1 s at 0, 9.1 s at 90, 10 s at 100), shorter pauses between rounds (5.1 s, 0.6 s, 0.1 s), and carrying on while the database is busier: a round is skipped above 4 × speed² writes a second, so at 0 any write holds the queues back. A started batch always runs to the end, and 0 does not stop the queues — <code>AutoDequeTasks</code> does. A change applies at once.</td>
+</tr>
+<tr>
 <td><code>PersistedQueueStoreEngine</code></td>
 <td><code>Native</code></td>
 <td>Where the task queue is persisted: <code>Native</code>, <code>Sqlite</code> or <code>Memory</code>. <code>Memory</code> loses queued work on restart.</td>
@@ -3320,6 +3325,16 @@ from the beginning; without one, opening is a full replay.</p>
 <td><code>PersistedQueueStoreFolderPath</code></td>
 <td>beside the index folder</td>
 <td>Where the persisted queue writes.</td>
+</tr>
+<tr>
+<td><code>TaskConcurrency</code></td>
+<td>null</td>
+<td>How many batches of a task type run at once, for the types that should not run as many as their code asks for: a list of <code>{ "Id", "TaskType", "MaxConcurrency" }</code>. Edited under <em>Settings › Maintenance › Batches at once</em>.</td>
+</tr>
+<tr>
+<td><code>Schedules</code></td>
+<td>null</td>
+<td>The timetable of jobs: which one runs when. Edited on <em>Tasks › Scheduler</em>. See <a href="#36-background-tasks-and-the-scheduler">§36</a>.</td>
 </tr>
 <tr>
 <td><code>WriteSystemLogConsole</code></td>
@@ -4147,6 +4162,10 @@ indistinguishable by timing.</p>
 <tr>
 <td><strong>Logs</strong></td>
 <td>Logs of your own: define one, and read what the application recorded into it as graphs, entries and the spread of a column's values. The <strong>Built-in logs</strong> switch shows the Activity logs here too, read only. See <a href="#32-logs-recording-what-the-application-does">§32</a>.</td>
+</tr>
+<tr>
+<td><strong>Tasks</strong></td>
+<td>The task queue — what is waiting and running, failed batches to queue again, how much of the machine background work may take — and the <strong>Scheduler</strong>, which runs jobs such as backups and your own at set intervals. See <a href="#36-background-tasks-and-the-scheduler">§36</a>.</td>
 </tr>
 <tr>
 <td><strong>API</strong></td>
@@ -8426,6 +8445,249 @@ license is valid; the server records it and acts on none of it, so a license tha
 license server out of reach, never stops a database. <code>"DisableHeartbeat": true</code> in <code>relatude.db.json</code>
 stops the reports. It is left off the settings pages on purpose.</p>
 <hr />
+<h1 id="part-vi-background-work">Part VI — Background work<a class="anchor" href="#part-vi-background-work" aria-label="Link to this section">#</a></h1>
+<h2 id="36-background-tasks-and-the-scheduler">36. Background tasks and the scheduler<a class="anchor" href="#36-background-tasks-and-the-scheduler" aria-label="Link to this section">#</a></h2>
+<p>Work that does not belong inside a transaction runs in the database's <strong>task queue</strong>: text
+indexing, embeddings, backups and log rewrites, and anything your own code queues with
+<code>EnqueueTask</code>. On top of the queue sits the <strong>scheduler</strong>, which runs <em>jobs</em> at set
+intervals — a backup every night, a log truncation every Sunday, a report of your own every
+fifteen minutes on working days.</p>
+<p>Two things make it up:</p>
+<ul>
+<li>a <strong>job</strong> is work registered under a name. The database brings its own maintenance, and
+  your code adds more;</li>
+<li>a <strong>schedule</strong> says which job to run and when. Schedules are settings —
+  <code>LocalSettings.Schedules</code> in <code>relatude.db.json</code> — so they are deployed with the application, or
+  set on one installation in the admin UI, which saves them in <code>relatude.db.overrides.json</code> like any
+  other change made there (<a href="#changes-made-in-the-admin-ui-relatudedboverridesjson">§12</a>).</li>
+</ul>
+<p>Every run, scheduled or started by hand, goes through the task queue as a batch of
+<code>RunJob</code>: it waits for its turn, shows on the Tasks page, and never runs beside another run of
+the same job.</p>
+<h3 id="361-jobs">36.1 Jobs<a class="anchor" href="#361-jobs" aria-label="Link to this section">#</a></h3>
+<p>The database registers these itself:</p>
+<table>
+<thead>
+<tr>
+<th>Job</th>
+<th>What it does</th>
+<th>Argument</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>backup</code></td>
+<td>Writes a backup of the database to the backup storage: a copy of the log, or of the current state when <em>Truncate backups</em> is on. Leaves older backups alone.</td>
+<td><code>keep</code> — never deleted by <code>delete-old-backups</code> or the automatic backup. <code>truncate</code> or <code>copy</code> overrides the setting for this backup. Combine them: <code>keep,truncate</code>.</td>
+</tr>
+<tr>
+<td><code>delete-old-backups</code></td>
+<td>Deletes the backups the retention settings (hourly, daily, weekly, monthly and yearly copies kept) do not keep. A backup marked keep is never deleted.</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>truncate-log</code></td>
+<td>Rewrites the transaction log as the current state, giving up the history before it — including reverting into it. Skipped while a revert window is open, or when there is nothing to drop.</td>
+<td><code>delete-old</code> deletes the old log file afterwards.</td>
+</tr>
+<tr>
+<td><code>delete-old-log-files</code></td>
+<td>Deletes the log files a truncation left behind.</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>save-state</code></td>
+<td>Writes the state snapshot and the index states, so the next open reads them instead of replaying the log.</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>purge-caches</code></td>
+<td>Halves the node and set caches and gives the memory back.</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>reindex-text</code></td>
+<td>Queues every node of the text-indexed types for text indexing again.</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>delete-unreferenced-files</code></td>
+<td>Deletes the files no node refers to any more. Files uploaded in the last 15 minutes are left alone.</td>
+<td><code>count</code> only counts them.</td>
+</tr>
+</tbody>
+</table>
+<p>A built-in job given a word it does not take fails its run and names the words it takes, rather
+than quietly ignoring a typo in a schedule.</p>
+<p>Register your own in <code>OnStoreInit</code>. It runs every time the database is set up, before it opens, so
+a schedule naming the job finds it from the first tick:</p>
+<div class="codehilite"><pre><span></span><code><span class="n">builder</span><span class="p">.</span><span class="n">AddRelatudeDB</span><span class="p">(</span><span class="n">options</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">options</span><span class="p">.</span><span class="n">OnStoreInit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">db</span><span class="p">.</span><span class="n">Jobs</span><span class="p">.</span><span class="n">Add</span><span class="p">(</span><span class="s">&quot;send-digest&quot;</span><span class="p">,</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="kt">var</span><span class="w"> </span><span class="n">sent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">Digest</span><span class="p">.</span><span class="n">SendAsync</span><span class="p">(</span><span class="n">db</span><span class="p">,</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="n">Argument</span><span class="p">,</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="n">CancellationToken</span><span class="p">);</span>
+<span class="w">            </span><span class="n">ctx</span><span class="p">.</span><span class="n">Report</span><span class="p">(</span><span class="n">sent</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&quot; mails sent&quot;</span><span class="p">);</span><span class="w"> </span><span class="c1">// shown beside the run on the Scheduler page</span>
+<span class="w">        </span><span class="p">},</span><span class="w"> </span><span class="s">&quot;Mails the daily digest to every subscriber&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;Who gets it: all, or staff&quot;</span><span class="p">);</span>
+<span class="w">    </span><span class="p">};</span>
+<span class="p">});</span>
+</code></pre></div>
+
+<p>What a job is handed, <code>JobContext</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Member</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Argument</code></td>
+<td>The schedule's <code>Argument</code>, or what was typed when the job was started by hand.</td>
+</tr>
+<tr>
+<td><code>CancellationToken</code></td>
+<td>Cancelled when the database closes or someone stops the run. A closing database waits only a few seconds for the jobs still running, so pass it on to anything that takes time.</td>
+</tr>
+<tr>
+<td><code>Report(message)</code></td>
+<td>One line on how it went: shown on the Scheduler page, and in the system log when the job finishes.</td>
+</tr>
+<tr>
+<td><code>Progress(percentage, text)</code></td>
+<td>Shown with the database's other activities while the job runs.</td>
+</tr>
+<tr>
+<td><code>ScheduleId</code>, <code>ScheduleName</code>, <code>DueUtc</code>, <code>Trigger</code></td>
+<td>Which schedule started it, for which time, and how: <code>Schedule</code>, <code>Missed</code> (late, after the database was closed) or <code>Manual</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>A job that throws fails its run. The error is shown on the Scheduler page and logged, and the
+failed batch stays on the Tasks page for a day, where <em>Queue again</em> runs it again. To start a run
+from code, <code>db.Jobs.Run("send-digest", "staff")</code> queues one and returns at once.</p>
+<h3 id="362-schedules">36.2 Schedules<a class="anchor" href="#362-schedules" aria-label="Link to this section">#</a></h3>
+<div class="codehilite"><pre><span></span><code><span class="s2">&quot;LocalSettings&quot;</span>:<span class="w"> </span>{
+<span class="w">  </span><span class="s2">&quot;Schedules&quot;</span>:<span class="w"> </span>[
+<span class="w">    </span>{<span class="w"> </span><span class="s2">&quot;Id&quot;</span>:<span class="w"> </span><span class="s2">&quot;2f6d0c1e-5a7b-4c39-9f0e-0b3c2d1e4f50&quot;</span>,<span class="w"> </span><span class="s2">&quot;Job&quot;</span>:<span class="w"> </span><span class="s2">&quot;backup&quot;</span>,<span class="w"> </span><span class="s2">&quot;Unit&quot;</span>:<span class="w"> </span><span class="s2">&quot;Days&quot;</span>,<span class="w"> </span><span class="s2">&quot;At&quot;</span>:<span class="w"> </span><span class="s2">&quot;02:00&quot;</span><span class="w"> </span>},
+<span class="w">    </span>{<span class="w"> </span><span class="s2">&quot;Id&quot;</span>:<span class="w"> </span><span class="s2">&quot;8b1c4e2a-0d3f-4b6a-a1c2-7e9f0a1b2c3d&quot;</span>,<span class="w"> </span><span class="s2">&quot;Job&quot;</span>:<span class="w"> </span><span class="s2">&quot;delete-old-backups&quot;</span>,<span class="w"> </span><span class="s2">&quot;Unit&quot;</span>:<span class="w"> </span><span class="s2">&quot;Days&quot;</span>,<span class="w"> </span><span class="s2">&quot;At&quot;</span>:<span class="w"> </span><span class="s2">&quot;03:00&quot;</span><span class="w"> </span>},
+<span class="w">    </span>{<span class="w"> </span><span class="s2">&quot;Id&quot;</span>:<span class="w"> </span><span class="s2">&quot;c47e9a10-2b3c-4d5e-8f60-718293a4b5c6&quot;</span>,<span class="w"> </span><span class="s2">&quot;Name&quot;</span>:<span class="w"> </span><span class="s2">&quot;Weekly truncation&quot;</span>,<span class="w"> </span><span class="s2">&quot;Job&quot;</span>:<span class="w"> </span><span class="s2">&quot;truncate-log&quot;</span>,
+<span class="w">      </span><span class="s2">&quot;Argument&quot;</span>:<span class="w"> </span><span class="s2">&quot;delete-old&quot;</span>,<span class="w"> </span><span class="s2">&quot;Unit&quot;</span>:<span class="w"> </span><span class="s2">&quot;Weeks&quot;</span>,<span class="w"> </span><span class="s2">&quot;Days&quot;</span>:<span class="w"> </span><span class="s2">&quot;Sun&quot;</span>,<span class="w"> </span><span class="s2">&quot;At&quot;</span>:<span class="w"> </span><span class="s2">&quot;04:00&quot;</span>,<span class="w"> </span><span class="s2">&quot;TimeZone&quot;</span>:<span class="w"> </span><span class="s2">&quot;Europe/Oslo&quot;</span><span class="w"> </span>},
+<span class="w">    </span>{<span class="w"> </span><span class="s2">&quot;Id&quot;</span>:<span class="w"> </span><span class="s2">&quot;e09a5b6c-7d8e-4f90-a1b2-c3d4e5f60718&quot;</span>,<span class="w"> </span><span class="s2">&quot;Job&quot;</span>:<span class="w"> </span><span class="s2">&quot;send-digest&quot;</span>,<span class="w"> </span><span class="s2">&quot;Every&quot;</span>:<span class="w"> </span><span class="mi">15</span>,<span class="w"> </span><span class="s2">&quot;Unit&quot;</span>:<span class="w"> </span><span class="s2">&quot;Minutes&quot;</span>,
+<span class="w">      </span><span class="s2">&quot;At&quot;</span>:<span class="w"> </span><span class="s2">&quot;08:00&quot;</span>,<span class="w"> </span><span class="s2">&quot;Until&quot;</span>:<span class="w"> </span><span class="s2">&quot;18:00&quot;</span>,<span class="w"> </span><span class="s2">&quot;Days&quot;</span>:<span class="w"> </span><span class="s2">&quot;Mon-Fri&quot;</span><span class="w"> </span>}
+<span class="w">  </span>]
+}
+</code></pre></div>
+
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Id</code></td>
+<td>—</td>
+<td>Identifies the schedule: the overrides file patches the list element by element by it, and the scheduler remembers by it when the schedule last ran. Any new guid.</td>
+</tr>
+<tr>
+<td><code>Job</code></td>
+<td>—</td>
+<td>The job to run, not case sensitive. A name nobody has registered is not an error: its runs are skipped, with the reason, until one is.</td>
+</tr>
+<tr>
+<td><code>Name</code></td>
+<td>the job's</td>
+<td>What the schedule is called on the Scheduler page and in the log.</td>
+</tr>
+<tr>
+<td><code>Argument</code></td>
+<td>none</td>
+<td>Handed to the job.</td>
+</tr>
+<tr>
+<td><code>Enabled</code></td>
+<td><code>true</code></td>
+<td>Off keeps the schedule without running it. Turned on again, it waits for its next time.</td>
+</tr>
+<tr>
+<td><code>Every</code>, <code>Unit</code></td>
+<td><code>1</code>, <code>Days</code></td>
+<td>The interval. <code>Unit</code> is <code>Seconds</code>, <code>Minutes</code>, <code>Hours</code>, <code>Days</code>, <code>Weeks</code> or <code>Months</code>.</td>
+</tr>
+<tr>
+<td><code>At</code></td>
+<td>midnight</td>
+<td><code>HH:mm</code>. For days, weeks and months, the time of the run; below a day, the first run of the day, which the rest follow.</td>
+</tr>
+<tr>
+<td><code>Until</code></td>
+<td>midnight</td>
+<td>Below a day only: the last time of day a run may start.</td>
+</tr>
+<tr>
+<td><code>Days</code></td>
+<td>every day</td>
+<td>The days of the week, as a list or a range: <code>Mon,Wed,Fri</code>, <code>Mon-Fri</code>. A weekly schedule without days runs on Mondays. Months do not use it.</td>
+</tr>
+<tr>
+<td><code>DayOfMonth</code></td>
+<td><code>1</code></td>
+<td>Months only, 1 to 31. A month without that day runs on its last day, so <code>31</code> is the last day of every month.</td>
+</tr>
+<tr>
+<td><code>TimeZone</code></td>
+<td>the server's</td>
+<td>An IANA id such as <code>Europe/Oslo</code>, or <code>UTC</code>. The times are laid out on that clock, so 02:00 stays 02:00 across summer time. On a cloud host the server's own zone is usually UTC.</td>
+</tr>
+<tr>
+<td><code>RunMissed</code></td>
+<td><code>true</code></td>
+<td>A run that fell due while the database was closed runs once as soon as it is open again, however many were missed. Off, missed runs are skipped.</td>
+</tr>
+</tbody>
+</table>
+<p>How the times are laid out:</p>
+<ul>
+<li><strong>Below a day</strong> the runs follow the interval through the day from <code>At</code> until <code>Until</code>, and the next
+  day starts over at <code>At</code> — cron's way. An interval that does not divide the day, every 7 hours say,
+  therefore has a shorter gap before midnight.</li>
+<li><strong>Every other day, week or month</strong> is counted from a fixed point in the calendar, not from when the
+  server started, so the rhythm survives a restart. Every 7 days always lands on the same weekday, a
+  Monday; combined with <code>Days</code> naming another day it never runs, and the Scheduler page says so.</li>
+<li><strong>Summer time.</strong> A time the clock skips (02:30 on the night it jumps from 02:00 to 03:00) runs at the
+  first minute after the jump; a time it passes twice runs the first time.</li>
+<li><strong>A changed schedule starts from now.</strong> Moving a daily run from 14:00 to 08:00 at half past ten does
+  not count this morning's 08:00 as missed: the next run is tomorrow at 08:00.</li>
+<li><strong>No overlap.</strong> A schedule whose previous run is still queued or running skips its time and says so.
+  Skips in a row for the same reason are one entry in the history, counted.</li>
+</ul>
+<p>Nothing runs while <code>AutoDequeTasks</code> is off: the runs are queued and nothing takes them. The scheduler
+looks at the schedules once a second while the database is open, and reads them from the settings
+every time, so a change applies without a reopen. What it remembers — when each schedule last came
+due, and the latest 200 runs — is <code>state/schedules.json</code> in the database's index storage; losing that
+file costs a missed run its catch-up and empties the history, nothing more.</p>
+<h3 id="363-the-scheduler-page">36.3 The Scheduler page<a class="anchor" href="#363-the-scheduler-page" aria-label="Link to this section">#</a></h3>
+<p><em>Tasks › Scheduler</em> in the admin UI lists the schedules with their next and last run, the jobs
+with what each takes as its argument, and the recent runs. Schedules are added, changed, turned off,
+removed and run from there; any job can be started by hand with an argument, and a run that is
+queued or running can be stopped. The editor shows the next five times as the server works them out,
+so a time zone or a list of days is checked as it is typed.</p>
+<p>What the page saves goes to <code>relatude.db.overrides.json</code>, on THIS SERVER. Each schedule says whether it
+comes from SHARED or THIS SERVER, and <em>Move to shared</em> at the top right moves it into
+<code>relatude.db.json</code> — so a timetable tried out on one server can become part of the application. A list
+set in appsettings or by <code>OnStoreSettingsInit</code> is shown and locked. The same list is also under
+<em>Settings › Maintenance › Scheduled jobs</em>.</p>
+<p>A run's batch shows on <em>Tasks › Queue</em> under the job's name. Up to four different jobs run at
+once — <em>Batches at once</em> in the settings can change that for <code>Run job</code> — and two runs of the
+same job never do. A run that takes an hour holds its own slot and nothing more: the queue goes on
+starting backups, log rewrites and other runs beside it.</p>
+<p>With the <strong>Tasks</strong> log on, on the Activity page, every run is an entry there under the job's name,
+saying how it was started, how long it took and what it reported, or why it failed. The other kinds
+of task are logged there too, one entry per task, beside the <strong>Task batches</strong> log's entry per batch.</p>
+<hr />
 <h2 id="where-to-look-when-this-manual-runs-out">Where to look when this manual runs out<a class="anchor" href="#where-to-look-when-this-manual-runs-out" aria-label="Link to this section">#</a></h2>
 <p>The public documentation is still thin and the API is pre-1.0. When something here does not match
 your build, read the source — it is small and well commented:</p>
@@ -8506,6 +8768,10 @@ your build, read the source — it is small and well commented:</p>
 <td><code>src/Relatude.DB.DataStore/AI/IAIProvider.cs</code>, <code>Imaging/IImagingProvider.cs</code>, <code>FileToText/IFileToTextProvider.cs</code>; the hosted services' clients in <code>src/Relatude.DB.Providers/</code></td>
 </tr>
 <tr>
+<td>Jobs and the scheduler</td>
+<td><code>src/Relatude.DB.DataStore/Tasks/Scheduling/</code> — <code>Jobs.cs</code>, <code>ScheduleTimes.cs</code>, <code>ScheduleSettings.cs</code>; the built-in jobs in <code>src/Relatude.DB.DataStoreLocal/DataStores/DataStoreLocal.Jobs.cs</code></td>
+</tr>
+<tr>
 <td>Relatude Services</td>
 <td><code>src/Relatude.DB.DataStore/SMS/ISMSProvider.cs</code> and the three above; the keys, the sign-in and reporting in in <code>src/Relatude.DB.NodeServer/NodeServer/LicenseLogin.cs</code></td>
 </tr>
@@ -8523,7 +8789,7 @@ corpus size and cache budget, with throughput, recall, restart cost and memory f
 (function () {
   "use strict";
 
-  var NAV = [{"level": 1, "text": "Data Modelling & Querying with Relatude.DB", "id": "data-modelling-querying-with-relatudedb", "children": []}, {"level": 1, "text": "Part I — Data modelling", "id": "part-i-data-modelling", "children": [{"level": 2, "text": "1. The mental model", "id": "1-the-mental-model", "children": [{"level": 3, "text": "Interfaces are the model", "id": "interfaces-are-the-model", "children": []}]}, {"level": 2, "text": "2. Your first node type", "id": "2-your-first-node-type", "children": [{"level": 3, "text": "Why interfaces are the better default", "id": "why-interfaces-are-the-better-default", "children": []}, {"level": 3, "text": "Multiple inheritance with interfaces", "id": "multiple-inheritance-with-interfaces", "children": []}, {"level": 3, "text": "Querying across the hierarchy", "id": "querying-across-the-hierarchy", "children": []}, {"level": 3, "text": "Two constraints to design around", "id": "two-constraints-to-design-around", "children": []}, {"level": 3, "text": "When you do want a class", "id": "when-you-do-want-a-class", "children": []}, {"level": 3, "text": "Optional: stable type ids", "id": "optional-stable-type-ids", "children": []}]}, {"level": 2, "text": "3. Scalar properties and their attributes", "id": "3-scalar-properties-and-their-attributes", "children": [{"level": 3, "text": "The attribute catalogue", "id": "the-attribute-catalogue", "children": []}, {"level": 3, "text": "Strings", "id": "strings", "children": []}, {"level": 3, "text": "Numbers", "id": "numbers", "children": []}, {"level": 3, "text": "Enums", "id": "enums", "children": []}, {"level": 3, "text": "Validation happens on write", "id": "validation-happens-on-write", "children": []}, {"level": 3, "text": "3.1 Overriding attributes", "id": "31-overriding-attributes", "children": []}]}, {"level": 2, "text": "4. Marker properties", "id": "4-marker-properties", "children": [{"level": 3, "text": "What lives in NodeMeta", "id": "what-lives-in-nodemeta", "children": []}, {"level": 3, "text": "Querying by the node's own dates", "id": "querying-by-the-nodes-own-dates", "children": []}]}, {"level": 2, "text": "5. Geo coordinates", "id": "5-geo-coordinates", "children": [{"level": 3, "text": "Constructing and reading", "id": "constructing-and-reading", "children": []}, {"level": 3, "text": "The empty value", "id": "the-empty-value", "children": []}, {"level": 3, "text": "Distance and radius tests", "id": "distance-and-radius-tests", "children": []}, {"level": 3, "text": "How it is stored (and what that implies)", "id": "how-it-is-stored-and-what-that-implies", "children": []}, {"level": 3, "text": "JSON shape", "id": "json-shape", "children": []}, {"level": 3, "text": "Seeing them", "id": "seeing-them", "children": []}]}, {"level": 2, "text": "6. Files", "id": "6-files", "children": []}, {"level": 2, "text": "7. Embedded data", "id": "7-embedded-data", "children": [{"level": 3, "text": "Embedded<T> — a collection keyed by the embedded object's own Guid Id", "id": "embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id", "children": []}, {"level": 3, "text": "EmbeddedMap<TKey, TValue> — a collection keyed by a property of the value", "id": "embeddedmap-a-collection-keyed-by-a-property-of-the-value", "children": []}, {"level": 3, "text": "Working with an embedded map", "id": "working-with-an-embedded-map", "children": []}]}, {"level": 2, "text": "8. References — lightweight pointers", "id": "8-references-lightweight-pointers", "children": [{"level": 3, "text": "Reading and writing a Reference<T>", "id": "reading-and-writing-a-reference", "children": []}, {"level": 3, "text": "Reading and writing a References<T>", "id": "reading-and-writing-a-references", "children": []}]}, {"level": 2, "text": "9. Relations — the graph edges", "id": "9-relations-the-graph-edges", "children": [{"level": 3, "text": "The five shapes", "id": "the-five-shapes", "children": []}, {"level": 3, "text": "Using them on node types", "id": "using-them-on-node-types", "children": []}, {"level": 3, "text": "The \"one\" side API", "id": "the-one-side-api", "children": []}, {"level": 3, "text": "The \"many\" side API", "id": "the-many-side-api", "children": []}, {"level": 3, "text": "9.1 Relation lists are ordered", "id": "91-relation-lists-are-ordered", "children": []}, {"level": 3, "text": "Relation options", "id": "relation-options", "children": []}]}, {"level": 2, "text": "10. Choosing between relation, reference and embedded", "id": "10-choosing-between-relation-reference-and-embedded", "children": []}, {"level": 2, "text": "11. The complete example model", "id": "11-the-complete-example-model", "children": [{"level": 3, "text": "11.1 The same model with facet interfaces", "id": "111-the-same-model-with-facet-interfaces", "children": []}]}, {"level": 2, "text": "12. Registering the model & the admin UI", "id": "12-registering-the-model-the-admin-ui", "children": [{"level": 3, "text": "Server-hosted (the usual case)", "id": "server-hosted-the-usual-case", "children": []}, {"level": 3, "text": "relatude.db.json", "id": "relatudedbjson", "children": []}, {"level": 3, "text": "12.1 Every setting in relatude.db.json", "id": "121-every-setting-in-relatudedbjson", "children": []}, {"level": 3, "text": "Overriding settings from configuration", "id": "overriding-settings-from-configuration", "children": []}, {"level": 3, "text": "Changes made in the admin UI: relatude.db.overrides.json", "id": "changes-made-in-the-admin-ui-relatudedboverridesjson", "children": []}, {"level": 3, "text": "12.2 What goes where: source control, deployment and appsettings", "id": "122-what-goes-where-source-control-deployment-and-appsettings", "children": []}, {"level": 3, "text": "Options and events in Program.cs", "id": "options-and-events-in-programcs", "children": []}, {"level": 3, "text": "Two ways to register a datamodel", "id": "two-ways-to-register-a-datamodel", "children": []}, {"level": 3, "text": "The admin UI", "id": "the-admin-ui", "children": []}, {"level": 3, "text": "Programmatic / embedded", "id": "programmatic-embedded", "children": []}, {"level": 3, "text": "What the model builder validates", "id": "what-the-model-builder-validates", "children": []}, {"level": 3, "text": "Do not redefine the native types", "id": "do-not-redefine-the-native-types", "children": []}]}]}, {"level": 1, "text": "Part II — Writing data", "id": "part-ii-writing-data", "children": [{"level": 2, "text": "13. Create, insert, update, delete", "id": "13-create-insert-update-delete", "children": [{"level": 3, "text": "Read", "id": "read", "children": []}, {"level": 3, "text": "Update, upsert, delete", "id": "update-upsert-delete", "children": []}]}, {"level": 2, "text": "14. Relating nodes", "id": "14-relating-nodes", "children": [{"level": 3, "text": "Which verb", "id": "which-verb", "children": []}]}, {"level": 2, "text": "15. Transactions", "id": "15-transactions", "children": [{"level": 3, "text": "Transaction plugins", "id": "transaction-plugins", "children": []}]}, {"level": 2, "text": "16. Older versions of a node", "id": "16-older-versions-of-a-node", "children": [{"level": 3, "text": "16.1 Reverting the database to an earlier point", "id": "161-reverting-the-database-to-an-earlier-point", "children": []}]}, {"level": 2, "text": "17. Uploading files", "id": "17-uploading-files", "children": [{"level": 3, "text": "Very large files", "id": "very-large-files", "children": []}, {"level": 3, "text": "Serving and converting", "id": "serving-and-converting", "children": []}, {"level": 3, "text": "Light and dark mode", "id": "light-and-dark-mode", "children": []}, {"level": 3, "text": "Serving it", "id": "serving-it", "children": []}]}, {"level": 2, "text": "18. URLs and the URL manager", "id": "18-urls-and-the-url-manager", "children": [{"level": 3, "text": "Configuring it", "id": "configuring-it", "children": []}, {"level": 3, "text": "Where the path comes from", "id": "where-the-path-comes-from", "children": []}, {"level": 3, "text": "Address uniqueness", "id": "address-uniqueness", "children": []}, {"level": 3, "text": "Page URL formats", "id": "page-url-formats", "children": []}, {"level": 3, "text": "Prefixes", "id": "prefixes", "children": []}, {"level": 3, "text": "18.1 Asset URLs: files, variants and deeplinks", "id": "181-asset-urls-files-variants-and-deeplinks", "children": []}, {"level": 3, "text": "18.2 Links inside HTML and Markdown", "id": "182-links-inside-html-and-markdown", "children": []}, {"level": 3, "text": "Writing your own manager", "id": "writing-your-own-manager", "children": []}, {"level": 3, "text": "The middleware that serves it", "id": "the-middleware-that-serves-it", "children": []}]}]}, {"level": 1, "text": "Part III — Querying", "id": "part-iii-querying", "children": [{"level": 2, "text": "19. Query anatomy", "id": "19-query-anatomy", "children": [{"level": 3, "text": "Queries are immutable", "id": "queries-are-immutable", "children": []}, {"level": 3, "text": "Heavy queries, and stopping one", "id": "heavy-queries-and-stopping-one", "children": []}, {"level": 3, "text": "Entry points", "id": "entry-points", "children": []}, {"level": 3, "text": "Executing", "id": "executing", "children": []}]}, {"level": 2, "text": "20. Filtering with Where", "id": "20-filtering-with-where", "children": []}, {"level": 2, "text": "21. Text and semantic search", "id": "21-text-and-semantic-search", "children": [{"level": 3, "text": "WhereSearch — search as a filter", "id": "wheresearch-search-as-a-filter", "children": []}, {"level": 3, "text": "Search — search as ranking", "id": "search-search-as-ranking", "children": []}, {"level": 3, "text": "What actually gets searched", "id": "what-actually-gets-searched", "children": []}]}, {"level": 2, "text": "22. Geo queries", "id": "22-geo-queries", "children": [{"level": 3, "text": "Sorting by distance", "id": "sorting-by-distance", "children": []}, {"level": 3, "text": "A widening search", "id": "a-widening-search", "children": []}, {"level": 3, "text": "Things to remember about geo filters", "id": "things-to-remember-about-geo-filters", "children": []}]}, {"level": 2, "text": "23. Relation filters", "id": "23-relation-filters", "children": []}, {"level": 2, "text": "24. Eager loading: Include and Preload", "id": "24-eager-loading-include-and-preload", "children": [{"level": 3, "text": "Going deeper: ThenInclude / ThenPreload", "id": "going-deeper-theninclude-thenpreload", "children": []}, {"level": 3, "text": "Filtering what gets included", "id": "filtering-what-gets-included", "children": []}, {"level": 3, "text": "When you only need ids", "id": "when-you-only-need-ids", "children": []}]}, {"level": 2, "text": "25. Graph traversal and shortest path", "id": "25-graph-traversal-and-shortest-path", "children": [{"level": 3, "text": "Traverse", "id": "traverse", "children": []}, {"level": 3, "text": "ShortestPath", "id": "shortestpath", "children": []}]}, {"level": 2, "text": "26. Sorting, paging and result sets", "id": "26-sorting-paging-and-result-sets", "children": [{"level": 3, "text": "Paging", "id": "paging", "children": []}, {"level": 3, "text": "ResultSet<T>", "id": "resultset", "children": []}]}, {"level": 2, "text": "27. Aggregates", "id": "27-aggregates", "children": []}, {"level": 2, "text": "28. Faceted search", "id": "28-faceted-search", "children": [{"level": 3, "text": "Applying the user's selection", "id": "applying-the-users-selection", "children": []}, {"level": 3, "text": "Facet declaration methods", "id": "facet-declaration-methods", "children": []}, {"level": 3, "text": "Where the un-named facets come from", "id": "where-the-un-named-facets-come-from", "children": []}, {"level": 3, "text": "28.1 Pivot tables", "id": "281-pivot-tables", "children": []}, {"level": 3, "text": "28.2 GroupBy", "id": "282-groupby", "children": []}]}, {"level": 2, "text": "29. Cultures, visibility and scoped stores", "id": "29-cultures-visibility-and-scoped-stores", "children": []}, {"level": 2, "text": "30. Pitfalls and gotchas", "id": "30-pitfalls-and-gotchas", "children": []}]}, {"level": 1, "text": "Part IV — Tooling", "id": "part-iv-tooling", "children": [{"level": 2, "text": "31. The command line tool", "id": "31-the-command-line-tool", "children": [{"level": 3, "text": "Two things every command needs to know", "id": "two-things-every-command-needs-to-know", "children": []}, {"level": 3, "text": "The commands", "id": "the-commands", "children": []}, {"level": 3, "text": "What it does not do", "id": "what-it-does-not-do", "children": []}, {"level": 3, "text": "Things worth knowing", "id": "things-worth-knowing", "children": []}]}, {"level": 2, "text": "32. Logs — recording what the application does", "id": "32-logs-recording-what-the-application-does", "children": [{"level": 3, "text": "32.1 Defining a log", "id": "321-defining-a-log", "children": []}, {"level": 3, "text": "32.2 Recording from the application", "id": "322-recording-from-the-application", "children": []}, {"level": 3, "text": "32.3 Statistics", "id": "323-statistics", "children": []}, {"level": 3, "text": "32.4 Estimated unique counts: HyperLogLog", "id": "324-estimated-unique-counts-hyperloglog", "children": []}, {"level": 3, "text": "32.5 Reading a log", "id": "325-reading-a-log", "children": []}, {"level": 3, "text": "32.6 Changing a definition", "id": "326-changing-a-definition", "children": []}, {"level": 3, "text": "32.7 Files, limits and cleaning up", "id": "327-files-limits-and-cleaning-up", "children": []}, {"level": 3, "text": "32.8 Positions", "id": "328-positions", "children": []}]}]}, {"level": 1, "text": "Part V — APIs", "id": "part-v-apis", "children": [{"level": 2, "text": "33. GraphQL endpoints", "id": "33-graphql-endpoints", "children": [{"level": 3, "text": "33.1 An endpoint in the admin UI", "id": "331-an-endpoint-in-the-admin-ui", "children": []}, {"level": 3, "text": "33.2 The definition file", "id": "332-the-definition-file", "children": []}, {"level": 3, "text": "33.3 The schema", "id": "333-the-schema", "children": []}, {"level": 3, "text": "33.4 Querying", "id": "334-querying", "children": []}, {"level": 3, "text": "33.5 Views", "id": "335-views", "children": []}, {"level": 3, "text": "33.6 Mutations", "id": "336-mutations", "children": []}, {"level": 3, "text": "33.7 Over HTTP", "id": "337-over-http", "children": []}, {"level": 3, "text": "33.8 The explorer and the facet page", "id": "338-the-explorer-and-the-facet-page", "children": []}, {"level": 3, "text": "33.9 Code-first: mapping an endpoint in Program.cs", "id": "339-code-first-mapping-an-endpoint-in-programcs", "children": []}, {"level": 3, "text": "33.10 Who reads, and the limits", "id": "3310-who-reads-and-the-limits", "children": []}]}, {"level": 2, "text": "34. AI services", "id": "34-ai-services", "children": [{"level": 3, "text": "34.1 Text: embeddings and completions", "id": "341-text-embeddings-and-completions", "children": []}, {"level": 3, "text": "34.2 Images", "id": "342-images", "children": []}, {"level": 3, "text": "34.3 Files to text", "id": "343-files-to-text", "children": []}, {"level": 3, "text": "34.4 Translation", "id": "344-translation", "children": []}, {"level": 3, "text": "34.5 Prices, answers kept, and errors", "id": "345-prices-answers-kept-and-errors", "children": []}]}, {"level": 2, "text": "35. Relatude Services", "id": "35-relatude-services", "children": [{"level": 3, "text": "35.1 A license is not needed", "id": "351-a-license-is-not-needed", "children": []}, {"level": 3, "text": "35.2 A provider of your own", "id": "352-a-provider-of-your-own", "children": []}, {"level": 3, "text": "35.3 The account at services.relatude.com", "id": "353-the-account-at-servicesrelatudecom", "children": []}, {"level": 3, "text": "35.4 Connecting an installation", "id": "354-connecting-an-installation", "children": []}]}, {"level": 2, "text": "Where to look when this manual runs out", "id": "where-to-look-when-this-manual-runs-out", "children": []}]}];
+  var NAV = [{"level": 1, "text": "Data Modelling & Querying with Relatude.DB", "id": "data-modelling-querying-with-relatudedb", "children": []}, {"level": 1, "text": "Part I — Data modelling", "id": "part-i-data-modelling", "children": [{"level": 2, "text": "1. The mental model", "id": "1-the-mental-model", "children": [{"level": 3, "text": "Interfaces are the model", "id": "interfaces-are-the-model", "children": []}]}, {"level": 2, "text": "2. Your first node type", "id": "2-your-first-node-type", "children": [{"level": 3, "text": "Why interfaces are the better default", "id": "why-interfaces-are-the-better-default", "children": []}, {"level": 3, "text": "Multiple inheritance with interfaces", "id": "multiple-inheritance-with-interfaces", "children": []}, {"level": 3, "text": "Querying across the hierarchy", "id": "querying-across-the-hierarchy", "children": []}, {"level": 3, "text": "Two constraints to design around", "id": "two-constraints-to-design-around", "children": []}, {"level": 3, "text": "When you do want a class", "id": "when-you-do-want-a-class", "children": []}, {"level": 3, "text": "Optional: stable type ids", "id": "optional-stable-type-ids", "children": []}]}, {"level": 2, "text": "3. Scalar properties and their attributes", "id": "3-scalar-properties-and-their-attributes", "children": [{"level": 3, "text": "The attribute catalogue", "id": "the-attribute-catalogue", "children": []}, {"level": 3, "text": "Strings", "id": "strings", "children": []}, {"level": 3, "text": "Numbers", "id": "numbers", "children": []}, {"level": 3, "text": "Enums", "id": "enums", "children": []}, {"level": 3, "text": "Validation happens on write", "id": "validation-happens-on-write", "children": []}, {"level": 3, "text": "3.1 Overriding attributes", "id": "31-overriding-attributes", "children": []}]}, {"level": 2, "text": "4. Marker properties", "id": "4-marker-properties", "children": [{"level": 3, "text": "What lives in NodeMeta", "id": "what-lives-in-nodemeta", "children": []}, {"level": 3, "text": "Querying by the node's own dates", "id": "querying-by-the-nodes-own-dates", "children": []}]}, {"level": 2, "text": "5. Geo coordinates", "id": "5-geo-coordinates", "children": [{"level": 3, "text": "Constructing and reading", "id": "constructing-and-reading", "children": []}, {"level": 3, "text": "The empty value", "id": "the-empty-value", "children": []}, {"level": 3, "text": "Distance and radius tests", "id": "distance-and-radius-tests", "children": []}, {"level": 3, "text": "How it is stored (and what that implies)", "id": "how-it-is-stored-and-what-that-implies", "children": []}, {"level": 3, "text": "JSON shape", "id": "json-shape", "children": []}, {"level": 3, "text": "Seeing them", "id": "seeing-them", "children": []}]}, {"level": 2, "text": "6. Files", "id": "6-files", "children": []}, {"level": 2, "text": "7. Embedded data", "id": "7-embedded-data", "children": [{"level": 3, "text": "Embedded<T> — a collection keyed by the embedded object's own Guid Id", "id": "embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id", "children": []}, {"level": 3, "text": "EmbeddedMap<TKey, TValue> — a collection keyed by a property of the value", "id": "embeddedmap-a-collection-keyed-by-a-property-of-the-value", "children": []}, {"level": 3, "text": "Working with an embedded map", "id": "working-with-an-embedded-map", "children": []}]}, {"level": 2, "text": "8. References — lightweight pointers", "id": "8-references-lightweight-pointers", "children": [{"level": 3, "text": "Reading and writing a Reference<T>", "id": "reading-and-writing-a-reference", "children": []}, {"level": 3, "text": "Reading and writing a References<T>", "id": "reading-and-writing-a-references", "children": []}]}, {"level": 2, "text": "9. Relations — the graph edges", "id": "9-relations-the-graph-edges", "children": [{"level": 3, "text": "The five shapes", "id": "the-five-shapes", "children": []}, {"level": 3, "text": "Using them on node types", "id": "using-them-on-node-types", "children": []}, {"level": 3, "text": "The \"one\" side API", "id": "the-one-side-api", "children": []}, {"level": 3, "text": "The \"many\" side API", "id": "the-many-side-api", "children": []}, {"level": 3, "text": "9.1 Relation lists are ordered", "id": "91-relation-lists-are-ordered", "children": []}, {"level": 3, "text": "Relation options", "id": "relation-options", "children": []}]}, {"level": 2, "text": "10. Choosing between relation, reference and embedded", "id": "10-choosing-between-relation-reference-and-embedded", "children": []}, {"level": 2, "text": "11. The complete example model", "id": "11-the-complete-example-model", "children": [{"level": 3, "text": "11.1 The same model with facet interfaces", "id": "111-the-same-model-with-facet-interfaces", "children": []}]}, {"level": 2, "text": "12. Registering the model & the admin UI", "id": "12-registering-the-model-the-admin-ui", "children": [{"level": 3, "text": "Server-hosted (the usual case)", "id": "server-hosted-the-usual-case", "children": []}, {"level": 3, "text": "relatude.db.json", "id": "relatudedbjson", "children": []}, {"level": 3, "text": "12.1 Every setting in relatude.db.json", "id": "121-every-setting-in-relatudedbjson", "children": []}, {"level": 3, "text": "Overriding settings from configuration", "id": "overriding-settings-from-configuration", "children": []}, {"level": 3, "text": "Changes made in the admin UI: relatude.db.overrides.json", "id": "changes-made-in-the-admin-ui-relatudedboverridesjson", "children": []}, {"level": 3, "text": "12.2 What goes where: source control, deployment and appsettings", "id": "122-what-goes-where-source-control-deployment-and-appsettings", "children": []}, {"level": 3, "text": "Options and events in Program.cs", "id": "options-and-events-in-programcs", "children": []}, {"level": 3, "text": "Two ways to register a datamodel", "id": "two-ways-to-register-a-datamodel", "children": []}, {"level": 3, "text": "The admin UI", "id": "the-admin-ui", "children": []}, {"level": 3, "text": "Programmatic / embedded", "id": "programmatic-embedded", "children": []}, {"level": 3, "text": "What the model builder validates", "id": "what-the-model-builder-validates", "children": []}, {"level": 3, "text": "Do not redefine the native types", "id": "do-not-redefine-the-native-types", "children": []}]}]}, {"level": 1, "text": "Part II — Writing data", "id": "part-ii-writing-data", "children": [{"level": 2, "text": "13. Create, insert, update, delete", "id": "13-create-insert-update-delete", "children": [{"level": 3, "text": "Read", "id": "read", "children": []}, {"level": 3, "text": "Update, upsert, delete", "id": "update-upsert-delete", "children": []}]}, {"level": 2, "text": "14. Relating nodes", "id": "14-relating-nodes", "children": [{"level": 3, "text": "Which verb", "id": "which-verb", "children": []}]}, {"level": 2, "text": "15. Transactions", "id": "15-transactions", "children": [{"level": 3, "text": "Transaction plugins", "id": "transaction-plugins", "children": []}]}, {"level": 2, "text": "16. Older versions of a node", "id": "16-older-versions-of-a-node", "children": [{"level": 3, "text": "16.1 Reverting the database to an earlier point", "id": "161-reverting-the-database-to-an-earlier-point", "children": []}]}, {"level": 2, "text": "17. Uploading files", "id": "17-uploading-files", "children": [{"level": 3, "text": "Very large files", "id": "very-large-files", "children": []}, {"level": 3, "text": "Serving and converting", "id": "serving-and-converting", "children": []}, {"level": 3, "text": "Light and dark mode", "id": "light-and-dark-mode", "children": []}, {"level": 3, "text": "Serving it", "id": "serving-it", "children": []}]}, {"level": 2, "text": "18. URLs and the URL manager", "id": "18-urls-and-the-url-manager", "children": [{"level": 3, "text": "Configuring it", "id": "configuring-it", "children": []}, {"level": 3, "text": "Where the path comes from", "id": "where-the-path-comes-from", "children": []}, {"level": 3, "text": "Address uniqueness", "id": "address-uniqueness", "children": []}, {"level": 3, "text": "Page URL formats", "id": "page-url-formats", "children": []}, {"level": 3, "text": "Prefixes", "id": "prefixes", "children": []}, {"level": 3, "text": "18.1 Asset URLs: files, variants and deeplinks", "id": "181-asset-urls-files-variants-and-deeplinks", "children": []}, {"level": 3, "text": "18.2 Links inside HTML and Markdown", "id": "182-links-inside-html-and-markdown", "children": []}, {"level": 3, "text": "Writing your own manager", "id": "writing-your-own-manager", "children": []}, {"level": 3, "text": "The middleware that serves it", "id": "the-middleware-that-serves-it", "children": []}]}]}, {"level": 1, "text": "Part III — Querying", "id": "part-iii-querying", "children": [{"level": 2, "text": "19. Query anatomy", "id": "19-query-anatomy", "children": [{"level": 3, "text": "Queries are immutable", "id": "queries-are-immutable", "children": []}, {"level": 3, "text": "Heavy queries, and stopping one", "id": "heavy-queries-and-stopping-one", "children": []}, {"level": 3, "text": "Entry points", "id": "entry-points", "children": []}, {"level": 3, "text": "Executing", "id": "executing", "children": []}]}, {"level": 2, "text": "20. Filtering with Where", "id": "20-filtering-with-where", "children": []}, {"level": 2, "text": "21. Text and semantic search", "id": "21-text-and-semantic-search", "children": [{"level": 3, "text": "WhereSearch — search as a filter", "id": "wheresearch-search-as-a-filter", "children": []}, {"level": 3, "text": "Search — search as ranking", "id": "search-search-as-ranking", "children": []}, {"level": 3, "text": "What actually gets searched", "id": "what-actually-gets-searched", "children": []}]}, {"level": 2, "text": "22. Geo queries", "id": "22-geo-queries", "children": [{"level": 3, "text": "Sorting by distance", "id": "sorting-by-distance", "children": []}, {"level": 3, "text": "A widening search", "id": "a-widening-search", "children": []}, {"level": 3, "text": "Things to remember about geo filters", "id": "things-to-remember-about-geo-filters", "children": []}]}, {"level": 2, "text": "23. Relation filters", "id": "23-relation-filters", "children": []}, {"level": 2, "text": "24. Eager loading: Include and Preload", "id": "24-eager-loading-include-and-preload", "children": [{"level": 3, "text": "Going deeper: ThenInclude / ThenPreload", "id": "going-deeper-theninclude-thenpreload", "children": []}, {"level": 3, "text": "Filtering what gets included", "id": "filtering-what-gets-included", "children": []}, {"level": 3, "text": "When you only need ids", "id": "when-you-only-need-ids", "children": []}]}, {"level": 2, "text": "25. Graph traversal and shortest path", "id": "25-graph-traversal-and-shortest-path", "children": [{"level": 3, "text": "Traverse", "id": "traverse", "children": []}, {"level": 3, "text": "ShortestPath", "id": "shortestpath", "children": []}]}, {"level": 2, "text": "26. Sorting, paging and result sets", "id": "26-sorting-paging-and-result-sets", "children": [{"level": 3, "text": "Paging", "id": "paging", "children": []}, {"level": 3, "text": "ResultSet<T>", "id": "resultset", "children": []}]}, {"level": 2, "text": "27. Aggregates", "id": "27-aggregates", "children": []}, {"level": 2, "text": "28. Faceted search", "id": "28-faceted-search", "children": [{"level": 3, "text": "Applying the user's selection", "id": "applying-the-users-selection", "children": []}, {"level": 3, "text": "Facet declaration methods", "id": "facet-declaration-methods", "children": []}, {"level": 3, "text": "Where the un-named facets come from", "id": "where-the-un-named-facets-come-from", "children": []}, {"level": 3, "text": "28.1 Pivot tables", "id": "281-pivot-tables", "children": []}, {"level": 3, "text": "28.2 GroupBy", "id": "282-groupby", "children": []}]}, {"level": 2, "text": "29. Cultures, visibility and scoped stores", "id": "29-cultures-visibility-and-scoped-stores", "children": []}, {"level": 2, "text": "30. Pitfalls and gotchas", "id": "30-pitfalls-and-gotchas", "children": []}]}, {"level": 1, "text": "Part IV — Tooling", "id": "part-iv-tooling", "children": [{"level": 2, "text": "31. The command line tool", "id": "31-the-command-line-tool", "children": [{"level": 3, "text": "Two things every command needs to know", "id": "two-things-every-command-needs-to-know", "children": []}, {"level": 3, "text": "The commands", "id": "the-commands", "children": []}, {"level": 3, "text": "What it does not do", "id": "what-it-does-not-do", "children": []}, {"level": 3, "text": "Things worth knowing", "id": "things-worth-knowing", "children": []}]}, {"level": 2, "text": "32. Logs — recording what the application does", "id": "32-logs-recording-what-the-application-does", "children": [{"level": 3, "text": "32.1 Defining a log", "id": "321-defining-a-log", "children": []}, {"level": 3, "text": "32.2 Recording from the application", "id": "322-recording-from-the-application", "children": []}, {"level": 3, "text": "32.3 Statistics", "id": "323-statistics", "children": []}, {"level": 3, "text": "32.4 Estimated unique counts: HyperLogLog", "id": "324-estimated-unique-counts-hyperloglog", "children": []}, {"level": 3, "text": "32.5 Reading a log", "id": "325-reading-a-log", "children": []}, {"level": 3, "text": "32.6 Changing a definition", "id": "326-changing-a-definition", "children": []}, {"level": 3, "text": "32.7 Files, limits and cleaning up", "id": "327-files-limits-and-cleaning-up", "children": []}, {"level": 3, "text": "32.8 Positions", "id": "328-positions", "children": []}]}]}, {"level": 1, "text": "Part V — APIs", "id": "part-v-apis", "children": [{"level": 2, "text": "33. GraphQL endpoints", "id": "33-graphql-endpoints", "children": [{"level": 3, "text": "33.1 An endpoint in the admin UI", "id": "331-an-endpoint-in-the-admin-ui", "children": []}, {"level": 3, "text": "33.2 The definition file", "id": "332-the-definition-file", "children": []}, {"level": 3, "text": "33.3 The schema", "id": "333-the-schema", "children": []}, {"level": 3, "text": "33.4 Querying", "id": "334-querying", "children": []}, {"level": 3, "text": "33.5 Views", "id": "335-views", "children": []}, {"level": 3, "text": "33.6 Mutations", "id": "336-mutations", "children": []}, {"level": 3, "text": "33.7 Over HTTP", "id": "337-over-http", "children": []}, {"level": 3, "text": "33.8 The explorer and the facet page", "id": "338-the-explorer-and-the-facet-page", "children": []}, {"level": 3, "text": "33.9 Code-first: mapping an endpoint in Program.cs", "id": "339-code-first-mapping-an-endpoint-in-programcs", "children": []}, {"level": 3, "text": "33.10 Who reads, and the limits", "id": "3310-who-reads-and-the-limits", "children": []}]}, {"level": 2, "text": "34. AI services", "id": "34-ai-services", "children": [{"level": 3, "text": "34.1 Text: embeddings and completions", "id": "341-text-embeddings-and-completions", "children": []}, {"level": 3, "text": "34.2 Images", "id": "342-images", "children": []}, {"level": 3, "text": "34.3 Files to text", "id": "343-files-to-text", "children": []}, {"level": 3, "text": "34.4 Translation", "id": "344-translation", "children": []}, {"level": 3, "text": "34.5 Prices, answers kept, and errors", "id": "345-prices-answers-kept-and-errors", "children": []}]}, {"level": 2, "text": "35. Relatude Services", "id": "35-relatude-services", "children": [{"level": 3, "text": "35.1 A license is not needed", "id": "351-a-license-is-not-needed", "children": []}, {"level": 3, "text": "35.2 A provider of your own", "id": "352-a-provider-of-your-own", "children": []}, {"level": 3, "text": "35.3 The account at services.relatude.com", "id": "353-the-account-at-servicesrelatudecom", "children": []}, {"level": 3, "text": "35.4 Connecting an installation", "id": "354-connecting-an-installation", "children": []}]}]}, {"level": 1, "text": "Part VI — Background work", "id": "part-vi-background-work", "children": [{"level": 2, "text": "36. Background tasks and the scheduler", "id": "36-background-tasks-and-the-scheduler", "children": [{"level": 3, "text": "36.1 Jobs", "id": "361-jobs", "children": []}, {"level": 3, "text": "36.2 Schedules", "id": "362-schedules", "children": []}, {"level": 3, "text": "36.3 The Scheduler page", "id": "363-the-scheduler-page", "children": []}]}, {"level": 2, "text": "Where to look when this manual runs out", "id": "where-to-look-when-this-manual-runs-out", "children": []}]}];
   // v2: the default collapse state changed, and the key is versioned so readers
   // carrying a v1 payload get the new default rather than their old tree.
   var KEY = "relatude-manual-state-v2";

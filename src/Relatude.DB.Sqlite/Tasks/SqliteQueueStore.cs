@@ -81,7 +81,7 @@ public class SqliteQueueStore : IQueueStore {
             + " VALUES (@id, @type_id, @job_id, @priority, @state, @created, @completed, @taskCount, @taskData)",
             P("@id", batch.Meta.BatchId.ToString()),
             P("@type_id", batch.Meta.TaskTypeId),
-            P("@job_id", batch.Meta.JobId ?? (object)DBNull.Value), // job_id can be null
+            P("@job_id", batch.Meta.GroupKey ?? (object)DBNull.Value), // the group key; can be null. The column keeps its old name, so existing queue files open as they are
             P("@priority", (int)batch.Meta.Priority),
             P("@state", (int)batch.Meta.State),
             P("@created", batch.Meta.CreatedUtc.ToString("o")),
@@ -128,7 +128,7 @@ public class SqliteQueueStore : IQueueStore {
     static IBatch readBatch(SqliteDataReader reader, Dictionary<string, ITaskRunner> runners) {
         var batchId = Guid.Parse(reader.GetString(0));
         var typeId = reader.GetString(1);
-        var jobId = reader.IsDBNull(2) ? null : reader.GetString(2);
+        var groupKey = reader.IsDBNull(2) ? null : reader.GetString(2);
         var priority = (BatchTaskPriority)reader.GetInt32(3);
         var state = (BatchState)reader.GetInt32(4);
         var created = reader.GetDateTime(5);
@@ -137,7 +137,7 @@ public class SqliteQueueStore : IQueueStore {
         string? errorMessage = reader.IsDBNull(8) ? null : reader.GetString(8);
         byte[] taskData = reader.GetFieldValue<byte[]>(10);
         var meta = new BatchMeta(batchId, typeId, state, priority, created) {
-            JobId = jobId,
+            GroupKey = groupKey,
             Completed = completed,
             ErrorType = errorType,
             ErrorMessage = errorMessage
@@ -158,10 +158,10 @@ public class SqliteQueueStore : IQueueStore {
         executeNonQuery($"UPDATE tasks SET state = @state, completed = @completed WHERE id IN ({idList})",
             P("@state", (int)state), P("@completed", finished(state)));
     }
-    public void Set(string jobId, BatchState state) {
+    public void Set(string groupKey, BatchState state) {
         invalidatePendingCache();
-        executeNonQuery("UPDATE tasks SET state = @state, completed = @completed WHERE job_id = @jobId",
-            P("@state", (int)state), P("@completed", finished(state)), P("@jobId", jobId ?? (object)DBNull.Value));
+        executeNonQuery("UPDATE tasks SET state = @state, completed = @completed WHERE job_id = @groupKey",
+            P("@state", (int)state), P("@completed", finished(state)), P("@groupKey", groupKey ?? (object)DBNull.Value));
     }
     // a batch that has finished records when; one put back in the queue drops the time it finished
     // the last time round (BatchMeta.SetState does the same for the in-memory store)
@@ -202,15 +202,15 @@ public class SqliteQueueStore : IQueueStore {
     }
     // simple SQL injection prevention
     string sqlSafeString(string value) => $"'{value.Replace("'", "''")}'";
-    public BatchMetaWithCount[] GetBatchInfo(BatchState[] states, string[] typeIds, string[] jobIds, int page, int pageSize, out int totalCount) {
+    public BatchMetaWithCount[] GetBatchInfo(BatchState[] states, string[] typeIds, string[] groupKeys, int page, int pageSize, out int totalCount) {
         var stateList = string.Join(",", states.Select(s => (int)s));
         var typeIdList = string.Join(",", typeIds.Select(sqlSafeString));
-        var jobIdList = string.Join(",", jobIds.Select(sqlSafeString));
+        var groupKeyList = string.Join(",", groupKeys.Select(sqlSafeString));
         var offset = page * pageSize;
         var conditions = new List<string>();
         if (states.Length > 0) conditions.Add($"state IN ({stateList})");
         if (typeIds.Length > 0) conditions.Add($"type_id IN ({typeIdList})");
-        if (jobIds.Length > 0) conditions.Add($"job_id IN ({jobIdList})");
+        if (groupKeys.Length > 0) conditions.Add($"job_id IN ({groupKeyList})");
         // no filter at all means every batch, so the WHERE has to go with it
         string where = conditions.Count == 0 ? string.Empty : "WHERE " + string.Join(" AND ", conditions);
         string sql = $@"SELECT id, type_id, priority, state, created, completed, error_type, error_message, task_count, job_id
@@ -232,7 +232,7 @@ public class SqliteQueueStore : IQueueStore {
                 Completed = completed,
                 ErrorType = errorType,
                 ErrorMessage = errorMessage,
-                JobId = reader.IsDBNull(9) ? null : reader.GetString(9),
+                GroupKey = reader.IsDBNull(9) ? null : reader.GetString(9),
             };
             batches.Add(new(info, taskCount));
         }

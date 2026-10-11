@@ -71,6 +71,12 @@ public sealed partial class DataStoreLocal : IDataStore {
     Func<IndexEngines>? _createIndexEngines;
     internal IStateStore _stateStore = default!;
     readonly Func<IStateStore>? _createStateStore;
+    // the background warm-up (see warmIndexesInBackground): kept so whatever tears down the indexes it
+    // reads (close, dispose, the reload of a revert) can end it first, see stopIndexWarmUp
+    readonly object _warmUpSync = new();
+    CancellationTokenSource? _warmUpCts;
+    Task _warmUpTask = Task.CompletedTask;
+    const int _warmUpStopTimeoutMs = 30000;
 
     long _noPrimitiveActionsSinceStartup;
     long _noPrimitiveActionsSinceLastStateSnapshot;
@@ -146,10 +152,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         RegisterRunner(new TextIndexTaskRunner(this));
         if (_ai != null) RegisterRunner(new SemanticIndexTaskRunner(this, _ai));
         RegisterRunner(new RewriteTaskRunner(this));
+        initJobs();
         // read at every batch start, off the same settings object the admin UI edits, so a change to
         // how many batches of a type run at once applies without a reopen
         Func<ITaskRunner, int?> configuredConcurrency = runner => _settings.FindTaskConcurrency(runner.TaskTypeId);
-        TaskQueue = new(this, new DefaultQueueStore(_taskRunners), _taskRunners, configuredConcurrency);
+        TaskQueue = new(this, new DefaultQueueStore(_taskRunners), _taskRunners, configuredConcurrency, "in memory");
         if (queueStore == null) {
             if (_settings.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Native) {
                 queueStore = new DefaultQueueStore(_taskRunners, _ioIndex, FileKeyUtility.Queue_GetFileKey("bin"));
@@ -159,7 +166,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 throw new Exception("Queue store engine must be set to either BuiltIn or Memory if no queueStore is provided.");
             }
         }
-        TaskQueuePersisted = new(this, queueStore, _taskRunners, configuredConcurrency);
+        TaskQueuePersisted = new(this, queueStore, _taskRunners, configuredConcurrency, "persisted");
         Datamodel = datamodel;
         // the database's overrides go into the types before anything reads them (see Datamodel.Overrides)
         datamodel.ApplyOverrides();
@@ -269,14 +276,14 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         _taskRunners[runner.TaskTypeId] = runner;
     }
-    public void EnqueueTask(TaskData task, string? jobId = null) {
+    public void EnqueueTask(TaskData task, string? groupKey = null) {
         if (!_taskRunners.TryGetValue(task.TaskTypeId, out var runner)) {
             throw new Exception("No task runner registered for task type: " + task.TaskTypeId);
         }
         if (!runner.PersistToDisk || TaskQueuePersisted == null) {
-            TaskQueue.Enqueue(task, jobId);
+            TaskQueue.Enqueue(task, groupKey);
         } else {
-            TaskQueuePersisted.Enqueue(task, jobId);
+            TaskQueuePersisted.Enqueue(task, groupKey);
         }
     }
     public ILogStore LogStore => _logger.LogStore;
@@ -358,58 +365,101 @@ public sealed partial class DataStoreLocal : IDataStore {
     // reason: the first FILTERED facet query builds per-bucket id sets from the persisted value
     // indexes (full value-tree reads, hundreds of ms at millions of nodes) unless they are built
     // here first. Everything below is read-only work through the same paths a query takes.
+    // The run is cancellable and kept (_warmUpTask): close, dispose and the reload of a revert end it
+    // with stopIndexWarmUp before tearing down the indexes it reads and the files it saves.
     void warmIndexesInBackground() {
         var mirrors = _definition.GetAllIndexes().OfType<IIndexMirror>().ToArray();
         var facetProps = _definition.Properties.Values.Where(p => p.CanBeFacet()).ToArray();
         if (mirrors.Length == 0 && facetProps.Length == 0) return;
-        Task.Run(() => {
-            var sw = Stopwatch.StartNew();
-            LogInfo("Background warm-up of indexes started");
-            var totalSteps = mirrors.Length + facetProps.Length + 1; // +1 for the cache save at the end
-            var completedSteps = 0;
-            var activityId = RegisterActvity(DataStoreActivityCategory.IndexWarmup,
-                "Warming indexes", 0);
-            try {
-                foreach (var mirror in mirrors) {
-                    try {
-                        if (_state != DataStoreState.Open) return;
-                        UpdateActivity(activityId, "Loading index " + mirror.FriendlyName, 100 * completedSteps / totalSteps);
-                        mirror.EnsureLoaded();
-                    } catch (Exception e) {
-                        LogInfo("Background load of index " + mirror.FriendlyName + " failed: " + e.Message);
-                    }
-                    completedSteps++;
-                }
-                // each property warms under its own short read lock (the lock queries count under),
-                // so pending writers wait for at most one property, not the whole warm-up:
-                foreach (var prop in facetProps) {
-                    if (_state != DataStoreState.Open) return;
-                    UpdateActivity(activityId, "Warming facet " + prop.CodeName, 100 * completedSteps / totalSteps);
-                    _lock.EnterReadLock();
-                    try {
-                        if (_state == DataStoreState.Open) prop.WarmFacetCaches(QueryContext.Default);
-                    } catch (Exception e) {
-                        LogInfo("Background facet warm-up of " + prop.CodeName + " failed: " + e.Message);
-                    } finally {
-                        _lock.ExitReadLock();
-                    }
-                    completedSteps++;
-                }
-                // persist the freshly built sets right away (a no-op when nothing new was built), so
-                // even a process killed before a scheduled save or clean dispose reopens warm:
-                try {
-                    UpdateActivity(activityId, "Saving index caches", 100 * completedSteps / totalSteps);
-                    if (_state == DataStoreState.Open) SaveIndexCaches(false);
-                } catch (Exception e) {
-                    LogInfo("Saving index caches after warm-up failed: " + e.Message);
-                }
-                LogInfo("Background warm-up of indexes finished in " + sw.ElapsedMilliseconds.To1000N() + "ms");
-                sw.Restart();
-            } finally {
-                DeRegisterActivity(activityId);
-            }
-        });
+        lock (_warmUpSync) {
+            // a run still going (a cache clear restarts the warm-up) gives way to this one, which starts
+            // once it has stopped, so two never run at once and the task kept covers both:
+            _warmUpCts?.Cancel();
+            var cts = new CancellationTokenSource();
+            _warmUpCts = cts;
+            _warmUpTask = _warmUpTask.ContinueWith(_ => warmIndexes(mirrors, facetProps, cts.Token),
+                CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+        }
     }
+    void warmIndexes(IIndexMirror[] mirrors, Property[] facetProps, CancellationToken cancel) {
+        if (cancel.IsCancellationRequested) return;
+        var sw = Stopwatch.StartNew();
+        LogInfo("Background warm-up of indexes started");
+        var totalSteps = mirrors.Length + facetProps.Length + 1; // +1 for the cache save at the end
+        var completedSteps = 0;
+        var activityId = RegisterActvity(DataStoreActivityCategory.IndexWarmup,
+            "Warming indexes", 0);
+        try {
+            foreach (var mirror in mirrors) {
+                try {
+                    if (cancel.IsCancellationRequested || _state != DataStoreState.Open) return;
+                    UpdateActivity(activityId, "Loading index " + mirror.FriendlyName, 100 * completedSteps / totalSteps);
+                    mirror.EnsureLoaded();
+                } catch (Exception e) {
+                    LogInfo("Background load of index " + mirror.FriendlyName + " failed: " + e.Message);
+                }
+                completedSteps++;
+            }
+            // each property warms under its own short read lock (the lock queries count under),
+            // so pending writers wait for at most one property, not the whole warm-up:
+            foreach (var prop in facetProps) {
+                if (cancel.IsCancellationRequested || _state != DataStoreState.Open) return;
+                UpdateActivity(activityId, "Warming facet " + prop.CodeName, 100 * completedSteps / totalSteps);
+                if (!tryEnterLockForWarmUp(false, cancel)) return;
+                try {
+                    // checked again under the lock: whoever held it while the run waited may have
+                    // cancelled it, and after a revert's reload the state alone says Open again
+                    if (!cancel.IsCancellationRequested && _state == DataStoreState.Open) prop.WarmFacetCaches(QueryContext.Default);
+                } catch (Exception e) {
+                    LogInfo("Background facet warm-up of " + prop.CodeName + " failed: " + e.Message);
+                } finally {
+                    _lock.ExitReadLock();
+                }
+                completedSteps++;
+            }
+            // persist the freshly built sets right away (a no-op when nothing new was built), so
+            // even a process killed before a scheduled save or clean dispose reopens warm:
+            try {
+                UpdateActivity(activityId, "Saving index caches", 100 * completedSteps / totalSteps);
+                if (!tryEnterLockForWarmUp(true, cancel)) return;
+                try {
+                    if (!cancel.IsCancellationRequested && _state == DataStoreState.Open) SaveIndexCaches(false); // re-enters the write lock held here
+                } finally {
+                    _lock.ExitWriteLock();
+                }
+            } catch (Exception e) {
+                LogInfo("Saving index caches after warm-up failed: " + e.Message);
+            }
+            LogInfo("Background warm-up of indexes finished in " + sw.ElapsedMilliseconds.To1000N() + "ms");
+            sw.Restart();
+        } finally {
+            DeRegisterActivity(activityId);
+        }
+    }
+    // the store lock as a query or a save takes it, given up once the warm-up is cancelled: whoever
+    // cancelled it may hold the write lock (a revert, a failed open disposing) while waiting for it to end
+    bool tryEnterLockForWarmUp(bool write, CancellationToken cancel) {
+        while (!cancel.IsCancellationRequested) {
+            if (write ? _lock.TryEnterWriteLock(100) : _lock.TryEnterReadLock(100)) return true;
+        }
+        return false;
+    }
+    // Ends the background warm-up before what it reads is torn down: cancelled, it stops at its next
+    // step (one index load, one property, or the cache save under way), and is waited for, bounded. The
+    // caller may hold the store lock, as the warm-up gives up waiting for it once cancelled.
+    void stopIndexWarmUp() {
+        Task task;
+        lock (_warmUpSync) {
+            _warmUpCts?.Cancel();
+            _warmUpCts = null;
+            task = _warmUpTask;
+        }
+        if (task.IsCompleted) return;
+        try {
+            if (!task.Wait(_warmUpStopTimeoutMs)) LogInfo("Background warm-up of indexes did not stop within " + _warmUpStopTimeoutMs.To1000N() + "ms");
+        } catch { } // a run that failed has ended too
+    }
+    internal bool IsWarmingIndexes { get { lock (_warmUpSync) return !_warmUpTask.IsCompleted; } }
     public void Open(bool throwOnBadLogFile = false, bool throwOnBadStateFile = false) {
         var sw = Stopwatch.StartNew();
         _startedOpeningUtc = DateTime.UtcNow;
@@ -473,6 +523,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _lock.EnterWriteLock();
         try {
             if (_state != DataStoreState.Open) throw new Exception("Store not opened. Current state is: " + _state);
+            stopIndexWarmUp(); // before the flush: a warm-up left running would save its caches after the close
             endRevertWindowAsCommitIfActive(); // before the flush, so the engines become durable at the head
             FlushToDisk(true, 0);
             _state = DataStoreState.Closing;
@@ -515,6 +566,9 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public void Dispose() {
         try { _scheduler.Stop(); } catch { }
+        // takes no store lock, so the warm-up would otherwise go on reading engines disposed below and
+        // saving the facet-set sidecar after this returns:
+        try { stopIndexWarmUp(); } catch { }
         try { _fileConversionEngine.Dispose(); } catch { } // stops its heartbeat timer; a live Timer roots this whole store
         try { TaskQueue?.TryGracefulShutdown(5000); } catch { }
         try { TaskQueuePersisted?.TryGracefulShutdown(5000); } catch { }

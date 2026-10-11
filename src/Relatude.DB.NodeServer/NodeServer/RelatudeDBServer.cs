@@ -555,7 +555,7 @@ public partial class RelatudeDBServer {
         }
         lock (_ios) {
             if (_ios.TryGetValue(ioId, out io)) return true;
-            var settings = _serverSettings.ContainerSettings?.SelectMany(c => c.IOSettings!)?.FirstOrDefault(s => s.Id == ioId);
+            var settings = _serverSettings.ContainerSettings?.SelectMany(c => c.IOSettings ?? [])?.FirstOrDefault(s => s.Id == ioId); // a database may have no list at all
             if (settings == null) return false;
             io = IOSettings.Create(settings, _rootDataFolderPath);
             try {

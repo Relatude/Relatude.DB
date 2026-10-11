@@ -54,7 +54,8 @@ public sealed class UIServer {
         new UIDashboard(server).Register(Commands);
         new UIMemory(server).Register(Commands);
         new UINodeSizes(server).Register(Commands);
-        new UITasks(server).Register(Commands);
+        new UITasks(server, _settings).Register(Commands);
+        new UIScheduler(server, _settings).Register(Commands);
         new UIDemo(server, Shared).Register(Commands);
         new UIRevert(server).Register(Commands);
         new UIDatamodel(server).Register(Commands);
@@ -1167,9 +1168,9 @@ public sealed class UIServer {
             // queued under a job id of its own when the UI shares the task, so the task can follow
             // the batch through the queue rather than guess from the files that appear
             var task = Shared.RefOf(ctx, p.StoreId, "Backup " + displayName(c));
-            var jobId = task is SharedTaskRef t ? "ui:" + t.Id.ToString("N") : "Backup";
-            store.Datastore.BackUpNow(p.Truncate, p.KeepForever, _server.GetIO(getBackupIoId(c)), jobId);
-            Shared.AttachBatch(task, c, store.Datastore, jobId, "Writing the backup…", "Backup written.");
+            var groupKey = task is SharedTaskRef t ? "ui:" + t.Id.ToString("N") : "Backup";
+            store.Datastore.BackUpNow(p.Truncate, p.KeepForever, _server.GetIO(getBackupIoId(c)), groupKey);
+            Shared.AttachBatch(task, c, store.Datastore, groupKey, "Writing the backup…", "Backup written.");
             return (object?)new { Done = true };
         });
         // copies a backup into place as the next WAL file key (the old current file is kept)
@@ -1434,9 +1435,9 @@ public sealed class UIServer {
             if (task is SharedTaskRef t && store.Datastore is DataStoreLocal local) {
                 // queued under a job id of its own, so the task can follow the rewrite through the
                 // queue: it is done when its batch is gone, however long it waited for its turn
-                var jobId = "ui:" + t.Id.ToString("N");
-                if (local.EnqueueLogTruncation(!p.KeepOld, jobId)) {
-                    Shared.AttachBatch(task, c, local, jobId, "Rewriting the database file…", p.KeepOld ? "Truncated. The old file is kept." : "Truncated.");
+                var groupKey = "ui:" + t.Id.ToString("N");
+                if (local.EnqueueLogTruncation(!p.KeepOld, groupKey)) {
+                    Shared.AttachBatch(task, c, local, groupKey, "Rewriting the database file…", p.KeepOld ? "Truncated. The old file is kept." : "Truncated.");
                 } else {
                     Shared.Attach(task, () => new SharedTaskProgress(UISharedTasks.Done, null, 0, null, null,
                         "Nothing was truncated: the log holds nothing that can be dropped, or a revert window is open."));

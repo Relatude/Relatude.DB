@@ -18,6 +18,7 @@ public class BatchMetaWithCount : BatchMeta {
         : base(info.BatchId, info.TaskTypeId, info.State, info.Priority, info.CreatedUtc) {
         TaskCount = count;
         Completed = info.Completed;
+        GroupKey = info.GroupKey;
         ErrorType = info.ErrorType;
         ErrorMessage = info.ErrorMessage;
     }
@@ -30,7 +31,9 @@ public class BatchMeta(Guid batchId, string typeId, BatchState state, BatchTaskP
     public BatchTaskPriority Priority { get; set; } = priority;
     public DateTime CreatedUtc { get; set; } = created;
     public DateTime? Completed { get; set; }
-    public string? JobId { get; set; }
+    /// <summary>What the batch was queued under (<see cref="Relatude.DB.DataStores.IDataStore.EnqueueTask"/>): tasks queued with the same
+    /// key share batches, and a caller can find its batch by it. Null for tasks queued without one.</summary>
+    public string? GroupKey { get; set; }
     /// <summary>True once a batch has stopped being in flight, whether it got there by running or by
     /// being taken out of the queue.</summary>
     public static bool IsFinished(BatchState state)
@@ -55,7 +58,7 @@ public class BatchMeta(Guid batchId, string typeId, BatchState state, BatchTaskP
         w.Write((int)Priority);
         w.Write(CreatedUtc.ToBinary());
         w.Write(Completed.HasValue ? Completed.Value.ToBinary() : 0L);
-        w.Write(JobId ?? string.Empty);
+        w.Write(GroupKey ?? string.Empty);
         w.Write(ErrorType ?? string.Empty);
         w.Write(ErrorMessage ?? string.Empty);
         return ms.ToArray();
@@ -71,12 +74,12 @@ public class BatchMeta(Guid batchId, string typeId, BatchState state, BatchTaskP
         DateTime? completed = null;
         long completedBinary = br.ReadInt64();
         if (completedBinary != 0) completed = DateTime.FromBinary(completedBinary);
-        string? jobId = br.ReadString();
+        string? groupKey = br.ReadString();
         string? errorType = br.ReadString();
         string? errorMessage = br.ReadString();
         return new BatchMeta(batchId, typeId, state, priority, createdUtc) {
             Completed = completed,
-            JobId = jobId,
+            GroupKey = groupKey,
             ErrorType = errorType,
             ErrorMessage = errorMessage
         };

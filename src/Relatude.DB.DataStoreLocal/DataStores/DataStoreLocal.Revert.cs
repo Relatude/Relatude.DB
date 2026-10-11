@@ -214,6 +214,9 @@ public sealed partial class DataStoreLocal : IDataStore {
             try {
                 UpdateActivity(activityId, "Reverting database", 10);
                 _scheduler.Stop();
+                // the engines are reset and disposed below and the store reopens with new ones: a warm-up
+                // still loading the old indexes ends first (it gives up on the write lock held here)
+                stopIndexWarmUp();
                 if (fullReset) {
                     // the state snapshot is newer than the revert point and cannot be used; delete
                     // it together with the index files and reset the engines, so the reload below

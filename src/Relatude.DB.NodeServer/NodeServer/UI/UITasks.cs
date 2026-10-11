@@ -1,6 +1,8 @@
 using Relatude.DB.Common;
 using Relatude.DB.DataStores;
+using Relatude.DB.NodeServer.Settings;
 using Relatude.DB.Tasks;
+using System.Text.Json;
 
 namespace Relatude.DB.NodeServer.UI;
 
@@ -26,7 +28,12 @@ sealed class UITasks {
     static readonly BatchState[] settableStates = [BatchState.Pending, BatchState.Cancelled];
 
     readonly RelatudeDBServer _server;
-    internal UITasks(RelatudeDBServer server) => _server = server;
+    readonly UISettings _settings;
+    internal UITasks(RelatudeDBServer server, UISettings settings) {
+        _server = server;
+        _settings = settings;
+    }
+    const string speedPath = "LocalSettings.TaskQueueSpeed";
 
     internal void Register(UICommands commands) {
         commands.Register("tasks", ctx => tasks(ctx.Payload<TasksPayload>()));
@@ -87,6 +94,9 @@ sealed class UITasks {
             Open = true,
             State = state,
             Throttle = store.TaskQueueThrottle,
+            // the slider saves the speed as a setting; one decided by appsettings or the application's code
+            // is not the slider's to change, and it says by what
+            ThrottleLockedBy = _server.DecidedOutsideTheSettingsFiles(SettingsOverlay.OverridePath(p.StoreId, speedPath)),
             Queues = new[] {
                 queueInfo(memoryId, "In memory", store.TaskQueue, null),
                 // named by the setting rather than by the class behind it: "Native" is what the
@@ -131,7 +141,8 @@ sealed class UITasks {
                 x.batch.TaskCount,
                 CreatedUtc = utc(x.batch.CreatedUtc),
                 CompletedUtc = utc(x.batch.Completed),
-                x.batch.JobId,
+                x.batch.GroupKey,
+                Detail = detailOf(store, x.batch),
                 x.batch.ErrorType,
                 x.batch.ErrorMessage,
             }),
@@ -193,10 +204,17 @@ sealed class UITasks {
         return new { Done = true };
     }
 
+    /// <summary>
+    /// The Speed slider: saved as the database's setting (on THIS SERVER, like every change made in the admin
+    /// UI), which the queues follow at once. Refused, with the reason, when configuration or the application's
+    /// code decides the setting.
+    /// </summary>
     object throttle(TasksThrottlePayload p) {
         var store = openStore(p.StoreId);
-        store.TaskQueueThrottle = Math.Clamp(p.Throttle, 0, 100);
-        // the scheduler clamps too, and reports back what it actually took
+        var speed = Math.Clamp(p.Throttle, 0, 100);
+        var rejected = _settings.SaveDatabaseValues(p.StoreId, new() { [speedPath] = JsonSerializer.SerializeToElement(speed) });
+        if (rejected.Count > 0) throw new Exception(rejected[0].Reason);
+        // the scheduler takes the saved speed up on its own, and reports back what it actually took
         return new { Throttle = store.TaskQueueThrottle };
     }
 
@@ -229,6 +247,16 @@ sealed class UITasks {
 
     static BatchState parseState(string value) {
         return Enum.TryParse<BatchState>(value, true, out var state) ? state : throw new Exception("Unknown task state: " + value + ". ");
+    }
+
+    /// <summary>What a batch is about beyond its type, where the type alone says little: a run of a job is
+    /// one batch, queued under the run's id, and the job's name - with its schedule's, when that
+    /// is another - is what tells two of them apart.</summary>
+    static string? detailOf(IDataStore store, BatchMetaWithCount batch) {
+        if (batch.TaskTypeId != typeof(RunJob).FullName) return null;
+        var run = store.Jobs.FindRunByGroupKey(batch.GroupKey);
+        if (run == null) return null;
+        return run.ScheduleName != null && !string.Equals(run.ScheduleName, run.JobName, StringComparison.OrdinalIgnoreCase) ? run.JobName + " · " + run.ScheduleName : run.JobName;
     }
 
     /// <summary>The type name without its namespace, spaced out: "TextIndexTask" reads as "Text index task".</summary>

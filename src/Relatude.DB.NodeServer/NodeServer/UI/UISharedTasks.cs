@@ -110,17 +110,17 @@ public sealed class UISharedTasks {
     }
 
     /// <summary>
-    /// A task queue batch: the rewrites behind a truncation and a backup run there, under the job id
+    /// A task queue batch: the rewrites behind a truncation and a backup run there, under the group key
     /// they were queued with. It is done when it is gone from the queue - a rewrite deletes its batch
     /// on success - and failed when the queue says so. Nothing cancels a rewrite once it is queued.
     /// </summary>
-    internal void AttachBatch(SharedTaskRef? task, NodeStoreContainer container, IDataStore store, string jobId, string runningLabel, string doneMessage) {
+    internal void AttachBatch(SharedTaskRef? task, NodeStoreContainer container, IDataStore store, string groupKey, string runningLabel, string doneMessage) {
         var typeId = typeof(RewriteTask).FullName!;
         Attach(task, () => {
             if (container.Store?.Datastore != store || store.State != DataStoreState.Open) {
                 return new SharedTaskProgress(Failed, null, 0, null, null, "The database was closed before it finished.");
             }
-            var batch = store.TaskQueue.GetBatchMeta([], [typeId], [jobId], 0, 1, out _).FirstOrDefault();
+            var batch = store.TaskQueue.GetBatchMeta([], [typeId], [groupKey], 0, 1, out _).FirstOrDefault();
             if (batch == null) return new SharedTaskProgress(Done, null, 0, null, null, doneMessage);
             return batch.State switch {
                 BatchState.Pending or BatchState.Waiting => new SharedTaskProgress(Running, "Waiting for its turn in the task queue…", 0, null, null, null),
