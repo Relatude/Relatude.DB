@@ -1,5 +1,6 @@
 using Benchmark.Base;
 using Benchmark.LiteDB;
+using Benchmark.MSSql;
 using Benchmark.RavenDB;
 using Benchmark.Relatude.DB;
 using Benchmark.Site.Tester;
@@ -13,7 +14,7 @@ app.UseStaticFiles();
 
 app.MapPost("/start", () => {
     Status.Current.Running = true;
-    var dataSetMultiplier = 500000;
+    var dataSetMultiplier = 50000;
     var timeMultiplier = 2;
     var options = new TestOptions();
     options.FlushDiskOnEveryOperation = false;
@@ -26,9 +27,9 @@ app.MapPost("/start", () => {
 
     ITester[] testers = [
 
-        //new MsSqlDBTester(),
-        //new RavenDBEmbeddedTester(),
-        //new LiteDBTester(),
+        new MsSqlDBTester(),
+        new RavenDBEmbeddedTester(),
+        new LiteDBTester(),
         //new SQLiteDBTester(),
         //new RelatudeDBTester( RelatudeDiskFlushMode.AutoFlush, RelatudeIndexType.Sqlite),
         new RelatudeDBTester( RelatudeDiskFlushMode.AutoFlush, RelatudeIndexType.Native),

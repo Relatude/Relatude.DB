@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import {
   IconArrowBackUp,
   IconBrush,
@@ -135,6 +135,13 @@ const serviceTests: ServiceTest[] = [
 export const isServiceTestView = (id: string): id is ServiceTestView => serviceTests.some((t) => t.id === id);
 
 /**
+ * Called by a test once its call is over, so the "Charged to" cards ask the license server again and
+ * show what is left after it. Every attempt asks, not only one that succeeded: a call that failed may
+ * still have been charged - a debit the service could not confirm, say.
+ */
+const Charged = createContext<() => void>(() => {});
+
+/**
  * Test services: a real call to each Relatude service, so whoever set up the license can see it work
  * before code depends on it - one view per service, under a switch at the top.
  *
@@ -160,6 +167,7 @@ export function ServiceTestsSection({
   onChanged?: (status: LicenseStatus) => void;
 }) {
   const { status, error, busy, load } = useLicenseStatus(onChanged);
+  const charged = useCallback(() => void load(), [load]);
   const [opened, setOpened] = useState<ServiceTestView[]>([view]);
   useEffect(() => setOpened((o) => (o.includes(view) ? o : [...o, view])), [view]);
   // the view asked for is shown on this very render, not one later
@@ -211,25 +219,27 @@ export function ServiceTestsSection({
           <Loading label="Checking the license…" />
         )
       ) : (
-        serviceTests
-          .filter((test) => mounted.includes(test.id))
-          .map((test) => (
-            <div key={test.id} className="license-view" role="tabpanel" hidden={test.id !== view}>
-              {/* Storage's group heading, so the modules read alike: an icon in this module's
-                  colour, the name beside it, what it is about, and the refresh at the end of the line */}
-              <div className="storage-group-head">
-                <test.icon size={18} stroke={1.7} />
-                <h2>{test.title}</h2>
-                <span className="muted">{test.sub}</span>
-                <button className="icon-button storage-refresh" onClick={() => void load()} disabled={busy} title="Ask the license server again">
-                  <IconRefresh size={14} stroke={1.8} />
-                </button>
+        <Charged.Provider value={charged}>
+          {serviceTests
+            .filter((test) => mounted.includes(test.id))
+            .map((test) => (
+              <div key={test.id} className="license-view" role="tabpanel" hidden={test.id !== view}>
+                {/* Storage's group heading, so the modules read alike: an icon in this module's
+                    colour, the name beside it, what it is about, and the refresh at the end of the line */}
+                <div className="storage-group-head">
+                  <test.icon size={18} stroke={1.7} />
+                  <h2>{test.title}</h2>
+                  <span className="muted">{test.sub}</span>
+                  <button className="icon-button storage-refresh" onClick={() => void load()} disabled={busy} title="Ask the license server again">
+                    <IconRefresh size={14} stroke={1.8} />
+                  </button>
+                </div>
+                {/* the last answer stays on screen when asking again fails, with why under the heading */}
+                {error && <div className="license-error">{error}</div>}
+                {body(test, status)}
               </div>
-              {/* the last answer stays on screen when asking again fails, with why under the heading */}
-              {error && <div className="license-error">{error}</div>}
-              {body(test, status)}
-            </div>
-          ))
+            ))}
+        </Charged.Provider>
       )}
     </div>
   );
@@ -345,6 +355,7 @@ function SmsTest({ credit, allowed, senders, anySender }: { credit: ReactNode; a
   const [sending, setSending] = useState(false);
   const [receipt, setReceipt] = useState<SmsReceipt | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const charged = useContext(Charged);
 
   async function sendIt() {
     setSending(true);
@@ -356,6 +367,7 @@ function SmsTest({ credit, allowed, senders, anySender }: { credit: ReactNode; a
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSending(false);
+      charged();
     }
   }
 
@@ -464,6 +476,7 @@ function AiEmbeddingTest({ serviceUrl, loadModels, allowed }: { serviceUrl: stri
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<AiEmbeddingResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const charged = useContext(Charged);
 
   async function run() {
     setBusy(true);
@@ -475,6 +488,7 @@ function AiEmbeddingTest({ serviceUrl, loadModels, allowed }: { serviceUrl: stri
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+      charged();
     }
   }
 
@@ -523,6 +537,7 @@ function AiCompletionTest({ serviceUrl, loadModels, allowed }: { serviceUrl: str
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<AiCompletionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const charged = useContext(Charged);
 
   async function run() {
     setBusy(true);
@@ -534,6 +549,7 @@ function AiCompletionTest({ serviceUrl, loadModels, allowed }: { serviceUrl: str
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+      charged();
     }
   }
 
@@ -1200,6 +1216,7 @@ function ImagingTest({ credit, configuredUrl, allowed }: { credit: ReactNode; co
   const [stage, setStage] = useState<ImagingStage>("image");
   const answerUrl = useObjectUrl(result?.answer.kind === "image" ? result.answer.png : null);
   const inputUrl = useObjectUrl(result?.input ?? null);
+  const charged = useContext(Charged);
 
   const available = (key: string) => offer?.info?.operations.find((o) => o.key === key)?.available;
   const marginTotal = marginSides.reduce((sum, side) => sum + (Number(margins[side]) || 0), 0);
@@ -1240,6 +1257,7 @@ function ImagingTest({ credit, configuredUrl, allowed }: { credit: ReactNode; co
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+      charged();
     }
   }
 
@@ -1688,6 +1706,7 @@ function FileToTextTest({ credit, configuredUrl, allowed }: { credit: ReactNode;
   const [result, setResult] = useState<FileToTextResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const readable = offer?.info?.formats.filter((f) => f.available) ?? [];
+  const charged = useContext(Charged);
 
   async function run() {
     setBusy(true);
@@ -1704,6 +1723,7 @@ function FileToTextTest({ credit, configuredUrl, allowed }: { credit: ReactNode;
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+      charged();
     }
   }
 
@@ -1919,6 +1939,7 @@ function TranslationTest({ credit, configuredUrl, allowed }: { credit: ReactNode
   // every text needs a language to go to: the call's, or one of its own
   const toMissing = !to.trim() && texts.some((t) => !t.to);
   const characters = texts.reduce((n, t) => n + t.text.trim().length, 0);
+  const charged = useContext(Charged);
 
   async function go(kind: "translate" | "detect") {
     setBusy(kind);
@@ -1937,6 +1958,7 @@ function TranslationTest({ credit, configuredUrl, allowed }: { credit: ReactNode
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
+      charged();
     }
   }
 

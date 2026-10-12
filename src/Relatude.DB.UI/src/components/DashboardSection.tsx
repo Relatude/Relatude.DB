@@ -36,7 +36,8 @@ import { useLive } from "../live";
 import { closeStore, openStore } from "../server/storage";
 import type { DatabaseInfo } from "../server/serverInfo";
 import type { SeriesPoint } from "../server/logs";
-import { formatBytes, formatCount, formatDuration, formatTime } from "../format";
+import { formatBytes, formatCount, formatDuration, formatRate, formatTime } from "../format";
+import { ActivityList, RightNowPanel, useTick } from "./RightNow";
 import { Loading } from "./Loading";
 import "../datamodel.css";
 
@@ -178,11 +179,6 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   // the opening clock counts every second, not only when a sample lands
   useTick(1000, stateNow === "Opening");
 
-  // the running activities, with the ones that just finished kept a moment longer so they fade out
-  // instead of vanishing between two samples (a hook, so it sits here with the others, before the
-  // early returns below)
-  const running = useLeaving(live?.activities ?? [], activityKey, 450);
-
   // The open request only answers when the database is open, which on a large one is minutes away;
   // what happens meanwhile is told by the live feeds, asked again shortly after the open has begun
   // so the first of its trace lines and its first step show without waiting for the next tick.
@@ -313,53 +309,9 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
     </section>
   );
 
-  // what the database is busy with, one row each - in "Right now" when it is open, and as the steps
-  // of the open while it opens
-  const activityRows = running.map(({ item: a, key, leaving }) => (
-    // keyed by what the activity is rather than its position, so a row is the same element
-    // from the moment it appears to the moment it fades, and its bar moves rather than jumps
-    <div key={key} className={"dash-activity" + (leaving ? " leaving" : "") + (a.percentageProgress != null ? " with-progress" : "")}>
-      <span className="conv-chip dash-activity-cat" title={a.category}>
-        {a.category}
-      </span>
-      <span className="log-cell dash-activity-text" title={a.description ?? undefined}>
-        {a.description ?? "—"}
-      </span>
-      <span className="num dash-activity-pct">{a.percentageProgress != null ? `${Math.round(a.percentageProgress)}%` : ""}</span>
-      {a.percentageProgress != null && (
-        // the bar is two lines, not a colour: the track and how far along it the work is
-        <span className="dash-progress" role="progressbar" aria-valuenow={Math.round(a.percentageProgress)} aria-valuemin={0} aria-valuemax={100}>
-          <span className="dash-progress-fill" style={{ width: `${Math.min(100, Math.max(0, a.percentageProgress))}%` }} />
-        </span>
-      )}
-    </div>
-  ));
-
-  // the running work takes the middle of the panel, scrolling when there is more than fits; the
-  // two counts sit at the bottom whatever is running above them
-  const nowPanel = (
-    <section className="panel panel-fill">
-      <h3>
-        Right now <span className="panel-sub">{(live?.activities?.length ?? 0) === 0 ? "idle" : `${live!.activities!.length} running`}</span>
-      </h3>
-      <div className="dash-now fill-body">
-        {activityRows}
-        <div className={"muted dash-now-idle" + (running.length === 0 ? "" : " gone")}>Nothing running.</div>
-      </div>
-      <div className="facts-grid dash-now-facts">
-        <Fact k="Background tasks" v={formatCount(live?.tasksQueued ?? 0)} />
-        <Fact
-          k="File conversions"
-          v={
-            (live?.conversions?.running ?? 0) + (live?.conversions?.queued ?? 0) === 0
-              ? "none"
-              : `${formatCount(live!.conversions!.running)} running · ${formatCount(live!.conversions!.queued)} queued`
-          }
-        />
-      </div>
-      {info.maintenance?.runningRewrite && <div className="logs-note">Rewriting {info.maintenance.runningRewrite}…</div>}
-    </section>
-  );
+  // the rates this second, what is running and the two queues (see RightNow.tsx); the samples are
+  // the same ones the activity graph is drawn from
+  const nowPanel = <RightNowPanel live={live} samples={samples.current} rewrite={info.maintenance?.runningRewrite} />;
 
   // the hit counts come from the full picture and the entry counts from the live sample: the panel
   // writes both out when it is maximized
@@ -416,7 +368,10 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
         </span>
       </div>
       <div className="dash-opening-step">{progress?.step ?? (progress ? "Opening" : "Asking the server to open it…")}</div>
-      <div className="dash-now fill-body">{activityRows}</div>
+      {/* the steps of the open, one row each, as "Right now" shows the work of an open database */}
+      <div className="dash-now fill-body">
+        <ActivityList activities={live?.activities ?? []} />
+      </div>
     </section>
   );
 
@@ -609,10 +564,6 @@ function seriesPoints(samples: Sample[], metric: MetricId, kind: "rate" | "level
   }
   return points;
 }
-
-// formatDuration counts in whole seconds, which reads as "00:00:00" for work that took milliseconds
-
-const formatRate = (value: number) => (value >= 100 ? formatCount(Math.round(value)) : value.toFixed(value >= 10 ? 0 : 1));
 
 const chartShapes: { id: TypeChartShape; label: string; icon: typeof IconLayoutList; help: string }[] = [
   { id: "bars", label: "Bars", icon: IconLayoutList, help: "Compare the amounts, down to the long tail" },
@@ -881,57 +832,6 @@ function TypeMenu({
       </div>
     </>
   );
-}
-
-// What an activity is, for keeping its row between samples: the category and its description with
-// the numbers taken out, since a description that counts up ("rewriting 4,201 of 9,000") is still
-// the same piece of work. A second one just like it gets a suffix.
-function activityKey(a: { category: string; description: string | null }, index: number, taken: Set<string>): string {
-  const base = a.category + ":" + (a.description ?? "").replace(/[\d.,%]+/g, "#");
-  let key = base;
-  for (let n = 2; taken.has(key); n++) key = base + "#" + n;
-  void index;
-  return key;
-}
-
-/** Renders again every `ms` while `on`: for a clock that would otherwise only move when a sample lands. */
-function useTick(ms: number, on: boolean): void {
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (!on) return;
-    const timer = setInterval(() => setTick((t) => t + 1), ms);
-    return () => clearInterval(timer);
-  }, [ms, on]);
-}
-
-/**
- * The items as they should be on screen: the current ones, plus any that were there a moment ago
- * and are now leaving. A removed item stays for `ms` with `leaving` set, which is what its exit
- * transition runs on; an item that comes back within that time is simply current again.
- */
-function useLeaving<T>(items: T[], keyOf: (item: T, index: number, taken: Set<string>) => string, ms: number): { item: T; key: string; leaving: boolean }[] {
-  const [gone, setGone] = useState<{ item: T; key: string; until: number }[]>([]);
-  const previous = useRef<{ item: T; key: string }[]>([]);
-  const taken = new Set<string>();
-  const current = items.map((item, i) => {
-    const key = keyOf(item, i, taken);
-    taken.add(key);
-    return { item, key };
-  });
-  useEffect(() => {
-    const now = Date.now();
-    const keys = new Set(current.map((c) => c.key));
-    const left = previous.current.filter((p) => !keys.has(p.key));
-    previous.current = current;
-    if (left.length > 0) {
-      setGone((g) => [...g.filter((x) => !keys.has(x.key) && !left.some((l) => l.key === x.key)), ...left.map((l) => ({ ...l, until: now + ms }))]);
-      const timer = setTimeout(() => setGone((g) => g.filter((x) => x.until > Date.now())), ms + 20);
-      return () => clearTimeout(timer);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the list changes, which is what `items` says
-  }, [items]);
-  const leaving = gone.filter((g) => !taken.has(g.key) && g.until > Date.now()).map((g) => ({ item: g.item, key: g.key, leaving: true }));
-  return [...current.map((c) => ({ ...c, leaving: false })), ...leaving];
 }
 
 /**

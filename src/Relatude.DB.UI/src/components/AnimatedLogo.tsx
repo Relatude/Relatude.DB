@@ -1,16 +1,38 @@
-import { memo, useState } from "react";
+import { memo } from "react";
 
 // The animated Relatude logo (network draw-in intro), copied from
 // Relatude.DB.ServerUI (sections/main/logoBig.tsx, getLogoHtml). Injected as raw
 // HTML because the animation lives in a <style> block inside the SVG itself.
 // Meant for the login screen; render only one instance at a time (the SVG uses fixed ids).
 //
-// The intro is meant to be seen once per visit, which takes two things. React 19 re-applies
-// dangerouslySetInnerHTML on every render without comparing it, so any state change on the
-// login screen (a keystroke, the sign-in click) would re-inject the SVG and restart its CSS
-// animations: memo keeps the component from re-rendering at all. And if the screen is mounted
-// again later — after a logout, say — introPlayed skips the intro to its finished state.
-let introPlayed = false;
+// React 19 re-applies dangerouslySetInnerHTML on every render without comparing it, so any state
+// change on the login screen (a keystroke, the sign-in click) would re-inject the SVG and restart its
+// CSS animations: memo keeps the component from re-rendering at all.
+
+// The intro is a greeting, not something to sit through on every visit: it plays at most once an
+// hour in a browser, and every other time the login screen shows the still logo with its cursor.
+const introEveryMs = 60 * 60 * 1000;
+const introKey = "logoIntroAt";
+let introClaimed = false;
+
+/**
+ * Whether the login screen should play the intro now, recording it when so. Asked once per mount.
+ * The time is kept in this browser; without storage (a private window, blocked site data) the intro
+ * plays once per page load, and a second mount in the same page - after a logout - never replays it.
+ */
+export function claimLogoIntro(): boolean {
+  if (introClaimed) return false;
+  introClaimed = true;
+  const now = Date.now();
+  try {
+    const last = Number(localStorage.getItem(introKey));
+    if (last > 0 && last <= now && now - last < introEveryMs) return false;
+    localStorage.setItem(introKey, String(now));
+  } catch {
+    // storage unavailable: once per page load it is
+  }
+  return true;
+}
 
 export const AnimatedLogo = memo(function AnimatedLogo({
   color = "var(--accent)",
@@ -23,14 +45,7 @@ export const AnimatedLogo = memo(function AnimatedLogo({
   height?: string;
   padding?: string;
 }) {
-  const [replay] = useState(() => {
-    const already = introPlayed;
-    introPlayed = true;
-    return already;
-  });
-  return (
-    <div className={replay ? "logo-played" : undefined} dangerouslySetInnerHTML={{ __html: getLogoHtml(padding, color, speed, height) }} />
-  );
+  return <div dangerouslySetInnerHTML={{ __html: getLogoHtml(padding, color, speed, height) }} />;
 });
 
 const getLogoHtml = (padding: string, color: string, speed: number, height: string) => (`

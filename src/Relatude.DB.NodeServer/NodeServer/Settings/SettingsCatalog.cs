@@ -1259,7 +1259,7 @@ public static class SettingsCatalog {
                         new() { Path = "LocalSettings.NoHourlyBackUps", Label = "Hourly copies kept", Applies = SettingApplies.Live, Help = "How many hourly backups to keep before they are thinned into daily ones. This is the window for undoing a mistake made minutes ago." },
                         new() { Path = "LocalSettings.NoDailyBackUps", Label = "Daily copies kept", Applies = SettingApplies.Live, Help = "How far back you can restore day by day." },
                         new() { Path = "LocalSettings.NoWeeklyBackUps", Label = "Weekly copies kept", Applies = SettingApplies.Live, Help = "Weekly generations, for damage noticed after a few days." },
-                        new() { Path = "LocalSettings.NoMontlyBackUps", Label = "Monthly copies kept", Applies = SettingApplies.Live, Help = "Monthly generations. Each generation costs a full copy of the log, so weigh these against the storage they occupy." },
+                        new() { Path = "LocalSettings.NoMonthlyBackUps", Label = "Monthly copies kept", Applies = SettingApplies.Live, Help = "Monthly generations. Each generation costs a full copy of the log, so weigh these against the storage they occupy." },
                         new() { Path = "LocalSettings.NoYearlyBackUps", Label = "Yearly copies kept", Applies = SettingApplies.Live, Help = "Yearly generations, usually kept for retention rules rather than for recovery." },
                         new() {
                             Path = "LocalSettings.TruncateBackups", Label = "Truncate backups", Applies = SettingApplies.Live,

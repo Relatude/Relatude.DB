@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { IconCloudLock, IconMoon, IconSun } from "@tabler/icons-react";
-import { AnimatedLogo } from "./AnimatedLogo";
+import { AnimatedLogo, claimLogoIntro } from "./AnimatedLogo";
+import { Logo } from "./Logo";
 import { beginLicenseLogin, licenseLoginOptions, login, masterLoginOptions, type MasterLoginOptions } from "../server/auth";
 import type { Theme } from "../theme";
 
@@ -64,6 +65,8 @@ export function Login({ onLoggedIn, theme, onToggleTheme }: LoginProps) {
   const [licenseLogin, setLicenseLogin] = useState<boolean | null>(null);
   // on the way out to Relatude Services: the screen fades before the page goes
   const [leaving, setLeaving] = useState(false);
+  // the drawn-in intro at most once an hour; otherwise the still logo and its blinking cursor
+  const [intro] = useState(claimLogoIntro);
   useEffect(() => {
     masterLoginOptions()
       .then(setMaster)
@@ -125,9 +128,7 @@ export function Login({ onLoggedIn, theme, onToggleTheme }: LoginProps) {
         {theme === "dark" ? <IconSun size={18} stroke={1.8} /> : <IconMoon size={18} stroke={1.8} />}
       </button>
       <form className="login-card" onSubmit={submit}>
-        <div className="login-logo">
-          <AnimatedLogo height="72px" color="var(--text)" />
-        </div>
+        <div className="login-logo">{intro ? <AnimatedLogo height="72px" color="var(--text)" /> : <Logo height={70} />}</div>
         {error && <div className="login-error">{error}</div>}
         {master && licenseLogin !== null && (
           <>

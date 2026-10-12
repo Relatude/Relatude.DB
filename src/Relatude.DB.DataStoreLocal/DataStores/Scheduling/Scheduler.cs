@@ -530,7 +530,7 @@ internal class Scheduler {
             var referenceDate = now.AddMonths(-monthsAgo);
             return file.Year == referenceDate.Year && file.Month == referenceDate.Month;
         };
-        for (int i = 0; i < _s.NoMontlyBackUps; i++) {
+        for (int i = 0; i < _s.NoMonthlyBackUps; i++) {
             var filesInMonth = files.Where(f => isFileInMonth(f.Timestamp, now, i)).Select(f => f.FileKey);
             var bestFileToKeep = filesInMonth.OrderBy(f => f).FirstOrDefault();
             if (bestFileToKeep != null) filesToKeep.Add(bestFileToKeep);

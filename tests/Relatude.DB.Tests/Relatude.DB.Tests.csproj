@@ -8,7 +8,7 @@
 		<IsPackable>false</IsPackable>
 		<IsTestProject>true</IsTestProject>
 		<RootNamespace>Relatude</RootNamespace>
-		<Version>0.4.5.222</Version>
+		<Version>0.4.5.223</Version>
 	</PropertyGroup>
 
 	<ItemGroup>

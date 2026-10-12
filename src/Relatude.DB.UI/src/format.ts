@@ -22,6 +22,11 @@ export function formatCount(n: number): string {
   return n.toLocaleString("en-US");
 }
 
+// a rate per second: whole numbers once there are enough of them, one decimal while there are not
+export function formatRate(value: number): string {
+  return value >= 100 ? formatCount(Math.round(value)) : value.toFixed(value >= 10 ? 0 : 1);
+}
+
 export function formatTime(iso: string): string {
   const date = new Date(iso);
   const today = new Date();

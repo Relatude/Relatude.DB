@@ -36,7 +36,7 @@ export function Header(p: HeaderProps) {
   const isServerScope = section?.scope === "server";
   return (
     <header className="header">
-      {/* sized like the rail (and animated with it) so its right border and the rail border form one line */}
+      {/* sized like the rail (and animated with it), borderless, so the logo and the rail read as one column */}
       <button
         className={"header-brand" + (p.navCollapsed ? " collapsed" : "")}
         onClick={p.onToggleNav}

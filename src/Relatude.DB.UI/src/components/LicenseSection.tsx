@@ -35,26 +35,34 @@ import { Logo, LogoMarkIcon } from "./Logo";
  * Where this installation stands with the license server, asked on mount and again by `load`. The
  * answer is handed to `onChanged` as well, so the mark in the rail follows a key being fixed. Shared
  * by the account page and Test services, which both start from it.
+ *
+ * Asks can overlap - Test services asks after every call, and two AI tests run side by side - so only
+ * the latest ask's answer is kept: an older one landing after it would put back a balance already spent.
  */
 export function useLicenseStatus(onChanged?: (status: LicenseStatus) => void) {
   const [status, setStatus] = useState<LicenseStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const latest = useRef(0);
 
   const load = useCallback(() => {
+    const ask = ++latest.current;
     setBusy(true);
     return fetchLicenseStatus()
       .then((s) => {
+        if (ask !== latest.current) return null;
         setStatus(s);
         setError(null);
         onChanged?.(s);
         return s;
       })
       .catch((e) => {
-        setError(e instanceof Error ? e.message : String(e));
+        if (ask === latest.current) setError(e instanceof Error ? e.message : String(e));
         return null;
       })
-      .finally(() => setBusy(false));
+      .finally(() => {
+        if (ask === latest.current) setBusy(false);
+      });
   }, [onChanged]);
 
   useEffect(() => {
@@ -211,17 +219,17 @@ function AccountHero({ status, busy, onReload }: { status: LicenseStatus; busy: 
       <div className="account-actions">
         {status.state === "missing" ? (
           <>
-            <button className="action-button primary" onClick={pair.start} disabled={pair.starting || pair.pairing !== null}>
+            <button className="action-button primary" onClick={() => pair.start("license")} disabled={pair.starting || pair.pairing !== null}>
               <IconPlugConnected size={15} stroke={1.8} />
               {pair.starting ? "Starting…" : pair.pairing ? "Waiting…" : "Create a free license"}
             </button>
             <button className="action-button" onClick={() => setKeyDialog(true)} disabled={apiKeyLocked}>
               <IconKey size={15} stroke={1.8} />I have an API key
             </button>
-            <a className="action-button" href={server} target="_blank" rel="noreferrer">
+            <button className="action-button" onClick={() => pair.start("portal", server)} disabled={pair.starting}>
               Open portal
               <IconExternalLink size={13} stroke={1.8} />
-            </a>
+            </button>
           </>
         ) : (
           <a className="action-button" href={licensePage} target="_blank" rel="noreferrer">
@@ -230,7 +238,11 @@ function AccountHero({ status, busy, onReload }: { status: LicenseStatus; busy: 
           </a>
         )}
       </div>
-      {pair.pairing ? <Waiting pairing={pair.pairing} saving={pair.saving} onStop={pair.stop} /> : pair.error && <div className="license-error">{pair.error}</div>}
+      {pair.pairing ? (
+        <Waiting pairing={pair.pairing} target={pair.target} saving={pair.saving} onStop={pair.stop} />
+      ) : (
+        pair.error && <div className="license-error">{pair.error}</div>
+      )}
 
       <div className="account-rows">
         <span className="account-label">API key</span>
@@ -508,9 +520,16 @@ function CreditCard({ account }: { account: LicenseAccount }) {
  * The tab is opened from the click itself rather than after the pairing is made, because a browser
  * that did not see a click blocks the window - so the tab is opened first and pointed at the claim
  * url once there is one.
+ *
+ * "Open portal" makes the same pairing, but opens the portal's own pages with it (`portalWithPairing`)
+ * rather than the page that picks a license: there, every API key the user has access to can be sent
+ * back here from beside its copy button, and the keys arrive the same way. Should the pairing not
+ * start, the portal opens all the same, only without it.
  */
 function usePairing(onPaired: () => Promise<unknown>, pending: PairingHandle | null) {
   const [pairing, setPairing] = useState<PairingHandle | null>(null);
+  // what the tab was opened on; one taken up from before the page was loaded is taken for the license choice
+  const [target, setTarget] = useState<PairingTarget>("license");
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -529,19 +548,32 @@ function usePairing(onPaired: () => Promise<unknown>, pending: PairingHandle | n
     });
   }, []);
 
-  async function start() {
+  /** `portal` is the portal's front page, for "Open portal": opened without a pairing when one cannot be made. */
+  async function start(to: PairingTarget, portal?: string) {
+    // already waiting: the portal opens on that pairing rather than making another
+    if (to === "portal" && pairing) {
+      setTarget("portal");
+      window.open(urlFor(pairing, "portal"), "_blank", "noreferrer");
+      return;
+    }
     setStarting(true);
     setError(null);
     // opened on the click, so the browser does not treat it as a pop-up
     const tab = window.open("", "_blank");
     try {
       const handle = await startPairing();
+      setTarget(to);
       setPairing(handle);
-      if (tab) tab.location.href = handle.claimUrl;
-      else window.open(handle.claimUrl, "_blank", "noreferrer");
+      if (tab) tab.location.href = urlFor(handle, to);
+      else window.open(urlFor(handle, to), "_blank", "noreferrer");
     } catch (e) {
-      tab?.close();
-      setError(e instanceof Error ? e.message : String(e));
+      if (to === "portal" && portal) {
+        if (tab) tab.location.href = portal;
+        else window.open(portal, "_blank", "noreferrer");
+      } else {
+        tab?.close();
+        setError(e instanceof Error ? e.message : String(e));
+      }
     } finally {
       setStarting(false);
     }
@@ -572,7 +604,8 @@ function usePairing(onPaired: () => Promise<unknown>, pending: PairingHandle | n
           return;
         }
         if (answer.status === "expired") {
-          setError(answer.reason ?? "The pairing expired before it was answered. Try again.");
+          // the portal opened by "Open portal" may only have been looked at: running out is no error there
+          if (target !== "portal") setError(answer.reason ?? "The pairing expired before it was answered. Try again.");
           setPairing(null);
           return;
         }
@@ -589,9 +622,24 @@ function usePairing(onPaired: () => Promise<unknown>, pending: PairingHandle | n
       stopped = true;
       window.clearTimeout(timer);
     };
-  }, [pairing, onPaired]);
+  }, [pairing, target, onPaired]);
 
-  return { pairing, error, starting, saving, start, stop };
+  return { pairing, target, error, starting, saving, start, stop };
+}
+
+/** Where a pairing is answered: the page that picks a license for it ("Create a free license"), or the portal itself ("Open portal"). */
+type PairingTarget = "license" | "portal";
+
+/**
+ * The url the portal tab is opened on. The claim url is the license server's page that picks a
+ * license; the portal's other pages take the pairing as `?pairing=` and offer each API key to be sent
+ * back from beside its copy button.
+ */
+function urlFor(pairing: PairingHandle, target: PairingTarget): string {
+  if (target === "license") return pairing.claimUrl;
+  const url = new URL("/", pairing.claimUrl);
+  url.searchParams.set("pairing", pairing.pairingId);
+  return url.toString();
 }
 
 /** One credit account: what is left of the month, and the rate limits on top of it. */
@@ -629,15 +677,15 @@ export function Account({ account }: { account: LicenseAccount }) {
 }
 
 /** While the portal is open in the other tab: what is being waited for, and how to stop waiting. */
-function Waiting({ pairing, saving, onStop }: { pairing: PairingHandle; saving: boolean; onStop: () => void }) {
+function Waiting({ pairing, target, saving, onStop }: { pairing: PairingHandle; target: PairingTarget; saving: boolean; onStop: () => void }) {
   return (
     <div className="license-waiting">
       <span className="license-spinner" aria-hidden="true" />
       <div className="license-status-text">
-        <strong>{saving ? "Saving the keys…" : "Pick a license in the portal tab"}</strong>
+        <strong>{saving ? "Saving the keys…" : target === "portal" ? "Send an API key from the portal tab" : "Pick a license in the portal tab"}</strong>
         <span className="license-muted">
           The keys arrive here by themselves. Expires {formatTime(pairing.expiresUtc)} ·{" "}
-          <a href={pairing.claimUrl} target="_blank" rel="noreferrer">
+          <a href={urlFor(pairing, target)} target="_blank" rel="noreferrer">
             reopen the tab
           </a>
         </span>
