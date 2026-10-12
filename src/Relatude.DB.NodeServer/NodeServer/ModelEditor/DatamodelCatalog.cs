@@ -131,13 +131,15 @@ public static class DatamodelCatalog {
         ["PropertyIdForEmbeddings"] = new() { Label = "Embeddings from", Help = "Another property whose text supplies the embedding for this one, when the two should share it.", Editor = "propertyRef", Group = "Text search", Order = 5 },
         ["PrefixSearch"] = new() { Label = "Prefix search", Help = "Allows searching on the beginning of the value (starts with).", Group = "Text search", Order = 6 },
         ["InfixSearch"] = new() { Label = "Infix search", Help = "Allows searching on any part of the value (contains). Costs more index space.", Group = "Text search", Order = 7 },
-        ["MinWordLength"] = new() { Label = "Minimum word length", Help = "Shorter words are not indexed.", Group = "Text search", Order = 10 },
-        ["MaxWordLength"] = new() { Label = "Maximum word length", Help = "Longer words are not indexed.", Group = "Text search", Order = 11 },
+        // labelled apart from MinLength/MaxLength below: both pairs sit on the text form, and "Minimum word
+        // length" beside "Minimum length" read as the same setting defined twice
+        ["MinWordLength"] = new() { Label = "Shortest indexed word", Help = "Words with fewer characters are left out of the word index, so a search cannot find them. Does not limit the value itself.", Group = "Text search", Order = 10 },
+        ["MaxWordLength"] = new() { Label = "Longest indexed word", Help = "Words with more characters are left out of the word index. Does not limit the value itself.", Group = "Text search", Order = 11 },
         ["IgnoreDuplicateEmptyValues"] = new() { Label = "Empty values may repeat", Help = "With unique values on, lets several nodes hold an empty value.", Group = "Constraints", Order = 5 },
         ["StringType"] = new() { Label = "Content", Help = "What kind of text the value holds, for editors and indexing.", Group = "Constraints", Order = 4 },
         ["RegularExpression"] = new() { Label = "Pattern", Help = "A regular expression the value has to match.", Group = "Constraints", Order = 6 },
-        ["MinLength"] = new() { Label = "Minimum length", Help = "The shortest value allowed.", Group = "Constraints", Order = 2 },
-        ["MaxLength"] = new() { Label = "Maximum length", Help = "The longest value allowed. Leave at the maximum value for no limit.", Group = "Constraints", Order = 3 },
+        ["MinLength"] = new() { Label = "Minimum length", Help = "The fewest characters a value may have; a shorter value is refused on write. 1 makes a value required. 0 for no limit.", Group = "Constraints", Order = 2 },
+        ["MaxLength"] = new() { Label = "Maximum length", Help = "The most characters a value may have; a longer value is refused on write. Leave at the maximum value for no limit.", Group = "Constraints", Order = 3 },
         ["DefaultValue"] = new() { Label = "Default value", Help = "The value a new node starts with.", Order = 2 },
         // numbers and dates
         ["MinValue"] = new() { Label = "Minimum", Help = "The smallest value allowed. Leave at the type's minimum for no limit.", Group = "Constraints", Order = 2 },

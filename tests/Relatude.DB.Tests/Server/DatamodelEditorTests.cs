@@ -613,4 +613,46 @@ public class DatamodelEditorTests {
         Assert.AreEqual(0, uncatalogued.Length, "property model fields without a catalog entry: " + string.Join(", ", uncatalogued));
         Assert.IsNotNull(DatamodelCatalog.Schema, "the schema builds");
     }
+
+    [TestMethod]
+    public void Catalog_NoPropertyFormShowsAFieldOrALabelTwice() {
+        var schema = JsonSerializer.SerializeToNode(DatamodelCatalog.Schema)!;
+        var common = schema["PropertyCommon"]!.AsArray();
+        foreach (var (type, own) in schema["PropertyByType"]!.AsObject()) {
+            var form = common.Concat(own!.AsArray()).Select(f => (path: (string)f!["Path"]!, label: (string)f["Label"]!)).ToList();
+            var paths = form.GroupBy(f => f.path).Where(g => g.Count() > 1).Select(g => g.Key).ToArray();
+            Assert.AreEqual(0, paths.Length, type + " form has a field twice: " + string.Join(", ", paths));
+            var labels = form.GroupBy(f => f.label).Where(g => g.Count() > 1).Select(g => g.Key + " (" + string.Join(", ", g.Select(f => f.path)) + ")").ToArray();
+            Assert.AreEqual(0, labels.Length, type + " form has a label twice: " + string.Join("; ", labels));
+        }
+    }
+
+    [TestMethod]
+    public void Validator_ChecksTheLengthsOfAText() {
+        var dm = libraryModel(DatamodelSourceType.RuntimeTypes);
+        var text = typeNamed(dm, "SlBook").Properties.Values.OfType<StringPropertyModel>().First();
+        IssueSeverity? found(string code) => DatamodelValidator.CheckStructure(dm).FirstOrDefault(i => i.Code == code && i.PropertyId == text.Id)?.Severity;
+
+        Assert.IsNull(found("bad-range"), "the defaults are a valid range");
+        Assert.IsNull(found("default-not-legal"));
+
+        text.MinLength = 5; text.MaxLength = 4;
+        Assert.AreEqual(IssueSeverity.Error, found("bad-range"), "a minimum above the maximum");
+        text.MinLength = -1; text.MaxLength = 10;
+        Assert.AreEqual(IssueSeverity.Error, found("bad-range"), "a negative minimum");
+
+        text.MinLength = 1; text.DefaultValue = "";
+        Assert.IsNull(found("bad-range"));
+        Assert.AreEqual(IssueSeverity.Info, found("default-not-legal"), "an empty default under a minimum is how a value is made required");
+        text.MinLength = 0; text.MaxLength = 3; text.DefaultValue = "four";
+        Assert.AreEqual(IssueSeverity.Warning, found("default-not-legal"), "a default no node can be saved with");
+        text.MaxLength = int.MaxValue; text.DefaultValue = "";
+
+        text.MinWordLength = 10; text.MaxWordLength = 5;
+        Assert.AreEqual(IssueSeverity.Error, found("bad-range"), "the shortest indexed word above the longest");
+        text.MinWordLength = -1; text.MaxWordLength = 5;
+        Assert.AreEqual(IssueSeverity.Error, found("bad-range"), "a negative shortest indexed word");
+        text.MinWordLength = 0;
+        Assert.IsNull(found("bad-range"), "0 indexes every word");
+    }
 }

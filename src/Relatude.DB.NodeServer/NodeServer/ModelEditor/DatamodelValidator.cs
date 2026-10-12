@@ -113,6 +113,12 @@ public sealed class DatamodelValidator {
     }
     static bool isValidNamespace(string? ns) => string.IsNullOrEmpty(ns) || ns.Split('.').All(IsValidIdentifier);
 
+    /// <summary>The checks that need nothing but the draft itself: names, references, value rules.</summary>
+    public static List<DatamodelIssue> CheckStructure(Datamodel dm) {
+        var issues = new List<DatamodelIssue>();
+        checkStructure(dm, issues);
+        return issues;
+    }
     static void checkStructure(Datamodel dm, List<DatamodelIssue> issues) {
         var types = dm.NodeTypes.Values.Where(t => t.Id != NodeConstants.BaseNodeTypeId).ToList();
         var byFullName = new Dictionary<string, List<NodeTypeModel>>(StringComparer.OrdinalIgnoreCase);
@@ -194,7 +200,18 @@ public sealed class DatamodelValidator {
                 if (rlp.NodeTypeOfRelated != Guid.Empty && !dm.NodeTypes.ContainsKey(rlp.NodeTypeOfRelated)) issues.Add(DatamodelIssue.Error("missing-related-type", where + " points at a node type (" + rlp.NodeTypeOfRelated + ") that is not in the model.", nodeType: t.Id, property: p.Id));
                 break;
             case StringPropertyModel sp:
-                if (sp.MinLength < 0 || sp.MaxLength < sp.MinLength) issues.Add(DatamodelIssue.Error("bad-range", where + ": the length range is not valid.", nodeType: t.Id, property: p.Id));
+                if (sp.MinLength < 0 || sp.MaxLength < sp.MinLength) {
+                    issues.Add(DatamodelIssue.Error("bad-range", where + ": the length range is not valid (minimum " + sp.MinLength + ", maximum " + sp.MaxLength + ").", nodeType: t.Id, property: p.Id));
+                } else {
+                    var defaultLength = (sp.DefaultValue ?? "").Length;
+                    // an empty default under a minimum is how a value is made required, so not a warning
+                    if (defaultLength < sp.MinLength)
+                        issues.Add(DatamodelIssue.Info("default-not-legal", where + ": the default value is shorter than the minimum length, so a node has to be given a value before it can be saved.", nodeType: t.Id, property: p.Id));
+                    else if (defaultLength > sp.MaxLength)
+                        issues.Add(DatamodelIssue.Warning("default-not-legal", where + ": the default value is longer than the maximum length, so a node that keeps it cannot be saved.", nodeType: t.Id, property: p.Id));
+                }
+                if (sp.MinWordLength < 0 || sp.MaxWordLength < sp.MinWordLength)
+                    issues.Add(DatamodelIssue.Error("bad-range", where + ": the indexed word lengths are not valid (shortest " + sp.MinWordLength + ", longest " + sp.MaxWordLength + ").", nodeType: t.Id, property: p.Id));
                 if (sp.IndexedBySemantic && !sp.IndexedByWords) issues.Add(DatamodelIssue.Warning("semantic-without-words", where + " is in the semantic index but not the word index; searches will only find it through similarity.", nodeType: t.Id, property: p.Id));
                 if (!string.IsNullOrEmpty(sp.RegularExpression)) {
                     try {
