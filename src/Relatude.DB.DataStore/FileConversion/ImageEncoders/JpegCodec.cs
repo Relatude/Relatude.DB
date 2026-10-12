@@ -6,7 +6,7 @@ using System.Runtime.Intrinsics;
 
 namespace Relatude.DB.FileConversion.ImageEncoders;
 
-/// <summary>Baseline JPEG: decodes at 1, 1/2, 1/4 or 1/8 of full size, encodes with optimized Huffman tables.</summary>
+/// <summary>Baseline and progressive JPEG: decodes at 1, 1/2, 1/4 or 1/8 of full size, encodes baseline with optimized Huffman tables.</summary>
 internal sealed unsafe class JpegCodec : IImageCodec {
     // natural position of each zigzag index; the tail absorbs a corrupt run past the last coefficient
     static readonly byte[] ZigZag = [
@@ -71,8 +71,12 @@ internal sealed unsafe class JpegCodec : IImageCodec {
     // ── Decoding ─────────────────────────────────────────────────────────────
 
     sealed class Component {
-        public int Id, H, V, Tq, Td, Ta, Pred, Stride, Width, Height;
+        public int Id, H, V, Tq, Td, Ta, Pred, Stride, Width, Height, BlocksPerLine;
         public byte[] Plane = [];
+        public short[] Coefs = []; // progressive: every block's coefficients in natural order, refined scan by scan
+        public readonly byte[] Passes = new byte[64]; // scans over each coefficient (zigzag index) so far
+        public ushort[]? Q; // the quantization table when the component's first scan began, as libjpeg latches it
+        public float[]? Fq;
     }
 
     sealed class Huffman {
@@ -87,9 +91,11 @@ internal sealed unsafe class JpegCodec : IImageCodec {
             int code = 0, k = 0;
             for (int len = 1; len <= 16; len++, code <<= 1) {
                 Delta[len] = k - code;
-                for (int i = 0; i < counts[len - 1]; i++, k++, code++)
+                for (int i = 0; i < counts[len - 1]; i++, k++, code++) {
+                    // more codes of this length than there is room for: refused before the fast table is filled past its end
+                    if (code >= 1 << len) throw new ImageFormatException("Invalid JPEG Huffman table.");
                     if (len <= 9) Fast.AsSpan(code << (9 - len), 1 << (9 - len)).Fill((ushort)(len << 8 | Values[k]));
-                if (code > 1 << len) throw new ImageFormatException("Invalid JPEG Huffman table.");
+                }
                 MaxCode[len] = (uint)(code << (16 - len));
             }
             MaxCode[17] = uint.MaxValue;
@@ -105,12 +111,17 @@ internal sealed unsafe class JpegCodec : IImageCodec {
     }
 
     sealed class Decoder(byte[] d) {
+        const int MaxPasses = 16;
         readonly ushort[]?[] _q = new ushort[4][];
         readonly float[]?[] _fq = new float[4][]; // dequantization folded with the AAN scales and the 1/8
         readonly Huffman?[] _dc = new Huffman[4], _ac = new Huffman[4];
         readonly List<Component> _comps = [];
         int _pos = 2, _restart, _w, _h, _maxH = 1, _maxV = 1, _scale = 1, _n = 8, _orientation = 1;
-        bool _frame, _ready, _scanned;
+        int _ss, _se, _ah, _al, _eobrun; // the progressive scan: spectral band, successive approximation bits, blocks left at end of band
+        int _transform = -1; // the Adobe marker's colour transform: 0 none (RGB, CMYK), 1 YCbCr, 2 YCCK
+        int _per = 64; // progressive: coefficients kept a block, the DC alone at 1/8
+        List<(int Seq, int Count, int At, int Length)>? _icc;
+        bool _frame, _ready, _scanned, _progressive, _jfif;
         ulong _bits;
         int _nbits, _padding; // zero bytes fed in place of data the scan does not have
         bool _marker;
@@ -124,6 +135,7 @@ internal sealed unsafe class JpegCodec : IImageCodec {
         public InternalImage Decode(int downscale) {
             Parse(false, downscale);
             if (!_scanned) throw new ImageFormatException("JPEG image has no scan.");
+            if (_progressive) Finish();
             return Orient(Output());
         }
 
@@ -140,6 +152,12 @@ internal sealed unsafe class JpegCodec : IImageCodec {
                     case 0xDB: ReadQuant(s); break;
                     case 0xDD: _restart = s.Length >= 2 ? BinaryPrimitives.ReadUInt16BigEndian(s) : 0; break;
                     case 0xE1: ReadExif(s); break;
+                    case 0xE0: _jfif |= s.StartsWith("JFIF\0"u8); break;
+                    case 0xEE: if (s.Length >= 12 && s.StartsWith("Adobe"u8)) _transform = s[11]; break;
+                    case 0xE2:
+                        // an ICC profile in numbered parts: where each is, read only for a CMYK picture
+                        if (s.Length > 14 && s.StartsWith("ICC_PROFILE\0"u8)) (_icc ??= []).Add((s[12], s[13], _pos - len + 16, len - 16));
+                        break;
                     case 0xDA:
                         if (sizeOnly) return _frame;
                         ReadScan(s);
@@ -151,8 +169,8 @@ internal sealed unsafe class JpegCodec : IImageCodec {
                         _h = BinaryPrimitives.ReadUInt16BigEndian(s[1..]);
                         _w = BinaryPrimitives.ReadUInt16BigEndian(s[3..]);
                         if (sizeOnly) return true;
-                        if (m == 0xC2) throw new ImageFormatException("Progressive JPEG files are not supported.");
-                        if (m > 0xC1) throw new ImageFormatException("Only baseline JPEG files are supported.");
+                        if (m > 0xC2) throw new ImageFormatException("Only baseline and progressive JPEG files are supported.");
+                        _progressive = m == 0xC2;
                         ReadFrame(s);
                         _scale = downscale >= 8 ? 8 : downscale >= 4 ? 4 : downscale >= 2 ? 2 : 1;
                         break;
@@ -177,7 +195,7 @@ internal sealed unsafe class JpegCodec : IImageCodec {
         void ReadFrame(ReadOnlySpan<byte> s) {
             int n = s[5];
             if (s[0] != 8) throw new ImageFormatException("Only 8-bit JPEG files are supported.");
-            if (_w == 0 || _h == 0 || (n != 1 && n != 3) || s.Length < 6 + n * 3) throw new ImageFormatException("Unsupported JPEG frame.");
+            if (_w == 0 || _h == 0 || n is not (1 or 3 or 4) || s.Length < 6 + n * 3) throw new ImageFormatException("Unsupported JPEG frame.");
             _comps.Clear();
             _maxH = _maxV = 1;
             for (int i = 0; i < n; i++) {
@@ -238,24 +256,42 @@ internal sealed unsafe class JpegCodec : IImageCodec {
         void ReadScan(ReadOnlySpan<byte> s) {
             int n = s.Length > 0 ? s[0] : 0;
             if (!_frame || n < 1 || n > _comps.Count || s.Length < 4 + 2 * n) throw Truncated();
+            int ss = s[1 + 2 * n], se = s[2 + 2 * n], ah = s[3 + 2 * n] >> 4, al = s[3 + 2 * n] & 15;
+            if (!_progressive) {
+                if (ss != 0 || se != 63 || ah != 0 || al != 0) throw new ImageFormatException("Unsupported JPEG scan.");
+            } else if (se > 63 || ss > se || (ss == 0) != (se == 0) || (ss > 0 && n != 1) || (ah != 0 && ah != al + 1) || al > 13) {
+                throw new ImageFormatException("Invalid progressive JPEG scan.");
+            }
+            // a progressive scan uses the DC tables for a first DC pass, the AC tables for an AC band, none to refine DC
+            bool dc = !_progressive || (ss == 0 && ah == 0), ac = !_progressive || ss > 0;
             var scan = new Component[n];
             for (int i = 0; i < n; i++) {
                 int id = s[1 + 2 * i];
                 var c = _comps.Find(x => x.Id == id) ?? throw Truncated();
                 c.Td = s[2 + 2 * i] >> 4;
                 c.Ta = s[2 + 2 * i] & 15;
-                if (c.Td > 3 || c.Ta > 3 || _dc[c.Td] == null || _ac[c.Ta] == null || _q[c.Tq] == null)
+                if ((dc && (c.Td > 3 || _dc[c.Td] == null)) || (ac && (c.Ta > 3 || _ac[c.Ta] == null)) || _q[c.Tq] == null)
                     throw new ImageFormatException("JPEG tables are missing.");
+                c.Q ??= _q[c.Tq];
+                c.Fq ??= _fq[c.Tq];
+                // a coefficient has a first scan and at most 13 refinements: more scans over it add no picture, only
+                // time (a refinement of blocks of zeros reads next to no data but visits every coefficient)
+                for (int k = ss; k <= se; k++)
+                    if (++c.Passes[k] > MaxPasses) throw new ImageFormatException("JPEG has too many scans over the same coefficients.");
                 scan[i] = c;
             }
-            if (s[1 + 2 * n] != 0 || s[2 + 2 * n] != 63 || s[3 + 2 * n] != 0) throw new ImageFormatException("Progressive JPEG files are not supported.");
+            (_ss, _se, _ah, _al) = (ss, se, ah, al);
             if (!_ready) Allocate();
-            DecodeScan(scan);
+            // at 1/8 a block is its DC coefficient alone: the AC bands need not be decoded
+            if (!_progressive || _scale < 8 || ss == 0) DecodeScan(scan);
             _scanned = true;
         }
 
         void Allocate() {
             ImageLimits.ThrowIfTooLarge(Ceil(_w, _scale), Ceil(_h, _scale));
+            // a progressive file keeps its coefficients at full size, but at 1/8 only the DC of each block: 1/64 of it
+            if (_progressive && _scale < 8) ImageLimits.ThrowIfTooLarge(_w, _h);
+            _per = _scale == 8 ? 1 : 64;
             _n = 8 / _scale;
             int cols = Ceil(_w, 8 * _maxH), rows = Ceil(_h, 8 * _maxV);
             foreach (var c in _comps) {
@@ -263,6 +299,8 @@ internal sealed unsafe class JpegCodec : IImageCodec {
                 c.Plane = new byte[checked(c.Stride * rows * c.V * _n)];
                 c.Width = Ceil(Ceil(_w * c.H, _maxH), _scale);
                 c.Height = Ceil(Ceil(_h * c.V, _maxV), _scale);
+                c.BlocksPerLine = cols * c.H;
+                if (_progressive) c.Coefs = new short[checked(c.BlocksPerLine * rows * c.V * _per)];
             }
             _ready = true;
         }
@@ -270,7 +308,7 @@ internal sealed unsafe class JpegCodec : IImageCodec {
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         void DecodeScan(Component[] scan) {
             _bits = 0;
-            _nbits = _padding = 0;
+            _nbits = _padding = _eobrun = 0;
             _marker = false;
             foreach (var c in scan) c.Pred = 0;
             int* blk = stackalloc int[64];
@@ -283,7 +321,8 @@ internal sealed unsafe class JpegCodec : IImageCodec {
                 for (int by = 0; by < bh; by++)
                     for (int bx = 0; bx < bw; bx++) {
                         if (_restart > 0 && left-- == 0) { Restart(scan); left = _restart - 1; }
-                        Block(c, blk, ws, bx, by);
+                        if (_progressive) Refine(c, bx, by);
+                        else Block(c, blk, ws, bx, by);
                     }
                 return;
             }
@@ -293,14 +332,17 @@ internal sealed unsafe class JpegCodec : IImageCodec {
                     if (_restart > 0 && left-- == 0) { Restart(scan); left = _restart - 1; }
                     foreach (var c in scan)
                         for (int v = 0; v < c.V; v++)
-                            for (int h = 0; h < c.H; h++) Block(c, blk, ws, mx * c.H + h, my * c.V + v);
+                            for (int h = 0; h < c.H; h++) {
+                                if (_progressive) Refine(c, mx * c.H + h, my * c.V + v);
+                                else Block(c, blk, ws, mx * c.H + h, my * c.V + v);
+                            }
                 }
         }
 
         void Restart(Component[] scan) {
             int at = _pos;
             _bits = 0;
-            _nbits = _padding = 0;
+            _nbits = _padding = _eobrun = 0;
             _marker = false;
             if (NextMarker() is < 0xD0 or > 0xD7) _pos = at;
             foreach (var c in scan) c.Pred = 0;
@@ -384,44 +426,182 @@ internal sealed unsafe class JpegCodec : IImageCodec {
                     any = true;
                 }
             }
+            Put(c, blk, ws, bx, by, any);
+            if (any) new Span<int>(blk, 64).Clear();
+            else blk[0] = 0;
+        }
+
+        // the block in the component's plane, at the decoded scale; any: an AC coefficient is not zero
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        void Put(Component c, int* blk, float* ws, int bx, int by, bool any) {
             int n = _n;
             fixed (byte* plane = c.Plane)
-            fixed (float* fq = _fq[c.Tq]) {
+            fixed (float* fq = c.Fq) {
                 byte* dst = plane + by * n * c.Stride + bx * n;
                 if (!any || n == 1) {
                     byte v = Clamp(blk[0] * fq[0] + 128.5f);
                     for (int y = 0; y < n; y++) new Span<byte>(dst + y * c.Stride, n).Fill(v);
                 } else if (n == 8) Idct8(blk, fq, dst, c.Stride, ws);
-                else IdctN(blk, _q[c.Tq]!, n, dst, c.Stride);
+                else IdctN(blk, c.Q!, n, dst, c.Stride);
             }
-            if (any) new Span<int>(blk, 64).Clear();
-            else blk[0] = 0;
+        }
+
+        // one block of a progressive scan, into its coefficients (G.1.2 of the JPEG standard, as libjpeg's jdphuff)
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        void Refine(Component c, int bx, int by) {
+            if (_padding * 8 > _nbits) return; // past the data: the block keeps what earlier scans gave it
+            var b = c.Coefs.AsSpan((by * c.BlocksPerLine + bx) * _per, _per);
+            if (_nbits < 32) Fill();
+            if (_ss == 0) {
+                if (_ah == 0) {
+                    int t = Symbol(_dc[c.Td]!) & 15;
+                    if (t != 0) c.Pred += Extend(Bits(t), t);
+                    b[0] = (short)(c.Pred << _al);
+                } else if (Bits(1) != 0) {
+                    b[0] |= (short)(1 << _al);
+                }
+                return;
+            }
+            var ac = _ac[c.Ta]!;
+            if (_ah == 0) {
+                if (_eobrun > 0) { _eobrun--; return; }
+                for (int k = _ss; k <= _se;) {
+                    if (_nbits < 32) Fill();
+                    int f = ac.FastAc[(int)(_bits >> 55)];
+                    if (f != 0) {
+                        k += (f >> 4) & 15;
+                        _bits <<= f & 15;
+                        _nbits -= f & 15;
+                        b[ZigZag[k++]] = (short)((f >> 8) << _al);
+                        continue;
+                    }
+                    int rs = Symbol(ac), r = rs >> 4, s = rs & 15;
+                    if (s == 0) {
+                        if (r < 15) {
+                            _eobrun = (1 << r) - 1;
+                            if (r > 0) _eobrun += Bits(r);
+                            break;
+                        }
+                        k += 16;
+                        continue;
+                    }
+                    k += r;
+                    b[ZigZag[k++]] = (short)(Extend(Bits(s), s) << _al);
+                }
+                return;
+            }
+            // refinement: a bit more of each coefficient already nonzero, and the coefficients that become nonzero now
+            int p1 = 1 << _al, m1 = -1 << _al, i = _ss;
+            if (_eobrun == 0) {
+                for (; i <= _se; i++) {
+                    if (_nbits < 32) Fill();
+                    int rs = Symbol(ac), r = rs >> 4, v = 0;
+                    if ((rs & 15) != 0) v = Bits(1) != 0 ? p1 : m1;
+                    else if (r != 15) {
+                        _eobrun = 1 << r;
+                        if (r > 0) _eobrun += Bits(r);
+                        break;
+                    }
+                    // past r zero coefficients, correcting the nonzero ones on the way: v goes in the next zero
+                    for (; i <= _se; i++) {
+                        ref short z = ref b[ZigZag[i]];
+                        if (z != 0) Correct(ref z, p1, m1);
+                        else if (--r < 0) break;
+                    }
+                    if (v != 0) b[ZigZag[i]] = (short)v;
+                }
+            }
+            if (_eobrun > 0) {
+                for (; i <= _se; i++) {
+                    ref short z = ref b[ZigZag[i]];
+                    if (z != 0) Correct(ref z, p1, m1);
+                }
+                _eobrun--;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        void Correct(ref short z, int p1, int m1) {
+            if (_nbits == 0) Fill();
+            if (Bits(1) != 0 && (z & p1) == 0) z += (short)(z >= 0 ? p1 : m1);
+        }
+
+        // after the last scan: every block from its coefficients
+        void Finish() {
+            foreach (var c in _comps) {
+                if (c.Fq == null) { // in no scan
+                    c.Plane.AsSpan().Fill(128);
+                    continue;
+                }
+                int bw = Ceil(Ceil(_w * c.H, _maxH), 8), bh = Ceil(Ceil(_h * c.V, _maxV), 8);
+                [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+                void Row(int by) {
+                    int* blk = stackalloc int[64];
+                    float* ws = stackalloc float[64];
+                    for (int bx = 0; bx < bw; bx++) {
+                        var src = c.Coefs.AsSpan((by * c.BlocksPerLine + bx) * _per, _per);
+                        bool any = false;
+                        blk[0] = src[0];
+                        for (int k = 1; k < _per; k++) any |= (blk[k] = src[k]) != 0;
+                        Put(c, blk, ws, bx, by, any);
+                    }
+                }
+                if (InternalImage.ShouldParallelize(_w, _h)) Parallel.For(0, bh, Row);
+                else for (int by = 0; by < bh; by++) Row(by);
+            }
         }
 
         InternalImage Output() {
             int w = Ceil(_w, _scale), h = Ceil(_h, _scale);
             var rgba = GC.AllocateUninitializedArray<byte>(checked(w * h * 4));
+            // the colour space as libjpeg decides it: markers first, then the component ids
+            int n = _comps.Count;
+            bool ycc = n == 3 && (_jfif || (_transform >= 0 ? _transform != 0 : _comps[0].Id != 'R' || _comps[1].Id != 'G' || _comps[2].Id != 'B'));
+            bool ycck = n == 4 && _transform > 0;
+            var profile = n == 4 && Icc() is { } icc ? CmykProfile.For(icc) : null;
             [MethodImpl(MethodImplOptions.AggressiveOptimization)]
             void Band(int band) {
                 int y0 = band * 16, y1 = Math.Min(h, y0 + 16);
                 int[] sum = new int[w];
-                byte[] b0 = new byte[w], b1 = new byte[w], b2 = new byte[w];
+                byte[] b0 = new byte[w], b1 = new byte[w], b2 = new byte[w], b3 = n == 4 ? new byte[w] : [];
                 fixed (byte* o = rgba)
                     for (int y = y0; y < y1; y++) {
                         uint* dst = (uint*)(o + (long)y * w * 4);
-                        if (_comps.Count == 1) {
+                        if (n == 1) {
                             fixed (byte* g = Sample(_comps[0], y, w, sum, b0))
                                 for (int x = 0; x < w; x++) dst[x] = g[x] * 0x010101u | 0xFF000000u;
                             continue;
                         }
-                        fixed (byte* py = Sample(_comps[0], y, w, sum, b0), pb = Sample(_comps[1], y, w, sum, b1), pr = Sample(_comps[2], y, w, sum, b2))
-                            YccToRgba(py, pb, pr, dst, w);
+                        fixed (byte* p0 = Sample(_comps[0], y, w, sum, b0), p1 = Sample(_comps[1], y, w, sum, b1), p2 = Sample(_comps[2], y, w, sum, b2)) {
+                            if (ycc || ycck) YccToRgba(p0, p1, p2, dst, w);
+                            else Pack(p0, p1, p2, dst, w);
+                        }
+                        if (n == 4)
+                            fixed (byte* k = Sample(_comps[3], y, w, sum, b3)) {
+                                if (profile != null) profile.Apply(dst, k, w, ycck);
+                                else Ink(dst, k, w, ycck);
+                            }
                     }
             }
             int bands = Ceil(h, 16);
             if (InternalImage.ShouldParallelize(w, h)) Parallel.For(0, bands, Band);
             else for (int i = 0; i < bands; i++) Band(i);
             return new InternalImage(w, h, rgba);
+        }
+
+        // the ICC profile's parts joined, when every part from 1 to their count is there once (libjpeg's rule)
+        byte[]? Icc() {
+            if (_icc == null || _icc[0].Count == 0 || _icc.Count != _icc[0].Count) return null;
+            var parts = _icc.OrderBy(p => p.Seq).ToArray();
+            for (int i = 0; i < parts.Length; i++)
+                if (parts[i].Seq != i + 1 || parts[i].Count != parts.Length) return null;
+            var icc = new byte[parts.Sum(p => p.Length)];
+            int at = 0;
+            foreach (var p in parts) {
+                d.AsSpan(p.At, p.Length).CopyTo(icc.AsSpan(at));
+                at += p.Length;
+            }
+            return icc;
         }
 
         // a component's row at full width: chroma is upsampled with libjpeg's triangle filter
@@ -480,6 +660,70 @@ internal sealed unsafe class JpegCodec : IImageCodec {
             int yy = py[x], cb = pb[x], cr = pr[x];
             dst[x] = Clip(yy + CrR[cr]) | Clip(yy + ((CbG[cb] + CrG[cr]) >> 16)) << 8 | Clip(yy + CbB[cb]) << 16 | 0xFF000000u;
         }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    static void Pack(byte* p0, byte* p1, byte* p2, uint* dst, int w) {
+        int x = 0;
+        if (Vector.IsHardwareAccelerated) {
+            int lanes = Vector<int>.Count;
+            var alpha = new Vector<uint>(0xFF000000u);
+            for (; x <= w - Vector<byte>.Count; x += Vector<byte>.Count) {
+                Widen(p0 + x, out var a0, out var a1, out var a2, out var a3);
+                Widen(p1 + x, out var b0, out var b1, out var b2, out var b3);
+                Widen(p2 + x, out var c0, out var c1, out var c2, out var c3);
+                Unsafe.WriteUnaligned(dst + x, Vector.AsVectorUInt32(a0 | Vector.ShiftLeft(b0, 8) | Vector.ShiftLeft(c0, 16)) | alpha);
+                Unsafe.WriteUnaligned(dst + x + lanes, Vector.AsVectorUInt32(a1 | Vector.ShiftLeft(b1, 8) | Vector.ShiftLeft(c1, 16)) | alpha);
+                Unsafe.WriteUnaligned(dst + x + 2 * lanes, Vector.AsVectorUInt32(a2 | Vector.ShiftLeft(b2, 8) | Vector.ShiftLeft(c2, 16)) | alpha);
+                Unsafe.WriteUnaligned(dst + x + 3 * lanes, Vector.AsVectorUInt32(a3 | Vector.ShiftLeft(b3, 8) | Vector.ShiftLeft(c3, 16)) | alpha);
+            }
+        }
+        for (; x < w; x++) dst[x] = p0[x] | (uint)p1[x] << 8 | (uint)p2[x] << 16 | 0xFF000000u;
+    }
+
+    // CMYK to RGB as Skia, Pillow and the browsers do without a colour profile: the values are Adobe's, inverted
+    // (255 is no ink), so a channel is C * K / 255. YCCK is YCbCr of the inverse: inverted first.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    static void Ink(uint* dst, byte* k, int w, bool invert) {
+        uint flip = invert ? 0x00FFFFFFu : 0;
+        int x = 0;
+        if (Vector.IsHardwareAccelerated) {
+            int lanes = Vector<int>.Count;
+            for (; x <= w - Vector<byte>.Count; x += Vector<byte>.Count) {
+                Widen(k + x, out var k0, out var k1, out var k2, out var k3);
+                Ink8(dst + x, Vector.AsVectorUInt32(k0), flip);
+                Ink8(dst + x + lanes, Vector.AsVectorUInt32(k1), flip);
+                Ink8(dst + x + 2 * lanes, Vector.AsVectorUInt32(k2), flip);
+                Ink8(dst + x + 3 * lanes, Vector.AsVectorUInt32(k3), flip);
+            }
+        }
+        for (; x < w; x++) {
+            uint p = dst[x] ^ flip, kk = k[x];
+            dst[x] = Mul255(p & 255, kk) | Mul255((p >> 8) & 255, kk) << 8 | Mul255((p >> 16) & 255, kk) << 16 | 0xFF000000u;
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static void Ink8(uint* dst, Vector<uint> k, uint flip) {
+        var p = Unsafe.ReadUnaligned<Vector<uint>>(dst) ^ new Vector<uint>(flip);
+        var ff = new Vector<uint>(255);
+        var r = Mul255(p & ff, k);
+        var g = Mul255(Vector.ShiftRightLogical(p, 8) & ff, k);
+        var b = Mul255(Vector.ShiftRightLogical(p, 16) & ff, k);
+        Unsafe.WriteUnaligned(dst, r | Vector.ShiftLeft(g, 8) | Vector.ShiftLeft(b, 16) | new Vector<uint>(0xFF000000u));
+    }
+
+    // a * b / 255, rounded
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static uint Mul255(uint a, uint b) {
+        uint t = a * b + 128;
+        return (t + (t >> 8)) >> 8;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static Vector<uint> Mul255(Vector<uint> a, Vector<uint> b) {
+        var t = a * b + new Vector<uint>(128);
+        return Vector.ShiftRightLogical(t + Vector.ShiftRightLogical(t, 8), 8);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

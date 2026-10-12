@@ -361,6 +361,108 @@ public class NativeImageCodecTests {
         for (int x = 0; x < 64; x++) Assert.AreEqual(new ColorRgba(128, 128, 128), cut[x, 63], $"({x},63)");
     }
 
+    // one 37 x 29 4:2:0 picture written by libjpeg (through Pillow) as baseline, then as progressive, then the baseline's
+    // coefficients rewritten with another scan script: a DC scan per component, DC and AC refinement, a restart every
+    // 2 blocks. All three hold the same coefficients, and libjpeg decodes them to the same pixels.
+    static readonly string[] ProgressiveTwins = [
+        "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" +
+        "/9GXk76z00LMTwz/2Q==",
+    ];
+
+    [TestMethod]
+    public void Jpeg_ProgressiveDecodesToThePixelsOfItsBaselineTwin() {
+        var files = ProgressiveTwins.Select(Convert.FromBase64String).ToArray();
+        for (int i = 1; i < files.Length; i++) {
+            Assert.IsTrue(files[i].AsSpan().IndexOf([(byte)0xFF, (byte)0xC2]) > 0, $"file {i} is progressive");
+            Assert.IsTrue(InternalImage.TryReadSize(files[i], out var width, out var height));
+            Assert.AreEqual((37, 29), (width, height));
+        }
+        foreach (var scale in new[] { 1, 2, 4, 8 }) {
+            var baseline = InternalImage.Load(files[0], scale);
+            for (int i = 1; i < files.Length; i++) {
+                var progressive = InternalImage.Load(files[i], scale);
+                Assert.AreEqual((baseline.Width, baseline.Height), (progressive.Width, progressive.Height));
+                Assert.IsTrue(baseline.Pixels.SequenceEqual(progressive.Pixels), $"file {i} at 1/{scale}");
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Jpeg_ProgressiveCutShortShowsWhatItsScansGive() {
+        var d = Convert.FromBase64String(ProgressiveTwins[1]);
+        var whole = InternalImage.Load(d);
+        var cut = InternalImage.Load(d[..(d.Length * 6 / 10)]);
+        Assert.AreEqual((37, 29), (cut.Width, cut.Height));
+        Assert.IsTrue(Psnr(whole, cut) > 20, $"{Psnr(whole, cut):F1} dB: the whole picture, less detailed");
+    }
+
+    // a refinement scan over blocks of zeros reads next to no data but visits every coefficient: repeated, scans of a
+    // few bytes each could make a small file take minutes. A coefficient has a first scan and at most 13 refinements.
+    [TestMethod]
+    public void Jpeg_ScansRepeatedOverTheSameCoefficientsAreRefused() {
+        static byte[] crafted(int scans) {
+            // 64 x 64 greyscale, progressive; an AC table of one code: an end-of-band run of 64 blocks
+            List<byte> d = [0xFF, 0xD8,
+                0xFF, 0xDB, 0x00, 0x43, 0x00, .. Enumerable.Repeat((byte)1, 64),
+                0xFF, 0xC2, 0x00, 0x0B, 0x08, 0x00, 0x40, 0x00, 0x40, 0x01, 0x01, 0x11, 0x00,
+                0xFF, 0xC4, 0x00, 0x14, 0x10, 0x01, .. new byte[15], 0x60];
+            // AC 1-63 refining bit 0: the run's code, its 6 extra bits, padding
+            for (int i = 0; i < scans; i++) d.AddRange([0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x01, 0x3F, 0x10, 0x01]);
+            d.AddRange([0xFF, 0xD9]);
+            return [.. d];
+        }
+        var allowed = InternalImage.Load(crafted(16));
+        Assert.AreEqual(new ColorRgba(128, 128, 128), allowed[63, 63]);
+        Assert.ThrowsExactly<ImageFormatException>(() => InternalImage.Load(crafted(17)));
+    }
+
+    [TestMethod]
+    public void Jpeg_AnOversubscribedHuffmanTableIsRefused() {
+        var d = Save(Picture(16, 16), ImageFormat.Jpeg, 95);
+        // three codes of length 1, where there is room for two
+        byte[] dht = [0xFF, 0xC4, 0x00, 0x16, 0x00, 3, .. new byte[15], 0, 1, 2];
+        Assert.ThrowsExactly<ImageFormatException>(() => InternalImage.Load([.. d.AsSpan(0, 2), .. dht, .. d.AsSpan(2)]));
+    }
+
     [TestMethod]
     public void Webp_TruncatedDataIsRefused() {
         // the second is large enough to be decoded by the three-thread pipeline
@@ -372,6 +474,186 @@ public class NativeImageCodecTests {
             Assert.ThrowsExactly<ImageFormatException>(() => InternalImage.Load(cut), $"{w} x {h}");
             Assert.AreEqual((w, h), (InternalImage.Load(d).Width, InternalImage.Load(d).Height), "the whole file still decodes");
         }
+    }
+
+    [TestMethod]
+    public void Jpeg_ProgressiveAtAnEighthKeepsOnlyTheDc() {
+        // 16000 x 16000 greyscale, one DC scan: more than ImageLimits.MaxPixels in full and 512 MB of coefficients,
+        // at 1/8 a 2000 x 2000 picture and a coefficient a block
+        byte[] d = [0xFF, 0xD8, 0xFF, 0xDB, 0x00, 0x43, 0x00, .. Enumerable.Repeat((byte)1, 64),
+            0xFF, 0xC2, 0x00, 0x0B, 0x08, 0x3E, 0x80, 0x3E, 0x80, 0x01, 0x01, 0x11, 0x00,
+            0xFF, 0xC4, 0x00, 0x14, 0x00, 0x01, .. new byte[15], 0x00,
+            0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xD9];
+        Assert.ThrowsExactly<ImageFormatException>(() => InternalImage.Load(d));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var small = InternalImage.Load(d, 8);
+        Assert.AreEqual((2000, 2000), (small.Width, small.Height));
+        Assert.IsTrue(GC.GetAllocatedBytesForCurrentThread() - before < 40 << 20, $"{GC.GetAllocatedBytesForCurrentThread() - before:N0} bytes");
+    }
+
+    // 6 x 4 patches of 8 x 8 written by libjpeg (through Pillow) at quality 100, so each decodes to exactly its values:
+    // the 16 corners of CMYK (ink 0 or 255, C varying slowest), then 8 in between. As RGB, the same numbers.
+    static readonly int[][] Inks = [[0, 0, 0, 0], [0, 0, 0, 255], [0, 0, 255, 0], [0, 0, 255, 255], [0, 255, 0, 0], [0, 255, 0, 255],
+        [0, 255, 255, 0], [0, 255, 255, 255], [255, 0, 0, 0], [255, 0, 0, 255], [255, 0, 255, 0], [255, 0, 255, 255], [255, 255, 0, 0],
+        [255, 255, 0, 255], [255, 255, 255, 0], [255, 255, 255, 255], [30, 60, 90, 20], [200, 10, 128, 64], [128, 128, 128, 128],
+        [5, 250, 100, 1], [77, 180, 104, 241], [255, 128, 0, 30], [10, 20, 30, 40], [240, 200, 160, 120]];
+    const string CmykPatches =
+        "/9j/7gAOQWRvYmUAZAAAAAAA/9sAQwABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB" +
+        "/8AAFAgAIAAwBEMRAE0RAFkRAEsRAP/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFB" +
+        "BhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqS" +
+        "k5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/aAA4EQwBNAFkASwAAPwD+/iv7+K/v" +
+        "4r+/iiiiv8Aeiiv8Aev9/iiiiv8AAHor/AHr/f4r/f4ooor/AAB6KK/wB6/3+KKKK/wB6/wB6/3+K/3+K/3+KKKK/wAAeiiv8Aev9/iiiiv8Aeiv8Aev" +
+        "9/iv9/iiiiv8Aeiiv8Aev9/iiiiv8Aev9wiv9hiv9Siv91iv8q+v2Qr8z6/J+v6QK/hPor+f+v72K/gvr7gr+/iv5v6/owrn6/wf6/yb6/aCv7QK/wBp" +
+        "iv8Aeor+2Cvg+vL6/wAM+v8AJfr/AD76/l/r/9k=";
+    const string YcckPatches =
+        "/9j/7gAOQWRvYmUAZAAAAAAC/9sAQwABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB" +
+        "/8AAFAgAIAAwBEMRAE0RAFkRAEsRAP/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFB" +
+        "BhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqS" +
+        "k5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/aAA4EQwBNAFkASwAAPwD/AD/6KK/v" +
+        "4ooor/AHr7or+/ivlev9/iiiiv8AAHr+8Cv8V+v5T6/3+KKKK/wB6+6K/wBACvlev9/iiiiv8Aev4z6/lHr/AH+K/wB/iiiiv8Aevuiv9ACvlev9/iii" +
+        "iv8AAHr+8Cv8V+v5T6/3+KKKK/wB6+8K/wBACvl+v9/iiiiv8Aev8bevqCvm+v8AdYr7QrsK/s4r8n6/YCvi+v5V6/n/AK++K/O+v4h6/v4r5nr2iv6C" +
+        "K/wf69Yr+fev7uK/2mK/z16/rgr+YevL6/16K/Pevuiv5f6//9k=";
+    const string RgbPatches =
+        "/9j/7gAOQWRvYmUAZAAAAAAA/9sAQwABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB" +
+        "/8AAEQgAIAAwA1IRAEcRAEIRAP/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNR" +
+        "YQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SV" +
+        "lpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/aAAwDUgBHAEIAAD8A/wA/+v8AP/r/AD/6" +
+        "KKKKK/3+KKKKK/3+K/wB6KKKKK/3+KKKK/3+K/wB6/wB6KKKKK/3+KKKKK/3+K/wB6KKKKK/3+KKKK/w96/x56/y16/1UK/G+v0wr+b+v7sKK/gnr+9C" +
+        "vh+v6QK/nProK/1kK/F+v4v6/wAFev4n6+8K/wBzCv8AWgr/AEEK/9k=";
+
+    static ColorRgba Patch(InternalImage image, int i) => image[(i % 6) * 8 + 4, (i / 6) * 8 + 4];
+
+    static bool Near(ColorRgba a, ColorRgba b, int tolerance) =>
+        Math.Abs(a.R - b.R) <= tolerance && Math.Abs(a.G - b.G) <= tolerance && Math.Abs(a.B - b.B) <= tolerance;
+
+    // without a profile, as Skia, Pillow and browsers: values are Adobe's (inverted), a channel (255 - C) * (255 - K) / 255
+    static ColorRgba InkTimesBlack(int[] ink) {
+        byte channel(int c) => (byte)Math.Round((255 - ink[c]) * (255 - ink[3]) / 255.0);
+        return new ColorRgba(channel(0), channel(1), channel(2));
+    }
+
+    [TestMethod]
+    public void Jpeg_CmykAndYcckAreInkTimesBlack() {
+        var cmyk = InternalImage.Load(Convert.FromBase64String(CmykPatches));
+        var ycck = InternalImage.Load(Convert.FromBase64String(YcckPatches));
+        for (int i = 0; i < Inks.Length; i++) {
+            var expected = InkTimesBlack(Inks[i]);
+            Assert.AreEqual(expected, Patch(cmyk, i), $"CMYK patch {i}");
+            Assert.IsTrue(Near(expected, Patch(ycck, i), 2), $"YCCK patch {i}: {Patch(ycck, i)} for {expected}"); // YCbCr rounds
+        }
+    }
+
+    [TestMethod]
+    public void Jpeg_RgbWithoutColourTransformIsRead() {
+        var d = Convert.FromBase64String(RgbPatches);
+        byte[] withoutAdobeMarker = [.. d.AsSpan(0, 2), .. d.AsSpan(18)]; // then only the component ids, R G B, say RGB
+        foreach (var data in new[] { d, withoutAdobeMarker }) {
+            var image = InternalImage.Load(data);
+            for (int i = 0; i < Inks.Length; i++) Assert.AreEqual(new ColorRgba((byte)Inks[i][0], (byte)Inks[i][1], (byte)Inks[i][2]), Patch(image, i));
+        }
+    }
+
+    // a CMYK profile made here, its A2B0 a lut16, lut8 or lutAtoB table taking each corner of CMYK to a colour (as Lab)
+    [TestMethod]
+    public void Jpeg_CmykIsConvertedThroughItsIccProfile() {
+        ColorRgba[] corners = [new(255, 255, 255), new(40, 40, 40), new(250, 230, 20), new(60, 50, 0), new(230, 0, 140), new(70, 0, 40),
+            new(220, 30, 40), new(50, 10, 10), new(0, 170, 230), new(0, 50, 70), new(0, 160, 80), new(0, 40, 20), new(50, 50, 150),
+            new(10, 10, 40), new(30, 30, 30), new(0, 0, 0)];
+        var file = Convert.FromBase64String(CmykPatches);
+        foreach (var type in new[] { "mft2", "mft1", "mAB " }) {
+            var icc = CmykProfileOf(corners, type, out var expected);
+            var image = InternalImage.Load(WithIcc(file, icc));
+            for (int i = 0; i < 16; i++) Assert.IsTrue(Near(expected[i], Patch(image, i), 1), $"{type} corner {i}: {Patch(image, i)} for {expected[i]}");
+            // in two parts, out of order, as the standard allows
+            var split = WithIcc(WithIcc(file, icc[..100], 1, 2), icc[100..], 2, 2);
+            Assert.IsTrue(InternalImage.Load(split).Pixels.SequenceEqual(image.Pixels), type);
+        }
+        // a profile that cannot be read, or one with a part missing, leaves the plain conversion
+        var mft2 = CmykProfileOf(corners, "mft2", out _);
+        foreach (var data in new[] { WithIcc(file, mft2[..200]), WithIcc(file, mft2[..100], 1, 2) }) {
+            var image = InternalImage.Load(data);
+            for (int i = 0; i < Inks.Length; i++) Assert.AreEqual(InkTimesBlack(Inks[i]), Patch(image, i));
+        }
+    }
+
+    static byte[] WithIcc(byte[] jpeg, byte[] icc, int part = 1, int parts = 1) {
+        int length = 2 + 14 + icc.Length;
+        return [.. jpeg.AsSpan(0, 2), 0xFF, 0xE2, (byte)(length >> 8), (byte)length, .. "ICC_PROFILE "u8, (byte)part, (byte)parts, .. icc, .. jpeg.AsSpan(2)];
+    }
+
+    // sRGB's colorants adapted to D50, the connection space's white, as ICC profiles state them
+    static readonly double[,] SrgbToXyz = { { 0.4360747, 0.3850649, 0.1430804 }, { 0.2225045, 0.7168786, 0.0606169 }, { 0.0139322, 0.0971045, 0.7141733 } };
+    static readonly double[] D50 = [0.9642, 1, 0.8249];
+
+    static double[] Lab(ColorRgba c) {
+        static double linear(byte v) => v / 255.0 <= 0.04045 ? v / 255.0 / 12.92 : Math.Pow((v / 255.0 + 0.055) / 1.055, 2.4);
+        static double f(double t) => t > Math.Pow(6 / 29.0, 3) ? Math.Cbrt(t) : t / (3 * (6 / 29.0) * (6 / 29.0)) + 4 / 29.0;
+        double[] rgb = [linear(c.R), linear(c.G), linear(c.B)], xyz = new double[3];
+        for (int i = 0; i < 3; i++) xyz[i] = f((SrgbToXyz[i, 0] * rgb[0] + SrgbToXyz[i, 1] * rgb[1] + SrgbToXyz[i, 2] * rgb[2]) / D50[i]);
+        return [116 * xyz[1] - 16, 500 * (xyz[0] - xyz[1]), 200 * (xyz[1] - xyz[2])];
+    }
+
+    static ColorRgba Srgb(double[] lab) {
+        static double f(double t) => t > 6 / 29.0 ? t * t * t : 3 * (6 / 29.0) * (6 / 29.0) * (t - 4 / 29.0);
+        double fy = (lab[0] + 16) / 116;
+        double[] xyz = [D50[0] * f(fy + lab[1] / 500), f(fy), D50[2] * f(fy - lab[2] / 200)];
+        // solved by Cramer's rule, then sRGB's curve
+        var m = SrgbToXyz;
+        double det(double[,] a) => a[0, 0] * (a[1, 1] * a[2, 2] - a[1, 2] * a[2, 1]) - a[0, 1] * (a[1, 0] * a[2, 2] - a[1, 2] * a[2, 0]) + a[0, 2] * (a[1, 0] * a[2, 1] - a[1, 1] * a[2, 0]);
+        byte channel(int col) {
+            var a = (double[,])m.Clone();
+            for (int r = 0; r < 3; r++) a[r, col] = xyz[r];
+            double v = Math.Clamp(det(a) / det(m), 0, 1);
+            return (byte)Math.Round(255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * Math.Pow(v, 1 / 2.4) - 0.055));
+        }
+        return new ColorRgba(channel(0), channel(1), channel(2));
+    }
+
+    // expected: the corners' colours as the table holds them, its Lab rounded to its encoding
+    static byte[] CmykProfileOf(ColorRgba[] corners, string type, out ColorRgba[] expected) {
+        static void be16(List<byte> o, int v) { o.Add((byte)(v >> 8)); o.Add((byte)v); }
+        static void be32(List<byte> o, uint v) => o.AddRange([(byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v]);
+        // Lab's encodings: lut16's legacy one (L 100 = 0xFF00), lut8's, and v4's of lutAtoB
+        var (kl, kab) = type switch { "mft2" => (652.8, 256.0), "mft1" => (2.55, 1.0), _ => (655.35, 65535 / 255.0) };
+        var encoded = corners.Select(c => Lab(c)).Select(l => new[] { (int)Math.Round(l[0] * kl), (int)Math.Round((l[1] + 128) * kab), (int)Math.Round((l[2] + 128) * kab) }).ToArray();
+        expected = [.. encoded.Select(v => Srgb([v[0] / kl, v[1] / kab - 128, v[2] / kab - 128]))];
+        var clut = new List<byte>();
+        foreach (var v in encoded) foreach (var x in v) if (type == "mft1") clut.Add((byte)x); else be16(clut, x);
+        var t = new List<byte>();
+        t.AddRange(System.Text.Encoding.ASCII.GetBytes(type));
+        be32(t, 0);
+        if (type == "mAB ") {
+            // B curves at 32: three identities; CLUT at 68; A curves at 184: two identities and two gamma 1 functions
+            t.AddRange([4, 3, 0, 0]);
+            foreach (var offset in new uint[] { 32, 0, 0, 68, 184 }) be32(t, offset);
+            for (int i = 0; i < 3; i++) { t.AddRange("curv"u8); be32(t, 0); be32(t, 0); }
+            t.AddRange([2, 2, 2, 2, .. new byte[12], 2, 0, 0, 0, .. clut]);
+            for (int i = 0; i < 2; i++) { t.AddRange("curv"u8); be32(t, 0); be32(t, 0); }
+            for (int i = 0; i < 2; i++) { t.AddRange("para"u8); be32(t, 0); be32(t, 0); be32(t, 1 << 16); }
+        } else {
+            t.AddRange([4, 3, 2, 0]);
+            for (int i = 0; i < 9; i++) be32(t, i % 4 == 0 ? 1u << 16 : 0);
+            if (type == "mft2") {
+                t.AddRange([0, 2, 0, 2]); // two entries in each input and output table
+                for (int i = 0; i < 4; i++) { be16(t, 0); be16(t, 65535); }
+                t.AddRange(clut);
+                for (int i = 0; i < 3; i++) { be16(t, 0); be16(t, 65535); }
+            } else {
+                for (int i = 0; i < 4; i++) for (int v = 0; v < 256; v++) t.Add((byte)v);
+                t.AddRange(clut);
+                for (int i = 0; i < 3; i++) for (int v = 0; v < 256; v++) t.Add((byte)v);
+            }
+        }
+        var p = new List<byte>();
+        be32(p, (uint)(144 + t.Count));
+        p.AddRange([0, 0, 0, 0, type == "mAB " ? (byte)4 : (byte)2, 0x20, 0, 0, .. "prtrCMYKLab "u8, .. new byte[12], .. "acsp"u8]);
+        p.AddRange(new byte[128 - p.Count]);
+        be32(p, 1);
+        p.AddRange("A2B0"u8);
+        be32(p, 144);
+        be32(p, (uint)t.Count);
+        p.AddRange(t);
+        return [.. p];
     }
 
     [TestMethod]
