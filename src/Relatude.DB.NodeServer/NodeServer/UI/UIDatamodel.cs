@@ -22,6 +22,7 @@ sealed class UIDatamodel {
 
     internal void Register(UICommands commands) {
         commands.Register("datamodel", ctx => get(ctx.Payload<StorePayload>().StoreId));
+        commands.Register("datamodel-type-counts", ctx => typeCountsOnly(ctx.Payload<StorePayload>().StoreId));
         commands.Register("datamodel-schema", ctx => DatamodelCatalog.Schema);
         commands.Register("datamodel-draft-save", ctx => saveDraft(ctx.Payload<DraftPayload>()));
         commands.Register("datamodel-draft-discard", ctx => discardDraft(ctx.Payload<StorePayload>().StoreId));
@@ -94,7 +95,10 @@ sealed class UIDatamodel {
             Draft = draft == null ? null : describeDraft(draft, withModel: true),
             DraftError = draftError,
             History = history.Select(describeHistory),
-            TypeCounts = typeCounts(c, active),
+            TypeCounts = typeCounts(c, active, out var countsComplete),
+            // false when a transaction held the store: the counts left out are not known yet, and the page
+            // asks for them again (datamodel-type-counts) instead of showing them as nothing
+            TypeCountsComplete = countsComplete,
             Sources = describeSources(c, active),
             SourcesLocked = sourcesLocked,
             IoProviders = (c.Settings.IOSettings ?? []).Select(io => new { io.Id, io.Name }),
@@ -158,13 +162,17 @@ sealed class UIDatamodel {
         Model = withModel ? element(draft.Model) : (JsonElement?)null,
     };
     static object describeHistory(DatamodelHistoryEntry e) => new { e.Key, e.SavedUtc, e.Reason, e.Checksum, e.NodeTypes, e.Relations, e.Properties, e.Size };
-    static Dictionary<Guid, long> typeCounts(NodeStoreContainer c, Datamodel? active) {
-        var counts = new Dictionary<Guid, long>();
-        if (active == null || !c.IsOpen() || c.Store == null) return counts;
-        foreach (var t in active.NodeTypes.Values.Where(t => !t.IsInnerNode)) {
-            try { counts[t.Id] = c.Store.QueryType(t.Id, countContext).Count(); } catch { }
-        }
-        return counts;
+    static Dictionary<Guid, long> typeCounts(NodeStoreContainer c, Datamodel? active, out bool complete) {
+        complete = true;
+        if (active == null || !c.IsOpen() || c.Store == null) return [];
+        return UITypeCounts.Count(c.Store, active.NodeTypes.Values.Where(t => !t.IsInnerNode).Select(t => t.Id), countContext, out complete);
+    }
+    /// <summary>The type counts alone, for a page that loaded while a transaction kept some of them from it.</summary>
+    object typeCountsOnly(Guid storeId) {
+        var c = container(storeId);
+        if (!c.IsOpen() || c.Store == null) return new { TypeCounts = new Dictionary<Guid, long>(), TypeCountsComplete = true };
+        var counts = typeCounts(c, c.Store.Datastore.Datamodel, out var complete);
+        return new { TypeCounts = counts, TypeCountsComplete = complete };
     }
     object[] describeSources(NodeStoreContainer c, Datamodel? active) {
         var root = _server.RootDataFolderPath;

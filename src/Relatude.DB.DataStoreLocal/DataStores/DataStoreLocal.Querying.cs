@@ -63,7 +63,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         Stores.NodeStore.NodeRead? read = null;
         try {
             OuterConverter outer;
-            _lock.EnterReadLock();
+            enterReadLock(ctx ?? _defaultQueryCtx);
             try {
                 activityId = RegisterActvity(DataStoreActivityCategory.Querying);
                 validateDatabaseState();
@@ -101,7 +101,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         Stores.NodeStore.NodeRead? read = null;
         try {
             OuterConverter outer;
-            _lock.EnterReadLock();
+            enterReadLock(ctx ?? _defaultQueryCtx);
             try {
                 activityId = RegisterActvity(DataStoreActivityCategory.Querying);
                 validateDatabaseState();
@@ -409,7 +409,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         using var limit = new QueryLimit(ctx, _settings.MaxQueryDurationInSeconds);
         var runCtx = limit.Context;
         try {
-            _lock.EnterReadLock();
+            limit.WaitingForLock = true;
+            enterReadLock(runCtx);
+            limit.WaitingForLock = false;
             try {
                 activityId = RegisterActvity(DataStoreActivityCategory.Querying);
                 validateDatabaseState();
@@ -451,6 +453,39 @@ public sealed partial class DataStoreLocal : IDataStore {
         return result;
     }
     /// <summary>
+    /// How long one wait for the read lock lasts before a query looks at its cancellation and its lock-wait
+    /// budget again: short, so a Stop is felt at once, at the cost of a wake-up per slice while it waits.
+    /// </summary>
+    const int lockWaitSliceMs = 50;
+    /// <summary>
+    /// The read lock, as a query or a read takes it. A transaction holds the write lock for as long as it
+    /// runs, and EnterReadLock can be neither cancelled nor timed out, so a query behind a long transaction
+    /// used to wait it out whatever its caller wanted - the admin UI's Stop and MaxQueryDurationInSeconds
+    /// included. Here the wait is taken in slices, and ends the way the query would: cancelled by its token,
+    /// which also carries the time limit, or with <see cref="StoreBusyException"/> once the context's
+    /// <see cref="QueryContext.LockWait"/> has passed. A context with neither waits the plain way.
+    /// </summary>
+    void enterReadLock(QueryContext ctx) {
+        if (_lock.TryEnterReadLock(0)) return;
+        var token = ctx.CancellationToken;
+        var budget = ctx.LockWait;
+        if (budget == null && !token.CanBeCanceled) {
+            _lock.EnterReadLock();
+            return;
+        }
+        var waited = Stopwatch.StartNew();
+        while (true) {
+            token.ThrowIfCancellationRequested();
+            var slice = lockWaitSliceMs;
+            if (budget is TimeSpan b) {
+                var left = (long)(b - waited.Elapsed).TotalMilliseconds;
+                if (left <= 0) throw new StoreBusyException(waited.Elapsed);
+                if (left < slice) slice = (int)left;
+            }
+            if (_lock.TryEnterReadLock(slice)) return;
+        }
+    }
+    /// <summary>
     /// The context a query runs with. Without a time limit or a cancellable token it is the caller's own;
     /// otherwise a copy whose token is cancelled by the caller's token or when the limit passes. The token
     /// source is disposed when the query returns, after which the token never fires - a result that reads
@@ -474,8 +509,13 @@ public sealed partial class DataStoreLocal : IDataStore {
             Context = ctx.WithCancellation(_cts.Token);
         }
         public bool TimedOut => _seconds > 0 && _cts != null && _cts.IsCancellationRequested && !_callerToken.IsCancellationRequested;
-        public TimeoutException TimeoutError() => new("The query was stopped after " + _seconds.ToString(System.Globalization.CultureInfo.InvariantCulture)
-            + " seconds, the limit set by the setting MaxQueryDurationInSeconds. Page the result, filter on indexed properties, or raise the limit. ");
+        /// <summary>Whether the query is still waiting for the store lock, which decides what a time-out says.</summary>
+        public bool WaitingForLock { get; set; }
+        public TimeoutException TimeoutError() => WaitingForLock
+            ? new("The query was stopped after " + _seconds.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + " seconds, the limit set by the setting MaxQueryDurationInSeconds, while it waited for a transaction to finish. ")
+            : new("The query was stopped after " + _seconds.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + " seconds, the limit set by the setting MaxQueryDurationInSeconds. Page the result, filter on indexed properties, or raise the limit. ");
         public void Dispose() => _cts?.Dispose();
     }
     long _lastDiskReadWarningTicks = long.MinValue;

@@ -41,6 +41,20 @@ public class QueryContext {
         c.CancellationToken = token;
         return c;
     }
+    /// <summary>
+    /// How long a query or read with this context waits for the store lock before it gives up with a
+    /// StoreBusyException. A transaction holds the lock for as long as it runs, so this is for what would
+    /// rather say "busy" than wait for one - a count on a status page, say. Null, the default, waits for as
+    /// long as the query may run; zero does not wait at all. Like <see cref="CancellationToken"/> it is left
+    /// out of equality and kept by the fluent methods, so set it last with <see cref="WithLockWait"/>.
+    /// </summary>
+    public TimeSpan? LockWait { get; private set; }
+    /// <summary>A copy of this context whose queries wait at most <paramref name="wait"/> for the store lock; null waits as long as the query may run.</summary>
+    public QueryContext WithLockWait(TimeSpan? wait) {
+        var c = copy();
+        c.LockWait = wait;
+        return c;
+    }
     public static readonly QueryContext Anonymous = new(
         ) {
         UserId = Guid.Empty,
@@ -194,7 +208,8 @@ public class QueryContext {
             CollectionIds = this.CollectionIds,
             NowUtc = this.NowUtc,
             SelectedRevisions = this.SelectedRevisions,
-            CancellationToken = this.CancellationToken
+            CancellationToken = this.CancellationToken,
+            LockWait = this.LockWait
         };
     }
     public QueryContext User(string userName) {

@@ -183,6 +183,8 @@ export interface DatamodelPage {
   draftError: string | null;
   history: HistoryEntry[];
   typeCounts: Record<string, number>;
+  /** false when a transaction held the database while the page loaded: the types missing from typeCounts are not known yet */
+  typeCountsComplete: boolean;
   sources: SourceInfo[];
   /** the source list is set by the configuration overlay and cannot be changed from here */
   sourcesLocked: boolean;
@@ -400,6 +402,11 @@ export interface ActivationResult {
 
 export function fetchDatamodel(storeId: string): Promise<DatamodelPage> {
   return send<DatamodelPage>("datamodel", { storeId });
+}
+
+/** The type counts alone, for a page that loaded while a transaction kept some of them from it. */
+export function fetchTypeCounts(storeId: string): Promise<Pick<DatamodelPage, "typeCounts" | "typeCountsComplete">> {
+  return send("datamodel-type-counts", { storeId });
 }
 
 let schemaPromise: Promise<Schema> | null = null;

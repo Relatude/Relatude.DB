@@ -52,6 +52,7 @@ import {
   type FacetSelection,
   type FacetValue,
   type QueryModel,
+  type QueryWait,
   type SearchRequest,
   type PivotLevelSpec,
   type SelectColumn,
@@ -60,6 +61,7 @@ import {
 import { RunGroup, RunGroupContext, useLiveResult, useRunGroup } from "../server/hooks";
 import { hitOfMatch, useIdMatches } from "../server/idLookup";
 import { subscribeResync } from "../server/channel";
+import { useLive } from "../live";
 import type { DatabaseInfo } from "../server/serverInfo";
 import { formatCount, formatQuery, formatTime } from "../format";
 import { loadTabs, newQuery, saveTabs, type HitsView, type QueryMode, type QueryTabs, type SavedQuery } from "../queryTabs";
@@ -92,6 +94,11 @@ const editorWidthKey = "queryEditorWidth";
 const minEditorWidth = 320; // narrower and the form's own labels start wrapping
 const minResultsWidth = 320; // wider and the list the form was opened from stops being readable
 const maxEditorShare = 0.6; // and a share of the page as well, so a narrower window keeps a list
+
+// one thing the database is busy with, for the tooltip of the waiting note: "Executing transaction (42%)"
+function busyLine(b: QueryWait["busy"][number]): string {
+  return (b.description ?? b.category) + (b.progress != null ? ` (${b.progress}%)` : "");
+}
 
 /**
  * A text the search was sampled from, with the words it matched marked. The server sends the
@@ -259,6 +266,15 @@ export function QuerySection({ db }: { db: DatabaseInfo }) {
       .then(setModel)
       .catch(() => {});
   }, [db.id]);
+
+  // A count the server could not take - a transaction held the database when the page asked, and the
+  // page is not kept waiting for one - comes as null, and is asked for again until every one is known.
+  const countsUnknown = !!model?.types.some((t) => t.count === null);
+  useEffect(() => {
+    if (!countsUnknown) return;
+    const timer = window.setInterval(refreshCounts, 3000);
+    return () => window.clearInterval(timer);
+  }, [countsUnknown, refreshCounts]);
 
   const active = tabs.queries.find((q) => q.id === tabs.active) ?? tabs.queries[0];
 
@@ -576,6 +592,16 @@ function QueryTab({
     return () => window.clearTimeout(timer);
   }, [runState.busy]);
   const { result, loading, error, stopped, refresh } = useLiveResult(query, runSearch, runs);
+
+  // A query that takes its time is often waiting rather than working: a transaction holds the database
+  // for as long as it runs, and queries line up behind it. Asked only while the Stop button is up, and
+  // said beside it, so a long wait reads as what it is - Stop works while it waits too.
+  const [wait, setWait] = useState<QueryWait | null>(null);
+  useEffect(() => {
+    if (!showStop) setWait(null);
+  }, [showStop]);
+  useLive<QueryWait>("query-wait", { storeId: db.id }, setWait, { enabled: showStop, fixedMs: 1000 });
+  const waitingFor = showStop && wait && wait.readersWaiting > 0 && wait.busy.length > 0 ? wait.busy : null;
 
   // Direct hits (idLookup.ts): a search text that is nothing but node ids or guids looks those nodes
   // up as well, and they head the first page of the list - whatever the type and the facets say, since
@@ -1087,9 +1113,16 @@ function QueryTab({
             <IconRefresh size={15} stroke={1.8} className={loading ? "spinning" : ""} />
           </button>
           {showStop ? (
-            <button className="icon-button query-stop" title="Stop the running query" onClick={() => runs.stopAll()}>
-              <IconPlayerStop size={15} stroke={1.8} />
-            </button>
+            <>
+              <button className="icon-button query-stop" title="Stop the running query" onClick={() => runs.stopAll()}>
+                <IconPlayerStop size={15} stroke={1.8} />
+              </button>
+              {waitingFor && (
+                <span className="query-waiting" title={"The database is busy with: " + waitingFor.map(busyLine).join(", ") + ". Queries wait until it is done, and Stop works while they wait."}>
+                  {waitingFor.some((b) => b.category === "Executing") ? "Waiting for a transaction to finish…" : "Waiting for the database…"}
+                </span>
+              )}
+            </>
           ) : runState.stopped ? (
             <span className="query-stopped" title="The query was stopped before it finished. The button beside this runs it again.">
               Stopped

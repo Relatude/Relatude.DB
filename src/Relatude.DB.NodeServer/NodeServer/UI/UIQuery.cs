@@ -62,6 +62,7 @@ sealed class UIQuery {
 
     internal void Register(UICommands commands) {
         commands.Register("query-model", ctx => model(ctx.Payload<StorePayload>().StoreId));
+        commands.Register("query-wait", ctx => wait(ctx.Payload<StorePayload>().StoreId));
         commands.Register("query-search", async ctx => await search(ctx.Payload<SearchPayload>(), ctx.Cancellation));
         commands.Register("query-node", ctx => node(ctx.Payload<NodePayload>()));
         commands.Register("query-nodes", ctx => nodes(ctx.Payload<NodesPayload>()));
@@ -116,12 +117,18 @@ sealed class UIQuery {
         var dm = s.Datastore.Datamodel;
         // A type is worth listing when it can be queried at all. Inner node types cannot: they exist
         // only inside an embedded property of another node and have no id set of their own.
-        var types = dm.NodeTypes.Values
+        var listed = dm.NodeTypes.Values
             .Where(t => !t.IsInnerNode)
             // the base type is every node at once rather than a type anyone named, so it heads the
             // list instead of sorting under I for INode
             .OrderBy(t => t.Id == NodeConstants.BaseNodeTypeId ? 0 : 1)
             .ThenBy(t => t.CodeName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        // null for a type not counted because a transaction held the store: the page shows it as
+        // unknown and asks again, rather than waiting for the transaction with nothing on screen.
+        // A type the engine cannot count is 0, as it always was
+        var counts = UITypeCounts.Count(s, listed.Select(t => t.Id), adminContext, out var complete);
+        var types = listed
             .Select(t => (object)new {
                 t.Id,
                 Name = t.CodeName,
@@ -136,8 +143,7 @@ sealed class UIQuery {
                 // whether "New node" can make one: the base type stands for all types at once, and a
                 // type the model knows but no loaded assembly implements has nothing to instantiate
                 CanCreate = t.Id != NodeConstants.BaseNodeTypeId && findClrType(s, t) != null,
-                // the id set per type is maintained, so counting it is a lookup and not a scan
-                Count = count(s, t.Id),
+                Count = counts.TryGetValue(t.Id, out var n) ? n : complete ? 0 : (long?)null,
             })
             .ToArray();
         // The semantic half of the search only exists when there is an AI provider to embed the query
@@ -158,16 +164,32 @@ sealed class UIQuery {
             DefaultMinimumSimilarity = ai?.DefaultMinimumSimilarity ?? 0.34,
         };
     }
-    static int count(NodeStore s, Guid typeId) {
-        try {
-            return s.QueryType(typeId, adminContext).Count();
-        } catch {
-            return 0; // one type the engine cannot enumerate must not take the whole type list down
-        }
-    }
     static AI.AIProviderSettings? aiSettings(NodeStore s) {
         if (!s.Datastore.HasAIEngine) return null;
         return s.Datastore.AI.Settings;
+    }
+
+    // ---- what a slow query is waiting for ----
+
+    /// <summary>
+    /// Why a query on the page may be taking its time: queries wait for the store lock while a writer
+    /// holds it - a transaction for as long as it runs - and this says how many are waiting and what the
+    /// store is busy with. Read without the lock, so it answers while they wait.
+    /// </summary>
+    object wait(Guid storeId) {
+        var status = store(storeId).Datastore.GetStatus();
+        var busy = new List<object>();
+        void collect(IEnumerable<ActivityBranch> branches) {
+            foreach (var b in branches) {
+                // what holds or wants the write lock, not the queries and reads lined up behind it
+                if (b.Activity.Category is not (DataStoreActivityCategory.Querying or DataStoreActivityCategory.RunningTask or DataStoreActivityCategory.IndexWarmup)) {
+                    busy.Add(new { Category = b.Activity.Category.ToString(), b.Activity.Description, Progress = b.Activity.PercentageProgress });
+                }
+                collect(b.Children);
+            }
+        }
+        collect(status.ActivityTree);
+        return new { status.ReadersWaiting, status.WritersWaiting, Busy = busy };
     }
 
     // ---- the search itself ----
@@ -643,7 +665,7 @@ sealed class UIQuery {
         };
         if (file.FileType == FileType.Video) adj.TimeOffsetPercentage = videoThumbnailAt;
         adj.BasicSanitization();
-        var state = await s.Datastore.GetFileStreamAndState(path, adj, -1, adminContext);
+        var state = await s.Datastore.GetFileStreamAndState(path, adj, -1, adminContext, firstInQueue: true);
         http.Response.Headers["X-Relatude-Ready"] = state.IsReady ? "1" : "0";
         var name = Path.GetFileNameWithoutExtension(file.Name) + FileFormatUtil.GetExtensionWithDot(state.RequestedFormat);
         return await FileHandler.HandleFileAsync(http, state.Stream, name, false, FileFormatUtil.GetContentType(state.RequestedFormat), state.IsReady);
@@ -3077,7 +3099,7 @@ sealed class UIQuery {
                     if (!s.Datastore.TryGetValue<FileValue>(path, out var file, ctx) || file.IsEmpty || file.Width <= 0 || file.Height <= 0) throw new TileUnavailable();
                     adj = tileAdjustment(file.Width, file.Height, item.Tile, out region);
                 }
-                var state = await s.Datastore.GetFileStreamAndState(path, adj, cardImageWaitMs, ctx);
+                var state = await s.Datastore.GetFileStreamAndState(path, adj, cardImageWaitMs, ctx, firstInQueue: true);
                 if (state.IsReady) {
                     using var stream = state.Stream;
                     using var buffer = new MemoryStream();

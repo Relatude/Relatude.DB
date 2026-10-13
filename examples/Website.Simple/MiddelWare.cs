@@ -16,7 +16,7 @@ public class RelatudeDBMiddleware {
         if (RelatudeDBRuntime.IsReady && http.Request.Path != "/") {
             // the complete URL, host included, so the url manager can route per domain
             var url = http.Request.Scheme + "://" + http.Request.Host + http.Request.Path.Value + http.Request.QueryString;
-            if (ctx.Database.TryParseUrlForContent(url, out var content)) {
+            if (ctx.Database.TryParseUrlForContent(url, out var content, firstInQueue: true)) { // a browser waits for it: ahead of background conversions
                 var result = await handleRequest(http, ctx, content);
                 if (result != null) {
                     await result.ExecuteAsync(http);

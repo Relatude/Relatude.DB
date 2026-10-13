@@ -3332,7 +3332,11 @@ adjusted, a GIF kept as a GIF so its animation survives (the original itself at 
 else the configured default format and quality. See [§18.1](#181-asset-urls-files-variants-and-deeplinks).
 
 Three things follow from conversion being asynchronous. **A URL you just built is usually not
-servable yet** — the conversion is queued, and `IsFileReady` is how you find out. **A variant that
+servable yet** — the conversion is queued, and `IsFileReady` is how you find out. Conversions start in
+the order they were queued, unless asked for with `firstInQueue: true`, which puts one ahead of every
+conversion waiting (and moves it there if it is waiting already). Pass it when a web request waits for
+the result — a browser loading the picture, a page checking `IsFileReady` — and leave it off for
+work in the background, or a page view waits behind every conversion a batch job has queued. **A variant that
 is not ready does not fail**: the store serves a generated status placeholder in the requested
 format, which is why you must not cache a response the store reports as uncacheable. And
 **converters have to be registered at startup** — `options.FileConverters.Add(new
@@ -3718,7 +3722,8 @@ public class RelatudeDBMiddleware(RequestDelegate next) {
             // scheme and host included, so domain routing can see them
             var url = http.Request.Scheme + "://" + http.Request.Host
                     + http.Request.Path.Value + http.Request.QueryString;
-            if (ctx.Database.TryParseUrlForContent(url, out var content)) {
+            // firstInQueue: a browser waits for it, so it goes ahead of background conversions
+            if (ctx.Database.TryParseUrlForContent(url, out var content, firstInQueue: true)) {
                 var result = content.Id.Target switch {
                     UrlTarget.Property or UrlTarget.PropertyAdjusted
                         => await FileHandler.HandleFileAsync(http, content.Stream, content.FileName,
@@ -3827,6 +3832,22 @@ and the fluent methods keep it, so set it last. For a limit on every query, set
 `TimeoutException`. A query reading more nodes than `WarnWhenQueryReadsNodesFromDisk` from the log
 is noted in the system log, at most once a minute - page it, or filter on indexed properties. The
 admin UI's Query page has a Stop button for the query it is running.
+
+A transaction holds the store's write lock for as long as it runs, and a query waits for it before it
+starts. That wait is part of the query: a cancelled token ends it, and so does `MaxQueryDurationInSeconds`,
+whose `TimeoutException` then says the query was waiting for a transaction. Something that would rather
+say "busy" than wait - a count on a status page, say - sets `WithLockWait` on its context: a query or read
+that cannot take the lock in that time throws `StoreBusyException` (a `TimeoutException`), having read
+nothing. Zero does not wait at all; like the token, set it last.
+
+```csharp
+var ctx = QueryContext.Default.WithLockWait(TimeSpan.FromMilliseconds(100));
+try {
+    count = db.Query<IEvent>(ctx).Count();
+} catch (StoreBusyException) {
+    count = null;   // a transaction is running: show it as unknown, and ask again later
+}
+```
 
 ### Entry points
 

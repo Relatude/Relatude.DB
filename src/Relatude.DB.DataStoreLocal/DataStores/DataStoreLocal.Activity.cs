@@ -20,7 +20,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (State == DataStoreState.Closed || State == DataStoreState.Error) return new(State, []);
             activities = [.. _currentActiveties.Values.Select(c => c.Copy())];
         }
-        return new(State, activities);
+        return new(State, activities) { ReadersWaiting = _lock.WaitingReadCount, WritersWaiting = _lock.WaitingWriteCount };
     }
     public long RegisterActvity(long parentId, DataStoreActivityCategory category, string? description = null, int? percentageProgress = null) {
         if (parentId == 0) {

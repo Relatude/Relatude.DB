@@ -142,6 +142,7 @@ public class DataStoreSession : IDataStore {
         => _datastore.GetRelatedNodeIdsFromRelationId(relationId, from, fromTargetToSource, ctx ?? QueryContext);
 
     public long GetLastTimestampID() => _datastore.GetLastTimestampID();
+    public long PeekLastTimestamp() => _datastore.PeekLastTimestamp();
     public Task MaintenanceAsync(MaintenanceAction actions) => _datastore.MaintenanceAsync(actions);
     public void Maintenance(MaintenanceAction actions) => _datastore.Maintenance(actions);
     public void SaveIndexStates(bool forceRefresh = false, bool nodeSegmentsOnly = false)
@@ -230,24 +231,24 @@ public class DataStoreSession : IDataStore {
     public string GetUrl(PropertyPath propertyPath, FileAdjustmentBase adj, bool absolute, QueryContext? ctx = null) => _datastore.GetUrl(propertyPath, adj, absolute, ctx ?? QueryContext);
 
     public bool TryParseUrl(string url, [MaybeNullWhen(false)] out UrlKeys parseResult, QueryContext? ctx = null) => _datastore.TryParseUrl(url, out parseResult, ctx ?? QueryContext);
-    public bool TryParseUrlForContent(string url, [MaybeNullWhen(false)] out UrlContent parseResultContent, int maxWait = -1, QueryContext? ctx = null) => _datastore.TryParseUrlForContent(url, out parseResultContent, maxWait, ctx ?? QueryContext);
+    public bool TryParseUrlForContent(string url, [MaybeNullWhen(false)] out UrlContent parseResultContent, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false) => _datastore.TryParseUrlForContent(url, out parseResultContent, maxWait, ctx ?? QueryContext, firstInQueue);
 
 
-    public Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null) => _datastore.GetFileStream(url, maxWait, ctx ?? QueryContext);
-    public Task<StateAndStream> GetFileStreamAndState(string url, int maxWait, QueryContext? ctx = null) => _datastore.GetFileStreamAndState(url, maxWait, ctx ?? QueryContext);
+    public Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null, bool firstInQueue = false) => _datastore.GetFileStream(url, maxWait, ctx ?? QueryContext, firstInQueue);
+    public Task<StateAndStream> GetFileStreamAndState(string url, int maxWait, QueryContext? ctx = null, bool firstInQueue = false) => _datastore.GetFileStreamAndState(url, maxWait, ctx ?? QueryContext, firstInQueue);
     public Task<Stream> GetFileStream(PropertyPath propertyPath, QueryContext? ctx = null) => _datastore.GetFileStream(propertyPath, ctx ?? QueryContext);
-    public Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait, QueryContext? ctx = null)
-        => _datastore.GetFileStream(propertyPath, adj, maxWait, ctx ?? QueryContext);
-    public Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait, QueryContext? ctx = null)
-        => _datastore.GetFileStreamAndState(propertyPath, adj, maxWait, ctx ?? QueryContext);
+    public Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait, QueryContext? ctx = null, bool firstInQueue = false)
+        => _datastore.GetFileStream(propertyPath, adj, maxWait, ctx ?? QueryContext, firstInQueue);
+    public Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait, QueryContext? ctx = null, bool firstInQueue = false)
+        => _datastore.GetFileStreamAndState(propertyPath, adj, maxWait, ctx ?? QueryContext, firstInQueue);
     public Task<StreamAndValue> GetFileStreamAndValue(PropertyPath propertyPath, QueryContext? ctx = null)
         => _datastore.GetFileStreamAndValue(propertyPath, ctx ?? QueryContext);
-    public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null)
-        => _datastore.TryGetConversionInfo(propertyPath, adj, requestIfNot, out progressInfo, ctx ?? QueryContext);
-    public bool IsFileReady(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, QueryContext? ctx = null)
-        => _datastore.IsFileReady(propertyPath, adj, requestIfNot, ctx ?? QueryContext);
-    public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null)
-        => _datastore.EnsureConversionRequested(propertyPath, adj, ctx ?? QueryContext);
+    public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null, bool firstInQueue = false)
+        => _datastore.TryGetConversionInfo(propertyPath, adj, requestIfNot, out progressInfo, ctx ?? QueryContext, firstInQueue);
+    public bool IsFileReady(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, QueryContext? ctx = null, bool firstInQueue = false)
+        => _datastore.IsFileReady(propertyPath, adj, requestIfNot, ctx ?? QueryContext, firstInQueue);
+    public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null, bool firstInQueue = false)
+        => _datastore.EnsureConversionRequested(propertyPath, adj, ctx ?? QueryContext, firstInQueue);
 
     public FileConversions GetConversions(QueryContext? ctx = null) => _datastore.GetConversions(ctx ?? QueryContext);
     public Task CancelAllConversions(bool permanently, QueryContext? ctx = null) => _datastore.CancelAllConversions(permanently, ctx ?? QueryContext);

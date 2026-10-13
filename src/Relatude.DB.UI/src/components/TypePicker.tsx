@@ -17,7 +17,20 @@ export interface PickableType {
   sourceId: string;
   /** whether a node of it can be made here; false is shown, and not choosable, with the reason */
   canCreate: boolean;
-  count: number;
+  /** null while it is not known: a transaction held the database when the page counted */
+  count: number | null;
+}
+
+/** A type's count, or a dash for one not counted yet - which is unknown, not nothing, so never hidden as empty. */
+function TypeCount({ count, className }: { count: number | null; className: string }) {
+  if (count === null) {
+    return (
+      <span className={className + " unknown"} title="Not counted yet: a transaction was running when the page asked. It is counted again shortly.">
+        —
+      </span>
+    );
+  }
+  return <span className={className}>{formatCount(count)}</span>;
 }
 
 interface Props {
@@ -111,7 +124,7 @@ export function TypePicker({ types, sources, value, onChange, onPicked }: Props)
       <button className="type-picker-button" onClick={() => setOpen(!open)} title={selected ? selected.fullName : "Pick a node type"}>
         <TypeMark type={selected} colors={colors} />
         <span className="type-picker-name">{selected ? (selected.isBase ? "All node types" : selected.name) : "Pick a type"}</span>
-        {selected && <span className="type-picker-count">{formatCount(selected.count)}</span>}
+        {selected && <TypeCount className="type-picker-count" count={selected.count} />}
         <IconChevronDown size={15} stroke={1.9} />
       </button>
       {open && (
@@ -142,7 +155,7 @@ export function TypePicker({ types, sources, value, onChange, onPicked }: Props)
                     {t.isBase ? "All node types" : t.name}
                     {t.hidden && <span className="badge">hidden</span>}
                   </span>
-                  <span className="type-option-count">{formatCount(t.count)}</span>
+                  <TypeCount className="type-option-count" count={t.count} />
                   {t.id === value && <IconCheck size={14} stroke={2} />}
                 </button>
               ))}
@@ -241,7 +254,7 @@ export function NewNodeDialog({
                 {t.hidden && <span className="badge">hidden</span>}
                 {!t.canCreate && <span className="badge">not loaded</span>}
               </span>
-              <span className="type-option-count">{formatCount(t.count)}</span>
+              <TypeCount className="type-option-count" count={t.count} />
             </button>
           ))}
           {shown.length === 0 && <div className="muted type-picker-empty">No type matches “{query}”.</div>}

@@ -106,17 +106,17 @@ public interface IDataStore : IDisposable {
     string GetUrl(PropertyPath propertyPath, FileAdjustmentBase adj, bool absolute = false, QueryContext? ctx = null);
 
     bool TryParseUrl(string url, [MaybeNullWhen(false)] out UrlKeys result, QueryContext? ctx = null);
-    bool TryParseUrlForContent(string url, [MaybeNullWhen(false)] out UrlContent result, int maxWaitMs = -1, QueryContext? ctx = null);
+    bool TryParseUrlForContent(string url, [MaybeNullWhen(false)] out UrlContent result, int maxWaitMs = -1, QueryContext? ctx = null, bool firstInQueue = false);
 
-    Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null);
-    Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null);
+    Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null, bool firstInQueue = false);
+    Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false);
     Task<Stream> GetFileStream(PropertyPath propertyPath, QueryContext? ctx = null);
-    Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null);
+    Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false);
     Task<StreamAndValue> GetFileStreamAndValue(PropertyPath propertyPath, QueryContext? ctx = null);
-    Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null);
-    bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustmentBase adj, bool queueConversionIfNotRequested, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null);
-    bool IsFileReady(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, QueryContext? ctx = null);
-    void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null);
+    Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false);
+    bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustmentBase adj, bool queueConversionIfNotRequested, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null, bool firstInQueue = false);
+    bool IsFileReady(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, QueryContext? ctx = null, bool firstInQueue = false);
+    void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null, bool firstInQueue = false);
     FileConversions GetConversions(QueryContext? ctx = null);
     Task CancelAllConversions(bool permanently, QueryContext? ctx = null);
     Task CancelConversion(Guid conversionId, bool permanently, QueryContext? ctx = null);
@@ -180,6 +180,12 @@ public interface IDataStore : IDisposable {
     bool FileStoreSupportsMultipartUploads(PropertyPath propertyPath);
 
     long GetLastTimestampID();
+    /// <summary>
+    /// The last timestamp handed out, read without the store lock, so it answers while a transaction runs -
+    /// and may be that transaction's. For status displays; take <see cref="GetLastTimestampID"/> before
+    /// changes you may want to delete again.
+    /// </summary>
+    long PeekLastTimestamp();
     Task MaintenanceAsync(MaintenanceAction actions);
     void Maintenance(MaintenanceAction actions);
     void SaveIndexStates(bool forceRefresh = false, bool nodeSegmentsOnly = false);

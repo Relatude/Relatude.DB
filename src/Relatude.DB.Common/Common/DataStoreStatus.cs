@@ -33,6 +33,13 @@ public class DataStoreStatus(DataStoreState state, DataStoreActivity[] activitie
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public DataStoreState State { get; } = state;
     public ActivityBranch[] ActivityTree { get; } = buildTree(activities);
+    /// <summary>
+    /// Queries and reads waiting for the store lock right now: behind a transaction, which holds it for as
+    /// long as it runs, or behind another writer. A count of the moment, so not part of <see cref="Equals"/>.
+    /// </summary>
+    public int ReadersWaiting { get; init; }
+    /// <summary>Transactions and other writers waiting for the store lock right now. Not part of <see cref="Equals"/>.</summary>
+    public int WritersWaiting { get; init; }
     static ActivityBranch[] buildTree(DataStoreActivity[] activities) {
         var roots = activities.Where(a => a.IsRoot).ToArray();
         var orphans = activities.Where(a => !a.IsRoot).ToDictionary(a => a.Id);

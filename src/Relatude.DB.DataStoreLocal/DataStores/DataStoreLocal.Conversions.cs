@@ -60,10 +60,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         var stream = await fileStore.GetFileStream(fileValue);
         return new StreamAndValue(stream, fileValue);
     }
-    public async Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null) {
-        return (await GetFileStreamAndState(propertyPath, adj, maxWait, ctx)).Stream;
+    public async Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false) {
+        return (await GetFileStreamAndState(propertyPath, adj, maxWait, ctx, firstInQueue)).Stream;
     }
-    public async Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null) {
+    public async Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);
         adj = resolveAdaptiveFormat(fileValue, adj, out var serveOriginal);
         if (serveOriginal) { // a plain adaptive request: the original file, untouched
@@ -88,7 +88,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             });
             source = new InputFileSource(getInputStreamFunc, null);
         }
-        var result = await _fileConversionEngine.TryGetFormatAndStreamAsync(info, maxWait, source);
+        var result = await _fileConversionEngine.TryGetFormatAndStreamAsync(info, maxWait, source, firstInQueue);
         Stream stream;
         if (result.ProgressInfo.Status == FileConversionStatus.Ready) {
             if (result.Output == null) throw new Exception("File conversion output is null"); // should never happen, but just in case
@@ -98,7 +98,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return new StateAndStream(stream, result.ProgressInfo.Status == FileConversionStatus.Ready, fileValue, adj.RequestedFormat, conversionId, info);
     }
-    public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null) {
+    public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null, bool firstInQueue = false) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);
         adj = resolveAdaptiveFormat(fileValue, adj, out var serveOriginal);
         if (serveOriginal) { // a plain adaptive request never converts, the original is always ready
@@ -109,13 +109,13 @@ public sealed partial class DataStoreLocal : IDataStore {
         var fileStore = getFileStore(fileValue.StorageId);
         var fileConversionInfo = new FileConversionInfo(idWithAdj, fileValue.Name, fileValue.Hash, fileValue.Format);
         fileStore.TryGetLocalFilePath(fileValue, out var localFilePath);
-        return _fileConversionEngine.TryGetProgressInfo(fileConversionInfo, requestIfNot, new InputFileSource(() => fileStore.GetFileStream(fileValue), localFilePath), out progressInfo);
+        return _fileConversionEngine.TryGetProgressInfo(fileConversionInfo, requestIfNot, new InputFileSource(() => fileStore.GetFileStream(fileValue), localFilePath), out progressInfo, firstInQueue);
     }
-    public bool IsFileReady(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, QueryContext? ctx = null) {
-        return TryGetConversionInfo(propertyPath, adj, requestIfNot, out var progressInfo, ctx) && progressInfo.Status != FileConversionStatus.InProgress;
+    public bool IsFileReady(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, QueryContext? ctx = null, bool firstInQueue = false) {
+        return TryGetConversionInfo(propertyPath, adj, requestIfNot, out var progressInfo, ctx, firstInQueue) && progressInfo.Status != FileConversionStatus.InProgress;
     }
-    public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null) {
-        TryGetConversionInfo(propertyPath, adj, true, out _, ctx);
+    public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null, bool firstInQueue = false) {
+        TryGetConversionInfo(propertyPath, adj, true, out _, ctx, firstInQueue);
     }
     public FileConversions GetConversions(QueryContext? ctx = null) => _fileConversionEngine.GetConversions();
     public async Task CancelAllConversions(bool permanently, QueryContext? ctx = null) {

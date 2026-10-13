@@ -44,7 +44,9 @@ sealed class UIRevert {
     object status(Guid storeId) {
         var ds = store(storeId);
         var window = ds.RevertWindow;
-        var head = ds.GetLastTimestampID();
+        // without the store lock: the header asks on every page, and a running transaction holds the lock
+        // for as long as it runs. The number may be that transaction's, which is right for a status
+        var head = ds.PeekLastTimestamp();
         return new {
             StoreId = storeId,
             Active = window != null,

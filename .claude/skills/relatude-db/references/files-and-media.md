@@ -333,10 +333,12 @@ await db.Datastore.CancelConversion(conversionKey, permanently: false);
 
 `maxWaitMs` (on `TryParseUrlForContent`, `GetFileStream`, `GetFileStreamAndState`) is how long to block hoping the conversion finishes; `-1` means the store's own default.
 
+`firstInQueue` (optional, default `false`, on the same methods and on `IsFileReady`, `TryGetConversionInfo`, `EnsureConversionRequested`) puts the conversion ahead of every one waiting, and moves it there if it is waiting already. Conversions otherwise start in the order they were queued. Pass `firstInQueue: true` whenever a web request waits for the result — the media middleware, a page calling `IsFileReady` — and leave it off for background work, or page views wait behind whatever a batch job has queued.
+
 The pattern for video, straight from `examples/Website.Simple`: check `IsFileReady` for the transcode, serve the `<video>` when it is ready, and fall back to an image adjustment with a `TimeOffsetMs` poster frame while it is not.
 
 ```csharp
-if (db.Datastore.IsFileReady(path, videoAdj, true)) {
+if (db.Datastore.IsFileReady(path, videoAdj, true, firstInQueue: true)) {   // a page view waits for it
     var videoUrl = db.Datastore.GetUrl(path, videoAdj);
     // <video><source src="@videoUrl" type="video/mp4"></video>
 } else {
@@ -358,7 +360,7 @@ public class RelatudeDBMiddleware(RequestDelegate next) {
     public async Task Invoke(HttpContext http, RelatudeDBContext ctx) {
         if (RelatudeDBRuntime.IsReady) {                       // store may still be opening
             var url = http.Request.Path.Value + http.Request.QueryString;
-            if (ctx.Database.TryParseUrlForContent(url, out var content)) {
+            if (ctx.Database.TryParseUrlForContent(url, out var content, firstInQueue: true)) { // a browser waits: ahead of background conversions
                 var result = await handleRequest(http, content);
                 if (result != null) {
                     await result.ExecuteAsync(http);

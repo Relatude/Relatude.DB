@@ -31,16 +31,12 @@ public sealed partial class DataStoreLocal : IDataStore {
     // the window start
     internal bool RevertWindowIsActive => _revertWindow != null;
 
-    public RevertWindowInfo? RevertWindow {
-        get {
-            _lock.EnterReadLock();
-            try {
-                return _revertWindow;
-            } finally {
-                _lock.ExitReadLock();
-            }
-        }
-    }
+    /// <summary>
+    /// The open revert window, if any. Read without the store lock: it is one reference, replaced whole
+    /// under the write lock, and the admin UI asks for it in what every page waits for - which a running
+    /// transaction, holding the write lock for as long as it runs, would otherwise hold up.
+    /// </summary>
+    public RevertWindowInfo? RevertWindow => Volatile.Read(ref _revertWindow);
 
     public long BeginRevertWindow(bool saveStateFirst = true) {
         lock (_isRewritingOrCopyingLock) {

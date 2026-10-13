@@ -100,17 +100,24 @@ public sealed class UIServer {
                         revertWindow = new { Timestamp = w.Timestamp.ToString(System.Globalization.CultureInfo.InvariantCulture), w.BegunUtc };
                     }
                 } catch { }
-                // a container closing mid-request should not fail the snapshot
-                try { nodeCount = c.Store!.Count(); } catch { }
+                // the counts the store keeps as it goes, read without its lock. Counting with a query
+                // waited for any transaction running, and this snapshot is what the app's first load and
+                // the badges of every page wait for - so one long transaction froze the whole UI, and,
+                // as the timer goes through the databases one by one, the other databases with it. A
+                // container closing mid-request should not fail the snapshot either.
+                // The task count is what the background task queues still owe, so the Tasks badge is
+                // live on every page, not only on the one that polls the queues
+                try {
+                    var counters = c.Store!.Datastore.PeekCounters();
+                    nodeCount = counters.NodeCount;
+                    taskCount = counters.TasksQueued + counters.TasksQueuedPersisted;
+                } catch { }
                 // what the file conversion queue still owes, so the nav badge is live on every page
                 // without a poll of its own. Counting is walking a short in-memory list.
                 try {
                     var conversions = c.Store!.Datastore.GetConversions();
                     conversionCount = conversions.Running + conversions.Queued;
                 } catch { }
-                // and what the background task queues still owe, for the same reason: the Tasks badge
-                // has to be live on every page, not only on the one that polls the queues
-                try { taskCount = queuedTasks(c.Store!.Datastore); } catch { }
             }
             return (object)new {
                 c.Settings.Id,
@@ -960,7 +967,8 @@ public sealed class UIServer {
                 Containers = containers.Select(c => {
                     long? nodeCount = null;
                     if (c.IsOpen()) {
-                        try { nodeCount = c.Store!.Count(); } catch { }
+                        // kept by the store, read without its lock: a count query waits for a running transaction
+                        try { nodeCount = c.Store!.Datastore.PeekCounters().NodeCount; } catch { }
                     }
                     var io = c.Settings.IOSettings?.FirstOrDefault(io => io.Id == c.Settings.IoDatabase);
                     return new {

@@ -22,7 +22,8 @@ export interface NodeTypeInfo {
   sourceId: string;
   /** whether a node of this type can be made here: not the base type, and an assembly implements it */
   canCreate: boolean;
-  count: number;
+  /** null when a transaction held the database while the page loaded: not known yet, and asked for again */
+  count: number | null;
 }
 
 export interface QueryModel {
@@ -1114,6 +1115,15 @@ export function runPivot(request: PivotRequest, signal?: AbortSignal): Promise<P
 
 export function fetchQueryModel(storeId: string): Promise<QueryModel> {
   return send<QueryModel>("query-model", { storeId });
+}
+
+/** What a slow query may be waiting for: read without the database's lock, so it answers while queries wait. */
+export interface QueryWait {
+  /** queries and reads waiting for the database's lock right now */
+  readersWaiting: number;
+  writersWaiting: number;
+  /** what the database is busy with besides answering queries: a transaction, a flush, a rewrite… */
+  busy: { category: string; description: string | null; progress: number | null }[];
 }
 
 // the signal stops the query on the server too (see send): what the Query page's Stop button uses

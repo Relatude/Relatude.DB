@@ -14,17 +14,29 @@ internal class RunningConversions {
         }
         public V this[K key] {
             get { return m_Dictionary[key].Value.Value; }
-            set { Add(key, value); }
+            set {
+                // replaced where it is, keeping its place in the queue: this used to call Add, which
+                // leaves an existing key alone, so no update of a queued entry was ever stored
+                if (m_Dictionary.TryGetValue(key, out var node)) node.Value = new(key, value);
+                else Add(key, value);
+            }
         }
         public int Count => m_Dictionary.Count;
         public virtual bool IsReadOnly => m_Dictionary.IsReadOnly;
         public ICollection<K> Keys => m_Dictionary.Keys;
         public ICollection<V> Values => m_Dictionary.Values.Select(node => node.Value.Value).ToList(); // not efficient
-        public bool Add(K item, V value) {
+        public bool Add(K item, V value) => Add(item, value, first: false);
+        public bool Add(K item, V value, bool first) {
             if (m_Dictionary.ContainsKey(item)) return false;
-            var node = m_LinkedList.AddLast(new KeyValuePair<K, V>(item, value));
+            var pair = new KeyValuePair<K, V>(item, value);
+            var node = first ? m_LinkedList.AddFirst(pair) : m_LinkedList.AddLast(pair);
             m_Dictionary.Add(item, node);
             return true;
+        }
+        public void MoveFirst(K key) {
+            if (!m_Dictionary.TryGetValue(key, out var node) || node == m_LinkedList.First) return;
+            m_LinkedList.Remove(node);
+            m_LinkedList.AddFirst(node);
         }
         public void Add(KeyValuePair<K, V> item) {
             Add(item.Key, item.Value);
@@ -42,6 +54,14 @@ internal class RunningConversions {
             }
         }
         public IEnumerator<KeyValuePair<K, V>> GetEnumerator() => m_LinkedList.GetEnumerator();
+        /// <summary>The entries in queue order, where the caller may remove the one it was just given.</summary>
+        public IEnumerable<KeyValuePair<K, V>> InQueueOrder() {
+            for (var node = m_LinkedList.First; node != null;) {
+                var next = node.Next; // before the caller can unlink it
+                yield return node.Value;
+                node = next;
+            }
+        }
         public bool Remove(K item) {
             if (m_Dictionary.TryGetValue(item, out var node)) {
                 m_Dictionary.Remove(item);
@@ -100,11 +120,26 @@ internal class RunningConversions {
     readonly orderedDictionary<Guid, ProgressEntry> _conversions = [];
     readonly HashSet<Guid> _doingWorkOnEntry = [];
     readonly History<FileConversion> _history = new(TimeSpan.FromSeconds(60), 1000);
-    public void AddIfMissing(Guid key, Func<ProgressEntry> createEntry) {
+    /// <summary>
+    /// Queues the conversion unless it is queued already. Conversions start in queue order, so one
+    /// added <paramref name="firstInQueue"/> starts before every conversion waiting - and one that is
+    /// already waiting is moved there - as for a web request waiting for the result, which would
+    /// otherwise wait for everything queued before it.
+    /// </summary>
+    public void AddIfMissing(Guid key, Func<ProgressEntry> createEntry, bool firstInQueue = false) {
         lock (_conversions) {
-            if (_conversions.ContainsKey(key)) return;
+            if (_conversions.ContainsKey(key)) {
+                if (firstInQueue) _conversions.MoveFirst(key);
+                return;
+            }
             var entry = createEntry();
-            _conversions.Add(key, entry);
+            _conversions.Add(key, entry, firstInQueue);
+        }
+    }
+    /// <summary>Moves a queued conversion before every other, if it is still queued.</summary>
+    public void MoveFirst(Guid key) {
+        lock (_conversions) {
+            _conversions.MoveFirst(key);
         }
     }
     public bool TryGet(Guid key, [MaybeNullWhen(false)] out ProgressEntry entry) {
@@ -118,13 +153,10 @@ internal class RunningConversions {
                 entry = null;
                 return false;
             }
-            // look for next entry that is allowed to start
-            foreach (var potentialKey in _conversions.Keys) {
+            // look for next entry that is allowed to start, in queue order: the keys of the dictionary
+            // behind it are not, as it reuses the slots of removed keys
+            foreach (var (potentialKey, potentialEntry) in _conversions.InQueueOrder()) {
                 if (_doingWorkOnEntry.Contains(potentialKey)) continue; // already working on this entry
-                if (!_conversions.TryGetValue(potentialKey, out var potentialEntry)) {
-                    // this should not happen, but if it does, just skip this key
-                    continue;
-                }
                 if (tryReserveWork(potentialEntry)) {
                     _doingWorkOnEntry.Add(potentialKey);
                     entry = potentialEntry;

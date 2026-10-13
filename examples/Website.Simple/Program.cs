@@ -179,8 +179,8 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
                     Quality = 90
                 };
                 var thumbnailUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, thumbnailAdj)}";
-                var isThumbnailReady = db.Datastore.IsFileReady(article.File.PropertyPath!, thumbnailAdj, true);
-                var isVideoReady = db.Datastore.IsFileReady(article.File.PropertyPath!, videoAdj, true);
+                var isThumbnailReady = db.Datastore.IsFileReady(article.File.PropertyPath!, thumbnailAdj, true, firstInQueue: true);
+                var isVideoReady = db.Datastore.IsFileReady(article.File.PropertyPath!, videoAdj, true, firstInQueue: true);
                 if (isVideoReady) {
                     var videoUrl = $"{db.Datastore.GetUrl(article.File.PropertyPath!, videoAdj)}";
                     html.Append($"<video autoplay muted loop width='{videoAdj.Width}' height='{videoAdj.Height}' controls >");

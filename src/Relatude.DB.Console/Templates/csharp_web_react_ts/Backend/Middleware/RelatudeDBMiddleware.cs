@@ -12,7 +12,7 @@ public class RelatudeDBMiddleware(RequestDelegate next) {
     public async Task Invoke(HttpContext http, RelatudeDBContext ctx) {
         if (RelatudeDBRuntime.IsReady && http.Request.Path != "/") {
             var url = http.Request.Scheme + "://" + http.Request.Host + http.Request.Path.Value + http.Request.QueryString;
-            if (ctx.Database.TryParseUrlForContent(url, out var content)
+            if (ctx.Database.TryParseUrlForContent(url, out var content, firstInQueue: true) // a browser waits for it: ahead of background conversions
                 && content.Id.Target is UrlTarget.Property or UrlTarget.PropertyAdjusted) {
                 var result = await FileHandler.HandleFileAsync(http, content.Stream, content.FileName, content.Attachment, content.ContentType, content.Cacheable);
                 await result.ExecuteAsync(http);

@@ -8574,6 +8574,18 @@ body.pg-resizing {
   white-space: nowrap;
 }
 
+/* beside the Stop while the query waits behind a transaction: why it takes its time */
+.query-waiting {
+  align-self: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  cursor: help;
+}
+
 .query-spacer {
   flex: 1;
 }
@@ -10736,6 +10748,13 @@ body.pg-resizing {
 .type-option-count {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* not counted yet - a transaction held the database - so the dash says "unknown", not "none" */
+.type-picker-count.unknown,
+.type-option-count.unknown {
+  color: var(--text-faint);
+  cursor: help;
 }
 
 .type-picker-empty {

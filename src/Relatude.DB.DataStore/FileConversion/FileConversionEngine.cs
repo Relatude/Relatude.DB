@@ -99,8 +99,8 @@ public class FileConversionEngine : IDisposable {
                             entry.ProcessedMs = entry.Stopwatch?.Elapsed.TotalMilliseconds;
                             _conversions.Remove(entry, ConversionStatus.Completed, entry.ProgressInfo.Message);
                             break;
-                        case FileConversionStatus.InProgress:
-                            _conversions.UpdateIfExists(new(entry.Created, progress, entry.FileInfo, entry.InputSource, entry.Started, entry.Stopwatch?.Elapsed.TotalMilliseconds));
+                        case FileConversionStatus.InProgress: // not done, as when the converter is not ready yet: queued again with the progress it reported
+                            _conversions.UpdateIfExists(new(entry.Created, progress, entry.FileInfo, entry.InputSource, entry.Started, entry.Stopwatch?.Elapsed.TotalMilliseconds) { Stopwatch = entry.Stopwatch });
                             break;
                         case FileConversionStatus.Error: {
                                 entry.Stopwatch?.Stop();
@@ -199,19 +199,25 @@ public class FileConversionEngine : IDisposable {
         }
         return 0;
     }
-    public bool TryGetProgressInfo(FileConversionInfo info, bool startIfNotFound, InputFileSource source, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo) {
+    /// <summary>
+    /// The status of a conversion, queuing it when <paramref name="startIfNotFound"/> and it is neither
+    /// done nor queued. <paramref name="firstInQueue"/> puts it before every conversion waiting, moving it
+    /// there when it is waiting already: pass it when a web request waits for the result.
+    /// </summary>
+    public bool TryGetProgressInfo(FileConversionInfo info, bool startIfNotFound, InputFileSource source, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, bool firstInQueue = false) {
         var key = info.IdWithAdjustment.GetKey();
         if (_fileCache.TryGetStatusNoStream(info.IdWithAdjustment, out var progress)) {
             progressInfo = progress;
             return true;
         }
         if (_conversions.TryGet(key, out var entry)) {
+            if (startIfNotFound && firstInQueue) _conversions.MoveFirst(key);
             progressInfo = entry.ProgressInfo;
             return true;
         }
         if (startIfNotFound) {
             var prg = new FileConversionProgressInfo(FileConversionStatus.InProgress);
-            _conversions.AddIfMissing(key, () => new(DateTime.UtcNow, prg, info, source, null, null));
+            _conversions.AddIfMissing(key, () => new(DateTime.UtcNow, prg, info, source, null, null), firstInQueue);
             _scheduler.RunSoon();
             progressInfo = prg;
             return true;
@@ -219,13 +225,18 @@ public class FileConversionEngine : IDisposable {
         progressInfo = null;
         return false;
     }
-    public async Task<FileConversionResultAndStream> TryGetFormatAndStreamAsync(FileConversionInfo info, int maxWaitMs, InputFileSource source) {
+    /// <summary>
+    /// The converted file, queuing the conversion when it is neither done nor queued and waiting up to
+    /// <paramref name="maxWaitMs"/> for it. <paramref name="firstInQueue"/> puts it before every conversion
+    /// waiting, moving it there when it is waiting already: pass it when a web request waits for the result.
+    /// </summary>
+    public async Task<FileConversionResultAndStream> TryGetFormatAndStreamAsync(FileConversionInfo info, int maxWaitMs, InputFileSource source, bool firstInQueue = false) {
         maxWaitMs = adjustMaxWaitMs(info, maxWaitMs);
         var key = info.IdWithAdjustment.GetKey();
         if (_fileCache.TryGetResultAndStream(info.IdWithAdjustment, out var result)) return result; // check cache first
         var sw = Stopwatch.StartNew();
         ProgressEntry? entry;
-        _conversions.AddIfMissing(key, () => new(DateTime.UtcNow, new(FileConversionStatus.InProgress), info, source, null, null));
+        _conversions.AddIfMissing(key, () => new(DateTime.UtcNow, new(FileConversionStatus.InProgress), info, source, null, null), firstInQueue);
         _scheduler.RunSoon();
         if (!_fileConverters.TryGetConverter(info.Formats, out var converter)) {
             return new(new(FileConversionStatus.Error, 0, 0, "No converter available from " + info.Formats.From.ToString().ToUpper() + " to " + info.Formats.To.ToString().ToUpper() + ". "), null);

@@ -1440,7 +1440,9 @@ public class NodeStore : IDisposable {
     // GetUrl builds the URL the web layer serves a node or a file on, and TryParseUrl is the reverse. A file URL
     // can carry a FileAdjustment, which is a requested variant of the file such as a resized image or a converted
     // format. Variants are produced by background conversion, so a request may have to wait for one, which is what
-    // the maxWait arguments and the IsFileReady and conversion methods are about.
+    // the maxWait arguments and the IsFileReady and conversion methods are about. Conversions start in the order
+    // they were queued; firstInQueue puts one before every conversion waiting, moving it there if it is waiting
+    // already. Pass it when a web request waits for the result, and leave it off for work in the background.
     // ---------------------------------------------------------------------------------------------------------
 
     /// <summary>The URL of the node this object represents, based on its address.</summary>
@@ -1473,19 +1475,19 @@ public class NodeStore : IDisposable {
     /// <summary>Takes a URL apart into what it points at: node, file property and requested variant. False if it is not one of ours.</summary>
     public bool TryParseUrl(string url, [MaybeNullWhen(false)] out UrlKeys result, QueryContext? ctx = null) => Datastore.TryParseUrl(url, out result, ctx);
     /// <summary>Resolves a URL all the way to the content to serve: node data, or a file stream with content type and file name.</summary>
-    public bool TryParseUrlForContent(string url, [MaybeNullWhen(false)] out UrlContent result, int maxWaitMs = -1, QueryContext? ctx = null) => Datastore.TryParseUrlForContent(url, out result, maxWaitMs, ctx);
+    public bool TryParseUrlForContent(string url, [MaybeNullWhen(false)] out UrlContent result, int maxWaitMs = -1, QueryContext? ctx = null, bool firstInQueue = false) => Datastore.TryParseUrlForContent(url, out result, maxWaitMs, ctx, firstInQueue);
 
     /// <summary>Opens the file a URL points at. maxWait is how long to wait, in ms, for a variant that is still being produced.</summary>
-    public Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null) => Datastore.GetFileStream(url, maxWait, ctx);
+    public Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null, bool firstInQueue = false) => Datastore.GetFileStream(url, maxWait, ctx, firstInQueue);
     /// <summary>Opens the file a URL points at, and reports whether it is the finished variant or a stand in while conversion runs.</summary>
-    public Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null) => Datastore.GetFileStreamAndState(url, maxWait, ctx);
+    public Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false) => Datastore.GetFileStreamAndState(url, maxWait, ctx, firstInQueue);
     /// <summary>Opens the original file stored in this file property.</summary>
     public Task<Stream> GetFileStream(PropertyPath propertyPath, QueryContext? ctx = null) => Datastore.GetFileStream(propertyPath, ctx);
     /// <summary>Opens a variant of the file, waiting up to maxWait ms if it has to be produced first.</summary>
-    public Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null) => Datastore.GetFileStream(propertyPath, adj, maxWait, ctx);
+    public Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false) => Datastore.GetFileStream(propertyPath, adj, maxWait, ctx, firstInQueue);
     /// <summary>Opens a variant of the file and reports whether it is ready or still being produced.</summary>
-    public Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null)
-        => Datastore.GetFileStreamAndState(propertyPath, adj, maxWait, ctx);
+    public Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false)
+        => Datastore.GetFileStreamAndState(propertyPath, adj, maxWait, ctx, firstInQueue);
     /// <summary>Opens the file and hands back its file value as well, so you get name, size and content type in the same call.</summary>
     public Task<StreamAndValue> GetFileStreamAndValue(PropertyPath propertyPath, QueryContext? ctx = null)
         => Datastore.GetFileStreamAndValue(propertyPath, ctx);
@@ -1493,12 +1495,12 @@ public class NodeStore : IDisposable {
     /// Progress of the conversion producing a file variant, for progress bars and diagnostics. False when no
     /// conversion is known. Pass queueConversionIfNotRequested to start one that has not been asked for yet.
     /// </summary>
-    public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustmentBase adj, bool queueConversionIfNotRequested, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null)
-        => Datastore.TryGetConversionInfo(propertyPath, adj, queueConversionIfNotRequested, out progressInfo, ctx);
+    public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustmentBase adj, bool queueConversionIfNotRequested, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null, bool firstInQueue = false)
+        => Datastore.TryGetConversionInfo(propertyPath, adj, queueConversionIfNotRequested, out progressInfo, ctx, firstInQueue);
     /// <summary>True when a file variant is ready to serve. Pass requestIfNot to queue the conversion when it is not.</summary>
-    public bool IsFileReady(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, QueryContext? ctx = null) => Datastore.IsFileReady(propertyPath, adj, requestIfNot, ctx);
+    public bool IsFileReady(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, QueryContext? ctx = null, bool firstInQueue = false) => Datastore.IsFileReady(propertyPath, adj, requestIfNot, ctx, firstInQueue);
     /// <summary>Queues the conversion producing a file variant unless it is already done or queued. Returns at once.</summary>
-    public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null) => Datastore.EnsureConversionRequested(propertyPath, adj, ctx);
+    public void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null, bool firstInQueue = false) => Datastore.EnsureConversionRequested(propertyPath, adj, ctx, firstInQueue);
     /// <summary>The file conversions running or queued right now, for progress reporting and diagnostics.</summary>
     public FileConversions GetRunningConversions(QueryContext? ctx = null) => Datastore.GetConversions(ctx);
 

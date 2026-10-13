@@ -41,6 +41,7 @@ import {
   discardDraft,
   exportModel,
   fetchDatamodel,
+  fetchTypeCounts,
   fetchSchema,
   loadHistory,
   namespaceBase,
@@ -339,6 +340,19 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
     load();
     return subscribeResync(load);
   }, [load]);
+  // Counts the server could not take - a transaction held the database when the page loaded, and the
+  // page is not kept waiting for one - are asked for again on their own, so the editor and its draft
+  // are left alone, until every one is known.
+  const countsIncomplete = page !== null && page.typeCountsComplete === false;
+  useEffect(() => {
+    if (!countsIncomplete) return;
+    const timer = window.setInterval(() => {
+      fetchTypeCounts(db.id)
+        .then((c) => setPage((p) => (p ? { ...p, typeCounts: { ...p.typeCounts, ...c.typeCounts }, typeCountsComplete: c.typeCountsComplete } : p)))
+        .catch(() => {}); // still busy, or gone: the next tick asks again
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [countsIncomplete, db.id]);
   useEffect(() => localStorage.setItem("dmView", view), [view]);
   useEffect(() => writeSet("dmHiddenSources:" + db.id, hiddenSources), [hiddenSources, db.id]);
   useEffect(() => writeSet("dmHiddenNamespaces:" + db.id, hiddenNamespaces), [hiddenNamespaces, db.id]);

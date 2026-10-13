@@ -555,6 +555,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     /// <summary>The last timestamp, read without the lock: for background checks, which must not queue for it.</summary>
     internal long LastTimestampWithoutLock => _wal.LastTimestamp;
+    public long PeekLastTimestamp() => _state == DataStoreState.Open ? LastTimestampWithoutLock : 0;
     public long GetLastTimestampID() {
         _lock.EnterReadLock();
         try {

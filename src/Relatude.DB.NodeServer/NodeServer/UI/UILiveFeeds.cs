@@ -102,9 +102,11 @@ public sealed class UILiveFeeds {
         _ = Task.Run(() => run(tab));
     }
     /// <summary>
-    /// One loop per tab rather than one per feed: the feeds of a tab are sampled one after the other,
-    /// so a page following four things asks the server for one at a time - the same order of work a
-    /// polling page made, without the four requests.
+    /// One loop per tab rather than one per feed, deciding which feeds are due. Each due feed is sampled
+    /// on its own: they used to be sampled one after the other, so one command waiting for the store -
+    /// a count behind a long transaction, say - held up every other feed of the tab, and the whole page
+    /// stood still with it. A feed whose last sample has not come back yet is not sampled again, so a
+    /// slow command still spaces itself out instead of piling up.
     /// </summary>
     async Task run(Tab tab) {
         var token = tab.Cancel.Token;
@@ -119,19 +121,12 @@ public sealed class UILiveFeeds {
                     _events.Send(tab.Id, "unauthorized", null);
                     break;
                 }
-                try {
-                    foreach (var feed in tab.Feeds.Values) {
-                        if (token.IsCancellationRequested) break;
-                        if (feed.Due > Environment.TickCount64) continue;
-                        await sample(tab, feed, http);
-                        // measured from the end of the sample, so a command slower than the interval
-                        // spaces itself out instead of running back to back
-                        feed.Due = Environment.TickCount64 + feed.EveryMs;
-                    }
-                } catch (Exception error) when (error is not OperationCanceledException) {
-                    // one bad pass is one bad pass: a page that was following something must not be
-                    // left following nothing because of it
-                    RelatudeDBServer.Trace("UI live feed pass failed: " + error.Message);
+                foreach (var feed in tab.Feeds.Values) {
+                    if (token.IsCancellationRequested) break;
+                    if (feed.Due > Environment.TickCount64 || !feed.TryBeginSample()) continue;
+                    // on a thread of its own: a command runs synchronously until its first await, and
+                    // one that waits for the store lock would otherwise hold this loop as well
+                    _ = Task.Run(() => sampleAndReschedule(tab, feed, http, token));
                 }
             }
         } catch (OperationCanceledException) { // the tab was dropped
@@ -144,11 +139,26 @@ public sealed class UILiveFeeds {
             tab.Running = false;
         }
     }
-    async Task sample(Tab tab, Feed feed, HttpContext http) {
+    async Task sampleAndReschedule(Tab tab, Feed feed, HttpContext http, CancellationToken token) {
+        try {
+            await sample(tab, feed, http, token);
+        } catch (Exception error) when (error is not OperationCanceledException) {
+            // one bad sample is one bad sample: a page that was following something must not be left
+            // following nothing because of it
+            RelatudeDBServer.Trace("UI live feed sample failed: " + error.Message);
+        } catch (OperationCanceledException) { // the tab was dropped
+        } finally {
+            // measured from the end of the sample, so a command slower than the interval spaces itself
+            // out instead of running back to back
+            feed.Due = Environment.TickCount64 + feed.EveryMs;
+            feed.EndSample();
+        }
+    }
+    async Task sample(Tab tab, Feed feed, HttpContext http, CancellationToken token) {
         object? result;
         try {
-            result = await _commands.Invoke(feed.Type, _server, http, feed.Payload);
-        } catch (Exception error) {
+            result = await _commands.Invoke(feed.Type, _server, http, feed.Payload, token);
+        } catch (Exception error) when (!token.IsCancellationRequested) { // a dropped tab is told nothing
             // reported the way a sample is, so it is said once rather than on every pass: a database
             // that is closed under a page fails the same way until it is opened again
             if (feed.Mark(hash("!" + error.Message))) _events.Send(tab.Id, "feed", new { Feed = feed.Id, Error = error.Message });
@@ -179,7 +189,15 @@ public sealed class UILiveFeeds {
         public JsonElement? Payload { get; } = payload;
         public int EveryMs { get; } = everyMs;
         /// <summary>When this feed is next due, on <see cref="Environment.TickCount64"/>.</summary>
-        public long Due { get; set; }
+        public long Due {
+            get => Interlocked.Read(ref _due);
+            set => Interlocked.Exchange(ref _due, value);
+        }
+        long _due;
+        int _sampling;
+        /// <summary>Claims the feed for one sample; false while the last one is still running.</summary>
+        public bool TryBeginSample() => Interlocked.CompareExchange(ref _sampling, 1, 0) == 0;
+        public void EndSample() => Volatile.Write(ref _sampling, 0);
         byte[]? _last;
         /// <summary>Records what was just sampled, and says whether it differs from the last one.</summary>
         public bool Mark(byte[] digest) {

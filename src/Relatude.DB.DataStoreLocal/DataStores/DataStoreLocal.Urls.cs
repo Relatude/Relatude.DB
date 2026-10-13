@@ -39,7 +39,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     public bool TryParseUrl(string url, [MaybeNullWhen(false)] out UrlKeys result, QueryContext? ctx = null) {
         return _urls.TryParseUrl(url, out result, ctx ?? _defaultQueryCtx);
     }
-    public bool TryParseUrlForContent(string url, [MaybeNullWhen(false)] out UrlContent r, int maxWaitMs = -1, QueryContext? ctx = null) {
+    public bool TryParseUrlForContent(string url, [MaybeNullWhen(false)] out UrlContent r, int maxWaitMs = -1, QueryContext? ctx = null, bool firstInQueue = false) {
         r = default;
         ctx = ctx ?? _defaultQueryCtx;
         bool v = TryParseUrl(url, out UrlKeys? result, ctx);
@@ -69,7 +69,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     r.PropertyValue = GetValue<object>(result.PropertyPath!, ctx);
                     if (r.PropertyValue is FileValue fileValue) {
                         r.FileValue = fileValue;
-                        var stateAndStream = GetFileStreamAndState(result.PropertyPath!, result.Adjustment!, maxWaitMs).Result;
+                        var stateAndStream = GetFileStreamAndState(result.PropertyPath!, result.Adjustment!, maxWaitMs, firstInQueue: firstInQueue).Result;
                         r.Stream = stateAndStream.Stream;
                         r.Cacheable = stateAndStream.IsReady;
                         r.ContentType = FileFormatUtil.GetContentType(stateAndStream.RequestedFormat);
@@ -103,10 +103,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         return _urls.GetUrl(fileValue.PropertyPath, adj, getFileVersionId(fileValue, adj), absolute, fileValue.Name);
     }
 
-    public async Task<Stream> GetFileStream(string url, int maxWait = -1, QueryContext? ctx = null) {
-        return (await GetFileStreamAndState(url, maxWait, ctx)).Stream;
+    public async Task<Stream> GetFileStream(string url, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false) {
+        return (await GetFileStreamAndState(url, maxWait, ctx, firstInQueue)).Stream;
     }
-    public async Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null) {
+    public async Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false) {
         if (!_urls.TryParseUrl(url, out var keys, ctx ?? _defaultQueryCtx)) throw new Exception("URL is not a valid local URL");
         if (keys.Target == UrlTarget.Property) {
             var path = keys.PropertyPath ?? throw new Exception("URL does not point to a file property");
@@ -117,7 +117,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         } else if (keys.Target == UrlTarget.PropertyAdjusted) {
             var path = keys.PropertyPath ?? throw new Exception("URL does not point to an adjusted file property");
             var adj = keys.Adjustment ?? throw new Exception("URL does not point to an adjusted file property");
-            return await GetFileStreamAndState(path, adj, maxWait, ctx);
+            return await GetFileStreamAndState(path, adj, maxWait, ctx, firstInQueue);
         }
         throw new Exception("URL does not point to a file property");
     }
