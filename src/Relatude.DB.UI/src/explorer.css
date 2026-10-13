@@ -1311,3 +1311,41 @@ button.gx-status:hover span {
   padding: 0 8px;
   gap: 5px;
 }
+
+/* On a phone the API section scrolls as one (api.css), so the explorer stops filling the editor body
+   and stacks as it does when narrow, at its natural height: the side panel, then the query, then the
+   answer, each with the height it already asks for. Maximized it still covers the window, and
+   scrolls there. Only in the admin UI: the public explorer page fills the window itself. */
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .api-editor-body .gx {
+    flex: none;
+  }
+
+  .api-editor-body .gx.max {
+    overflow-y: auto;
+  }
+
+  .api-editor-body .gx-main,
+  .api-editor-body .gx-main.no-side {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    overflow: visible;
+  }
+
+  .api-editor-body .gx-side {
+    flex: none;
+    max-height: 55vh;
+  }
+
+  .api-editor-body .gx-split {
+    display: none;
+  }
+
+  .api-editor-body .gx-center,
+  .api-editor-body .gx-right {
+    flex: none;
+    min-height: 420px;
+    margin: 10px 0 0;
+  }
+}

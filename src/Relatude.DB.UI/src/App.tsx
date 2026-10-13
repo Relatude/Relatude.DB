@@ -23,6 +23,7 @@ import { isLoggedIn, logout } from "./server/auth";
 import { disconnect, subscribe, subscribeResync, subscribeUnauthorized } from "./server/channel";
 import { fetchLicenseStatus, type LicenseStatus } from "./server/license";
 import { fetchServerInfo, type DatabaseInfo, type ServerInfo } from "./server/serverInfo";
+import { matchesMedia, narrowQuery, useActiveSwitchesInView, usePhone } from "./media";
 import { applyTheme, getInitialTheme } from "./theme";
 
 // on localhost the server usually skips authentication (NoLoginRequiredForLocalhost);
@@ -64,7 +65,19 @@ export function App() {
   const [serverInfoError, setServerInfoError] = useState<string | null>(null);
   const [activeDbId, setActiveDbId] = useState<string | null>(null);
   const [activeSectionId, setActiveSectionId] = useState("dashboard");
-  const [navOpen, setNavOpen] = useState(true);
+  // a window too narrow to give the rail its labels starts with the icons only; the toggle still
+  // opens it, and the choice holds until the page is loaded again
+  const [navOpen, setNavOpen] = useState(() => !matchesMedia(narrowQuery));
+  // On a phone the rail is not beside the page but a drawer over it, opened from the menu button in
+  // the top bar and closed again by whatever is picked in it - a page there is the whole width or it
+  // is unreadable. It is its own state rather than navOpen: rotating the phone back to a wide screen
+  // should find the rail the way it was left there.
+  const phone = usePhone();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  useEffect(() => {
+    if (!phone) setDrawerOpen(false);
+  }, [phone]);
+  useActiveSwitchesInView(phone);
   // The rail marks the Relatude Services entry when there is no license or the keys are refused, so the one
   // place that says so is not a page nobody has opened. Asked once: it changes when someone changes
   // it, and the page hands the fresh answer back rather than making the rail poll for it.
@@ -80,7 +93,10 @@ export function App() {
     }
   }, [activeSectionId]);
   // a click on the rail's entry for a module with views opens the module where it was left
-  const selectFromRail = (id: string) => setActiveSectionId(rememberedView(id));
+  const selectFromRail = (id: string) => {
+    setActiveSectionId(rememberedView(id));
+    setDrawerOpen(false);
+  };
   // anything else that names a section (the global search) opens the view it names, or - for a
   // module that is not a view itself - where the module was left
   const openSection = (id: string) => setActiveSectionId(landingViews[id] ? rememberedView(id) : id);
@@ -201,11 +217,16 @@ export function App() {
         theme={theme}
         onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
         navCollapsed={!navOpen}
-        onToggleNav={() => setNavOpen(!navOpen)}
+        onToggleNav={() => (phone ? setDrawerOpen(!drawerOpen) : setNavOpen(!navOpen))}
+        phone={phone}
+        drawerOpen={drawerOpen}
       />
       <div className="shell-body">
         <Sidebar
-          collapsed={!navOpen}
+          collapsed={!phone && !navOpen}
+          drawer={phone}
+          drawerOpen={drawerOpen}
+          onCloseDrawer={() => setDrawerOpen(false)}
           onToggleCollapsed={() => setNavOpen(!navOpen)}
           databases={databases}
           activeDb={activeDb}

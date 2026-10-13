@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
-import { IconArrowRight, IconCornerDownLeft, IconDatabaseSearch, IconHash, IconId, IconSearch, IconSettings, IconX } from "@tabler/icons-react";
+import { IconArrowLeft, IconArrowRight, IconCornerDownLeft, IconDatabaseSearch, IconHash, IconId, IconSearch, IconSettings, IconX } from "@tabler/icons-react";
 import { sections } from "../navigation";
 import { openInDatamodel, openInQuery, openInSettings, openSearch, type SearchTarget } from "../navigate";
 import { useLiveResult } from "../server/hooks";
@@ -149,10 +149,26 @@ export function GlobalSearch({
   };
 
   const showPanel = open && trimmed.length > 0;
+  // On a phone the box is folded into its icon until it is used, then opened across the whole bar
+  // (app.css); a touch anywhere on the box - the icon is all there is of it then - puts the cursor in
+  // the text, and the arrow on the left folds it away again.
   return (
-    <div className="global-search" ref={box}>
-      <div className={"global-search-box" + (open ? " open" : "")}>
-        <IconSearch size={17} stroke={1.8} />
+    <div className={"global-search" + (open ? " open" : "")} ref={box}>
+      <div className={"global-search-box" + (open ? " open" : "")} onClick={() => input.current?.focus()}>
+        <button
+          className="icon-button global-search-close"
+          title="Close the search"
+          aria-label="Close the search"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen(false);
+            setText("");
+            input.current?.blur();
+          }}
+        >
+          <IconArrowLeft size={18} stroke={1.8} />
+        </button>
+        <IconSearch className="global-search-glyph" size={17} stroke={1.8} />
         <input
           ref={input}
           className="text-input"

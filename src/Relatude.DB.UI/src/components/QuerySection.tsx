@@ -68,6 +68,7 @@ import { applyMarquee, applySelect, noSelection, selectedInts, selectionCount, s
 import { marqueeModeClass, useListMarquee, useMarqueeMode } from "../marquee";
 import { useMaximized } from "../maximize";
 import { Loading } from "./Loading";
+import { matchesMedia, phoneQuery } from "../media";
 
 // How many hits one page holds. The large ones are for reading a whole set in one go - a table
 // someone is going to scroll, or export - and are asked for deliberately; "all" (0 here) is one
@@ -1101,8 +1102,9 @@ function QueryTab({
             className="text-input"
             ref={searchBox}
             // the page exists to be searched, and it only mounts when someone asks for it, so the
-            // caret starts here rather than one click away
-            autoFocus
+            // caret starts here rather than one click away - except on a phone, where a caret is a
+            // keyboard over half of the page that was just opened to be looked at
+            autoFocus={!matchesMedia(phoneQuery)}
             value={text}
             placeholder="Free text search or node ids — leave empty to browse everything"
             spellCheck={false}

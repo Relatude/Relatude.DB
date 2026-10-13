@@ -2015,6 +2015,52 @@ button.dm-source-card {
   }
 }
 
+/* On a phone the page scrolls as one, the toolbar going up with it - its two rows are most of a
+   screen - with the tables keeping a scroller of their own and the pictures a height of their own.
+   The editor of what was picked covers the page under the bar, the way the query's form does: half
+   a phone is too little for either the list or the form. Its cross gives the list back. */
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .dm {
+    height: auto;
+  }
+
+  .dm-body {
+    flex: none;
+  }
+
+  .dm-main {
+    overflow: visible;
+  }
+
+  .dm-models,
+  .dm-relations {
+    height: auto;
+  }
+
+  .dm-panel-scroll {
+    flex: none;
+    max-height: 75vh;
+  }
+
+  .dm-diagram {
+    height: 70vh;
+    min-height: 300px;
+  }
+
+  .dm-splitter {
+    display: none;
+  }
+
+  .dm-side {
+    position: fixed;
+    z-index: 50;
+    inset: 56px 0 0;
+    max-height: none;
+    border: none;
+    border-radius: 0;
+  }
+}
+
 /* ---- combobox: a text input with suggestions under it (the assembly and namespace of a type reference) ---- */
 
 .dm-combo {

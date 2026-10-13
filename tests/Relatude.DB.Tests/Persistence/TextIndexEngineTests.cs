@@ -257,6 +257,40 @@ public class TextIndexEngineTests {
     }
 
     [TestMethod]
+    public void FullMergeAtThreshold_RunsAtStateSave_NotAtFlush() {
+        // a full merge can rewrite the whole index, and MakeDurable runs under the store's write lock
+        // after every WAL flush, so reaching MergeSegmentThreshold leaves the merge to the state save
+        var dir = tempDir();
+        try {
+            using var engine = new TextIndexEngine(dir, new TextIndexOptions { MergeSegmentThreshold = 3 });
+            var walId = Guid.NewGuid();
+            engine.SetWalFileId(walId);
+            var idx = openIndex(engine);
+            // rounds shrinking 4x each never trigger the ladder, so every flush adds a segment
+            var id = 0;
+            for (var round = 0; round < 4; round++) {
+                var count = 800 >> (2 * round);
+                inTransaction(engine, (round + 1) * 100, () => {
+                    for (var i = 0; i < count; i++) idx.Add(++id, "shared token" + id);
+                });
+            }
+            string[] segFiles() => Directory.GetFiles(Path.Combine(dir, "textindex"), "seg_*.bin", SearchOption.AllDirectories);
+            Assert.AreEqual(4, segFiles().Length, "a flush must not run the full merge, even past the threshold");
+
+            idx.SaveStateForMemoryIndexes(400, walId);
+            Assert.AreEqual(1, segFiles().Length, "the state save merges everything once the threshold is reached");
+            Assert.AreEqual(400, engine.GetTimestamp(), "the merge must not move the position");
+            Assert.AreEqual(id, unrankedIds(idx, "shared").Length);
+            CollectionAssert.AreEqual(new[] { 7 }, unrankedIds(idx, "token7"));
+
+            idx.SaveStateForMemoryIndexes(400, walId);
+            Assert.AreEqual(1, segFiles().Length, "below the threshold a state save leaves the segments alone");
+        } finally {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [TestMethod]
     public void RetiredSegments_ReleaseTheirCachedBlocks() {
         // Cached dictionary blocks are keyed by segment id, and segment ids are never reused, so a
         // block cached from a segment that has since been merged away can never be read again.

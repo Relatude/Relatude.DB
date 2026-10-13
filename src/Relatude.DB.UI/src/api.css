@@ -402,3 +402,65 @@ a.api-page-button:hover {
   }
 }
 
+
+/* On a phone the section scrolls as one rather than filling the screen, and each code window takes
+   a height of its own; the explorer does the same in explorer.css. The container queries above
+   answer to the panel they are in, which on a phone is never a container, so the two columns of
+   the types view stack here, and so do the query and its variables; the code switch keeps its line
+   and the note under it gets one of its own. A view or a key is two fields to a row, and the props
+   of a type keep the tick and the name. */
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .content-body > .api,
+  .api-body,
+  .api-editor,
+  .api-try-result,
+  .api-editor-body.fill > .panel {
+    flex: none;
+  }
+
+  .api-body > .logs-body,
+  .api-editor-body,
+  .api-editor-body.fill {
+    overflow: visible;
+  }
+
+  .api-editor-body.fill .api-code:not(.small) {
+    flex: none;
+    height: 60vh;
+    min-height: 240px;
+  }
+
+  .api-types,
+  .api-try-inputs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .api-code-bar {
+    flex-wrap: wrap;
+  }
+
+  .api-code-meta {
+    flex-basis: 100%;
+  }
+
+  .api-code {
+    height: 60vh;
+  }
+
+  .api-apikey-row,
+  .api-view-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .api-apikey-head {
+    display: none;
+  }
+
+  .api-props .log-table-row {
+    grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .api-props .log-table-row > :nth-child(4) {
+    grid-column: 2 / -1;
+  }
+}

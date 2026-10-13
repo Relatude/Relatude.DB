@@ -82,7 +82,11 @@ public class TextIndex : IWordIndex, IWordCountIndex {
     public void FlagFirstCommit() { }
     // Data lives in the segment files, not in the memory-index state files.
     public void ReadStateForMemoryIndexes(Guid walFileId) { }
-    public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) { }
+    // A state save is where the full merge runs: it can rewrite the whole index, which is too heavy
+    // for the WAL flush the store runs under its write lock every second (see mergeIfNeeded).
+    public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) {
+        if (_segments.Count >= _options.MergeSegmentThreshold) OptimizeDisk();
+    }
     // After a log rewrite hot-swap the engine re-stamps every index in one call.
     public void WriteNewTimestampDueToRewriteHotswap(long newTimestamp, Guid walFileId) { }
 
@@ -527,11 +531,11 @@ public class TextIndex : IWordIndex, IWordCountIndex {
     List<Segment>? mergeIfNeeded() {
         List<Segment>? replaced = null;
         // size ladder: merge the newest two while they are within 2x of each other; segment sizes
-        // then grow geometrically toward the old end and the count stays logarithmic
+        // then grow geometrically toward the old end and the count stays logarithmic. The full
+        // merge at MergeSegmentThreshold is left to the state save (SaveStateForMemoryIndexes).
         while (_segments.Count >= 2 && _segments[^2].FileLength <= _segments[^1].FileLength * 2) {
             mergeRun(_segments.Count - 2, 2, ref replaced);
         }
-        if (_segments.Count >= _options.MergeSegmentThreshold) mergeRun(0, _segments.Count, ref replaced);
         return replaced;
     }
     /// <summary>Merges <paramref name="count"/> adjacent segments into one, which takes the run's

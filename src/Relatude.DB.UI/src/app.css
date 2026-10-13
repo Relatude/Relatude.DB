@@ -1187,8 +1187,12 @@ a {
 /* who is signed in, and the way out. It sits at the foot of the rail rather than in the top bar
    because it is about the person rather than about the page, and because the rail is where a
    reader already looks for what is theirs rather than the server's */
+/* flex: none - with overflow hidden its automatic minimum height is zero, so on a screen too short
+   for the whole rail it was the item that shrank, and the entries above drew over it; it keeps its
+   height and the rail scrolls instead */
 .sidebar-footer {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 8px;
   margin-top: auto;
@@ -2498,6 +2502,21 @@ a {
   font-size: 12px;
 }
 
+/* On a phone a switch of four or five views is wider than the screen: it keeps its one line and
+   scrolls sideways under the finger, rather than wrapping into a second row that reads as two
+   switches. */
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .module-switch {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    flex-shrink: 0;
+  }
+  .module-switch button {
+    flex: none;
+  }
+}
+
 .files {
   position: relative;
   display: flex;
@@ -3389,6 +3408,35 @@ a {
   font-size: 12px;
 }
 
+/* On a phone the dialog is as tall as what is in it and scrolls in its backdrop: the files over the
+   file's picture rather than beside it, and the picture a fixed height, since the dialog no longer
+   has one to share out. */
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .dialog.time-travel-dialog {
+    height: auto;
+    max-width: 100%;
+  }
+
+  .tt-body {
+    flex-direction: column;
+  }
+
+  .tt-files {
+    width: auto;
+    max-height: 200px;
+  }
+
+  .tt-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .tt-main .log-timeline,
+  .tt-main .tt-plot-empty {
+    flex: none;
+    height: 240px;
+  }
+}
+
 .tt-note {
   padding: 8px 4px;
   font-size: 12px;
@@ -3434,6 +3482,25 @@ a.action-button {
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+/* On a phone a dialog is the width of the screen less a margin, and one taller than the screen
+   scrolls inside the backdrop from its own top - centred, its head and its foot would both be off
+   the screen with no way to reach them. The auto margin centres it whenever it does fit. */
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .dialog-backdrop {
+    align-items: flex-start;
+    padding: 10px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .dialog-backdrop > .dialog {
+    flex: none;
+    margin: auto;
+    max-width: 100%;
+    padding: 16px;
+  }
 }
 
 .dialog h3 {
@@ -3807,6 +3874,224 @@ a.action-button {
 
 .sidebar.collapsed .sidebar-logout {
   margin-left: 0;
+}
+
+/* ---- the phone layout of the shell (phoneQuery in media.ts - keep the query the same) ----
+
+   A phone has the width of one column and no more, so the shell gives the page all of it: the rail
+   leaves the page and becomes a drawer behind the menu button, the search box folds into its icon
+   until it is used, and the controls of the bar keep only their icons. Nothing is taken away - every
+   control the bar has on a desktop it has here - it is only put where it fits. */
+.global-search-close {
+  display: none;
+}
+
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .header {
+    position: relative;
+    padding-right: 8px;
+  }
+
+  /* no rail to carry the line up into the bar: the button is an ordinary square, and the bar's gap
+     after it comes back */
+  .header-brand.phone {
+    justify-content: center;
+    align-self: stretch;
+    width: 50px;
+    height: auto;
+    margin-right: 0;
+    padding: 0;
+    color: var(--text-soft);
+  }
+
+  .header-brand.phone[aria-expanded="true"] {
+    color: var(--text);
+  }
+
+  /* the search box, folded into its icon */
+  .global-search {
+    flex: none;
+    width: 36px;
+  }
+
+  .global-search:not(.open) .global-search-box {
+    justify-content: center;
+    padding: 0;
+    background: none;
+    border-color: transparent;
+    cursor: pointer;
+  }
+
+  /* the text stays in the page while it is folded - a hidden input cannot be given the cursor - but
+     it takes no room, and the clear button waits until the box is open again */
+  .global-search:not(.open) .global-search-box .text-input {
+    flex: 0 0 0;
+    width: 0;
+    opacity: 0;
+  }
+
+  .global-search:not(.open) .global-search-box > .icon-button {
+    display: none;
+  }
+
+  /* ...and opened across the whole bar, over the controls, with the way back where the menu button was */
+  .global-search.open {
+    position: absolute;
+    z-index: 45;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    width: auto;
+    padding: 0 8px 0 6px;
+    background: var(--panel);
+  }
+
+  .global-search.open .global-search-box {
+    flex: 1;
+    padding-left: 2px;
+  }
+
+  .global-search.open .global-search-glyph {
+    display: none;
+  }
+
+  .global-search.open .global-search-close {
+    display: flex;
+    flex: none;
+    width: 30px;
+    height: 30px;
+  }
+
+  .global-search-panel {
+    left: 8px;
+    right: 8px;
+    min-width: 0;
+    max-height: calc(100dvh - 76px);
+  }
+
+  /* a job put away into the bar keeps its icon, its progress line and its button; the words are in
+     the dialog one touch away */
+  .task-chip {
+    min-width: 0;
+  }
+
+  .task-chip-text {
+    display: none;
+  }
+
+  .revert-pill-text {
+    display: none;
+  }
+
+  /* the database switcher is the one control in the bar that can give way: the name and the state
+     line ellipsise down to the orb and the chevron */
+  .db-switcher {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  .db-switcher-button {
+    width: auto;
+    max-width: 100%;
+    gap: 7px;
+    padding: 4px 6px;
+  }
+
+  /* what the bar's controls open hangs from the bar across the whole width, rather than from a
+     control that may be anywhere along it */
+  .header .db-menu,
+  .header .revert-panel {
+    position: fixed;
+    top: 62px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-height: calc(100dvh - 74px);
+    overflow-y: auto;
+  }
+
+  /* the rail, as a drawer: under the bar, over the page */
+  .shell-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebar-wrap.drawer {
+    position: fixed;
+    z-index: 60;
+    top: 56px;
+    bottom: 0;
+    left: 0;
+    width: min(300px, 86vw);
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition:
+      transform 0.22s ease,
+      visibility 0s linear 0.22s;
+  }
+
+  .sidebar-wrap.drawer.open {
+    transform: none;
+    visibility: visible;
+    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.22);
+    transition: transform 0.22s ease;
+  }
+
+  .sidebar-wrap.drawer .sidebar {
+    width: 100%;
+    padding: 12px 10px calc(10px + env(safe-area-inset-bottom));
+    transition: none;
+  }
+
+  .sidebar-wrap.drawer .nav-toggle {
+    display: none;
+  }
+
+  /* entries a finger can hit */
+  .sidebar-wrap.drawer .nav-item {
+    gap: 12px;
+    padding: 10px 12px;
+    font-size: 15px;
+  }
+
+  .sidebar-wrap.drawer .nav-item svg:not(.nav-ext) {
+    width: 18px;
+    height: 18px;
+  }
+
+  .sidebar-wrap.drawer .sidebar-logout {
+    width: 36px;
+    height: 36px;
+  }
+
+  .nav-backdrop {
+    position: fixed;
+    z-index: 59;
+    inset: 56px 0 0;
+    background: rgba(0, 0, 0, 0.32);
+    animation: nav-backdrop-in 0.22s ease;
+  }
+
+  .content-body {
+    padding: 10px;
+  }
+}
+
+@keyframes nav-backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* iOS zooms the page into any field typed into with text under 16px, and does not zoom back out. On
+   a touch phone everything typed into is 16px. The code editor is left as it is: its text has to lie
+   exactly over the coloured copy under it, line for line with the gutter, so it keeps its own size
+   and pays with the zoom when it is typed into. */
+@media (max-width: 760px) and (pointer: coarse), (max-height: 500px) and (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  select,
+  textarea:not(.code-input) {
+    font-size: 16px !important;
+  }
 }
 
 /* ---- settings ---- */
@@ -4759,7 +5044,7 @@ svg.tone-override {
 
 /* below this the contents column costs more than it gives: the pane keeps the whole width and the
    sections are reached by scrolling and by search */
-@media (max-width: 820px) {
+@media (max-width: 820px), (max-height: 500px) and (pointer: coarse) {
   .settings-body {
     grid-template-columns: 1fr;
   }
@@ -4996,6 +5281,30 @@ svg.tone-override {
 @media (max-width: 900px) {
   .conv-stats {
     grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* On a phone a conversion is two lines and no column heads: the file with its button, then the
+   formats, the state and the time; the bar comes in under them while it runs. */
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .conv-row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    row-gap: 4px;
+  }
+  .conv-row.conv-head,
+  .conv-row > :nth-child(3),
+  .conv-row > :nth-child(5):has(> .muted) {
+    display: none;
+  }
+  .conv-row > :nth-child(1) {
+    grid-column: 1 / 3;
+  }
+  .conv-row > :nth-child(7) {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .conv-row > :nth-child(5) {
+    grid-column: 1 / -1;
   }
 }
 
@@ -5453,6 +5762,63 @@ svg.tone-override {
   .tasks-type {
     grid-template-columns: 1fr;
     gap: 2px;
+  }
+}
+
+/* On a phone a batch is two lines: what it is across the top, its state and size under that, the
+   tick box and the buttons beside both. The tiles are a grid of equal squares rather than a row of
+   fixed ones, and the queue switches go under them. */
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .tasks-row {
+    grid-template-columns: 26px auto minmax(0, 1fr) auto;
+    row-gap: 2px;
+  }
+  .tasks-row > :nth-child(1) {
+    grid-row: 1 / 3;
+  }
+  .tasks-row > :nth-child(2) {
+    grid-column: 2 / 4;
+    grid-row: 1;
+  }
+  .tasks-row > :nth-child(3) {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .tasks-row > :nth-child(4) {
+    grid-column: 3;
+    grid-row: 2;
+    text-align: left;
+    color: var(--text-muted);
+  }
+  .tasks-row > :nth-child(8) {
+    grid-column: 4;
+    grid-row: 1 / 3;
+  }
+  .tasks-row.tasks-head-row > :nth-child(n + 3) {
+    display: none;
+  }
+  .tasks-stats-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .tasks-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    gap: 8px;
+  }
+  .tasks-stat {
+    padding: 8px 10px;
+  }
+  .tasks-throttle {
+    flex: 1 1 100%;
+  }
+  .tasks-throttle input[type="range"] {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+  }
+  .panel h3.panel-head-row {
+    flex-wrap: wrap;
   }
 }
 
@@ -7063,6 +7429,19 @@ svg.tone-override {
 
 .term-line.warning .term-text {
   color: var(--term-warn);
+}
+
+/* on a phone the message has the whole width under its time and level, rather than a third of it
+   beside them */
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .term-line {
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: 3px 0;
+  }
+
+  .term-text {
+    grid-column: 1 / -1;
+  }
 }
 
 /* the caret at the end: nothing is running, but it says this is a live tail rather than a snapshot */
@@ -8880,6 +9259,109 @@ body.pg-resizing {
   align-items: center;
   gap: 6px;
   font-size: 12px;
+}
+
+/* On a phone the query is one column: the facets, when they are asked for, over the hits rather than
+   beside them, and the form a hit opens covering the page under the bar - its close puts the list
+   back where it was. The modes keep one line and scroll sideways like the module switches. */
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .query-toolbar {
+    gap: 8px;
+  }
+
+  .query-type {
+    flex: 1 1 100%;
+  }
+
+  .query-toolbar .select,
+  .query-type .type-picker {
+    flex: 1;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .query-search {
+    flex-basis: 100%;
+  }
+
+  .query-toolbar > .query-view {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .query-view button {
+    flex: none;
+    white-space: nowrap;
+  }
+
+  .query-slider {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .query-slider-label {
+    width: 110px;
+    white-space: normal;
+  }
+
+  .query-slider input[type="range"] {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+  }
+
+  /* The page scrolls as one, the way a phone page does, rather than filling the screen and handing
+     whatever the toolbars leave to the hits: on a phone the toolbars alone are most of a screen. A long
+     list keeps a scroller of its own, so the rows it builds as it is read still grow (rowWindow.ts),
+     and a picture is given a height of its own, since nothing around it has one to give. */
+  .content-body > .query {
+    flex: none;
+    height: auto;
+  }
+
+  .query-body,
+  .query-body.with-editor,
+  .query-body.no-facets,
+  .query-body.no-facets.with-editor {
+    flex: none;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+    gap: 10px;
+  }
+
+  .query-body > .panel.query-facets {
+    max-height: 40vh;
+  }
+
+  .query-hits,
+  .query-table-wrap {
+    flex: none;
+    max-height: 75vh;
+  }
+
+
+  /* the 1240px rule hides the rail while a form is open; here the form covers it anyway */
+  .query-body.with-editor .query-facets {
+    display: block;
+  }
+
+  .query-splitter {
+    display: none;
+  }
+
+  .query-body.with-editor .query-editor {
+    position: fixed;
+    z-index: 50;
+    inset: 56px 0 0;
+    border: none;
+    border-radius: 0;
+  }
+
+  /* the summaries and pictures fill the screen within the screen, not past it */
+  .query-body.maximized {
+    padding: 8px;
+  }
 }
 
 .query-hits {
@@ -11119,6 +11601,69 @@ body.pg-resizing {
   grid-template-columns: 24px minmax(100px, 1fr) 64px 56px;
 }
 
+/* On a phone (FilesSection drops the dragged column widths there) the page scrolls as one, the way
+   the query page does: the folder tree over the list, each with a scroller of its own so a big
+   folder still only builds the rows on screen (virtualWindow.ts), and a file that is opened covers
+   the page under the bar until its viewer is closed - the viewer is the whole point of opening it,
+   and a third of a phone is no viewer. */
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .content-body > .files-storage.fill,
+  .files-storage.fill > .files {
+    flex: none;
+  }
+
+  .files {
+    height: auto;
+  }
+
+  .files-body {
+    flex: none;
+  }
+
+  .file-table,
+  .file-grid {
+    flex: none;
+    max-height: 70vh;
+  }
+
+  .files-toolbar .select {
+    flex: 1 1 200px;
+    width: auto;
+    min-width: 0;
+  }
+
+  .files-filter {
+    flex: 1 1 160px;
+  }
+
+  .files-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    gap: 10px;
+  }
+
+  .files-body > .pg-bar {
+    display: none;
+  }
+
+  .files-tree {
+    max-height: 32vh;
+  }
+
+  .file-table.compact .file-row {
+    grid-template-columns: 24px minmax(0, 1fr) 64px 56px;
+    padding: 6px 4px;
+  }
+
+  .files-viewer {
+    position: fixed;
+    z-index: 50;
+    inset: 56px 0 0;
+    border: none;
+    border-radius: 0;
+  }
+}
+
 /* ticking folders in the tree, for deleting several at once */
 .tree-check {
   flex: none;
@@ -11641,6 +12186,79 @@ body.pg-resizing {
 /* two panels of the same weight share the row equally; the backups list keeps its wide column */
 .overview-columns.even {
   grid-template-columns: 1fr 1fr;
+}
+
+/* Each panel lays its actions out for its own width rather than the window's: on a tablet the two
+   panels of a row are a third of a desktop each, and a hint beside a 220px button there is a column
+   one word wide. Narrow, the hint goes under its button. */
+.overview-columns > .panel {
+  container-type: inline-size;
+}
+
+@container (max-width: 440px) {
+  .overview-columns .process-action {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+}
+
+/* On a phone every pair of panels is one above the other, an action's hint goes under its button
+   rather than beside it, and a backup is two lines: its name, then its size and age, with the three
+   buttons beside both. */
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .overview-columns,
+  .overview-columns:last-child,
+  .overview-columns.even {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .process-action {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    margin-top: 12px;
+  }
+
+  .storage-group-head {
+    flex-wrap: wrap;
+  }
+
+  .storage-group-head .muted {
+    flex-basis: 100%;
+    order: 1;
+    white-space: normal;
+  }
+
+  .backup-row {
+    grid-template-columns: auto minmax(0, 1fr) 30px 30px 30px;
+    row-gap: 0;
+    padding: 6px 0;
+  }
+
+  .backup-row.db-table-head {
+    display: none;
+  }
+
+  .backup-row > .file-name {
+    grid-column: 1 / 3;
+    grid-row: 1;
+  }
+
+  .backup-row > .num {
+    grid-row: 2;
+    text-align: left;
+    font-size: 12px;
+  }
+
+  .backup-row > .muted {
+    grid-row: 2;
+    font-size: 12px;
+  }
+
+  .backup-row > .icon-button {
+    grid-row: 1 / 3;
+  }
 }
 
 /* the switch on the dashboard's state tile: top right, out of the way of the number */
@@ -12661,6 +13279,35 @@ body.pg-resizing {
 
 .cloud-stage.loading {
   opacity: 0.6;
+}
+
+/* On a phone the query page scrolls as one (see the query section above), so the pictures are given
+   a height of their own: most of a screen, leaving the edge of the page above or below them to
+   scroll it by - the picture itself takes the finger for panning. */
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .visual,
+  .cloud {
+    flex: none;
+  }
+
+  .visual-stage,
+  .cloud-stage {
+    flex: none;
+    height: 62vh;
+    min-height: 300px;
+  }
+
+  /* ...except while the picture is made to fill the window, where it takes what the window has */
+  .query-body.maximized,
+  .query-body:fullscreen {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .query-body:is(.maximized, :fullscreen) :is(.visual, .cloud, .visual-stage, .cloud-stage) {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+  }
 }
 
 /* the button that runs the count sits on the builder's line, so it is sized to that line rather
@@ -15307,4 +15954,25 @@ body.pg-resizing {
 
 .node-sizes-dialog .scan-bar {
   display: block;
+}
+
+/* ---- a screen with no pointer to hover with ----
+
+   A few small controls wait out of sight until the pointer is over what they belong to: a panel's
+   maximize, a column's tools, a query tab's close, the link from a form field to its definition, the
+   tick box on a file tile. A finger has no hover - the first touch would be the click - so on a touch
+   screen they are simply there. */
+@media (hover: none) {
+  .panel-cell > .pg-max,
+  .th-tools,
+  .query-tabs .tab .icon-button,
+  .node-field-link,
+  .file-tile-check {
+    opacity: 1;
+  }
+
+  /* the maximize stands in the panel's top right corner for good, so the heading stops short of it */
+  .panel-cell > .panel > h3:first-child {
+    padding-right: 22px;
+  }
 }

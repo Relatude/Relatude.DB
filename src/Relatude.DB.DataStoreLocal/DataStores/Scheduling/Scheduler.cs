@@ -113,8 +113,8 @@ internal class Scheduler {
 
         // initiating flush timer:
         if (_s.AutoFlushDiskInBackground) {
-            var flushIntervalMs = (int)_s.AutoFlushDiskIntervalInSeconds * 1000;
-            if (flushIntervalMs == 0) flushIntervalMs = defaultAutoFlushPulseIntervalMs; // default to 1 second if not set
+            var flushIntervalMs = (int)(_s.AutoFlushDiskIntervalInSeconds * 1000); // fractions count: 0.5 is 500 ms, not 0
+            if (flushIntervalMs <= 0) flushIntervalMs = defaultAutoFlushPulseIntervalMs; // default to 1 second if not set
             _autoFlushTimer = new Timer(autoFlushDisk, null, startupDelayMs, flushIntervalMs);
         }
 

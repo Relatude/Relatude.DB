@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { IconChevronDown, IconMoon, IconPlayerPause, IconRefresh, IconSun } from "@tabler/icons-react";
+import { IconChevronDown, IconMenu2, IconMoon, IconPlayerPause, IconRefresh, IconSun, IconX } from "@tabler/icons-react";
 import { sections } from "../navigation";
 import { describeInterval, refreshSteps, setRefreshInterval, useRefreshInterval } from "../refresh";
 import type { DatabaseInfo } from "../server/serverInfo";
@@ -21,6 +21,9 @@ interface HeaderProps {
   onToggleTheme: () => void;
   navCollapsed: boolean;
   onToggleNav: () => void;
+  /** laid out for a phone: the brand box is the button that opens the rail's drawer */
+  phone: boolean;
+  drawerOpen: boolean;
 }
 
 /**
@@ -36,19 +39,33 @@ export function Header(p: HeaderProps) {
   const isServerScope = section?.scope === "server";
   return (
     <header className="header">
-      {/* sized like the rail (and animated with it), borderless, so the logo and the rail read as one column */}
-      <button
-        className={"header-brand" + (p.navCollapsed ? " collapsed" : "")}
-        onClick={p.onToggleNav}
-        title={p.navCollapsed ? "Expand menu" : "Collapse menu"}
-      >
-        <span className="logo-full">
-          <Logo height={40} />
-        </span>
-        <span className="logo-mark">
-          <LogoMark height={13} />
-        </span>
-      </button>
+      {/* sized like the rail (and animated with it), borderless, so the logo and the rail read as one column.
+          On a phone the rail is a drawer and this is the button that opens it, in the shape every
+          phone user already knows for that */}
+      {p.phone ? (
+        <button
+          className="header-brand phone"
+          onClick={p.onToggleNav}
+          title={p.drawerOpen ? "Close menu" : "Open menu"}
+          aria-label={p.drawerOpen ? "Close menu" : "Open menu"}
+          aria-expanded={p.drawerOpen}
+        >
+          {p.drawerOpen ? <IconX size={22} stroke={1.8} /> : <IconMenu2 size={22} stroke={1.8} />}
+        </button>
+      ) : (
+        <button
+          className={"header-brand" + (p.navCollapsed ? " collapsed" : "")}
+          onClick={p.onToggleNav}
+          title={p.navCollapsed ? "Expand menu" : "Collapse menu"}
+        >
+          <span className="logo-full">
+            <Logo height={40} />
+          </span>
+          <span className="logo-mark">
+            <LogoMark height={13} />
+          </span>
+        </button>
+      )}
       {headerCentre === "search" ? (
         <GlobalSearch activeDb={p.activeDb} onSelectSection={p.onSelectSection} />
       ) : (

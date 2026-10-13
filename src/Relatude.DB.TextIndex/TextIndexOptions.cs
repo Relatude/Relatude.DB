@@ -21,9 +21,10 @@ public sealed class TextIndexOptions {
     /// memory as the skip level lookups binary-search before decoding a single block.</summary>
     public int TermsPerBlock { get; set; } = 64;
     /// <summary>
-    /// Hard cap on live segments per index: reaching it triggers a full merge. Rarely hit — after
-    /// every flush, adjacent segments of similar size are merged into a size ladder, which keeps
-    /// the count logarithmic in index size on its own.
+    /// Segment count per index at which the next index state save runs a full merge (never a WAL
+    /// flush: a full merge can rewrite the whole index). Rarely hit — after every flush, adjacent
+    /// segments of similar size are merged into a size ladder, which keeps the count logarithmic
+    /// in index size on its own.
     /// </summary>
     public int MergeSegmentThreshold { get; set; } = 48;
 }

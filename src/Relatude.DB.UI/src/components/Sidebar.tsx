@@ -8,6 +8,10 @@ import { siteUrl } from "../siteLinks";
 interface SidebarProps {
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  /** laid out for a phone: the rail is a drawer over the page rather than a column beside it */
+  drawer: boolean;
+  drawerOpen: boolean;
+  onCloseDrawer: () => void;
   databases: DatabaseInfo[];
   activeDb: DatabaseInfo | null;
   /** null until the first answer, and whenever the question could not be asked */
@@ -17,7 +21,26 @@ interface SidebarProps {
   onLogout: () => void;
 }
 
-export function Sidebar({ collapsed, onToggleCollapsed, databases, activeDb, license, activeSectionId, onSelectSection, onLogout }: SidebarProps) {
+export function Sidebar({
+  collapsed,
+  onToggleCollapsed,
+  drawer,
+  drawerOpen,
+  onCloseDrawer,
+  databases,
+  activeDb,
+  license,
+  activeSectionId,
+  onSelectSection,
+  onLogout,
+}: SidebarProps) {
+  // the drawer closes on escape, like every other thing that hangs over the page
+  useEffect(() => {
+    if (!drawer || !drawerOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCloseDrawer();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawer, drawerOpen, onCloseDrawer]);
   const errors = databases.filter((db) => db.state === "Error").length;
   const conversions = activeDb?.conversionCount ?? 0;
   const tasks = activeDb?.taskCount ?? 0;
@@ -33,45 +56,50 @@ export function Sidebar({ collapsed, onToggleCollapsed, databases, activeDb, lic
     return null;
   };
   return (
-    <div className="sidebar-wrap">
-      <aside className={"sidebar" + (collapsed ? " collapsed" : "")}>
-        <NavGroup
-          label={activeDb ? `Database — ${activeDb.name}` : "Database"}
-          shortLabel="DB"
-          items={sections.filter((s) => s.scope === "database" && !s.hidden && !s.parentId)}
-          badgeFor={badgeFor}
-          activeSectionId={activeSectionId}
-          onSelectSection={onSelectSection}
-        />
-        <NavGroup
-          label="Server"
-          shortLabel="SRV"
-          items={sections.filter((s) => s.scope === "server" && !s.hidden && !s.parentId)}
-          badgeFor={badgeFor}
-          activeSectionId={activeSectionId}
-          onSelectSection={onSelectSection}
-        />
-        <NavGroup
-          label="Relatude Services"
-          shortLabel="RS"
-          items={sections.filter((s) => s.scope === "services" && !s.hidden && !s.parentId)}
-          badgeFor={badgeFor}
-          activeSectionId={activeSectionId}
-          onSelectSection={onSelectSection}
-        >
-          {/* the Relatude.DB site, where the manual is: the one link in the rail that leaves the UI */}
-          <a className="nav-item nav-tone-gray" href={siteUrl} target="_blank" rel="noreferrer" title="The Relatude.DB manual — opens in a new tab">
-            <IconBook size={16} stroke={1.8} />
-            <span className="label">Manual</span>
-            <IconExternalLink className="nav-ext" size={12} stroke={1.8} />
-          </a>
-        </NavGroup>
-        <SignedIn collapsed={collapsed} onLogout={onLogout} />
-      </aside>
-      <button className="nav-toggle" onClick={onToggleCollapsed} title={collapsed ? "Expand menu" : "Collapse menu"}>
-        {collapsed ? <IconChevronRight size={14} stroke={2} /> : <IconChevronLeft size={14} stroke={2} />}
-      </button>
-    </div>
+    <>
+      {/* on a phone the rail is a drawer, and the page under it is dimmed and closes it when touched */}
+      {drawer && drawerOpen && <div className="nav-backdrop" onClick={onCloseDrawer} />}
+      {/* a closed drawer is out of the tab order as well as out of sight */}
+      <div className={"sidebar-wrap" + (drawer ? " drawer" : "") + (drawer && drawerOpen ? " open" : "")} inert={drawer && !drawerOpen}>
+        <aside className={"sidebar" + (collapsed ? " collapsed" : "")}>
+          <NavGroup
+            label={activeDb ? `Database — ${activeDb.name}` : "Database"}
+            shortLabel="DB"
+            items={sections.filter((s) => s.scope === "database" && !s.hidden && !s.parentId)}
+            badgeFor={badgeFor}
+            activeSectionId={activeSectionId}
+            onSelectSection={onSelectSection}
+          />
+          <NavGroup
+            label="Server"
+            shortLabel="SRV"
+            items={sections.filter((s) => s.scope === "server" && !s.hidden && !s.parentId)}
+            badgeFor={badgeFor}
+            activeSectionId={activeSectionId}
+            onSelectSection={onSelectSection}
+          />
+          <NavGroup
+            label="Relatude Services"
+            shortLabel="RS"
+            items={sections.filter((s) => s.scope === "services" && !s.hidden && !s.parentId)}
+            badgeFor={badgeFor}
+            activeSectionId={activeSectionId}
+            onSelectSection={onSelectSection}
+          >
+            {/* the Relatude.DB site, where the manual is: the one link in the rail that leaves the UI */}
+            <a className="nav-item nav-tone-gray" href={siteUrl} target="_blank" rel="noreferrer" title="The Relatude.DB manual — opens in a new tab">
+              <IconBook size={16} stroke={1.8} />
+              <span className="label">Manual</span>
+              <IconExternalLink className="nav-ext" size={12} stroke={1.8} />
+            </a>
+          </NavGroup>
+          <SignedIn collapsed={collapsed} onLogout={onLogout} />
+        </aside>
+        <button className="nav-toggle" onClick={onToggleCollapsed} title={collapsed ? "Expand menu" : "Collapse menu"}>
+          {collapsed ? <IconChevronRight size={14} stroke={2} /> : <IconChevronLeft size={14} stroke={2} />}
+        </button>
+      </div>
+    </>
   );
 }
 

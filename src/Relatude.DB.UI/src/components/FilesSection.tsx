@@ -77,6 +77,7 @@ import { displayType } from "../code/language";
 import { useVirtualWindow, windowPad } from "../virtualWindow";
 import { FileTile } from "./FileTile";
 import { FileViewer } from "./FileViewer";
+import { usePhone } from "../media";
 import { MoveFilesDialog, type MoveChoice } from "./MoveFilesDialog";
 
 // Selection is one thing here: a click on a file row selects that file (ctrl toggles, shift takes a
@@ -1150,7 +1151,11 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   const deletable = files.filter((f) => selected.has(f.key)).length + [...selectedFolders].filter((f) => f !== "").length;
   // every storage, this one included: a move or a copy can go to another folder of the same storage
   const moveTargets = ios;
-  const compact = viewFile !== null; // the viewer is open: the list keeps the name and the size
+  // On a phone the tree, the list and the viewer cannot stand side by side: the tree goes over the
+  // list, the list keeps only the name and the size, and a file opened from it covers the page
+  // until its viewer is closed (app.css). The column widths dragged on a wider screen are left alone.
+  const phone = usePhone();
+  const compact = viewFile !== null || phone; // the viewer is open: the list keeps the name and the size
   // the viewer may take everything but the tree, the bars and a readable list: a stored width from
   // a wider window is cut down to that here, and the drag never grows it past it
   const listMinWidth = 340; // room for the compact columns (name, size, actions) without clipping
@@ -1341,7 +1346,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
         )}
       </div>
       {error && <div className="login-error">{error}</div>}
-      <div ref={bodyRef} className={"files-body" + (resizing ? " resizing" : "")} style={{ gridTemplateColumns: columns }}>
+      <div ref={bodyRef} className={"files-body" + (resizing ? " resizing" : "")} style={phone ? undefined : { gridTemplateColumns: columns }}>
         <section className="panel files-tree" style={{ minWidth: 0 }}>
           <FolderNode
             path=""
