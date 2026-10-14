@@ -1,0 +1,10 @@
+<Project>
+	<!-- The libraries here ship as NuGet packages (Relatude.DB.Server and the plugins), so each writes its
+	     /// comments to <AssemblyName>.xml next to its dll, where the .nuspec files pick it up: without that
+	     file, consumers of the package get no IntelliSense descriptions. CS1591 (a public member without a
+	     comment) is silenced, as not every member is documented. The command line tool needs no docs. -->
+	<PropertyGroup Condition="'$(MSBuildProjectName)' != 'Relatude.DB.Console'">
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<NoWarn>$(NoWarn);CS1591</NoWarn>
+	</PropertyGroup>
+</Project>

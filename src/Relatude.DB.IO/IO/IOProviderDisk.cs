@@ -21,6 +21,8 @@ public class IOProviderDisk : IIOProvider {
     readonly Dictionary<string, int> _openWriters = [];
     readonly List<IStream> _openStreams = [];
     bool _dirExists;
+    /// <param name="baseFolder"></param>
+    /// <param name="readOnly"></param>    
     /// <param name="plainFolder">The folder is an ordinary folder, not database storage (the admin UI's
     /// view of the website project folder): any legal file system name is a valid key segment, and
     /// listings carry none of the database folder descriptions or primary data markings.</param>

@@ -4,7 +4,9 @@ using Relatude.DB.Common;
 namespace Relatude.DB.NodeServer;
 
 public static class AIProviderFactory {
-    /// <param name="licenseApiKey">The installation's license API key, read at every call, for the
+    /// <param name="settings"></param>
+
+    /// <param name="dataFolder"></param>    /// <param name="licenseApiKey">The installation's license API key, read at every call, for the
     /// hosted Relatude service to charge, before any key in the settings.</param>
     /// <param name="owner">Names the database in the cache file name when <paramref name="dataFolder"/>
     /// is shared with other databases (see <see cref="ServiceCaches"/>); null in a database's own folder.</param>

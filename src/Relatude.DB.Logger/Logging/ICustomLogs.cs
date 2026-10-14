@@ -108,8 +108,10 @@ public sealed record CustomLogLoadError(string FileKey, string Message);
 public sealed record CustomLogDataEntry(string Key, string? Name, DataChange Change, string DataFile, string? SettingsFile);
 
 /// <summary>One file a custom log has in its folder of the log storage.</summary>
+/// <param name="FileKey"></param>
 /// <param name="Kind">"entries", "text", "statistics", "statistics-backup", or
 /// "left-over": entries written in a file layout the log no longer uses, which it cannot read.</param>
+/// <param name="Size"></param>
 public sealed record CustomLogFile(string FileKey, string Kind, long Size);
 
 /// <summary>

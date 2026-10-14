@@ -27,8 +27,8 @@ public enum ReferenceTarget {
 public class ReferenceInternal {
     public ReferenceSourceType SourceType { get; set; }
     public ReferenceTarget Target { get; set; }
-    public byte[] From{ get; set; } 
-    public byte[] To { get; set; }
+    public byte[]? From{ get; set; }
+    public byte[]? To { get; set; }
 }
 
 internal class ReferenceRegister : IIndex {

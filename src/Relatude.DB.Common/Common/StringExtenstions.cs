@@ -39,15 +39,10 @@ namespace Relatude.DB.Common {
             return null;
         }
         /// <summary>
-        /// True when [prefix, <see cref="OrdinalPrefixUpperBound"/>) holds the strings starting with
-        /// prefix and nothing else, whatever the ordering, so a range scan of an index needs no
-        /// confirmation per value.
-        /// It is false when the last character is char.MaxValue or a surrogate, because incrementing
-        /// it then means one thing to an index ordered by UTF-16 code units and another to one
-        /// ordered by UTF-8 bytes (that is, by code point), and the range widens in one of them. For
-        /// the prefix "a￿" for instance the bound becomes "b", which by code point also covers
-        /// "a" followed by anything above the BMP.
+        /// True if the range [prefix, prefix.OrdinalPrefixUpperBound()) contains only strings starting with prefix, false if it also contains other strings. This is the case when the last character of prefix is char.MaxValue or a surrogate.
         /// </summary>
+        /// <param name="prefix"></param>
+        /// <returns></returns>
         public static bool HasExactOrdinalPrefixRange(this string prefix)
             => prefix.Length == 0 || !(prefix[prefix.Length - 1] == char.MaxValue || char.IsSurrogate(prefix[prefix.Length - 1]));
         public static string Decamelize(this string s, bool capitalizeFirstLetter = true) {

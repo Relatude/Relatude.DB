@@ -58,6 +58,7 @@ public sealed class WordCountCostModel {
     public double NsPerPosting => _nsPerPosting;
 
     /// <param name="totalWords">The words the index's documents hold in all - the most postings a walk can visit.</param>
+    /// <param name="options"></param>
     public TimeSpan Estimate(long totalWords, WordCountOptions options) {
         var postings = Math.Max(0, totalWords);
         if (options.MaxPostingsEvaluated > 0) postings = Math.Min(postings, options.MaxPostingsEvaluated);

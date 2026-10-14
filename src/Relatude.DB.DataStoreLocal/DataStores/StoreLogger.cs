@@ -208,6 +208,7 @@ public class StoreLogger : IDisposable, IStoreLogger {
 
     public int MinDurationMsBeforeLogging { get; set; } = 0; // in milliseconds
     /// <param name="io">The provider the log folder is in.</param>
+    /// <param name="datamodel"></param>
     /// <param name="customLogDefinitions">Where the definitions of the custom logs are kept; null keeps
     /// them in the log folder (see <see cref="Logging.CustomLogs"/>).</param>
     /// <param name="log">Told what loading the custom logs' definitions could not do.</param>

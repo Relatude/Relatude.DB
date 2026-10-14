@@ -131,7 +131,7 @@ public sealed class SettingsOverlay {
 
     /// <summary>
     /// True when the configuration section decides this setting, so editing it would have no effect:
-    /// the live value comes from configuration and <see cref="RemoveOverridesBeforeSave"/> keeps the
+    /// the live value comes from configuration and keeps the
     /// file's own value. Paths are built by <see cref="OverridePath"/>. An override recorded on an
     /// ancestor (configuration supplying a whole object the file did not have) covers everything
     /// below it, so ancestors are checked too.

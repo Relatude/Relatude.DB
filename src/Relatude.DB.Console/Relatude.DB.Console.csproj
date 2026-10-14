@@ -12,12 +12,12 @@
 		<RootNamespace>Relatude.DB.Cli</RootNamespace>
 		<AssemblyName>relatude</AssemblyName>
 		<InvariantGlobalization>true</InvariantGlobalization>
-		<Version>0.4.5.223</Version>
+		<Version>1.0.1.1</Version>
 		<PackAsTool>true</PackAsTool>
 		<ToolCommandName>relatude</ToolCommandName>
 		<PackageId>Relatude.DB.Tool</PackageId>
 		<Description>Command line tool for Relatude.DB: create a new web application (relatude new), inspect the datamodel, run queries, generate model code and run maintenance on a local database.</Description>
-		<!-- package metadata, kept in sync with the .nuspec files in \nuget -->
+		<!-- package metadata, kept in sync with the .nuspec files in Relatude.DB.CMS\Nuget, the repo next to this one that packs it -->
 		<Authors>Ole Gulbrandsen</Authors>
 		<PackageProjectUrl>https://www.github.com/relatude/relatude.db</PackageProjectUrl>
 		<PackageTags>Database ORM CMS dotnet-tool</PackageTags>
@@ -30,7 +30,7 @@
 	<ItemGroup>
 		<None Include="..\..\readme.md" Pack="true" PackagePath="readme.md" Visible="false" />
 		<None Include="..\..\LICENSE.txt" Pack="true" PackagePath="license.txt" Visible="false" />
-		<None Include="..\..\nuget\icon.png" Pack="true" PackagePath="icon.png" Visible="false" />
+		<None Include="..\..\media\icon.png" Pack="true" PackagePath="icon.png" Visible="false" />
 	</ItemGroup>
 
 	<ItemGroup>

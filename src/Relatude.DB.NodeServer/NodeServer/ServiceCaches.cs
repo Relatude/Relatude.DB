@@ -35,8 +35,12 @@ public static class ServiceCaches {
     /// <paramref name="folder"/> (in memory when there is no folder). Null, with why in
     /// <paramref name="warnings"/>, when the file cannot be opened.
     /// </summary>
+    /// <param name="type"></param>
+    /// <param name="folder"></param>
+    /// <param name="service"></param>
     /// <param name="owner">Names the database in the file name when <paramref name="folder"/> is shared
     /// with other databases; null in a database's own folder.</param>
+    /// <param name="warnings"></param>
     public static IServiceAnswerCache? Create(ServiceCacheType type, string? folder, string service, string? owner, List<string> warnings) {
         switch (type) {
             case ServiceCacheType.None:

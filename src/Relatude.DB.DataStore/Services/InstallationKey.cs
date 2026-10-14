@@ -154,6 +154,7 @@ public static class InstallationIdentity {
         return null;
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private static string? GetWindowsMachineGuid() {
         try {
             using var key = Registry.LocalMachine.OpenSubKey(

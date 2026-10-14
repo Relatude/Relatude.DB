@@ -36,9 +36,7 @@ public class UkkonenTrie<T> : ITrie<T> {
         return true;
     }
 
-    /**
-     * Returns the tree NodeA<T> (if present) that corresponds to the given string.
-     */
+    /* Returns the tree NodeA<T> (if present) that corresponds to the given string.*/     
     private Node<T>? SearchNode(string word) {
         /*
          * Verifies if exists a path from the root to a NodeA<T> such that the concatenation
@@ -108,26 +106,6 @@ public class UkkonenTrie<T> : ITrie<T> {
 
     }
 
-    /**
-     * Tests whether the string stringPart + t is contained in the subtree that has inputs as root.
-     * If that's not the case, and there exists a path of edges e1, e2, ... such that
-     *     e1.label + e2.label + ... + $end = stringPart
-     * and there is an EdgeA<T> g such that
-     *     g.label = stringPart + rest
-     * 
-     * Then g will be split in two different edges, one having $end as label, and the other one
-     * having rest as label.
-     *
-     * @param inputs the starting NodeA<T>
-     * @param stringPart the string to search
-     * @param t the following character
-     * @param remainder the remainder of the string to add to the index
-     * @param value the value to add to the index
-     * @return a Tuple containing
-     *                  true/false depending on whether (stringPart + t) is contained in the subtree starting in inputs
-     *                  the last NodeA<T> that can be reached by following the path denoted by stringPart starting from inputs
-     *         
-     */
     private static Tuple<bool, Node<T>> TestAndSplit(Node<T> inputs, string stringPart, char t, string remainder, T value) {
         // descend the tree as far as possible
         var ret = Canonize(inputs, stringPart);
@@ -187,12 +165,6 @@ public class UkkonenTrie<T> : ITrie<T> {
         // they are different words. No prefix. but they may still share some common substr
     }
 
-    /**
-     * Return a (NodeA<T>, string) (n, remainder) Tuple such that n is a farthest descendant of
-     * s (the input NodeA<T>) that can be reached by following a path of edges denoting
-     * a prefix of inputstr and remainder will be string that must be
-     * appended to the concatenation of labels from s to n to get inpustr.
-     */
     private static Tuple<Node<T>, string> Canonize(Node<T> s, string inputstr) {
 
         if (string.Empty.Equals(inputstr)) {
@@ -213,22 +185,6 @@ public class UkkonenTrie<T> : ITrie<T> {
         return new Tuple<Node<T>, string>(currentNode, str);
     }
 
-    /**
-     * Updates the tree starting from inputNode and by adding stringPart.
-     * 
-     * Returns a reference (NodeA<T>, string) Tuple for the string that has been added so far.
-     * This means:
-     * - the NodeA<T> will be the NodeA<T> that can be reached by the longest path string (S1)
-     *   that can be obtained by concatenating consecutive edges in the tree and
-     *   that is a substring of the string added so far to the tree.
-     * - the string will be the remainder that must be added to S1 to get the string
-     *   added so far.
-     * 
-     * @param inputNode the NodeA<T> to start from
-     * @param stringPart the string to add to the tree
-     * @param rest the rest of the string
-     * @param value the value to add to the index
-     */
     private Tuple<Node<T>, string> Update(Node<T> inputNode, string stringPart, string rest, T value) {
         var s = inputNode;
         var tempstr = stringPart;

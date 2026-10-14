@@ -16,7 +16,7 @@ namespace Relatude.DB.NodeServer.UI;
 /// A task has up to two sides. The browser that started it reports what its progress dialog shows,
 /// every few seconds even when nothing moved, which is what tells the board it is still there. The
 /// server side is the job itself, where there is one: a command that starts work that outlives the
-/// request attaches it under the id the browser gave the task (see <see cref="Attach"/>,
+/// request attaches it under the id the browser gave the task,
 /// <see cref="RunAsync{T}"/>), and from then on the job is what the task says. That is what lets a
 /// task survive the page that started it: reload the tab, or open another one, and the truncation is
 /// still on the board, counting, because the server is the one counting. A task with no server side -

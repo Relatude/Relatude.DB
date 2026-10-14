@@ -157,6 +157,8 @@ public class VectorIndex : ISemanticIndex, IDisposable {
             _lock.ExitWriteLock();
         }
     }
+
+#pragma warning disable CS0419 // Ambiguous reference in cref attribute
     /// <summary>Adds (or replaces, per id) a batch of vectors, linking them into the graph on every
     /// core — the fast way to load many vectors at once. Within one call the last vector given for
     /// an id wins, exactly as if they had been added one at a time; an empty vector removes the id.
@@ -179,6 +181,7 @@ public class VectorIndex : ISemanticIndex, IDisposable {
             _lock.ExitWriteLock();
         }
     }
+#pragma warning restore CS0419 // Ambiguous reference in cref attribute
     public void Remove(int nodeId, object value) => Remove(nodeId, (float[])value);
     public void Remove(int nodeId, float[] value) {
         ensureOpened();

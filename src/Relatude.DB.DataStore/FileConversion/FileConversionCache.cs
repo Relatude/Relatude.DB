@@ -8,7 +8,9 @@ internal class FileConversionCache {
     readonly IIOProvider _io;
     readonly string _baseFolder;
     readonly TimeSpan _errorRetryAfter;
-    /// <param name="errorRetryAfter">How long a failed conversion is reported as failed before the next
+    /// <param name="io"></param>
+
+    /// <param name="baseFolder"></param>    /// <param name="errorRetryAfter">How long a failed conversion is reported as failed before the next
     /// request tries it again. <see cref="DefaultErrorRetryAfter"/> when not given.</param>
     public FileConversionCache(IIOProvider io, string baseFolder, TimeSpan? errorRetryAfter = null) {
         _io = io;
@@ -242,7 +244,8 @@ internal class FileConversionCache {
         _smallCache.ClearAll_NotSize0();
         lock (_generationLock) _generation = writeNewGeneration();
     }
-    /// <param name="permanent">A conversion canceled for good: reported until the errors are cleared,
+    /// <param name="id"></param>
+    /// <param name="errorMessage"></param>    /// <param name="permanent">A conversion canceled for good: reported until the errors are cleared,
     /// rather than tried again after <see cref="DefaultErrorRetryAfter"/>.</param>
     public void SaveErrorStatus(FileIdWithAdjustment id, string errorMessage, bool permanent = false) {
         var key = id.GetKey();

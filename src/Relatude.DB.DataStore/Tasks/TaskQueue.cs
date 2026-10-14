@@ -23,7 +23,9 @@ namespace Relatude.DB.Tasks;
 public class TaskQueue : IDisposable {
     /// <summary>The most batches of one type a queue runs at once, whatever a runner or a setting asks for.</summary>
     public const int MaxSupportedConcurrency = 64;
-    /// <param name="configuredConcurrency">What the settings say for a type, see <see cref="ConcurrencyOf"/>; null when they say nothing.</param>
+    /// <param name="store"></param>
+    /// <param name="queue"></param>
+    /// <param name="runners"></param>    /// <param name="configuredConcurrency">What the settings say for a type, see <see cref="ConcurrencyOf"/>; null when they say nothing.</param>
     /// <param name="name">What the queue is called among the database's activities, "in memory" say; null leaves it unnamed.</param>
     public TaskQueue(IDataStore store, IQueueStore queue, Dictionary<string, ITaskRunner> runners, Func<ITaskRunner, int?>? configuredConcurrency = null, string? name = null) {
         _store = store;

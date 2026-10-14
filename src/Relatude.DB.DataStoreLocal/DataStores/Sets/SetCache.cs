@@ -3,10 +3,11 @@ using System.Globalization;
 using Relatude.DB.Common;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
-/// <summary>
+namespace Relatude.DB.DataStores.Sets;
+///<summary>
 /// The cache is based on a key value, that always will uniquely represent a set of ids.
 /// The key will change if a set is changed. So there is not a risk that the cache will return a wrong set.
-namespace Relatude.DB.DataStores.Sets;
+/// </summary>  
 internal class SetCacheKey {
     public SetCacheKey(SetOperation operationId, long[] stateIds, object[]? valueKeysMustBeValueType) {
         Operation = operationId;

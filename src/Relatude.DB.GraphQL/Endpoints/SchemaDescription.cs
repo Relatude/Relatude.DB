@@ -11,15 +11,29 @@ namespace Relatude.DB.GraphQL.Endpoints;
 public static class SchemaDescription {
     public sealed record ArgumentInfo(string Name, string Type, string? Description, string? DefaultValue);
 
-    /// <param name="Kind">What the field is: system, property, enum, file, geo, relation, reference, single, list, view,
+    /// <param name="Name"></param>
+
+    /// <param name="Type"></param>
+    /// <param name="Description"></param>    /// <param name="Kind">What the field is: system, property, enum, file, geo, relation, reference, single, list, view,
     /// create, update, delete, items, count, value.</param>
     /// <param name="Many">True for list fields whose items are nodes (relations, references, items).</param>
+    /// <param name="Property"></param>
+    /// <param name="NodeType"></param>
+    /// <param name="Args"></param>
     public sealed record FieldInfo(string Name, string Type, string? Description, string Kind, bool Many, string? Property, string? NodeType, List<ArgumentInfo> Args);
 
     public sealed record InputFieldInfo(string Name, string Type, string? Description, string? Property);
 
+    /// <param name="Name"></param>
     /// <param name="Kind">SCALAR, OBJECT, INTERFACE, ENUM or INPUT_OBJECT, as introspection names them.</param>
     /// <param name="Role">root, node, result, object, filter, operator, input, orderBy, enum or scalar.</param>
+    /// <param name="Description"></param>
+    /// <param name="NodeType"></param>
+    /// <param name="Interfaces"></param>
+    /// <param name="PossibleTypes"></param>
+    /// <param name="Fields"></param>
+    /// <param name="InputFields"></param>
+    /// <param name="EnumValues"></param>
     public sealed record TypeInfo(
         string Name, string Kind, string Role, string? Description, string? NodeType,
         List<string>? Interfaces, List<string>? PossibleTypes,

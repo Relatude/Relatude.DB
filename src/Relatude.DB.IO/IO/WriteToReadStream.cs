@@ -1,7 +1,7 @@
 ﻿namespace Relatude.DB.IO;
 
 /// <summary>
-/// A stream that bridges a push producer (writes via <see cref="Write"/>) to a pull consumer (reads via <see cref="Read"/>).
+/// A stream that bridges a push producer to a pull consumer (reads via <see cref="Read"/>).
 /// Call <see cref="Complete"/> when the producer is finished. Thread-safe for a single producer and single consumer.
 /// </summary>
 public class WriteToReadStream : Stream {

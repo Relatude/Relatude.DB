@@ -30,7 +30,7 @@ namespace Relatude.DB.NodeServer.UI;
 /// Saving writes to relatude.db.overrides.json, not relatude.db.json (see
 /// <see cref="SettingsOverridesFile"/>), so every setting also says whether that file holds it and
 /// what relatude.db.json has. Moving entries from one file to the other, or dropping them, is in
-/// UISettingsOverrides.cs.
+/// UISettingsOverrides.cs. The warning about secrets kept in relatude.db.json is in UISettingsSecrets.cs.
 /// </summary>
 sealed partial class UISettings {
     readonly RelatudeDBServer _server;
@@ -85,6 +85,7 @@ sealed partial class UISettings {
             SettingsFile = _server.SettingsFileDisplay,
             ConfigSection = _server.ConfigurationOverlay?.SectionName,
             Overrides = overridesSummary(),
+            SecretsInFile = secretsInSettingsFile(null),
             Sections = buildSections(SettingsCatalog.Server, settings, containerId: null),
             Pickers = new {
                 Databases = _server.GetContainers().Select(c => new {
@@ -108,6 +109,7 @@ sealed partial class UISettings {
             SettingsFile = _server.SettingsFileDisplay,
             ConfigSection = _server.ConfigurationOverlay?.SectionName,
             Overrides = overridesSummary(),
+            SecretsInFile = secretsInSettingsFile(storeId),
             Sections = buildSections(SettingsCatalog.Database, settings, storeId),
             Pickers = new {
                 IoProviders = (settings.IOSettings ?? []).Select(io => new {

@@ -10,13 +10,6 @@ public sealed class BPlusTreeEngineOptions
     /// <summary>Memory budget for the page cache. Default 64 MiB.</summary>
     public long PageCacheBytes { get; init; } = 64L * 1024 * 1024;
 
-    /// <summary>
-    /// Maximum number of decoded values cached per index to serve <see cref="ISortedIntIndex{T}.GetValue"/>
-    /// without a tree descent. 0 (the default) disables the cache. Snapshot-consistent: every
-    /// commit evicts the ids it touched. The budget is entries, not bytes (rounded up to a power
-    /// of two — the cache is a direct-mapped slot array) — size it to the hot id working set and
-    /// remember each entry holds one decoded value alive.
-    /// </summary>
     public int ValueCacheEntries { get; init; }
 
     /// <summary>
@@ -247,7 +240,10 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
         => OpenOrCreateSortedIndex<IGuidIndex<T>, T>(name, IdCodec<Guid>.Kind, LayoutHash,
             (existed, encoding) => new HashGuidIndex<T>(this, name, hasEngineTimestamp: existed, encoding));
 
-    /// <param name="create">Builds the index instance from (index existed, its value encoding).</param>
+    /// <param name="name"></param>
+
+    /// <param name="idKind"></param>
+    /// <param name="layout"></param>    /// <param name="create">Builds the index instance from (index existed, its value encoding).</param>
     private TIndex OpenOrCreateSortedIndex<TIndex, T>(string name, byte idKind, byte layout, Func<bool, byte, TIndex> create)
         where TIndex : class
         where T : notnull

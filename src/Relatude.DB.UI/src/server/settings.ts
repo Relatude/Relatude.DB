@@ -161,8 +161,54 @@ export interface SettingsPage {
    * says the file could not be read at start: nothing in it is in force and saves are refused.
    */
   overrides?: { file: string; count: number; error?: string | null } | null;
+  /** the secrets relatude.db.json itself holds; null when it holds none, or the settings do not come from a file */
+  secretsInFile?: SecretsInFile | null;
   sections: SettingSection[];
   pickers: Record<string, SettingChoice[] | undefined>;
+}
+
+/**
+ * The secrets relatude.db.json holds - a file usually committed to source control - for the warning at
+ * the top of the settings pages. Never their values. `items` are this page's; `elsewhere` names the
+ * other pages the file holds secrets for, since it is one file and one fix.
+ */
+export interface SecretsInFile {
+  /** relatude.settings/relatude.db.json, as the page names it */
+  file: string;
+  /** the configuration section the server reads, the place to move them to; null when it reads none */
+  configSection?: string | null;
+  items: SecretInFile[];
+  elsewhere: SecretsElsewhere[];
+}
+
+export interface SecretInFile {
+  /** the setting's path on this page */
+  path: string;
+  label: string;
+  sectionId: string;
+  groupId: string;
+  /** "Security › Relatude.License", or the list and the element: "IO providers › Archive" */
+  where: string;
+  /** why the file's copy is not used, when it is not - then deleting it from the file is the whole fix */
+  unused?: string | null;
+  /** the configuration key to keep it under instead; null when the server reads no configuration section */
+  configKey?: string | null;
+  /** keys to set beside it, so configuration matches its list elements by id rather than by position */
+  configIds: { key: string; value: string }[];
+}
+
+export interface SecretsElsewhere {
+  scope: "server" | "database";
+  storeId?: string | null;
+  /** "the server", or 'database "Main"' */
+  title: string;
+  count: number;
+  /** where a link to that page lands: its first secret */
+  path: string;
+  sectionId: string;
+  groupId: string;
+  /** false for a database the file has and this server does not */
+  canOpen: boolean;
 }
 
 export interface SettingsSaveResult {

@@ -176,6 +176,8 @@ public class StatisticsInfo {
     /// A statistic, and - for the ones about positions - what it is measured against. A parameter a
     /// statistic has no use for is kept, but ignored.
     /// </summary>
+    /// <param name="statisticsType"></param>
+    /// <param name="resolution"></param>
     /// <param name="reference">The point <see cref="StatisticsType.GeoDistance"/> and <see cref="StatisticsType.GeoDistanceBands"/> measure from.</param>
     /// <param name="bands">The edges between the bands of <see cref="StatisticsType.GeoDistanceBands"/>, in meters: [1000, 5000] is under 1 km, 1-5 km and over 5 km.</param>
     /// <param name="zones">The zones <see cref="StatisticsType.GeoZones"/> counts by, tested in this order.</param>

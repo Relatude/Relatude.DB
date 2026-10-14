@@ -2,7 +2,8 @@
 
 public class FolderMeta {
     public static FolderMeta FromDirInfo(DirectoryInfo dirInfo, string relpath) => FromDirInfo(dirInfo, relpath, describe: true);
-    /// <param name="describe">false for a folder that is not database storage: its "data" or "files"
+    /// <param name="dirInfo"></param>
+    /// <param name="relpath"></param>    /// <param name="describe">false for a folder that is not database storage: its "data" or "files"
     /// folders are whatever the owner put there, not the database's, so they get no description
     /// and are not marked as primary data</param>
     /// <param name="probe">false leaves <see cref="HasFiles"/> and <see cref="HasSubFolders"/> to the

@@ -29,6 +29,7 @@ public interface ISMSProvider : IDisposable {
     /// <param name="message">The text. What it costs depends on its characters, not only its length: see <see cref="QuoteAsync"/>.</param>
     /// <param name="from">The sender shown on the phone, when the service lets the caller choose one. Null takes the service's own.</param>
     /// <param name="reference">The caller's own label for this message, echoed back and written to the service's log so a message can be traced.</param>
+    /// <param name="cancellationToken"></param>
     Task<SmsReceipt> SendAsync(string to, string message, string? from = null, string? reference = null, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -52,6 +53,7 @@ public interface ISMSProvider : IDisposable {
     /// <param name="messages">The messages, in the order they should go. Each one's number is any form of a mobile number, as for <see cref="SendAsync"/>.</param>
     /// <param name="from">The sender of every message in the batch. Null takes the provider's own.</param>
     /// <param name="reference">The caller's own label for the batch; a message's own reference labels that message.</param>
+    /// <param name="cancellationToken"></param>
     Task<SmsBatchReceipt> SendBatchAsync(IReadOnlyList<SmsBatchMessage> messages, string? from = null, string? reference = null, CancellationToken cancellationToken = default)
         => throw new NotSupportedException($"{Name} cannot send a batch of messages.");
 

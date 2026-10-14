@@ -11,6 +11,7 @@ namespace Relatude.DB.NodeServer.UI;
 /// may name its own colour; the ones that do not are coloured client side from the order of this list.
 /// </summary>
 static class UIModelInfo {
+    /// <param name="datamodel"></param>
     /// <param name="settings">The database's settings, when at hand: a colour is UI only, so it is
     /// read from the settings as they are now rather than from the copy of the source the model was
     /// opened with - recolouring a source is not worth reopening a database for.</param>

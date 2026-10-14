@@ -162,11 +162,13 @@ internal interface IIndexTimestamp {
 /// </summary>
 public interface IStorageEngine {
     /// <summary>
-    /// Opens the index named <paramref name="name"/>, creating it if absent.
-    /// Throws if the index already exists with a different id or value type.
-    /// An opened existing index reports the engine's timestamp; a newly created one reports 0
-    /// until the next commit or <see cref="SetTimestamp"/> (see <see cref="ISortedIntIndex{T}.GetTimestamp"/>).
+    /// Opens the sorted index named <paramref name="name"/>, creating it if absent. The index is
+    /// synchronized with the engine timestamp (see <see cref="GetTimestamp"/>), and all indexes
+    /// opened from the same engine share the same writer transaction (see <see cref="BeginTransaction"/>).
     /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="name"></param>
+    /// <returns></returns>
     ISortedIntIndex<T> OpenOrCreateSortedIntIndex<T>(string name) where T : notnull;
 
     /// <summary>Same contract as <see cref="OpenOrCreateSortedIntIndex{T}"/>, but the index is keyed by ulong ids. Engines that only support int ids throw <see cref="NotSupportedException"/>.</summary>
@@ -206,7 +208,7 @@ public interface IStorageEngine {
 
     /// <summary>
     /// Publishes the transaction's changes and records <paramref name="timestamp"/>,
-    /// which every open index adopts (see <see cref="ISortedIntIndex{T}.GetTimestamp"/>).
+    /// which every open index adopts.
     /// With <paramref name="durable"/> the commit is flushed to stable storage (power-loss
     /// safe where the engine supports it); without, it trades durability for speed —
     /// see each engine's docs for the exact guarantee.
@@ -221,7 +223,6 @@ public interface IStorageEngine {
 
     /// <summary>
     /// Durably records <paramref name="timestamp"/>, which every open index adopts
-    /// (see <see cref="ISortedIntIndex{T}.GetTimestamp"/>); only allowed outside a transaction.
     /// </summary>
     void SetTimestamp(long timestamp);
 
@@ -241,7 +242,6 @@ public interface IStorageEngine {
     /// (via <see cref="OpenOrCreateSortedIntIndex{T}"/>), data and definition included; open indexes and the
     /// engine timestamp are untouched. Lets callers drop indexes that have left the schema, so a
     /// later re-add opens a fresh, empty index reporting timestamp 0 (see
-    /// <see cref="ISortedIntIndex{T}.GetTimestamp"/>) instead of stale data claiming to be current.
     /// Only allowed outside a transaction.
     /// </summary>
     void DeleteUnopenedIndexes();

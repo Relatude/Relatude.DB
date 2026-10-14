@@ -77,6 +77,10 @@ public sealed class SettingDefinition {
     public string? Generate { get; init; }
     /// <summary>Never sent to the browser in clear text, and only written when a new value is typed.</summary>
     public bool Secret { get; init; }
+    /// <summary>Shown in clear on the page, but still a secret outside it: a signing key. The settings pages
+    /// warn while relatude.db.json holds one, as they do for every <see cref="Secret"/>
+    /// (see <see cref="SettingsSecrets"/>).</summary>
+    public bool Sensitive { get; init; }
     /// <summary>Shown, but not editable from here.</summary>
     public bool ReadOnly { get; init; }
     /// <summary>Said beside the setting while its value comes from relatude.db.overrides.json, this
@@ -765,7 +769,7 @@ public static class SettingsCatalog {
                             Help = "How resize and crop instructions appear. Encrypted keeps them opaque, so only URLs your code produced are valid; readable forms let anyone request any size, which is a resource cost worth weighing.",
                         },
                         new() {
-                            Path = "LocalSettings.UrlOptions.AssetUrlSignatureKey", Label = "File URL signing key", Generate = SettingGenerators.Guid,
+                            Path = "LocalSettings.UrlOptions.AssetUrlSignatureKey", Label = "File URL signing key", Generate = SettingGenerators.Guid, Sensitive = true,
                             Help = "Set a value here and file tokens are signed, so a tampered or guessed file URL stops resolving. The button makes a new random key. Empty leaves tokens unsigned. Changing it invalidates every file URL already handed out.",
                         },
                     ],

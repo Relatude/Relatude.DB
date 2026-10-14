@@ -200,6 +200,29 @@ public partial class RelatudeDBServer {
         }
     }
 
+    /// <summary>The configuration section settings are read from, whether or not it holds anything yet -
+    /// what a value moved out of the files would go under. Null when the server reads no section at all
+    /// (<see cref="ServerOptions.ConfigurationSectionName"/>).</summary>
+    internal string? ConfigurationSectionName => _configuration == null ? null : Options?.ConfigurationSectionName;
+
+    /// <summary>
+    /// relatude.db.json as it is on disk now, in the form the settings serialize to. Read afresh rather
+    /// than taken from what was read at start, so a value deleted from the file by hand is gone from
+    /// what this says at the next look. Null when the settings do not come from a file - an
+    /// <see cref="ISettingsLoader"/> of the application's own - or the file cannot be read.
+    /// </summary>
+    internal JsonObject? ReadSettingsFileJson() {
+        if (_settingsLoader is not LocalSettingsLoaderFile loader) return null;
+        try {
+            if (!File.Exists(loader.FilePath)) return null;
+            // parsed here, not through the loader: its ReadAsync writes defaults for a missing file and migrates old ones
+            var settings = JsonSerializer.Deserialize<RelatudeDBServerSettings>(File.ReadAllText(loader.FilePath), LocalSettingsLoaderFile.JsonOptions);
+            return settings == null ? null : SettingsOverridesFile.ToJson(settings);
+        } catch (Exception) {
+            return null;
+        }
+    }
+
     // the settings in force with the code's changes and then the configuration section taken off again,
     // in the opposite order to the one they were put on in
     JsonObject fileLayerJson() {

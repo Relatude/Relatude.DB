@@ -28,6 +28,10 @@ public sealed class UICommands {
     /// (see <see cref="UILiveFeeds"/>). The same handler, the same context type; only the response
     /// differs, so a command never has to know which way it was called.
     /// </summary>
+    /// <param name="type"></param>
+    /// <param name="server"></param>
+    /// <param name="http"></param>
+    /// <param name="payload"></param>
     /// <param name="cancellation">What stops the command: for a feed, the tab going away. A feed's http is the
     /// event stream's, not a request of its own, so its RequestAborted says nothing about the feed.</param>
     internal async Task<object?> Invoke(string type, RelatudeDBServer server, HttpContext http, JsonElement? payload, CancellationToken cancellation = default) {

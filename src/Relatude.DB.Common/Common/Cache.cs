@@ -202,7 +202,6 @@ namespace Relatude.DB.Common {
         /// The cached value, created and added when missing. The entry is added with size 0, which this
         /// cache reserves for entries it must keep: it is never evicted and not counted against the budget,
         /// until <see cref="TryUpdateSize"/> gives it a size. For an ordinary bounded cache use
-        /// <see cref="TryGet"/> and <see cref="Set"/> with the real size.
         /// </summary>
         public TValue GetOrCreate(TKey nodeId, Func<TValue> create) {
             lock (_lock) {

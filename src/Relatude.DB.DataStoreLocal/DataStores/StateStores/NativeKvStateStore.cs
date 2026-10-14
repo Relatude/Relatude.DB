@@ -10,8 +10,8 @@ namespace Relatude.DB.DataStores.StateStores;
 
 /// <summary>
 /// The native KV engine as state store: every map is a hash or sorted index in one B+tree file,
-/// published with each transaction and made durable after each WAL flush, like the value indexes
-/// of <see cref="KvStore.NativeKvIndexStore"/>. Memory use is the engine's cache budget, not the node count.
+/// published with each transaction and made durable after each WAL flush, like the value indexes.
+/// Memory use is the engine's cache budget, not the node count.
 /// </summary>
 public sealed class NativeKvStateStore : IndexEngineBase, IStateStore {
     readonly BPlusTreeStorageEngine _storage;

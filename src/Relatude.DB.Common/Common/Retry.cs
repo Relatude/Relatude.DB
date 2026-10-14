@@ -66,6 +66,9 @@ public static class Retry {
     /// until <paramref name="timeout"/> is spent. Anything else is rethrown untouched, on the attempt
     /// it happened.
     /// </summary>
+    /// <param name="action"></param>
+    /// <param name="isTransient"></param>
+    /// <param name="timeout"></param>
     /// <param name="onWaitStarted">Called once, on the first transient failure, with the attempt count
     /// and the error. A wait that is never reported is indistinguishable from a hang.</param>
     /// <param name="onWaitEnded">Called when a retried attempt finally succeeds, with the attempt count

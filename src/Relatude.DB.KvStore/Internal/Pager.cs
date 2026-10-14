@@ -137,6 +137,7 @@ internal sealed class Pager : IPageSource, IDisposable
     /// Backing file for the database, or <c>null</c> for a memory-only engine that persists nothing
     /// and always starts empty (identical semantics to a freshly created file).
     /// </param>
+    /// <param name="cacheBytes"></param>
     /// <param name="pendingWriteBytes">Budget for published-but-unwritten pages; past it they are written out early (without becoming durable).</param>
     public Pager(string? path, long cacheBytes, long pendingWriteBytes = 128L * 1024 * 1024)
     {

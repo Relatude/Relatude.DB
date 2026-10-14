@@ -220,6 +220,7 @@ public static class FileKeyUtility {
     public static void State_DeleteAll(IIOProvider io) {
         foreach (var key in State_GetAllFileKeys(io)) io.DeleteFileIfItExists(key);
     }
+    /// <param name="cacheProvider"></param>
     /// <param name="owner">The database the file is kept for when its folder is shared with other
     /// databases (see <see cref="GetServiceCacheFileKey"/>); null in a database's own folder.</param>
     public static string[]? GetAiCacheFileKey(AIProviderCacheType? cacheProvider, string? owner = null) {

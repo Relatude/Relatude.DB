@@ -12,10 +12,6 @@ namespace Relatude.DB.DataStores.Stores;
 /// If throwErrors is true, then all errors are thrown as exceptions, otherwise they are added to errors list, 
 /// and loading continues, all transaction are validated with a checksum
 /// </summary>
-/// <param name="fromTransactionAtPos"></param>
-/// <param name="lastTimeStamp"></param>
-/// <param name="throwOnErrors"></param>
-/// <param name="errors"></param>
 /// <exception cref="Exception"></exception>
 internal class LogReader : IDisposable {
     IReadStream? _readStream;
@@ -24,7 +20,12 @@ internal class LogReader : IDisposable {
     long _fileSize;
     long _formatVersion = WALFile._logVersionNumberV1000;
     readonly long _skipTransactionsOlderThan;
-    /// <param name="skipTransactionsOlderThan">A transaction with an older timestamp is read past - no checksums, no
+    /// <param name="fileKey"></param>
+
+    /// <param name="definition"></param>
+    /// <param name="io"></param>
+    /// <param name="fromTransactionAtPos"></param>
+    /// <param name="fromTimestamp"></param>    /// <param name="skipTransactionsOlderThan">A transaction with an older timestamp is read past - no checksums, no
     /// deserialization - and returned with no actions, for a caller that already holds everything it changed.
     /// Decided per transaction, as timestamps in a log are not in order everywhere (a rewritten log is not).</param>
     public LogReader(string[] fileKey, Definition definition, IIOProvider io, long fromTransactionAtPos, long fromTimestamp, long skipTransactionsOlderThan = long.MinValue) {

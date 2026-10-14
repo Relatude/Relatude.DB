@@ -14,14 +14,11 @@ namespace Relatude.DB.DataStores.Stores;
 internal delegate void RegisterNodeSegmentsCallbackFunc(ReadOnlySpan<(int id, NodeSegment segment)> segments);
 /// <summary>Receives one node segment read from the log: its index in the request and its bytes, <paramref name="buffer"/>[<paramref name="offset"/>..+<paramref name="length"/>]. The buffer is only lent for the call.</summary>
 internal delegate void NodeSegmentBytesHandler(int index, byte[] buffer, int offset, int length);
-/// <summary>A copy of the log file - a backup - failed on the storage it was going to, and the store is
-/// unharmed: the log file is open as before. Failures of the store itself are never this.</summary>
+/// unharmed: the log file is open as before. Failures of the store itself are never this.
 internal sealed class LogCopyException(string message, Exception inner) : Exception(message, inner);
-/// <summary>
 // WAL (Write Ahead Log) store, used to store all changes to the database
 // Threadsafe read operations to support multiple read queries at the same time
 // Write operations are NOT threadsafe, including FlushDisk, but store is designed to be used with a single writer thread
-/// </summary>
 internal class WALFile : IDisposable {
     // File format is designed to detect and repair from a partially completed write
     // and also make it possible to extract data if file is corrupted.

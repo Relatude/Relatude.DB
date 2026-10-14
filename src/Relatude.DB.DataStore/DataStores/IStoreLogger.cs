@@ -19,7 +19,7 @@ public class TraceEntry(DateTime timestamp, SystemLogEntryType type, string text
 }
 /// <summary>
 /// A cheap snapshot of what the store has been doing, for a screen that asks every couple of
-/// seconds: no locks, no file access, and nothing reset - unlike <see cref="IDataStore.DequeMetrics"/>,
+/// seconds: no locks, no file access, and nothing reset,
 /// which empties the counters it reads and belongs to the metrics log alone.
 ///
 /// The counts are cumulative since the caches were last cleared, which the store does on its own

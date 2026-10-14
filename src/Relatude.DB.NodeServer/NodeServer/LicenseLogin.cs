@@ -48,6 +48,18 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     public sealed record Validity(bool Valid, string? Reason, string MessageToAllEditors = "", string MessageToAllVisitors = "", bool StopEdit = false, bool StopVisit = false);
 
     /// <summary>What the license carries, as the license server tells an installation holding its API key.</summary>
+    /// <param name="Id"></param>
+    /// <param name="Name"></param>
+    /// <param name="Disabled"></param>
+    /// <param name="Expired"></param>
+    /// <param name="ExpiresUtc"></param>
+    /// <param name="Features"></param>
+    /// <param name="Limits"></param>
+    /// <param name="Accounts"></param>
+    /// <param name="MessageToAllEditors"></param>
+    /// <param name="MessageToAllVisitors"></param>
+    /// <param name="StopEdit"></param>
+    /// <param name="StopVisit"></param>
     /// <param name="SmsSenders">The senders Relatude has approved for the license's text messages, as the
     /// license server writes them: names of up to eleven letters and digits, and phone numbers with their
     /// country code. A message goes as one of these or as the SMS service's own sender, never as anything
@@ -91,9 +103,9 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
         bool HasLicenseKey, bool HasApiKey, string? ApiKeyStart, string? LicenseKey,
         bool SignInEnabled, bool HeartbeatDisabled, DateTime? LastContactUtc,
         LicenseInfo? License,
-        /// <summary>A pairing this server is still waiting on, so a page that has just loaded takes it up rather than starting a second one.</summary>
+        //A pairing this server is still waiting on, so a page that has just loaded takes it up rather than starting a second one.
         PairingHandle? Pairing,
-        /// <summary>The key Relatude Services knows this installation by, so it can be found there.</summary>
+        //The key Relatude Services knows this installation by, so it can be found there.
         InstallationInfo Installation);
 
     /// <summary>
