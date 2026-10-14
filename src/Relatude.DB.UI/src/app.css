@@ -4282,6 +4282,146 @@ a.action-button {
   border-radius: 8px;
 }
 
+/* secrets kept in relatude.db.json, at the top of both settings pages: amber like every caution, with a
+   border, since unlike a notice it stays until the file is fixed */
+.secrets-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-soft);
+  background: var(--data-soft);
+  border: 1px solid color-mix(in srgb, var(--data) 35%, transparent);
+  border-radius: 8px;
+}
+
+.secrets-warning > svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--data);
+}
+
+.secrets-warning-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.secrets-warning-head {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--data);
+  overflow-wrap: anywhere;
+}
+
+.secrets-warning p {
+  max-width: 100ch;
+  margin: 2px 0 6px;
+}
+
+.secrets-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.secrets-link {
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--data) 55%, transparent);
+  text-underline-offset: 2px;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.secrets-link:hover {
+  color: var(--data);
+}
+
+.secrets-unused {
+  color: var(--text-muted);
+}
+
+.secrets-elsewhere {
+  margin-top: 4px;
+}
+
+.secrets-how-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--data);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.secrets-how {
+  margin-top: 8px;
+}
+
+.secrets-how-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.secrets-how-bar .module-switch {
+  flex: none;
+}
+
+/* the copy button sits in the corner of the lines it copies */
+.secrets-how-code {
+  position: relative;
+  margin: 8px 0;
+}
+
+.secrets-how-code > .icon-button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+
+/* lines scrolled sideways pass under it */
+.secrets-how-code > .icon-button:not(:hover) {
+  background: var(--panel);
+}
+
+.secrets-how-lines {
+  max-height: 30vh;
+  margin: 0;
+  padding: 8px 40px 8px 10px;
+  overflow: auto;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.secrets-how-steps {
+  margin: 0 0 4px;
+  padding-left: 20px;
+}
+
+.secrets-how-note {
+  font-size: 12px;
+}
+
 .settings-group-help {
   margin: -6px 0 14px;
   max-width: 80ch;

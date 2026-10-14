@@ -60,9 +60,11 @@ import {
   type SettingView,
   type SettingVisibility,
   type SettingsPage,
+  type SecretInFile,
 } from "../server/settings";
 import { Loading } from "./Loading";
 import { SettingsShareButton } from "./OverridesDialog";
+import { SecretsWarning } from "./SecretsWarning";
 import { SourceTag } from "./SourceTag";
 
 // Where a programmatic scroll leaves a group's heading, and the line at which the contents counts a
@@ -89,6 +91,8 @@ interface SettingsFiles {
   configSection: string | null;
 }
 const SettingsFilesContext = createContext<SettingsFiles>({ settingsFile: "relatude.db.json", dataFile: null, configSection: null });
+/** This page's secrets that relatude.db.json holds, by path, for the line under each of those fields. */
+const SecretsInFileContext = createContext<ReadonlyMap<string, SecretInFile>>(new Map());
 
 /**
  * The settings pages, server scope and database scope alike. The server sends the whole page -
@@ -158,6 +162,7 @@ export function SettingsSection({
     [page],
   );
   const byPath = useMemo(() => new Map(all.map((s) => [s.path, s])), [all]);
+  const secretsInFile = useMemo(() => new Map((page?.secretsInFile?.items ?? []).map((i) => [i.path, i])), [page]);
 
   // The two model fields in the AI group offer what the configured AI service publishes, asked for
   // each time one of their drop-downs opens, so the list is the service's current one. They follow
@@ -426,6 +431,7 @@ export function SettingsSection({
   return (
     <LazyPickers.Provider value={lazyPicker}>
     <SettingsFilesContext.Provider value={{ settingsFile: page.settingsFile, dataFile: page.overrides?.file ?? null, configSection: page.configSection ?? null }}>
+    <SecretsInFileContext.Provider value={secretsInFile}>
     {/* without the comments the rows lose their dividers and most of their padding: what is left is a
         label and a value, and a rule between every two of those is more line than content */}
     <div className={"settings" + (showComments ? "" : " compact")}>
@@ -500,6 +506,8 @@ export function SettingsSection({
         )}
         </div>
       </div>
+      {/* secrets in the SHARED file: said first, above anything a save reports */}
+      <SecretsWarning page={page} />
       {message && <div className="settings-message">{message}</div>}
       <div className="settings-body">
         <nav className="settings-toc">
@@ -556,6 +564,7 @@ export function SettingsSection({
                         onChange={changeValue}
                         onRevert={revert}
                         showComments={showComments}
+                        marked={marked}
                         onAdd={() => changeList(() => addListItem(storeId, group.list!.path))}
                         onRemove={(id) => changeList(() => removeListItem(storeId, group.list!.path, id), group.list!.path + "[" + id + "].")}
                       />
@@ -604,6 +613,7 @@ export function SettingsSection({
         </div>
       )}
     </div>
+    </SecretsInFileContext.Provider>
     </SettingsFilesContext.Provider>
     </LazyPickers.Provider>
   );
@@ -664,6 +674,7 @@ function ListEditor({
   pickers,
   edits,
   showComments,
+  marked,
   onChange,
   onRevert,
   onAdd,
@@ -673,6 +684,8 @@ function ListEditor({
   pickers: Record<string, SettingChoice[] | undefined>;
   edits: SettingValues;
   showComments: boolean;
+  /** the setting someone was sent to, which may be a field of one of the elements */
+  marked: string | null;
   onChange: (path: string, value: unknown) => void;
   onRevert: (path: string) => void;
   onAdd: () => void;
@@ -712,7 +725,8 @@ function ListEditor({
     <div className="setting-items">
       {list.items.length === 0 && <div className="setting-items-empty">{list.emptyHelp}</div>}
       {list.items.map((item, itemIndex) => {
-        const isCollapsed = collapsed[item.id] ?? false;
+        // an element holding the field someone was sent to is opened to show it
+        const isCollapsed = (collapsed[item.id] ?? false) && !(marked?.startsWith(list.path + "[" + item.id + "].") ?? false);
         return (
           <div className="setting-item" key={item.id}>
             <div className="setting-item-head">
@@ -754,6 +768,7 @@ function ListEditor({
                       edit={edits[setting.path]}
                       edited={edits[setting.path] !== undefined}
                       showComment={showComments}
+                      marked={setting.path === marked}
                       onChange={(value) => onChange(setting.path, value)}
                       onRevert={() => onRevert(setting.path)}
                       // an element that names no colour is marked with the palette's, by its place in
@@ -830,6 +845,8 @@ function SettingRow({
 }) {
   const value = edited ? edit : setting.value;
   const locked = setting.overridden || setting.codeSet || setting.readOnly;
+  const files = useContext(SettingsFilesContext);
+  const inFile = useContext(SecretsInFileContext).get(setting.path);
   // the value relatude.db.json has can be put back like any edit - not for a secret, whose value the
   // page never sees; the Overrides list discards those
   const canRestoreFile = setting.inOverrides && !setting.secret && !locked && !edited;
@@ -872,6 +889,16 @@ function SettingRow({
           <div className="setting-override setting-warning">
             <IconAlertTriangle size={13} stroke={1.8} />
             <span>{setting.warning}</span>
+          </div>
+        )}
+        {inFile && (
+          <div className="setting-override setting-warning">
+            <IconAlertTriangle size={13} stroke={1.8} />
+            <span>
+              {inFile.unused
+                ? `${files.settingsFile} still holds a value for this secret that is not used: ${inFile.unused}. Delete it from the file.`
+                : `Stored in SHARED, ${files.settingsFile}, which is usually in source control. Move it to configuration — see the warning at the top.`}
+            </span>
           </div>
         )}
         {setting.codeSet && (
