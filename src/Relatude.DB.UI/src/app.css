@@ -15585,6 +15585,12 @@ body.pg-resizing {
   padding: 0 4px;
 }
 
+/* the API key in force is the one relatude.db.json holds: amber, like the warning above it */
+.license-lock.warn {
+  color: var(--data);
+  border-color: color-mix(in srgb, var(--data) 45%, transparent);
+}
+
 .license-toggle {
   display: flex;
   align-items: center;

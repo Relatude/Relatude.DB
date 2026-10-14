@@ -11,6 +11,7 @@ import {
 import { showConfirm } from "../dialogs";
 import { masterLoginOptions } from "../server/auth";
 import { fetchWhoAmI } from "../server/serverInfo";
+import { fetchSecretsInFile, type SecretsInFile } from "../server/settings";
 import {
   cancelPairing,
   fetchLicenseStatus,
@@ -30,6 +31,7 @@ import { Loading } from "./Loading";
 import { CopyText } from "./CopyText";
 import { DialogTools } from "./DialogTools";
 import { Logo, LogoMarkIcon } from "./Logo";
+import { SecretsWarning } from "./SecretsWarning";
 
 /**
  * Where this installation stands with the license server, asked on mount and again by `load`. The
@@ -79,16 +81,41 @@ export function useLicenseStatus(onChanged?: (status: LicenseStatus) => void) {
  */
 export function LicenseSection({ onChanged }: { onChanged?: (status: LicenseStatus) => void }) {
   const { status, error, busy, load } = useLicenseStatus(onChanged);
+  const secrets = useApiKeyInFile(status);
+  const apiKeyInFile = secrets != null && secrets.items.length > 0;
 
   if (!status) return error ? <div className="placeholder">{error}</div> : <Loading label="Checking the license…" />;
 
   return (
     <div className="license-page account-page">
-      <AccountHero status={status} busy={busy} onReload={load} />
+      {/* the API key is a server setting, so its link goes to the server settings page */}
+      {apiKeyInFile && <SecretsWarning secrets={secrets} scope="server" />}
+      <AccountHero status={status} busy={busy} onReload={load} apiKeyInFile={apiKeyInFile && !secrets.items[0].unused} />
       {error && <div className="license-error">{error}</div>}
       {status.state === "valid" && status.license && <EntitlementsPanel status={status} />}
     </div>
   );
+}
+
+/**
+ * relatude.db.json as far as this page is concerned: whether it holds the API key, asked again with every
+ * answer about the license, since saving or removing the key here decides whether the file's copy is the
+ * one in force. Only the API key makes the page warn; the file's other secrets are the settings pages'
+ * business and are only named under it. A failure to ask costs the page nothing - it just does not warn.
+ */
+function useApiKeyInFile(status: LicenseStatus | null): SecretsInFile | null {
+  const [secrets, setSecrets] = useState<SecretsInFile | null>(null);
+  useEffect(() => {
+    if (!status) return;
+    let current = true;
+    fetchSecretsInFile(null, ["ApiKey"])
+      .then((answer) => current && setSecrets(answer))
+      .catch(() => current && setSecrets(null));
+    return () => {
+      current = false;
+    };
+  }, [status]);
+  return secrets;
 }
 
 /** The state of the account in a word, for the pill in the hero. */
@@ -123,7 +150,18 @@ async function signInLoss(): Promise<{ signsOutThisUser: boolean; lockedOut: boo
  * and the few settings that decide it - the API key (changed in a dialog), cloud sign-in, and the
  * installation key. With no license, the way to get one, and that none is needed.
  */
-function AccountHero({ status, busy, onReload }: { status: LicenseStatus; busy: boolean; onReload: () => Promise<unknown> }) {
+function AccountHero({
+  status,
+  busy,
+  onReload,
+  apiKeyInFile,
+}: {
+  status: LicenseStatus;
+  busy: boolean;
+  onReload: () => Promise<unknown>;
+  /** the key in force is the one relatude.db.json holds: the warning above says what to do about it */
+  apiKeyInFile: boolean;
+}) {
   const { server, licensePage } = portalLinks(status);
   const tone = toneOf(status);
   const pair = usePairing(onReload, status.pairing);
@@ -256,6 +294,11 @@ function AccountHero({ status, busy, onReload }: { status: LicenseStatus; busy: 
             <span className="license-muted">None</span>
           )}
           {apiKeyLocked && <span className="license-lock">from appsettings</span>}
+          {apiKeyInFile && (
+            <span className="license-lock warn" title="Stored in SHARED, relatude.db.json, which is usually in source control - see the warning above">
+              in relatude.db.json
+            </span>
+          )}
         </span>
         <span className="account-row-actions">
           <button className="action-button" onClick={() => setKeyDialog(true)} disabled={apiKeyLocked || saving}>

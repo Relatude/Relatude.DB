@@ -507,7 +507,7 @@ export function SettingsSection({
         </div>
       </div>
       {/* secrets in the SHARED file: said first, above anything a save reports */}
-      <SecretsWarning page={page} />
+      <SecretsWarning secrets={page.secretsInFile} scope={page.scope} storeId={page.storeId} />
       {message && <div className="settings-message">{message}</div>}
       <div className="settings-body">
         <nav className="settings-toc">

@@ -4,26 +4,39 @@ using System.Text.Json.Nodes;
 namespace Relatude.DB.NodeServer.UI;
 
 /// <summary>
-/// The warning at the top of both settings pages: the secrets relatude.db.json holds (see
-/// <see cref="SettingsSecrets"/>). Each page lists its own - the server's on the server page, one
-/// database's on that database's page - and names the pages the file holds others for, since it is one
-/// file and one fix.
+/// The warning at the top of both settings pages, and of the Relatude Services account page: the secrets
+/// relatude.db.json holds (see <see cref="SettingsSecrets"/>). Each page lists its own - the server's on
+/// the server page, one database's on that database's page, the API key on the account page - and names
+/// the settings pages the file holds others for, since it is one file and one fix.
 ///
 /// <para>For each secret the page is told where it is shown, whether it is in force from somewhere
 /// else already (then the file's copy only needs deleting), and the configuration key that would carry
 /// it, with the ids that tie it to its list elements. Never its value.</para>
 /// </summary>
 sealed partial class UISettings {
-    object? secretsInSettingsFile(Guid? storeId) {
+    void registerSecrets(UICommands commands) {
+        commands.Register("settings-secrets-get", ctx => {
+            var payload = ctx.Payload<SecretsPayload>();
+            return secretsInSettingsFile(payload.StoreId, payload.Paths);
+        });
+    }
+
+    /// <summary>
+    /// The secrets relatude.db.json holds, as the page of <paramref name="storeId"/> (null: the server)
+    /// shows them; null when it holds none. <paramref name="paths"/> narrows the page's own to those
+    /// settings - a page that is about one of them - and the rest are named as the other pages' are.
+    /// </summary>
+    object? secretsInSettingsFile(Guid? storeId, string[]? paths = null) {
         var file = _server.ReadSettingsFileJson();
         if (file == null) return null;
         var found = SettingsSecrets.In(file);
         if (found.Count == 0) return null;
         var section = _server.ConfigurationSectionName;
+        bool here(SettingsSecrets.Found f) => f.ContainerId == storeId && (paths == null || paths.Contains(f.Path, StringComparer.OrdinalIgnoreCase));
         return new {
             File = _server.SettingsFileDisplay,
             ConfigSection = section,
-            Items = found.Where(f => f.ContainerId == storeId).Select(f => new {
+            Items = found.Where(here).Select(f => new {
                 f.Path,
                 f.Definition.Label,
                 SectionId = f.Section.Id,
@@ -33,7 +46,7 @@ sealed partial class UISettings {
                 ConfigKey = section == null ? null : section + ":" + f.ConfigPath,
                 ConfigIds = section == null ? [] : f.ConfigIds.Select(id => new { Key = section + ":" + id.Path, id.Value }).ToArray(),
             }).ToArray(),
-            Elsewhere = found.Where(f => f.ContainerId != storeId).GroupBy(f => f.ContainerId).Select(g => {
+            Elsewhere = found.Where(f => !here(f)).GroupBy(f => f.ContainerId).Select(g => {
                 var first = g.First();
                 return new {
                     Scope = g.Key == null ? "server" : "database",
@@ -71,3 +84,5 @@ sealed partial class UISettings {
         return "database \"" + (string.IsNullOrWhiteSpace(name) ? id.ToString() : name) + "\"";
     }
 }
+
+sealed record SecretsPayload(Guid? StoreId, string[]? Paths);

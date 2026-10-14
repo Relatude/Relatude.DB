@@ -401,3 +401,7 @@ nuget.exe
 /examples/Website.Basic/relatude.settings
 /examples/Website.Basic/appsettings.Development.json
 
+
+# Claude Code: personal settings and session worktrees
+.claude/settings.local.json
+.claude/worktrees/

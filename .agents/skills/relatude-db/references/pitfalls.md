@@ -53,7 +53,7 @@ Full treatment in `files-and-media.md`.
 - **`GetUrl` throws when the file slot is empty.** It reads the `FileValue` to build the file name and version id. Guard with `if (!file.IsEmpty)`.
 - **`GetUrl(…, absolute: true)` throws `NotImplementedException`** in the current `DefaultUrlProvider`. Build absolute URLs by prefixing the relative one.
 - **Pass `Path + QueryString` to `TryParseUrlForContent`, not `Path`.** The whole addressing payload lives in the query parameter, so parsing the path alone silently matches nothing.
-- **File conversion is asynchronous.** Check `IsFileReady(path, adj, requestIfNot: true)` rather than assuming a generated URL is immediately serveable.
+- **File conversion is asynchronous.** Check `IsFileReady(path, adj, requestIfNot: true)` rather than assuming a generated URL is immediately serveable. From a web request, pass `firstInQueue: true` (here and in the media middleware's `TryParseUrlForContent`) so it starts ahead of conversions queued in the background.
 - **A variant that is not ready serves a generated status placeholder, not an error.** So an HTTP 200 does not mean you got the file — honour `UrlContent.Cacheable`, and never cache a `false`.
 - **The `FileAdjustment` is the conversion cache key.** Every field is hashed into it, so a one-pixel difference is a new conversion and a new cache entry. Use a few presets rather than adjustments built from request parameters, and turn on `HashPropertyUrls` in production so only URLs your code signed are served.
 - **Register file converters at startup** (`options.FileConverters.Add(...)`). Without them every conversion returns "No converter available".

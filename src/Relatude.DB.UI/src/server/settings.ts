@@ -211,6 +211,15 @@ export interface SecretsElsewhere {
   canOpen: boolean;
 }
 
+/**
+ * The warning on its own, for a page other than the settings pages: the account page asks for the API
+ * key's. `paths` narrows the page's own secrets to those settings; the file's others are named as other
+ * pages'. Null when the file holds none, or the settings do not come from a file.
+ */
+export function fetchSecretsInFile(storeId: string | null, paths?: string[]): Promise<SecretsInFile | null> {
+  return send<SecretsInFile | null>("settings-secrets-get", { storeId, paths: paths ?? null });
+}
+
 export interface SettingsSaveResult {
   changed: string[];
   rejected: { path: string; reason: string }[];

@@ -75,6 +75,11 @@ var ctx = QueryContext.Default.WithCancellation(httpContext.RequestAborted);
 var hits = db.Query<IEvent>(ctx).Where(e => e.Description.Contains("jazz")).Execute();
 ```
 
+A query waits for any running transaction (which holds the write lock until it is done); the token and
+`MaxQueryDurationInSeconds` end that wait too. To give up instead of waiting, set
+`QueryContext.WithLockWait(TimeSpan)` last: past it the query throws `StoreBusyException` (a
+`TimeoutException`) having read nothing - for counts on status pages that should show "unknown", not hang.
+
 ## Update, upsert, delete
 
 Every mutating call returns a `TransactionResult` and accepts `flushToDisk: bool = false`. The default is queued/async, which is what you want in hot paths; pass `true` to force a disk sync before returning.

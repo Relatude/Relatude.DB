@@ -171,9 +171,21 @@ The memory budget is per engine and applies to what the engine can bound: the Na
 
 `FlushDiskOnEveryTransactionByDefault` (`false`), `ForceDiskFlushAfterActionCountLimit` (10 000), `AutoFlushDiskInBackground` (`true`), `AutoFlushDiskIntervalInSeconds` (1), `DeepFlushDisk` (`false`), `DelayAutoDiskFlushIfBusy` (`true`).
 
-**Housekeeping**: `AutoSaveIndexStates` + interval and action-count bounds; `AutoBackUp` with `NoHourly/Daily/Weekly/Montly/YearlyBackUps` retention (note the spelling of `NoMontlyBackUps`); `AutoTruncate` for log compaction; `AutoPurgeCache`; `NodeCacheSizeGb` / `SetCacheSizeGb` (1 GB each).
+**Housekeeping**: `TaskQueueSpeed` (0-100, default 90; the Tasks page Speed slider saves it - longer rounds, shorter pauses and a higher busy limit as it rises; never stops or slows a started batch); `AutoSaveIndexStates` + interval and action-count bounds; `AutoBackUp` with `NoHourly/Daily/Weekly/Montly/YearlyBackUps` retention (note the spelling of `NoMontlyBackUps`); `AutoTruncate` for log compaction; `AutoPurgeCache`; `NodeCacheSizeGb` / `SetCacheSizeGb` (1 GB each).
 
 **Diagnostics**: `WriteSystemLogConsole` (`true`), `ThrowOnBadLogFile` / `ThrowOnBadStateFile` (`false` — a corrupt state file is rebuilt from the log rather than thrown).
+
+**Scheduled jobs** — `Schedules` runs *jobs* at set intervals, through the task queue (so nothing runs while `AutoDequeTasks` is off). The database registers `backup`, `delete-old-backups`, `truncate-log`, `delete-old-log-files`, `save-state`, `purge-caches`, `reindex-text` and `delete-unreferenced-files`; the application adds its own with `db.Jobs.Add(name, async ctx => …, description, argumentHelp)` in `OnStoreInit` (`ctx.Argument`, `ctx.CancellationToken`, `ctx.Report(line)`, `ctx.Progress(pct)`), and starts one from code with `db.Jobs.Run(name, argument)`:
+
+```jsonc
+"Schedules": [
+  { "Id": "2f6d0c1e-5a7b-4c39-9f0e-0b3c2d1e4f50", "Job": "backup", "Unit": "Days", "At": "02:00" },
+  { "Id": "e09a5b6c-7d8e-4f90-a1b2-c3d4e5f60718", "Job": "send-digest", "Every": 15, "Unit": "Minutes",
+    "At": "08:00", "Until": "18:00", "Days": "Mon-Fri", "TimeZone": "Europe/Oslo" }
+]
+```
+
+`Unit` is `Seconds`/`Minutes`/`Hours` (repeat from `At` until `Until` each day, cron-style), `Days`/`Weeks` (one run at `At`; `Days` = `Mon,Wed,Fri` or `Mon-Fri`, a week without days is Mondays) or `Months` (`DayOfMonth` 1-31, 31 = last day). `TimeZone` is an IANA id, empty = the server's (UTC on most cloud hosts). `RunMissed` (default `true`) runs one catch-up after downtime; `Enabled`, `Name`, `Argument` as named. A schedule naming an unregistered job skips with the reason rather than failing. The admin UI's *Tasks › Scheduler* page edits the list (saved in `relatude.db.overrides.json`), shows next/last runs and history (`state/schedules.json`), and runs tasks by hand. A long run holds only its own queue slot; with the Activity page's Tasks log on, each run is an entry there (job name, trigger, duration, report or error).
 
 `FilePrefix` prefixes every file this store owns, which is what lets two containers share one folder.
 

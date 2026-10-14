@@ -1,19 +1,20 @@
 import { useState } from "react";
 import { IconAlertTriangle, IconChevronDown, IconChevronRight } from "@tabler/icons-react";
 import { openInSettings } from "../navigate";
-import type { SecretInFile, SecretsElsewhere, SettingsPage } from "../server/settings";
+import type { SecretInFile, SecretsElsewhere, SecretsInFile } from "../server/settings";
 import { CopyText } from "./CopyText";
 
 type Form = "user-secrets" | "environment";
 
 /**
- * The warning at the top of both settings pages while relatude.db.json holds secrets - API keys, the
- * master password, storage connection strings, signing keys. That file is SHARED: part of the
+ * The warning at the top of both settings pages, and of the Relatude Services account page, while
+ * relatude.db.json holds secrets - API keys, the master password, storage connection strings, signing
+ * keys. That file is SHARED: part of the
  * application, usually committed to source control and deployed with it, so a secret in it is readable
  * by whoever can read the repository.
  *
- * It lists this page's secrets, each a link to its field, and names the other pages the file holds
- * secrets for. "How to move them" gives the configuration keys that would carry them instead, as user
+ * It lists this page's secrets, each a link to its field on the settings page of `scope`, and names the
+ * other settings pages the file holds secrets for. "How to move them" gives the configuration keys that would carry them instead, as user
  * secrets or as environment variables, with the ids that tie a value to its list element. A secret whose
  * value in force already comes from somewhere else says so: deleting the file's copy is all it needs.
  *
@@ -21,17 +22,25 @@ type Form = "user-secrets" | "environment";
  * file. So the warning stays until the file no longer holds them; the server reads the file afresh for
  * every page, so a reload after editing it is enough.
  */
-export function SecretsWarning({ page }: { page: SettingsPage }) {
+export function SecretsWarning({
+  secrets,
+  scope,
+  storeId,
+}: {
+  secrets: SecretsInFile | null | undefined;
+  /** the settings page this page's secrets are on: the account page's API key is a server setting */
+  scope: "server" | "database";
+  storeId?: string | null;
+}) {
   const [showHow, setShowHow] = useState(false);
   const [form, setForm] = useState<Form>("user-secrets");
-  const secrets = page.secretsInFile;
   if (!secrets) return null;
   const { items, elsewhere, file, configSection } = secrets;
   const toMove = items.filter((i) => !i.unused && i.configKey);
   const count = items.length;
 
   function show(item: SecretInFile): void {
-    openInSettings({ scope: page.scope, storeId: page.storeId ?? null, sectionId: item.sectionId, groupId: item.groupId, path: item.path });
+    openInSettings({ scope, storeId: storeId ?? null, sectionId: item.sectionId, groupId: item.groupId, path: item.path });
   }
   function showElsewhere(other: SecretsElsewhere): void {
     openInSettings({ scope: other.scope, storeId: other.storeId ?? null, sectionId: other.sectionId, groupId: other.groupId, path: other.path });
@@ -42,7 +51,11 @@ export function SecretsWarning({ page }: { page: SettingsPage }) {
       <IconAlertTriangle size={18} stroke={1.8} />
       <div className="secrets-warning-body">
         <div className="secrets-warning-head">
-          {count > 0 ? `${count === 1 ? "A secret is" : `${count} secrets are`} stored in ${file}` : `${file} holds secrets of other pages`}
+          {count === 1
+            ? `The ${namedInText(items[0].label)} is stored in ${file}`
+            : count > 1
+              ? `${count} secrets are stored in ${file}`
+              : `${file} holds secrets of other pages`}
         </div>
         <p>
           That file is SHARED: part of the application, usually committed to source control and deployed with it, so whoever can read the repository can
@@ -134,6 +147,11 @@ function HowToMove({ items, form, onForm, file }: { items: SecretInFile[]; form:
       )}
     </div>
   );
+}
+
+/** A label inside a sentence: "Master password" becomes "master password", while "API key" stays as it is. */
+function namedInText(label: string): string {
+  return /^[A-Z][A-Z]/.test(label) ? label : label.charAt(0).toLowerCase() + label.slice(1);
 }
 
 /**

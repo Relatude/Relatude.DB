@@ -46,6 +46,7 @@ sealed partial class UISettings {
         commands.Register("settings-db-list-remove", ctx => listRemove(ctx.Payload<ListItemPayload>()));
         commands.Register("settings-ai-models", ctx => aiModels(ctx.Payload<AiModelsPayload>()));
         registerOverrides(commands);
+        registerSecrets(commands);
     }
 
     // ---- the models an AI service publishes ----
