@@ -11,6 +11,7 @@ using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer.Settings;
 using Relatude.DB.FileToText;
 using Relatude.DB.Imaging;
+using Relatude.DB.IPLookup;
 using Relatude.DB.SMS;
 using Relatude.DB.Translation;
 using Relatude.DB.Tasks;
@@ -366,6 +367,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         IImagingProvider? imaging = null;
         IFileToTextProvider? fileToText = null;
         ITranslationProvider? translation = null;
+        IIPLookupProvider? ipLookup = null;
         IDataStore? datastore = null;
         try {
             // before anything reads the log files: the store opens its own logger on them
@@ -447,6 +449,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             fileToText = LateBindings.CreateFileToTextProvider(settings.FileToTextSettings, () => server.Settings.ApiKey,
                 () => (datastore as DataStoreLocal)?.FileConversion);
             translation = LateBindings.CreateTranslationProvider(settings.TranslationSettings, () => server.Settings.ApiKey);
+            // who is behind a request, for code that logs traffic (NodeStore.Services.IPLookup); free, and
+            // without a cache: what a visit's browser reported changes after the first question
+            ipLookup = LateBindings.CreateIPLookupProvider(settings.IPLookupSettings, () => server.Settings.ApiKey);
             // what the three services answered is kept on this machine, beside the AI embedding cache, so
             // the same question is not sent, nor paid for, twice. Custom providers get the cache as well.
             List<string> cacheWarnings = [];
@@ -523,7 +528,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             // read from the index folder, or generated and compiled when the model changed - which
             // is most of an open when there is little to replay
             _openingStep = "Preparing the object mappers";
-            Store = new NodeStore(datastore, sms, imaging, fileToText, translation);
+            Store = new NodeStore(datastore, sms, imaging, fileToText, translation, ipLookup);
             _datastoreBeingBuilt = null;
             server?.RaiseEventStoreInit(this, Store);
         } catch {
@@ -543,6 +548,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 try { imaging?.Dispose(); } catch { }
                 try { fileToText?.Dispose(); } catch { }
                 try { translation?.Dispose(); } catch { }
+                try { ipLookup?.Dispose(); } catch { }
             }
             Interlocked.Increment(ref _hasFailedCounter);
             throw;

@@ -14686,6 +14686,68 @@ body.pg-resizing {
   }
 }
 
+/* IP lookup: each address beside the verdict on its visitor - laid out as the translations are - and
+   each site with its icon, on white as a site's icon is mostly drawn for */
+.license-iplookup-sites {
+  min-height: 70px;
+  resize: vertical;
+}
+
+.license-iplookup-verdict {
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: var(--badge-bg);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.license-iplookup-verdict.bot {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.license-iplookup-verdict.human {
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  color: var(--ok);
+}
+
+.license-mono {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12.5px;
+}
+
+.license-iplookup-icons {
+  display: flex;
+  flex-direction: column;
+}
+
+.license-iplookup-icon {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.license-iplookup-icon:last-child {
+  border-bottom: none;
+}
+
+.license-iplookup-icon img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.license-iplookup-icon a {
+  overflow-wrap: anywhere;
+}
+
 /* ---- the tests at other widths ----
    Steps on the test's own width (the service-test container): a size up when there is room to spare,
    a size down as it narrows, one column below that, and on a phone labels over what they label. */

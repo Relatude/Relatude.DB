@@ -6393,7 +6393,7 @@ These hold for images, files to text and translation alike.
 Relatude Services is a hosted service run by Relatude at <https://services.relatude.com>. It gathers
 the third-party services an application tends to need into one account: language models for
 embeddings and completions, image AI, reading the text of documents and pictures, translating texts,
-and sending text messages. Relatude holds the agreements with the vendors behind them, their API keys and their
+looking up who is behind a request, and sending text messages. Relatude holds the agreements with the vendors behind them, their API keys and their
 bills. You hold one account, one license and one API key, and every call is paid for with credits on
 that license.
 
@@ -6421,16 +6421,17 @@ would call the hosted service. `db.Services.SMS.SendAsync(...)` does not change 
 | Image AI | `db.Services.Imaging` | `IImagingProvider` | `ImagingSettings` | `ai_image` | none |
 | Files to text, OCR included | `db.Services.FileToText` | `IFileToTextProvider` | `FileToTextSettings` | `filetotext` | none |
 | Translation | `db.Services.Translation` | `ITranslationProvider` | `TranslationSettings` | `translation` | none |
+| Who is behind a request: where an address is, bots, and the bot check | `db.Services.IPLookup` | `IIPLookupProvider` | `IPLookupSettings` | nothing, it is free; the license needs the feature `iplookup` | none |
 | Text messages | `db.Services.SMS` | `ISMSProvider` | `SMSSettings` | `sms` | none |
 | Signing in to the admin UI with a Relatude account | the login page | none | `AllowLicenseeAdminLogin` | nothing, it is free | the master login, `MasterUserName` and `MasterPassword` ([§12](#the-admin-ui)) |
 
 The interfaces are in the namespaces `Relatude.DB.AI`, `Relatude.DB.Imaging`, `Relatude.DB.FileToText`,
-`Relatude.DB.Translation` and `Relatude.DB.SMS`, and what each method does is in [§34](#34-ai-services) and in their own
-comments.
+`Relatude.DB.Translation`, `Relatude.DB.IPLookup` and `Relatude.DB.SMS`, and what each method does is in [§34](#34-ai-services),
+[§35.5](#355-who-is-behind-a-request-ip-lookup) and in their own comments.
 
 Without an API key nothing is charged and the server does not report in. A database on a server has
-`db.Services.Imaging`, `db.Services.FileToText` and `db.Services.Translation` pointed at the hosted
-services from the start, since they need no settings, but a call that would be charged throws without a key, saying so, before anything leaves
+`db.Services.Imaging`, `db.Services.FileToText`, `db.Services.Translation` and `db.Services.IPLookup` pointed at the hosted
+services from the start, since they need no settings, but a call throws without a key, saying so, before anything leaves
 the server. `db.Services.AI` and `db.Services.SMS` are only there when `AISettings` and `SMSSettings`
 are set.
 
@@ -6528,7 +6529,8 @@ The admin UI's **Relatude Services** page, in the server menu, does it:
    API key comes back to the installation by itself. Or copy an API key from the license's page in
    the portal and paste it; the page checks it with the license server before saving it.
 2. The page then shows whether the license is valid and what it carries, and has a test view for each
-   service: SMS, AI, imaging and file to text. The tests make real calls, so they are charged.
+   service: SMS, AI, imaging, file to text, translation and IP lookup. The tests make real calls, so
+   they are charged, all but IP lookup, which is free.
 3. The switch **Allow sign-in with Relatude Services** adds *Sign in with Relatude Services* to the
    login page. Who gets in is decided in the portal: anyone with access to the license. The master
    login is not affected, and turning the switch off ends those sessions at once.
@@ -6560,6 +6562,78 @@ content, no queries and nothing about the people using the database. The answer 
 license is valid; the server records it and acts on none of it, so a license that lapses, or a
 license server out of reach, never stops a database. `"DisableHeartbeat": true` in `relatude.db.json`
 stops the reports. It is left off the settings pages on purpose.
+
+### 35.5 Who is behind a request: IP lookup
+
+`db.Services.IPLookup` says who is behind a request, for code that logs or analyses traffic: where its
+address is, whether the address belongs to a bot, what its user agent says it is, and - through the
+bot check a page carries - whether the browser that was shown the page is driven by a bot. It also
+finds the icon of a site, to show beside a referrer. The hosted Relatude IP lookup service answers
+with the installation's license, which needs the feature `iplookup`; nothing is charged.
+
+```csharp
+var visitor = await db.Services.IPLookup.LookUpAsync("195.159.120.66", userAgent, visit);
+string? country = visitor.Ip?.CountryCode;    // "NO"
+bool bot = visitor.IsBot;                      // by every sign there is, below
+string? icon = await db.Services.IPLookup.GetFaviconUrlAsync("https://www.example.com/a/page");
+```
+
+An `IPLookupResult` has three parts. Each is null when nothing was asked or found:
+
+- **`Ip`**: the country, region, city and position of the address, and whether it is in a network a
+  bot's owner publishes (`IsBot`, `BotName` "google", "bing", …). Values the ranges lack are "-".
+  The locations are IP2Location LITE data, and a page showing them has to say "This site or product
+  includes IP2Location LITE data available from https://lite.ip2location.com".
+- **`UserAgent`**: the browser, operating system and device type, or the bot it names itself as.
+- **`Visit`**: what the browser reported about itself for one page view (the bot check, below).
+
+#### The bot check
+
+Bots that run no scripts are known by their address or their user agent. Those that drive a real
+browser, headless or not, are known by Fingerprint's BotD, which a page runs in the browser:
+
+```csharp
+// rendering the page: a new visit id for every page view, kept with what is logged of it
+var visit = Guid.NewGuid();
+string tag = db.Services.IPLookup.GetBotScriptTag(visit);
+// <script async src="https://iplookup.relatude.com/botService.js" data-visit="…"></script>
+```
+
+The browser loads the script from the service, runs BotD, and reports to the service whether it is a
+bot, for its own address and for the visit. The code that logs the request asks for the visit a few
+seconds later, after the response has gone - from a background queue, say - and looks up many at once:
+
+```csharp
+var found = await db.Services.IPLookup.LookUpAsync(
+    queued.Select(r => new IPLookupRequest(r.Ip, r.UserAgent, r.Visit)).ToArray());
+foreach (var (request, visitor) in queued.Zip(found)) {
+    // visitor.IsBot, visitor.BotName, visitor.IsHuman
+}
+```
+
+- **The visit id matches the report to the page view** even when the browser reached the service by
+  another address than the site - IPv6 there and IPv4 here, or through a proxy - and it does not mix
+  up the people behind one office address. `Visit.ReportedFrom` is the address the report came from.
+- **`Visit.Reported` is false** until the report has come: a few hundred milliseconds after the page
+  loads in an ordinary browser. It stays false when scripts are off or blocked, and for a bot that
+  runs none. Ask again a little later for the visits not reported yet; the service keeps a report for
+  about an hour.
+- **Render the tag for each request**, never into a page kept in an output cache: every visitor of a
+  cached page would report for the same visit.
+- **A report also counts for its address**, for every site that looks the address up later
+  (`Ip.ConfirmedFromScript`). The visit's own report outweighs that.
+
+`IsBot` weighs the signs, the strongest first: a user agent that names a bot, an address in a bot's
+published network, the visit's bot check, and - when the visit has no report - what a browser at the
+address reported before. `BotName` names the bot by the strongest sign: "Googlebot", "google",
+BotD's kind of bot ("headless_chrome") or "Script". `IsHuman` is true when the bot check ran for the
+visit, found no bot, and nothing else says it is one. A visit that is neither has not been checked.
+
+The answers are not kept on your server: a lookup costs nothing, and what a visit's browser reported
+changes after the first question. `IPLookupSettings` takes `TypeName`, `ServiceUrl` and `ApiKey`, as
+the other services' settings do ([§34](#34-ai-services)). `ServiceUrl` is also where browsers load the
+bot check from, so a self-hosted service has to be on an address they reach. The admin UI's IP lookup
+test looks up addresses and icons, and bot checks the browser it runs in.
 
 ---
 ---

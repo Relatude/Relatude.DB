@@ -6,6 +6,7 @@ using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.IO;
 using Relatude.DB.FileToText;
 using Relatude.DB.Imaging;
+using Relatude.DB.IPLookup;
 using Relatude.DB.SMS;
 using Relatude.DB.Tasks;
 using Relatude.DB.Translation;
@@ -178,6 +179,20 @@ public static class LateBindings {
             return new RelatudeServicesTranslationProvider(translationSettings, licenseApiKey);
         }
         return create<ITranslationProvider>(translationSettings.TypeName, null, null, [translationSettings]);
+    }
+    /// <summary>
+    /// The provider a database looks up addresses, user agents and visits with. One implementation so
+    /// far, the hosted Relatude service, which is also what no settings and an empty type name mean, for
+    /// the same reasons as <see cref="CreateImagingProvider"/>; it charges nothing, and needs the license
+    /// to have the feature "iplookup". Anything else is taken as the full type name of a custom provider,
+    /// constructed with the settings.
+    /// </summary>
+    public static IIPLookupProvider CreateIPLookupProvider(IPLookupProviderSettings? ipLookupSettings, Func<string?>? licenseApiKey = null) {
+        ipLookupSettings ??= new();
+        if (string.IsNullOrWhiteSpace(ipLookupSettings.TypeName) || RelatudeServicesIPLookupProvider.IsProviderName(ipLookupSettings.TypeName)) {
+            return new RelatudeServicesIPLookupProvider(ipLookupSettings, licenseApiKey);
+        }
+        return create<IIPLookupProvider>(ipLookupSettings.TypeName, null, null, [ipLookupSettings]);
     }
     internal static IIOProvider CreateAzureBlobIOProvider(IOSettings ioSettings) {
         if (ioSettings.BlobContainerName == null) throw new Exception("BlobContainerName is required for AzureBlobIOProvider.");

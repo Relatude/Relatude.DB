@@ -3,6 +3,7 @@ using Relatude.DB.Common;
 using Relatude.DB.DataStores;
 using Relatude.DB.FileToText;
 using Relatude.DB.Imaging;
+using Relatude.DB.IPLookup;
 using Relatude.DB.SMS;
 using Relatude.DB.Translation;
 
@@ -16,6 +17,7 @@ namespace Relatude.DB.Nodes;
 /// var text = await db.Services.FileToText.ExtractTextAsync(bytes, "contract.pdf", ["nb", "en"]);
 /// var norwegian = await db.Services.Translation.TranslateAsync("Good morning", "nb");
 /// await db.Services.SMS.SendAsync("+4712345678", "Your code is 1234");
+/// var visitor = await db.Services.IPLookup.LookUpAsync(request.Ip, request.UserAgent, request.Visit);
 /// </code>
 /// <para>Except for <see cref="AI"/>, which semantic search uses, nothing inside the database calls them:
 /// they are here so application code can use the accounts the database is already configured with - on a
@@ -30,13 +32,16 @@ public sealed class NodeStoreServices {
     readonly IImagingProvider? _imaging;
     readonly IFileToTextProvider? _fileToText;
     readonly ITranslationProvider? _translation;
+    readonly IIPLookupProvider? _ipLookup;
 
-    internal NodeStoreServices(IDataStore datastore, ISMSProvider? sms, IImagingProvider? imaging, IFileToTextProvider? fileToText, ITranslationProvider? translation) {
+    internal NodeStoreServices(IDataStore datastore, ISMSProvider? sms, IImagingProvider? imaging, IFileToTextProvider? fileToText, ITranslationProvider? translation,
+        IIPLookupProvider? ipLookup) {
         _datastore = datastore;
         _sms = sms;
         _imaging = imaging;
         _fileToText = fileToText;
         _translation = translation;
+        _ipLookup = ipLookup;
     }
 
     /// <summary>
@@ -93,6 +98,19 @@ public sealed class NodeStoreServices {
     public bool HasTranslation => _translation != null;
 
     /// <summary>
+    /// Who is behind a request - where its address is, whether it is a bot's, what its user agent says,
+    /// and what the visitor's browser said about itself on the page (the bot check, <see cref="IIPLookupProvider.GetBotScriptTag"/>) -
+    /// and the icons of sites, for code that logs or analyses traffic. On a server it is always there,
+    /// calling the hosted Relatude IP lookup service with the installation's license, which needs the
+    /// feature "iplookup", unless the database's IPLookupSettings name another. Nothing is charged.
+    /// <para>Throws when no IP lookup provider was given, so check <see cref="HasIPLookup"/> first on a
+    /// path that has to work either way.</para>
+    /// </summary>
+    public IIPLookupProvider IPLookup => _ipLookup ?? throw new Exception("No IP lookup provider is configured for this database. A database on a server has the Relatude IP lookup service; a store built from code is given one in its constructor. ");
+    /// <summary>Whether an IP lookup provider is configured, and <see cref="IPLookup"/> can therefore be used.</summary>
+    public bool HasIPLookup => _ipLookup != null;
+
+    /// <summary>
     /// Empties the answer caches of the Imaging, FileToText and Translation providers that keep one
     /// (see <see cref="ICachingServiceProvider"/>), so every question goes to the service again. The AI
     /// embedding cache is the data store's, and is cleared with it. Done by
@@ -111,7 +129,9 @@ public sealed class NodeStoreServices {
         try { _sms?.Dispose(); } finally {
             try { _imaging?.Dispose(); } finally {
                 try { _fileToText?.Dispose(); } finally {
-                    _translation?.Dispose();
+                    try { _translation?.Dispose(); } finally {
+                        _ipLookup?.Dispose();
+                    }
                 }
             }
         }

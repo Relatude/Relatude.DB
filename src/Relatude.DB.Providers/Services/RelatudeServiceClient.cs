@@ -19,7 +19,7 @@ internal sealed record ServiceFile(byte[] Bytes, string Sha256) {
 }
 
 /// <summary>
-/// The HTTP side the Relatude services share - Imaging, FileToText and Translation today - over plain
+/// The HTTP side the Relatude services share - Imaging, FileToText, Translation and IP lookup today - over plain
 /// HttpClient: the license API key as the bearer token, files named by their SHA-256 and sent before the
 /// call that names them (Translation sends none), and refusals turned into <see cref="RelatudeServiceException"/>.
 /// <para><b>Files.</b> The service keeps every file it is sent under its SHA-256, for the license that
@@ -149,6 +149,26 @@ internal sealed class RelatudeServiceClient : IDisposable {
             authorize(request, key);
             return request;
         }, retryOnTimeout: false, cancellationToken: cancellationToken), cancellationToken, _lookupTimeout);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode) throw refusal(url, response.StatusCode, body);
+        return body;
+    }
+
+    /// <summary>
+    /// A call that needs the key but costs nothing and changes nothing - an IP lookup - with a JSON body
+    /// or none, answered as JSON. Unlike <see cref="PostAsync"/> it is repeated on every failure
+    /// <see cref="HttpRetry"/> repeats, a timeout and a dropped connection included: there is no charge
+    /// to make twice.
+    /// </summary>
+    public async Task<string> SendFreeAsync(HttpMethod method, string pathAndQuery, string? jsonBody, CancellationToken cancellationToken) {
+        var key = apiKey();
+        var url = _api + "/" + pathAndQuery;
+        using var response = await sendAsync(url, () => HttpRetry.SendAsync(_http, () => {
+            var request = new HttpRequestMessage(method, url);
+            if (jsonBody != null) request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+            authorize(request, key);
+            return request;
+        }, cancellationToken: cancellationToken), cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode) throw refusal(url, response.StatusCode, body);
         return body;

@@ -8,6 +8,7 @@ using Relatude.DB.FileConversion;
 using Relatude.DB.FileToText;
 using Relatude.DB.Imaging;
 using Relatude.DB.IO;
+using Relatude.DB.IPLookup;
 using Relatude.DB.Native.Models;
 using Relatude.DB.Query;
 using Relatude.DB.SMS;
@@ -98,7 +99,7 @@ public class NodeStore : IDisposable {
     /// <summary>
     /// The services the database offers application code beside its data: <see cref="NodeStoreServices.AI"/>,
     /// <see cref="NodeStoreServices.Imaging"/>, <see cref="NodeStoreServices.FileToText"/>,
-    /// <see cref="NodeStoreServices.Translation"/> and <see cref="NodeStoreServices.SMS"/>.
+    /// <see cref="NodeStoreServices.Translation"/>, <see cref="NodeStoreServices.IPLookup"/> and <see cref="NodeStoreServices.SMS"/>.
     /// <code>var norwegian = await db.Services.Translation.TranslateAsync("Good morning", "nb");</code>
     /// </summary>
     public NodeStoreServices Services { get; }
@@ -171,9 +172,11 @@ public class NodeStore : IDisposable {
     /// <param name="imaging">The image AI of this database, for <see cref="NodeStoreServices.Imaging"/>. Null on a database without; disposed with this store.</param>
     /// <param name="fileToText">What reads the text of files for this database, for <see cref="NodeStoreServices.FileToText"/>. Null on a database without; disposed with this store.</param>
     /// <param name="translation">What translates texts for this database, for <see cref="NodeStoreServices.Translation"/>. Null on a database without; disposed with this store.</param>
-    public NodeStore(IDataStore datastore, ISMSProvider? sms = null, IImagingProvider? imaging = null, IFileToTextProvider? fileToText = null, ITranslationProvider? translation = null) {
+    /// <param name="ipLookup">What looks up addresses, user agents and visits for this database, for <see cref="NodeStoreServices.IPLookup"/>. Null on a database without; disposed with this store.</param>
+    public NodeStore(IDataStore datastore, ISMSProvider? sms = null, IImagingProvider? imaging = null, IFileToTextProvider? fileToText = null, ITranslationProvider? translation = null,
+        IIPLookupProvider? ipLookup = null) {
         Datastore = datastore;
-        Services = new NodeStoreServices(datastore, sms, imaging, fileToText, translation);
+        Services = new NodeStoreServices(datastore, sms, imaging, fileToText, translation, ipLookup);
         _ownsProviders = true;
         var sw = Stopwatch.StartNew();
         datastore.Datamodel.EnsureInitalization();

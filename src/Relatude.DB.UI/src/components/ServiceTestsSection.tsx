@@ -12,12 +12,14 @@ import {
   IconMessage,
   IconPhoto,
   IconRefresh,
+  IconRobot,
   IconSearch,
   IconSend,
   IconSparkles,
   IconTrash,
   IconUpload,
   IconWand,
+  IconWorldSearch,
   IconX,
 } from "@tabler/icons-react";
 import { fetchAiModels } from "../server/settings";
@@ -25,28 +27,39 @@ import { Combo, type PickerLoader } from "./Combo";
 import {
   fetchFileToTextFormats,
   fetchImagingOperations,
+  fetchIPLookupBotScript,
   fetchTranslationLanguages,
   licenseAccount,
   licenseCarriesAccount,
   licenseCarriesAi,
+  licenseCarriesFeature,
   licenseCarriesFileToText,
   licenseCarriesImaging,
+  licenseCarriesIPLookup,
   licenseCarriesSms,
   licenseCarriesTranslation,
   licenseMayUseAnySmsSender,
   licenseSmsSenders,
   runDetectionTest,
+  runFaviconTest,
   runFileToTextTest,
+  runIPLookupTest,
   runImagingTest,
   runTranslationTest,
   sendTestSms,
   serviceAccounts,
+  serviceFeatures,
   testAiCompletion,
   testAiEmbedding,
   type AiCompletionResult,
   type AiEmbeddingResult,
   type DetectionTestResult,
+  type FaviconTestIcon,
   type FileToTextResult,
+  type IPLookupBotScript,
+  type IPLookupResult,
+  type IPLookupTestRequest,
+  type IPLookupTestResult,
   type TranslationLanguage,
   type TranslationTestResult,
   type TranslationTestText,
@@ -71,7 +84,7 @@ import { Account, Field, headline, portalLinks, useLicenseStatus } from "./Licen
  * page on it, and the switch at the top is nothing more than those ids - picking one there is the
  * same operation as picking it in the rail, as in Storage.
  */
-export type ServiceTestView = "services-sms" | "services-ai" | "services-imaging" | "services-filetotext" | "services-translation";
+export type ServiceTestView = "services-sms" | "services-ai" | "services-imaging" | "services-filetotext" | "services-translation" | "services-iplookup";
 
 interface ServiceTest {
   id: ServiceTestView;
@@ -84,6 +97,8 @@ interface ServiceTest {
   icon: ComponentType<{ size?: number; stroke?: number }>;
   /** the credit accounts the view's calls are charged to, and what each pays for */
   accounts: { key: string; pays: string }[];
+  /** for a service that charges nothing: the feature it lets a license in by, in place of accounts */
+  feature?: string;
 }
 
 const serviceTests: ServiceTest[] = [
@@ -130,6 +145,15 @@ const serviceTests: ServiceTest[] = [
     icon: IconLanguage,
     accounts: [{ key: serviceAccounts.translation, pays: "translations" }],
   },
+  {
+    id: "services-iplookup",
+    label: "IP lookup",
+    title: "Test IP lookup",
+    sub: "real addresses, user agents and this browser's bot check through the Relatude IP lookup service, free with the license",
+    icon: IconWorldSearch,
+    accounts: [],
+    feature: serviceFeatures.ipLookup,
+  },
 ];
 
 export const isServiceTestView = (id: string): id is ServiceTestView => serviceTests.some((t) => t.id === id);
@@ -174,7 +198,11 @@ export function ServiceTestsSection({
   const mounted = opened.includes(view) ? opened : [...opened, view];
 
   function body(test: ServiceTest, status: LicenseStatus) {
-    const credit = <ServiceCredit status={status} accounts={test.accounts} onAccount={onAccount} />;
+    const credit = test.feature ? (
+      <ServiceFeature status={status} feature={test.feature} onAccount={onAccount} />
+    ) : (
+      <ServiceCredit status={status} accounts={test.accounts} onAccount={onAccount} />
+    );
     switch (test.id) {
       case "services-sms":
         return <SmsTest credit={credit} allowed={licenseCarriesSms(status)} senders={licenseSmsSenders(status)} anySender={licenseMayUseAnySmsSender(status)} />;
@@ -188,6 +216,8 @@ export function ServiceTestsSection({
         return <FileToTextTest credit={credit} configuredUrl={status.fileToTextServiceUrl ?? ""} allowed={licenseCarriesFileToText(status)} />;
       case "services-translation":
         return <TranslationTest credit={credit} configuredUrl={status.translationServiceUrl ?? ""} allowed={licenseCarriesTranslation(status)} />;
+      case "services-iplookup":
+        return <IPLookupTest credit={credit} configuredUrl={status.ipLookupServiceUrl ?? ""} allowed={licenseCarriesIPLookup(status)} />;
     }
   }
 
@@ -196,7 +226,7 @@ export function ServiceTestsSection({
       <div className="module-switch" role="tablist">
         {serviceTests.map((test) => {
           // a service the license cannot pay for is still there to look at, only quieter
-          const unpaid = status !== null && !test.accounts.some((a) => licenseCarriesAccount(status, a.key));
+          const unpaid = status !== null && (test.feature ? !licenseCarriesFeature(status, test.feature) : !test.accounts.some((a) => licenseCarriesAccount(status, a.key)));
           return (
             <button
               key={test.id}
@@ -314,6 +344,46 @@ function ServiceCredit({ status, accounts, onAccount }: { status: LicenseStatus;
             </div>
           );
         })}
+      </div>
+    </>
+  );
+}
+
+/**
+ * For a service that charges nothing, in place of the credit accounts: the feature it lets a license
+ * in by, and whether the license has it - when not, the service would refuse the calls and the test is
+ * closed. Relatude gives the feature to a license; the license's page in the portal lists those it has.
+ */
+function ServiceFeature({ status, feature, onAccount }: { status: LicenseStatus; feature: string; onAccount: () => void }) {
+  const license = status.state === "valid" ? status.license : null;
+  // no license, or one that is not active, is told so the way every test tells it
+  if (!license || !license.active) return <ServiceCredit status={status} accounts={[]} onAccount={onAccount} />;
+  const { licensePage } = portalLinks(status);
+  return (
+    <>
+      <span className="license-service-label">Licensed by</span>
+      <div className="license-credit-accounts">
+        {licenseCarriesFeature(status, feature) ? (
+          <div className="license-credit-missing">
+            <span>
+              <IconCircleCheck size={14} stroke={1.8} /> The “{feature}” feature
+            </span>
+            <span className="license-muted">nothing is charged</span>
+          </div>
+        ) : (
+          <div className="license-credit-missing">
+            <span>
+              <IconInfoCircle size={14} stroke={1.8} /> No “{feature}” feature
+            </span>
+            <span className="license-muted">
+              The service lets a license in by it, so the test is closed. Relatude gives it to licenses.{" "}
+              <a href={licensePage} target="_blank" rel="noreferrer">
+                The license in the portal
+                <IconExternalLink size={12} stroke={1.8} />
+              </a>
+            </span>
+          </div>
+        )}
       </div>
     </>
   );
@@ -2163,6 +2233,301 @@ function TranslationView({
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** The addresses to look up, one a line: an address, then the user agent it was seen with when it has one of its own. */
+function ipLookupRequests(input: string, fallback: string): IPLookupTestRequest[] {
+  return input
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const space = line.search(/\s/);
+      return space < 0 ? { ip: line, userAgent: fallback.trim() || null } : { ip: line.slice(0, space), userAgent: line.slice(space).trim() };
+    });
+}
+
+const sampleAddresses = [
+  "195.159.120.66",
+  "66.249.76.100 Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Googlebot/2.1; +http://www.google.com/bot.html) Chrome/W.X.Y.Z Safari/537.36",
+  "40.77.167.1",
+  "2a02:2121:106:cad6:8956:978c:6e78:11d",
+  "10.0.0.1",
+].join("\n");
+
+const sampleSites = ["relatude.com", "github.com", "www.microsoft.com"].join("\n");
+
+/** What came back, with what it came back for. */
+type IPLookupRun =
+  | { kind: "lookup"; result: IPLookupTestResult }
+  | { kind: "botcheck"; visit: string; script: IPLookupBotScript; seconds: number; result: IPLookupTestResult }
+  | { kind: "icons"; icons: FaviconTestIcon[] };
+
+/** How long the bot check waits for the browser's report, and how often it asks whether it came. */
+const botCheckTimeoutMs = 10_000;
+const botCheckPollMs = 500;
+
+/** A new visit id: a random Guid, made by hand where randomUUID is not offered (a page that is neither https nor localhost). */
+function newVisitId(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+/**
+ * Real lookups through the Relatude IP lookup service, so whoever set up the license can see what it
+ * finds before code depends on it: addresses with their user agents, this very browser through the bot
+ * check a page carries, and the icons of sites. The service charges nothing; it lets a license in by
+ * its feature "iplookup".
+ *
+ * The bot check runs as it does on a page: the script from the service with a new visit id, BotD in
+ * this browser, its report to the service, and then the visit looked up the way code logging the
+ * request does - with the address and user agent this server saw the browser by - asked again every
+ * half second until the report is there.
+ *
+ * Laid out as the Translation test is: what to look up in a column on the left, and what came back in
+ * the panel beside it.
+ */
+function IPLookupTest({ credit, configuredUrl, allowed }: { credit: ReactNode; configuredUrl: string; allowed: boolean }) {
+  const url = configuredUrl.trim();
+  const [input, setInput] = useState(sampleAddresses);
+  const [userAgent, setUserAgent] = useState(() => navigator.userAgent);
+  const [sites, setSites] = useState(sampleSites);
+  const [busy, setBusy] = useState<IPLookupRun["kind"] | null>(null);
+  const [run, setRun] = useState<IPLookupRun | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const asked = useMemo(() => ipLookupRequests(input, userAgent), [input, userAgent]);
+  const siteList = useMemo(() => sites.split(/\r?\n/).map((s) => s.trim()).filter(Boolean), [sites]);
+
+  async function go(kind: IPLookupRun["kind"], work: () => Promise<IPLookupRun>) {
+    setBusy(kind);
+    setError(null);
+    setRun(null);
+    try {
+      setRun(await work());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const lookUp = () => go("lookup", async () => ({ kind: "lookup", result: await runIPLookupTest({ serviceUrl: url, lookups: asked }) }));
+
+  const botCheck = () =>
+    go("botcheck", async () => {
+      const script = await fetchIPLookupBotScript(url);
+      const visit = newVisitId();
+      const started = performance.now();
+      const element = document.createElement("script");
+      element.async = true;
+      element.src = script.url;
+      element.dataset.visit = visit;
+      const loaded = new Promise<void>((resolve, reject) => {
+        element.onload = () => resolve();
+        element.onerror = () => reject(new Error(`The bot check could not be loaded from ${script.url}.`));
+      });
+      document.head.appendChild(element);
+      try {
+        await loaded;
+        const lookup = { ip: script.ip, userAgent: script.userAgent, visit };
+        for (;;) {
+          await new Promise((r) => window.setTimeout(r, botCheckPollMs));
+          const result = await runIPLookupTest({ serviceUrl: url, lookups: [lookup] });
+          if (result.results[0]?.visit?.reported) return { kind: "botcheck", visit, script, seconds: (performance.now() - started) / 1000, result };
+          if (performance.now() - started > botCheckTimeoutMs)
+            throw new Error(`No report for visit ${visit} came within ${botCheckTimeoutMs / 1000} seconds: something kept BotD from running or reporting, such as a blocker. The browser's console says what.`);
+        }
+      } finally {
+        element.remove();
+      }
+    });
+
+  const findIcons = () => go("icons", async () => ({ kind: "icons", icons: await runFaviconTest({ serviceUrl: url, sites: siteList, maxSize: 64 }) }));
+
+  return (
+    <>
+      <ServiceBar credit={credit}>
+        <ServiceOfferRow>
+          <span>
+            Free · up to 1,000 addresses a test · locations are{" "}
+            <a href="https://lite.ip2location.com" target="_blank" rel="noreferrer">
+              IP2Location LITE
+            </a>{" "}
+            data, which a page showing them has to name
+          </span>
+        </ServiceOfferRow>
+      </ServiceBar>
+      <TestBody allowed={allowed} className="license-bench">
+        <div className="license-bench-side">
+          <section className="panel">
+            <h3 className="license-bench-head">Input</h3>
+            <div className="license-bench-fields">
+              <Field
+                label="Addresses"
+                hint={`One a line, ${asked.length} ${asked.length === 1 ? "address" : "addresses"}. A line may give the address a user agent of its own after a space.`}
+                locked={false}
+              >
+                <textarea className="text-input license-translation-input" rows={6} value={input} spellCheck={false} disabled={busy !== null} onChange={(e) => setInput(e.target.value)} />
+              </Field>
+              <Field label="User agent" hint="For the addresses that name none; empty for none." locked={false}>
+                <input className="text-input" value={userAgent} spellCheck={false} disabled={busy !== null} onChange={(e) => setUserAgent(e.target.value)} />
+              </Field>
+            </div>
+            <div className="license-save license-bench-run">
+              <button className="action-button primary" onClick={() => void lookUp()} disabled={busy !== null || !allowed || asked.length === 0}>
+                <IconSearch size={15} stroke={1.8} />
+                {busy === "lookup" ? "Looking up…" : "Look up"}
+              </button>
+              <button
+                className="action-button"
+                onClick={() => void botCheck()}
+                disabled={busy !== null || !allowed}
+                title="Run the bot check in this browser as a page carries it, then look up its visit as code logging the request does"
+              >
+                <IconRobot size={15} stroke={1.8} />
+                {busy === "botcheck" ? "Checking…" : "Bot check this browser"}
+              </button>
+            </div>
+          </section>
+          <section className="panel">
+            <h3 className="license-bench-head">Icons</h3>
+            <div className="license-bench-fields">
+              <Field label="Sites" hint="One a line: a host name, or any address on the site, such as a referrer." locked={false}>
+                <textarea className="text-input license-iplookup-sites" rows={3} value={sites} spellCheck={false} disabled={busy !== null} onChange={(e) => setSites(e.target.value)} />
+              </Field>
+            </div>
+            <div className="license-save license-bench-run">
+              <button className="action-button" onClick={() => void findIcons()} disabled={busy !== null || !allowed || siteList.length === 0}>
+                <IconPhoto size={15} stroke={1.8} />
+                {busy === "icons" ? "Finding…" : "Find icons"}
+              </button>
+            </div>
+          </section>
+        </div>
+        <section className="panel license-bench-main">
+          <IPLookupView run={run} busy={busy} error={error} />
+        </section>
+      </TestBody>
+    </>
+  );
+}
+
+/** The verdict code reads from a lookup, as a chip: a bot and which, a person, or not known. */
+function VisitorVerdict({ result }: { result: IPLookupResult }) {
+  if (result.isBot) return <span className="license-iplookup-verdict bot">Bot{result.botName && result.botName !== "-" ? ": " + result.botName : ""}</span>;
+  if (result.isHuman) return <span className="license-iplookup-verdict human">Person</span>;
+  return <span className="license-iplookup-verdict">Not known</span>;
+}
+
+/** Why a lookup is judged as it is: each sign there is, in the order the verdict weighs them. */
+function visitorSigns(result: IPLookupResult): string[] {
+  const signs: string[] = [];
+  const { ip, userAgent: ua, visit } = result;
+  if (ua?.isBot) signs.push(`user agent: ${ua.botName || "a bot"}`);
+  if (ip?.isBot && !ip.confirmedFromScript) signs.push(`network: ${ip.botName === "-" || !ip.botName ? "a bot's" : ip.botName}`);
+  if (visit) signs.push(visit.reported ? `bot check: ${visit.isBot ? visit.botKind || "a bot" : "no bot"}` : "bot check: no report");
+  if (ip?.confirmedFromScript) signs.push(`address reported ${ip.isBot ? "a bot" : "no bot"} before`);
+  return signs;
+}
+
+/** Where an address is, as a line: the country and its code, the region and city, or why there is none. */
+function placeOf(result: IPLookupResult, asked: string | null): string {
+  const ip = result.ip;
+  if (!ip) return asked ? "not an address, or in no range" : "no address";
+  if (ip.countryCode === "-") return "in no country: a local or private address";
+  return [`${ip.countryName} (${ip.countryCode})`, ...[ip.region, ip.city].filter((v) => v && v !== "-")].join(" · ");
+}
+
+/**
+ * What came back, in the panel beside the input: a heading, one line about the call, and then each
+ * lookup beside its verdict - or each site with its icon - in a box that scrolls.
+ */
+function IPLookupView({ run, busy, error }: { run: IPLookupRun | null; busy: IPLookupRun["kind"] | null; error: string | null }) {
+  const caption =
+    run?.kind === "lookup"
+      ? `${run.result.results.length} ${run.result.results.length === 1 ? "address" : "addresses"} · ${Math.round(run.result.milliseconds).toLocaleString()} ms from this server and back`
+      : run?.kind === "botcheck"
+        ? `visit ${run.visit} · reported within ${run.seconds.toFixed(1)} s · the bot check from ${run.script.url}`
+        : run?.kind === "icons"
+          ? `${run.icons.length} ${run.icons.length === 1 ? "site" : "sites"} · ${run.icons.filter((i) => i.url).length} with an icon`
+          : busy
+            ? "Waiting for the service"
+            : "Nothing looked up yet";
+  const title = run?.kind === "icons" || busy === "icons" ? "Icons" : run?.kind === "botcheck" || busy === "botcheck" ? "This browser" : "Lookups";
+  const busyText = busy === "botcheck" ? "BotD is looking at this browser, and the service is asked for its report…" : busy === "icons" ? "The service is finding the icons…" : "The service is looking them up…";
+  return (
+    <div className="license-text-view">
+      <div className="iv-bar">
+        <span className="license-stage-name">{title}</span>
+        <span className="iv-spacer" />
+      </div>
+      <span className="license-stage-caption" title={caption}>
+        {caption}
+      </span>
+      <div className={"license-text-result" + (run && !error && !busy ? "" : " empty")}>
+        {busy ? (
+          <div className="license-answer-busy" role="status">
+            <div className="progress-bar indeterminate">
+              <div className="progress-fill" />
+            </div>
+            <span className="license-muted">{busyText}</span>
+          </div>
+        ) : error ? (
+          <div className="license-error">{error}</div>
+        ) : !run ? (
+          <span className="license-muted">Look up a few addresses, or bot check this browser: what the service finds shows here.</span>
+        ) : run.kind === "icons" ? (
+          <div className="license-iplookup-icons">
+            {run.icons.map((icon) => (
+              <div key={icon.site} className="license-iplookup-icon">
+                {icon.url ? <img src={icon.url} alt="" referrerPolicy="no-referrer" /> : <span />}
+                <span className="license-translation-side">
+                  <span className="license-translation-text">{icon.site}</span>
+                  {icon.url ? (
+                    <a className="license-translation-alternatives" href={icon.url} target="_blank" rel="noreferrer">
+                      {icon.url}
+                    </a>
+                  ) : (
+                    <span className="license-translation-alternatives license-muted">{icon.error ?? "no icon"}</span>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="license-translations">
+            {run.result.results.map((r, i) => {
+              const sent = run.kind === "botcheck" ? { ip: run.script.ip, userAgent: run.script.userAgent } : null;
+              const address = r.ip?.ip ?? sent?.ip ?? null;
+              const agent = r.userAgent && !r.userAgent.isBot ? [r.userAgent.browser, r.userAgent.os, r.userAgent.deviceType].filter(Boolean).join(" · ") : null;
+              return (
+                <div key={i} className="license-translation">
+                  <div className="license-translation-side">
+                    <span className="license-translation-text license-mono">{address ?? (run.kind === "botcheck" ? "this browser" : "–")}</span>
+                    <span className="license-translation-alternatives license-muted">{placeOf(r, address)}</span>
+                  </div>
+                  <div className="license-translation-side">
+                    <span className="license-translation-langs">
+                      <VisitorVerdict result={r} />
+                      <span className="license-muted">{visitorSigns(r).join(" · ") || "no sign of a bot"}</span>
+                    </span>
+                    <span className="license-translation-alternatives license-muted">{agent ?? (r.userAgent ? "" : "no user agent sent")}</span>
+                    {r.visit?.reported && r.visit.reportedFrom && r.visit.reportedFrom !== address && (
+                      <span className="license-translation-alternatives license-muted">the browser reported from {r.visit.reportedFrom}</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

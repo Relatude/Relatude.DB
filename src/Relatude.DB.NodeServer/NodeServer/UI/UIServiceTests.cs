@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http.Features;
 using Relatude.DB.FileToText;
 using Relatude.DB.Imaging;
+using Relatude.DB.IPLookup;
 using Relatude.DB.NodeServer.Json;
 using Relatude.DB.Translation;
 using System.Globalization;
@@ -9,7 +10,7 @@ using System.Text.Json;
 namespace Relatude.DB.NodeServer.UI;
 
 /// <summary>
-/// The Imaging, FileToText and Translation test panels of the Relatude Services page: real calls to the
+/// The Imaging, FileToText, Translation and IP lookup test panels of the Relatude Services page: real calls to the
 /// hosted services with this installation's own API key, so whoever set up the license can see them work
 /// before any code depends on them. Like the SMS and AI tests they are the services, not a database:
 /// no database's settings are read beyond the address the page sends, and every call is charged to the
@@ -32,6 +33,12 @@ sealed class UIServiceTests(RelatudeDBServer server) {
     /// <summary>The key of the credit account the Relatude Translation service charges every call to.</summary>
     internal const string TranslationAccountKey = "translation";
 
+    /// <summary>The feature a license needs for the Relatude IP lookup service, which charges nothing.</summary>
+    internal const string IPLookupFeatureKey = "iplookup";
+
+    /// <summary>The most addresses, and sites, one IP lookup test sends.</summary>
+    const int _maxIPLookupTests = 1000;
+
     /// <summary>The most a test may send in one request: a few images, or one file, well past what the services take of either.</summary>
     const long _maxRequestBytes = 256L * 1024 * 1024;
 
@@ -49,6 +56,14 @@ sealed class UIServiceTests(RelatudeDBServer server) {
             return await provider.GetLanguagesAsync(ctx.Http.RequestAborted);
         });
         commands.Register("license-translation-test", async ctx => await translationTestAsync(ctx.Payload<TranslationTestPayload>(), ctx.Http.RequestAborted));
+        // where the page loads the bot check from, and the address and user agent this server sees the
+        // browser by, which are what code logging the request would look up; asks nothing of the service
+        commands.Register("license-iplookup-bot-script", ctx => {
+            using var provider = ipLookupProvider(ctx.Payload<ServicePayload>().ServiceUrl);
+            return new IPLookupBotScript(provider.BotScriptUrl, ctx.Http.Connection.RemoteIpAddress?.ToString(), ctx.Http.Request.Headers.UserAgent.ToString());
+        });
+        commands.Register("license-iplookup-test", async ctx => await ipLookupTestAsync(ctx.Payload<IPLookupTestPayload>(), ctx.Http.RequestAborted));
+        commands.Register("license-iplookup-favicons", async ctx => await faviconTestAsync(ctx.Payload<FaviconTestPayload>(), ctx.Http.RequestAborted));
     }
 
     internal void Map(WebApplication app, string path) {
@@ -65,6 +80,16 @@ sealed class UIServiceTests(RelatudeDBServer server) {
     sealed record TranslationTestPayload(string? ServiceUrl, string? Operation, TranslationTestText[]? Texts, string? To, string? From, string? Format, bool Fresh);
     sealed record TranslationTestText(string? Text, string? From, string? To);
 
+    /// <summary>An IP lookup test: addresses, user agents and visits, looked up in one call as code logging requests looks them up.</summary>
+    sealed record IPLookupTestPayload(string? ServiceUrl, IPLookupTestRequest[]? Lookups);
+    sealed record IPLookupTestRequest(string? Ip, string? UserAgent, Guid? Visit);
+    sealed record IPLookupTestResult(IPLookupResult[] Results, double Milliseconds);
+    sealed record IPLookupBotScript(string Url, string? Ip, string? UserAgent);
+
+    /// <summary>Sites whose icons to find, each the size closest to MaxSize pixels.</summary>
+    sealed record FaviconTestPayload(string? ServiceUrl, string[]? Sites, int? MaxSize);
+    sealed record FaviconTestIcon(string Site, string? Url, string? Error);
+
     RelatudeServicesImagingProvider imagingProvider(string? serviceUrl) =>
         new(new ImagingProviderSettings { ServiceUrl = string.IsNullOrWhiteSpace(serviceUrl) ? null : serviceUrl.Trim() }, () => server.Settings.ApiKey);
 
@@ -75,6 +100,9 @@ sealed class UIServiceTests(RelatudeDBServer server) {
 
     RelatudeServicesTranslationProvider translationProvider(string? serviceUrl) =>
         new(new TranslationProviderSettings { ServiceUrl = string.IsNullOrWhiteSpace(serviceUrl) ? null : serviceUrl.Trim() }, () => server.Settings.ApiKey);
+
+    RelatudeServicesIPLookupProvider ipLookupProvider(string? serviceUrl) =>
+        new(new IPLookupProviderSettings { ServiceUrl = string.IsNullOrWhiteSpace(serviceUrl) ? null : serviceUrl.Trim() }, () => server.Settings.ApiKey);
 
     /// <summary>
     /// The service URL a database here is set up with, for the Relatude service rather than a custom
@@ -100,6 +128,21 @@ sealed class UIServiceTests(RelatudeDBServer server) {
         .Where(s => s != null && (string.IsNullOrWhiteSpace(s.TypeName) || RelatudeServicesTranslationProvider.IsProviderName(s.TypeName)))
         .Select(s => s!.ServiceUrl)
         .FirstOrDefault(url => !string.IsNullOrWhiteSpace(url));
+
+    /// <summary>The IP lookup address a database here is set up with; see <see cref="ConfiguredImagingUrl"/>.</summary>
+    internal static string? ConfiguredIPLookupUrl(RelatudeDBServer server) => server.GetContainers()
+        .Select(c => c.Settings.IPLookupSettings)
+        .Where(s => s != null && (string.IsNullOrWhiteSpace(s.TypeName) || RelatudeServicesIPLookupProvider.IsProviderName(s.TypeName)))
+        .Select(s => s!.ServiceUrl)
+        .FirstOrDefault(url => !string.IsNullOrWhiteSpace(url));
+
+    /// <summary>Refuses a call the license is not let in for, before the service refuses it with less to go on.</summary>
+    async Task requireFeatureAsync(string featureKey, string service, CancellationToken cancellationToken) {
+        var status = await server.LicenseLogin.DescribeAsync(cancellationToken);
+        if (status.State != "valid" || status.License == null) throw new InvalidOperationException($"There is no valid license to call the {service} with. " + status.Reason);
+        if (!status.License.Active) throw new InvalidOperationException("The license is " + (status.License.Expired ? "expired." : "disabled."));
+        if (!UILicense.CarriesFeature(status.License, featureKey)) throw new InvalidOperationException($"This license does not have the feature '{featureKey}' the {service} lets licenses in by.");
+    }
 
     /// <summary>Refuses a call the license cannot pay for, in the words the SMS and AI tests use.</summary>
     async Task requireAccountAsync(string accountKey, string service, CancellationToken cancellationToken) {
@@ -231,6 +274,43 @@ sealed class UIServiceTests(RelatudeDBServer server) {
                 throw new ArgumentException("There is no translation operation called '" + payload.Operation + "'. ");
         }
     }
+
+    /// <summary>
+    /// The addresses, user agents and visits looked up by the IP lookup service in one call, as code
+    /// logging requests looks them up: the answers in the order sent, each with the verdict that code
+    /// reads (isBot, botName, isHuman), and how long the call took.
+    /// </summary>
+    async Task<object> ipLookupTestAsync(IPLookupTestPayload payload, CancellationToken cancellationToken) {
+        var lookups = (payload.Lookups ?? []).Where(l => blank(l.Ip) != null || blank(l.UserAgent) != null || l.Visit != null).ToArray();
+        if (lookups.Length == 0) throw new ArgumentException("Write an address to look up. ");
+        if (lookups.Length > _maxIPLookupTests) throw new ArgumentException($"A test looks up at most {_maxIPLookupTests} addresses. ");
+        await requireFeatureAsync(IPLookupFeatureKey, "Relatude IP lookup service", cancellationToken);
+        using var provider = ipLookupProvider(payload.ServiceUrl);
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var results = await provider.LookUpAsync(lookups.Select(l => new IPLookupRequest(blank(l.Ip), blank(l.UserAgent), l.Visit)).ToArray(), cancellationToken);
+        return new IPLookupTestResult(results, started.Elapsed.TotalMilliseconds);
+    }
+
+    /// <summary>The icon of each site, or why there is none: one site's failure is its own row, not the test's.</summary>
+    async Task<object> faviconTestAsync(FaviconTestPayload payload, CancellationToken cancellationToken) {
+        var sites = (payload.Sites ?? []).Select(blank).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (sites.Length == 0) throw new ArgumentException("Write a site to find the icon of. ");
+        if (sites.Length > _maxIPLookupTests) throw new ArgumentException($"A test looks for at most {_maxIPLookupTests} icons. ");
+        await requireFeatureAsync(IPLookupFeatureKey, "Relatude IP lookup service", cancellationToken);
+        using var provider = ipLookupProvider(payload.ServiceUrl);
+        var maxSize = Math.Clamp(payload.MaxSize ?? 64, 1, 1024);
+        var icons = new List<FaviconTestIcon>();
+        foreach (var site in sites) {
+            try {
+                icons.Add(new FaviconTestIcon(site, await provider.GetFaviconUrlAsync(site, maxSize, cancellationToken), null));
+            } catch (Exception error) when (!cancellationToken.IsCancellationRequested) {
+                icons.Add(new FaviconTestIcon(site, null, error.Message));
+            }
+        }
+        return icons;
+    }
+
+    static string? blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     static IResult refused(Exception error) =>
         Results.Json(new { error = error.Message }, RelatudeDBJsonOptions.Default, statusCode: error is ArgumentException ? 400 : 500);

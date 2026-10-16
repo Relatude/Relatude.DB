@@ -22,6 +22,7 @@ import {
   IconSparkles,
   IconPhoto,
   IconFlask,
+  IconWorldSearch,
 } from "@tabler/icons-react";
 import { LogoMarkIcon } from "./components/Logo";
 
@@ -101,7 +102,7 @@ export const sections: Section[] = [
   // someone who has just found out it exists), and a test of each service. The id is older than the
   // group, from when the account page was a server page called License.
   { id: "server-license", label: "Account", scope: "services", icon: LogoMarkIcon, tone: "plain" },
-  // one page in five views (ServiceTestsSection), one per service. The entry is not a view itself: it
+  // one page in six views (ServiceTestsSection), one per service. The entry is not a view itself: it
   // opens the test that was open last, or the first (App's landing views)
   { id: "services-tests", label: "Test services", scope: "services", icon: IconFlask, tone: "plain" },
   { id: "services-sms", label: "SMS test", scope: "services", icon: IconMessage, parentId: "services-tests", tone: "plain" },
@@ -109,4 +110,5 @@ export const sections: Section[] = [
   { id: "services-imaging", label: "Imaging test", scope: "services", icon: IconPhoto, parentId: "services-tests", tone: "plain" },
   { id: "services-filetotext", label: "File to text test", scope: "services", icon: IconFileText, parentId: "services-tests", tone: "plain" },
   { id: "services-translation", label: "Translation test", scope: "services", icon: IconLanguage, parentId: "services-tests", tone: "plain" },
+  { id: "services-iplookup", label: "IP lookup test", scope: "services", icon: IconWorldSearch, parentId: "services-tests", tone: "plain" },
 ];

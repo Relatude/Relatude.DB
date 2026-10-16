@@ -134,6 +134,8 @@ export interface LicenseStatus {
   fileToTextServiceUrl?: string | null;
   /** The Relatude Translation service address a database here is set up to use, which the translation test starts from; null for the hosted service. */
   translationServiceUrl?: string | null;
+  /** The Relatude IP lookup service address a database here is set up to use, which the IP lookup test starts from; null for the hosted service. */
+  ipLookupServiceUrl?: string | null;
   /** settings paths decided by configuration, which cannot be edited from this page */
   locked: string[];
 }
@@ -243,6 +245,24 @@ export function licenseAccount(status: LicenseStatus, key: string): LicenseAccou
 /** Whether a call charged to this credit account can be paid for: the license is valid and active, and has the account. */
 export function licenseCarriesAccount(status: LicenseStatus, key: string): boolean {
   return status.state === "valid" && !!status.license?.active && licenseAccount(status, key) !== null;
+}
+
+/**
+ * The features the Relatude services let a license in by, for those that charge nothing and so have no
+ * credit account to be licensed by.
+ */
+export const serviceFeatures = {
+  ipLookup: "iplookup",
+} as const;
+
+/** Whether a call this feature licenses is let in: the license is valid and active, and has the feature. */
+export function licenseCarriesFeature(status: LicenseStatus, key: string): boolean {
+  return status.state === "valid" && !!status.license?.active && !!status.license.features.some((f) => isKey(f.key, key));
+}
+
+/** Whether the license has the "iplookup" feature the Relatude IP lookup service lets licenses in by; nothing is charged. */
+export function licenseCarriesIPLookup(status: LicenseStatus): boolean {
+  return licenseCarriesFeature(status, serviceFeatures.ipLookup);
 }
 
 /** Whether the license has the "sms" credit account, which the Relatude SMS service charges every message to; no feature is needed. */
@@ -630,4 +650,87 @@ export function runTranslationTest(values: {
 /** Finds the language of each text through the Relatude Translation service, charged to the license like a translation. */
 export function runDetectionTest(values: { serviceUrl: string; texts: string[]; fresh: boolean }): Promise<DetectionTestResult> {
   return send<DetectionTestResult>("license-translation-test", { serviceUrl: values.serviceUrl, texts: values.texts.map((text) => ({ text })), fresh: values.fresh, operation: "detect" });
+}
+
+/** Where an address is, and whether it is a bot's: by a browser's own report from it (confirmedFromScript), or by the networks the bots publish. "-" for what the ranges lack. */
+export interface IPLookupAddress {
+  ip: string;
+  countryCode: string;
+  countryName: string;
+  region: string;
+  city: string;
+  latitude: number;
+  longitude: number;
+  isBot: boolean;
+  confirmedFromScript: boolean;
+  botName: string | null;
+}
+
+/** What a user agent says it is; a bot has a botName and no browser, operating system or device. */
+export interface IPLookupUserAgent {
+  isBot: boolean;
+  botName: string | null;
+  browser: string | null;
+  os: string | null;
+  deviceType: string | null;
+}
+
+/** What the browser shown a page reported about itself for that page view; reported is false while it has said nothing. */
+export interface IPLookupVisit {
+  id: string;
+  reported: boolean;
+  isBot: boolean;
+  botKind: string | null;
+  reportedFrom: string | null;
+  reportedUtc: string | null;
+}
+
+/** One lookup, with the verdict code reads: isBot and botName by the strongest sign, isHuman when the bot check ran and found none. */
+export interface IPLookupResult {
+  ip: IPLookupAddress | null;
+  userAgent: IPLookupUserAgent | null;
+  visit: IPLookupVisit | null;
+  isBot: boolean;
+  botName: string | null;
+  isHuman: boolean;
+}
+
+export interface IPLookupTestRequest {
+  ip: string | null;
+  userAgent: string | null;
+  visit?: string | null;
+}
+
+/** The answers, one for each lookup in the order sent, and how long the call took there and back from this server. */
+export interface IPLookupTestResult {
+  results: IPLookupResult[];
+  milliseconds: number;
+}
+
+/** Looks the addresses, user agents and visits up through the Relatude IP lookup service with this installation's API key; nothing is charged. */
+export function runIPLookupTest(values: { serviceUrl: string; lookups: IPLookupTestRequest[] }): Promise<IPLookupTestResult> {
+  return send<IPLookupTestResult>("license-iplookup-test", values);
+}
+
+/** Where a page loads the bot check from, and the address and user agent this server sees the browser by. */
+export interface IPLookupBotScript {
+  url: string;
+  ip: string | null;
+  userAgent: string | null;
+}
+
+export function fetchIPLookupBotScript(serviceUrl: string): Promise<IPLookupBotScript> {
+  return send<IPLookupBotScript>("license-iplookup-bot-script", { serviceUrl });
+}
+
+/** A site's icon, or none (url null), or why it could not be looked for. */
+export interface FaviconTestIcon {
+  site: string;
+  url: string | null;
+  error: string | null;
+}
+
+/** The icon of each site through the Relatude IP lookup service, the one closest to maxSize pixels. */
+export function runFaviconTest(values: { serviceUrl: string; sites: string[]; maxSize: number }): Promise<FaviconTestIcon[]> {
+  return send<FaviconTestIcon[]>("license-iplookup-favicons", values);
 }

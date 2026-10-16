@@ -122,6 +122,10 @@ sealed class UILicense(RelatudeDBServer server) {
     internal static bool CarriesAccount(LicenseLogin.LicenseInfo? license, string accountKey) =>
         license != null && license.Accounts.Any(a => string.Equals(a.Key?.Trim(), accountKey, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>Whether the license has the feature with this key, matched as an account is: on the key, trimmed and ignoring case.</summary>
+    internal static bool CarriesFeature(LicenseLogin.LicenseInfo? license, string featureKey) =>
+        license != null && license.Features.Any(f => string.Equals(f.Key?.Trim(), featureKey, StringComparison.OrdinalIgnoreCase));
+
     /// <summary>
     /// The Relatude AI service a database here is set up to use, so the test panel starts from the
     /// address the installation really calls rather than from the hosted default. Null when no
@@ -193,10 +197,11 @@ sealed class UILicense(RelatudeDBServer server) {
             status.Installation,
             // where the AI test panel sends its calls, when a database here names an address of its own
             AiServiceUrl = configuredAiServiceUrl(),
-            // and the Imaging, FileToText and Translation test panels, likewise
+            // and the Imaging, FileToText, Translation and IP lookup test panels, likewise
             ImagingServiceUrl = UIServiceTests.ConfiguredImagingUrl(server),
             FileToTextServiceUrl = UIServiceTests.ConfiguredFileToTextUrl(server),
             TranslationServiceUrl = UIServiceTests.ConfiguredTranslationUrl(server),
+            IPLookupServiceUrl = UIServiceTests.ConfiguredIPLookupUrl(server),
             // which of the fields the page offers are decided by configuration, and so cannot be
             // edited here: the same rule the settings page shows, on the same paths
             Locked = _paths.Where(isOverridden).ToArray(),

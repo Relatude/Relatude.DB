@@ -3,6 +3,7 @@ using Relatude.DB.DataStores;
 using Relatude.DB.Datamodels;
 using Relatude.DB.FileToText;
 using Relatude.DB.Imaging;
+using Relatude.DB.IPLookup;
 using Relatude.DB.SMS;
 using Relatude.DB.Translation;
 
@@ -266,9 +267,9 @@ public static class SettingsCatalog {
     };
 
     /// <summary>
-    /// What the imaging, file-to-text and translation provider types hold when they mean the hosted
+    /// What the imaging, file-to-text, translation and IP lookup provider types hold when they mean the hosted
     /// Relatude service: nothing, or one of the service's two names - the ones <c>LateBindings.CreateImagingProvider</c>,
-    /// <c>CreateFileToTextProvider</c> and <c>CreateTranslationProvider</c> build the service for. The API key only a custom provider
+    /// <c>CreateFileToTextProvider</c>, <c>CreateTranslationProvider</c> and <c>CreateIPLookupProvider</c> build the service for. The API key only a custom provider
     /// uses is hidden for exactly these; SettingsCatalogTests checks the two stay in step.
     /// </summary>
     static SettingVisibility relatudeImagingService() => new() {
@@ -282,6 +283,10 @@ public static class SettingsCatalog {
     static SettingVisibility relatudeTranslationService() => new() {
         Path = "TranslationSettings.TypeName",
         Values = ["", RelatudeServicesTranslationProvider.ShortName, nameof(RelatudeServicesTranslationProvider)],
+    };
+    static SettingVisibility relatudeIPLookupService() => new() {
+        Path = "IPLookupSettings.TypeName",
+        Values = ["", RelatudeServicesIPLookupProvider.ShortName, nameof(RelatudeServicesIPLookupProvider)],
     };
 
     /// <summary>
@@ -1243,6 +1248,29 @@ public static class SettingsCatalog {
                         new() {
                             Path = "TranslationSettings.CacheType", Label = "Answer cache",
                             Help = "Keeps every text translated, and every language found, on this server, text by text, so a label or a product name is translated, and paid for, once. Native keeps them in a file beside the AI embedding cache for 90 days; Memory only until the database is closed; None asks the service every time.",
+                        },
+                    ],
+                },
+                new() {
+                    Id = "iplookup",
+                    Title = "IP lookup",
+                    Help = "Who is behind a request - where its address is, whether it is a bot's, what its user agent says - and the bot check a page can carry, whose browser reports whether it is driven by a bot for that page view, for your own code to log or analyse traffic with, which reaches it as NodeStore.Services.IPLookup. It is there without any settings, calling the hosted Relatude IP lookup service with this installation's license, which needs the feature \"iplookup\". Nothing is charged.",
+                    Settings = [
+                        new() {
+                            Path = "IPLookupSettings.TypeName", Label = "Provider type", Placeholder = RelatudeServicesIPLookupProvider.ShortName,
+                            // the names LateBindings.CreateIPLookupProvider knows; SettingsCatalogTests checks they stay in step
+                            Help = "Selects the provider implementation. The Relatude service is the only one built in, and what an empty value means: it calls the hosted Relatude IP lookup service with this installation's license, which needs the feature \"iplookup\", so it needs no API key here. Anything else is taken as the full type name of a custom provider and resolved when the database opens, so a typo shows up as a start-up error.",
+                            Suggestions = [
+                                new() { Value = RelatudeServicesIPLookupProvider.ShortName, Hint = "with your Relatude license, nothing charged" },
+                            ],
+                        },
+                        new() {
+                            Path = "IPLookupSettings.ServiceUrl", Label = "Service URL", Placeholder = RelatudeServicesIPLookupProvider.DefaultServiceUrl,
+                            Help = "Where the service is. Empty is the hosted Relatude IP lookup service; set it to call a self-hosted or test deployment of the service, or the endpoint a custom provider calls. Visitors' browsers load the bot check from it too, so it has to be an address they reach.",
+                        },
+                        new() {
+                            Path = "IPLookupSettings.ApiKey", Label = "API key", Secret = true, HiddenWhen = relatudeIPLookupService(),
+                            Help = "The key the custom provider sends with. Keep it in appsettings, an environment variable or user secrets rather than the settings file - configuration values are never written back to disk.",
                         },
                     ],
                 },
